@@ -451,44 +451,42 @@ function AskStelaBar({ setSection }: { setSection: (section: Section) => void })
     setInput("");
   };
   return (
-    <div className="sticky top-0 z-30 border-b border-sky-200 bg-sky-50/95 px-4 py-3 backdrop-blur md:px-8">
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="flex shrink-0 items-center gap-1.5 text-sm font-semibold text-sky-800">
-          <MessageSquareText size={16} />
-          Ask STELA
-        </div>
-        <form className="flex min-w-[220px] flex-1 gap-2" onSubmit={(event) => { event.preventDefault(); sendMessage(input); }}>
-          <input
-            className="min-h-9 flex-1 rounded-md border border-sky-300 bg-white px-3 text-sm outline-none focus:border-sky-500"
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            placeholder="Ask about STELA metrics or workflows"
-          />
-          <button className="inline-flex min-h-9 items-center gap-1 rounded-md bg-sky-600 px-3 text-sm font-semibold text-white hover:bg-sky-700" type="submit">
-            <Send size={15} />
-            Send
-          </button>
-        </form>
-        <span className="shrink-0 text-[11px] font-medium text-sky-700">Local dashboard assistant. No model call is made in this prototype.</span>
+    <div className="sticky top-0 z-30 border-b border-sky-200 bg-sky-50/95 px-4 py-4 backdrop-blur md:px-8">
+      <div className="flex items-center gap-2 text-sky-800">
+        <MessageSquareText size={18} />
+        <h2 className="text-base font-semibold">Ask STELA</h2>
       </div>
-      <div className="mt-2 flex flex-wrap gap-1.5">
+      <form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); sendMessage(input); }}>
+        <input
+          className="h-11 min-w-0 flex-1 rounded-md border border-sky-300 bg-white px-3 text-sm outline-none focus:border-sky-500"
+          value={input}
+          onChange={(event) => setInput(event.target.value)}
+          placeholder="Ask about STELA metrics or workflows"
+        />
+        <button className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-md bg-sky-600 px-4 text-sm font-semibold text-white hover:bg-sky-700" type="submit">
+          <Send size={16} />
+          Send
+        </button>
+      </form>
+      <p className="mt-1.5 text-xs text-sky-700/80">Local dashboard assistant — no model call is made in this prototype.</p>
+      <div className="mt-3 flex w-full flex-wrap gap-2">
         {starterQuestions.map((question) => (
-          <button key={question} className="rounded-full border border-sky-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:border-sky-400 hover:bg-sky-50" onClick={() => sendMessage(question)}>
+          <button key={question} className="rounded-full border border-sky-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-sky-400 hover:bg-sky-50" onClick={() => sendMessage(question)}>
             {question}
           </button>
         ))}
       </div>
       {messages.length > 0 && (
-        <div className="mt-2 max-h-44 space-y-2 overflow-auto rounded-md border border-sky-200 bg-white p-3">
+        <div className="mt-3 max-h-56 space-y-2 overflow-auto rounded-md border border-sky-200 bg-white p-3">
           {messages.map((message, index) => (
-            <div key={`${message.role}-${index}`} className={`max-w-[90%] rounded-lg px-3 py-2 text-xs leading-5 ${message.role === "user" ? "ml-auto bg-slate-950 text-white" : "border border-sky-100 bg-sky-50 text-slate-700"}`}>
+            <div key={`${message.role}-${index}`} className={`max-w-[90%] rounded-lg px-3 py-2 text-sm leading-5 ${message.role === "user" ? "ml-auto bg-slate-950 text-white" : "border border-sky-100 bg-sky-50 text-slate-700"}`}>
               {message.content}
             </div>
           ))}
-          <div className="flex flex-wrap gap-1.5 pt-1">
-            <button className="rounded-md border border-sky-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-sky-50" onClick={() => setMessages([])}>Clear</button>
-            <button className="rounded-md border border-sky-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-sky-50" onClick={() => setSection("analytics")}>Chat Analytics</button>
-            <button className="rounded-md border border-sky-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-sky-50" onClick={() => setSection("simulator")}>Digital Twin</button>
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button className="rounded-md border border-sky-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-sky-50" onClick={() => setMessages([])}>Clear</button>
+            <button className="rounded-md border border-sky-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-sky-50" onClick={() => setSection("analytics")}>Chat Analytics</button>
+            <button className="rounded-md border border-sky-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-sky-50" onClick={() => setSection("simulator")}>Digital Twin</button>
           </div>
         </div>
       )}
