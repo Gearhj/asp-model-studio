@@ -1,0 +1,123 @@
+# server/training/trainer_router.py
+
+from typing import Dict, Any
+
+from fastapi import APIRouter, HTTPException
+
+from .trainer_service import TRAINER
+from ..core.result_store import RESULTS
+
+
+router = APIRouter()
+
+
+@router.get("/models/availability")
+def get_model_availability() -> Dict[str, Any]:
+    """
+    Front-end (Step06_Train.tsx) calls this to determine:
+
+      • Which algorithms are available (`availability`)
+      • Human-readable model labels (`labels`)
+
+    Expected response shape on the frontend:
+
+      {
+        ok: boolean,
+        availability: { [key: string]: boolean },
+        labels: { [key: string]: string }
+      }
+    """
+    try:
+        data = TRAINER.get_availability()
+        return {
+            "ok": True,
+            "availability": data.get("availability", {}),
+            "labels": data.get("labels", {}),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/model/train")
+def train_models(request: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Core training endpoint used by the Step06 Training page.
+
+    Request body (from Step06_Train.tsx):
+
+      {
+        models: string[],        // e.g. ["logreg", "xgb"]
+        k_folds: number,         // 2–5, chosen in the UI
+        max_parallel: number,    // future use
+        calibrate: boolean,      // future use
+        use_pca: boolean,        // future use
+        grid_search: boolean,    // optional hyperparameter search
+        grid_search_level: string // quick | balanced | thorough
+      }
+
+    Response shape consumed by the frontend:
+
+      {
+        ok: boolean,
+        summary: {
+          ranked: [
+            { key, name, auc, pr_auc, accuracy, f1 },
+            ...
+          ],
+          n_train: number,
+          n_test: number,
+          k_folds: number,
+          status: string
+        },
+        rows: number,    // convenience echo (n_train)
+        status: string   // mirrors summary.status
+      }
+    """
+    try:
+        models = request.get("models") or []
+        if not isinstance(models, list) or not models:
+            raise ValueError("No models selected for training.")
+
+        k_folds = int(request.get("k_folds", 5))
+        max_parallel = int(request.get("max_parallel", 1))
+        calibrate = bool(request.get("calibrate", False))
+        use_pca = bool(request.get("use_pca", False))
+        grid_search = bool(request.get("grid_search", False))
+        grid_search_level = str(request.get("grid_search_level", "quick"))
+
+        summary = TRAINER.train(
+            models=models,
+            k_folds=k_folds,
+            max_parallel=max_parallel,
+            calibrate=calibrate,
+            use_pca=use_pca,
+            grid_search=grid_search,
+            grid_search_level=grid_search_level,
+        )
+
+        rows = summary.get("n_train")
+        status = summary.get("status", "ok")
+
+        return {
+            "ok": True,
+            "summary": summary,
+            "rows": rows,
+            "status": status,
+        }
+
+    except Exception as e:
+        # Frontend will show a "training failed" banner if this bubbles up
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/train/last")
+def get_last_train() -> Dict[str, Any]:
+    """
+    Used by:
+      • Step06_Train.tsx (to render the summary table after training)
+      • Step08_Evaluation.tsx (leaderboard + default model selection)
+
+    Returns whatever the last successful /model/train call stored in RESULTStore.
+    """
+    last = RESULTS.get_last_summary()
+    return {"ok": True, "summary": last}

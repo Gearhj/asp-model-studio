@@ -1,0 +1,89 @@
+# --- Core Web Framework ---
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+pydantic==2.7.4
+
+# --- Data Processing & Numerical Computation ---
+numpy==1.26.4
+pandas==2.1.4
+scipy==1.13.1
+joblib==1.4.2
+
+# --- Visualization ---
+matplotlib==3.8.4
+seaborn==0.13.2
+plotly==5.23.0
+
+# --- Machine Learning / AI ---
+scikit-learn==1.5.2
+xgboost==2.1.1
+lightgbm==4.5.0
+catboost==1.2.5
+
+# --- Explainable AI (XAI) ---
+shap==0.45.1
+lime==0.2.0.1
+eli5==0.13.0
+
+# --- Model Persistence & Serialization ---
+#pickle5==0.0.12
+cloudpickle==3.0.0
+joblib==1.4.2
+
+# --- Data Validation & Profiling ---
+ydata-profiling==4.9.0
+great-expectations==1.3.4
+
+# --- NLP / Text Utilities (future extensibility) ---
+nltk==3.9.1
+textblob==0.17.1
+
+# --- API Requests / Integration ---
+requests==2.32.3
+httpx==0.27.0
+
+# --- Document Handling ---
+PyPDF2==3.0.1
+python-docx==1.1.0
+openpyxl==3.1.5
+odfpy==1.4.1
+pypandoc==1.13
+
+# --- Database Connectivity ---
+sqlalchemy==2.0.34
+psycopg2-binary==2.9.9
+pymysql==1.1.1
+sqlite-utils==3.37
+
+# --- Configuration / Environment ---
+python-dotenv==1.0.1
+pyyaml==6.0.2
+
+# --- ML Ops / Tracking (optional but useful) ---
+mlflow==2.17.0
+
+# --- Security / Auth (for production hardening) ---
+python-jose==3.3.0
+passlib[bcrypt]==1.7.4
+
+# --- Testing / Dev Utilities ---
+pytest==8.3.2
+black==24.8.0
+flake8==7.1.1
+
+
+# --- Required for FastAPI file uploads ---
+python-multipart==0.0.9
+
+# --- FastAPI internal utilities ---
+itsdangerous==2.2.0
+
+# --- Documentation / Templates ---
+jinja2==3.1.4
+markdown==3.6
+
+# --- Fast JSON serialization (recommended) ---
+orjson==3.10.7
+
+
+

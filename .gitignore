@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+tsconfig.tsbuildinfo
+
+# Logs
+*.log
+
+# Local env / secrets (mode configs .env.scheduling/.env.modeling are tracked)
+.env
+.env.local
+.env.*.local
+
+# Python venv / caches
+.venv/
+__pycache__/
+*.pyc
+catboost_info/
+
+# Editor / OS
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Scratch / temp
+.tmp/

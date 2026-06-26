@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": [
+      "ES2020",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "Bundler",
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "esModuleInterop": true
+  },
+  "include": [
+    "src/**/*.d.ts",
+    "src/App.tsx",
+    "src/GuitaristApp.tsx",
+    "src/main.tsx",
+    "src/guitarist-main.tsx",
+    "src/index.css",
+    "src/guitarist.css",
+    "src/data/**/*.ts"
+  ]
+}

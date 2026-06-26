@@ -1,0 +1,35 @@
+{
+  "name": "ds-workflow-starter",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --mode scheduling --host 127.0.0.1 --port 5173 --strictPort",
+    "dev:scheduling": "vite --mode scheduling --host 127.0.0.1 --port 5173 --strictPort",
+    "dev:modeling": "vite --mode modeling --host 127.0.0.1 --port 5174 --strictPort",
+    "build": "tsc -b && vite build --mode scheduling",
+    "build:scheduling": "tsc -b && vite build --mode scheduling",
+    "build:modeling": "tsc -b && vite build --mode modeling",
+    "preview:scheduling": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
+    "preview:modeling": "vite preview --host 127.0.0.1 --port 4174 --strictPort"
+  },
+  "dependencies": {
+    "d3": "^7.9.0",
+    "lucide-react": "^0.460.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^7.9.5",
+    "xstate": "^5.15.0",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.42",
+    "@types/react-dom": "^18.2.17",
+    "@vitejs/plugin-react": "^4.2.0",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.47",
+    "tailwindcss": "^3.4.14",
+    "typescript": "^5.6.2",
+    "vite": "^7.1.10"
+  }
+}
