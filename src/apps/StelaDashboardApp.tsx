@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -12,6 +13,7 @@ import {
   Send,
   ShieldCheck,
   SlidersHorizontal,
+  X,
 } from "lucide-react";
 import {
   loadStelaAnalytics,
@@ -314,6 +316,7 @@ function Shell({
   section: Section;
   setSection: (section: Section) => void;
 }) {
+  const [askStelaOpen, setAskStelaOpen] = useState(false);
   return (
     <div className="min-h-screen bg-slate-100 text-slate-950">
       <div className="flex min-h-screen">
@@ -357,6 +360,13 @@ function Shell({
                 <h1 className="mt-1 text-2xl font-semibold text-slate-950">STELA AI Governance Dashboard</h1>
               </div>
               <div className="flex flex-wrap items-center gap-3">
+                <button
+                  className="inline-flex min-h-10 items-center gap-2 rounded-md bg-sky-600 px-4 text-sm font-semibold text-white shadow-sm hover:bg-sky-700"
+                  onClick={() => setAskStelaOpen(true)}
+                >
+                  <MessageSquareText size={17} />
+                  Ask STELA
+                </button>
                 <div className="inline-flex w-fit items-center gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
                   <AlertTriangle size={16} />
                   v0.4 evidence is read-only. Simulations are local previews, not scored reruns.
@@ -364,10 +374,10 @@ function Shell({
               </div>
             </div>
           </header>
-          <AskStelaBar setSection={setSection} />
           <main className="min-w-0 px-4 py-6 md:px-8">{children}</main>
         </div>
       </div>
+      <AskStelaPanel open={askStelaOpen} setOpen={setAskStelaOpen} setSection={setSection} />
     </div>
   );
 }
@@ -441,7 +451,15 @@ function answerAskStela(question: string) {
   return "I can answer questions about v0.4 validation metrics, v0.5 governance directives, issue clusters, risk intents, Chat Analytics, Investigation, and the AI Behavior Digital Twin. Try asking: 'What should I investigate first?' or 'Why did STELA pass but not strong pass?'";
 }
 
-function AskStelaBar({ setSection }: { setSection: (section: Section) => void }) {
+function AskStelaPanel({
+  open,
+  setOpen,
+  setSection,
+}: {
+  open: boolean;
+  setOpen: (open: boolean) => void;
+  setSection: (section: Section) => void;
+}) {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const sendMessage = (text: string) => {
@@ -450,47 +468,66 @@ function AskStelaBar({ setSection }: { setSection: (section: Section) => void })
     setMessages((current) => [...current, { role: "user", content: trimmed }, { role: "assistant", content: answerAskStela(trimmed) }]);
     setInput("");
   };
-  return (
-    <div className="sticky top-0 z-30 border-b border-sky-200 bg-sky-50/95 px-4 py-4 backdrop-blur md:px-8">
-      <div className="flex items-center gap-2 text-sky-800">
-        <MessageSquareText size={18} />
-        <h2 className="text-base font-semibold">Ask STELA</h2>
-      </div>
-      <form className="mt-3 flex gap-2" onSubmit={(event) => { event.preventDefault(); sendMessage(input); }}>
-        <input
-          className="h-11 min-w-0 flex-1 rounded-md border border-sky-300 bg-white px-3 text-sm outline-none focus:border-sky-500"
-          value={input}
-          onChange={(event) => setInput(event.target.value)}
-          placeholder="Ask about STELA metrics or workflows"
-        />
-        <button className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-md bg-sky-600 px-4 text-sm font-semibold text-white hover:bg-sky-700" type="submit">
-          <Send size={16} />
-          Send
-        </button>
-      </form>
-      <p className="mt-1.5 text-xs text-sky-700/80">Local dashboard assistant — no model call is made in this prototype.</p>
-      <div className="mt-3 flex w-full flex-wrap gap-2">
-        {starterQuestions.map((question) => (
-          <button key={question} className="rounded-full border border-sky-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-sky-400 hover:bg-sky-50" onClick={() => sendMessage(question)}>
-            {question}
+  if (!open) return null;
+  return createPortal(
+    <div className="fixed inset-0 z-[100] bg-slate-950/30" onClick={() => setOpen(false)}>
+      <div
+        className="fixed right-0 top-0 flex h-screen w-[400px] max-w-[92vw] flex-col border-l-4 border-sky-400 bg-white shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 border-b border-sky-100 bg-sky-50 px-4 py-3">
+          <div className="flex items-center gap-2 text-sky-800">
+            <MessageSquareText size={18} />
+            <h2 className="text-base font-semibold">Ask STELA</h2>
+          </div>
+          <button className="rounded-md p-2 text-slate-500 hover:bg-sky-100 hover:text-slate-900" onClick={() => setOpen(false)} aria-label="Close Ask STELA">
+            <X size={18} />
           </button>
-        ))}
-      </div>
-      {messages.length > 0 && (
-        <div className="mt-3 max-h-56 space-y-2 overflow-auto rounded-md border border-sky-200 bg-white p-3">
-          {messages.map((message, index) => (
-            <div key={`${message.role}-${index}`} className={`max-w-[90%] rounded-lg px-3 py-2 text-sm leading-5 ${message.role === "user" ? "ml-auto bg-slate-950 text-white" : "border border-sky-100 bg-sky-50 text-slate-700"}`}>
-              {message.content}
-            </div>
-          ))}
-          <div className="flex flex-wrap gap-2 pt-1">
-            <button className="rounded-md border border-sky-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-sky-50" onClick={() => setMessages([])}>Clear</button>
-            <button className="rounded-md border border-sky-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-sky-50" onClick={() => setSection("analytics")}>Chat Analytics</button>
-            <button className="rounded-md border border-sky-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-sky-50" onClick={() => setSection("simulator")}>Digital Twin</button>
+        </div>
+        <div className="border-b border-sky-100 bg-white px-4 py-3">
+          <p className="text-xs font-medium text-slate-500">Suggested questions</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {starterQuestions.map((question) => (
+              <button key={question} className="rounded-full border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-medium text-slate-700 hover:border-sky-400 hover:bg-sky-100" onClick={() => sendMessage(question)}>
+                {question}
+              </button>
+            ))}
           </div>
         </div>
-      )}
-    </div>
+        <div className="flex-1 space-y-2 overflow-auto bg-slate-50 px-4 py-3">
+          {messages.length === 0 ? (
+            <p className="text-sm leading-6 text-slate-500">Ask a question above, or type one below. Answers come from the local validation metrics and dashboard documentation.</p>
+          ) : (
+            messages.map((message, index) => (
+              <div key={`${message.role}-${index}`} className={`max-w-[90%] rounded-lg px-3 py-2 text-sm leading-5 ${message.role === "user" ? "ml-auto bg-slate-950 text-white" : "border border-sky-100 bg-white text-slate-700 shadow-sm"}`}>
+                {message.content}
+              </div>
+            ))
+          )}
+        </div>
+        <div className="border-t border-sky-100 bg-white p-3">
+          <form className="flex gap-2" onSubmit={(event) => { event.preventDefault(); sendMessage(input); }}>
+            <input
+              className="h-11 min-w-0 flex-1 rounded-md border border-sky-300 px-3 text-sm outline-none focus:border-sky-500"
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              placeholder="Ask about STELA metrics or workflows"
+            />
+            <button className="inline-flex h-11 shrink-0 items-center gap-1.5 rounded-md bg-sky-600 px-4 text-sm font-semibold text-white hover:bg-sky-700" type="submit">
+              <Send size={16} />
+              Send
+            </button>
+          </form>
+          <div className="mt-2 flex flex-wrap items-center gap-2">
+            <button className="rounded-md border border-sky-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-sky-50" onClick={() => setMessages([])}>Clear</button>
+            <button className="rounded-md border border-sky-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-sky-50" onClick={() => { setSection("analytics"); setOpen(false); }}>Chat Analytics</button>
+            <button className="rounded-md border border-sky-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-600 hover:bg-sky-50" onClick={() => { setSection("simulator"); setOpen(false); }}>Digital Twin</button>
+          </div>
+          <p className="mt-2 text-[11px] text-sky-700/80">Local dashboard assistant — no model call is made in this prototype.</p>
+        </div>
+      </div>
+    </div>,
+    document.body,
   );
 }
 
