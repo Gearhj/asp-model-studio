@@ -187,13 +187,13 @@ MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
         },
     },
     "knn": {
-        "label": "KNN (k=15)",
+        "label": "KNN (k=7)",
         "task": "classification",
-        "factory": lambda: KNeighborsClassifier(n_neighbors=15)
+        "factory": lambda: KNeighborsClassifier(n_neighbors=7)
         if KNeighborsClassifier is not None
         else None,
         "param_grid": {
-            "model__n_neighbors": [5, 10, 15, 25],
+            "model__n_neighbors": [3, 5, 7, 11, 15],
             "model__weights": ["uniform", "distance"],
         },
     },
@@ -473,18 +473,27 @@ def _compute_classification_metrics(
 def _compute_regression_metrics(
     y_true: np.ndarray,
     preds: np.ndarray,
+    n_features: int = 0,
 ) -> Dict[str, Any]:
     """Regression metrics."""
     mae = float(mean_absolute_error(y_true, preds)) if mean_absolute_error else None
     mse = float(mean_squared_error(y_true, preds)) if mean_squared_error else None
     rmse = float(np.sqrt(mse)) if mse is not None else None
     r2 = float(r2_score(y_true, preds)) if r2_score else None
+    n_obs = int(len(y_true))
+    p = int(max(n_features, 0))
+    adjusted_r2 = (
+        float(1 - (1 - r2) * (n_obs - 1) / max(n_obs - p - 1, 1))
+        if r2 is not None and n_obs > p + 1
+        else None
+    )
 
     return {
         "mae": mae,
         "mse": mse,
         "rmse": rmse,
         "r2": r2,
+        "adjusted_r2": adjusted_r2,
         # Classification-only metrics left as None
         "auc": None,
         "pr_auc": None,
@@ -572,6 +581,7 @@ def _train_classification_model(
     y_test: pd.Series,
     grid_search: bool = False,
     grid_search_level: str = "quick",
+    model_params: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     factory = spec.get("factory")
     if factory is None:
@@ -580,6 +590,14 @@ def _train_classification_model(
     model = factory()
     if model is None:
         return None
+    model_params = model_params or {}
+    if key == "knn":
+        try:
+            requested_neighbors = int(model_params.get("n_neighbors", 0) or 0)
+        except Exception:
+            requested_neighbors = 0
+        if requested_neighbors > 0 and hasattr(model, "set_params"):
+            model.set_params(n_neighbors=max(1, min(51, requested_neighbors)))
 
     if Pipeline is None or LabelEncoder is None:
         return None
@@ -612,7 +630,7 @@ def _train_classification_model(
     class_counts = np.bincount(y_train_arr)
     min_class_count = int(np.min(class_counts)) if len(class_counts) else 0
     can_search = (
-        grid_search
+        (grid_search or key == "knn")
         and bool(param_grid)
         and GridSearchCV is not None
         and StratifiedKFold is not None
@@ -627,6 +645,19 @@ def _train_classification_model(
         combinations = 1
         for param, values in param_grid.items():
             kept_values = list(values)
+            if key == "knn" and param == "model__n_neighbors":
+                requested_neighbors = int(model_params.get("n_neighbors", 0) or 0)
+                if requested_neighbors > 0:
+                    candidates = sorted(
+                        {
+                            max(1, requested_neighbors - 4),
+                            max(1, requested_neighbors - 2),
+                            requested_neighbors,
+                            requested_neighbors + 2,
+                            requested_neighbors + 4,
+                        }
+                    )
+                    kept_values = [value for value in candidates if value <= 51]
             if combinations * len(kept_values) > grid_limit:
                 keep_n = max(1, grid_limit // max(1, combinations))
                 kept_values = kept_values[:keep_n]
@@ -771,7 +802,7 @@ def _train_regression_model(
     preds = estimator.predict(X_test)
     preds = np.asarray(preds, dtype=float)
 
-    metrics = _compute_regression_metrics(y_test_arr, preds)
+    metrics = _compute_regression_metrics(y_test_arr, preds, n_features=len(X_train.columns))
 
     return {
         "key": key,
@@ -795,6 +826,7 @@ def train_models(
     requested_models: Optional[List[str]] = None,
     grid_search: bool = False,
     grid_search_level: str = "quick",
+    model_params: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """
     Train requested models and return a structure suitable for:
@@ -828,6 +860,7 @@ def train_models(
     model_artifacts: Dict[str, Any] = {}
     ranked_rows: List[Dict[str, Any]] = []
     failed_rows: List[Dict[str, str]] = []
+    model_params = model_params or {}
 
     for key in model_keys:
         spec = MODEL_CATALOG[key]
@@ -846,6 +879,7 @@ def train_models(
                     y_test,
                     grid_search=grid_search,
                     grid_search_level=grid_search_level,
+                    model_params=model_params.get(key) or {},
                 )
             else:
                 details = _train_regression_model(
@@ -898,6 +932,7 @@ def train_models(
                 "mse": m.get("mse"),
                 "rmse": m.get("rmse"),
                 "r2": m.get("r2"),
+                "adjusted_r2": m.get("adjusted_r2"),
             }
         )
 

@@ -6,7 +6,7 @@ const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
   "http://127.0.0.1:8001/api";
 
-type RankedRow = { key: string; name: string; auc?: number; pr_auc?: number };
+type RankedRow = { key: string; name: string; task?: "classification" | "regression" | "anomaly"; auc?: number; pr_auc?: number; rmse?: number; mae?: number; r2?: number; adjusted_r2?: number };
 type ImportanceRow = { feature: string; importance: number; source?: string; direction?: number };
 type DetailResponse = {
   ok: boolean;
@@ -19,15 +19,42 @@ type DetailResponse = {
 };
 type CurveRow = { value: string | number; label?: string; prediction: number };
 type SensitivityRow = { scenario: string; prediction: number; delta: number };
+type SensitivitySummaryRow = {
+  feature: string;
+  baseline: number;
+  max_abs_delta: number;
+  worst_scenario: string;
+  worst_prediction: number;
+  worst_delta: number;
+};
+type VsiRow = { feature: string; value: number; status: "pass" | "warning" | "fail" };
+type VifRow = { feature: string; vif: number; tolerance: number; r_squared: number; status: "pass" | "warning" | "fail" };
 type RfeRow = { feature: string; selected: boolean; rank: number; importance?: number };
 type HyperparameterRow = { parameter: string; value: string };
 type RfeCurveRow = {
   feature_count: number;
-  auc: number;
+  auc?: number;
   display_auc?: number;
-  marginal_auc: number | null;
+  marginal_auc?: number | null;
+  rmse?: number;
+  display_rmse?: number;
+  marginal_rmse?: number | null;
   added_feature: string;
   features: string[];
+};
+type RfeResult = {
+  ok: boolean;
+  rows?: RfeRow[];
+  curve?: RfeCurveRow[];
+  recommended_count?: number;
+  best_count?: number;
+  best_auc?: number;
+  auc_tolerance?: number;
+  best_rmse?: number;
+  rmse_tolerance?: number;
+  metric?: "auc" | "rmse";
+  task?: "classification" | "regression";
+  error?: string;
 };
 type BoundaryPoint = { x: number; y: number; class: number };
 type BoundaryCell = { x: number; y: number; score: number };
@@ -61,19 +88,40 @@ export default function Step09_Interpretation() {
   const [hyperparameters, setHyperparameters] = useState<HyperparameterRow[]>([]);
   const [pdp, setPdp] = useState<CurveRow[]>([]);
   const [sensitivity, setSensitivity] = useState<SensitivityRow[]>([]);
+  const [finalSensitivityRows, setFinalSensitivityRows] = useState<SensitivitySummaryRow[]>([]);
+  const [vifRows, setVifRows] = useState<VifRow[]>([]);
+  const [finalDiagnosticsReady, setFinalDiagnosticsReady] = useState(false);
   const [shapRows, setShapRows] = useState<ImportanceRow[]>([]);
   const [rfeKeep, setRfeKeep] = useState(10);
   const [rfeRows, setRfeRows] = useState<RfeRow[]>([]);
   const [rfeCurve, setRfeCurve] = useState<RfeCurveRow[]>([]);
   const [rfeRunning, setRfeRunning] = useState(false);
   const [recommendedCount, setRecommendedCount] = useState<number | null>(null);
+  const [bestRfeCount, setBestRfeCount] = useState<number | null>(null);
+  const [bestRfeAuc, setBestRfeAuc] = useState<number | null>(null);
+  const [bestRfeRmse, setBestRfeRmse] = useState<number | null>(null);
+  const [rfeAucTolerance, setRfeAucTolerance] = useState<number | null>(null);
+  const [rfeRmseTolerance, setRfeRmseTolerance] = useState<number | null>(null);
   const [boundary, setBoundary] = useState<BoundaryResponse | null>(null);
   const [boundaryX, setBoundaryX] = useState("");
   const [boundaryY, setBoundaryY] = useState("");
   const [message, setMessage] = useState("");
+  const [finalModelMessage, setFinalModelMessage] = useState("");
+  const [finalModelStatus, setFinalModelStatus] = useState<"success" | "error" | "">("");
+  const [savingFinalModel, setSavingFinalModel] = useState(false);
+  const [finalModelReady, setFinalModelReady] = useState(false);
+  const isRegression = models.some((model) => model.task === "regression" || model.rmse !== undefined);
+
+  const exportModel = (format: "pkl" | "jar") => {
+    if (format === "jar") {
+      setMessage("JAR export is not available for the current Python/scikit-learn pipeline. Use the PKL bundle for Python deployment, or add an ONNX/PMML export path for JVM scoring.");
+      return;
+    }
+    window.location.href = `${API_BASE}/model/export?model=final&format=pkl`;
+  };
 
   useEffect(() => {
-    getJson<{ ok: boolean; summary?: { ranked?: RankedRow[] } }>(`${API_BASE}/train/last`)
+    getJson<{ ok: boolean; summary?: { problem_type?: string; ranked?: RankedRow[] } }>(`${API_BASE}/train/last`)
       .then((data) => {
         const ranked = data.summary?.ranked ?? [];
         setModels(ranked);
@@ -109,6 +157,11 @@ export default function Step09_Interpretation() {
         setRfeRows([]);
         setRfeCurve([]);
         setRecommendedCount(null);
+        setBestRfeCount(null);
+        setBestRfeAuc(null);
+        setBestRfeRmse(null);
+        setRfeAucTolerance(null);
+        setRfeRmseTolerance(null);
       })
       .catch((err) => setMessage(String(err?.message ?? err)));
   }, [selectedModel]);
@@ -156,7 +209,7 @@ export default function Step09_Interpretation() {
   const runRfe = () => {
     setRfeRunning(true);
     setMessage("");
-    getJson<{ ok: boolean; rows?: RfeRow[]; curve?: RfeCurveRow[]; recommended_count?: number; best_count?: number; error?: string }>(
+    getJson<RfeResult>(
       `${API_BASE}/interpretation/rfe?model=${encodeURIComponent(selectedModel)}&keep=${rfeKeep}`
     )
       .then((data) => {
@@ -164,10 +217,82 @@ export default function Step09_Interpretation() {
         setRfeRows(data.rows ?? []);
         setRfeCurve(data.curve ?? []);
         setRecommendedCount(data.recommended_count ?? null);
+        setBestRfeCount(data.best_count ?? null);
+        setBestRfeAuc(data.best_auc ?? null);
+        setBestRfeRmse(data.best_rmse ?? null);
+        setRfeAucTolerance(data.auc_tolerance ?? null);
+        setRfeRmseTolerance(data.rmse_tolerance ?? null);
         setRfeKeep(data.recommended_count ?? data.best_count ?? rfeKeep);
       })
       .catch((err) => setMessage(String(err?.message ?? err)))
       .finally(() => setRfeRunning(false));
+  };
+
+  const loadFinalDiagnostics = async () => {
+    const [sensitivityRes, vifRes] = await Promise.all([
+      getJson<{ ok: boolean; rows?: SensitivitySummaryRow[]; error?: string }>(
+        `${API_BASE}/interpretation/sensitivity_summary?model=final&top_n=12`
+      ),
+      getJson<{ ok: boolean; rows?: VifRow[]; error?: string }>(
+        `${API_BASE}/interpretation/vif?model=final`
+      ),
+    ]);
+    if (!sensitivityRes.ok) throw new Error(sensitivityRes.error ?? "Final-model sensitivity failed.");
+    if (!vifRes.ok) throw new Error(vifRes.error ?? "Final-model VIF failed.");
+    setFinalSensitivityRows(sensitivityRes.rows ?? []);
+    setVifRows(vifRes.rows ?? []);
+    setFinalDiagnosticsReady(true);
+  };
+
+  const saveRfeFinalModel = async () => {
+    setFinalModelMessage("");
+    setFinalModelStatus("");
+    setSavingFinalModel(true);
+    try {
+      const res = await fetch(`${API_BASE}/interpretation/rfe/save_final`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: selectedModel, keep: rfeKeep }),
+      });
+      if (!res.ok) throw new Error(`Save failed (${res.status})`);
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error ?? "Unable to save final model.");
+      setFinalModelMessage(
+        `Saved final parsimonious model with ${data.metadata?.feature_count ?? rfeKeep} features.`
+      );
+      setFinalModelStatus("success");
+      setFinalModelReady(true);
+      await loadFinalDiagnostics();
+    } catch (err: any) {
+      setFinalModelMessage(err?.message ?? "Unable to save final model.");
+      setFinalModelStatus("error");
+    } finally {
+      setSavingFinalModel(false);
+    }
+  };
+
+  const saveSelectedFinalModel = async () => {
+    setFinalModelMessage("");
+    setFinalModelStatus("");
+    setSavingFinalModel(true);
+    try {
+      const res = await fetch(`${API_BASE}/model/save_final`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: selectedModel }),
+      });
+      if (!res.ok) throw new Error(`Save failed (${res.status})`);
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error ?? "Unable to save final model.");
+      setFinalModelMessage(`Saved ${data.metadata?.name ?? selectedModel} as the final model.`);
+      setFinalModelStatus("success");
+      setFinalModelReady(true);
+    } catch (err: any) {
+      setFinalModelMessage(err?.message ?? "Unable to save final model.");
+      setFinalModelStatus("error");
+    } finally {
+      setSavingFinalModel(false);
+    }
   };
 
   if (!models.length) {
@@ -217,8 +342,12 @@ export default function Step09_Interpretation() {
       <section className="rounded-2xl border border-gray-200 bg-white p-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold">Decision Boundary</h2>
-            <p className="mt-1 text-xs text-gray-500">Shows the selected model response across two numeric features while holding all other fields at typical values.</p>
+            <h2 className="text-sm font-semibold">{isRegression ? "Prediction Response Surface" : "Decision Boundary"}</h2>
+            <p className="mt-1 text-xs text-gray-500">
+              {isRegression
+                ? "Shows the selected model prediction across two numeric features while holding all other fields at typical values."
+                : "Shows the selected model response across two numeric features while holding all other fields at typical values."}
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <select className="rounded-md border px-3 py-2 text-sm" value={boundaryX} onChange={(e) => setBoundaryX(e.target.value)}>
@@ -235,20 +364,33 @@ export default function Step09_Interpretation() {
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-2xl border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold">Feature Importance</h2>
-          <BarTable rows={importance} valueKey="importance" />
+          <p className="mt-1 text-xs text-gray-500">
+            {isRegression
+              ? "Appropriate for regression: ranks variables by contribution to predictive accuracy."
+              : "Ranks variables by contribution to model performance."}
+          </p>
+          <BarTable rows={importance} valueKey="importance" color="indigo" />
         </section>
         <section className="rounded-2xl border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold">SHAP Summary</h2>
-          <p className="mt-1 text-xs text-gray-500">Model-agnostic replacement impact on held-out predictions. This differs from native feature importance.</p>
-          <BarTable rows={shapRows} valueKey="importance" />
+          <p className="mt-1 text-xs text-gray-500">
+            {isRegression
+              ? "Appropriate for regression: estimates how each feature changes predicted target values on holdout records."
+              : "Model-agnostic replacement impact on held-out predictions. This differs from native feature importance."}
+          </p>
+          <BarTable rows={shapRows} valueKey="importance" color="teal" />
         </section>
       </div>
 
       <section className="rounded-2xl border border-gray-200 bg-white p-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold">PDP / Sensitivity</h2>
-            <p className="mt-1 text-xs text-gray-500">Select a feature to inspect marginal response and scenario sensitivity.</p>
+            <h2 className="text-sm font-semibold">{isRegression ? "Prediction Drivers" : "PDP / Sensitivity"}</h2>
+            <p className="mt-1 text-xs text-gray-500">
+              {isRegression
+                ? "PDP and sensitivity are appropriate for regression: they show how the predicted target value changes as a feature changes."
+                : "Select a feature to inspect marginal response and scenario sensitivity."}
+            </p>
           </div>
           <select className="rounded-md border px-3 py-2 text-sm" value={selectedFeature} onChange={(e) => setSelectedFeature(e.target.value)}>
             {featureOptions.map((feature) => (
@@ -257,7 +399,7 @@ export default function Step09_Interpretation() {
           </select>
         </div>
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
-          <LineChart title="Partial Dependence Plot" rows={pdp} feature={selectedFeature} />
+          <LineChart title={isRegression ? "Partial Dependence: Predicted Target" : "Partial Dependence Plot"} rows={pdp} feature={selectedFeature} />
           <SensitivityTable rows={sensitivity} />
         </div>
       </section>
@@ -266,7 +408,11 @@ export default function Step09_Interpretation() {
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold">Recursive Feature Elimination</h2>
-            <p className="mt-1 text-xs text-gray-500">Runs backward elimination and recommends a retained feature count from the AUC curve and marginal benefit.</p>
+            <p className="mt-1 text-xs text-gray-500">
+              {isRegression
+                ? "Runs backward elimination and recommends the smallest retained feature count that is effectively tied with the best holdout RMSE."
+                : "Runs backward elimination and recommends the smallest retained feature count that is effectively tied with the best holdout AUC."}
+            </p>
           </div>
           <div className="flex items-end gap-2">
             {recommendedCount && (
@@ -281,21 +427,102 @@ export default function Step09_Interpretation() {
             >
               {rfeRunning ? "Running..." : "Run RFE"}
             </button>
+            <button
+              className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition active:scale-95 active:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300 disabled:active:scale-100"
+              disabled={!rfeRows.length || savingFinalModel}
+              onClick={saveRfeFinalModel}
+            >
+              {savingFinalModel ? "Saving..." : "Save as Final Model"}
+            </button>
           </div>
         </div>
-        <RfeCurveChart rows={rfeCurve} selectedCount={rfeKeep} recommendedCount={recommendedCount} onSelectCount={setRfeKeep} />
+        {finalModelMessage && (
+          <div className={`mt-3 rounded-md border px-3 py-2 text-sm ${
+            finalModelStatus === "error"
+              ? "border-rose-200 bg-rose-50 text-rose-900"
+              : "border-emerald-200 bg-emerald-50 text-emerald-900"
+          }`}>
+            {finalModelMessage}
+          </div>
+        )}
+        {recommendedCount && bestRfeCount && bestRfeAuc !== null && (
+          <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+            Best RFE point: {bestRfeCount} features at AUC {bestRfeAuc.toFixed(4)}. Recommended count uses a {((rfeAucTolerance ?? 0.001) * 100).toFixed(2)} percentage-point AUC tolerance.
+          </div>
+        )}
+        {recommendedCount && bestRfeCount && bestRfeRmse !== null && (
+          <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
+            Best RFE point: {bestRfeCount} features at RMSE {bestRfeRmse.toFixed(4)}. Recommended count uses a {rfeRmseTolerance?.toFixed(4) ?? "small"} RMSE tolerance.
+          </div>
+        )}
+        <RfeCurveChart rows={rfeCurve} selectedCount={rfeKeep} recommendedCount={recommendedCount} onSelectCount={setRfeKeep} isRegression={isRegression} />
         <RfeTable rows={rfeRows} selectedCount={rfeKeep} />
       </section>
+
+      {finalModelReady && (
+        <section className="rounded-2xl border border-gray-200 bg-white p-4">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="text-sm font-semibold">Production Export</h2>
+              <p className="mt-1 text-xs text-gray-500">
+                Export is available after final model selection. The bundle contains the fitted preprocessing pipeline, model, and metadata.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                onClick={() => exportModel("pkl")}
+              >
+                Download Final .pkl Bundle
+              </button>
+              <button
+                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+                onClick={() => exportModel("jar")}
+              >
+                .jar Info
+              </button>
+            </div>
+          </div>
+        </section>
+      )}
+
+      {!isRegression && <section className="rounded-2xl border border-gray-200 bg-white p-4">
+        <h2 className="text-sm font-semibold">Final Model Sensitivity Analysis</h2>
+        <p className="mt-1 text-xs text-gray-500">
+          Runs after Save as Final Model and ranks prediction shifts only across the selected RFE variables.
+        </p>
+        {finalDiagnosticsReady ? (
+          <SensitivitySummaryTable rows={finalSensitivityRows} />
+        ) : (
+          <div className="mt-3 rounded-xl bg-slate-50 p-4 text-sm text-gray-500">
+            Save a final model from the RFE section to generate final-variable sensitivity.
+          </div>
+        )}
+      </section>}
+
+      {!isRegression && <section className="rounded-2xl border border-gray-200 bg-white p-4">
+        <h2 className="text-sm font-semibold">Variance Inflation Factor</h2>
+        <p className="mt-1 text-xs text-gray-500">
+          Runs after Save as Final Model and checks multicollinearity only among final RFE variables.
+        </p>
+        {finalDiagnosticsReady ? (
+          <VifTable rows={vifRows} />
+        ) : (
+          <div className="mt-3 rounded-xl bg-slate-50 p-4 text-sm text-gray-500">
+            Save a final model from the RFE section to generate VIF diagnostics.
+          </div>
+        )}
+      </section>}
 
       <div className="pb-10 flex justify-center">
         <button
           className="rounded-xl bg-indigo-600 px-5 py-3 text-white shadow-sm"
           onClick={() => {
             markComplete("step09");
-            navigate("/dashboard");
+            navigate("/step10");
           }}
         >
-          Mark Complete & Return to Dashboard
+          Mark Complete & Next Step
         </button>
       </div>
     </div>
@@ -309,7 +536,7 @@ function ModelDetails({ details }: { details: DetailResponse | null }) {
     return (
       <div className="mt-3">
         <div className="rounded-lg bg-slate-50 p-3 font-mono text-xs">logit(p) = {details.intercept?.toFixed(4)} + Σ(coef × feature)</div>
-        <BarTable rows={(details.coefficients ?? []).map((row) => ({ feature: row.feature, importance: row.coefficient, source: `OR ${row.odds_ratio.toFixed(3)}` }))} valueKey="importance" />
+        <BarTable rows={(details.coefficients ?? []).map((row) => ({ feature: row.feature, importance: row.coefficient, source: `OR ${row.odds_ratio.toFixed(3)}` }))} valueKey="importance" color="indigo" />
       </div>
     );
   }
@@ -319,16 +546,17 @@ function ModelDetails({ details }: { details: DetailResponse | null }) {
   return <div className="mt-3 text-sm text-gray-600">{details.message}</div>;
 }
 
-function BarTable({ rows, valueKey }: { rows: ImportanceRow[]; valueKey: "importance" }) {
+function BarTable({ rows, valueKey, color = "indigo" }: { rows: ImportanceRow[]; valueKey: "importance"; color?: "indigo" | "teal" }) {
   const top = rows.slice(0, 15);
   const max = Math.max(...top.map((row) => Math.abs(row[valueKey])), 1e-9);
+  const barColor = color === "teal" ? "bg-teal-600" : "bg-indigo-600";
   return (
     <div className="mt-3 space-y-2">
       {top.map((row) => (
         <div key={`${row.feature}-${row.source ?? ""}`} className="grid grid-cols-[180px_1fr_90px] items-center gap-3 text-xs">
           <div className="truncate font-medium text-gray-700">{row.feature}</div>
           <div className="h-2 rounded-full bg-gray-100">
-            <div className="h-2 rounded-full bg-indigo-600" style={{ width: `${Math.max(3, (Math.abs(row[valueKey]) / max) * 100)}%` }} />
+            <div className={`h-2 rounded-full ${barColor}`} style={{ width: `${Math.max(3, (Math.abs(row[valueKey]) / max) * 100)}%` }} />
           </div>
           <div className="text-right text-gray-600">
             {row[valueKey].toFixed(4)}
@@ -362,46 +590,71 @@ function DecisionBoundaryChart({ boundary }: { boundary: BoundaryResponse | null
   const cellH = plotHeight / resolution + 0.5;
   const x = (value: number) => pad + ((value - xMin) / (xMax - xMin || 1)) * plotWidth;
   const y = (value: number) => 18 + ((yMax - value) / (yMax - yMin || 1)) * plotHeight;
+  const scores = grid.map((cell) => cell.score).filter(Number.isFinite);
+  const scoreMin = scores.length ? Math.max(0, Math.min(...scores)) : 0;
+  const scoreMax = scores.length ? Math.min(1, Math.max(...scores)) : 1;
+  const scoreRange = Math.max(scoreMax - scoreMin, 1e-9);
+  const bandColors = ["#dbeafe", "#bfdbfe", "#fde68a", "#fdba74", "#fecaca"];
+  const bandIndex = (score: number) => Math.max(0, Math.min(4, Math.floor(((score - scoreMin) / scoreRange) * 5)));
   const color = (score: number) => {
-    const clamped = Math.max(0, Math.min(1, score));
-    const red = Math.round(248 * clamped + 239 * (1 - clamped));
-    const green = Math.round(113 * clamped + 246 * (1 - clamped));
-    const blue = Math.round(113 * clamped + 255 * (1 - clamped));
-    return `rgb(${red},${green},${blue})`;
+    if (scoreRange <= 1e-8) return bandColors[0];
+    return bandColors[bandIndex(score)];
+  };
+  const pointColor = (classValue: number) => (classValue ? "#facc15" : "#4c1d95");
+  const bandLabel = (index: number) => {
+    const low = scoreMin + (scoreRange * index) / 5;
+    const high = scoreMin + (scoreRange * (index + 1)) / 5;
+    return `${(low * 100).toFixed(1)}-${(high * 100).toFixed(1)}%`;
   };
 
   return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="mt-3 h-[430px] w-full rounded-xl bg-slate-50">
-      {grid.map((cell, index) => (
-        <rect
-          key={index}
-          x={x(cell.x) - cellW / 2}
-          y={y(cell.y) - cellH / 2}
-          width={cellW}
-          height={cellH}
-          fill={color(cell.score)}
-          opacity={0.82}
-        />
-      ))}
-      <line x1={pad} y1={height - pad} x2={width - 24} y2={height - pad} stroke="#94a3b8" />
-      <line x1={pad} y1={18} x2={pad} y2={height - pad} stroke="#94a3b8" />
-      {points.map((point, index) => (
-        <circle
-          key={index}
-          cx={x(point.x)}
-          cy={y(point.y)}
-          r={3}
-          fill={point.class ? "#111827" : "#ffffff"}
-          stroke="#111827"
-          strokeWidth={1}
-          opacity={0.82}
-        />
-      ))}
-      <text x={width / 2} y={height - 12} textAnchor="middle" className="fill-slate-700 text-[11px]">{boundary.x_feature}</text>
-      <text x={16} y={height / 2} textAnchor="middle" transform={`rotate(-90 16 ${height / 2})`} className="fill-slate-700 text-[11px]">{boundary.y_feature}</text>
-      <text x={pad} y={height - 34} className="fill-slate-500 text-[10px]">{xMin.toFixed(3)}</text>
-      <text x={width - 24} y={height - 34} textAnchor="end" className="fill-slate-500 text-[10px]">{xMax.toFixed(3)}</text>
-    </svg>
+    <div className="mt-3 rounded-xl bg-slate-50 p-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
+        <div className="flex flex-wrap items-center gap-2">
+          {bandColors.map((fill, index) => (
+            <span key={fill} className="inline-flex items-center gap-1">
+              <span className="h-2.5 w-4 rounded-sm border border-slate-200" style={{ background: fill }} />
+              {bandLabel(index)}
+            </span>
+          ))}
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-[#4c1d95]" />Class 0</span>
+          <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-[#facc15] ring-1 ring-slate-800" />Class 1</span>
+        </div>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-[430px] w-full rounded-xl bg-white">
+        {grid.map((cell, index) => (
+          <rect
+            key={index}
+            x={x(cell.x) - cellW / 2}
+            y={y(cell.y) - cellH / 2}
+            width={cellW}
+            height={cellH}
+            fill={color(cell.score)}
+            opacity={0.92}
+          />
+        ))}
+        <line x1={pad} y1={height - pad} x2={width - 24} y2={height - pad} stroke="#64748b" />
+        <line x1={pad} y1={18} x2={pad} y2={height - pad} stroke="#64748b" />
+        {points.map((point, index) => (
+          <circle
+            key={index}
+            cx={x(point.x)}
+            cy={y(point.y)}
+            r={3.2}
+            fill={pointColor(point.class)}
+            stroke="#111827"
+            strokeWidth={0.8}
+            opacity={0.88}
+          />
+        ))}
+        <text x={width / 2} y={height - 12} textAnchor="middle" className="fill-slate-700 text-[11px]">{boundary.x_feature}</text>
+        <text x={16} y={height / 2} textAnchor="middle" transform={`rotate(-90 16 ${height / 2})`} className="fill-slate-700 text-[11px]">{boundary.y_feature}</text>
+        <text x={pad} y={height - 34} className="fill-slate-500 text-[10px]">{xMin.toFixed(3)}</text>
+        <text x={width - 24} y={height - 34} textAnchor="end" className="fill-slate-500 text-[10px]">{xMax.toFixed(3)}</text>
+      </svg>
+    </div>
   );
 }
 
@@ -430,8 +683,8 @@ function LineChart({ title, rows, feature }: { title: string; rows: CurveRow[]; 
   const rawMin = Math.min(...values);
   const rawMax = Math.max(...values);
   const spread = Math.max(rawMax - rawMin, 0.001);
-  const minY = Math.max(0, rawMin - spread * 0.2);
-  const maxY = Math.min(1, rawMax + spread * 0.2);
+  const minY = rawMin - spread * 0.2;
+  const maxY = rawMax + spread * 0.2;
   const plotWidth = width - pad - 18;
   const plotHeight = height - pad - 24;
   const x = (index: number) => pad + (index / Math.max(1, rows.length - 1)) * plotWidth;
@@ -474,42 +727,45 @@ function RfeCurveChart({
   selectedCount,
   recommendedCount,
   onSelectCount,
+  isRegression = false,
 }: {
   rows: RfeCurveRow[];
   selectedCount: number;
   recommendedCount: number | null;
   onSelectCount: (count: number) => void;
+  isRegression?: boolean;
 }) {
   if (!rows.length) {
-    return <div className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-gray-500">Run RFE to generate the AUC and marginal-benefit curve.</div>;
+    return <div className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-gray-500">Run RFE to generate the {isRegression ? "RMSE" : "AUC"} and marginal-benefit curve.</div>;
   }
 
   const width = 980;
   const height = 330;
   const pad = 52;
-  const aucValues = rows.map((row) => row.display_auc ?? row.auc);
-  const marginalValues = rows.map((row) => Math.max(0, row.marginal_auc ?? 0));
-  const aucMin = Math.max(0, Math.min(...aucValues) - 0.015);
-  const aucMax = Math.min(1, Math.max(...aucValues) + 0.015);
+  const metricValues = rows.map((row) => isRegression ? (row.display_rmse ?? row.rmse ?? 0) : (row.display_auc ?? row.auc ?? 0));
+  const marginalValues = rows.map((row) => Math.max(0, isRegression ? (row.marginal_rmse ?? 0) : (row.marginal_auc ?? 0)));
+  const metricSpread = Math.max(Math.max(...metricValues) - Math.min(...metricValues), 0.001);
+  const metricMin = Math.min(...metricValues) - metricSpread * 0.08;
+  const metricMax = Math.max(...metricValues) + metricSpread * 0.08;
   const marginalMax = Math.max(...marginalValues, 0.001);
   const plotWidth = width - pad - 24;
   const plotHeight = height - pad - 28;
   const barSlot = plotWidth / rows.length;
   const barWidth = Math.max(6, Math.min(22, barSlot * 0.62));
   const x = (index: number) => pad + index * barSlot + barSlot / 2;
-  const yAuc = (value: number) => 18 + ((aucMax - value) / (aucMax - aucMin || 1)) * plotHeight;
+  const yMetric = (value: number) => 18 + ((metricMax - value) / (metricMax - metricMin || 1)) * plotHeight;
   const yMarginal = (value: number) => 18 + ((marginalMax - Math.max(0, value)) / marginalMax) * plotHeight;
   const marginalPoints = rows
-    .map((row, index) => `${x(index)},${yMarginal(row.marginal_auc ?? 0)}`)
+    .map((row, index) => `${x(index)},${yMarginal(isRegression ? (row.marginal_rmse ?? 0) : (row.marginal_auc ?? 0))}`)
     .join(" ");
 
   return (
     <div className="mt-4 rounded-xl bg-slate-50 p-3">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-        <div className="font-semibold text-gray-700">RFE AUC by Feature Count</div>
+        <div className="font-semibold text-gray-700">RFE {isRegression ? "RMSE" : "AUC"} by Feature Count</div>
         <div className="flex gap-3 text-gray-600">
-          <span><span className="mr-1 inline-block h-2 w-3 rounded-sm bg-indigo-500" />AUC</span>
-          <span><span className="mr-1 inline-block h-2 w-3 rounded-sm bg-emerald-500" />Marginal AUC</span>
+          <span><span className="mr-1 inline-block h-2 w-3 rounded-sm bg-indigo-500" />{isRegression ? "RMSE" : "AUC"}</span>
+          <span><span className="mr-1 inline-block h-2 w-3 rounded-sm bg-emerald-500" />Marginal {isRegression ? "RMSE gain" : "AUC"}</span>
           {recommendedCount && <span>Suggested elbow: {recommendedCount} features</span>}
         </div>
       </div>
@@ -517,8 +773,8 @@ function RfeCurveChart({
         <line x1={pad} y1={height - pad} x2={width - 24} y2={height - pad} stroke="#cbd5e1" />
         <line x1={pad} y1={18} x2={pad} y2={height - pad} stroke="#cbd5e1" />
         {[0, 0.5, 1].map((tick) => {
-          const value = aucMin + (aucMax - aucMin) * tick;
-          const yy = yAuc(value);
+          const value = metricMin + (metricMax - metricMin) * tick;
+          const yy = yMetric(value);
           return (
             <g key={tick}>
               <line x1={pad} y1={yy} x2={width - 24} y2={yy} stroke="#e2e8f0" />
@@ -528,13 +784,13 @@ function RfeCurveChart({
         })}
         {rows.map((row, index) => {
           const selected = row.feature_count === selectedCount;
-          const chartAuc = row.display_auc ?? row.auc;
-          const barHeight = height - pad - yAuc(chartAuc);
+          const chartMetric = isRegression ? (row.display_rmse ?? row.rmse ?? 0) : (row.display_auc ?? row.auc ?? 0);
+          const barHeight = height - pad - yMetric(chartMetric);
           return (
             <g key={row.feature_count} onClick={() => onSelectCount(row.feature_count)} className="cursor-pointer">
               <rect
                 x={x(index) - barWidth / 2}
-                y={yAuc(chartAuc)}
+                y={yMetric(chartMetric)}
                 width={barWidth}
                 height={barHeight}
                 rx={3}
@@ -551,7 +807,7 @@ function RfeCurveChart({
         })}
         <polyline fill="none" stroke="#10b981" strokeWidth="3" points={marginalPoints} />
         {rows.map((row, index) => (
-          <circle key={`m-${row.feature_count}`} cx={x(index)} cy={yMarginal(row.marginal_auc ?? 0)} r={3} fill="#10b981" />
+          <circle key={`m-${row.feature_count}`} cx={x(index)} cy={yMarginal(isRegression ? (row.marginal_rmse ?? 0) : (row.marginal_auc ?? 0))} r={3} fill="#10b981" />
         ))}
         <text x={width / 2} y={height - 8} textAnchor="middle" className="fill-slate-600 text-[10px]">Number of features retained</text>
       </svg>
@@ -567,6 +823,115 @@ function SensitivityTable({ rows }: { rows: SensitivityRow[] }) {
         <thead><tr className="text-left text-xs text-gray-500"><th className="py-1">Scenario</th><th>Prediction</th><th>Delta</th></tr></thead>
         <tbody>{rows.map((row) => <tr key={row.scenario} className="border-t"><td className="py-1">{row.scenario}</td><td>{row.prediction.toFixed(4)}</td><td className={row.delta >= 0 ? "text-emerald-700" : "text-rose-700"}>{row.delta.toFixed(4)}</td></tr>)}</tbody>
       </table>
+    </div>
+  );
+}
+
+function SensitivitySummaryTable({ rows }: { rows: SensitivitySummaryRow[] }) {
+  if (!rows.length) return <div className="mt-3 text-sm text-gray-500">No model-level sensitivity rows are available.</div>;
+  const maxDelta = Math.max(...rows.map((row) => row.max_abs_delta), 1e-9);
+  return (
+    <div className="mt-4 overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-xs text-gray-500">
+            <th className="py-2 pr-4">Feature</th>
+            <th className="py-2 pr-4">Largest Scenario</th>
+            <th className="py-2 pr-4">Prediction</th>
+            <th className="py-2 pr-4">Delta</th>
+            <th className="py-2">Relative Impact</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.feature} className="border-t">
+              <td className="py-2 pr-4 font-medium text-gray-800">{row.feature}</td>
+              <td className="py-2 pr-4">{row.worst_scenario}</td>
+              <td className="py-2 pr-4">{row.worst_prediction.toFixed(4)}</td>
+              <td className={`py-2 pr-4 ${row.worst_delta >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                {row.worst_delta.toFixed(4)}
+              </td>
+              <td className="py-2">
+                <div className="h-2 rounded-full bg-gray-100">
+                  <div
+                    className="h-2 rounded-full bg-indigo-600"
+                    style={{ width: `${Math.max(3, (row.max_abs_delta / maxDelta) * 100)}%` }}
+                  />
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function VsiTable({ rows }: { rows: VsiRow[] }) {
+  if (!rows.length) return <div className="mt-3 text-sm text-gray-500">No VSI rows are available.</div>;
+  const statusClass = (status: VsiRow["status"]) => {
+    if (status === "pass") return "bg-emerald-50 text-emerald-900 border-emerald-100";
+    if (status === "warning") return "bg-amber-50 text-amber-900 border-amber-100";
+    return "bg-rose-50 text-rose-900 border-rose-100";
+  };
+  return (
+    <div className="mt-4 overflow-x-auto rounded-lg border border-gray-200">
+      <table className="w-full text-sm">
+        <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+          <tr>
+            <th className="px-3 py-2">Feature</th>
+            <th className="px-3 py-2">VSI</th>
+            <th className="px-3 py-2">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.feature} className={`border-t ${statusClass(row.status)}`}>
+              <td className="px-3 py-2 font-medium">{row.feature}</td>
+              <td className="px-3 py-2">{row.value.toFixed(4)}</td>
+              <td className="px-3 py-2 font-semibold uppercase">{row.status}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function VifTable({ rows }: { rows: VifRow[] }) {
+  if (!rows.length) return <div className="mt-3 text-sm text-gray-500">VIF requires at least two numeric final-model variables.</div>;
+  const statusClass = (status: VifRow["status"]) => {
+    if (status === "pass") return "bg-emerald-50 text-emerald-900 border-emerald-100";
+    if (status === "warning") return "bg-amber-50 text-amber-900 border-amber-100";
+    return "bg-rose-50 text-rose-900 border-rose-100";
+  };
+  return (
+    <div className="mt-4 overflow-x-auto rounded-lg border border-gray-200">
+      <table className="w-full text-sm">
+        <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+          <tr>
+            <th className="px-3 py-2">Feature</th>
+            <th className="px-3 py-2">VIF</th>
+            <th className="px-3 py-2">Tolerance</th>
+            <th className="px-3 py-2">R-Squared</th>
+            <th className="px-3 py-2">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.feature} className={`border-t ${statusClass(row.status)}`}>
+              <td className="px-3 py-2 font-medium">{row.feature}</td>
+              <td className="px-3 py-2">{row.vif.toFixed(3)}</td>
+              <td className="px-3 py-2">{row.tolerance.toFixed(4)}</td>
+              <td className="px-3 py-2">{row.r_squared.toFixed(4)}</td>
+              <td className="px-3 py-2 font-semibold uppercase">{row.status}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="border-t bg-white px-3 py-2 text-xs text-slate-500">
+        Thresholds: pass &lt; 5, warning 5-10, fail &gt;= 10.
+      </div>
     </div>
   );
 }

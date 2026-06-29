@@ -90,6 +90,7 @@ class TrainerService:
         use_pca: bool = False,
         grid_search: bool = False,
         grid_search_level: str = "quick",
+        model_params: Dict[str, Dict[str, Any]] | None = None,
     ) -> Dict[str, Any]:
         X_train, X_test, y_train, y_test = self._get_or_create_splits(k_folds)
 
@@ -101,6 +102,7 @@ class TrainerService:
             requested_models=models,
             grid_search=grid_search,
             grid_search_level=grid_search_level,
+            model_params=model_params or {},
         )
         if not result.get("ok"):
             raise ValueError(result.get("error") or "No models were successfully trained.")
@@ -117,6 +119,7 @@ class TrainerService:
                 "use_pca": bool(use_pca),
                 "grid_search": bool(grid_search),
                 "grid_search_level": str(grid_search_level),
+                "model_params": model_params or {},
                 "status": "trained",
             }
         )

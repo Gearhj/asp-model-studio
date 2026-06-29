@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException
 
 from .trainer_service import TRAINER
 from ..core.result_store import RESULTS
+from ..core.session_checkpoint import save_checkpoint
 
 
 router = APIRouter()
@@ -84,6 +85,9 @@ def train_models(request: Dict[str, Any]) -> Dict[str, Any]:
         use_pca = bool(request.get("use_pca", False))
         grid_search = bool(request.get("grid_search", False))
         grid_search_level = str(request.get("grid_search_level", "quick"))
+        model_params = request.get("model_params") or {}
+        if not isinstance(model_params, dict):
+            model_params = {}
 
         summary = TRAINER.train(
             models=models,
@@ -93,10 +97,12 @@ def train_models(request: Dict[str, Any]) -> Dict[str, Any]:
             use_pca=use_pca,
             grid_search=grid_search,
             grid_search_level=grid_search_level,
+            model_params=model_params,
         )
 
         rows = summary.get("n_train")
         status = summary.get("status", "ok")
+        save_checkpoint()
 
         return {
             "ok": True,

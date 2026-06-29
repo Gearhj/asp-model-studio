@@ -11,4 +11,5 @@ export const WORKFLOW_STEPS: WorkflowStep[] = [
   { id: "model-training",     title: "Step 7: Model Training",        description: "Select & train",                requires: ["data-balancing"] },
   { id: "evaluation",         title: "Step 8: Evaluation",            description: "Metrics & charts",              requires: ["model-training"] },
   { id: "interpretation",     title: "Step 9: Model Interpretation",  description: "Explain & select features",      requires: ["evaluation"] },
+  { id: "scoring",            title: "Step 10: Final Scoring",        description: "TEST/OOT scoring & stability",   requires: ["interpretation"] },
 ];

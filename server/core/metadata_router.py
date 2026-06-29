@@ -26,6 +26,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from .dataset_store import DATASTORE
+from .session_checkpoint import save_checkpoint
 
 router = APIRouter()
 
@@ -126,6 +127,8 @@ def set_sample(payload: SetSamplePayload) -> Dict[str, Any]:
             pass
     else:
         _infer_target(df)
+
+    save_checkpoint()
 
     return {
         "ok": True,

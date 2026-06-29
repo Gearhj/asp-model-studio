@@ -26,6 +26,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ..core.dataset_store import DATASTORE
+from ..core.session_checkpoint import save_checkpoint
 from .split_service import split_service
 
 
@@ -103,6 +104,13 @@ def balancing_split_config(payload: SplitConfigPayload):
 
     # Persist splits in DATASTORE for Step07 training
     DATASTORE.set_splits(X_train, X_test, y_train, y_test)
+    DATASTORE.meta["split_config"] = config
+    DATASTORE.meta["target_prevalence"] = {
+        "original": _positive_rate(df[target]),
+        "train": _positive_rate(y_train),
+        "test": _positive_rate(y_test),
+    }
+    save_checkpoint()
 
     return {
         "ok": True,
@@ -110,4 +118,17 @@ def balancing_split_config(payload: SplitConfigPayload):
         "n_train": int(len(y_train)),
         "n_test": int(len(y_test)),
         "test_size": float(test_size),
+        "target_prevalence": DATASTORE.meta["target_prevalence"],
     }
+
+
+def _positive_rate(y):
+    values = y.dropna()
+    if values.empty:
+        return None
+    labels = values.astype(str)
+    classes = sorted(labels.unique())
+    if len(classes) != 2:
+        return None
+    positive_label = classes[-1]
+    return float((labels == positive_label).mean())

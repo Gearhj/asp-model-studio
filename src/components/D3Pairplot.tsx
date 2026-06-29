@@ -75,8 +75,8 @@ export default function D3Pairplot({ samplePct = 10 }: { samplePct?: number }) {
 
 export function PairwiseSvg({ rows, features }: { rows: Array<Record<string, unknown>>; features: string[] }) {
   const cell = 150;
-  const pad = 28;
-  const gap = 12;
+  const pad = 30;
+  const gap = 10;
   const size = features.length * cell + (features.length - 1) * gap + pad;
   const domains = useMemo(() => {
     const result: Record<string, [number, number]> = {};
@@ -93,8 +93,8 @@ export function PairwiseSvg({ rows, features }: { rows: Array<Record<string, unk
     start + ((value - domain[0]) / (domain[1] - domain[0] || 1)) * (end - start);
 
   return (
-    <div className="overflow-auto">
-      <svg viewBox={`0 0 ${size} ${size}`} className="min-h-[560px] min-w-[560px] max-w-full rounded-xl bg-slate-50">
+    <div className="flex min-h-[620px] items-center justify-center overflow-auto rounded-xl bg-slate-50 p-4">
+      <svg viewBox={`0 0 ${size} ${size}`} className="h-auto max-h-[660px] w-full min-w-[560px] max-w-[780px] rounded-xl bg-slate-50">
         {features.map((yFeature, rowIndex) =>
           features.map((xFeature, colIndex) => {
             const x0 = pad + colIndex * (cell + gap);

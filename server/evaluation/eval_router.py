@@ -1,6 +1,11 @@
 # server/evaluation/eval_router.py
 
-from fastapi import APIRouter
+import io
+
+import pandas as pd
+from fastapi import APIRouter, File, UploadFile
+from fastapi.responses import Response
+from ..core.session_checkpoint import save_checkpoint
 from .eval_service import EVAL
 
 
@@ -21,6 +26,16 @@ def get_deciles(model: str):
     Returns placeholder decile results.
     """
     return EVAL.get_deciles(model)
+
+
+@router.get("/eval/tree")
+def get_decision_tree(model: str, max_depth: int = 4):
+    return EVAL.decision_tree(model, max_depth=max_depth)
+
+
+@router.get("/eval/knn_clusters")
+def get_knn_clusters(model: str, max_points: int = 900):
+    return EVAL.knn_clusters(model, max_points=max_points)
 
 
 @router.get("/interpretation/importance")
@@ -48,6 +63,21 @@ def get_sensitivity(model: str, feature: str):
     return EVAL.sensitivity(model, feature)
 
 
+@router.get("/interpretation/sensitivity_summary")
+def get_sensitivity_summary(model: str, top_n: int = 12):
+    return EVAL.sensitivity_summary(model, top_n=top_n)
+
+
+@router.get("/interpretation/vsi")
+def get_vsi_summary(model: str, top_n: int = 40):
+    return EVAL.vsi_summary(model, top_n=top_n)
+
+
+@router.get("/interpretation/vif")
+def get_vif_summary(model: str = "final"):
+    return EVAL.vif_summary(model)
+
+
 @router.get("/interpretation/shap")
 def get_shap_summary(model: str):
     return EVAL.shap_summary(model)
@@ -61,3 +91,63 @@ def get_decision_boundary(model: str, x_feature: str = "", y_feature: str = ""):
 @router.get("/interpretation/rfe")
 def get_rfe(model: str = "", keep: int = 10):
     return EVAL.rfe(model_name=model, keep=keep)
+
+
+@router.post("/interpretation/rfe/save_final")
+def save_rfe_final_model(request: dict):
+    result = EVAL.save_rfe_model(
+        model_name=str(request.get("model") or ""),
+        keep=int(request.get("keep") or 10),
+    )
+    if result.get("ok"):
+        save_checkpoint()
+    return result
+
+
+@router.post("/model/save_final")
+def save_selected_final_model(request: dict):
+    result = EVAL.save_selected_model_as_final(
+        model_name=str(request.get("model") or ""),
+    )
+    if result.get("ok"):
+        save_checkpoint()
+    return result
+
+
+@router.get("/model/export")
+def export_model(model: str = "final", format: str = "pkl"):
+    if format.lower() != "pkl":
+        return {
+            "ok": False,
+            "error": "Only pkl export is currently supported. Use ONNX, PMML, or a Java scoring wrapper for JVM production deployment.",
+        }
+    content, filename = EVAL.export_model_bundle(model_name=model)
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.post("/score/upload")
+async def score_upload(
+    file: UploadFile = File(...),
+    dataset_type: str = "test",
+    model: str = "final",
+    correction_method: str = "none",
+    original_prior: float | None = None,
+    model_prior: float | None = None,
+):
+    content = await file.read()
+    df = pd.read_csv(io.BytesIO(content))
+    result = EVAL.score_dataset(
+        df=df,
+        dataset_type=dataset_type,
+        model_name=model,
+        correction_method=correction_method,
+        original_prior=original_prior,
+        model_prior=model_prior,
+    )
+    if result.get("ok"):
+        save_checkpoint()
+    return result

@@ -10,6 +10,7 @@ const BASE =
 type ColumnInfo = {
   name: string;
   dtype?: string;
+  role?: "feature" | "target";
 };
 
 type MissingStats = {
@@ -37,6 +38,7 @@ export default function Step04_MissingValues() {
   const [columns, setColumns] = useState<ColumnInfo[]>([]);
   const [missingStats, setMissingStats] = useState<Record<string, MissingStats>>({});
   const [usingLocalDataset, setUsingLocalDataset] = useState(false);
+  const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [missingConfig, setMissingConfig] = useState<MissingConfig>({});
   const [globalStrategy, setGlobalStrategy] = useState<MissingStrategy>("None");
   const [globalConstantValue, setGlobalConstantValue] = useState("");
@@ -52,15 +54,18 @@ export default function Step04_MissingValues() {
       try {
         let cols: ColumnInfo[] = [];
         let localDataset: LocalDataset | null = null;
+        let stats: Record<string, MissingStats> = {};
 
         try {
-          const res = await fetch(`${BASE}/columns`);
+          const res = await fetch(`${BASE}/missing/summary`);
           const js = await res.json();
           cols =
             js?.columns?.map((c: any) => ({
               name: c.name ?? c[0] ?? c,
               dtype: c.dtype ?? c[1] ?? undefined,
+              role: c.role ?? "feature",
             })) ?? [];
+          stats = js?.stats ?? {};
         } catch {
           cols = [];
         }
@@ -72,7 +77,6 @@ export default function Step04_MissingValues() {
           }
         }
 
-        const stats: Record<string, MissingStats> = {};
         if (localDataset) {
           for (const col of cols) {
             const values = localDataset.rows.map((row) => row[col.name]);
@@ -127,11 +131,13 @@ export default function Step04_MissingValues() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const numericCols = columns.filter((c) =>
+  const featureColumns = columns.filter((c) => c.role !== "target");
+  const numericCols = featureColumns.filter((c) =>
     (c.dtype || "").toLowerCase().match(/int|float|double|number|numeric/)
   );
   const categoricalCols = columns.filter(
     (c) =>
+      c.role !== "target" &&
       !(c.dtype || "")
         .toLowerCase()
         .match(/int|float|double|number|numeric/)
@@ -161,7 +167,7 @@ export default function Step04_MissingValues() {
   const applyGlobalStrategy = () => {
     setMissingConfig((prev) => {
       const next: MissingConfig = { ...prev };
-      columns.forEach((col) => {
+      featureColumns.forEach((col) => {
         next[col.name] = {
           ...(next[col.name] ?? { strategy: "None" }),
           strategy: globalStrategy,
@@ -185,6 +191,18 @@ export default function Step04_MissingValues() {
     } catch {
       // swallow; navigation should still work
     }
+    const res = await fetch(`${BASE}/missing/apply`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ config: missingConfig }),
+    });
+    const data = await res.json().catch(() => null);
+    if (!res.ok || !data?.ok) {
+      throw new Error(data?.error || data?.detail || "Missing-value imputation failed.");
+    }
+    setStatusMessage(
+      `Applied missing-value handling. Missing cells before: ${data.missing_before?.toLocaleString?.() ?? data.missing_before}; after: ${data.missing_after?.toLocaleString?.() ?? data.missing_after}.`
+    );
   };
 
   const strategyOptions: MissingStrategy[] = [
@@ -244,6 +262,11 @@ export default function Step04_MissingValues() {
           <div className="text-xs text-gray-500">
             Apply a default strategy globally, then override individual features in the tables.
           </div>
+        </div>
+      )}
+      {statusMessage && (
+        <div className="mb-4 rounded border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">
+          {statusMessage}
         </div>
       )}
       <div className="grid gap-6 md:grid-cols-2">

@@ -13,6 +13,9 @@ class ResultStore:
         self.training_timestamp: Optional[str] = None
         self.model_availability: Dict[str, bool] = {}
         self.model_artifacts: Dict[str, Any] = {}
+        self.final_model: Optional[Any] = None
+        self.final_model_metadata: Optional[Dict[str, Any]] = None
+        self.scoring_reference: Optional[Dict[str, Any]] = None
 
     def set_last_summary(self, summary: Dict[str, Any]):
         self.last_training_summary = summary
@@ -35,6 +38,22 @@ class ResultStore:
 
     def get_model_artifacts(self) -> Dict[str, Any]:
         return self.model_artifacts
+
+    def set_final_model(self, model: Any, metadata: Dict[str, Any]):
+        self.final_model = model
+        self.final_model_metadata = metadata
+
+    def get_final_model(self) -> Optional[Any]:
+        return self.final_model
+
+    def get_final_model_metadata(self) -> Optional[Dict[str, Any]]:
+        return self.final_model_metadata
+
+    def set_scoring_reference(self, reference: Dict[str, Any]):
+        self.scoring_reference = reference
+
+    def get_scoring_reference(self) -> Optional[Dict[str, Any]]:
+        return self.scoring_reference
 
 
 RESULTS = ResultStore()

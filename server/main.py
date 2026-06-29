@@ -14,11 +14,13 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # Core in-memory store
 from .core.dataset_store import DATASTORE
+from .core.session_checkpoint import load_checkpoint, save_checkpoint
 
 # Modular routers
 from .core.metadata_router import router as metadata_router
 from .eda.eda_router import router as eda_router
 from .preprocessing.outlier_router import router as outlier_router
+from .preprocessing.missing_router import router as missing_router
 from .splitting.split_router import router as split_router
 from .training.trainer_router import router as trainer_router
 from .evaluation.eval_router import router as eval_router
@@ -70,6 +72,10 @@ def create_app() -> FastAPI:
     def health() -> Dict[str, Any]:
         return {"ok": True, "status": "running"}
 
+    @app.on_event("startup")
+    def restore_session_checkpoint() -> None:
+        load_checkpoint()
+
     # -------------------------------------------------------------------------
     # Data Acquisition – optional CSV upload endpoint (Step01 alternative)
     # -------------------------------------------------------------------------
@@ -91,6 +97,7 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=400, detail="Uploaded CSV has no rows.")
 
         DATASTORE.set_raw(df)
+        save_checkpoint()
 
         return {
             "ok": True,
@@ -113,6 +120,7 @@ def create_app() -> FastAPI:
     app.include_router(metadata_router, prefix="/api", tags=["Metadata"])
     app.include_router(eda_router, prefix="/api/eda", tags=["EDA"])
     app.include_router(outlier_router, prefix="/api/outliers", tags=["Outliers"])
+    app.include_router(missing_router, prefix="/api/missing", tags=["Missing Values"])
     app.include_router(split_router, prefix="/api/balancing_split", tags=["Splitting & Balancing"])
     app.include_router(trainer_router, prefix="/api", tags=["Training"])
     app.include_router(eval_router, prefix="/api", tags=["Evaluation"])

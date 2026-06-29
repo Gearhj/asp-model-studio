@@ -11,7 +11,8 @@ type StepId =
   | "step06"
   | "step07"
   | "step08"
-  | "step09";
+  | "step09"
+  | "step10";
 
 type StepStatus = "pending" | "in_progress" | "completed";
 
@@ -46,6 +47,7 @@ const initialSteps: Record<StepId, StepStatus> = {
   step07: "pending",
   step08: "pending",
   step09: "pending",
+  step10: "pending",
 };
 
 export const useWorkflowStore = create<WorkflowState>()(
@@ -66,6 +68,7 @@ export const useWorkflowStore = create<WorkflowState>()(
         "step07", // Model Training
         "step08", // Evaluation
         "step09", // Model Interpretation
+        "step10", // Final Scoring
       ],
 
       paths: {
@@ -79,6 +82,7 @@ export const useWorkflowStore = create<WorkflowState>()(
         step07: "/step07",
         step08: "/step08",
         step09: "/step09",
+        step10: "/step10",
       },
 
       setHasDataset: (v) => set({ hasDataset: v }),

@@ -237,28 +237,29 @@ export default function Step02_EDA() {
         </div>
       </div>
 
-      {/* Row 2: Heatmap */}
-      <div className="rounded border bg-white p-4 mt-6">
-        <div className="text-sm font-medium mb-2">Correlation Heatmap</div>
-        {usingLocalDataset && localDataset ? (
-          <LocalCorrelation dataset={localDataset} samplePct={samplePct} />
-        ) : (
-          <ErrorBoundary title="Heatmap failed to render">
-            <D3Heatmap samplePct={samplePct} limit={20} />
-          </ErrorBoundary>
-        )}
-      </div>
+      {/* Relationship analysis */}
+      <div className="grid grid-cols-1 gap-6 mt-6 2xl:grid-cols-2">
+        <div className="rounded border bg-white p-4">
+          <div className="text-sm font-medium mb-2">Correlation Heatmap</div>
+          {usingLocalDataset && localDataset ? (
+            <LocalCorrelation dataset={localDataset} samplePct={samplePct} />
+          ) : (
+            <ErrorBoundary title="Heatmap failed to render">
+              <D3Heatmap samplePct={samplePct} limit={20} />
+            </ErrorBoundary>
+          )}
+        </div>
 
-      {/* Row 3: Pairwise */}
-      <div className="rounded border bg-white p-4 mt-6">
-        <div className="text-sm font-medium mb-2">Pairwise Plots</div>
-        {usingLocalDataset && localDataset ? (
-          <LocalPairwisePlot dataset={localDataset} samplePct={samplePct} />
-        ) : (
-          <ErrorBoundary title="Pairwise plots failed to render">
-            <D3Pairplot samplePct={samplePct} />
-          </ErrorBoundary>
-        )}
+        <div className="rounded border bg-white p-4">
+          <div className="text-sm font-medium mb-2">Pairwise Plots</div>
+          {usingLocalDataset && localDataset ? (
+            <LocalPairwisePlot dataset={localDataset} samplePct={samplePct} />
+          ) : (
+            <ErrorBoundary title="Pairwise plots failed to render">
+              <D3Pairplot samplePct={samplePct} />
+            </ErrorBoundary>
+          )}
+        </div>
       </div>
 
       {/* Bottom nav */}
@@ -388,7 +389,7 @@ function LocalCorrelation({ dataset, samplePct }: { dataset: LocalDataset; sampl
   }
 
   return (
-    <div className="overflow-auto">
+    <div className="max-h-[660px] overflow-auto rounded-xl bg-slate-50 p-3">
       <table className="text-xs">
         <thead>
           <tr>

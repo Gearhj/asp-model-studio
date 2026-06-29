@@ -10,6 +10,7 @@ import Step06BalancingSplit from "../steps/Step06_BalancingSplit";
 import Step07Train from "../steps/Step06_Train";
 import Step08Evaluation from "../steps/Step08_Evaluation";
 import Step09Interpretation from "../steps/Step09_Interpretation";
+import Step10Scoring from "../steps/Step10_Scoring";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const workflowStepIds = [
@@ -22,9 +23,10 @@ const workflowStepIds = [
   "step07",
   "step08",
   "step09",
+  "step10",
 ] as const;
 
-const stepLabels = ["Data", "EDA", "Outliers", "Missing", "Features", "Split", "Train", "Evaluate", "Interpret"];
+const stepLabels = ["Data", "EDA", "Outliers", "Missing", "Features", "Split", "Train", "Evaluate", "Interpret", "Score"];
 
 export default function ModelingApp() {
   const steps = useWorkflowStore((state) => state.steps);
@@ -54,7 +56,7 @@ export default function ModelingApp() {
                     <span>{completed} of {workflowStepIds.length} steps complete</span>
                     <span>{progress}%</span>
                   </div>
-                  <div className="grid grid-cols-9 gap-1">
+                  <div className="grid grid-cols-10 gap-1">
                     {stepLabels.map((label, index) => (
                       <div key={label} className="min-w-0">
                         <div
@@ -84,6 +86,7 @@ export default function ModelingApp() {
               <Route path="/step07" element={<Step07Train />} />
               <Route path="/step08" element={<Step08Evaluation />} />
               <Route path="/step09" element={<Step09Interpretation />} />
+              <Route path="/step10" element={<Step10Scoring />} />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </main>

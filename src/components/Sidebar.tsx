@@ -6,6 +6,7 @@ import {
   Gauge,
   LineChart,
   Microscope,
+  UploadCloud,
   ScanSearch,
   Settings2,
   Shuffle,
@@ -24,6 +25,7 @@ const items = [
   { to: "/step07", label: "Model Training", icon: SlidersHorizontal, id: "step07" },
   { to: "/step08", label: "Evaluation", icon: LineChart, id: "step08" },
   { to: "/step09", label: "Interpretation", icon: Microscope, id: "step09" },
+  { to: "/step10", label: "Scoring", icon: UploadCloud, id: "step10" },
 ] as const;
 
 export default function Sidebar() {
