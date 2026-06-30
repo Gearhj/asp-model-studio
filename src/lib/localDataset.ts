@@ -3,6 +3,9 @@ export type LocalDataset = {
   rows: Record<string, unknown>[];
   target: string | null;
   selected_columns: string[];
+  problem_type?: "classification" | "regression";
+  data_access?: import("./enterpriseDataAccess").DataAccessMetadata;
+  data_quality?: import("./enterpriseDataAccess").DataQualitySummary;
 };
 
 const STORAGE_KEY = "modeling-tool-dataset";
@@ -34,10 +37,33 @@ export function loadLocalDataset(): LocalDataset | null {
       rows: parsed.rows as Record<string, unknown>[],
       target: parsed.target ?? null,
       selected_columns: parsed.selected_columns ?? parsed.headers.filter((header) => header !== parsed.target),
+      problem_type:
+        parsed.problem_type === "classification" || parsed.problem_type === "regression"
+          ? parsed.problem_type
+          : undefined,
+      data_access: parsed.data_access,
+      data_quality: parsed.data_quality,
     };
   } catch {
     return null;
   }
+}
+
+export function inferLocalProblemType(dataset: LocalDataset | null): "classification" | "regression" | null {
+  if (!dataset?.rows.length || !dataset.target) return null;
+  if (dataset.problem_type === "classification" || dataset.problem_type === "regression") {
+    return dataset.problem_type;
+  }
+
+  const values = dataset.rows
+    .map((row) => row[dataset.target as string])
+    .filter((value) => value !== null && value !== undefined && String(value).trim() !== "");
+  if (!values.length) return null;
+
+  const numericCount = values.filter((value) => Number.isFinite(Number(value))).length;
+  const uniqueCount = new Set(values.map((value) => String(value))).size;
+  if (numericCount / values.length >= 0.9 && uniqueCount > 10) return "regression";
+  return "classification";
 }
 
 export function inferLocalColumns(dataset: LocalDataset) {

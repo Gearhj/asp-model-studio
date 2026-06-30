@@ -1,767 +1,745 @@
-// src/steps/Step01_DataAcquisition.tsx
-import StepShell from "../components/StepShell";
-import { useWorkflowStore } from "../state/useWorkflowStore";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { saveLocalDataset } from "../lib/localDataset";
+import StepShell from "../components/StepShell";
+import { logDecision } from "../lib/decisionJournal";
+import {
+  buildDataAccessMetadata,
+  inferDataQuality,
+  loadDataAccessMetadata,
+  loadDatasetVersions,
+  queryTemplates,
+  recordDatasetVersion,
+  saveDataAccessMetadata,
+  validateSql,
+  type DataAccessMetadata,
+  type DataQualitySummary,
+  type DataSourceType,
+  type SamplingMethod,
+} from "../lib/enterpriseDataAccess";
+import { saveLocalDataset, type LocalDataset } from "../lib/localDataset";
+import { useWorkflowStore } from "../state/useWorkflowStore";
 
-// Safe BASE: prefer env var; fall back to local dev API; strip any trailing slash
 const BASE =
   (import.meta.env?.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
   "http://127.0.0.1:8001/api";
 
-/* ---------- small helpers ---------- */
-function parseCSV(text: string) {
-  const lines = text.replace(/\r/g, "").split("\n").filter((l) => l.trim().length);
-  if (!lines.length) return { headers: [], rows: [] as Record<string, any>[] };
+const sourceCards: { id: DataSourceType; title: string; body: string }[] = [
+  { id: "upload", title: "Upload File", body: "CSV and JSON parse locally. Excel, Parquet, Feather, SAS, Pickle, and ZIP are staged for backend import." },
+  { id: "sql", title: "SQL Database", body: "Author governed SQL, validate queries, capture lineage, and generate Python extraction code." },
+  { id: "cloud", title: "Cloud Storage", body: "Document S3, Azure Blob, GCS, SharePoint, or OneDrive paths for governed ingestion." },
+  { id: "existing", title: "Existing Dataset", body: "Reuse previously imported project datasets and preserve dataset version history." },
+  { id: "python", title: "Python Loader", body: "Advanced users can document Python or Spark loading logic that assigns the final dataframe to df." },
+];
 
-  // split respecting double-quotes
-  const split = (line: string) => {
-    const out: string[] = [];
-    let cur = "";
-    let inQ = false;
-    for (let i = 0; i < line.length; i++) {
-      const c = line[i];
-      if (c === '"') inQ = !inQ;
-      else if (c === "," && !inQ) {
-        out.push(cur);
-        cur = "";
-      } else cur += c;
+const databaseProviders = ["Oracle", "SQL Server", "PostgreSQL", "MySQL", "Snowflake", "BigQuery", "Databricks SQL", "Teradata", "SQLite", "DuckDB"];
+const cloudProviders = ["AWS S3", "Azure Blob Storage", "Google Cloud Storage", "SharePoint", "OneDrive"];
+
+function parseDelimitedLine(line: string) {
+  const out: string[] = [];
+  let cur = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') inQuotes = !inQuotes;
+    else if (c === "," && !inQuotes) {
+      out.push(cur);
+      cur = "";
+    } else {
+      cur += c;
     }
-    out.push(cur);
-    return out.map((s) => s.replace(/^"(.*)"$/s, "$1"));
-  };
-
-  const headers = split(lines[0]).map((h) => h.trim());
-  const rows: Record<string, any>[] = [];
-
-  for (let i = 1; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line || !line.trim()) continue;
-    const parts = split(line);
-    const r: Record<string, any> = {};
-    for (let j = 0; j < headers.length; j++) {
-      const k = headers[j];
-      let v: any = parts[j] ?? "";
-      // attempt numeric cast
-      if (v !== "" && !Number.isNaN(Number(v))) {
-        const n = Number(v);
-        if (Number.isFinite(n)) v = n;
-      }
-      r[k] = v;
-    }
-    rows.push(r);
   }
+  out.push(cur);
+  return out.map((value) => value.replace(/^"(.*)"$/s, "$1").trim());
+}
+
+function coerce(value: string) {
+  if (value === "") return "";
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : value;
+}
+
+function parseCSV(text: string) {
+  const lines = text.replace(/\r/g, "").split("\n").filter((line) => line.trim().length);
+  if (!lines.length) return { headers: [] as string[], rows: [] as Record<string, unknown>[] };
+  const headers = parseDelimitedLine(lines[0]);
+  const rows = lines.slice(1).map((line) => {
+    const values = parseDelimitedLine(line);
+    const row: Record<string, unknown> = {};
+    headers.forEach((header, index) => {
+      row[header] = coerce(values[index] ?? "");
+    });
+    return row;
+  });
   return { headers, rows };
 }
 
-function isNumericVector(vals: any[]) {
-  let n = 0;
-  let k = 0;
-  for (const v of vals) {
-    k++;
-    if (v === null || v === undefined || v === "") continue;
-    const num = Number(v);
-    if (Number.isFinite(num)) n++;
-  }
-  return n / Math.max(1, k) >= 0.6;
+function parseJSON(text: string) {
+  const parsed = JSON.parse(text);
+  const rows = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.data) ? parsed.data : [];
+  if (!Array.isArray(rows) || !rows.length) return { headers: [] as string[], rows: [] as Record<string, unknown>[] };
+  const headers = Array.from(new Set(rows.flatMap((row) => Object.keys(row ?? {}))));
+  return { headers, rows: rows as Record<string, unknown>[] };
 }
 
-function summarizeNumeric(vals: number[]) {
-  const clean = vals.filter((v) => Number.isFinite(v));
-  if (!clean.length)
-    return {
-      min: null,
-      max: null,
-      mean: null,
-      median: null,
-      mode: null,
-      q1: null,
-      q3: null,
-      sd: null,
-    };
-  const sorted = [...clean].sort((a, b) => a - b);
-  const n = sorted.length;
-  const mean = sorted.reduce((acc, v) => acc + v, 0) / n;
-  const quant = (p: number) => {
-    const idx = (n - 1) * p;
-    const lo = Math.floor(idx);
-    const hi = Math.ceil(idx);
-    const h = idx - lo;
-    return (1 - h) * sorted[lo] + h * sorted[hi];
+function isNumericVector(vals: unknown[]) {
+  const nonMissing = vals.filter((value) => value !== null && value !== undefined && String(value).trim() !== "");
+  if (!nonMissing.length) return false;
+  return nonMissing.filter((value) => Number.isFinite(Number(value))).length / nonMissing.length >= 0.6;
+}
+
+function targetMeta(rows: Record<string, unknown>[], target: string) {
+  if (!target) return { kind: "none" as const, eventRate: null as number | null };
+  const vals = rows.map((row) => row[target]);
+  if (!isNumericVector(vals)) {
+    const counts = new Map<string, number>();
+    vals.forEach((value) => counts.set(String(value), (counts.get(String(value)) ?? 0) + 1));
+    const sorted = Array.from(counts.values()).sort((a, b) => b - a);
+    const total = sorted.reduce((sum, count) => sum + count, 0);
+    const event = total - (sorted[0] ?? 0);
+    return { kind: "binary" as const, eventRate: total ? event / total : null };
+  }
+  const ones = vals.filter((value) => Number(value) === 1).length;
+  const zeros = vals.filter((value) => Number(value) === 0).length;
+  if (ones + zeros >= vals.length * 0.8) return { kind: "binary" as const, eventRate: vals.length ? ones / vals.length : null };
+  return { kind: "continuous" as const, eventRate: null };
+}
+
+function summarizeColumn(rows: Record<string, unknown>[], column: string, target: string) {
+  const values = rows.map((row) => row[column]);
+  const missing = values.filter((value) => value === null || value === undefined || String(value).trim() === "").length;
+  const numeric = isNumericVector(values);
+  const distinct = new Set(values.map(String)).size;
+  if (!numeric) return { type: "Categorical", missingPct: rows.length ? missing / rows.length : 0, distinct, mean: null, min: null, max: null };
+  const nums = values.map(Number).filter(Number.isFinite);
+  const mean = nums.length ? nums.reduce((sum, value) => sum + value, 0) / nums.length : null;
+  return {
+    type: column === target ? "Target" : "Numeric",
+    missingPct: rows.length ? missing / rows.length : 0,
+    distinct,
+    mean,
+    min: nums.length ? Math.min(...nums) : null,
+    max: nums.length ? Math.max(...nums) : null,
   };
-  const median = quant(0.5);
-  const q1 = quant(0.25);
-  const q3 = quant(0.75);
-  // mode (coarse)
-  const counts = new Map<number, number>();
-  for (const v of clean) counts.set(v, (counts.get(v) ?? 0) + 1);
-  let mode: number | null = null;
-  let best = 0;
-  for (const [v, c] of counts.entries()) if (c > best) { best = c; mode = v; }
-  // std deviation (unbiased)
-  const variance = clean.reduce((acc, v) => acc + (v - mean) * (v - mean), 0) / (n - 1 || 1);
-  const sd = Math.sqrt(variance);
-  return { min: sorted[0], max: sorted[n - 1], mean, median, mode, q1, q3, sd };
 }
 
-function ivBinning(x: any[], y: (0 | 1)[], bins = 10) {
-  // quick IV calc for numeric vectors using quantile bins
-  const clean: Array<{ x: number; y: 0 | 1 }> = [];
-  for (let i = 0; i < x.length; i++) {
-    const xv = Number(x[i]);
-    const yv = Number(y[i]);
-    if (Number.isFinite(xv) && (yv === 0 || yv === 1)) clean.push({ x: xv, y: yv as 0 | 1 });
-  }
-  if (clean.length < 5) return 0;
-  clean.sort((a, b) => a.x - b.x);
-  const q = (p: number) => {
-    const idx = (clean.length - 1) * p;
-    const lo = Math.floor(idx), hi = Math.ceil(idx);
-    const h = idx - lo;
-    return (1 - h) * clean[lo].x + h * clean[hi].x;
-  };
-  const edges = [clean[0].x];
-  for (let i = 1; i < bins; i++) edges.push(q(i / bins));
-  edges.push(clean[clean.length - 1].x + 1e-9);
-
-  let iv = 0;
-  const nEvents = clean.filter((r) => r.y === 1).length;
-  const nNone = clean.length - nEvents;
-  for (let b = 0; b < edges.length - 1; b++) {
-    const lo = edges[b], hi = edges[b + 1];
-    let e = 0, ne = 0;
-    for (const r of clean) {
-      if (r.x >= lo && r.x < hi) {
-        if (r.y === 1) e++; else ne++;
-      }
-    }
-    const pe = e / Math.max(1, nEvents);
-    const pne = ne / Math.max(1, nNone);
-    if (pe > 0 && pne > 0) {
-      iv += (pe - pne) * Math.log(pe / pne);
-    }
-  }
-  return iv;
+function formatNumber(value: unknown, digits = 4) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric.toFixed(digits) : "-";
 }
 
-/* formatting helper: four decimals when numeric, else as-is */
-function fmt4(v: any): string {
-  if (v === null || v === undefined || v === "") return "—";
-  const n = Number(v);
-  return Number.isFinite(n) ? n.toFixed(4) : String(v);
+function formatPercent(value: unknown) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? `${(numeric * 100).toFixed(2)}%` : "-";
 }
 
-/* ---------- component ---------- */
-export default function Step01_DataAcquisition() {
-  // ❗ removed s.set; we’ll use useWorkflowStore.setState for a null-safe write
-  const trainSpec = useWorkflowStore((s) => (s as any)?.trainSpec);
+function applySampling(rows: Record<string, unknown>[], method: SamplingMethod, detail: string) {
+  const n = Number(detail) || 1000;
+  if (method === "top_n") return rows.slice(0, Math.max(1, n));
+  if (method === "sample") return rows.slice(0, Math.min(rows.length, Math.max(1, n)));
+  if (method === "random") return [...rows].sort(() => Math.random() - 0.5).slice(0, Math.min(rows.length, Math.max(1, n)));
+  return rows;
+}
+
+export default function Step01DataAcquisition() {
   const navigate = useNavigate();
-
-  const [fileName, setFileName] = useState<string>("");
+  const [sourceType, setSourceType] = useState<DataSourceType>("upload");
   const [headers, setHeaders] = useState<string[]>([]);
-  const [rows, setRows] = useState<Record<string, any>[]>([]);
-  const [target, setTarget] = useState<string>("");
+  const [rows, setRows] = useState<Record<string, unknown>[]>([]);
+  const [fileName, setFileName] = useState("");
+  const [message, setMessage] = useState("");
+  const [target, setTarget] = useState("");
   const [kept, setKept] = useState<Record<string, boolean>>({});
+  const [samplingMethod, setSamplingMethod] = useState<SamplingMethod>("full");
+  const [samplingDetail, setSamplingDetail] = useState("1000");
+  const [connectionName, setConnectionName] = useState("Development connection");
+  const [provider, setProvider] = useState("Oracle");
+  const [database, setDatabase] = useState("");
+  const [schema, setSchema] = useState("");
+  const [sql, setSql] = useState(queryTemplates()[0].sql);
+  const [savedQueries, setSavedQueries] = useState<string[]>([]);
+  const [favoriteQueries, setFavoriteQueries] = useState<string[]>([]);
+  const [cloudProvider, setCloudProvider] = useState("AWS S3");
+  const [cloudPath, setCloudPath] = useState("");
+  const [pythonCode, setPythonCode] = useState("import pandas as pd\n\n# Assign final dataframe to df\n# df = pd.read_sql(...)\n");
+  const [metadata, setMetadata] = useState<DataAccessMetadata | null>(() => loadDataAccessMetadata());
+  const [quality, setQuality] = useState<DataQualitySummary | null>(null);
+  const datasetVersions = loadDatasetVersions();
 
-  // file read progress
-  const [isReading, setIsReading] = useState(false);
-  const [readPct, setReadPct] = useState(0);
-  const [saveWarning, setSaveWarning] = useState("");
+  const sampleRows = useMemo(() => applySampling(rows, samplingMethod, samplingDetail).slice(0, 5000), [rows, samplingMethod, samplingDetail]);
+  const previewRows = sampleRows.slice(0, 100);
+  const targetInfo = useMemo(() => targetMeta(sampleRows, target), [sampleRows, target]);
+  const selectable = headers.filter((header) => header !== target);
+  const selected = selectable.filter((header) => kept[header]);
+  const sqlWarnings = useMemo(() => validateSql(sql), [sql]);
+  const generatedMetadata = useMemo(() => {
+    if (!headers.length) return null;
+    return buildDataAccessMetadata({
+      dataset: { headers, rows: sampleRows, target },
+      sourceType,
+      sourceLabel: sourceType === "sql" ? `${provider} SQL` : sourceType === "cloud" ? cloudProvider : sourceType === "python" ? "Python loader" : fileName || "Uploaded file",
+      fileName,
+      fileType: fileName.split(".").pop(),
+      connectionName,
+      provider,
+      database,
+      schema,
+      sqlQuery: sourceType === "sql" ? sql : undefined,
+      cloudProvider: sourceType === "cloud" ? cloudProvider : undefined,
+      cloudPath: sourceType === "cloud" ? cloudPath : undefined,
+      pythonCode: sourceType === "python" ? pythonCode : undefined,
+      samplingMethod,
+      samplingDetail,
+    });
+  }, [headers, sampleRows, target, sourceType, provider, cloudProvider, fileName, connectionName, database, schema, sql, cloudPath, pythonCode, samplingMethod, samplingDetail]);
 
-  // parse upload with progress indicator
-  const onFile = (f: File) => {
-    const rdr = new FileReader();
-    setIsReading(true);
-    setReadPct(0);
+  const variableSummary = useMemo(
+    () =>
+      headers.map((column) => ({
+        column,
+        ...summarizeColumn(sampleRows, column, target),
+      })),
+    [headers, sampleRows, target]
+  );
 
-    rdr.onprogress = (e) => {
-      if (e.lengthComputable && e.total > 0) {
-        const pct = Math.min(100, Math.round((e.loaded / e.total) * 100));
-        setReadPct(pct);
-      }
-    };
-    rdr.onload = () => {
-      const { headers, rows } = parseCSV(String(rdr.result ?? ""));
-      setHeaders(headers);
-      setRows(rows);
-      setFileName(f.name);
+  async function onFile(file: File) {
+    setMessage("");
+    setFileName(file.name);
+    const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+    const textFormats = ["csv", "txt", "json"];
+    if (!textFormats.includes(extension)) {
+      setMessage(`${extension.toUpperCase()} files are recognized but require backend parser support before they can be loaded into the browser preview.`);
+      return;
+    }
+    try {
+      const text = await file.text();
+      const parsed = extension === "json" ? parseJSON(text) : parseCSV(text);
+      setHeaders(parsed.headers);
+      setRows(parsed.rows);
       const keep: Record<string, boolean> = {};
-      headers.forEach((h) => (keep[h] = true));
+      parsed.headers.forEach((header) => {
+        keep[header] = true;
+      });
       setKept(keep);
-      if (!target) {
-        // guess target if common names exist
-        const guess =
-          headers.find((h) => /^(fraud|label|target|class|y|bad|default|outcome|response|event)$/i.test(h)) ??
-          headers.find((h) => /target/i.test(h)) ??
-          "";
-        setTarget(guess);
-      }
-      setReadPct(100);
-      setTimeout(() => setIsReading(false), 250); // brief success linger
-    };
-    rdr.onerror = () => {
-      setIsReading(false);
-      alert("Failed to read file. Please confirm it is a UTF-8 CSV.");
-    };
-    rdr.readAsText(f);
-  };
-
-  // sample for previews (cap to 50k like server)
-  const sample = useMemo(() => rows.slice(0, 50000), [rows]);
-
-  // infer target meta
-  const targetMeta = useMemo(() => {
-    if (!target || !headers.includes(target)) return { kind: "none", eventRate: null } as {
-      kind: "none" | "binary" | "continuous";
-      eventRate: number | null;
-    };
-    const vals = sample.map((r) => r[target]);
-    const numeric = isNumericVector(vals);
-    if (!numeric) {
-      // treat as categorical -> estimate event rate using minority class
-      const counts = new Map<string, number>();
-      for (const v of vals) counts.set(String(v), (counts.get(String(v)) ?? 0) + 1);
-      const entries = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
-      const total = entries.reduce((a, [, c]) => a + c, 0);
-      const nonEvent = entries[0]?.[1] ?? 0;
-      const event = total - nonEvent;
-      return { kind: "binary", eventRate: total ? event / total : null };
+      const guessedTarget =
+        parsed.headers.find((header) => /^(target|label|class|bad|default|fraud|response|outcome|event)$/i.test(header)) ??
+        parsed.headers.find((header) => /target|label|outcome/i.test(header)) ??
+        "";
+      setTarget(guessedTarget);
+      const dq = inferDataQuality({ headers: parsed.headers, rows: parsed.rows.slice(0, 5000), target: guessedTarget || null });
+      setQuality(dq);
+      logDecision({
+        workflowStep: "Data Acquisition",
+        actionType: "workflow_setting_changed",
+        subject: "Data source",
+        previousValue: metadata?.sourceLabel,
+        newValue: `Uploaded ${file.name}`,
+        systemRecommendation: "Capture data source, version, sampling method, and data quality immediately after import.",
+        followStatus: "followed",
+      });
+    } catch (err: any) {
+      setMessage(err?.message ?? "Unable to parse file.");
     }
-    // numeric
-    const ones = vals.filter((v) => Number(v) === 1).length;
-    const zeros = vals.filter((v) => Number(v) === 0).length;
-    const total = vals.length;
-    if (ones + zeros >= total * 0.8) {
-      return { kind: "binary", eventRate: total ? ones / total : null };
+  }
+
+  function saveQueryMetadata() {
+    const stubHeaders = ["customer_id", "observation_date", "target", "feature_1", "feature_2"];
+    const stubRows: Record<string, unknown>[] = [];
+    setHeaders(stubHeaders);
+    setRows(stubRows);
+    const keep: Record<string, boolean> = {};
+    stubHeaders.forEach((header) => {
+      keep[header] = header !== "target";
+    });
+    setKept(keep);
+    setTarget("target");
+    setMessage("SQL metadata saved. Real query execution requires a backend connector; upload query output or connect the backend to populate rows.");
+  }
+
+  async function persistDataset() {
+    if (!headers.length) throw new Error("No dataset or query metadata is available.");
+    const selectedColumns = selected.length ? selected : selectable;
+    const meta = generatedMetadata;
+    const dq = quality ?? inferDataQuality({ headers, rows: sampleRows, target: target || null });
+    const payload: LocalDataset = {
+      headers,
+      rows: sampleRows,
+      target: target || null,
+      selected_columns: selectedColumns,
+      problem_type: targetInfo.kind === "continuous" ? "regression" : "classification",
+      data_access: meta ?? undefined,
+      data_quality: dq,
+    };
+    const localSaveStatus = saveLocalDataset(payload);
+    if (meta) {
+      saveDataAccessMetadata(meta);
+      recordDatasetVersion(payload, meta);
+      setMetadata(meta);
     }
-    return { kind: "continuous", eventRate: null };
-  }, [headers, sample, target]);
-
-  // selected columns to carry forward
-  const selectable = headers.filter((h) => h !== target);
-  const selected = selectable.filter((h) => kept[h]);
-
-  // push selection + target to the store (so later steps can read it)
-  const persistSelection = () => {
-    const prior = (trainSpec ?? {}) as any;
-    const priorData = (prior?.data ?? {}) as any;
-
-    // ✅ null-safe Zustand write without requiring a custom `set` action
-    useWorkflowStore.setState((s: any) => ({
-      ...s,
-      hasDataset: rows.length > 0,
+    setQuality(dq);
+    useWorkflowStore.setState((state: any) => ({
+      ...state,
+      hasDataset: rows.length > 0 || headers.length > 0,
       trainSpec: {
-        ...(s?.trainSpec ?? prior),
+        ...(state?.trainSpec ?? {}),
         data: {
-          ...(s?.trainSpec?.data ?? priorData),
-          source: "uploaded",
-          n_samples: rows.length,
-          task: targetMeta.kind === "continuous" ? "regression" : "binary",
+          ...(state?.trainSpec?.data ?? {}),
+          source: sourceType,
+          n_samples: sampleRows.length,
+          task: targetInfo.kind === "continuous" ? "regression" : "binary",
           target,
-          selected_columns: selected.length ? selected : selectable,
+          selected_columns: selectedColumns,
+          dataset_version: meta?.version,
         },
       },
     }));
-  };
 
-  type SummRow = {
-    name: string;
-    type: "Numeric" | "Categorical";
-    n: number;
-    missing: number;
-    missingPct: number;
-    min: number | null;
-    max: number | null;
-    mean: number | null;
-    median: number | null;
-    mode: number | string | null;
-    sd: number | null;
-    iv: number | null;
-  };
+    window.setTimeout(() => {
+      fetch(`${BASE}/data/set_sample`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }).catch((err) => console.error("set_sample error:", err));
+    }, 0);
 
-  // variable summary (IV for numeric vs target if binary)
-  const summary: SummRow[] = useMemo(() => {
-    if (!headers.length) return [];
-    const out: SummRow[] = [];
-    for (const h of headers) {
-      const vals = sample.map((r) => r[h]);
-      const numeric = isNumericVector(vals);
-      const nMissing = vals.filter((v) => v === null || v === undefined || v === "").length;
-      const n = sample.length;
-      if (numeric) {
-        const numVals = vals.map((v) => Number(v)).filter((v) => Number.isFinite(v));
-        const s = summarizeNumeric(numVals);
-        let iv: number | null = null;
-        if (targetMeta.kind === "binary" && h !== target) {
-          const y = sample.map((r) => (Number(r[target]) === 1 ? 1 : 0)) as (0 | 1)[];
-          iv = ivBinning(numVals, y, 10);
-        }
-        out.push({
-          name: h,
-          type: "Numeric",
-          n,
-          missing: nMissing,
-          missingPct: n ? (nMissing / n) * 100 : 0,
-          min: s.min,
-          max: s.max,
-          mean: s.mean,
-          median: s.median,
-          mode: s.mode,
-          sd: s.sd,
-          iv,
-        });
-      } else {
-        // categorical – compute mode only
-        const cnt = new Map<string, number>();
-        for (const v of vals) {
-          const k = String(v);
-          cnt.set(k, (cnt.get(k) ?? 0) + 1);
-        }
-        let mode: string | null = null;
-        let best = 0;
-        for (const [k, c] of cnt) if (c > best) { best = c; mode = k; }
-        out.push({
-          name: h,
-          type: "Categorical",
-          n,
-          missing: nMissing,
-          missingPct: n ? (nMissing / n) * 100 : 0,
-          min: null,
-          max: null,
-          mean: null,
-          median: null,
-          mode,
-          sd: null,
-          iv: null,
-        });
-      }
-    }
-    // Sort: target first, then strongest IV, then name.
-    return out.sort((a, b) => {
-      if (a.name === target) return -1;
-      if (b.name === target) return 1;
-      const aIv = typeof a.iv === "number" ? a.iv : -1;
-      const bIv = typeof b.iv === "number" ? b.iv : -1;
-      if (aIv !== bIv) return bIv - aIv;
-      return a.name.localeCompare(b.name);
+    if (localSaveStatus === "sample") setMessage("A browser sample was cached for fast EDA. Full execution remains a backend responsibility for enterprise sources.");
+    logDecision({
+      workflowStep: "Data Acquisition",
+      actionType: "workflow_setting_changed",
+      subject: "Dataset version",
+      previousValue: metadata?.version,
+      newValue: meta?.version,
+      systemRecommendation: "Use dataset version, hash, source, query, and sampling metadata in model governance documentation.",
+      followStatus: "followed",
     });
-  }, [headers, sample, target, targetMeta]);
+  }
 
-  const triggerNext = () => {
-    const button = document.querySelector<HTMLButtonElement>("[data-step-next-button='true']");
-    button?.click();
-  };
-
-  const showRareEventNote =
-    targetMeta.kind === "binary" && targetMeta.eventRate !== null && targetMeta.eventRate < 0.10;
-
-  /* ---------- UI ---------- */
   return (
     <StepShell
-      title="Step 1: Data Acquisition"
-      subtitle="Upload a CSV file, preview the first 10 rows, and optionally select a target variable."
-      nextDisabled={!rows.length}
+      title="Step 1: Data Access & Data Acquisition"
+      subtitle="Connect to enterprise data sources, validate extraction logic, preview data, capture lineage, and persist the governed modeling dataset."
+      nextDisabled={!headers.length}
       onNext={async () => {
-        // persist safely (no exceptions on undefined)
-        persistSelection();
-
-        // send sample + metadata to backend so later pages read the same data
-        const selectable = headers.filter((h) => h !== target);
-        const selectedColumns = selectable.filter((h) => kept[h]);
-        const payload = {
-          headers,
-          // ✅ CHANGE: send full rows to backend so it has the complete dataset
-          rows,  // previously: rows.slice(0, 50000)
-          target: target || null,
-          selected_columns: (selectedColumns.length ? selectedColumns : selectable),
-        };
-
-        const localSaveStatus = saveLocalDataset(payload);
-        setSaveWarning("");
-        if (localSaveStatus === "sample") {
-          setSaveWarning(
-            "A 5,000-row browser sample was cached for fast EDA. The full dataset will be sent to the backend in the background if it is running."
-          );
-        } else if (localSaveStatus === "failed") {
-          setSaveWarning(
-            "The browser could not cache the uploaded rows locally. EDA will still try to read the dataset from the backend."
-          );
-        }
-
-        const primary = String(BASE).replace(/\/$/, "");
-        const fallback = "http://127.0.0.1:8001/api";
-
-        async function tryPost(baseUrl: string) {
-          const res = await fetch(`${baseUrl}/data/set_sample`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload),
-          });
-          const j = await res.json();
-          if (!j?.ok) throw new Error(`set_sample not ok (${baseUrl})`);
-          return j;
-        }
-
-        window.setTimeout(() => {
-          (async () => {
-            try {
-              try {
-                await tryPost(primary);
-              } catch {
-                if (primary !== fallback) {
-                  await tryPost(fallback);
-                  console.warn(`[DataAcquisition] VITE_API_BASE unreachable. Used fallback ${fallback}.`);
-                } else {
-                  throw new Error("primary failed and no fallback available");
-                }
-              }
-            } catch (err) {
-              console.error("set_sample error:", err);
-            }
-          })();
-        }, 0);
-
-        // hard-navigate to EDA to guarantee the next page is correct
-        navigate("/step02");
+        await persistDataset();
+        navigate("/step01b");
       }}
     >
-      {/* Upload */}
-      <div className="grid grid-cols-1 gap-4">
-        {saveWarning && (
-          <div className="rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-800">
-            {saveWarning}
-          </div>
-        )}
-        <div className="rounded-xl border border-gray-200 p-4">
-          <div className="text-sm font-medium mb-2">Upload CSV</div>
-          <div className="flex items-center gap-3">
-            <label className="inline-block">
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                className="hidden"
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) onFile(f);
-                }}
-              />
-              {/* @NOTE keep your exact visual affordance */}
-              <span className="px-3 py-2 rounded-lg bg-blue-600 text-white text-sm cursor-pointer">
-                Choose File
-              </span>
-            </label>
-            <div className="text-sm text-gray-700">
-              {fileName ? fileName : "UTF-8 CSV file; first row should contain column headers."}
-            </div>
-          </div>
+      <div className="space-y-5">
+        {message && <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{message}</div>}
 
-          {/* Read progress (green bar + spinner) */}
-          {isReading && (
-            <div className="mt-3">
-              <div className="flex items-center gap-2">
-                <div className="h-4 flex-1 rounded-full bg-emerald-100 overflow-hidden">
-                  <div
-                    className="h-4 bg-emerald-500"
-                    style={{ width: `${readPct}%`, transition: "width 200ms linear" }}
-                  />
-                </div>
-                <div className="flex items-center gap-2 w-24">
-                  <div className="w-4 h-4 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
-                  <div className="text-xs text-emerald-700 font-medium">{readPct}%</div>
-                </div>
-              </div>
-              <div className="text-[11px] text-gray-500 mt-1">
-                Reading file into memory. Large files may take a moment.
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Top stats */}
-        <div className="rounded-xl border p-4">
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div className="rounded-lg border p-3">
-              <div className="text-xs text-gray-500">Total Records</div>
-              <div className="text-lg font-semibold">{rows.length.toLocaleString()}</div>
-            </div>
-            <div className="rounded-lg border p-3">
-              <div className="text-xs text-gray-500">Total Features</div>
-              <div className="text-lg font-semibold">{headers.length}</div>
-            </div>
-            <div className="rounded-lg border p-3">
-              <div className="text-xs text-gray-500">Target</div>
-              <div className="text-lg font-semibold">
-                {target || "—"}
-              </div>
-            </div>
-            <div className="rounded-lg border p-3">
-              <div className="text-xs text-gray-500">Event Rate (sample)</div>
-              <div className="text-lg font-semibold">
-                {targetMeta.kind === "binary" && targetMeta.eventRate !== null
-                  ? `${(targetMeta.eventRate * 100).toFixed(2)}%`
-                  : "—"}
-              </div>
-            </div>
-          </div>
-          <div className="text-[11px] text-gray-400 mt-1">
-            Displaying charts and preview from a sample of 50,000 rows for performance.
-          </div>
-          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-indigo-100 bg-indigo-50 px-3 py-3">
-            <div>
-              <div className="text-sm font-semibold text-indigo-950">Ready to continue?</div>
-              <div className="text-xs text-indigo-800">Save the uploaded dataset and move to EDA when the target and kept variables look right.</div>
-            </div>
+        <section className="grid gap-3 md:grid-cols-5">
+          {sourceCards.map((card) => (
             <button
+              key={card.id}
               type="button"
-              disabled={!rows.length}
-              onClick={triggerNext}
-              className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300"
+              className={`rounded-xl border p-4 text-left shadow-sm transition ${sourceType === card.id ? "border-slate-950 bg-white" : "border-slate-200 bg-white/80 hover:bg-white"}`}
+              onClick={() => setSourceType(card.id)}
             >
-              Mark Complete & Next Step
+              <div className="text-sm font-semibold text-slate-950">{card.title}</div>
+              <p className="mt-2 text-xs leading-5 text-slate-500">{card.body}</p>
             </button>
-          </div>
-        </div>
+          ))}
+        </section>
 
-        {/* Target selection + plot + rare-event note */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="rounded-xl border p-4">
-            <div className="text-sm font-medium mb-2">Target Variable</div>
-            <select
-              className="w-full border rounded-lg p-2"
-              value={target}
-              onChange={(e) => setTarget(e.target.value)}
-            >
-              <option value="" disabled>
-                Select target…
-              </option>
-              {headers.map((h) => (
-                <option key={h} value={h}>
-                  {h}
-                </option>
-              ))}
-            </select>
+        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          {sourceType === "upload" && (
+            <UploadPanel fileName={fileName} onFile={onFile} />
+          )}
+          {sourceType === "sql" && (
+            <SqlPanel
+              provider={provider}
+              setProvider={setProvider}
+              connectionName={connectionName}
+              setConnectionName={setConnectionName}
+              database={database}
+              setDatabase={setDatabase}
+              schema={schema}
+              setSchema={setSchema}
+              sql={sql}
+              setSql={setSql}
+              warnings={sqlWarnings}
+              savedQueries={savedQueries}
+              favoriteQueries={favoriteQueries}
+              onTemplate={(template) => setSql(template)}
+              onSave={() => setSavedQueries((current) => [sql, ...current].slice(0, 8))}
+              onFavorite={() => setFavoriteQueries((current) => [sql, ...current.filter((item) => item !== sql)].slice(0, 5))}
+              onSaveMetadata={saveQueryMetadata}
+            />
+          )}
+          {sourceType === "cloud" && (
+            <CloudPanel cloudProvider={cloudProvider} setCloudProvider={setCloudProvider} cloudPath={cloudPath} setCloudPath={setCloudPath} />
+          )}
+          {sourceType === "existing" && (
+            <ExistingDatasetPanel versions={datasetVersions} />
+          )}
+          {sourceType === "python" && (
+            <PythonPanel pythonCode={pythonCode} setPythonCode={setPythonCode} />
+          )}
+        </section>
 
-            {/* Rare-event annotation */}
-            {showRareEventNote && (
-              <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3">
-                <div className="text-xs font-semibold text-amber-800 mb-1">
-                  Rare Event Detected (&lt; 10% positives)
-                </div>
-                <div className="text-xs text-amber-800">
-                  This looks like rare-event classification. Consider rebalancing in{" "}
-                  <span className="font-semibold">Balancing & Train/Test Split</span> to improve model learning.
-                </div>
+        <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+          <DataPreview
+            headers={headers}
+            rows={previewRows}
+            target={target}
+            setTarget={(next) => {
+              logDecision({
+                workflowStep: "Data Acquisition",
+                actionType: "target_variable_selected",
+                subject: "Target variable",
+                previousValue: target,
+                newValue: next,
+              });
+              setTarget(next);
+              if (rows.length) setQuality(inferDataQuality({ headers, rows: rows.slice(0, 5000), target: next || null }));
+            }}
+            samplingMethod={samplingMethod}
+            setSamplingMethod={setSamplingMethod}
+            samplingDetail={samplingDetail}
+            setSamplingDetail={setSamplingDetail}
+            targetInfo={targetInfo}
+          />
+          <DataQualityPanel quality={quality} metadata={generatedMetadata ?? metadata} />
+        </section>
+
+        {!!headers.length && (
+          <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h2 className="text-base font-semibold text-slate-950">Variable Summary</h2>
+                <p className="mt-1 text-sm text-slate-500">Review data types, missingness, distinct counts, and selected model inputs.</p>
               </div>
-            )}
-          </div>
-
-          <div className="rounded-xl border p-4">
-            <div className="text-sm font-medium mb-2">Target Distribution (sample)</div>
-            {target ? (
-              targetMeta.kind === "binary" ? (
-                <BinaryBar values={sample.map((r) => r[target])} />
-              ) : (
-                <Histogram values={sample.map((r) => Number(r[target]))} />
-              )
-            ) : (
-              <div className="text-sm text-gray-500">Select a target to view its distribution.</div>
-            )}
-          </div>
-        </div>
-
-        {/* Variable Summary + IV + Keep toggles */}
-        {summary.length > 0 && (
-          <div className="rounded-xl border p-4">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-medium">Variable Summary (sample)</div>
-              <div className="text-xs space-x-3">
-                <button
-                  className="text-indigo-600 hover:underline"
-                  onClick={() => {
-                    const all: Record<string, boolean> = {};
-                    headers.forEach((h) => (all[h] = h !== target));
-                    setKept(all);
-                  }}
-                >
-                  Select all
-                </button>
-                <button
-                  className="text-gray-600 hover:underline"
-                  onClick={() => {
-                    const none: Record<string, boolean> = {};
-                    headers.forEach((h) => (none[h] = false));
-                    setKept(none);
-                  }}
-                >
-                  None
-                </button>
+              <div className="flex gap-2">
+                <button className="rounded-lg border px-3 py-2 text-sm" onClick={() => setKept(Object.fromEntries(headers.map((header) => [header, header !== target])))}>Select all</button>
+                <button className="rounded-lg border px-3 py-2 text-sm" onClick={() => setKept(Object.fromEntries(headers.map((header) => [header, false])))}>None</button>
               </div>
             </div>
-            <div className="mt-2 text-xs text-gray-500">
-              Showing the strongest variables first. The table viewport displays about 20 rows at a time; scroll inside the table for the remaining features.
-            </div>
-
-            <div className="overflow-auto mt-3 max-h-[760px] rounded-lg border border-gray-100">
+            <div className="mt-4 max-h-[560px] overflow-auto rounded-lg border border-slate-200">
               <table className="min-w-full text-sm">
-                <thead className="sticky top-0 z-10 bg-white">
-                  <tr className="text-gray-600 shadow-sm">
-                    <th className="py-2 px-3 text-center">Keep</th>
-                    <th className="py-2 px-3 text-left">Variable</th>
-                    <th className="py-2 px-3 text-center">IV</th>
-                    <th className="py-2 px-3 text-center">Type</th>
-                    <th className="py-2 px-3 text-center">N</th>
-                    <th className="py-2 px-3 text-center">Missing %</th>
-                    <th className="py-2 px-3 text-center">Std Dev</th>
-                    <th className="py-2 px-3 text-center">Min</th>
-                    <th className="py-2 px-3 text-center">Max</th>
-                    <th className="py-2 px-3 text-center">Mean</th>
-                    <th className="py-2 px-3 text-center">Median</th>
-                    <th className="py-2 px-3 text-center">Mode</th>
+                <thead className="sticky top-0 bg-slate-50 text-xs uppercase text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2 text-center">Keep</th>
+                    <th className="px-3 py-2 text-left">Column</th>
+                    <th className="px-3 py-2 text-left">Type</th>
+                    <th className="px-3 py-2 text-right">Missing %</th>
+                    <th className="px-3 py-2 text-right">Distinct</th>
+                    <th className="px-3 py-2 text-right">Mean</th>
+                    <th className="px-3 py-2 text-right">Min</th>
+                    <th className="px-3 py-2 text-right">Max</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {summary.map((s) => {
-                    const ivHi = typeof s.iv === "number" && s.iv > 0.01;
-                    return (
-                      <tr key={s.name} className="border-t border-gray-100">
-                        <td className="py-2 px-3 text-center">
-                          {s.name === target ? (
-                            <span className="text-[11px] text-gray-400">target</span>
-                          ) : (
-                            <input
-                              type="checkbox"
-                              checked={!!kept[s.name]}
-                              onChange={(e) =>
-                                setKept((prev) => ({ ...prev, [s.name]: e.target.checked }))
-                              }
-                            />
-                          )}
-                        </td>
-                        <td className="py-2 px-3 text-left font-medium text-gray-800">{s.name}</td>
-                        <td
-                          className={
-                            "py-2 px-3 text-center " +
-                            (ivHi ? "bg-emerald-50 text-emerald-700 font-semibold rounded" : "")
-                          }
-                        >
-                          {s.iv === null ? "—" : s.iv.toFixed(4)}
-                        </td>
-                        <td className="py-2 px-3 text-center">{s.type}</td>
-                        <td className="py-2 px-3 text-center">{s.n.toLocaleString()}</td>
-                        <td className="py-2 px-3 text-center">{s.missingPct.toFixed(2)}%</td>
-                        <td className="py-2 px-3 text-center">{fmt4(s.sd)}</td>
-                        <td className="py-2 px-3 text-center">{fmt4(s.min)}</td>
-                        <td className="py-2 px-3 text-center">{fmt4(s.max)}</td>
-                        <td className="py-2 px-3 text-center">{fmt4(s.mean)}</td>
-                        <td className="py-2 px-3 text-center">{fmt4(s.median)}</td>
-                        <td className="py-2 px-3 text-center">{fmt4(s.mode)}</td>
-                      </tr>
-                    );
-                  })}
+                  {variableSummary.map((row) => (
+                    <tr key={row.column} className="border-t">
+                      <td className="px-3 py-2 text-center">
+                        {row.column === target ? <span className="text-xs text-slate-400">target</span> : (
+                          <input
+                            type="checkbox"
+                            checked={!!kept[row.column]}
+                            onChange={(event) => {
+                              setKept((current) => ({ ...current, [row.column]: event.target.checked }));
+                              logDecision({
+                                workflowStep: "Data Acquisition",
+                                actionType: "feature_inclusion_changed",
+                                subject: row.column,
+                                previousValue: kept[row.column] ? "included" : "excluded",
+                                newValue: event.target.checked ? "included" : "excluded",
+                              });
+                            }}
+                          />
+                        )}
+                      </td>
+                      <td className="px-3 py-2 font-medium">{row.column}</td>
+                      <td className="px-3 py-2">{row.type}</td>
+                      <td className="px-3 py-2 text-right">{formatPercent(row.missingPct)}</td>
+                      <td className="px-3 py-2 text-right">{row.distinct.toLocaleString()}</td>
+                      <td className="px-3 py-2 text-right">{formatNumber(row.mean)}</td>
+                      <td className="px-3 py-2 text-right">{formatNumber(row.min)}</td>
+                      <td className="px-3 py-2 text-right">{formatNumber(row.max)}</td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
-          </div>
+          </section>
         )}
+
+        <section className="grid gap-4 lg:grid-cols-2">
+          <LineagePanel metadata={generatedMetadata ?? metadata} />
+          <PythonSyncPanel metadata={generatedMetadata ?? metadata} />
+        </section>
       </div>
     </StepShell>
   );
 }
 
-/* ---------- lightweight charts (no extra libs) ---------- */
-
-function BinaryBar({ values, height = 200 }: { values: any[]; height?: number }) {
-  const n = values.length;
-  const c0 = values.filter((v) => String(v) === "0" || String(v).toLowerCase() === "false").length;
-  const c1 = values.filter((v) => String(v) === "1" || String(v).toLowerCase() === "true").length;
-  // if labels aren’t 0/1/true/false, treat minority as event
-  let leftLabel = "Non-Event", rightLabel = "Event";
-  let left = c0, right = c1;
-  if (c0 === 0 && c1 === 0) {
-    const counts = new Map<string, number>();
-    for (const v of values) counts.set(String(v), (counts.get(String(v)) ?? 0) + 1);
-    const entries = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
-    leftLabel = entries[0][0];
-    rightLabel = entries[1]?.[0] ?? "Other";
-    left = entries[0][1];
-    right = entries[1]?.[1] ?? 0;
-  }
-  const max = Math.max(left, right, 1);
-  const w = 380;
-  const pad = 40;
-
+function UploadPanel({ fileName, onFile }: { fileName: string; onFile: (file: File) => void }) {
   return (
-    <svg width={420} height={height}>
-      <line x1={pad} y1={height - 22} x2={pad + w} y2={height - 22} stroke="#ddd" />
-      <rect x={pad + 40} y={height - 22 - (left / max) * (height - 60)} width={80} height={(left / max) * (height - 60)} fill="#9CA3AF" />
-      <rect x={pad + 160} y={height - 22 - (right / max) * (height - 60)} width={80} height={(right / max) * (height - 60)} fill="#10B981" />
-      <text x={pad + 80} y={height - 6} textAnchor="middle" fontSize="10" fill="#374151">{leftLabel}</text>
-      <text x={pad + 200} y={height - 6} textAnchor="middle" fontSize="10" fill="#374151">{rightLabel}</text>
-      <text x={pad + 80} y={height - 30 - (left / max) * (height - 60)} textAnchor="middle" fontSize="10" fill="#111827">{left.toLocaleString()}</text>
-      <text x={pad + 200} y={height - 30 - (right / max) * (height - 60)} textAnchor="middle" fontSize="10" fill="#111827">{right.toLocaleString()}</text>
-    </svg>
+    <div>
+      <h2 className="text-base font-semibold text-slate-950">Upload File</h2>
+      <p className="mt-1 text-sm text-slate-500">Supported source types: CSV, Excel, Parquet, Feather, JSON, SAS datasets, Pickle, and ZIP. CSV and JSON parse locally today.</p>
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <label className="cursor-pointer rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white">
+          Choose File
+          <input className="hidden" type="file" accept=".csv,.txt,.json,.xlsx,.xls,.parquet,.feather,.sas7bdat,.pkl,.zip" onChange={(event) => event.target.files?.[0] && onFile(event.target.files[0])} />
+        </label>
+        <span className="text-sm text-slate-600">{fileName || "No file selected"}</span>
+      </div>
+    </div>
   );
 }
 
-function Histogram({ values, height = 200 }: { values: number[]; height?: number }) {
-  const clean = values.filter((v) => Number.isFinite(v));
-  if (!clean.length) return <div className="text-xs text-gray-500">No data</div>;
-  const sorted = [...clean].sort((a, b) => a - b);
-  const n = sorted.length;
-  const nb = Math.min(32, Math.max(8, Math.round(Math.sqrt(n))));
-  const min = sorted[0], max = sorted[n - 1];
-  const w = max - min || 1;
-  const bins = new Array(nb).fill(0);
-  for (const v of sorted) {
-    const idx = Math.min(nb - 1, Math.floor(((v - min) / w) * nb));
-    bins[idx] += 1;
-  }
-  const H = height;
-  const W = 420;
-  const pad = 40;
-  const barW = (W - pad - 10) / nb;
-  const maxN = Math.max(...bins, 1);
-
+function SqlPanel(props: {
+  provider: string;
+  setProvider: (value: string) => void;
+  connectionName: string;
+  setConnectionName: (value: string) => void;
+  database: string;
+  setDatabase: (value: string) => void;
+  schema: string;
+  setSchema: (value: string) => void;
+  sql: string;
+  setSql: (value: string) => void;
+  warnings: string[];
+  savedQueries: string[];
+  favoriteQueries: string[];
+  onTemplate: (sql: string) => void;
+  onSave: () => void;
+  onFavorite: () => void;
+  onSaveMetadata: () => void;
+}) {
   return (
-    <svg width={W} height={H}>
-      <line x1={pad} y1={H - 22} x2={W - 10} y2={H - 22} stroke="#ddd" />
-      {bins.map((n, i) => {
-        const x = pad + i * barW + 1;
-        const h = ((n / maxN) * (H - 60)) | 0;
-        return <rect key={i} x={x} y={H - 22 - h} width={barW - 2} height={h} fill="#9CA3AF" />;
-      })}
-    </svg>
+    <div className="grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+      <aside className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+        <h2 className="text-sm font-semibold text-slate-950">Database Explorer</h2>
+        <div className="mt-3 space-y-2 text-sm text-slate-700">
+          <div className="font-medium">{props.provider}</div>
+          <div className="pl-3">Connection: {props.connectionName}</div>
+          <div className="pl-3">Schemas</div>
+          <div className="pl-6">CUSTOMER_BASE</div>
+          <div className="pl-8 text-xs text-slate-500">customer_id PK, open_date, status</div>
+          <div className="pl-6">TRANSACTION_HISTORY</div>
+          <div className="pl-8 text-xs text-slate-500">customer_id FK, amount, txn_date</div>
+          <div className="pl-6">BUREAU_ATTRIBUTES</div>
+          <div className="pl-8 text-xs text-slate-500">fico_score, trades, inquiries</div>
+        </div>
+      </aside>
+      <div>
+        <div className="grid gap-3 md:grid-cols-4">
+          <Select label="Provider" value={props.provider} onChange={props.setProvider} options={databaseProviders} />
+          <Input label="Connection Name" value={props.connectionName} onChange={props.setConnectionName} />
+          <Input label="Database" value={props.database} onChange={props.setDatabase} />
+          <Input label="Schema" value={props.schema} onChange={props.setSchema} />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {queryTemplates().map((template) => (
+            <button key={template.name} className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-medium" onClick={() => props.onTemplate(template.sql)}>
+              {template.name}
+            </button>
+          ))}
+        </div>
+        <textarea
+          className="mt-4 min-h-[260px] w-full rounded-lg border border-slate-300 bg-slate-950 p-4 font-mono text-sm text-emerald-100"
+          value={props.sql}
+          onChange={(event) => props.setSql(event.target.value)}
+          spellCheck={false}
+        />
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button className="rounded-lg border px-3 py-2 text-sm" onClick={props.onSave}>Save Query</button>
+          <button className="rounded-lg border px-3 py-2 text-sm" onClick={props.onFavorite}>Favorite</button>
+          <button className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white" onClick={props.onSaveMetadata}>Validate & Save Query Metadata</button>
+        </div>
+        {!!props.warnings.length && (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <div className="font-semibold">Query validation</div>
+            <ul className="mt-1 list-disc pl-5">{props.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+          </div>
+        )}
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <QueryList title="Saved Queries" queries={props.savedQueries} />
+          <QueryList title="Favorites" queries={props.favoriteQueries} />
+        </div>
+      </div>
+    </div>
   );
 }
 
-function TopKBar({ values, height = 200 }: { values: string[]; height?: number }) {
-  const counts = new Map<string, number>();
-  for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
-  const top = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 8);
-  if (!top.length) return <div className="text-xs text-gray-500">No data</div>;
-  const total = values.length;
-  const max = Math.max(...top.map(([, c]) => c), 1);
-  const W = 420, H = height, pad = 60;
-
+function CloudPanel({ cloudProvider, setCloudProvider, cloudPath, setCloudPath }: { cloudProvider: string; setCloudProvider: (value: string) => void; cloudPath: string; setCloudPath: (value: string) => void }) {
   return (
-    <svg width={W} height={H}>
-      <line x1={pad} y1={H - 20} x2={W - 10} y2={H - 20} stroke="#ddd" />
-      {top.map(([k, c], i) => {
-        const w = (c / total) * (W - pad - 20);
-        const y = 20 + i * 20;
-        return (
-          <g key={k}>
-            <rect x={pad} y={y - 10} width={w} height={14} fill="#9CA3AF" />
-            <text x={pad - 6} y={y} textAnchor="end" fontSize="10" fill="#374151">{k}</text>
-            <g>
-              <text x={pad + w + 4} y={y} fontSize="10" fill="#111827">
-                {c.toLocaleString()}
-              </text>
-            </g>
-          </g>
-        );
-      })}
-    </svg>
+    <div>
+      <h2 className="text-base font-semibold text-slate-950">Cloud Storage</h2>
+      <p className="mt-1 text-sm text-slate-500">Capture cloud data source metadata now. Actual object reads should be handled by backend connectors with governed credentials.</p>
+      <div className="mt-4 grid gap-3 md:grid-cols-[240px_minmax(0,1fr)]">
+        <Select label="Cloud Provider" value={cloudProvider} onChange={setCloudProvider} options={cloudProviders} />
+        <Input label="Path / URL" value={cloudPath} onChange={setCloudPath} placeholder="s3://bucket/path/train.parquet" />
+      </div>
+    </div>
+  );
+}
+
+function ExistingDatasetPanel({ versions }: { versions: ReturnType<typeof loadDatasetVersions> }) {
+  return (
+    <div>
+      <h2 className="text-base font-semibold text-slate-950">Existing Project Dataset</h2>
+      <p className="mt-1 text-sm text-slate-500">Recent dataset versions are available for audit comparison and reuse planning.</p>
+      <div className="mt-4 overflow-auto rounded-lg border border-slate-200">
+        <table className="min-w-full text-sm">
+          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+            <tr><th className="px-3 py-2 text-left">Version</th><th className="px-3 py-2 text-left">Source</th><th className="px-3 py-2 text-right">Rows</th><th className="px-3 py-2 text-right">Columns</th><th className="px-3 py-2 text-left">Imported</th></tr>
+          </thead>
+          <tbody>{versions.map((row) => <tr key={row.version} className="border-t"><td className="px-3 py-2 font-mono text-xs">{row.version}</td><td className="px-3 py-2">{row.sourceLabel}</td><td className="px-3 py-2 text-right">{row.rows}</td><td className="px-3 py-2 text-right">{row.columns}</td><td className="px-3 py-2">{new Date(row.importedAt).toLocaleString()}</td></tr>)}</tbody>
+        </table>
+        {!versions.length && <div className="p-6 text-center text-sm text-slate-500">No dataset versions captured yet.</div>}
+      </div>
+    </div>
+  );
+}
+
+function PythonPanel({ pythonCode, setPythonCode }: { pythonCode: string; setPythonCode: (value: string) => void }) {
+  return (
+    <div>
+      <h2 className="text-base font-semibold text-slate-950">Python Loader</h2>
+      <p className="mt-1 text-sm text-slate-500">Document advanced loading code. Backend execution can later synchronize the resulting dataframe back into the app.</p>
+      <textarea className="mt-4 min-h-[260px] w-full rounded-lg border border-slate-300 bg-slate-950 p-4 font-mono text-sm text-emerald-100" value={pythonCode} onChange={(event) => setPythonCode(event.target.value)} spellCheck={false} />
+    </div>
+  );
+}
+
+function DataPreview(props: {
+  headers: string[];
+  rows: Record<string, unknown>[];
+  target: string;
+  setTarget: (value: string) => void;
+  samplingMethod: SamplingMethod;
+  setSamplingMethod: (value: SamplingMethod) => void;
+  samplingDetail: string;
+  setSamplingDetail: (value: string) => void;
+  targetInfo: { kind: "none" | "binary" | "continuous"; eventRate: number | null };
+}) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-slate-950">Data Preview</h2>
+          <p className="mt-1 text-sm text-slate-500">First 100 rows, schema profile, and sampling controls.</p>
+        </div>
+        <div className="grid gap-2 md:grid-cols-3">
+          <Select label="Sampling" value={props.samplingMethod} onChange={(value) => props.setSamplingMethod(value as SamplingMethod)} options={["full", "sample", "random", "stratified", "time_based", "top_n"]} />
+          <Input label="Sample detail" value={props.samplingDetail} onChange={props.setSamplingDetail} />
+          <Select label="Target" value={props.target} onChange={props.setTarget} options={["", ...props.headers]} />
+        </div>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-4">
+        <Stat label="Rows in Preview" value={props.rows.length} />
+        <Stat label="Columns" value={props.headers.length} />
+        <Stat label="Target Type" value={props.targetInfo.kind} />
+        <Stat label="Event Rate" value={props.targetInfo.eventRate === null ? "-" : formatPercent(props.targetInfo.eventRate)} />
+      </div>
+      <div className="mt-4 max-h-[360px] overflow-auto rounded-lg border border-slate-200">
+        <table className="min-w-full text-xs">
+          <thead className="sticky top-0 bg-slate-50 text-slate-500">
+            <tr>{props.headers.map((header) => <th key={header} className="whitespace-nowrap px-3 py-2 text-left">{header}</th>)}</tr>
+          </thead>
+          <tbody>{props.rows.map((row, index) => <tr key={index} className="border-t">{props.headers.map((header) => <td key={header} className="whitespace-nowrap px-3 py-2">{String(row[header] ?? "")}</td>)}</tr>)}</tbody>
+        </table>
+        {!props.headers.length && <div className="p-8 text-center text-sm text-slate-500">Load data or save SQL metadata to begin.</div>}
+      </div>
+    </section>
+  );
+}
+
+function DataQualityPanel({ quality, metadata }: { quality: DataQualitySummary | null; metadata: DataAccessMetadata | null }) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-base font-semibold text-slate-950">Data Quality Report</h2>
+      <p className="mt-1 text-sm text-slate-500">Automatically generated after import and included in governance documentation.</p>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <Stat label="Dataset Version" value={metadata?.version ?? "-"} />
+        <Stat label="Dataset Hash" value={metadata?.hash ?? "-"} />
+        <Stat label="Duplicate Rows" value={quality?.duplicateRows ?? "-"} />
+        <Stat label="Memory Estimate" value={quality ? `${quality.memoryEstimateMb.toFixed(2)} MB` : "-"} />
+      </div>
+      {quality && (
+        <div className="mt-4 grid gap-3 text-sm">
+          <QualityLine label="Highest Missing Fields" value={quality.missing.slice(0, 5).map((row) => `${row.column} ${formatPercent(row.percent)}`).join(", ") || "-"} />
+          <QualityLine label="Potential Leakage" value={quality.potentialLeakageColumns.join(", ") || "-"} />
+          <QualityLine label="Constant Columns" value={quality.constantColumns.join(", ") || "-"} />
+          <QualityLine label="Near-Zero Variance" value={quality.nearZeroVarianceColumns.join(", ") || "-"} />
+          <QualityLine label="High-Cardinality Categoricals" value={quality.highCardinalityCategoricals.join(", ") || "-"} />
+          <QualityLine label="Date Ranges" value={quality.dateRanges.map((row) => `${row.column}: ${row.min} to ${row.max}`).join(", ") || "-"} />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function LineagePanel({ metadata }: { metadata: DataAccessMetadata | null }) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-base font-semibold text-slate-950">Data Lineage</h2>
+      <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
+        {(metadata?.lineage ?? ["Source not captured"]).map((item, index, arr) => (
+          <span key={`${item}-${index}`} className="flex items-center gap-2">
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1">{item}</span>
+            {index < arr.length - 1 && <span className="text-slate-400">to</span>}
+          </span>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function PythonSyncPanel({ metadata }: { metadata: DataAccessMetadata | null }) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-base font-semibold text-slate-950">Python Synchronization</h2>
+      <pre className="mt-4 max-h-[260px] overflow-auto rounded-lg bg-slate-950 p-4 text-xs text-emerald-100">{metadata?.generatedPython ?? "Generated loader code appears after data source metadata is captured."}</pre>
+    </section>
+  );
+}
+
+function Select({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[] }) {
+  return (
+    <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
+      {label}
+      <select className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal normal-case text-slate-900" value={value} onChange={(event) => onChange(event.target.value)}>
+        {options.map((option) => <option key={option} value={option}>{option || "Select"}</option>)}
+      </select>
+    </label>
+  );
+}
+
+function Input({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder?: string }) {
+  return (
+    <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
+      {label}
+      <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal normal-case text-slate-900" value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
+function Stat({ label, value }: { label: string; value: unknown }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+      <div className="text-xs font-semibold uppercase text-slate-500">{label}</div>
+      <div className="mt-1 truncate text-sm font-semibold text-slate-950">{String(value)}</div>
+    </div>
+  );
+}
+
+function QualityLine({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 px-3 py-2">
+      <div className="text-xs font-semibold uppercase text-slate-500">{label}</div>
+      <div className="mt-1 text-slate-800">{value}</div>
+    </div>
+  );
+}
+
+function QueryList({ title, queries }: { title: string; queries: string[] }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+      <div className="text-xs font-semibold uppercase text-slate-500">{title}</div>
+      <div className="mt-2 space-y-2">{queries.length ? queries.map((query, index) => <div key={index} className="truncate text-xs text-slate-600">{query}</div>) : <div className="text-xs text-slate-400">None</div>}</div>
+    </div>
   );
 }

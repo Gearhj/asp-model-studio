@@ -1,6 +1,16 @@
 import { Navigate, Route, Routes } from "react-router-dom";
+import CopilotCard from "../components/CopilotCard";
+import BrandLogo from "../components/BrandLogo";
+import ModeSwitcher from "../components/ModeSwitcher";
 import Sidebar from "../components/Sidebar";
 import Dashboard from "../steps/Dashboard";
+import DecisionJournal from "../steps/DecisionJournal";
+import ExperimentComparison from "../steps/ExperimentComparison";
+import GovernanceReport from "../steps/GovernanceReport";
+import IntelligentWorkbench from "../steps/IntelligentWorkbench";
+import NotebookExport from "../steps/NotebookExport";
+import Step00ProjectContext from "../steps/Step00_ProjectContext";
+import Step01BCreditBureauReview from "../steps/Step01B_CreditBureauReview";
 import Step01DataAcquisition from "../steps/Step01_DataAcquisition";
 import Step02EDA from "../steps/Step02_EDA";
 import Step03Outliers from "../steps/Step04_Outliers";
@@ -11,10 +21,13 @@ import Step07Train from "../steps/Step06_Train";
 import Step08Evaluation from "../steps/Step08_Evaluation";
 import Step09Interpretation from "../steps/Step09_Interpretation";
 import Step10Scoring from "../steps/Step10_Scoring";
+import Step11ModelDevelopmentDocument from "../steps/Step11_ModelDevelopmentDocument";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const workflowStepIds = [
+  "step00",
   "step01",
+  "step01b",
   "step02",
   "step03",
   "step04",
@@ -24,9 +37,24 @@ const workflowStepIds = [
   "step08",
   "step09",
   "step10",
+  "step11",
 ] as const;
 
-const stepLabels = ["Data", "EDA", "Outliers", "Missing", "Features", "Split", "Train", "Evaluate", "Interpret", "Score"];
+const stepLabels = [
+  "Context",
+  "Data",
+  "Bureau",
+  "EDA",
+  "Outliers",
+  "Missing",
+  "Features",
+  "Split",
+  "Train",
+  "Evaluate",
+  "Interpret",
+  "Score",
+  "Document",
+];
 
 export default function ModelingApp() {
   const steps = useWorkflowStore((state) => state.steps);
@@ -34,37 +62,32 @@ export default function ModelingApp() {
   const progress = Math.round((completed / workflowStepIds.length) * 100);
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-950">
+    <div className="min-h-screen bg-[#f5f5f7] text-slate-950">
       <div className="flex min-h-screen">
         <Sidebar />
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="border-b border-slate-200 bg-white">
-            <div className="px-5 py-4 md:px-8">
-              <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                    Model development workbench
-                  </p>
-                  <h1 className="mt-1 text-2xl font-semibold text-slate-950">
-                    Data Science Modeling Tool
-                  </h1>
-                </div>
+          <header className="sticky top-0 z-20 border-b border-white/70 bg-white/75 shadow-[0_1px_0_rgba(15,23,42,0.04)] backdrop-blur-xl">
+            <div className="px-4 py-3 sm:px-5 lg:px-6 xl:px-8">
+              <div className="grid gap-3 xl:grid-cols-[minmax(220px,0.7fr)_minmax(360px,1fr)_minmax(360px,1fr)] xl:items-center">
+                <BrandLogo size="md" variant="light" showSubtitle />
 
-                <div className="w-full max-w-xl">
-                  <div className="mb-2 flex items-center justify-between text-xs font-medium text-slate-600">
+                <ModeSwitcher />
+
+                <div className="w-full rounded-lg border border-slate-200/80 bg-white/70 px-3 py-2 shadow-sm">
+                  <div className="mb-2 flex items-center justify-between text-[11px] font-semibold text-slate-600">
                     <span>{completed} of {workflowStepIds.length} steps complete</span>
                     <span>{progress}%</span>
                   </div>
-                  <div className="grid grid-cols-10 gap-1">
+                  <div className="grid grid-cols-[repeat(13,minmax(0,1fr))] gap-1">
                     {stepLabels.map((label, index) => (
                       <div key={label} className="min-w-0">
                         <div
-                          className={`h-2 rounded-full ${
-                            index < completed ? "bg-emerald-500" : "bg-slate-200"
+                          className={`h-1.5 rounded-full ${
+                            index < completed ? "bg-slate-950" : "bg-slate-200"
                           }`}
                         />
-                        <div className="mt-1 truncate text-[10px] text-slate-500">{label}</div>
+                        <div className="mt-1 truncate text-[10px] font-medium text-slate-500">{label}</div>
                       </div>
                     ))}
                   </div>
@@ -73,22 +96,35 @@ export default function ModelingApp() {
             </div>
           </header>
 
-          <main className="min-w-0 flex-1 px-4 py-6 md:px-8">
-            <Routes>
-              <Route path="/" element={<Navigate to="/dashboard" replace />} />
-              <Route path="/dashboard" element={<Dashboard />} />
-              <Route path="/step01" element={<Step01DataAcquisition />} />
-              <Route path="/step02" element={<Step02EDA />} />
-              <Route path="/step03" element={<Step03Outliers />} />
-              <Route path="/step04" element={<Step04MissingValues />} />
-              <Route path="/step05" element={<Step05EncodingScaling />} />
-              <Route path="/step06" element={<Step06BalancingSplit />} />
-              <Route path="/step07" element={<Step07Train />} />
-              <Route path="/step08" element={<Step08Evaluation />} />
-              <Route path="/step09" element={<Step09Interpretation />} />
-              <Route path="/step10" element={<Step10Scoring />} />
-              <Route path="*" element={<Navigate to="/dashboard" replace />} />
-            </Routes>
+          <main className="min-w-0 flex-1 px-3 py-4 sm:px-4 lg:px-6 xl:px-8">
+            <div className="mx-auto grid w-full max-w-[1760px] gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+              <div className="min-w-0">
+                <Routes>
+                  <Route path="/" element={<Navigate to="/dashboard" replace />} />
+                  <Route path="/workbench" element={<IntelligentWorkbench />} />
+                  <Route path="/experiments" element={<ExperimentComparison />} />
+                  <Route path="/journal" element={<DecisionJournal />} />
+                  <Route path="/governance-report" element={<GovernanceReport />} />
+                  <Route path="/notebook-export" element={<NotebookExport />} />
+                  <Route path="/dashboard" element={<Dashboard />} />
+                  <Route path="/step00" element={<Step00ProjectContext />} />
+                  <Route path="/step01" element={<Step01DataAcquisition />} />
+                  <Route path="/step01b" element={<Step01BCreditBureauReview />} />
+                  <Route path="/step02" element={<Step02EDA />} />
+                  <Route path="/step03" element={<Step03Outliers />} />
+                  <Route path="/step04" element={<Step04MissingValues />} />
+                  <Route path="/step05" element={<Step05EncodingScaling />} />
+                  <Route path="/step06" element={<Step06BalancingSplit />} />
+                  <Route path="/step07" element={<Step07Train />} />
+                  <Route path="/step08" element={<Step08Evaluation />} />
+                  <Route path="/step09" element={<Step09Interpretation />} />
+                  <Route path="/step10" element={<Step10Scoring />} />
+                  <Route path="/step11" element={<Step11ModelDevelopmentDocument />} />
+                  <Route path="*" element={<Navigate to="/dashboard" replace />} />
+                </Routes>
+              </div>
+              <CopilotCard />
+            </div>
           </main>
         </div>
       </div>

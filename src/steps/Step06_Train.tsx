@@ -2,7 +2,9 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { loadLocalDataset } from "../lib/localDataset";
+import { logDecision } from "../lib/decisionJournal";
+import { recordTrainingExperiments } from "../lib/experimentTracking";
+import { inferLocalProblemType, loadLocalDataset } from "../lib/localDataset";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const API_BASE =
@@ -178,6 +180,8 @@ function inferTarget(headers: string[], current?: string | null) {
 
 function inferProblemTypeFromLocalDataset(): ProblemType | null {
   const localDataset = loadLocalDataset();
+  const explicitType = inferLocalProblemType(localDataset);
+  if (explicitType) return explicitType;
   if (!localDataset?.rows.length) return null;
   const target = inferTarget(localDataset.headers, localDataset.target);
   if (!target) return null;
@@ -262,6 +266,10 @@ function formatMetric(value?: number, digits = 4) {
   return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "-";
 }
 
+function displayModelName(name: string) {
+  return name.replace(/\s*\(k\s*=\s*\d+\)/i, "");
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -323,13 +331,33 @@ export default function Step06_Train() {
     (summary?.length ?? 0) > 0;
 
   const isRegressionSummary =
-    problemType === "regression" || !!summary?.some((row) => row.task === "regression" || row.rmse !== undefined);
+    problemType === "regression" ||
+    (!problemType &&
+      !!summary?.some(
+        (row) =>
+          row.task === "regression" ||
+          typeof row.rmse === "number" ||
+          typeof row.mae === "number" ||
+          typeof row.r2 === "number"
+      ));
+
+  const toggleModelSelection = (model: ModelDef) => {
+    logDecision({
+      workflowStep: "Model Training",
+      actionType: "model_selected",
+      subject: model.label,
+      previousValue: selected[model.key] ? "selected" : "not selected",
+      newValue: !selected[model.key] ? "selected" : "not selected",
+    });
+    setSelected((prev) => ({ ...prev, [model.key]: !prev[model.key] }));
+  };
 
   // -------------------------------------------------------------------------
   // Helper: fetch last training summary from backend
   // -------------------------------------------------------------------------
 
   async function fetchLastSummary() {
+    const localProblemType = inferProblemTypeFromLocalDataset();
     try {
       const res = await fetch(`${API_BASE}/train/last`);
       if (!res.ok) {
@@ -347,6 +375,18 @@ export default function Step06_Train() {
             : ranked.length
               ? "classification"
               : null);
+        if (
+          localProblemType &&
+          nextProblemType &&
+          localProblemType !== nextProblemType
+        ) {
+          setSummary([]);
+          setProblemType(localProblemType);
+          setMessage(
+            `Loaded a ${localProblemType} dataset. Prior ${nextProblemType} training results were cleared from this view; train the selected ${localProblemType} models to refresh the leaderboard.`
+          );
+          return;
+        }
         if (nextProblemType === "classification" || nextProblemType === "regression") {
           setProblemType(nextProblemType);
         }
@@ -461,6 +501,7 @@ export default function Step06_Train() {
 
   async function startTraining() {
     setMessage(null);
+    const startedAt = performance.now();
 
     const models = selectedModels;
     if (!models.length) {
@@ -582,6 +623,31 @@ export default function Step06_Train() {
           : `Training completed${rowsInfo}${statusInfo}. Metrics below are calculated from fitted backend models.`
       );
 
+      const fittedRanked = (j.summary?.ranked ?? []) as RankedRow[];
+      if (fittedRanked.length) {
+        try {
+          const records = await recordTrainingExperiments({
+            apiBase: API_BASE,
+            ranked: fittedRanked,
+            selectedModelKeys: models,
+            runtimeMs: performance.now() - startedAt,
+            calibrated: calibrate,
+            trainingSettings: {
+              k_folds: kFolds,
+              max_parallel: maxParallel,
+              calibrate,
+              use_pca: usePCA,
+              grid_search: useGridSearch,
+              grid_search_level: gridSearchLevel,
+            },
+          });
+          setMessage((current) => `${current ?? ""} Created ${records.length} experiment record(s).`);
+        } catch (err) {
+          console.error("Experiment capture failed:", err);
+          setMessage((current) => `${current ?? ""} Experiment capture failed; training results are still available.`);
+        }
+      }
+
       // NEW: after a successful training run, pull latest summary for table
       await fetchLastSummary();
     } catch (err: any) {
@@ -608,7 +674,7 @@ export default function Step06_Train() {
   // -------------------------------------------------------------------------
 
   return (
-    <div className="max-w-[1100px] mx-auto space-y-6">
+    <div className="w-full space-y-6">
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
         <div className="font-semibold">
           Front-end: <span className="font-mono">Step06_Train.tsx</span>{" "}
@@ -628,31 +694,18 @@ export default function Step06_Train() {
         <div className="flex items-center justify-between">
           <div>
             <div className="text-sm font-semibold text-gray-800">
-              Data split configuration: {problemType === "regression" ? "Regression K-Fold" : "Stratified K-Fold"} (K ≤ 5) from Balancing &amp; Split
+              Data split configuration from Balancing &amp; Split
             </div>
             <div className="mt-1 text-xs text-gray-500">
-              These settings only control how the backend fits and evaluates candidate models.
+              These settings control backend training behavior. Split and fold choices are managed in the prior step.
             </div>
           </div>
           <div className="text-xs rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-indigo-700">
-            {problemType === "regression" ? "Regression" : "Classification"} · K ≤ 5
+            {problemType === "regression" ? "Regression" : "Classification"}
           </div>
         </div>
 
-        <div className="mt-4 grid gap-4 md:grid-cols-4">
-          <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700">K (folds)</label>
-            <input
-              type="number"
-              min={2}
-              max={5}
-              value={kFolds}
-              onChange={(e) => setKFolds(Math.max(2, Math.min(5, Number(e.target.value) || 2)))}
-              className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-            <p className="text-[11px] text-gray-500">Defined in Balancing &amp; Split.</p>
-          </div>
-
+        <div className="mt-4 grid gap-4 md:grid-cols-3">
           <div className="space-y-1">
             <label className="block text-xs font-medium text-gray-700">Max parallel models</label>
             <input
@@ -660,9 +713,17 @@ export default function Step06_Train() {
               min={1}
               max={16}
               value={maxParallel}
-              onChange={(e) =>
-                setMaxParallel(Math.max(1, Math.min(16, Number(e.target.value) || 1)))
-              }
+              onChange={(e) => {
+                const next = Math.max(1, Math.min(16, Number(e.target.value) || 1));
+                logDecision({
+                  workflowStep: "Model Training",
+                  actionType: "workflow_setting_changed",
+                  subject: "Max parallel models",
+                  previousValue: maxParallel,
+                  newValue: next,
+                });
+                setMaxParallel(next);
+              }}
               className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
             <p className="text-[11px] text-gray-500">
@@ -675,7 +736,16 @@ export default function Step06_Train() {
               id="calibrate"
               type="checkbox"
               checked={calibrate}
-              onChange={(e) => setCalibrate(e.target.checked)}
+              onChange={(e) => {
+                logDecision({
+                  workflowStep: "Model Training",
+                  actionType: "workflow_setting_changed",
+                  subject: "Calibrate probabilities",
+                  previousValue: calibrate,
+                  newValue: e.target.checked,
+                });
+                setCalibrate(e.target.checked);
+              }}
               className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
             />
             <label htmlFor="calibrate" className="text-xs font-medium text-gray-700">
@@ -688,7 +758,16 @@ export default function Step06_Train() {
               id="usePCA"
               type="checkbox"
               checked={usePCA}
-              onChange={(e) => setUsePCA(e.target.checked)}
+              onChange={(e) => {
+                logDecision({
+                  workflowStep: "Model Training",
+                  actionType: "workflow_setting_changed",
+                  subject: "Use PCA",
+                  previousValue: usePCA,
+                  newValue: e.target.checked,
+                });
+                setUsePCA(e.target.checked);
+              }}
               className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
             />
             <label htmlFor="usePCA" className="text-xs font-medium text-gray-700">
@@ -703,7 +782,16 @@ export default function Step06_Train() {
               id="useGridSearch"
               type="checkbox"
               checked={useGridSearch}
-              onChange={(e) => setUseGridSearch(e.target.checked)}
+              onChange={(e) => {
+                logDecision({
+                  workflowStep: "Model Training",
+                  actionType: "hyperparameter_search_changed",
+                  subject: "Grid search enabled",
+                  previousValue: useGridSearch,
+                  newValue: e.target.checked,
+                });
+                setUseGridSearch(e.target.checked);
+              }}
               className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
             />
             <label htmlFor="useGridSearch" className="text-xs font-medium text-gray-700">
@@ -715,7 +803,16 @@ export default function Step06_Train() {
             <select
               value={gridSearchLevel}
               disabled={!useGridSearch}
-              onChange={(e) => setGridSearchLevel(e.target.value as "quick" | "balanced" | "thorough")}
+              onChange={(e) => {
+                logDecision({
+                  workflowStep: "Model Training",
+                  actionType: "hyperparameter_search_changed",
+                  subject: "Grid search depth",
+                  previousValue: gridSearchLevel,
+                  newValue: e.target.value,
+                });
+                setGridSearchLevel(e.target.value as "quick" | "balanced" | "thorough");
+              }}
               className="rounded-md border border-gray-300 px-2 py-1.5 text-sm disabled:bg-gray-100 disabled:text-gray-400"
             >
               <option value="quick">Quick</option>
@@ -758,7 +855,7 @@ export default function Step06_Train() {
             <div className="grid gap-3 md:grid-cols-2">
               {group.models.map((m) => {
                 const enabled = availability[m.key] ?? false;
-                const label = labels[m.key as ModelKey] ?? m.label;
+                const label = (labels[m.key as ModelKey] ?? m.label).replace(/\s*\(k\s*=\s*\d+\)/i, "");
                 const isChecked = selected[m.key];
 
                 return (
@@ -778,9 +875,7 @@ export default function Step06_Train() {
                     <Toggle
                       checked={isChecked}
                       disabled={!enabled || isTraining}
-                      onChange={() =>
-                        setSelected((prev) => ({ ...prev, [m.key]: !prev[m.key] }))
-                      }
+                      onChange={() => toggleModelSelection(m)}
                     />
                   </div>
                 );
@@ -838,7 +933,7 @@ export default function Step06_Train() {
               <tbody>
                 {summary.map((m) => (
                   <tr key={m.key} className="border-t">
-                    <td className="py-1 pr-4">{m.name}</td>
+                    <td className="py-1 pr-4">{displayModelName(m.name)}</td>
                     {isRegressionSummary ? (
                       <>
                         <td className="py-1 pr-4">{formatMetric(m.rmse)}</td>
@@ -900,3 +995,4 @@ export default function Step06_Train() {
     </div>
   );
 }
+

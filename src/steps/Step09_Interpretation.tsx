@@ -1,5 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import StepPythonPanel from "../components/StepPythonPanel";
+import { logDecision } from "../lib/decisionJournal";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const API_BASE =
@@ -162,6 +164,12 @@ export default function Step09_Interpretation() {
         setBestRfeRmse(null);
         setRfeAucTolerance(null);
         setRfeRmseTolerance(null);
+        setFinalModelReady(false);
+        setFinalDiagnosticsReady(false);
+        setFinalModelMessage("");
+        setFinalModelStatus("");
+        setFinalSensitivityRows([]);
+        setVifRows([]);
       })
       .catch((err) => setMessage(String(err?.message ?? err)));
   }, [selectedModel]);
@@ -207,6 +215,7 @@ export default function Step09_Interpretation() {
   );
 
   const runRfe = () => {
+    if (!selectedModel || rfeRunning) return;
     setRfeRunning(true);
     setMessage("");
     getJson<RfeResult>(
@@ -227,6 +236,11 @@ export default function Step09_Interpretation() {
       .catch((err) => setMessage(String(err?.message ?? err)))
       .finally(() => setRfeRunning(false));
   };
+
+  useEffect(() => {
+    if (!selectedModel) return;
+    runRfe();
+  }, [selectedModel]);
 
   const loadFinalDiagnostics = async () => {
     const [sensitivityRes, vifRes] = await Promise.all([
@@ -260,6 +274,17 @@ export default function Step09_Interpretation() {
       setFinalModelMessage(
         `Saved final parsimonious model with ${data.metadata?.feature_count ?? rfeKeep} features.`
       );
+      logDecision({
+        workflowStep: "Interpretation",
+        actionType: "final_model_saved",
+        subject: "RFE parsimonious final model",
+        previousValue: "candidate",
+        newValue: {
+          model: selectedModel,
+          feature_count: data.metadata?.feature_count ?? rfeKeep,
+        },
+        followStatus: "followed",
+      });
       setFinalModelStatus("success");
       setFinalModelReady(true);
       await loadFinalDiagnostics();
@@ -285,6 +310,13 @@ export default function Step09_Interpretation() {
       const data = await res.json();
       if (!data.ok) throw new Error(data.error ?? "Unable to save final model.");
       setFinalModelMessage(`Saved ${data.metadata?.name ?? selectedModel} as the final model.`);
+      logDecision({
+        workflowStep: "Interpretation",
+        actionType: "final_model_saved",
+        subject: "Selected final model",
+        previousValue: "candidate",
+        newValue: data.metadata?.name ?? selectedModel,
+      });
       setFinalModelStatus("success");
       setFinalModelReady(true);
     } catch (err: any) {
@@ -297,7 +329,7 @@ export default function Step09_Interpretation() {
 
   if (!models.length) {
     return (
-      <div className="max-w-[1100px] mx-auto space-y-4">
+      <div className="w-full space-y-4">
         <h1 className="text-2xl font-semibold">Step 9: Model Interpretation</h1>
         <div className="rounded-2xl border border-gray-200 bg-white p-4 text-sm text-gray-600">
           Train models first, then return here for interpretation.
@@ -307,7 +339,7 @@ export default function Step09_Interpretation() {
   }
 
   return (
-    <div className="max-w-[1200px] mx-auto space-y-6">
+    <div className="w-full space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold">Step 9: Model Interpretation</h1>
@@ -317,7 +349,20 @@ export default function Step09_Interpretation() {
         </div>
         <label className="grid gap-1 text-sm">
           <span className="text-xs font-medium text-gray-600">Model</span>
-          <select className="rounded-md border px-3 py-2" value={selectedModel} onChange={(e) => setSelectedModel(e.target.value)}>
+          <select
+            className="rounded-md border px-3 py-2"
+            value={selectedModel}
+            onChange={(e) => {
+              logDecision({
+                workflowStep: "Interpretation",
+                actionType: "champion_model_selected",
+                subject: "Model selected for interpretation",
+                previousValue: selectedModel,
+                newValue: e.target.value,
+              });
+              setSelectedModel(e.target.value);
+            }}
+          >
             {models.map((model) => (
               <option key={model.key} value={model.key}>
                 {model.name}
@@ -420,13 +465,11 @@ export default function Step09_Interpretation() {
                 Recommended: {recommendedCount} features
               </div>
             )}
-            <button
-              className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white disabled:cursor-not-allowed disabled:bg-indigo-300"
-              disabled={rfeRunning}
-              onClick={runRfe}
-            >
-              {rfeRunning ? "Running..." : "Run RFE"}
-            </button>
+            {rfeRunning && (
+              <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-800">
+                Running RFE...
+              </div>
+            )}
             <button
               className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition active:scale-95 active:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300 disabled:active:scale-100"
               disabled={!rfeRows.length || savingFinalModel}
@@ -459,32 +502,32 @@ export default function Step09_Interpretation() {
         <RfeTable rows={rfeRows} selectedCount={rfeKeep} />
       </section>
 
-      {finalModelReady && (
-        <section className="rounded-2xl border border-gray-200 bg-white p-4">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <h2 className="text-sm font-semibold">Production Export</h2>
-              <p className="mt-1 text-xs text-gray-500">
-                Export is available after final model selection. The bundle contains the fitted preprocessing pipeline, model, and metadata.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button
-                className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700"
-                onClick={() => exportModel("pkl")}
-              >
-                Download Final .pkl Bundle
-              </button>
-              <button
-                className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
-                onClick={() => exportModel("jar")}
-              >
-                .jar Info
-              </button>
-            </div>
+      <section className="rounded-2xl border border-gray-200 bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <h2 className="text-sm font-semibold">Production Export</h2>
+            <p className="mt-1 text-xs text-gray-500">
+              Save the RFE-selected final model first, then export the fitted preprocessing pipeline, model, and metadata.
+            </p>
           </div>
-        </section>
-      )}
+          <div className="flex flex-wrap gap-2">
+            <button
+              className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300"
+              disabled={!finalModelReady}
+              onClick={() => exportModel("pkl")}
+              title={finalModelReady ? "Download final model package" : "Save as Final Model first"}
+            >
+              Download Final .pkl Bundle
+            </button>
+            <button
+              className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
+              onClick={() => exportModel("jar")}
+            >
+              .jar Info
+            </button>
+          </div>
+        </div>
+      </section>
 
       {!isRegression && <section className="rounded-2xl border border-gray-200 bg-white p-4">
         <h2 className="text-sm font-semibold">Final Model Sensitivity Analysis</h2>
@@ -513,6 +556,8 @@ export default function Step09_Interpretation() {
           </div>
         )}
       </section>}
+
+      <StepPythonPanel />
 
       <div className="pb-10 flex justify-center">
         <button

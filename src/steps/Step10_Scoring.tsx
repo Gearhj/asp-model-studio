@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import StepPythonPanel from "../components/StepPythonPanel";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const API_BASE =
@@ -135,7 +136,7 @@ export default function Step10Scoring() {
   }
 
   return (
-    <div className="mx-auto max-w-[1200px] space-y-6">
+    <div className="w-full space-y-6">
       <div>
         <h1 className="text-2xl font-semibold text-slate-950">Step 10: Final Model Scoring</h1>
         <p className="mt-1 text-sm text-slate-600">
@@ -190,15 +191,17 @@ export default function Step10Scoring() {
         />
       </div>
 
+      <StepPythonPanel />
+
       <div className="pb-10 flex justify-center">
         <button
           className="rounded-xl bg-indigo-600 px-5 py-3 text-white shadow-sm"
           onClick={() => {
             markComplete("step10");
-            navigate("/dashboard");
+            navigate("/step11");
           }}
         >
-          Mark Complete & Return to Dashboard
+          Mark Complete & Build Document
         </button>
       </div>
     </div>

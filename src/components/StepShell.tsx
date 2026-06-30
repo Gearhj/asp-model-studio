@@ -1,6 +1,9 @@
 import React from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { AlertTriangle, CheckCircle2, Info, Lightbulb } from "lucide-react";
+import { getAdaptiveRecommendations, type AdaptiveRecommendation } from "../lib/adaptiveWorkflow";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import StepPythonPanel from "./StepPythonPanel";
 
 type Props = {
   title: string;
@@ -26,6 +29,7 @@ export default function StepShell({
   const navigate = useNavigate();
   const location = useLocation();
   const markComplete = useWorkflowStore((state) => state.markComplete);
+  const adaptiveRecommendations = getAdaptiveRecommendations(location.pathname);
 
   const handleNext = async () => {
     if (onNext) {
@@ -33,7 +37,7 @@ export default function StepShell({
     }
 
     const currentStep = location.pathname.replace("/", "");
-    if (/^step0[1-9]$/.test(currentStep) || currentStep === "dashboard") {
+    if (/^step(?:0[0-9]|1[01])$/.test(currentStep) || currentStep === "step01b" || currentStep === "dashboard") {
       markComplete(currentStep as Parameters<typeof markComplete>[0]);
     }
 
@@ -41,15 +45,25 @@ export default function StepShell({
   };
 
   return (
-    <div className="w-full">
-      <div className="mx-4 md:px-8 py-6">
+    <div className="w-full space-y-5">
+      <div className="pt-2">
         <h1 className="text-xl font-semibold text-gray-900">{title}</h1>
         {subtitle && <p className="text-gray-600 mt-1">{subtitle}</p>}
       </div>
 
-      <div className="mx-4 md:px-8">{children}</div>
+      {!!adaptiveRecommendations.length && (
+        <div className="grid gap-3">
+          {adaptiveRecommendations.map((recommendation) => (
+            <AdaptiveRecommendationBanner key={`${recommendation.kind}-${recommendation.headline}`} recommendation={recommendation} />
+          ))}
+        </div>
+      )}
 
-      <div className="mx-4 md:px-8 flex justify-center mt-8 mb-12">
+      <div>{children}</div>
+
+      <StepPythonPanel />
+
+      <div className="flex justify-center pb-12 pt-2">
         <button
           data-step-next-button="true"
           className={
@@ -65,5 +79,50 @@ export default function StepShell({
         </button>
       </div>
     </div>
+  );
+}
+
+function AdaptiveRecommendationBanner({ recommendation }: { recommendation: AdaptiveRecommendation }) {
+  const Icon =
+    recommendation.kind === "warning"
+      ? AlertTriangle
+      : recommendation.kind === "skip"
+        ? CheckCircle2
+        : recommendation.kind === "default"
+          ? Lightbulb
+          : Info;
+
+  const classes =
+    recommendation.kind === "warning"
+      ? "border-amber-200 bg-amber-50 text-amber-950"
+      : recommendation.kind === "skip"
+        ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+        : recommendation.kind === "review"
+          ? "border-blue-200 bg-blue-50 text-blue-950"
+          : "border-violet-200 bg-violet-50 text-violet-950";
+
+  return (
+    <section className={`rounded-lg border px-4 py-3 shadow-sm ${classes}`}>
+      <div className="flex items-start gap-3">
+        <Icon size={18} className="mt-0.5 shrink-0" />
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <h2 className="text-sm font-semibold">{recommendation.headline}</h2>
+            <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-semibold">
+              {Math.round(recommendation.confidence * 100)}% confidence
+            </span>
+          </div>
+          <p className="mt-1 text-sm leading-6">{recommendation.explanation}</p>
+          <p className="mt-2 text-xs leading-5 opacity-85">
+            <span className="font-semibold">Suggested action: </span>
+            {recommendation.suggestedAction}
+          </p>
+          <p className="mt-1 text-xs leading-5 opacity-85">
+            <span className="font-semibold">Why this matters: </span>
+            {recommendation.why}
+          </p>
+        </div>
+      </div>
+    </section>
   );
 }

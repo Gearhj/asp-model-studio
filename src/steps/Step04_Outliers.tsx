@@ -2,6 +2,7 @@
 import React, { useMemo, useState, useCallback, useEffect } from "react";
 import StepShell from "../components/StepShell";
 import { useNavigate } from "react-router-dom";
+import { logDecision } from "../lib/decisionJournal";
 import { inferLocalColumns, loadLocalDataset } from "../lib/localDataset";
 
 /**
@@ -32,6 +33,7 @@ const METHOD_OPTIONS: { key: MethodKey; label: string }[] = [
 const BASE =
   (import.meta.env?.VITE_API_BASE?.replace(/\/$/, "") as string) ||
   "http://127.0.0.1:8001/api";
+const OUTLIER_CONFIG_KEY = "modeling-tool-outlier-methods";
 
 // Colors
 const COLOR_BEFORE = "#9CA3AF";
@@ -387,6 +389,23 @@ export default function Step04_Outliers() {
   const [featurePage, setFeaturePage] = useState(0);
 
   useEffect(() => {
+    try {
+      const raw = localStorage.getItem(OUTLIER_CONFIG_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as Record<string, MethodKey>;
+      if (parsed && typeof parsed === "object") {
+        setMethodByFeature(parsed);
+      }
+    } catch {
+      // Ignore bad local state.
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem(OUTLIER_CONFIG_KEY, JSON.stringify(methodByFeature));
+  }, [methodByFeature]);
+
+  useEffect(() => {
     const controller = new AbortController();
     let mounted = true;
 
@@ -505,10 +524,24 @@ export default function Step04_Outliers() {
   const pagedFeatures = numericFeatures.slice(currentPage * pageSize, currentPage * pageSize + pageSize);
 
   const handleChange = useCallback((feature: string, key: MethodKey) => {
+    logDecision({
+      workflowStep: "Outlier Analysis",
+      actionType: "outlier_method_selected",
+      subject: feature,
+      previousValue: methodByFeature[feature],
+      newValue: key,
+    });
     setMethodByFeature((prev) => ({ ...prev, [feature]: key }));
-  }, []);
+  }, [methodByFeature]);
 
   const applyGlobalMethod = useCallback(() => {
+    logDecision({
+      workflowStep: "Outlier Analysis",
+      actionType: "outlier_method_selected",
+      subject: "All numeric features",
+      previousValue: methodByFeature,
+      newValue: globalMethod,
+    });
     setMethodByFeature((prev) => {
       const next: Record<string, MethodKey> = { ...prev };
       numericFeatures.forEach((feature) => {
@@ -516,7 +549,7 @@ export default function Step04_Outliers() {
       });
       return next;
     });
-  }, [globalMethod, numericFeatures]);
+  }, [globalMethod, numericFeatures, methodByFeature]);
 
   return (
     <StepShell

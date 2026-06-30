@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from "react";
 import StepShell from "../components/StepShell";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { logDecision } from "../lib/decisionJournal";
 import { inferLocalColumns, loadLocalDataset, type LocalDataset } from "../lib/localDataset";
 
 const BASE =
   import.meta.env?.VITE_API_BASE?.replace(/\/$/, "") ||
   "http://127.0.0.1:8001/api";
+const MISSING_CONFIG_KEY = "modeling-tool-missing-config";
 
 type ColumnInfo = {
   name: string;
@@ -144,6 +146,13 @@ export default function Step04_MissingValues() {
   );
 
   const updateStrategy = (col: string, strategy: MissingStrategy) => {
+    logDecision({
+      workflowStep: "Missing Values",
+      actionType: "missing_value_strategy_selected",
+      subject: col,
+      previousValue: missingConfig[col]?.strategy ?? "None",
+      newValue: strategy,
+    });
     setMissingConfig((prev) => ({
       ...prev,
       [col]: {
@@ -154,6 +163,14 @@ export default function Step04_MissingValues() {
   };
 
   const updateConstant = (col: string, constantValue: string) => {
+    logDecision({
+      workflowStep: "Missing Values",
+      actionType: "missing_value_strategy_selected",
+      subject: `${col} constant value`,
+      previousValue: missingConfig[col]?.constantValue ?? "",
+      newValue: constantValue,
+      followStatus: "not_applicable",
+    });
     setMissingConfig((prev) => ({
       ...prev,
       [col]: {
@@ -165,6 +182,13 @@ export default function Step04_MissingValues() {
   };
 
   const applyGlobalStrategy = () => {
+    logDecision({
+      workflowStep: "Missing Values",
+      actionType: "missing_value_strategy_selected",
+      subject: "All features",
+      previousValue: missingConfig,
+      newValue: { strategy: globalStrategy, constantValue: globalConstantValue },
+    });
     setMissingConfig((prev) => {
       const next: MissingConfig = { ...prev };
       featureColumns.forEach((col) => {
@@ -180,6 +204,7 @@ export default function Step04_MissingValues() {
 
   // Persist selections to the store on Next (defensive; no-ops if setters missing)
   const persistToStore = async () => {
+    localStorage.setItem(MISSING_CONFIG_KEY, JSON.stringify(missingConfig));
     try {
       if (typeof store?.setMissingConfig === "function") {
         store.setMissingConfig(missingConfig);

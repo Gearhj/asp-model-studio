@@ -1,14 +1,28 @@
 import { Link } from "react-router-dom";
 import type React from "react";
 import { Activity, BarChart3, CheckCircle2, Database, GitBranch, RotateCcw } from "lucide-react";
+import BrandLogo from "../components/BrandLogo";
+import { BRAND } from "../config/brand";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const steps = [
+  {
+    id: "step00",
+    title: "Project Context",
+    route: "/step00",
+    description: "Define the objective, target, population, windows, costs, governance constraints, and deployment plan.",
+  },
   {
     id: "step01",
     title: "Data Acquisition",
     route: "/step01",
     description: "Upload CSV data, select the target, inspect columns, and persist the sample.",
+  },
+  {
+    id: "step01b",
+    title: "Credit Bureau Review",
+    route: "/step01b",
+    description: "Identify bureau special values, attach metadata, choose treatments, and document rationale.",
   },
   {
     id: "step02",
@@ -58,6 +72,18 @@ const steps = [
     route: "/step09",
     description: "Review feature importance, PDP, SHAP-style impacts, sensitivity, model details, and RFE.",
   },
+  {
+    id: "step10",
+    title: "Final Scoring",
+    route: "/step10",
+    description: "Score holdout and OOT data, review stability, and prepare final production outputs.",
+  },
+  {
+    id: "step11",
+    title: "Model Development Document",
+    route: "/step11",
+    description: "Generate the formal model development document for governance and validation.",
+  },
 ] as const;
 
 type StepId = typeof steps[number]["id"];
@@ -73,18 +99,44 @@ export default function Dashboard() {
   const progress = Math.round((completed / steps.length) * 100);
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
+    <div className="w-full space-y-5">
+      <section className="rounded-xl border border-slate-200/80 bg-white/90 p-5 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <BrandLogo size="lg" variant="light" showSubtitle />
+            <p className="mt-3 max-w-2xl text-sm text-slate-600">
+              Navigate regulated model development from source data to documented champion model.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link to="/step00" className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800">
+              Start New Project
+            </Link>
+            <Link to={inProgress.route} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
+              Continue Journey
+            </Link>
+            <Link to="/step01" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
+              Open Existing Project
+            </Link>
+            <Link to="/step11" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
+              View Model Development Document
+            </Link>
+          </div>
+        </div>
+        <div className="mt-3 text-xs font-medium text-slate-500">{BRAND.shortDescription}</div>
+      </section>
+
       <section className="grid gap-4 md:grid-cols-4">
-        <StatCard icon={<GitBranch size={18} />} label="Workflow Steps" value={steps.length} />
-        <StatCard icon={<CheckCircle2 size={18} />} label="Completed" value={completed} />
+        <StatCard icon={<GitBranch size={18} />} label="Journey Steps" value={steps.length} />
+        <StatCard icon={<CheckCircle2 size={18} />} label="Milestones Completed" value={completed} />
         <StatCard icon={<Activity size={18} />} label="Progress" value={`${progress}%`} />
         <StatCard icon={<Database size={18} />} label="Dataset Loaded" value={hasDataset ? "Yes" : "No"} />
       </section>
 
-      <section className="rounded-lg border border-slate-200 bg-white">
+      <section className="rounded-lg border border-slate-200/80 bg-white/90 shadow-sm">
         <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-slate-950">Workflow Progress</h2>
+            <h2 className="text-lg font-semibold text-slate-950">Model Development Journey</h2>
             <p className="text-sm text-slate-500">
               Capture each decision point from source data through model evaluation.
             </p>
@@ -92,7 +144,7 @@ export default function Dashboard() {
           <div className="flex items-center gap-2">
             <button
               type="button"
-              className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
               onClick={reset}
             >
               <RotateCcw size={15} />
@@ -100,49 +152,54 @@ export default function Dashboard() {
             </button>
             <Link
               to={inProgress.route}
-              className="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+              className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800"
             >
               <BarChart3 size={15} />
-              Continue
+              Continue Journey
             </Link>
           </div>
         </div>
 
-        <div className="divide-y divide-slate-100">
+        <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
           {steps.map((step, index) => {
             const status = workflowSteps[step.id as StepId] ?? "pending";
             return (
-              <article key={step.id} className="grid gap-4 px-5 py-4 md:grid-cols-[44px_minmax(0,1fr)_auto] md:items-center">
-                <div
-                  className={`grid h-10 w-10 place-items-center rounded-full text-sm font-semibold ${
-                    status === "completed"
-                      ? "bg-emerald-100 text-emerald-700"
-                      : "bg-slate-100 text-slate-600"
-                  }`}
-                >
-                  {index + 1}
-                </div>
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="font-semibold text-slate-950">{step.title}</h3>
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+              <article
+                key={step.id}
+                className="grid min-h-[150px] gap-4 rounded-lg border border-slate-200/80 bg-slate-50/70 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div
+                      className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-xs font-semibold ${
                         status === "completed"
-                          ? "bg-emerald-50 text-emerald-700"
-                          : "bg-slate-100 text-slate-600"
+                          ? "bg-emerald-100 text-emerald-700"
+                          : "bg-white text-slate-600 ring-1 ring-slate-200"
                       }`}
                     >
-                      {status === "completed" ? "Completed" : "Pending"}
-                    </span>
+                      {index + 1}
+                    </div>
+                    <div className="min-w-0">
+                      <h3 className="truncate font-semibold text-slate-950">{step.title}</h3>
+                      <span
+                        className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${
+                          status === "completed"
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-white text-slate-600 ring-1 ring-slate-200"
+                        }`}
+                      >
+                        {status === "completed" ? "Completed" : "Pending"}
+                      </span>
+                    </div>
                   </div>
-                  <p className="mt-1 text-sm text-slate-500">{step.description}</p>
+                  <Link
+                    to={step.route}
+                    className="inline-flex shrink-0 justify-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+                  >
+                    Open
+                  </Link>
                 </div>
-                <Link
-                  to={step.route}
-                  className="inline-flex justify-center rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
-                >
-                  Open
-                </Link>
+                <p className="text-sm leading-5 text-slate-500">{step.description}</p>
               </article>
             );
           })}
@@ -162,7 +219,7 @@ function StatCard({
   value: number | string;
 }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4">
+    <div className="rounded-lg border border-slate-200/80 bg-white/90 p-4 shadow-sm">
       <div className="flex items-center justify-between text-slate-500">
         <span className="text-xs font-semibold uppercase tracking-wide">{label}</span>
         {icon}

@@ -1,6 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import StepPythonPanel from "../components/StepPythonPanel";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { logDecision } from "../lib/decisionJournal";
+import { buildExecutiveSummary, type ExecutiveSummary } from "../lib/executiveSummary";
+import { inferLocalProblemType, loadLocalDataset } from "../lib/localDataset";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
@@ -162,6 +166,10 @@ function localCurvesFor(modelKey: string, ranked: Ranked | null): Curves {
   };
 }
 
+function displayModelName(name: string) {
+  return name.replace(/\s*\(k\s*=\s*\d+\)/i, "");
+}
+
 export default function Step08_Evaluation() {
   const navigate = useNavigate();
   const markComplete = useWorkflowStore((state) => state.markComplete);
@@ -171,6 +179,9 @@ export default function Step08_Evaluation() {
   const [tree, setTree] = useState<TreeResponse | null>(null);
   const [knn, setKnn] = useState<KnnResponse | null>(null);
   const [sortKey, setSortKey] = useState<"auc" | "pr_auc" | "rmse" | "mae" | "r2" | "adjusted_r2">("auc");
+  const [summaryProblemType, setSummaryProblemType] = useState<"classification" | "regression" | null>(
+    () => inferLocalProblemType(loadLocalDataset())
+  );
 
   // Load summary of last training run (leaderboard)
   useEffect(() => {
@@ -181,16 +192,24 @@ export default function Step08_Evaluation() {
           // Backend already returns objects with { key, name, auc, pr_auc }
           setRanked(j.summary.ranked as Ranked);
           setSelected(j.summary.ranked[0].key as string);
+          const localProblemType = inferLocalProblemType(loadLocalDataset());
+          const backendProblemType =
+            j.summary.problem_type === "classification" || j.summary.problem_type === "regression"
+              ? j.summary.problem_type
+              : null;
+          setSummaryProblemType(localProblemType ?? backendProblemType);
         } else {
           const localRanked = loadLocalRanked();
           setRanked(localRanked);
           setSelected(localRanked[0]?.key ?? null);
+          setSummaryProblemType(inferLocalProblemType(loadLocalDataset()));
         }
       })
       .catch(() => {
         const localRanked = loadLocalRanked();
         setRanked(localRanked);
         setSelected(localRanked[0]?.key ?? null);
+        setSummaryProblemType(inferLocalProblemType(loadLocalDataset()));
       });
   }, []);
 
@@ -202,18 +221,24 @@ export default function Step08_Evaluation() {
       .then((r) => r.json())
       .then((j) => {
         const next = j as Curves;
+        const currentProblemType = inferLocalProblemType(loadLocalDataset()) ?? summaryProblemType;
+        if (currentProblemType === "classification" && next?.task === "regression") {
+          setCurves(localCurvesFor(selected, ranked));
+          return;
+        }
         setCurves(next?.ok ? next : localCurvesFor(selected, ranked));
       })
       .catch(() => {
         setCurves(localCurvesFor(selected, ranked));
       });
-  }, [selected, ranked]);
+  }, [selected, ranked, summaryProblemType]);
 
   const selectedModel = ranked?.find((model) => model.key === selected) ?? null;
   const problemType: "classification" | "regression" =
-    selectedModel?.task === "regression" || ranked?.some((model) => model.task === "regression" || model.rmse !== undefined)
+    summaryProblemType ??
+    (selectedModel?.task === "regression" || ranked?.some((model) => model.task === "regression" || model.rmse !== undefined)
       ? "regression"
-      : "classification";
+      : "classification");
   const isRegression = problemType === "regression";
   const selectedIsTree = Boolean(
     selectedModel && (/tree/i.test(selectedModel.name) || /tree|dtree/i.test(selectedModel.key))
@@ -258,7 +283,7 @@ export default function Step08_Evaluation() {
 
   if (ranked === null) {
     return (
-      <div className="max-w-[1100px] mx-auto">
+      <div className="w-full">
         <h1 className="text-2xl font-semibold">Step 8: Evaluation</h1>
         <div className="rounded-2xl border border-gray-200 bg-white p-4 mt-4">
           Loading…
@@ -269,7 +294,7 @@ export default function Step08_Evaluation() {
 
   if (ranked.length === 0) {
     return (
-      <div className="max-w-[1100px] mx-auto space-y-4">
+      <div className="w-full space-y-4">
         <h1 className="text-2xl font-semibold">Step 8: Evaluation</h1>
         <div className="rounded-2xl border border-gray-200 bg-white p-4">
           <div className="text-sm font-semibold">No training runs yet</div>
@@ -284,9 +309,10 @@ export default function Step08_Evaluation() {
   const fp = curves?.confusion && curves.confusion.length === 2 ? curves.confusion[0][1] : null;
   const tn = curves?.confusion && curves.confusion.length === 2 ? curves.confusion[0][0] : null;
   const fpr = fp !== null && tn !== null && fp + tn > 0 ? fp / (fp + tn) : null;
+  const executiveSummary = buildExecutiveSummary(selectedModel, curves);
 
   return (
-    <div className="max-w-[1100px] mx-auto space-y-6">
+    <div className="w-full space-y-6">
       <h1 className="text-2xl font-semibold">Step 8: Evaluation</h1>
       <p className="text-gray-600 -mt-2">
         {isRegression
@@ -348,9 +374,23 @@ export default function Step08_Evaluation() {
                 className={`border-t cursor-pointer ${
                   selected === m.key ? "bg-indigo-50" : ""
                 }`}
-                onClick={() => setSelected(m.key)}
+                onClick={() => {
+                  logDecision({
+                    workflowStep: "Evaluation",
+                    actionType: "champion_model_selected",
+                    subject: "Reviewed model",
+                    previousValue: selected,
+                    newValue: m.key,
+                    followStatus: idx === 0 ? "followed" : "overrode",
+                    systemRecommendation:
+                      idx === 0
+                        ? "The selected row is the current leaderboard champion under the active sort metric."
+                        : "The selected row is not the current leaderboard champion under the active sort metric; document why it is being reviewed or preferred.",
+                  });
+                  setSelected(m.key);
+                }}
               >
-                <td className="py-1 pr-4">{m.name}</td>
+                <td className="py-1 pr-4">{displayModelName(m.name)}</td>
                 {isRegression ? (
                   <>
                     <td className="py-1 pr-4">{m.rmse != null ? m.rmse.toFixed(4) : "-"}</td>
@@ -380,6 +420,8 @@ export default function Step08_Evaluation() {
           </tbody>
         </table>
       </div>
+
+      <ExecutiveSummaryPanel summary={executiveSummary} />
 
       {/* Curves + metrics */}
       <div className="rounded-2xl border border-gray-200 bg-white p-4">
@@ -453,6 +495,8 @@ export default function Step08_Evaluation() {
 
       {!isRegression && selected && <Deciles model={selected} ranked={ranked} />}
 
+      <StepPythonPanel />
+
       <div className="pt-2 pb-10 flex justify-center">
         <button
           className="px-5 py-3 rounded-xl bg-indigo-600 text-white shadow-sm"
@@ -473,6 +517,63 @@ function Stat({ label, v }: { label: string; v?: number | null }) {
     <div className="rounded-xl border p-3">
       <div className="text-xs text-gray-500">{label}</div>
       <div className="text-base font-semibold">{typeof v === "number" && Number.isFinite(v) ? v.toFixed(4) : "-"}</div>
+    </div>
+  );
+}
+
+function ExecutiveSummaryPanel({ summary }: { summary: ExecutiveSummary }) {
+  const readinessClass =
+    summary.productionReadiness === "Validation candidate"
+      ? "border-blue-200 bg-blue-50 text-blue-900"
+      : summary.productionReadiness === "Production candidate"
+        ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+        : "border-amber-200 bg-amber-50 text-amber-900";
+
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div className="text-sm font-semibold uppercase tracking-wide text-slate-500">Executive Summary</div>
+          <h2 className="mt-1 text-xl font-semibold text-slate-950">{summary.headline}</h2>
+          <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-700">{summary.overview}</p>
+        </div>
+        <div className={`shrink-0 rounded-xl border px-4 py-3 text-sm font-semibold ${readinessClass}`}>
+          {summary.productionReadiness}
+        </div>
+      </div>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+        {summary.stats.map((stat) => (
+          <div key={stat.label} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{stat.label}</div>
+            <div className="mt-1 truncate text-sm font-semibold text-slate-950" title={stat.value}>
+              {stat.value}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-5 grid gap-4 xl:grid-cols-3">
+        <SummaryList title="Strongest Predictors" items={summary.strongestPredictors} />
+        <SummaryList title="Key Risks" items={summary.keyRisks} />
+        <SummaryList title="Recommended Next Steps" items={summary.recommendedNextSteps} />
+      </div>
+    </section>
+  );
+}
+
+function SummaryList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
+      <ul className="mt-3 space-y-2 text-sm leading-5 text-slate-700">
+        {items.map((item) => (
+          <li key={item} className="flex gap-2">
+            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import StepShell from "../components/StepShell";
+import { logDecision } from "../lib/decisionJournal";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const API_BASE =
@@ -270,6 +271,39 @@ export default function Step06_BalancingSplit() {
     localStorage.setItem("balanceMethod", balanceMethod);
   }, [balanceMethod]);
 
+  const chooseSplitStrategy = (next: SplitStrategy) => {
+    logDecision({
+      workflowStep: "Balance & Split",
+      actionType: "split_strategy_selected",
+      subject: "Split strategy",
+      previousValue: splitStrategy,
+      newValue: next,
+    });
+    setSplitStrategy(next);
+  };
+
+  const chooseBalanceMethod = (next: BalanceMethod) => {
+    logDecision({
+      workflowStep: "Balance & Split",
+      actionType: "balancing_method_selected",
+      subject: "Balancing method",
+      previousValue: balanceMethod,
+      newValue: next,
+    });
+    setBalanceMethod(next);
+  };
+
+  const chooseBalanceRatio = (next: string) => {
+    logDecision({
+      workflowStep: "Balance & Split",
+      actionType: "workflow_setting_changed",
+      subject: "Balance / holdout ratio",
+      previousValue: balanceRatio,
+      newValue: next,
+    });
+    setBalanceRatio(next);
+  };
+
   const { maj, min } = useMemo(() => parseRatio(balanceRatio), [balanceRatio]);
 
   const isHoldout = splitStrategy === "holdout";
@@ -297,7 +331,7 @@ export default function Step06_BalancingSplit() {
               id="holdout"
               type="radio"
               checked={isHoldout}
-              onChange={() => setSplitStrategy("holdout")}
+              onChange={() => chooseSplitStrategy("holdout")}
             />
             <span className="text-sm font-medium">Holdout (Train/Test)</span>
           </label>
@@ -307,7 +341,7 @@ export default function Step06_BalancingSplit() {
               id="kfold"
               type="radio"
               checked={isCV}
-              onChange={() => setSplitStrategy("kfold")}
+              onChange={() => chooseSplitStrategy("kfold")}
             />
             <span className="text-sm font-medium">Cross-validation (Stratified K-Fold)</span>
           </label>
@@ -321,7 +355,17 @@ export default function Step06_BalancingSplit() {
             </label>
             <select
               value={kFolds}
-              onChange={(e) => setKFolds(parseInt(e.target.value, 10))}
+              onChange={(e) => {
+                const next = parseInt(e.target.value, 10);
+                logDecision({
+                  workflowStep: "Balance & Split",
+                  actionType: "workflow_setting_changed",
+                  subject: "K folds",
+                  previousValue: kFolds,
+                  newValue: next,
+                });
+                setKFolds(next);
+              }}
               className="w-40 p-2 border border-gray-300 rounded-lg"
             >
               {KFOLD_OPTIONS.map((k) => (
@@ -367,7 +411,7 @@ export default function Step06_BalancingSplit() {
             <label className="block text-sm font-medium text-gray-700 mb-1">Balance Ratio</label>
             <select
               value={balanceRatio}
-              onChange={(e) => setBalanceRatio(e.target.value)}
+              onChange={(e) => chooseBalanceRatio(e.target.value)}
               className="w-full p-2 border border-gray-300 rounded-lg"
               disabled={balanceMethod !== "undersample"}
               title={balanceMethod !== "undersample" ? "Ratio applies to undersampling only" : ""}
@@ -388,7 +432,7 @@ export default function Step06_BalancingSplit() {
                 <input
                   type="radio"
                   checked={balanceMethod === "undersample"}
-                  onChange={() => setBalanceMethod("undersample")}
+                  onChange={() => chooseBalanceMethod("undersample")}
                 />
                 <span>Undersampling</span>
               </label>
@@ -396,7 +440,7 @@ export default function Step06_BalancingSplit() {
                 <input
                   type="radio"
                   checked={balanceMethod === "smote"}
-                  onChange={() => setBalanceMethod("smote")}
+                  onChange={() => chooseBalanceMethod("smote")}
                 />
                 <span>SMOTE (if available)</span>
               </label>
@@ -404,7 +448,7 @@ export default function Step06_BalancingSplit() {
                 <input
                   type="radio"
                   checked={balanceMethod === "class_weight"}
-                  onChange={() => setBalanceMethod("class_weight")}
+                  onChange={() => chooseBalanceMethod("class_weight")}
                 />
                 <span>Class Weights</span>
               </label>
@@ -412,7 +456,7 @@ export default function Step06_BalancingSplit() {
                 <input
                   type="radio"
                   checked={balanceMethod === "none"}
-                  onChange={() => setBalanceMethod("none")}
+                  onChange={() => chooseBalanceMethod("none")}
                 />
                 <span>None</span>
               </label>
@@ -438,7 +482,7 @@ export default function Step06_BalancingSplit() {
           <label className="block text-sm font-medium text-gray-700 mb-1">Holdout Ratio</label>
           <select
             value={balanceRatio}
-            onChange={(e) => setBalanceRatio(e.target.value)}
+            onChange={(e) => chooseBalanceRatio(e.target.value)}
             className="w-full p-2 border border-gray-300 rounded-lg"
           >
             {RATIO_OPTIONS.map((o) => (

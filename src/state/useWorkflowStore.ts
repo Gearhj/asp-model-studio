@@ -3,7 +3,9 @@ import { persist, createJSONStorage } from "zustand/middleware";
 
 type StepId =
   | "dashboard"
+  | "step00"
   | "step01"
+  | "step01b"
   | "step02"
   | "step03"
   | "step04"
@@ -12,7 +14,8 @@ type StepId =
   | "step07"
   | "step08"
   | "step09"
-  | "step10";
+  | "step10"
+  | "step11";
 
 type StepStatus = "pending" | "in_progress" | "completed";
 
@@ -38,7 +41,9 @@ type WorkflowState = {
 
 const initialSteps: Record<StepId, StepStatus> = {
   dashboard: "pending",
+  step00: "pending",
   step01: "pending",
+  step01b: "pending",
   step02: "pending",
   step03: "pending",
   step04: "pending",
@@ -48,6 +53,41 @@ const initialSteps: Record<StepId, StepStatus> = {
   step08: "pending",
   step09: "pending",
   step10: "pending",
+  step11: "pending",
+};
+
+const workflowOrder: StepId[] = [
+  "dashboard",
+  "step00", // Project Context
+  "step01", // Data Acquisition
+  "step01b", // Credit Bureau Data Review
+  "step02", // EDA
+  "step03", // Outliers
+  "step04", // Missing Values
+  "step05", // Feature Engineering
+  "step06", // Balancing & Split
+  "step07", // Model Training
+  "step08", // Evaluation
+  "step09", // Model Interpretation
+  "step10", // Final Scoring
+  "step11", // Model Development Document
+];
+
+const workflowPaths: Record<StepId, string> = {
+  dashboard: "/dashboard",
+  step00: "/step00",
+  step01: "/step01",
+  step01b: "/step01b",
+  step02: "/step02",
+  step03: "/step03",
+  step04: "/step04",
+  step05: "/step05",
+  step06: "/step06",
+  step07: "/step07",
+  step08: "/step08",
+  step09: "/step09",
+  step10: "/step10",
+  step11: "/step11",
 };
 
 export const useWorkflowStore = create<WorkflowState>()(
@@ -57,33 +97,9 @@ export const useWorkflowStore = create<WorkflowState>()(
 
       steps: { ...initialSteps },
 
-      order: [
-        "dashboard",
-        "step01", // Data Acquisition
-        "step02", // EDA
-        "step03", // Outliers
-        "step04", // Missing Values
-        "step05", // Feature Engineering
-        "step06", // Balancing & Split
-        "step07", // Model Training
-        "step08", // Evaluation
-        "step09", // Model Interpretation
-        "step10", // Final Scoring
-      ],
+      order: workflowOrder,
 
-      paths: {
-        dashboard: "/dashboard",
-        step01: "/step01",
-        step02: "/step02",
-        step03: "/step03",
-        step04: "/step04",
-        step05: "/step05",
-        step06: "/step06",
-        step07: "/step07",
-        step08: "/step08",
-        step09: "/step09",
-        step10: "/step10",
-      },
+      paths: workflowPaths,
 
       setHasDataset: (v) => set({ hasDataset: v }),
 
@@ -117,8 +133,13 @@ export const useWorkflowStore = create<WorkflowState>()(
     {
       name: "ds-workflow-store",
       storage: createJSONStorage(() => sessionStorage),
-      version: 1,
-      migrate: (persisted: any) => persisted,
+      version: 2,
+      migrate: (persisted: any) => ({
+        ...persisted,
+        steps: { ...initialSteps, ...(persisted?.steps ?? {}) },
+        order: workflowOrder,
+        paths: workflowPaths,
+      }),
     }
   )
 );

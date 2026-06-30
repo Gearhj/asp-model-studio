@@ -6,6 +6,7 @@ import D3Boxplot from "../components/D3Boxplot";
 import D3Heatmap from "../components/D3Heatmap";
 import D3Pairplot from "../components/D3Pairplot";
 import { PairwiseSvg } from "../components/D3Pairplot";
+import StepPythonPanel from "../components/StepPythonPanel";
 import { useNavigate } from "react-router-dom";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { inferLocalColumns, loadLocalDataset, type LocalDataset } from "../lib/localDataset";
@@ -261,6 +262,8 @@ export default function Step02_EDA() {
           )}
         </div>
       </div>
+
+      <StepPythonPanel />
 
       {/* Bottom nav */}
       <div className="mt-8 flex flex-col items-center gap-3">
