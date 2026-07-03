@@ -25,6 +25,7 @@ function downloadText(filename: string, text: string, type = "text/markdown") {
 export default function DecisionJournal() {
   const [entries, setEntries] = useState<DecisionJournalEntry[]>(() => loadDecisionJournal());
   const [filter, setFilter] = useState("");
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     const refresh = () => setEntries(loadDecisionJournal());
@@ -55,6 +56,7 @@ export default function DecisionJournal() {
         .includes(q)
     );
   }, [entries, filter]);
+  const visibleEntries = showAll ? filtered : filtered.slice(0, 50);
 
   const updateEntry = (id: string, patch: Partial<DecisionJournalEntry>) => {
     const next = entries.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry));
@@ -119,15 +121,37 @@ export default function DecisionJournal() {
         <Stat label="Journal Entries" value={entries.length} />
         <Stat label="Overrides" value={entries.filter((entry) => entry.followStatus === "overrode").length} />
         <Stat label="Rationales Added" value={entries.filter((entry) => entry.userReason?.trim()).length} />
-        <Stat label="Visible" value={filtered.length} />
+        <Stat label="Visible" value={visibleEntries.length} />
+      </section>
+
+      <section className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
+        <div className="font-semibold">Why this journal is long</div>
+        <p className="mt-1">
+          ATLAS records material modeling decisions automatically so validation can trace how the target, features,
+          treatments, sampling choices, model candidates, champion selection, and overrides were chosen. The page shows
+          the latest 50 entries by default; exports keep the full audit trail.
+        </p>
       </section>
 
       <section className="rounded-lg border border-slate-200/80 bg-white/90 shadow-sm">
         <div className="border-b border-slate-200 px-4 py-3">
-          <h2 className="text-sm font-semibold text-slate-950">Audit Trail</h2>
-          <p className="mt-1 text-xs text-slate-500">
-            Each entry captures the recommendation context at the time of the decision. Add rationale where the user overrides guidance or makes a material judgment call.
-          </p>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-semibold text-slate-950">Audit Trail</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                Each entry captures the recommendation context at the time of the decision. Add rationale where the user overrides guidance or makes a material judgment call.
+              </p>
+            </div>
+            {filtered.length > 50 && (
+              <button
+                type="button"
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+                onClick={() => setShowAll((current) => !current)}
+              >
+                {showAll ? "Show Latest 50" : `Show All ${filtered.length}`}
+              </button>
+            )}
+          </div>
         </div>
 
         {filtered.length === 0 ? (
@@ -136,7 +160,7 @@ export default function DecisionJournal() {
           </div>
         ) : (
           <div className="grid gap-3 p-4">
-            {filtered.map((entry) => (
+            {visibleEntries.map((entry) => (
               <article key={entry.id} className="rounded-lg border border-slate-200 bg-slate-50/70 p-4">
                 <div className="grid gap-3 xl:grid-cols-[220px_1fr_190px]">
                   <div>

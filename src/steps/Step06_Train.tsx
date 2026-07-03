@@ -5,10 +5,12 @@ import { useNavigate } from "react-router-dom";
 import { logDecision } from "../lib/decisionJournal";
 import { recordTrainingExperiments } from "../lib/experimentTracking";
 import { inferLocalProblemType, loadLocalDataset } from "../lib/localDataset";
+import { upsertProjectFromState } from "../lib/localProjects";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE?.replace(/\/$/, "") || "http://127.0.0.1:8001/api";
+const LOCAL_TRAINING_SUMMARY_KEY = "modeling-tool-training-summary";
 
 type Status = "idle" | "pending" | "done" | "error";
 
@@ -81,6 +83,7 @@ type ModelDef = {
   key: ModelKey;
   label: string;
   tooltip?: string;
+  requiresBackendPackage?: boolean;
 };
 
 type GroupDef = {
@@ -167,6 +170,7 @@ const DEFAULT_REGRESSION_SELECTION: Partial<Record<ModelKey, boolean>> = {
 };
 
 const ALL_MODEL_KEYS = MODEL_GROUPS.flatMap((group) => group.models.map((model) => model.key));
+const OPTIONAL_MODEL_KEYS = new Set<ModelKey>(["ebm", "xgb", "cat", "lgbm", "linsvm", "iso", "autoreg", "mlp", "xgb_reg", "lgbm_reg", "cat_reg"]);
 
 function inferTarget(headers: string[], current?: string | null) {
   if (current && headers.includes(current)) return current;
@@ -270,6 +274,22 @@ function displayModelName(name: string) {
   return name.replace(/\s*\(k\s*=\s*\d+\)/i, "");
 }
 
+function saveLocalTrainingSummary(summary: { ranked?: RankedRow[]; problem_type?: ProblemType } | undefined) {
+  if (!summary?.ranked?.length) return;
+  try {
+    sessionStorage.setItem(
+      LOCAL_TRAINING_SUMMARY_KEY,
+      JSON.stringify({
+        problem_type: summary.problem_type,
+        ranked: summary.ranked.slice(0, 25),
+        saved_at: new Date().toISOString(),
+      })
+    );
+  } catch {
+    // Evaluation can still read from the backend if session storage is unavailable.
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
@@ -302,6 +322,7 @@ export default function Step06_Train() {
   );
 
   const [availability, setAvailability] = useState<Partial<Record<ModelKey, boolean>>>({});
+  const [availabilityLoaded, setAvailabilityLoaded] = useState(false);
   const [labels, setLabels] = useState<Partial<Record<ModelKey, string>>>({});
   const [isTraining, setIsTraining] = useState(false);
   const [message, setMessage] = useState<string | null>(
@@ -325,9 +346,21 @@ export default function Step06_Train() {
     () => (Object.keys(selected) as ModelKey[]).filter((k) => selected[k] && visibleModelKeys.has(k)),
     [selected, visibleModelKeys]
   );
+  const selectableModelKeys = useMemo(() => {
+    const keys = new Set<ModelKey>();
+    visibleGroups.forEach((group) => {
+      group.models.forEach((model) => {
+        const explicitlyUnavailable = availabilityLoaded && availability[model.key] === false;
+        const optionalUnavailable = OPTIONAL_MODEL_KEYS.has(model.key) && explicitlyUnavailable;
+        if (!optionalUnavailable) keys.add(model.key);
+      });
+    });
+    return keys;
+  }, [availability, availabilityLoaded, visibleGroups]);
   const canGoToEvaluation =
     !isTraining &&
     selectedModels.every((model) => status[model] !== "pending") &&
+    (Object.values(status).some((value) => value === "done") || (summary?.length ?? 0) > 0) &&
     (summary?.length ?? 0) > 0;
 
   const isRegressionSummary =
@@ -405,6 +438,23 @@ export default function Step06_Train() {
   }, []);
 
   useEffect(() => {
+    const refreshProblemType = () => {
+      const nextProblemType = inferProblemTypeFromLocalDataset();
+      if (!nextProblemType) return;
+      setProblemType(nextProblemType);
+      setSummary([]);
+      setMessage(`Loaded a ${nextProblemType} dataset. Train the selected ${nextProblemType} models to refresh the leaderboard.`);
+    };
+    window.addEventListener("atlas-dataset-updated", refreshProblemType);
+    window.addEventListener("storage", refreshProblemType);
+    refreshProblemType();
+    return () => {
+      window.removeEventListener("atlas-dataset-updated", refreshProblemType);
+      window.removeEventListener("storage", refreshProblemType);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!problemType) return;
 
     const defaults =
@@ -451,13 +501,15 @@ export default function Step06_Train() {
         const avail = (j.availability ?? {}) as Record<ModelKey, boolean>;
         const lbls = (j.labels ?? {}) as Record<ModelKey, string>;
         setAvailability(avail);
+        setAvailabilityLoaded(true);
         setLabels(lbls);
         setMessage("Backend reports algorithm availability successfully. Training will fit real models.");
       })
       .catch((err) => {
         if (!alive) return;
+        setAvailabilityLoaded(false);
         setMessage(
-          "Backend model availability is unavailable. Start the FastAPI backend on port 8001 to train models."
+          "Backend model availability is unavailable. Core model toggles remain selectable, but training requires the FastAPI backend on port 8001."
         );
       });
 
@@ -486,7 +538,7 @@ export default function Step06_Train() {
     const localDataset = loadLocalDataset();
     if (!localDataset?.rows.length) return false;
 
-    setMessage("Backend dataset was empty. Reloading the uploaded Step 1 data before training.");
+    setMessage("Backend dataset was empty. Reloading the browser preview sample before training. For full rare-event training, return to Data Acquisition and re-send the full uploaded file.");
     const target = inferTarget(localDataset.headers, localDataset.target);
     const syncRes = await fetch(`${API_BASE}/data/set_sample`, {
       method: "POST",
@@ -614,6 +666,7 @@ export default function Step06_Train() {
         setProblemType(responseProblemType);
       }
       setSummary((j.summary?.ranked ?? []) as RankedRow[]);
+      saveLocalTrainingSummary(j.summary);
 
       const rowsInfo = j.rows ? ` on ${j.rows.toLocaleString()} rows` : "";
       const statusInfo = j.status ? ` (status: ${j.status})` : "";
@@ -648,8 +701,8 @@ export default function Step06_Train() {
         }
       }
 
-      // NEW: after a successful training run, pull latest summary for table
-      await fetchLastSummary();
+      // Keep the just-completed backend response as the authoritative table state.
+      // A stale /train/last response can briefly clear the summary and disable Evaluation.
     } catch (err: any) {
       setMessage(
         `Training backend is unavailable. Start the FastAPI backend on port 8001 and try again. Details: ${String(
@@ -803,6 +856,7 @@ export default function Step06_Train() {
             <select
               value={gridSearchLevel}
               disabled={!useGridSearch}
+              title={useGridSearch ? "Choose how many candidate hyperparameter combinations to test." : "Enable grid search to choose a search depth."}
               onChange={(e) => {
                 logDecision({
                   workflowStep: "Model Training",
@@ -821,8 +875,38 @@ export default function Step06_Train() {
             </select>
           </label>
           <p className="self-end text-[11px] text-gray-500">
-            Grid search tests a capped set of model-specific parameter combinations using the task metric, then fits the best estimator for evaluation and interpretation.
+            {useGridSearch
+              ? "Grid search tests a capped set of model-specific parameter combinations using the task metric, then fits the best estimator for evaluation and interpretation."
+              : "Grid search is off. Models train with governed defaults; enable it when challenger performance or hyperparameter sensitivity matters."}
           </p>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Training Queue</div>
+              <div className="mt-1 text-sm font-medium text-slate-900">
+                {selectedModels.length ? `${selectedModels.length} model${selectedModels.length === 1 ? "" : "s"} selected` : "No models selected"}
+              </div>
+            </div>
+            <div className="text-xs text-slate-500">
+              Disabled toggles indicate optional libraries unavailable in the current backend environment.
+            </div>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {selectedModels.length ? selectedModels.map((key) => {
+              const def = MODEL_GROUPS.flatMap((group) => group.models).find((model) => model.key === key);
+              return (
+                <span key={key} className="rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
+                  {displayModelName(labels[key] ?? def?.label ?? key)}
+                </span>
+              );
+            }) : (
+              <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800">
+                Select at least one model before training.
+              </span>
+            )}
+          </div>
         </div>
 
         <div className="mt-4 flex items-center gap-2">
@@ -854,7 +938,8 @@ export default function Step06_Train() {
             <div className="mb-2 text-sm font-semibold text-gray-800">{group.title}</div>
             <div className="grid gap-3 md:grid-cols-2">
               {group.models.map((m) => {
-                const enabled = availability[m.key] ?? false;
+                const optionalUnavailable = availabilityLoaded && OPTIONAL_MODEL_KEYS.has(m.key) && availability[m.key] === false;
+                const enabled = selectableModelKeys.has(m.key);
                 const label = (labels[m.key as ModelKey] ?? m.label).replace(/\s*\(k\s*=\s*\d+\)/i, "");
                 const isChecked = selected[m.key];
 
@@ -877,6 +962,11 @@ export default function Step06_Train() {
                       disabled={!enabled || isTraining}
                       onChange={() => toggleModelSelection(m)}
                     />
+                    {optionalUnavailable && (
+                      <span className="ml-2 text-[11px] font-medium text-slate-400" title="This optional algorithm package is not available in the backend environment.">
+                        unavailable
+                      </span>
+                    )}
                   </div>
                 );
               })}
@@ -983,8 +1073,14 @@ export default function Step06_Train() {
             disabled={!canGoToEvaluation}
             onClick={() => {
               if (!canGoToEvaluation) return;
-              markComplete("step07");
-              navigate("/step08");
+              try {
+                markComplete("step07");
+                upsertProjectFromState(useWorkflowStore.getState());
+                navigate("/step08");
+                window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: "auto" }));
+              } catch (error) {
+                setMessage(error instanceof Error ? error.message : "ATLAS could not save the training summary before evaluation.");
+              }
             }}
             className="inline-flex items-center rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-500 disabled:shadow-none"
           >

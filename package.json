@@ -1,17 +1,18 @@
 {
-  "name": "ds-workflow-starter",
+  "name": "atlas",
   "private": true,
   "version": "0.0.1",
   "type": "module",
   "scripts": {
-    "dev": "vite --mode scheduling --host 127.0.0.1 --port 5173 --strictPort",
-    "dev:scheduling": "vite --mode scheduling --host 127.0.0.1 --port 5173 --strictPort",
+    "dev": "vite --mode modeling --host 127.0.0.1 --port 5174 --strictPort",
     "dev:modeling": "vite --mode modeling --host 127.0.0.1 --port 5174 --strictPort",
-    "build": "tsc -b && vite build --mode scheduling",
-    "build:scheduling": "tsc -b && vite build --mode scheduling",
+    "build": "tsc -b && vite build --mode modeling",
     "build:modeling": "tsc -b && vite build --mode modeling",
-    "preview:scheduling": "vite preview --host 127.0.0.1 --port 4173 --strictPort",
-    "preview:modeling": "vite preview --host 127.0.0.1 --port 4174 --strictPort"
+    "preview": "vite preview --host 127.0.0.1 --port 4174",
+    "preview:modeling": "vite preview --host 127.0.0.1 --port 4174 --strictPort",
+    "test:experimental-design": "node tests/experimentalDesign.test.mjs",
+    "test:persistence": "node tests/persistence.test.mjs",
+    "test:phase4": "node tests/phase4Architecture.test.mjs"
   },
   "dependencies": {
     "d3": "^7.9.0",

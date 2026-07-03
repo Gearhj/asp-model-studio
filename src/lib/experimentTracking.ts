@@ -145,6 +145,20 @@ function ksFromRoc(roc?: { fpr: number[]; tpr: number[] }) {
   return best;
 }
 
+function compactCurve(curve?: { fpr?: number[]; tpr?: number[]; precision?: number[]; recall?: number[] }) {
+  if (!curve) return undefined;
+  const keys = Object.keys(curve) as Array<keyof typeof curve>;
+  const maxLength = Math.max(...keys.map((key) => curve[key]?.length ?? 0), 0);
+  if (!maxLength) return undefined;
+  const step = Math.max(1, Math.ceil(maxLength / 80));
+  const compacted: Record<string, number[]> = {};
+  keys.forEach((key) => {
+    const values = curve[key] ?? [];
+    compacted[key] = values.filter((_, index) => index % step === 0).slice(0, 80);
+  });
+  return compacted;
+}
+
 function interpretabilityScore(modelKey: string, modelName: string) {
   if (/logreg|linreg|linear|logistic/i.test(`${modelKey} ${modelName}`)) return 95;
   if (/dtree|tree|ebm/i.test(`${modelKey} ${modelName}`)) return 82;
@@ -180,7 +194,7 @@ async function captureDiagnostics(apiBase: string, modelKey: string) {
 
   return {
     curves,
-    featureImportance: importance?.rows ?? [],
+    featureImportance: (importance?.rows ?? []).slice(0, 25),
     topLift,
   };
 }
@@ -226,8 +240,8 @@ export async function recordTrainingExperiments(input: CaptureInput) {
           hyperparameters: model.best_params ?? null,
           metrics,
           confusionMatrix: diagnostics.curves?.confusion,
-          rocData: diagnostics.curves?.roc,
-          prData: diagnostics.curves?.pr,
+          rocData: compactCurve(diagnostics.curves?.roc) as ExperimentRecord["rocData"],
+          prData: compactCurve(diagnostics.curves?.pr) as ExperimentRecord["prData"],
           featureImportance: diagnostics.featureImportance,
           calibrationStatus: input.calibrated ? "calibrated" : "not calibrated",
           interpretability: interpretabilityScore(model.key, model.name),
@@ -238,7 +252,7 @@ export async function recordTrainingExperiments(input: CaptureInput) {
       })
   );
 
-  const next = [...records, ...existing].slice(0, 250);
+  const next = [...records, ...existing].slice(0, 100);
   saveExperiments(next);
   return records;
 }

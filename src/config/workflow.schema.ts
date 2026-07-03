@@ -7,7 +7,9 @@ export type StepId =
   | "feature-engineering"
   | "data-balancing"
   | "model-training"
-  | "evaluation";
+  | "evaluation"
+  | "interpretation"
+  | "scoring";
 
 export interface WorkflowStep {
   id: StepId;

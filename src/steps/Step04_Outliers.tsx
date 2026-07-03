@@ -97,6 +97,7 @@ function synthSeries(name: string, n = 1000): number[] {
 }
 
 function quantile(sorted: number[], p: number) {
+  if (!sorted.length) return 0;
   const idx = (sorted.length - 1) * p;
   const lo = Math.floor(idx);
   const hi = Math.ceil(idx);
@@ -105,6 +106,7 @@ function quantile(sorted: number[], p: number) {
 }
 
 function outlierThresholds(values: number[], method: MethodKey) {
+  if (!values.length) return { lo: 0, hi: 0 };
   const s = [...values].sort((a, b) => a - b);
   const mean = s.reduce((acc, v) => acc + v, 0) / (s.length || 1);
   const sd = Math.sqrt(
@@ -413,18 +415,23 @@ export default function Step04_Outliers() {
       try {
         setLoading(true);
 
-        // 1) Fetch columns
+        // 1) Fetch columns. Treat backend metadata as optional so the page
+        // can still render from the browser-cached dataset.
         const colsRes = await fetch(`${BASE}/columns`, { signal: controller.signal });
-        const colsJson = (await colsRes.json()) as { ok?: boolean; columns?: ColumnInfo[] };
+        const colsJson = colsRes.ok
+          ? ((await colsRes.json()) as { ok?: boolean; columns?: ColumnInfo[]; target?: string | null })
+          : { columns: [] };
         const allCols: ColumnInfo[] = Array.isArray(colsJson?.columns) ? colsJson.columns : [];
 
         // 2) Fetch sample
         const sampleRes = await fetch(`${BASE}/data/get_sample`, { signal: controller.signal });
-        const sampleJson = (await sampleRes.json()) as SampleResp;
+        const sampleJson = sampleRes.ok
+          ? ((await sampleRes.json()) as SampleResp)
+          : ({ ok: false, headers: [], rows: [] } as SampleResp);
 
         const rows = Array.isArray(sampleJson?.rows) ? sampleJson.rows : [];
         const headers = Array.isArray(sampleJson?.headers) ? sampleJson.headers : [];
-        const targetName = (sampleJson?.target || allCols.find(c => c.role === "target")?.name || "") as string;
+        const targetName = (sampleJson?.target || colsJson?.target || allCols.find(c => c.role === "target")?.name || "") as string;
 
         let { final, series } = buildOutlierData(allCols, rows, headers, targetName);
         let ivMap: Record<string, number> = {};
@@ -595,8 +602,13 @@ export default function Step04_Outliers() {
         {loading ? (
           <div className="text-sm text-gray-600">Loading features…</div>
         ) : numericFeatures.length === 0 ? (
-          <div className="text-sm text-gray-600">
-            No numeric features found. Make sure Step 1 loaded a CSV with numeric columns, then refresh this page.
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+            <div className="font-semibold">Outlier analysis has no numeric feature data yet.</div>
+            <p className="mt-1">
+              Load a dataset with numeric predictors, confirm the target variable, and return here. ATLAS will then
+              profile extreme values, estimate outlier counts, and let you choose conservative capping methods before
+              missing-value treatment.
+            </p>
           </div>
         ) : (
           <div className="overflow-x-auto">

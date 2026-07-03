@@ -49,6 +49,7 @@ type FeatureBuilderState = {
 };
 
 type AnyRow = Record<string, any>;
+type LoadedDatasetContext = { columns: ColumnInfo[]; target: string | null; rows: AnyRow[] };
 
 // simple utilities
 const uniq = (arr: string[]) => Array.from(new Set(arr.filter(Boolean)));
@@ -63,21 +64,24 @@ const parseNumberList = (txt: string) =>
 export default function Step05_EncodingScaling() {
   // ---- columns (from server if available) ----
   const [columns, setColumns] = useState<ColumnInfo[]>([]);
+  const [targetColumn, setTargetColumn] = useState<string | null>(null);
+  const featureColumns = useMemo(() => columns.filter((column) => column.name !== targetColumn), [columns, targetColumn]);
+  const featureColumnNames = useMemo(() => new Set(featureColumns.map((column) => column.name)), [featureColumns]);
   const numericCols = useMemo(
     () =>
-      columns
+      featureColumns
         .filter((c) =>
           (c.dtype || "").toLowerCase().match(/int|float|double|number|numeric/)
         )
         .map((c) => c.name),
-    [columns]
+    [featureColumns]
   );
   const categoricalCols = useMemo(
     () =>
-      columns
+      featureColumns
         .filter((c) => !(c.dtype || "").toLowerCase().match(/int|float|double|number|numeric/))
         .map((c) => c.name),
-    [columns]
+    [featureColumns]
   );
 
   // ---- sample data for preview ----
@@ -125,50 +129,87 @@ export default function Step05_EncodingScaling() {
     { op: "CONTAINS", value: "Travel", thenLabel: "TravelRelated" },
   ]);
 
+  useEffect(() => {
+    if (!featureColumnNames.size) return;
+    setInteractions((current) => current.filter((item) => featureColumnNames.has(item.left) && featureColumnNames.has(item.right)));
+    setBins((current) => current.filter((item) => featureColumnNames.has(item.source)));
+    setRules((current) => current.filter((item) => featureColumnNames.has(item.source)));
+    setIxLeft((current) => (current && !featureColumnNames.has(current) ? "" : current));
+    setIxRight((current) => (current && !featureColumnNames.has(current) ? "" : current));
+    setBinSource((current) => (current && !featureColumnNames.has(current) ? "" : current));
+    setRuleSource((current) => (current && !featureColumnNames.has(current) ? "" : current));
+  }, [featureColumnNames]);
+
   // initial fetch: columns + sample
   useEffect(() => {
     let mounted = true;
+    let datasetContextPromise: Promise<LoadedDatasetContext> | null = null;
 
-    const loadColumns = async () => {
-      try {
+    const loadDatasetContext = async (): Promise<LoadedDatasetContext> => {
+      if (datasetContextPromise) return datasetContextPromise;
+      datasetContextPromise = (async () => {
+        const localDataset = loadLocalDataset();
+        let rows: AnyRow[] = [];
+        let target = localDataset?.target ?? null;
         let cols: ColumnInfo[] = [];
 
         try {
-          const res = await fetch(`${BASE}/columns`);
-          const js = await res.json();
+          const sampleResponse = await fetch(`${BASE}/data/get_sample`);
+          const sampleJson = await sampleResponse.json();
+          rows = Array.isArray(sampleJson?.rows) ? sampleJson.rows : [];
+          target = sampleJson?.target ?? sampleJson?.metadata?.target ?? target;
+        } catch {
+          rows = [];
+        }
+
+        if (!rows.length) rows = localDataset?.rows.slice(0, 10) ?? [];
+
+        try {
+          const columnResponse = await fetch(`${BASE}/columns`);
+          const columnJson = await columnResponse.json();
           cols =
-            js?.columns?.map((c: any) => ({
+            columnJson?.columns?.map((c: any) => ({
               name: c.name ?? c[0] ?? c,
               dtype: c.dtype ?? c[1] ?? undefined,
             })) ?? [];
+          target = columnJson?.target ?? columnJson?.metadata?.target ?? target;
         } catch {
           cols = [];
         }
 
-        if (!cols.length) {
-          const localDataset = loadLocalDataset();
-          if (localDataset?.headers.length) {
-            cols = inferLocalColumns(localDataset);
-            setUsingLocalDataset(true);
-          } else {
-            setUsingLocalDataset(false);
-          }
-        } else {
-          setUsingLocalDataset(false);
+        if (!cols.length && localDataset?.headers.length) cols = inferLocalColumns(localDataset);
+        if (!cols.length && rows.length) {
+          cols = Object.keys(rows[0]).map((name) => ({
+            name,
+            dtype: rows.some((row) => Number.isFinite(Number(row[name]))) ? "float64" : "object",
+          }));
         }
+
+        return { columns: cols, target, rows };
+      })();
+      return datasetContextPromise;
+    };
+
+    const loadColumns = async () => {
+      try {
+        const context = await loadDatasetContext();
+        const cols = context.columns;
 
         // Expect js.columns = [{name,dtype}, ...] or similar
         if (!mounted) return;
         setColumns(cols);
+        setTargetColumn(context.target);
+        setUsingLocalDataset(!!loadLocalDataset()?.headers.length && !context.rows.length);
 
         // pick sensible defaults after columns known
         if (cols.length) {
-          const nums = cols
+          const featureCols = cols.filter((column) => column.name !== context.target);
+          const nums = featureCols
             .filter((c) =>
               (c.dtype || "").toLowerCase().match(/int|float|double|number|numeric/)
             )
             .map((c) => c.name);
-          const cats = cols
+          const cats = featureCols
             .filter(
               (c) =>
                 !(c.dtype || "")
@@ -189,22 +230,11 @@ export default function Step05_EncodingScaling() {
 
     const loadSample = async () => {
       try {
-        let rows: AnyRow[] = [];
-
-        try {
-          const res = await fetch(`${BASE}/data/get_sample`);
-          const js = await res.json();
-          rows = Array.isArray(js?.rows) ? js.rows : [];
-        } catch {
-          rows = [];
-        }
-
-        if (!rows.length) {
-          const localDataset = loadLocalDataset();
-          rows = localDataset?.rows.slice(0, 10) ?? [];
-        }
+        const context = await loadDatasetContext();
+        const rows = context.rows;
 
         if (!mounted) return;
+        setTargetColumn(context.target);
         if (rows.length) setSample(rows.slice(0, 10));
         else setSample(syntheticFallback());
       } catch {
@@ -313,9 +343,7 @@ export default function Step05_EncodingScaling() {
 
     // polynomials (simple demo: square a couple of numeric columns if present)
     if (transforms.poly !== "None") {
-      const nums = Object.keys(out[0] || {}).filter(
-        (k) => typeof out[0][k] === "number"
-      );
+      const nums = numericCols.filter((k) => typeof out[0]?.[k] === "number");
       nums.slice(0, 2).forEach((k) => {
         out.forEach((row) => {
           const v = Number(row[k]);
@@ -331,9 +359,7 @@ export default function Step05_EncodingScaling() {
 
     // scaling (demo preview only)
     if (transforms.scaler !== "None") {
-      const nums = Object.keys(out[0] || {}).filter(
-        (k) => typeof out[0][k] === "number"
-      );
+      const nums = numericCols.filter((k) => typeof out[0]?.[k] === "number");
       nums.slice(0, 2).forEach((k) => {
         const vals = out.map((r) => Number(r[k] ?? 0));
         const mean =
@@ -360,7 +386,7 @@ export default function Step05_EncodingScaling() {
     if (transforms.encoding !== "None") {
       const catKey =
         categoricalCols[0] ||
-        Object.keys(out[0]).find((k) => typeof out[0][k] === "string");
+        Object.keys(out[0]).find((k) => featureColumnNames.has(k) && typeof out[0][k] === "string");
       if (catKey) {
         const cats = uniq(out.map((r) => String(r[catKey])));
         cats.slice(0, 4).forEach((c) => {
@@ -436,7 +462,7 @@ export default function Step05_EncodingScaling() {
     });
 
     return out;
-  }, [sample, transforms, interactions, bins, rules, categoricalCols]);
+  }, [sample, transforms, interactions, bins, rules, categoricalCols, numericCols, featureColumnNames]);
 
   // columns to render in preview
   const previewCols = useMemo(
@@ -447,9 +473,9 @@ export default function Step05_EncodingScaling() {
   // persist current selections to the store (defensive: try several common setter names)
   const persistToStore = async () => {
     const payload: FeatureBuilderState = {
-      interactions,
-      bins,
-      rules,
+      interactions: interactions.filter((item) => featureColumnNames.has(item.left) && featureColumnNames.has(item.right)),
+      bins: bins.filter((item) => featureColumnNames.has(item.source)),
+      rules: rules.filter((item) => featureColumnNames.has(item.source)),
       transforms,
     };
 

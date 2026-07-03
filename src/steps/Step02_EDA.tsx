@@ -10,12 +10,15 @@ import StepPythonPanel from "../components/StepPythonPanel";
 import { useNavigate } from "react-router-dom";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { inferLocalColumns, loadLocalDataset, type LocalDataset } from "../lib/localDataset";
+import { upsertProjectFromState } from "../lib/localProjects";
 
 type ColumnInfo = { name: string; dtype?: string; role?: "feature" | "target" };
 
 const BASE =
   (import.meta as any)?.env?.VITE_API_BASE?.replace(/\/$/, "") ||
   "http://127.0.0.1:8001/api";
+
+const edaCorrelationCache = new Map<string, { columns: string[]; values: number[][] }>();
 
 export default function Step02_EDA() {
   const navigate = useNavigate();
@@ -32,6 +35,7 @@ export default function Step02_EDA() {
   // status
   const [loading, setLoading] = useState<boolean>(true);
   const [errMsg, setErrMsg] = useState<string>("");
+  const [navigationError, setNavigationError] = useState<string>("");
   const [usingLocalDataset, setUsingLocalDataset] = useState(false);
   const [localDataset, setLocalDataset] = useState<LocalDataset | null>(null);
 
@@ -105,6 +109,18 @@ export default function Step02_EDA() {
     () => columns.filter((c) => c.name !== target).map((c) => c.name),
     [columns, target]
   );
+
+  async function handleContinue() {
+    try {
+      setNavigationError("");
+      markComplete("step02");
+      await upsertProjectFromState(useWorkflowStore.getState());
+      navigate("/step03");
+      window.scrollTo({ top: 0, left: 0 });
+    } catch (error: any) {
+      setNavigationError(error?.message ?? "ATLAS could not save this step before navigating.");
+    }
+  }
 
   // Hard guards so the page never shows a blank screen
   if (loading) {
@@ -267,12 +283,14 @@ export default function Step02_EDA() {
 
       {/* Bottom nav */}
       <div className="mt-8 flex flex-col items-center gap-3">
+        {navigationError && (
+          <div className="w-full max-w-2xl rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+            {navigationError}
+          </div>
+        )}
         <button
           className="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700"
-          onClick={() => {
-            markComplete("step02");
-            navigate("/step03");
-          }}
+          onClick={handleContinue}
         >
           Mark Complete & Next Step
         </button>
@@ -300,6 +318,32 @@ function quantile(sorted: number[], p: number) {
   const upper = Math.ceil(index);
   const weight = index - lower;
   return sorted[lower] * (1 - weight) + sorted[upper] * weight;
+}
+
+function datasetCacheKey(dataset: LocalDataset, samplePct: number) {
+  return [
+    dataset.headers.join(","),
+    dataset.target ?? "",
+    dataset.rows.length,
+    samplePct,
+    JSON.stringify(dataset.rows.slice(0, 3)),
+  ].join("|");
+}
+
+function cachedCorrelationMatrix(dataset: LocalDataset, samplePct: number) {
+  const key = datasetCacheKey(dataset, samplePct);
+  const cached = edaCorrelationCache.get(key);
+  if (cached) return cached;
+
+  const numericColumns = dataset.headers.filter((header) => numericValues(dataset, header, samplePct).length >= 3).slice(0, 20);
+  const values = numericColumns.map((rowColumn) => numericColumns.map((column) => pearson(dataset, rowColumn, column, samplePct)));
+  const result = { columns: numericColumns, values };
+  edaCorrelationCache.set(key, result);
+  if (edaCorrelationCache.size > 12) {
+    const oldest = edaCorrelationCache.keys().next().value;
+    if (oldest) edaCorrelationCache.delete(oldest);
+  }
+  return result;
 }
 
 function LocalHistogram({ dataset, feature, bins, samplePct }: { dataset: LocalDataset; feature: string; bins: number; samplePct: number }) {
@@ -386,7 +430,8 @@ function LocalBoxplot({ dataset, feature, samplePct }: { dataset: LocalDataset; 
 }
 
 function LocalCorrelation({ dataset, samplePct }: { dataset: LocalDataset; samplePct: number }) {
-  const numericColumns = dataset.headers.filter((header) => numericValues(dataset, header, samplePct).length >= 3).slice(0, 20);
+  const matrix = cachedCorrelationMatrix(dataset, samplePct);
+  const numericColumns = matrix.columns;
   if (numericColumns.length < 2) {
     return <div className="text-sm text-gray-500">Need at least two numeric columns to compute local correlations.</div>;
   }
@@ -406,8 +451,9 @@ function LocalCorrelation({ dataset, samplePct }: { dataset: LocalDataset; sampl
           {numericColumns.map((rowColumn) => (
             <tr key={rowColumn}>
               <th className="p-2 text-left font-medium">{rowColumn}</th>
-              {numericColumns.map((column) => {
-                const value = pearson(dataset, rowColumn, column, samplePct);
+              {numericColumns.map((column, columnIndex) => {
+                const rowIndex = numericColumns.indexOf(rowColumn);
+                const value = matrix.values[rowIndex]?.[columnIndex] ?? 0;
                 const intensity = Math.round(Math.abs(value) * 180);
                 return (
                   <td

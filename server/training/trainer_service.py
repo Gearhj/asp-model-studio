@@ -1,6 +1,7 @@
 from typing import Any, Dict, List, Tuple
 
 from ..core.dataset_store import DATASTORE
+from ..core.json_safety import json_safe
 from ..core.result_store import RESULTS
 from ..splitting.split_service import split_service
 from .trainer import MODEL_CATALOG, train_models
@@ -125,8 +126,9 @@ class TrainerService:
         )
 
         RESULTS.set_model_artifacts(artifacts)
-        RESULTS.set_last_summary(summary)
-        return summary
+        safe_summary = json_safe(summary)
+        RESULTS.set_last_summary(safe_summary)
+        return safe_summary
 
 
 TRAINER = TrainerService()

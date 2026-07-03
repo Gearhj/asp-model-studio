@@ -1,12 +1,21 @@
-import { loadDecisionJournal, type DecisionJournalEntry } from "./decisionJournal";
+import { loadDecisionJournal, materialDecisionSummary, type DecisionJournalEntry } from "./decisionJournal";
 import { loadExperiments, type ExperimentMetricSet, type ExperimentRecord } from "./experimentTracking";
 import { buildGovernanceReport } from "./governanceReport";
+import { sanitizeReportHtml } from "./htmlSanitizer";
 import { inferLocalProblemType, loadLocalDataset } from "./localDataset";
 import { getNotebookSections } from "./notebookExport";
 import { loadProjectContext, summarizeRegulatoryContext } from "./projectContext";
 import { summarizeBureauHandling, treatmentLabels } from "./creditBureau";
 import { loadDataAccessMetadata } from "./enterpriseDataAccess";
+import { buildReportReadiness } from "./reportReadiness";
 import { BRAND } from "../config/brand";
+import {
+  atlasReportStyles,
+  decisionJournalTimelineHtml,
+  objectTableHtml,
+  professionalTableHtml,
+  renderReportContentHtml,
+} from "./reportFormatting";
 
 export type ModelDevelopmentDocumentSection = {
   number: number;
@@ -18,11 +27,14 @@ export type ModelDevelopmentDocument = {
   title: string;
   generatedAt: string;
   fileBaseName: string;
+  mode: ModelDevelopmentDocumentMode;
   sections: ModelDevelopmentDocumentSection[];
   markdown: string;
   html: string;
   wordHtml: string;
 };
+
+export type ModelDevelopmentDocumentMode = "executive" | "governance" | "technical";
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -68,6 +80,18 @@ function compactFileName(value: string) {
   return compact || "model-development-document";
 }
 
+function isRegressionExperiment(experiment: ExperimentRecord) {
+  const metricKeys = ["rmse", "mae", "mse", "r2", "adjusted_r2"] as const;
+  return /regressor|linear regression|ridge|lasso/i.test(experiment.modelType) || metricKeys.some((key) => experiment.metrics[key] !== undefined);
+}
+
+function filterExperimentsForProblem(experiments: ExperimentRecord[], problemType: string) {
+  const normalized = problemType.toLowerCase();
+  if (normalized.includes("regression")) return experiments.filter(isRegressionExperiment);
+  if (normalized.includes("classification")) return experiments.filter((experiment) => !isRegressionExperiment(experiment));
+  return experiments;
+}
+
 function selectChampion(experiments: ExperimentRecord[]) {
   return experiments.find((experiment) => experiment.champion) ?? experiments[0] ?? null;
 }
@@ -97,60 +121,35 @@ function metricLines(metrics: ExperimentMetricSet | undefined) {
 
 function formatCandidateModels(experiments: ExperimentRecord[]) {
   if (!experiments.length) return "No experiment records have been captured.";
-  return [
-    "| Model | Champion | AUC | PR-AUC | F1 | RMSE | MAE | R-squared | Runtime |",
-    "|---|---|---:|---:|---:|---:|---:|---:|---:|",
-    ...experiments.slice(0, 30).map((experiment) =>
-      [
-        escapeMarkdown(experiment.modelType),
-        experiment.champion ? "Yes" : "No",
-        formatNumber(experiment.metrics.auc),
-        formatNumber(experiment.metrics.pr_auc),
-        formatNumber(experiment.metrics.f1),
-        formatNumber(experiment.metrics.rmse),
-        formatNumber(experiment.metrics.mae),
-        formatNumber(experiment.metrics.r2),
-        `${Math.round((experiment.runtimeMs ?? 0) / 1000)}s`,
-      ].join(" | ").replace(/^/, "| ").replace(/$/, " |")
-    ),
-  ].join("\n");
+  return professionalTableHtml(
+    ["Model", "Champion", "AUC", "PR-AUC", "F1", "RMSE", "MAE", "R-squared", "Runtime"],
+    experiments.slice(0, 30).map((experiment) => [
+      experiment.modelType,
+      experiment.champion ? "Yes" : "No",
+      formatNumber(experiment.metrics.auc),
+      formatNumber(experiment.metrics.pr_auc),
+      formatNumber(experiment.metrics.f1),
+      formatNumber(experiment.metrics.rmse),
+      formatNumber(experiment.metrics.mae),
+      formatNumber(experiment.metrics.r2),
+      `${Math.round((experiment.runtimeMs ?? 0) / 1000)}s`,
+    ]),
+    { wide: true, badgeColumns: ["Champion"] }
+  );
 }
 
 function formatFeatureImportance(champion: ExperimentRecord | null) {
   const rows = champion?.featureImportance?.slice(0, 20) ?? [];
   if (!rows.length) return "No feature importance artifact has been captured for the champion experiment.";
-  return [
-    "| Feature | Importance | Direction | Source |",
-    "|---|---:|---:|---|",
-    ...rows.map((row) =>
-      [
-        escapeMarkdown(row.feature),
-        formatNumber(row.importance),
-        formatNumber(row.direction),
-        escapeMarkdown(row.source ?? "-"),
-      ].join(" | ").replace(/^/, "| ").replace(/$/, " |")
-    ),
-  ].join("\n");
+  return professionalTableHtml(
+    ["Feature", "Importance", "Direction", "Source"],
+    rows.map((row) => [row.feature, formatNumber(row.importance), formatNumber(row.direction), row.source ?? "-"]),
+    { compact: true }
+  );
 }
 
 function formatDecisions(entries: DecisionJournalEntry[]) {
-  if (!entries.length) return "No decision journal entries have been captured.";
-  return [
-    "| Timestamp | Step | Action | Subject | Previous | New | Follow Status | Rationale |",
-    "|---|---|---|---|---|---|---|---|",
-    ...entries.slice(0, 250).map((entry) =>
-      [
-        entry.timestamp,
-        entry.workflowStep,
-        entry.actionType,
-        entry.subject,
-        entry.previousValue,
-        entry.newValue,
-        entry.followStatus,
-        entry.userReason || "",
-      ].map(escapeMarkdown).join(" | ").replace(/^/, "| ").replace(/$/, " |")
-    ),
-  ].join("\n");
+  return decisionJournalTimelineHtml(entries);
 }
 
 function formatExperimentAppendix(experiments: ExperimentRecord[]) {
@@ -236,13 +235,15 @@ function formatConfusionOrResidual(champion: ExperimentRecord | null) {
   return "For regression models, confusion matrix, ROC, and PR curves are not applicable. Use residual diagnostics, RMSE, MAE, MSE, R-squared, adjusted R-squared, prediction stability, and actual-versus-predicted plots.";
 }
 
-function buildSections(): ModelDevelopmentDocumentSection[] {
+function buildSections(mode: ModelDevelopmentDocumentMode): ModelDevelopmentDocumentSection[] {
   const context = loadProjectContext();
   const dataset = loadLocalDataset();
   const problemType = inferLocalProblemType(dataset) ?? dataset?.problem_type ?? "Not documented";
-  const experiments = loadExperiments();
+  const experiments = filterExperimentsForProblem(loadExperiments(), String(problemType));
   const decisions = loadDecisionJournal();
   const champion = selectChampion(experiments);
+  const materialDecisions = materialDecisionSummary(decisions);
+  const readiness = buildReportReadiness({ problemType: String(problemType), experiments, champion, decisions, dataset, context });
   const governance = buildGovernanceReport();
   const missingStrategies = readJson<Record<string, unknown>>("modeling-tool-missing-config", {});
   const outlierMethods = readJson<Record<string, unknown>>("modeling-tool-outlier-methods", {});
@@ -257,9 +258,10 @@ function buildSections(): ModelDevelopmentDocumentSection[] {
     {
       title: "Cover Page",
       content: [
+        `Model ID #: ${safe(context.modelId, "Required but not documented")}`,
         `Project: ${safe(context.projectName, "Untitled model development project")}`,
         `Model name: ${safe(champion?.modelType, "Not selected")}`,
-        "Model owner: Not documented",
+        `Model owner: ${safe(context.implementationOwner)}`,
         `Generated: ${new Date().toISOString()}`,
         "Version: Draft 1.0",
         `Development environment: ${BRAND.productName} local workbench`,
@@ -283,15 +285,47 @@ function buildSections(): ModelDevelopmentDocumentSection[] {
       ].join("\n"),
     },
     {
+      title: "Report Readiness Checklist",
+      content: [
+        readiness.ready
+          ? "All core evidence needed for a model development document is present."
+          : "The report can be generated, but missing evidence should be resolved before validation approval.",
+        "",
+        professionalTableHtml(
+          ["Evidence Area", "Status", "Notes"],
+          readiness.checklist.map((item) => [item.item, item.status, item.evidence]),
+          { badgeColumns: ["Status"] }
+        ),
+        readiness.missingEvidence.length ? `Missing evidence:\n${readiness.missingEvidence.map((item) => `- ${item}`).join("\n")}` : "",
+      ].filter(Boolean).join("\n"),
+    },
+    {
+      title: "Material Decision Summary",
+      content: materialDecisions.length
+        ? formatDecisions(materialDecisions)
+        : "No material decision journal entries have been captured yet. Continue using workflow controls so champion selection, preprocessing, split, balancing, and final-model decisions are logged.",
+    },
+    {
       title: "Business Context",
       content: [
         `Model type: ${safe(context.modelType)}`,
         `Intended use: ${safe(context.intendedModelUse)}`,
         `Deployment expectation: ${safe(context.deploymentExpectation)}`,
+        `Implementation environment: ${safe(context.implementationEnvironment)}`,
+        `Target implementation date: ${safe(context.implementationTargetDate)}`,
         `Interpretability requirement: ${safe(context.interpretabilityRequirement)}`,
         `Regulatory environment: ${summarizeRegulatoryContext(context)}`,
         `False positive cost: ${safe(context.falsePositiveCost)}`,
         `False negative cost: ${safe(context.falseNegativeCost)}`,
+      ].join("\n"),
+    },
+    {
+      title: "Model Implementation",
+      content: [
+        `Implementation owner: ${safe(context.implementationOwner)}`,
+        `Target implementation date: ${safe(context.implementationTargetDate)}`,
+        `Implementation environment: ${safe(context.implementationEnvironment)}`,
+        `Implementation notes: ${safe(context.implementationNotes)}`,
       ].join("\n"),
     },
     {
@@ -334,8 +368,8 @@ function buildSections(): ModelDevelopmentDocumentSection[] {
       content:
         "Exploratory analysis is captured in the workbench EDA page and notebook export. Review target distribution, variable summary, pairwise plots, correlations, and any fields with unusual distributions before final validation.",
     },
-    { title: "Missing Value Treatment", content: JSON.stringify(missingStrategies, null, 2) || "No missing value strategy captured." },
-    { title: "Outlier Treatment", content: JSON.stringify(outlierMethods, null, 2) || "No outlier strategy captured." },
+    { title: "Missing Value Treatment", content: objectTableHtml(missingStrategies, "No missing value strategy captured.") },
+    { title: "Outlier Treatment", content: objectTableHtml(outlierMethods, "No outlier strategy captured.") },
     {
       title: "Feature Engineering",
       content:
@@ -383,6 +417,14 @@ function buildSections(): ModelDevelopmentDocumentSection[] {
     {
       title: "Monitoring Recommendations",
       content: [
+        `Monitoring cadence: ${
+          context.monitoringCadence === "custom"
+            ? safe(context.monitoringCadenceCustom, "Custom cadence not documented")
+            : safe(context.monitoringCadence)
+        }`,
+        `Selected monitoring metrics: ${context.monitoringMetrics.length ? context.monitoringMetrics.join(", ") : "Not selected"}`,
+        `Monitoring notes: ${safe(context.monitoringNotes)}`,
+        "",
         "Recommended monitoring:",
         "- Score distribution PSI and feature VSI by production batch.",
         "- Data-quality monitoring for missing, special bureau, and out-of-range values.",
@@ -391,13 +433,19 @@ function buildSections(): ModelDevelopmentDocumentSection[] {
         "- Champion/challenger review cadence aligned to governance requirements.",
       ].join("\n"),
     },
-    { title: "Decision Journal Appendix", content: formatDecisions(decisions) },
-    { title: "Experiment Appendix", content: formatExperimentAppendix(experiments) },
-    {
+  ];
+
+  if (mode !== "executive") {
+    sections.push({ title: "Decision Journal Appendix", content: formatDecisions(decisions) });
+    sections.push({ title: "Experiment Appendix", content: formatExperimentAppendix(experiments) });
+  }
+
+  if (mode === "technical") {
+    sections.push({
       title: "Python / Reproducibility Appendix",
       content: [formatPythonAppendix(), "", "Governance report sections generated in parallel:", governance.sections.map((section) => `- ${section.number}. ${section.title}`).join("\n")].join("\n"),
-    },
-  ];
+    });
+  }
 
   return sections.map((section, index) => ({ ...section, number: index + 1 }));
 }
@@ -414,7 +462,9 @@ function renderMarkdown(title: string, generatedAt: string, sections: ModelDevel
     "",
     `Generated: ${generatedAt}`,
     "",
-    ...sections.flatMap((section) => [`## ${section.number}. ${section.title}`, "", section.content, ""]),
+    `<style>${atlasReportStyles()}</style>`,
+    "",
+    ...sections.flatMap((section) => [`## ${section.number}. ${section.title}`, "", renderReportContentHtml(section.content), ""]),
   ].join("\n");
 }
 
@@ -424,46 +474,46 @@ function renderHtml(title: string, generatedAt: string, sections: ModelDevelopme
       (section) => `
         <section>
           <h2>${section.number}. ${escapeHtml(section.title)}</h2>
-          <pre>${escapeHtml(section.content)}</pre>
+          ${renderReportContentHtml(section.content)}
         </section>`
     )
     .join("\n");
-  return `<!doctype html>
+  return sanitizeReportHtml(`<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
   <title>${escapeHtml(title)}</title>
   <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #0f172a; margin: 36px; line-height: 1.5; }
-    h1 { font-size: 28px; margin-bottom: 4px; }
-    h2 { font-size: 18px; margin-top: 28px; border-bottom: 1px solid #e2e8f0; padding-bottom: 6px; }
-    pre { white-space: pre-wrap; font-family: inherit; font-size: 13px; }
-    section { break-inside: avoid; }
+    body { background: #f8fafc; margin: 36px; }
+    ${atlasReportStyles()}
   </style>
 </head>
 <body>
+<main class="atlas-report">
   <h1>${escapeHtml(BRAND.productName)}</h1>
   <p><strong>${escapeHtml(BRAND.productSubtitle)}</strong></p>
   <p>${escapeHtml(BRAND.shortDescription)}</p>
   <h2>${escapeHtml(title)}</h2>
   <p>Generated: ${escapeHtml(generatedAt)}</p>
   ${body}
+</main>
 </body>
-</html>`;
+</html>`);
 }
 
-export function buildModelDevelopmentDocument(): ModelDevelopmentDocument {
+export function buildModelDevelopmentDocument(mode: ModelDevelopmentDocumentMode = "governance"): ModelDevelopmentDocument {
   const context = loadProjectContext();
   const generatedAt = new Date().toISOString();
   const title = `${safe(context.projectName, "Model")} Model Development Document`;
-  const sections = buildSections();
+  const sections = buildSections(mode);
   const markdown = renderMarkdown(title, generatedAt, sections);
   const html = renderHtml(title, generatedAt, sections);
 
   return {
     title,
     generatedAt,
-    fileBaseName: compactFileName(title),
+    fileBaseName: compactFileName(`${title}-${mode}`),
+    mode,
     sections,
     markdown,
     html,

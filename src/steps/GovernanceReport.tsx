@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { Download, FileText, Printer, RefreshCw } from "lucide-react";
 import BrandLogo from "../components/BrandLogo";
+import ReportSectionContent from "../components/ReportSectionContent";
 import { buildGovernanceReport, type GovernanceReport as GovernanceReportModel } from "../lib/governanceReport";
 
 function downloadText(filename: string, text: string, type: string) {
@@ -102,9 +103,9 @@ export default function GovernanceReport() {
               <h3 className="text-sm font-semibold text-slate-950">
                 {section.number}. {section.title}
               </h3>
-              <pre className="mt-3 whitespace-pre-wrap break-words font-sans text-sm leading-6 text-slate-700">
-                {section.content}
-              </pre>
+              <div className="mt-3">
+                <ReportSectionContent content={section.content} />
+              </div>
             </article>
           ))}
         </div>

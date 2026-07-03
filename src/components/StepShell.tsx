@@ -1,7 +1,7 @@
-import React from "react";
+import React, { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import { AlertTriangle, CheckCircle2, Info, Lightbulb } from "lucide-react";
-import { getAdaptiveRecommendations, type AdaptiveRecommendation } from "../lib/adaptiveWorkflow";
+import { AlertTriangle } from "lucide-react";
+import { upsertProjectFromState } from "../lib/localProjects";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import StepPythonPanel from "./StepPythonPanel";
 
@@ -12,7 +12,7 @@ type Props = {
   nextDisabled?: boolean;
   nextLabel?: string;
   /** Optional pre-navigation task (persist/validate). Throw to block navigation. */
-  onNext?: () => void | Promise<void>;
+  onNext?: () => void | boolean | Promise<void | boolean>;
   /** Where to navigate on click, e.g. "/step05" */
   nextPath?: string;
 };
@@ -29,47 +29,68 @@ export default function StepShell({
   const navigate = useNavigate();
   const location = useLocation();
   const markComplete = useWorkflowStore((state) => state.markComplete);
-  const adaptiveRecommendations = getAdaptiveRecommendations(location.pathname);
+  const getNextStepPath = useWorkflowStore((state) => state.getNextStepPath);
+  const [navigationError, setNavigationError] = useState<string | null>(null);
 
   const handleNext = async () => {
-    if (onNext) {
-      await onNext();
-    }
+    setNavigationError(null);
+    try {
+      if (onNext) {
+        const result = await onNext();
+        if (result === false) return;
+      }
 
-    const currentStep = location.pathname.replace("/", "");
-    if (/^step(?:0[0-9]|1[01])$/.test(currentStep) || currentStep === "step01b" || currentStep === "dashboard") {
-      markComplete(currentStep as Parameters<typeof markComplete>[0]);
-    }
+      const currentStep = location.pathname.replace("/", "");
+      let targetPath = nextPath;
+      if (/^step(?:0[0-9]|1[0-3])$/.test(currentStep) || currentStep === "step01b" || currentStep === "dashboard") {
+        markComplete(currentStep as Parameters<typeof markComplete>[0]);
+        targetPath = targetPath ?? getNextStepPath(currentStep as Parameters<typeof markComplete>[0]);
+      }
 
-    if (nextPath) navigate(nextPath);
+      upsertProjectFromState(useWorkflowStore.getState());
+
+      if (targetPath) {
+        navigate(targetPath);
+        window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: "auto" }));
+      }
+    } catch (error) {
+      console.error("ATLAS navigation/save failed", error);
+      setNavigationError(error instanceof Error ? error.message : "ATLAS could not save and navigate. Please try again.");
+    }
   };
 
   return (
     <div className="w-full space-y-5">
-      <div className="pt-2">
-        <h1 className="text-xl font-semibold text-gray-900">{title}</h1>
-        {subtitle && <p className="text-gray-600 mt-1">{subtitle}</p>}
-      </div>
-
-      {!!adaptiveRecommendations.length && (
-        <div className="grid gap-3">
-          {adaptiveRecommendations.map((recommendation) => (
-            <AdaptiveRecommendationBanner key={`${recommendation.kind}-${recommendation.headline}`} recommendation={recommendation} />
-          ))}
+      {(title || subtitle) && (
+        <div className="pt-2">
+          {title && <h1 className="text-xl font-semibold text-gray-900">{title}</h1>}
+          {subtitle && <p className="text-gray-600 mt-1">{subtitle}</p>}
         </div>
       )}
 
       <div>{children}</div>
 
+      {navigationError && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 shadow-sm">
+          <div className="flex items-start gap-2">
+            <AlertTriangle size={17} className="mt-0.5 shrink-0" />
+            <div>
+              <div className="font-semibold">ATLAS could not save this page.</div>
+              <div className="mt-1">{navigationError}</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       <StepPythonPanel />
 
-      <div className="flex justify-center pb-12 pt-2">
+      <div className="flex justify-center pb-14 pt-7">
         <button
           data-step-next-button="true"
           className={
             nextDisabled
-              ? "px-4 py-2 rounded-lg text-white bg-indigo-300 cursor-not-allowed"
-              : "px-4 py-2 rounded-lg text-white bg-indigo-600 hover:bg-indigo-700"
+              ? "min-w-64 rounded-xl bg-indigo-300 px-7 py-3 text-sm font-semibold text-white shadow-sm cursor-not-allowed"
+              : "min-w-64 rounded-xl bg-indigo-600 px-7 py-3 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-md"
           }
           disabled={!!nextDisabled}
           onClick={handleNext}
@@ -79,50 +100,5 @@ export default function StepShell({
         </button>
       </div>
     </div>
-  );
-}
-
-function AdaptiveRecommendationBanner({ recommendation }: { recommendation: AdaptiveRecommendation }) {
-  const Icon =
-    recommendation.kind === "warning"
-      ? AlertTriangle
-      : recommendation.kind === "skip"
-        ? CheckCircle2
-        : recommendation.kind === "default"
-          ? Lightbulb
-          : Info;
-
-  const classes =
-    recommendation.kind === "warning"
-      ? "border-amber-200 bg-amber-50 text-amber-950"
-      : recommendation.kind === "skip"
-        ? "border-emerald-200 bg-emerald-50 text-emerald-950"
-        : recommendation.kind === "review"
-          ? "border-blue-200 bg-blue-50 text-blue-950"
-          : "border-violet-200 bg-violet-50 text-violet-950";
-
-  return (
-    <section className={`rounded-lg border px-4 py-3 shadow-sm ${classes}`}>
-      <div className="flex items-start gap-3">
-        <Icon size={18} className="mt-0.5 shrink-0" />
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-sm font-semibold">{recommendation.headline}</h2>
-            <span className="rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-semibold">
-              {Math.round(recommendation.confidence * 100)}% confidence
-            </span>
-          </div>
-          <p className="mt-1 text-sm leading-6">{recommendation.explanation}</p>
-          <p className="mt-2 text-xs leading-5 opacity-85">
-            <span className="font-semibold">Suggested action: </span>
-            {recommendation.suggestedAction}
-          </p>
-          <p className="mt-1 text-xs leading-5 opacity-85">
-            <span className="font-semibold">Why this matters: </span>
-            {recommendation.why}
-          </p>
-        </div>
-      </div>
-    </section>
   );
 }

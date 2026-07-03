@@ -8,13 +8,12 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, "index.html"),
-        guitarist: resolve(__dirname, "guitarist.html"),
       },
     },
   },
   server: {
     host: "127.0.0.1",
-    port: 5173,
+    port: 5174,
     strictPort: true,
     proxy: {
       // Allow fetch('/api/...') during local dev; proxied to FastAPI on 8001
@@ -28,7 +27,7 @@ export default defineConfig({
   },
   preview: {
     host: "127.0.0.1",
-    port: 4173,
+    port: 4174,
     strictPort: true,
   },
 });

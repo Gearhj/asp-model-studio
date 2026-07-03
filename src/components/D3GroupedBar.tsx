@@ -4,6 +4,8 @@ import { sampleArray, toBool, toNumber } from "../lib/d3Utils";
 
 
 type Row = { category: string; label?: number | string };
+type PreparedRow = { k: string; all: number; event: number; nonevent: number };
+type CountTuple = [string, Omit<PreparedRow, "k">];
 type Props = {
   data: Row[];
   feature: string;
@@ -19,15 +21,15 @@ export default function D3GroupedBar({ data, feature, topK = 20, mode, height = 
     const rows = data || [];
     const counts = d3.rollups(
       rows,
-      (arr) => ({
+      (arr: Row[]) => ({
         all: arr.length,
-        event: arr.filter((r) => r?.label === 1 || r?.label === "Event").length,
-        nonevent: arr.filter((r) => !(r?.label === 1 || r?.label === "Event")).length,
+        event: arr.filter((r: Row) => r?.label === 1 || r?.label === "Event").length,
+        nonevent: arr.filter((r: Row) => !(r?.label === 1 || r?.label === "Event")).length,
       }),
-      (r) => r.category ?? "Unknown"
-    );
-    const sorted = counts.sort((a, b) => d3.descending(a[1].all, b[1].all)).slice(0, topK);
-    return sorted.map(([k, v]) => ({ k, ...v }));
+      (r: Row) => r.category ?? "Unknown"
+    ) as CountTuple[];
+    const sorted = counts.sort((a: CountTuple, b: CountTuple) => d3.descending(a[1].all, b[1].all)).slice(0, topK);
+    return sorted.map(([k, v]: CountTuple): PreparedRow => ({ k, ...v }));
   }, [data, topK]);
 
   useEffect(() => {
@@ -58,17 +60,17 @@ export default function D3GroupedBar({ data, feature, topK = 20, mode, height = 
       return;
     }
 
-    const categories = prepared.map((d) => d.k);
+    const categories = prepared.map((d: PreparedRow) => d.k);
     const x = d3.scaleBand().domain(categories).range([0, innerW]).padding(0.12);
 
     const labels = ["Non-Event", "Event"] as const;
-    const colors = d3.scaleOrdinal<string, string>().domain(labels as unknown as string[]).range(["#60a5fa", "#f87171"]);
+    const colors = d3.scaleOrdinal().domain(labels as unknown as string[]).range(["#60a5fa", "#f87171"]);
 
-    const yMax = d3.max(prepared, (d) => Math.max(d.event, d.nonevent)) || 1;
-    const yStackMax = d3.max(prepared, (d) => d.event + d.nonevent) || 1;
+    const yMax = d3.max(prepared, (d: PreparedRow) => Math.max(d.event, d.nonevent)) || 1;
+    const yStackMax = d3.max(prepared, (d: PreparedRow) => d.event + d.nonevent) || 1;
 
     const y = d3.scaleLinear().domain([0, mode === "stacked" ? yStackMax : yMax]).nice().range([innerH, 0]);
-    const xGroup = d3.scaleBand<string>().domain(labels as unknown as string[]).range([0, x.bandwidth()]).padding(0.08);
+    const xGroup = d3.scaleBand().domain(labels as unknown as string[]).range([0, x.bandwidth()]).padding(0.08);
 
     g.append("g")
       .attr("transform", `translate(0,${innerH})`)
@@ -81,7 +83,7 @@ export default function D3GroupedBar({ data, feature, topK = 20, mode, height = 
     g.append("g").call(d3.axisLeft(y).ticks(6)).selectAll("text").style("font-size", "11px");
 
     const cat = g.append("g");
-    prepared.forEach((d) => {
+    prepared.forEach((d: PreparedRow) => {
       const x0 = x(d.k)!;
       if (mode === "grouped") {
         // Non-Event

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import StepPythonPanel from "../components/StepPythonPanel";
 import { logDecision } from "../lib/decisionJournal";
+import { upsertProjectFromState } from "../lib/localProjects";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const API_BASE =
@@ -98,12 +99,14 @@ export default function Step09_Interpretation() {
   const [rfeRows, setRfeRows] = useState<RfeRow[]>([]);
   const [rfeCurve, setRfeCurve] = useState<RfeCurveRow[]>([]);
   const [rfeRunning, setRfeRunning] = useState(false);
+  const [rfeError, setRfeError] = useState("");
   const [recommendedCount, setRecommendedCount] = useState<number | null>(null);
   const [bestRfeCount, setBestRfeCount] = useState<number | null>(null);
   const [bestRfeAuc, setBestRfeAuc] = useState<number | null>(null);
   const [bestRfeRmse, setBestRfeRmse] = useState<number | null>(null);
   const [rfeAucTolerance, setRfeAucTolerance] = useState<number | null>(null);
   const [rfeRmseTolerance, setRfeRmseTolerance] = useState<number | null>(null);
+  const [rfeMetric, setRfeMetric] = useState<"auc" | "rmse" | null>(null);
   const [boundary, setBoundary] = useState<BoundaryResponse | null>(null);
   const [boundaryX, setBoundaryX] = useState("");
   const [boundaryY, setBoundaryY] = useState("");
@@ -112,7 +115,12 @@ export default function Step09_Interpretation() {
   const [finalModelStatus, setFinalModelStatus] = useState<"success" | "error" | "">("");
   const [savingFinalModel, setSavingFinalModel] = useState(false);
   const [finalModelReady, setFinalModelReady] = useState(false);
-  const isRegression = models.some((model) => model.task === "regression" || model.rmse !== undefined);
+  const selectedModelRow = models.find((model) => model.key === selectedModel) ?? models[0];
+  const selectedModelIsRegression = selectedModelRow?.task === "regression" || selectedModelRow?.rmse !== undefined;
+  const rfeIsRegression = rfeMetric === "rmse" || (!rfeMetric && selectedModelIsRegression);
+  const rfeSelectedCount = rfeRows.filter((row) => row.rank <= rfeKeep).length;
+  const rfeRemovedCount = Math.max(0, rfeRows.length - rfeSelectedCount);
+  const canRunRfe = Boolean(selectedModel) && !rfeRunning && importance.length >= 2;
 
   const exportModel = (format: "pkl" | "jar") => {
     if (format === "jar") {
@@ -164,6 +172,7 @@ export default function Step09_Interpretation() {
         setBestRfeRmse(null);
         setRfeAucTolerance(null);
         setRfeRmseTolerance(null);
+        setRfeMetric(null);
         setFinalModelReady(false);
         setFinalDiagnosticsReady(false);
         setFinalModelMessage("");
@@ -218,6 +227,7 @@ export default function Step09_Interpretation() {
     if (!selectedModel || rfeRunning) return;
     setRfeRunning(true);
     setMessage("");
+    setRfeError("");
     getJson<RfeResult>(
       `${API_BASE}/interpretation/rfe?model=${encodeURIComponent(selectedModel)}&keep=${rfeKeep}`
     )
@@ -231,16 +241,16 @@ export default function Step09_Interpretation() {
         setBestRfeRmse(data.best_rmse ?? null);
         setRfeAucTolerance(data.auc_tolerance ?? null);
         setRfeRmseTolerance(data.rmse_tolerance ?? null);
+        setRfeMetric(data.metric ?? (data.task === "regression" ? "rmse" : "auc"));
         setRfeKeep(data.recommended_count ?? data.best_count ?? rfeKeep);
       })
-      .catch((err) => setMessage(String(err?.message ?? err)))
+      .catch((err) => {
+        const text = String(err?.message ?? err);
+        setRfeError(text);
+        setMessage(`RFE could not run: ${text}`);
+      })
       .finally(() => setRfeRunning(false));
   };
-
-  useEffect(() => {
-    if (!selectedModel) return;
-    runRfe();
-  }, [selectedModel]);
 
   const loadFinalDiagnostics = async () => {
     const [sensitivityRes, vifRes] = await Promise.all([
@@ -387,9 +397,9 @@ export default function Step09_Interpretation() {
       <section className="rounded-2xl border border-gray-200 bg-white p-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold">{isRegression ? "Prediction Response Surface" : "Decision Boundary"}</h2>
+            <h2 className="text-sm font-semibold">{selectedModelIsRegression ? "Prediction Response Surface" : "Decision Boundary"}</h2>
             <p className="mt-1 text-xs text-gray-500">
-              {isRegression
+              {selectedModelIsRegression
                 ? "Shows the selected model prediction across two numeric features while holding all other fields at typical values."
                 : "Shows the selected model response across two numeric features while holding all other fields at typical values."}
             </p>
@@ -410,7 +420,7 @@ export default function Step09_Interpretation() {
         <section className="rounded-2xl border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold">Feature Importance</h2>
           <p className="mt-1 text-xs text-gray-500">
-            {isRegression
+            {selectedModelIsRegression
               ? "Appropriate for regression: ranks variables by contribution to predictive accuracy."
               : "Ranks variables by contribution to model performance."}
           </p>
@@ -419,7 +429,7 @@ export default function Step09_Interpretation() {
         <section className="rounded-2xl border border-gray-200 bg-white p-4">
           <h2 className="text-sm font-semibold">SHAP Summary</h2>
           <p className="mt-1 text-xs text-gray-500">
-            {isRegression
+            {selectedModelIsRegression
               ? "Appropriate for regression: estimates how each feature changes predicted target values on holdout records."
               : "Model-agnostic replacement impact on held-out predictions. This differs from native feature importance."}
           </p>
@@ -430,9 +440,9 @@ export default function Step09_Interpretation() {
       <section className="rounded-2xl border border-gray-200 bg-white p-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <h2 className="text-sm font-semibold">{isRegression ? "Prediction Drivers" : "PDP / Sensitivity"}</h2>
+            <h2 className="text-sm font-semibold">{selectedModelIsRegression ? "Prediction Drivers" : "PDP / Sensitivity"}</h2>
             <p className="mt-1 text-xs text-gray-500">
-              {isRegression
+              {selectedModelIsRegression
                 ? "PDP and sensitivity are appropriate for regression: they show how the predicted target value changes as a feature changes."
                 : "Select a feature to inspect marginal response and scenario sensitivity."}
             </p>
@@ -444,7 +454,7 @@ export default function Step09_Interpretation() {
           </select>
         </div>
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
-          <LineChart title={isRegression ? "Partial Dependence: Predicted Target" : "Partial Dependence Plot"} rows={pdp} feature={selectedFeature} />
+          <LineChart title={selectedModelIsRegression ? "Partial Dependence: Predicted Target" : "Partial Dependence Plot"} rows={pdp} feature={selectedFeature} />
           <SensitivityTable rows={sensitivity} />
         </div>
       </section>
@@ -454,7 +464,7 @@ export default function Step09_Interpretation() {
           <div>
             <h2 className="text-sm font-semibold">Recursive Feature Elimination</h2>
             <p className="mt-1 text-xs text-gray-500">
-              {isRegression
+              {rfeIsRegression
                 ? "Runs backward elimination and recommends the smallest retained feature count that is effectively tied with the best holdout RMSE."
                 : "Runs backward elimination and recommends the smallest retained feature count that is effectively tied with the best holdout AUC."}
             </p>
@@ -470,6 +480,14 @@ export default function Step09_Interpretation() {
                 Running RFE...
               </div>
             )}
+            <button
+              className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 active:scale-95 disabled:cursor-not-allowed disabled:bg-indigo-300 disabled:active:scale-100"
+              disabled={!canRunRfe}
+              onClick={runRfe}
+              title={canRunRfe ? "Run recursive feature elimination for the selected model." : "Train a model and load at least two candidate features before running RFE."}
+            >
+              {rfeRunning ? "Running..." : rfeRows.length ? "Rerun RFE" : "Run RFE"}
+            </button>
             <button
               className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition active:scale-95 active:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300 disabled:active:scale-100"
               disabled={!rfeRows.length || savingFinalModel}
@@ -488,17 +506,38 @@ export default function Step09_Interpretation() {
             {finalModelMessage}
           </div>
         )}
-        {recommendedCount && bestRfeCount && bestRfeAuc !== null && (
+        {rfeError && (
+          <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
+            {rfeError}
+          </div>
+        )}
+        {rfeRows.length > 0 && (
+          <div className="mt-3 grid gap-3 md:grid-cols-4">
+            <MetricTile label="Retained Features" value={String(rfeSelectedCount)} tone="emerald" />
+            <MetricTile label="Removed Features" value={String(rfeRemovedCount)} tone="slate" />
+            <MetricTile
+              label={rfeIsRegression ? "Best RMSE" : "Best AUC"}
+              value={rfeIsRegression ? formatNumber(bestRfeRmse) : formatNumber(bestRfeAuc)}
+              tone="indigo"
+            />
+            <MetricTile
+              label="Recommendation"
+              value={recommendedCount ? `${recommendedCount} kept` : "Review curve"}
+              tone="amber"
+            />
+          </div>
+        )}
+        {recommendedCount && bestRfeCount && bestRfeAuc !== null && !rfeIsRegression && (
           <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
             Best RFE point: {bestRfeCount} features at AUC {bestRfeAuc.toFixed(4)}. Recommended count uses a {((rfeAucTolerance ?? 0.001) * 100).toFixed(2)} percentage-point AUC tolerance.
           </div>
         )}
-        {recommendedCount && bestRfeCount && bestRfeRmse !== null && (
+        {recommendedCount && bestRfeCount && bestRfeRmse !== null && rfeIsRegression && (
           <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-700">
             Best RFE point: {bestRfeCount} features at RMSE {bestRfeRmse.toFixed(4)}. Recommended count uses a {rfeRmseTolerance?.toFixed(4) ?? "small"} RMSE tolerance.
           </div>
         )}
-        <RfeCurveChart rows={rfeCurve} selectedCount={rfeKeep} recommendedCount={recommendedCount} onSelectCount={setRfeKeep} isRegression={isRegression} />
+        <RfeCurveChart rows={rfeCurve} selectedCount={rfeKeep} recommendedCount={recommendedCount} onSelectCount={setRfeKeep} isRegression={rfeIsRegression} />
         <RfeTable rows={rfeRows} selectedCount={rfeKeep} />
       </section>
 
@@ -529,7 +568,7 @@ export default function Step09_Interpretation() {
         </div>
       </section>
 
-      {!isRegression && <section className="rounded-2xl border border-gray-200 bg-white p-4">
+      {!selectedModelIsRegression && <section className="rounded-2xl border border-gray-200 bg-white p-4">
         <h2 className="text-sm font-semibold">Final Model Sensitivity Analysis</h2>
         <p className="mt-1 text-xs text-gray-500">
           Runs after Save as Final Model and ranks prediction shifts only across the selected RFE variables.
@@ -543,7 +582,7 @@ export default function Step09_Interpretation() {
         )}
       </section>}
 
-      {!isRegression && <section className="rounded-2xl border border-gray-200 bg-white p-4">
+      {!selectedModelIsRegression && <section className="rounded-2xl border border-gray-200 bg-white p-4">
         <h2 className="text-sm font-semibold">Variance Inflation Factor</h2>
         <p className="mt-1 text-xs text-gray-500">
           Runs after Save as Final Model and checks multicollinearity only among final RFE variables.
@@ -563,8 +602,14 @@ export default function Step09_Interpretation() {
         <button
           className="rounded-xl bg-indigo-600 px-5 py-3 text-white shadow-sm"
           onClick={() => {
-            markComplete("step09");
-            navigate("/step10");
+            try {
+              markComplete("step09");
+              upsertProjectFromState(useWorkflowStore.getState());
+              navigate("/step10");
+              window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: "auto" }));
+            } catch (error) {
+              setMessage(error instanceof Error ? error.message : "ATLAS could not save this interpretation step before navigation.");
+            }
           }}
         >
           Mark Complete & Next Step
@@ -589,6 +634,35 @@ function ModelDetails({ details }: { details: DetailResponse | null }) {
     return <pre className="mt-3 max-h-[360px] overflow-auto rounded-lg bg-slate-950 p-4 text-xs text-slate-100">{details.tree_text}</pre>;
   }
   return <div className="mt-3 text-sm text-gray-600">{details.message}</div>;
+}
+
+function formatNumber(value: number | null | undefined, digits = 4) {
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "-";
+}
+
+function MetricTile({
+  label,
+  value,
+  tone = "slate",
+}: {
+  label: string;
+  value: string;
+  tone?: "emerald" | "slate" | "indigo" | "amber";
+}) {
+  const toneClass =
+    tone === "emerald"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+      : tone === "indigo"
+        ? "border-indigo-200 bg-indigo-50 text-indigo-900"
+        : tone === "amber"
+          ? "border-amber-200 bg-amber-50 text-amber-900"
+          : "border-slate-200 bg-slate-50 text-slate-900";
+  return (
+    <div className={`rounded-xl border px-3 py-3 ${toneClass}`}>
+      <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">{label}</div>
+      <div className="mt-1 text-lg font-semibold">{value}</div>
+    </div>
+  );
 }
 
 function BarTable({ rows, valueKey, color = "indigo" }: { rows: ImportanceRow[]; valueKey: "importance"; color?: "indigo" | "teal" }) {
@@ -787,7 +861,7 @@ function RfeCurveChart({
   const width = 980;
   const height = 330;
   const pad = 52;
-  const metricValues = rows.map((row) => isRegression ? (row.display_rmse ?? row.rmse ?? 0) : (row.display_auc ?? row.auc ?? 0));
+  const metricValues = rows.map((row) => isRegression ? (row.rmse ?? row.display_rmse ?? 0) : (row.auc ?? row.display_auc ?? 0));
   const marginalValues = rows.map((row) => Math.max(0, isRegression ? (row.marginal_rmse ?? 0) : (row.marginal_auc ?? 0)));
   const metricSpread = Math.max(Math.max(...metricValues) - Math.min(...metricValues), 0.001);
   const metricMin = Math.min(...metricValues) - metricSpread * 0.08;
@@ -829,7 +903,7 @@ function RfeCurveChart({
         })}
         {rows.map((row, index) => {
           const selected = row.feature_count === selectedCount;
-          const chartMetric = isRegression ? (row.display_rmse ?? row.rmse ?? 0) : (row.display_auc ?? row.auc ?? 0);
+          const chartMetric = isRegression ? (row.rmse ?? row.display_rmse ?? 0) : (row.auc ?? row.display_auc ?? 0);
           const barHeight = height - pad - yMetric(chartMetric);
           return (
             <g key={row.feature_count} onClick={() => onSelectCount(row.feature_count)} className="cursor-pointer">

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import StepPythonPanel from "../components/StepPythonPanel";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { upsertProjectFromState } from "../lib/localProjects";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
@@ -100,6 +101,7 @@ export default function Step10Scoring() {
   const [originalPrior, setOriginalPrior] = useState("");
   const [modelPrior, setModelPrior] = useState("");
   const [problemType, setProblemType] = useState<"classification" | "regression">("classification");
+  const [navigationError, setNavigationError] = useState("");
 
   useEffect(() => {
     fetch(`${API_BASE}/train/last`)
@@ -132,6 +134,18 @@ export default function Step10Scoring() {
       setMessage(err?.message ?? "Scoring failed.");
     } finally {
       setLoading("");
+    }
+  }
+
+  async function handleContinue() {
+    try {
+      setNavigationError("");
+      markComplete("step10");
+      await upsertProjectFromState(useWorkflowStore.getState());
+      navigate("/step11");
+      window.scrollTo({ top: 0, left: 0 });
+    } catch (error: any) {
+      setNavigationError(error?.message ?? "ATLAS could not save this step before navigating.");
     }
   }
 
@@ -193,13 +207,15 @@ export default function Step10Scoring() {
 
       <StepPythonPanel />
 
-      <div className="pb-10 flex justify-center">
+      <div className="pb-10 flex flex-col items-center gap-3">
+        {navigationError && (
+          <div className="w-full max-w-2xl rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+            {navigationError}
+          </div>
+        )}
         <button
           className="rounded-xl bg-indigo-600 px-5 py-3 text-white shadow-sm"
-          onClick={() => {
-            markComplete("step10");
-            navigate("/step11");
-          }}
+          onClick={handleContinue}
         >
           Mark Complete & Build Document
         </button>

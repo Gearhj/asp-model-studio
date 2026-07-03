@@ -410,6 +410,14 @@ def infer_problem_type(y: pd.Series) -> str:
 # -----------------------------------------------------------------------------
 # Metric computation
 # -----------------------------------------------------------------------------
+def _finite_float(value: Any) -> Optional[float]:
+    try:
+        numeric = float(value)
+    except Exception:
+        return None
+    return numeric if np.isfinite(numeric) else None
+
+
 def _compute_classification_metrics(
     y_true: np.ndarray,
     scores: np.ndarray,
@@ -426,36 +434,46 @@ def _compute_classification_metrics(
         cm = None
 
     # Accuracy
-    acc = float(accuracy_score(y_true, pred)) if accuracy_score is not None else None
+    acc = _finite_float(accuracy_score(y_true, pred)) if accuracy_score is not None else None
 
     # AUC / PR-AUC
-    auc = float(roc_auc_score(y_true, scores)) if roc_auc_score is not None else None
-    pr_auc = (
-        float(average_precision_score(y_true, scores))
-        if average_precision_score is not None
-        else None
-    )
+    auc = None
+    pr_auc = None
+    if len(np.unique(y_true)) == 2:
+        if roc_auc_score is not None:
+            try:
+                auc = _finite_float(roc_auc_score(y_true, scores))
+            except Exception:
+                auc = None
+        if average_precision_score is not None:
+            try:
+                pr_auc = _finite_float(average_precision_score(y_true, scores))
+            except Exception:
+                pr_auc = None
 
     # Precision / recall / F1
     if precision_recall_fscore_support is not None:
         precision, recall, f1, _ = precision_recall_fscore_support(
             y_true, pred, average="binary", zero_division=0
         )
-        precision = float(precision)
-        recall = float(recall)
-        f1 = float(f1)
+        precision = _finite_float(precision)
+        recall = _finite_float(recall)
+        f1 = _finite_float(f1)
     else:
         precision = recall = f1 = None
 
     # KS
-    if roc_curve is not None:
-        fpr, tpr, _ = roc_curve(y_true, scores)
-        ks = float(np.max(tpr - fpr))
+    if roc_curve is not None and len(np.unique(y_true)) == 2:
+        try:
+            fpr, tpr, _ = roc_curve(y_true, scores)
+            ks = _finite_float(np.max(tpr - fpr))
+        except Exception:
+            ks = None
     else:
         ks = None
 
     # Gini
-    gini = 2 * auc - 1 if auc is not None else None
+    gini = _finite_float(2 * auc - 1) if auc is not None else None
 
     return {
         "auc": auc,
@@ -476,14 +494,14 @@ def _compute_regression_metrics(
     n_features: int = 0,
 ) -> Dict[str, Any]:
     """Regression metrics."""
-    mae = float(mean_absolute_error(y_true, preds)) if mean_absolute_error else None
-    mse = float(mean_squared_error(y_true, preds)) if mean_squared_error else None
-    rmse = float(np.sqrt(mse)) if mse is not None else None
-    r2 = float(r2_score(y_true, preds)) if r2_score else None
+    mae = _finite_float(mean_absolute_error(y_true, preds)) if mean_absolute_error else None
+    mse = _finite_float(mean_squared_error(y_true, preds)) if mean_squared_error else None
+    rmse = _finite_float(np.sqrt(mse)) if mse is not None else None
+    r2 = _finite_float(r2_score(y_true, preds)) if r2_score else None
     n_obs = int(len(y_true))
     p = int(max(n_features, 0))
     adjusted_r2 = (
-        float(1 - (1 - r2) * (n_obs - 1) / max(n_obs - p - 1, 1))
+        _finite_float(1 - (1 - r2) * (n_obs - 1) / max(n_obs - p - 1, 1))
         if r2 is not None and n_obs > p + 1
         else None
     )
@@ -566,6 +584,38 @@ def _make_preprocessor(X: pd.DataFrame):
         raise ValueError("No usable feature columns are available for model training.")
 
     return ColumnTransformer(transformers=transformers, remainder="drop")
+
+
+def _coerce_feature_frame(X: pd.DataFrame) -> pd.DataFrame:
+    """
+    Normalize browser-uploaded feature frames before sklearn preprocessing.
+
+    CSV blanks often arrive as empty strings, which makes numeric columns look
+    like mixed object columns. If a column is mostly numeric after blank cleanup,
+    convert it to numeric and let the numeric imputer handle missing values.
+    Otherwise, force non-missing categorical values to strings so OneHotEncoder
+    never receives mixed Python types.
+    """
+    frame = X.copy()
+    frame = frame.replace(r"^\s*$", np.nan, regex=True)
+
+    for col in frame.columns:
+        if pd.api.types.is_numeric_dtype(frame[col]):
+            continue
+
+        non_missing = frame[col].dropna()
+        if non_missing.empty:
+            frame[col] = frame[col].astype("object")
+            continue
+
+        converted = pd.to_numeric(non_missing, errors="coerce")
+        numeric_share = float(converted.notna().mean()) if len(converted) else 0.0
+        if numeric_share >= 0.8:
+            frame[col] = pd.to_numeric(frame[col], errors="coerce")
+        else:
+            frame[col] = frame[col].where(frame[col].isna(), frame[col].astype(str))
+
+    return frame
 
 
 def _clean_target_values(y: pd.Series) -> pd.Series:
@@ -833,6 +883,9 @@ def train_models(
       • Step07 training table
       • Step08 evaluation (classification models only)
     """
+    X_train = _coerce_feature_frame(X_train)
+    X_test = _coerce_feature_frame(X_test)
+
     # Infer problem type
     problem_type = infer_problem_type(y_train)
 
@@ -937,9 +990,19 @@ def train_models(
         )
 
     if not ranked_rows:
+        first_errors = "; ".join(
+            f"{row.get('name', row.get('key'))}: {str(row.get('error', 'failed')).splitlines()[0]}"
+            for row in failed_rows[:3]
+        )
         return {
             "ok": False,
-            "error": "No models were successfully trained.",
+            "error": f"No models were successfully trained. {first_errors}".strip(),
+            "summary": {
+                "problem_type": problem_type,
+                "ranked": [],
+                "raw": {},
+                "failed": failed_rows,
+            },
         }
 
     # Ranking:

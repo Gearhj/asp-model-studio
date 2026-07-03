@@ -5,6 +5,7 @@ import { useWorkflowStore } from "../state/useWorkflowStore";
 import { logDecision } from "../lib/decisionJournal";
 import { buildExecutiveSummary, type ExecutiveSummary } from "../lib/executiveSummary";
 import { inferLocalProblemType, loadLocalDataset } from "../lib/localDataset";
+import { upsertProjectFromState } from "../lib/localProjects";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
@@ -179,6 +180,7 @@ export default function Step08_Evaluation() {
   const [tree, setTree] = useState<TreeResponse | null>(null);
   const [knn, setKnn] = useState<KnnResponse | null>(null);
   const [sortKey, setSortKey] = useState<"auc" | "pr_auc" | "rmse" | "mae" | "r2" | "adjusted_r2">("auc");
+  const [navigationError, setNavigationError] = useState("");
   const [summaryProblemType, setSummaryProblemType] = useState<"classification" | "regression" | null>(
     () => inferLocalProblemType(loadLocalDataset())
   );
@@ -310,6 +312,18 @@ export default function Step08_Evaluation() {
   const tn = curves?.confusion && curves.confusion.length === 2 ? curves.confusion[0][0] : null;
   const fpr = fp !== null && tn !== null && fp + tn > 0 ? fp / (fp + tn) : null;
   const executiveSummary = buildExecutiveSummary(selectedModel, curves);
+
+  async function handleContinue() {
+    try {
+      setNavigationError("");
+      markComplete("step08");
+      await upsertProjectFromState(useWorkflowStore.getState());
+      navigate("/step09");
+      window.scrollTo({ top: 0, left: 0 });
+    } catch (error: any) {
+      setNavigationError(error?.message ?? "ATLAS could not save this step before navigating.");
+    }
+  }
 
   return (
     <div className="w-full space-y-6">
@@ -498,12 +512,14 @@ export default function Step08_Evaluation() {
       <StepPythonPanel />
 
       <div className="pt-2 pb-10 flex justify-center">
+        {navigationError && (
+          <div className="mr-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+            {navigationError}
+          </div>
+        )}
         <button
           className="px-5 py-3 rounded-xl bg-indigo-600 text-white shadow-sm"
-          onClick={() => {
-            markComplete("step08");
-            navigate("/step09");
-          }}
+          onClick={handleContinue}
         >
           Mark Complete &amp; Interpret Model
         </button>

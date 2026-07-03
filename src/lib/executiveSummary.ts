@@ -157,6 +157,10 @@ export function buildExecutiveSummary(selectedModel: RankedModel | null, curves:
   const readiness = classifyReadiness({ problemType, selectedModel, curves, eventRate, riskCount: risks.length });
   const primaryMetric = context.primarySuccessMetric || (problemType === "regression" ? "RMSE / MAE / R-squared" : "AUC / PR-AUC / lift");
   const secondaryMetrics = context.secondaryMetrics || (problemType === "regression" ? "Residual bias and prediction stability" : "Precision, recall, F1, KS, calibration");
+  const monitoringCadence =
+    context.monitoringCadence === "custom"
+      ? context.monitoringCadenceCustom || "Custom"
+      : context.monitoringCadence;
   const champion = displayModelName(selectedModel?.name);
   const overview =
     readiness === "Validation candidate"
@@ -170,12 +174,15 @@ export function buildExecutiveSummary(selectedModel: RankedModel | null, curves:
     productionReadiness: readiness,
     overview,
     stats: [
+      { label: "Model ID #", value: context.modelId || "Required" },
       { label: "Dataset size", value: dataset?.rows.length ? dataset.rows.length.toLocaleString() : "-" },
       { label: "Target", value: dataset?.target ?? "-" },
       { label: "Event rate", value: problemType === "classification" ? formatPercent(eventRate) : "Not applicable" },
       { label: "Champion model", value: champion },
       { label: "Primary metric", value: primaryMetric },
       { label: "Secondary metrics", value: secondaryMetrics },
+      { label: "Monitoring cadence", value: monitoringCadence },
+      { label: "Monitoring metrics", value: context.monitoringMetrics.length ? context.monitoringMetrics.join(", ") : "Not selected" },
       { label: "AUC", value: formatNumber(metrics.auc) },
       { label: "PR-AUC", value: formatNumber(metrics.pr_auc) },
       { label: "RMSE", value: formatNumber(metrics.rmse) },

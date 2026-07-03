@@ -23,6 +23,23 @@ const BASE =
   (import.meta.env?.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
   "http://127.0.0.1:8001/api";
 
+const MAX_BROWSER_UPLOAD_BYTES = 25 * 1024 * 1024;
+const MAX_BROWSER_ROWS = 250_000;
+const MAX_BROWSER_COLUMNS = 500;
+const BROWSER_PARSE_EXTENSIONS = new Set(["csv", "txt", "json"]);
+const RECOGNIZED_UPLOAD_EXTENSIONS = new Set([
+  "csv",
+  "txt",
+  "json",
+  "xlsx",
+  "xls",
+  "parquet",
+  "feather",
+  "sas7bdat",
+  "pkl",
+  "zip",
+]);
+
 const sourceCards: { id: DataSourceType; title: string; body: string }[] = [
   { id: "upload", title: "Upload File", body: "CSV and JSON parse locally. Excel, Parquet, Feather, SAS, Pickle, and ZIP are staged for backend import." },
   { id: "sql", title: "SQL Database", body: "Author governed SQL, validate queries, capture lineage, and generate Python extraction code." },
@@ -104,6 +121,10 @@ function targetMeta(rows: Record<string, unknown>[], target: string) {
   return { kind: "continuous" as const, eventRate: null };
 }
 
+function inferProblemType(rows: Record<string, unknown>[], target: string) {
+  return targetMeta(rows, target).kind === "continuous" ? "regression" : "classification";
+}
+
 function summarizeColumn(rows: Record<string, unknown>[], column: string, target: string) {
   const values = rows.map((row) => row[column]);
   const missing = values.filter((value) => value === null || value === undefined || String(value).trim() === "").length;
@@ -122,6 +143,105 @@ function summarizeColumn(rows: Record<string, unknown>[], column: string, target
   };
 }
 
+function getBinaryTargetProfile(rows: Record<string, unknown>[], target: string) {
+  if (!target) return null;
+  const values = rows
+    .map((row) => row[target])
+    .filter((value) => value !== null && value !== undefined && String(value).trim() !== "");
+  if (!values.length) return null;
+
+  const numericCount = values.filter((value) => Number.isFinite(Number(value))).length;
+  if (numericCount / values.length >= 0.8) {
+    const ones = values.filter((value) => Number(value) === 1).length;
+    const zeros = values.filter((value) => Number(value) === 0).length;
+    if (ones + zeros >= values.length * 0.8) {
+      return { isEvent: (value: unknown) => Number(value) === 1 };
+    }
+  }
+
+  const counts = new Map<string, number>();
+  values.forEach((value) => counts.set(String(value), (counts.get(String(value)) ?? 0) + 1));
+  if (counts.size < 2 || counts.size > 20) return null;
+  const majority = Array.from(counts.entries()).sort((a, b) => b[1] - a[1])[0]?.[0];
+  if (majority === undefined) return null;
+  return { isEvent: (value: unknown) => String(value) !== majority };
+}
+
+function quantileBreaks(nums: number[], bins = 10) {
+  const sorted = [...nums].sort((a, b) => a - b);
+  const breaks: number[] = [];
+  for (let i = 1; i < bins; i++) {
+    const index = Math.floor((i / bins) * (sorted.length - 1));
+    const value = sorted[index];
+    if (Number.isFinite(value) && !breaks.includes(value)) breaks.push(value);
+  }
+  return breaks;
+}
+
+function informationValue(rows: Record<string, unknown>[], column: string, target: string) {
+  if (!target || column === target || !rows.length) return null;
+  const targetProfile = getBinaryTargetProfile(rows, target);
+  if (!targetProfile) return null;
+
+  const featureValues = rows.map((row) => row[column]);
+  const numeric = isNumericVector(featureValues);
+  const numericValues = featureValues.map(Number).filter(Number.isFinite);
+  const breaks = numeric && new Set(numericValues).size > 10 ? quantileBreaks(numericValues, 10) : [];
+  const rawCategoryCounts = new Map<string, number>();
+  if (!numeric) {
+    featureValues.forEach((value) => {
+      const key = value === null || value === undefined || String(value).trim() === "" ? "__MISSING__" : String(value);
+      rawCategoryCounts.set(key, (rawCategoryCounts.get(key) ?? 0) + 1);
+    });
+  }
+  const topCategories = new Set(
+    Array.from(rawCategoryCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20)
+      .map(([key]) => key)
+  );
+
+  const bucketFor = (value: unknown) => {
+    if (value === null || value === undefined || String(value).trim() === "") return "__MISSING__";
+    if (!numeric) {
+      const key = String(value);
+      return topCategories.has(key) ? key : "__OTHER__";
+    }
+    const num = Number(value);
+    if (!Number.isFinite(num)) return "__MISSING__";
+    const upper = breaks.find((breakValue) => num <= breakValue);
+    return upper === undefined ? `>${breaks.length ? breaks[breaks.length - 1] : "all"}` : `<=${upper}`;
+  };
+
+  const buckets = new Map<string, { event: number; nonEvent: number }>();
+  let totalEvents = 0;
+  let totalNonEvents = 0;
+  rows.forEach((row) => {
+    const targetValue = row[target];
+    if (targetValue === null || targetValue === undefined || String(targetValue).trim() === "") return;
+    const key = bucketFor(row[column]);
+    const bucket = buckets.get(key) ?? { event: 0, nonEvent: 0 };
+    if (targetProfile.isEvent(targetValue)) {
+      bucket.event += 1;
+      totalEvents += 1;
+    } else {
+      bucket.nonEvent += 1;
+      totalNonEvents += 1;
+    }
+    buckets.set(key, bucket);
+  });
+
+  if (!totalEvents || !totalNonEvents || !buckets.size) return null;
+  const epsilon = 0.000001;
+  let iv = 0;
+  buckets.forEach((bucket) => {
+    const eventDist = Math.max(bucket.event / totalEvents, epsilon);
+    const nonEventDist = Math.max(bucket.nonEvent / totalNonEvents, epsilon);
+    iv += (eventDist - nonEventDist) * Math.log(eventDist / nonEventDist);
+  });
+  return Number.isFinite(iv) ? Math.max(0, iv) : null;
+}
+
 function formatNumber(value: unknown, digits = 4) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric.toFixed(digits) : "-";
@@ -130,6 +250,13 @@ function formatNumber(value: unknown, digits = 4) {
 function formatPercent(value: unknown) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? `${(numeric * 100).toFixed(2)}%` : "-";
+}
+
+function ivStatusClass(value: unknown) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "bg-slate-50 text-slate-400";
+  if (numeric >= 0.02) return "bg-emerald-100 font-semibold text-emerald-900";
+  return "bg-red-100 font-semibold text-red-900";
 }
 
 function applySampling(rows: Record<string, unknown>[], method: SamplingMethod, detail: string) {
@@ -165,16 +292,17 @@ export default function Step01DataAcquisition() {
   const [quality, setQuality] = useState<DataQualitySummary | null>(null);
   const datasetVersions = loadDatasetVersions();
 
-  const sampleRows = useMemo(() => applySampling(rows, samplingMethod, samplingDetail).slice(0, 5000), [rows, samplingMethod, samplingDetail]);
+  const modelingRows = useMemo(() => applySampling(rows, samplingMethod, samplingDetail), [rows, samplingMethod, samplingDetail]);
+  const sampleRows = useMemo(() => modelingRows.slice(0, 5000), [modelingRows]);
   const previewRows = sampleRows.slice(0, 100);
-  const targetInfo = useMemo(() => targetMeta(sampleRows, target), [sampleRows, target]);
+  const targetInfo = useMemo(() => targetMeta(modelingRows, target), [modelingRows, target]);
   const selectable = headers.filter((header) => header !== target);
   const selected = selectable.filter((header) => kept[header]);
   const sqlWarnings = useMemo(() => validateSql(sql), [sql]);
   const generatedMetadata = useMemo(() => {
     if (!headers.length) return null;
     return buildDataAccessMetadata({
-      dataset: { headers, rows: sampleRows, target },
+      dataset: { headers, rows: modelingRows, target },
       sourceType,
       sourceLabel: sourceType === "sql" ? `${provider} SQL` : sourceType === "cloud" ? cloudProvider : sourceType === "python" ? "Python loader" : fileName || "Uploaded file",
       fileName,
@@ -190,13 +318,14 @@ export default function Step01DataAcquisition() {
       samplingMethod,
       samplingDetail,
     });
-  }, [headers, sampleRows, target, sourceType, provider, cloudProvider, fileName, connectionName, database, schema, sql, cloudPath, pythonCode, samplingMethod, samplingDetail]);
+  }, [headers, modelingRows, target, sourceType, provider, cloudProvider, fileName, connectionName, database, schema, sql, cloudPath, pythonCode, samplingMethod, samplingDetail]);
 
   const variableSummary = useMemo(
     () =>
       headers.map((column) => ({
         column,
         ...summarizeColumn(sampleRows, column, target),
+        iv: informationValue(sampleRows, column, target),
       })),
     [headers, sampleRows, target]
   );
@@ -205,14 +334,29 @@ export default function Step01DataAcquisition() {
     setMessage("");
     setFileName(file.name);
     const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
-    const textFormats = ["csv", "txt", "json"];
-    if (!textFormats.includes(extension)) {
+    if (!RECOGNIZED_UPLOAD_EXTENSIONS.has(extension)) {
+      setMessage(`.${extension || "unknown"} is not an allowed project data file type. Upload CSV, JSON, Excel, Parquet, Feather, SAS, Pickle, or ZIP.`);
+      return;
+    }
+    if (file.size > MAX_BROWSER_UPLOAD_BYTES) {
+      setMessage(`This file is ${(file.size / 1024 / 1024).toFixed(1)} MB. Browser preview is limited to ${(MAX_BROWSER_UPLOAD_BYTES / 1024 / 1024).toFixed(0)} MB; use backend import for larger governed datasets.`);
+      return;
+    }
+    if (!BROWSER_PARSE_EXTENSIONS.has(extension)) {
       setMessage(`${extension.toUpperCase()} files are recognized but require backend parser support before they can be loaded into the browser preview.`);
       return;
     }
     try {
       const text = await file.text();
       const parsed = extension === "json" ? parseJSON(text) : parseCSV(text);
+      if (parsed.headers.length > MAX_BROWSER_COLUMNS) {
+        setMessage(`This dataset has ${parsed.headers.length.toLocaleString()} columns. Browser preview is limited to ${MAX_BROWSER_COLUMNS.toLocaleString()} columns.`);
+        return;
+      }
+      if (parsed.rows.length > MAX_BROWSER_ROWS) {
+        setMessage(`This dataset has ${parsed.rows.length.toLocaleString()} rows. Browser preview is limited to ${MAX_BROWSER_ROWS.toLocaleString()} rows; use sampling or backend import for larger files.`);
+        return;
+      }
       setHeaders(parsed.headers);
       setRows(parsed.rows);
       const keep: Record<string, boolean> = {};
@@ -225,6 +369,14 @@ export default function Step01DataAcquisition() {
         parsed.headers.find((header) => /target|label|outcome/i.test(header)) ??
         "";
       setTarget(guessedTarget);
+      saveLocalDataset({
+        headers: parsed.headers,
+        rows: parsed.rows.slice(0, 5000),
+        target: guessedTarget || null,
+        selected_columns: parsed.headers.filter((header) => header !== guessedTarget),
+        problem_type: guessedTarget ? inferProblemType(parsed.rows.slice(0, 5000), guessedTarget) : undefined,
+      });
+      window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
       const dq = inferDataQuality({ headers: parsed.headers, rows: parsed.rows.slice(0, 5000), target: guessedTarget || null });
       setQuality(dq);
       logDecision({
@@ -260,19 +412,24 @@ export default function Step01DataAcquisition() {
     const selectedColumns = selected.length ? selected : selectable;
     const meta = generatedMetadata;
     const dq = quality ?? inferDataQuality({ headers, rows: sampleRows, target: target || null });
-    const payload: LocalDataset = {
+    const problemType = targetInfo.kind === "continuous" ? "regression" : "classification";
+    const localPayload: LocalDataset = {
       headers,
       rows: sampleRows,
       target: target || null,
       selected_columns: selectedColumns,
-      problem_type: targetInfo.kind === "continuous" ? "regression" : "classification",
+      problem_type: problemType,
       data_access: meta ?? undefined,
       data_quality: dq,
     };
-    const localSaveStatus = saveLocalDataset(payload);
+    const backendPayload: LocalDataset = {
+      ...localPayload,
+      rows: modelingRows,
+    };
+    const localSaveStatus = saveLocalDataset(localPayload);
     if (meta) {
       saveDataAccessMetadata(meta);
-      recordDatasetVersion(payload, meta);
+      recordDatasetVersion(localPayload, meta);
       setMetadata(meta);
     }
     setQuality(dq);
@@ -284,8 +441,8 @@ export default function Step01DataAcquisition() {
         data: {
           ...(state?.trainSpec?.data ?? {}),
           source: sourceType,
-          n_samples: sampleRows.length,
-          task: targetInfo.kind === "continuous" ? "regression" : "binary",
+          n_samples: modelingRows.length,
+          task: problemType === "regression" ? "regression" : "binary",
           target,
           selected_columns: selectedColumns,
           dataset_version: meta?.version,
@@ -293,15 +450,24 @@ export default function Step01DataAcquisition() {
       },
     }));
 
-    window.setTimeout(() => {
-      fetch(`${BASE}/data/set_sample`, {
+    try {
+      const backendRes = await fetch(`${BASE}/data/set_sample`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }).catch((err) => console.error("set_sample error:", err));
-    }, 0);
+        body: JSON.stringify(backendPayload),
+      });
+      const backendJson = await backendRes.json().catch(() => null);
+      if (!backendRes.ok || !backendJson?.ok) {
+        throw new Error(backendJson?.error ?? "Backend did not accept the modeling dataset.");
+      }
+    } catch (err: any) {
+      setMessage(err?.message ?? "Unable to send the modeling dataset to the backend.");
+      throw err;
+    }
 
-    if (localSaveStatus === "sample") setMessage("A browser sample was cached for fast EDA. Full execution remains a backend responsibility for enterprise sources.");
+    if (localSaveStatus === "sample") {
+      setMessage(`Cached ${sampleRows.length.toLocaleString()} preview rows in the browser and sent ${modelingRows.length.toLocaleString()} rows to the backend for modeling.`);
+    }
     logDecision({
       workflowStep: "Data Acquisition",
       actionType: "workflow_setting_changed",
@@ -390,6 +556,14 @@ export default function Step01DataAcquisition() {
                 newValue: next,
               });
               setTarget(next);
+              saveLocalDataset({
+                headers,
+                rows: sampleRows,
+                target: next || null,
+                selected_columns: headers.filter((header) => header !== next && kept[header] !== false),
+                problem_type: next ? inferProblemType(sampleRows, next) : undefined,
+              });
+              window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
               if (rows.length) setQuality(inferDataQuality({ headers, rows: rows.slice(0, 5000), target: next || null }));
             }}
             samplingMethod={samplingMethod}
@@ -397,6 +571,8 @@ export default function Step01DataAcquisition() {
             samplingDetail={samplingDetail}
             setSamplingDetail={setSamplingDetail}
             targetInfo={targetInfo}
+            modelingRowCount={modelingRows.length}
+            previewRowCount={sampleRows.length}
           />
           <DataQualityPanel quality={quality} metadata={generatedMetadata ?? metadata} />
         </section>
@@ -420,6 +596,7 @@ export default function Step01DataAcquisition() {
                     <th className="px-3 py-2 text-center">Keep</th>
                     <th className="px-3 py-2 text-left">Column</th>
                     <th className="px-3 py-2 text-left">Type</th>
+                    <th className="px-3 py-2 text-right">IV</th>
                     <th className="px-3 py-2 text-right">Missing %</th>
                     <th className="px-3 py-2 text-right">Distinct</th>
                     <th className="px-3 py-2 text-right">Mean</th>
@@ -450,6 +627,7 @@ export default function Step01DataAcquisition() {
                       </td>
                       <td className="px-3 py-2 font-medium">{row.column}</td>
                       <td className="px-3 py-2">{row.type}</td>
+                      <td className={`px-3 py-2 text-right ${ivStatusClass(row.iv)}`}>{formatNumber(row.iv)}</td>
                       <td className="px-3 py-2 text-right">{formatPercent(row.missingPct)}</td>
                       <td className="px-3 py-2 text-right">{row.distinct.toLocaleString()}</td>
                       <td className="px-3 py-2 text-right">{formatNumber(row.mean)}</td>
@@ -614,9 +792,11 @@ function DataPreview(props: {
   samplingDetail: string;
   setSamplingDetail: (value: string) => void;
   targetInfo: { kind: "none" | "binary" | "continuous"; eventRate: number | null };
+  modelingRowCount: number;
+  previewRowCount: number;
 }) {
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+    <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h2 className="text-base font-semibold text-slate-950">Data Preview</h2>
@@ -628,8 +808,33 @@ function DataPreview(props: {
           <Select label="Target" value={props.target} onChange={props.setTarget} options={["", ...props.headers]} />
         </div>
       </div>
+      {!!props.headers.length && (
+        <div className={`mt-4 rounded-lg border px-4 py-3 text-sm ${props.target ? "border-blue-200 bg-blue-50 text-blue-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+          <div className="font-semibold">Target variable</div>
+          <div className="mt-2 grid gap-3 md:grid-cols-[minmax(220px,360px)_1fr] md:items-center">
+            <select
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
+              value={props.target}
+              onChange={(event) => props.setTarget(event.target.value)}
+            >
+              <option value="">Select target variable</option>
+              {props.headers.map((header) => (
+                <option key={header} value={header}>
+                  {header}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs leading-5">
+              {props.target
+                ? `Selected ${props.target}. Detected target type: ${props.targetInfo.kind}.`
+                : "Select the dependent variable before continuing to EDA and model training."}
+            </p>
+          </div>
+        </div>
+      )}
       <div className="mt-4 grid gap-3 md:grid-cols-4">
-        <Stat label="Rows in Preview" value={props.rows.length} />
+        <Stat label="Rows for Modeling" value={props.modelingRowCount} />
+        <Stat label="Rows Cached for UI" value={props.previewRowCount} />
         <Stat label="Columns" value={props.headers.length} />
         <Stat label="Target Type" value={props.targetInfo.kind} />
         <Stat label="Event Rate" value={props.targetInfo.eventRate === null ? "-" : formatPercent(props.targetInfo.eventRate)} />

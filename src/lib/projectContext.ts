@@ -22,8 +22,10 @@ export type RegulatoryEnvironment =
 
 export type InterpretabilityRequirement = "low" | "medium" | "high";
 export type DeploymentExpectation = "research only" | "batch scoring" | "real-time API" | "monitoring only";
+export type MonitoringCadence = "daily" | "weekly" | "monthly" | "quarterly" | "annually" | "custom";
 
 export type ProjectContext = {
+  modelId: string;
   projectName: string;
   businessObjective: string;
   modelType: ModelType;
@@ -39,6 +41,14 @@ export type ProjectContext = {
   secondaryMetrics: string;
   interpretabilityRequirement: InterpretabilityRequirement;
   deploymentExpectation: DeploymentExpectation;
+  implementationOwner: string;
+  implementationTargetDate: string;
+  implementationEnvironment: string;
+  implementationNotes: string;
+  monitoringCadence: MonitoringCadence;
+  monitoringCadenceCustom: string;
+  monitoringMetrics: string[];
+  monitoringNotes: string;
   updatedAt?: string;
 };
 
@@ -68,7 +78,49 @@ export const regulatoryOptions: RegulatoryEnvironment[] = [
   "none",
 ];
 
+export const monitoringCadenceOptions: MonitoringCadence[] = [
+  "daily",
+  "weekly",
+  "monthly",
+  "quarterly",
+  "annually",
+  "custom",
+];
+
+export const classificationMonitoringMetricOptions = [
+  "AUC",
+  "KS",
+  "PR-AUC",
+  "Precision",
+  "Recall",
+  "F1",
+  "Lift",
+  "Calibration",
+  "PSI",
+  "VSI",
+] as const;
+
+export const regressionMonitoringMetricOptions = [
+  "RMSE",
+  "MAE",
+  "MAPE",
+  "R-squared",
+  "Adjusted R-squared",
+  "Mean Residual",
+  "PSI",
+  "VSI",
+] as const;
+
+export function defaultMonitoringMetricsForModelType(modelType: ModelType) {
+  return modelType === "regression" ? ["RMSE", "MAE", "MAPE", "PSI", "VSI"] : ["AUC", "KS", "PSI", "VSI"];
+}
+
+export function monitoringMetricOptionsForModelType(modelType: ModelType) {
+  return modelType === "regression" ? regressionMonitoringMetricOptions : classificationMonitoringMetricOptions;
+}
+
 export const defaultProjectContext: ProjectContext = {
+  modelId: "",
   projectName: "",
   businessObjective: "",
   modelType: "generic classification",
@@ -84,6 +136,14 @@ export const defaultProjectContext: ProjectContext = {
   secondaryMetrics: "",
   interpretabilityRequirement: "medium",
   deploymentExpectation: "research only",
+  implementationOwner: "",
+  implementationTargetDate: "",
+  implementationEnvironment: "",
+  implementationNotes: "",
+  monitoringCadence: "monthly",
+  monitoringCadenceCustom: "",
+  monitoringMetrics: defaultMonitoringMetricsForModelType("generic classification"),
+  monitoringNotes: "",
 };
 
 export function loadProjectContext(): ProjectContext {
@@ -95,6 +155,10 @@ export function loadProjectContext(): ProjectContext {
     return {
       ...defaultProjectContext,
       ...parsed,
+      monitoringMetrics:
+        Array.isArray(parsed.monitoringMetrics) && parsed.monitoringMetrics.length
+          ? parsed.monitoringMetrics
+          : defaultMonitoringMetricsForModelType(parsed.modelType ?? defaultProjectContext.modelType),
       regulatoryEnvironment:
         Array.isArray(parsed.regulatoryEnvironment) && parsed.regulatoryEnvironment.length
           ? parsed.regulatoryEnvironment

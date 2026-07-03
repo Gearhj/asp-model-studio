@@ -4,6 +4,8 @@ import { sampleArray, toBool, toNumber } from "../lib/d3Utils";
 
 
 type Row = { value: number | null; label?: number | string };
+type CleanedRow = { v: number; lbl: "Event" | "Non-Event" };
+type HistogramSeries = { lbl: "Non-Event" | "Event"; bins: Array<number[] & { x0?: number; x1?: number }> };
 type Props = {
   data: Row[];
   feature: string;
@@ -24,10 +26,16 @@ export default function D3GroupedHistogram({
   const ref = useRef<SVGSVGElement | null>(null);
 
   const cleaned = useMemo(() => {
-    const arr = (data || []).map((r) => ({
-      v: toNumber(r?.value),
-      lbl: r?.label === 1 || r?.label === "Event" ? "Event" : "Non-Event",
-    })).filter((r) => r.v !== null) as { v: number; lbl: "Event" | "Non-Event" }[];
+    const arr = (data || []).reduce<CleanedRow[]>((acc, r: Row) => {
+      const value = toNumber(r?.value);
+      if (value !== null) {
+        acc.push({
+          v: value,
+          lbl: r?.label === 1 || r?.label === "Event" ? "Event" : "Non-Event",
+        });
+      }
+      return acc;
+    }, []);
 
     // cap sample for perf
     return sampleArray(arr, Math.min(arr.length, 20000));
@@ -63,27 +71,27 @@ export default function D3GroupedHistogram({
 
     // x scale by value
     const x = d3.scaleLinear()
-      .domain(d3.extent(cleaned, (d) => d.v) as [number, number])
+      .domain(d3.extent(cleaned, (d: CleanedRow) => d.v) as [number, number])
       .nice()
       .range([0, innerW]);
 
     // compute bins overall to share bin edges across groups
     const thresholds = x.ticks(Math.max(5, Math.min(80, bins || 20)));
-    const binGen = d3.bin<number, number>().domain(x.domain() as [number, number]).thresholds(thresholds);
+    const binGen = d3.bin().domain(x.domain() as [number, number]).thresholds(thresholds);
 
-    const byLabel = d3.group(cleaned, (d) => d.lbl);
+    const byLabel = d3.group(cleaned, (d: CleanedRow) => d.lbl);
     const labels = ["Non-Event", "Event"] as const;
-    const colors = d3.scaleOrdinal<string, string>().domain(labels as unknown as string[]).range(["#60a5fa", "#f87171"]);
+    const colors = d3.scaleOrdinal().domain(labels as unknown as string[]).range(["#60a5fa", "#f87171"]);
 
-    const series = labels.map((lbl) => {
+    const series = labels.map((lbl): HistogramSeries => {
       const arr = byLabel.get(lbl) ?? [];
-      const vs = arr.map((d) => d.v);
-      return { lbl, bins: binGen(vs) };
+      const vs = arr.map((d: CleanedRow) => d.v);
+      return { lbl, bins: binGen(vs) as HistogramSeries["bins"] };
     });
 
-    const yMax = d3.max(series, (s) => d3.max(s.bins, (b) => b.length)) || 1;
+    const yMax = d3.max(series, (s: HistogramSeries) => d3.max(s.bins, (b: number[]) => b.length)) || 1;
     const yStackMax = d3.max(
-      series[0].bins.map((_, i) => (series[0].bins[i]?.length || 0) + (series[1].bins[i]?.length || 0))
+      series[0].bins.map((_: number[], i: number) => (series[0].bins[i]?.length || 0) + (series[1].bins[i]?.length || 0))
     ) || 1;
 
     const y = d3.scaleLinear()
@@ -95,19 +103,19 @@ export default function D3GroupedHistogram({
     g.append("g")
       .attr("transform", `translate(0,${innerH})`)
       .call(d3.axisBottom(x).ticks(10))
-      .call((ax) => ax.selectAll("text").style("font-size", "11px"));
+      .call((ax: any) => ax.selectAll("text").style("font-size", "11px"));
 
     g.append("g")
       .call(d3.axisLeft(y).ticks(6))
-      .call((ax) => ax.selectAll("text").style("font-size", "11px"));
+      .call((ax: any) => ax.selectAll("text").style("font-size", "11px"));
 
     // grouped/stacked bars
     const bandwidth = (innerW / thresholds.length) * 0.9;
-    const groupBand = d3.scaleBand<string>().domain(labels as unknown as string[]).range([0, bandwidth]).padding(0.08);
+    const groupBand = d3.scaleBand().domain(labels as unknown as string[]).range([0, bandwidth]).padding(0.08);
 
-    series.forEach((s, si) => {
+    series.forEach((s: HistogramSeries) => {
       const grp = g.append("g").attr("fill", colors(s.lbl));
-      s.bins.forEach((b, i) => {
+      s.bins.forEach((b: HistogramSeries["bins"][number], i: number) => {
         const x0 = x(b.x0 as number);
         const x1 = x(b.x1 as number);
         const w = Math.max(1, x1 - x0);
@@ -152,16 +160,16 @@ export default function D3GroupedHistogram({
 
     // optional kernel density overlay (overall)
     if (showDensity) {
-      const all = cleaned.map((d) => d.v);
+      const all = cleaned.map((d: CleanedRow) => d.v);
       const kde = kernelDensityEstimator(kernelEpanechnikov(7), x.ticks(60));
       const density = kde(all);
 
-      const y2 = d3.scaleLinear().domain([0, d3.max(density, (d) => d[1]) || 1]).range([innerH, 0]);
+      const y2 = d3.scaleLinear().domain([0, d3.max(density, (d: [number, number]) => d[1]) || 1]).range([innerH, 0]);
 
-      const line = d3.line<[number, number]>()
+      const line = d3.line()
         .curve(d3.curveBasis)
-        .x((d) => x(d[0]))
-        .y((d) => y2(d[1]));
+        .x((d: [number, number]) => x(d[0]))
+        .y((d: [number, number]) => y2(d[1]));
 
       g.append("path")
         .datum(density)
@@ -173,7 +181,8 @@ export default function D3GroupedHistogram({
     }
 
     function kernelDensityEstimator(kernel: (v: number) => number, X: number[]) {
-      return (V: number[]) => X.map((x) => [x, d3.mean(V, (v) => kernel(x - v)) as number]);
+      return (V: number[]) =>
+        X.map((x: number): [number, number] => [x, d3.mean(V, (v: number) => kernel(x - v)) as number]);
     }
     function kernelEpanechnikov(k: number) {
       return (v: number) => Math.abs((v /= k)) <= 1 ? 0.75 * (1 - v * v) / k : 0;

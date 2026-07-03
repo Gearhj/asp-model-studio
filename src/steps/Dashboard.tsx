@@ -1,102 +1,26 @@
 import { Link } from "react-router-dom";
 import type React from "react";
-import { Activity, BarChart3, CheckCircle2, Database, GitBranch, RotateCcw } from "lucide-react";
+import { Activity, AlertTriangle, BarChart3, CheckCircle2, Database, GitBranch, RotateCcw } from "lucide-react";
 import BrandLogo from "../components/BrandLogo";
 import { BRAND } from "../config/brand";
+import { getWorkflowDefinition } from "../config/workflows";
+import { buildEscalationQueue, loadProductionModels } from "../lib/modelMonitoring";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
-const steps = [
-  {
-    id: "step00",
-    title: "Project Context",
-    route: "/step00",
-    description: "Define the objective, target, population, windows, costs, governance constraints, and deployment plan.",
-  },
-  {
-    id: "step01",
-    title: "Data Acquisition",
-    route: "/step01",
-    description: "Upload CSV data, select the target, inspect columns, and persist the sample.",
-  },
-  {
-    id: "step01b",
-    title: "Credit Bureau Review",
-    route: "/step01b",
-    description: "Identify bureau special values, attach metadata, choose treatments, and document rationale.",
-  },
-  {
-    id: "step02",
-    title: "Exploratory Data Analysis",
-    route: "/step02",
-    description: "Review distributions, box plots, correlations, and pairwise relationships.",
-  },
-  {
-    id: "step03",
-    title: "Outlier Analysis",
-    route: "/step03",
-    description: "Choose per-feature detection and capping methods for numeric fields.",
-  },
-  {
-    id: "step04",
-    title: "Missing Values",
-    route: "/step04",
-    description: "Assign imputation or drop strategies for numeric and categorical variables.",
-  },
-  {
-    id: "step05",
-    title: "Feature Engineering",
-    route: "/step05",
-    description: "Create encodings, scaling choices, bins, interactions, and rule features.",
-  },
-  {
-    id: "step06",
-    title: "Balancing & Split",
-    route: "/step06",
-    description: "Set holdout or cross-validation strategy and class balancing behavior.",
-  },
-  {
-    id: "step07",
-    title: "Model Training",
-    route: "/step07",
-    description: "Select candidate models, submit training, and review basic run metrics.",
-  },
-  {
-    id: "step08",
-    title: "Evaluation",
-    route: "/step08",
-    description: "Compare the leaderboard, champion metrics, curves, and decile lift.",
-  },
-  {
-    id: "step09",
-    title: "Model Interpretation",
-    route: "/step09",
-    description: "Review feature importance, PDP, SHAP-style impacts, sensitivity, model details, and RFE.",
-  },
-  {
-    id: "step10",
-    title: "Final Scoring",
-    route: "/step10",
-    description: "Score holdout and OOT data, review stability, and prepare final production outputs.",
-  },
-  {
-    id: "step11",
-    title: "Model Development Document",
-    route: "/step11",
-    description: "Generate the formal model development document for governance and validation.",
-  },
-] as const;
-
-type StepId = typeof steps[number]["id"];
-
 export default function Dashboard() {
-  const workflowSteps = useWorkflowStore((state) => state.steps);
+  const workflowSteps = useWorkflowStore((state) => state.workflowSteps);
+  const workflowId = useWorkflowStore((state) => state.workflowId);
+  const projectName = useWorkflowStore((state) => state.projectName);
   const hasDataset = useWorkflowStore((state) => state.hasDataset);
   const reset = useWorkflowStore((state) => state.reset);
+  const workflow = getWorkflowDefinition(workflowId);
+  const productionModels = loadProductionModels();
+  const escalations = buildEscalationQueue(productionModels);
 
-  const completed = steps.filter((step) => workflowSteps[step.id as StepId] === "completed").length;
+  const completed = workflowSteps.filter((step) => step.status === "complete").length;
   const inProgress =
-    steps.find((step) => workflowSteps[step.id as StepId] !== "completed") ?? steps[steps.length - 1];
-  const progress = Math.round((completed / steps.length) * 100);
+    workflowSteps.find((step) => step.status !== "complete" && step.status !== "skipped") ?? workflowSteps[workflowSteps.length - 1];
+  const progress = Math.round((completed / Math.max(1, workflowSteps.length)) * 100);
 
   return (
     <div className="w-full space-y-5">
@@ -107,9 +31,12 @@ export default function Dashboard() {
             <p className="mt-3 max-w-2xl text-sm text-slate-600">
               Navigate regulated model development from source data to documented champion model.
             </p>
+            <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              {projectName} · {workflow.label}
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link to="/step00" className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800">
+            <Link to="/projects/new" className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800">
               Start New Project
             </Link>
             <Link to={inProgress.route} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
@@ -118,8 +45,8 @@ export default function Dashboard() {
             <Link to="/step01" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
               Open Existing Project
             </Link>
-            <Link to="/step11" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
-              View Model Development Document
+            <Link to="/project-overview" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
+              Project Overview
             </Link>
           </div>
         </div>
@@ -127,10 +54,78 @@ export default function Dashboard() {
       </section>
 
       <section className="grid gap-4 md:grid-cols-4">
-        <StatCard icon={<GitBranch size={18} />} label="Journey Steps" value={steps.length} />
+        <StatCard icon={<GitBranch size={18} />} label="Journey Steps" value={workflowSteps.length} />
         <StatCard icon={<CheckCircle2 size={18} />} label="Milestones Completed" value={completed} />
         <StatCard icon={<Activity size={18} />} label="Progress" value={`${progress}%`} />
         <StatCard icon={<Database size={18} />} label="Dataset Loaded" value={hasDataset ? "Yes" : "No"} />
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+        <div className="rounded-lg border border-rose-200 bg-rose-50 p-5 shadow-sm">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <div className="flex items-center gap-2 text-rose-950">
+                <AlertTriangle size={18} />
+                <h2 className="text-lg font-semibold">Manager Escalation Queue</h2>
+              </div>
+              <p className="mt-1 text-sm text-rose-800">
+                Models requiring Data Science Manager attention due to age, monitoring deterioration, or compliance issues.
+              </p>
+            </div>
+            <Link to="/step13" className="rounded-lg bg-rose-900 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-rose-800">
+              Open Monitoring
+            </Link>
+          </div>
+          <div className="mt-4 grid gap-2">
+            {escalations.slice(0, 5).map((item, index) => (
+              <article key={`${item.modelId}-${index}`} className="rounded-lg border border-rose-200 bg-white px-3 py-3">
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <div className="text-sm font-semibold text-slate-950">{item.modelId} {item.modelName}</div>
+                    <div className="mt-1 text-xs leading-5 text-slate-600">{item.reason}</div>
+                  </div>
+                  <span className={`rounded-full px-2 py-1 text-xs font-semibold ${item.severity === "high" ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800"}`}>
+                    {item.severity}
+                  </span>
+                </div>
+                <div className="mt-2 text-xs text-rose-900">
+                  Owner: {item.owner} · Action: {item.action}
+                </div>
+              </article>
+            ))}
+            {!escalations.length && (
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm font-medium text-emerald-900">
+                No production monitoring escalations are currently open.
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-slate-200/80 bg-white/90 p-5 shadow-sm">
+          <h2 className="text-lg font-semibold text-slate-950">Production Models Under Monitoring</h2>
+          <p className="mt-1 text-sm text-slate-500">Current monitored production inventory and latest status summary.</p>
+          <div className="mt-4 grid gap-2">
+            {productionModels.slice(0, 4).map((model) => {
+              const redCount = model.metrics.filter((metric) => metric.status === "red").length;
+              const yellowCount = model.metrics.filter((metric) => metric.status === "yellow").length;
+              return (
+                <article key={`${model.modelId}-${model.modelName}`} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-semibold text-slate-950">{model.modelId} {model.modelName}</div>
+                      <div className="mt-1 text-xs text-slate-500">Owner: {model.owner} · Cadence: {model.monitoringCadence}</div>
+                    </div>
+                    <span className={`rounded-full px-2 py-1 text-xs font-semibold ${
+                      redCount ? "bg-rose-100 text-rose-800" : yellowCount ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
+                    }`}>
+                      {redCount ? `${redCount} red` : yellowCount ? `${yellowCount} warning` : "green"}
+                    </span>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </div>
       </section>
 
       <section className="rounded-lg border border-slate-200/80 bg-white/90 shadow-sm">
@@ -138,7 +133,7 @@ export default function Dashboard() {
           <div>
             <h2 className="text-lg font-semibold text-slate-950">Model Development Journey</h2>
             <p className="text-sm text-slate-500">
-              Capture each decision point from source data through model evaluation.
+              Capture each decision point from source data through governed documentation.
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -161,8 +156,8 @@ export default function Dashboard() {
         </div>
 
         <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
-          {steps.map((step, index) => {
-            const status = workflowSteps[step.id as StepId] ?? "pending";
+          {workflowSteps.map((step, index) => {
+            const status = step.status ?? "pending";
             return (
               <article
                 key={step.id}
@@ -172,7 +167,7 @@ export default function Dashboard() {
                   <div className="flex min-w-0 items-center gap-3">
                     <div
                       className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-xs font-semibold ${
-                        status === "completed"
+                        status === "complete"
                           ? "bg-emerald-100 text-emerald-700"
                           : "bg-white text-slate-600 ring-1 ring-slate-200"
                       }`}
@@ -180,15 +175,15 @@ export default function Dashboard() {
                       {index + 1}
                     </div>
                     <div className="min-w-0">
-                      <h3 className="truncate font-semibold text-slate-950">{step.title}</h3>
+                      <h3 className="truncate font-semibold text-slate-950">{step.label}</h3>
                       <span
                         className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                          status === "completed"
+                          status === "complete"
                             ? "bg-emerald-50 text-emerald-700"
                             : "bg-white text-slate-600 ring-1 ring-slate-200"
                         }`}
                       >
-                        {status === "completed" ? "Completed" : "Pending"}
+                        {status === "complete" ? "Completed" : status === "skipped" ? "Skipped" : "Pending"}
                       </span>
                     </div>
                   </div>

@@ -175,6 +175,19 @@ class EvaluationService:
 
     def _prepare_final_feature_frame(self, model: Dict[str, Any], X: pd.DataFrame) -> Tuple[pd.DataFrame, List[str], List[str]]:
         features = [str(feature) for feature in model["features"]]
+        if model.get("dummy_columns"):
+            encoded = pd.get_dummies(X.copy(), dummy_na=True)
+            dummy_columns = [str(feature) for feature in model.get("dummy_columns", [])]
+            prepared = encoded.reindex(columns=dummy_columns, fill_value=0)
+            matched = [feature for feature in features if feature in prepared.columns]
+            missing = [feature for feature in features if feature not in encoded.columns and "__" not in feature]
+            for feature in features:
+                if feature not in prepared.columns:
+                    prepared[feature] = np.nan
+            prepared = prepared[features].apply(pd.to_numeric, errors="coerce")
+            prepared = prepared.fillna(model["medians"])
+            prepared = (prepared - model["means"]) / model["stds"]
+            return prepared[features], matched, missing
         normalized_columns = {str(col).strip().lower(): col for col in X.columns}
         prepared = pd.DataFrame(index=X.index)
         matched: List[str] = []
@@ -839,6 +852,30 @@ class EvaluationService:
         mse = float(mean_squared_error(y_test, preds)) if mean_squared_error is not None else float(np.mean((y_test - preds) ** 2))
         return float(np.sqrt(mse))
 
+    def _prepare_rfe_design(self, X_train: pd.DataFrame, X_test: pd.DataFrame) -> Tuple[pd.DataFrame, pd.DataFrame, List[str]]:
+        train = X_train.copy()
+        test = X_test.copy()
+        combined = pd.concat([train, test], axis=0, ignore_index=True)
+        encoded = pd.get_dummies(combined, dummy_na=True)
+        encoded.columns = [str(col) for col in encoded.columns]
+        encoded = encoded.apply(pd.to_numeric, errors="coerce")
+        encoded = encoded.loc[:, encoded.notna().any(axis=0)]
+        if encoded.empty:
+            return pd.DataFrame(index=X_train.index), pd.DataFrame(index=X_test.index), []
+        train_encoded = encoded.iloc[: len(train)].copy()
+        test_encoded = encoded.iloc[len(train) :].copy()
+        train_encoded.index = X_train.index
+        test_encoded.index = X_test.index
+        medians = train_encoded.median(numeric_only=True)
+        train_encoded = train_encoded.fillna(medians)
+        test_encoded = test_encoded.fillna(medians)
+        variable_cols = [
+            str(col)
+            for col in train_encoded.columns
+            if float(train_encoded[col].std(skipna=True) or 0.0) > 1e-12
+        ]
+        return train_encoded[variable_cols], test_encoded[variable_cols], variable_cols
+
     def _encode_binary_target(self, y_train: pd.Series, y_test: pd.Series):
         if LabelEncoder is None:
             raise ValueError("scikit-learn label encoding is unavailable.")
@@ -852,26 +889,30 @@ class EvaluationService:
         X_train, X_test, y_train, y_test = DATASTORE.get_splits()
         if X_train is None or X_test is None or y_train is None or y_test is None:
             return {"ok": False, "error": "No training split is available. Train models first."}
-        numeric_cols = [col for col in X_train.columns if pd.api.types.is_numeric_dtype(X_train[col])]
-        if len(numeric_cols) < 2:
-            return {"ok": False, "error": "RFE currently requires at least two numeric features."}
+        prepared_train_all, prepared_test_all, feature_cols = self._prepare_rfe_design(X_train, X_test)
+        if len(feature_cols) < 2:
+            return {"ok": False, "error": "RFE requires at least two usable features after encoding. Confirm feature selection and preprocessing."}
         if self._is_regression_problem():
-            return self._rfe_regression(model_name=model_name, keep=keep, numeric_cols=numeric_cols)
+            return self._rfe_regression(
+                model_name=model_name,
+                keep=keep,
+                numeric_cols=feature_cols,
+                prepared_train=prepared_train_all,
+                prepared_test=prepared_test_all,
+            )
         if LogisticRegression is None or LabelEncoder is None or roc_auc_score is None:
             return {"ok": False, "error": "scikit-learn logistic regression metrics are unavailable."}
 
+        numeric_cols = list(feature_cols)
         if len(numeric_cols) > 20:
             single_feature_scores: List[Dict[str, Any]] = []
             for feature in numeric_cols:
                 try:
-                    med = X_train[[feature]].median(numeric_only=True)
-                    train_one = X_train[[feature]].fillna(med)
-                    test_one = X_test[[feature]].fillna(med)
                     y_train_tmp, y_test_tmp = self._encode_binary_target(y_train, y_test)
                     single_feature_scores.append(
                         {
                             "feature": feature,
-                            "auc": self._score_feature_subset(train_one, test_one, y_train_tmp, y_test_tmp, [feature]),
+                            "auc": self._score_feature_subset(prepared_train_all, prepared_test_all, y_train_tmp, y_test_tmp, [feature]),
                         }
                     )
                 except Exception:
@@ -881,9 +922,8 @@ class EvaluationService:
                 for row in sorted(single_feature_scores, key=lambda row: row["auc"], reverse=True)[:20]
             ]
 
-        medians = X_train[numeric_cols].median(numeric_only=True)
-        prepared_train = X_train[numeric_cols].fillna(medians)
-        prepared_test = X_test[numeric_cols].fillna(medians)
+        prepared_train = prepared_train_all[numeric_cols].copy()
+        prepared_test = prepared_test_all[numeric_cols].copy()
         means = prepared_train.mean()
         stds = prepared_train.std().replace(0, 1).fillna(1)
         prepared_train = (prepared_train - means) / stds
@@ -1004,10 +1044,19 @@ class EvaluationService:
             "curve": curve_rows,
         }
 
-    def _rfe_regression(self, model_name: str, keep: int, numeric_cols: List[str]) -> Dict[str, Any]:
+    def _rfe_regression(
+        self,
+        model_name: str,
+        keep: int,
+        numeric_cols: List[str],
+        prepared_train: pd.DataFrame | None = None,
+        prepared_test: pd.DataFrame | None = None,
+    ) -> Dict[str, Any]:
         X_train, X_test, y_train, y_test = DATASTORE.get_splits()
         if LinearRegression is None:
             return {"ok": False, "error": "scikit-learn LinearRegression is unavailable."}
+        if prepared_train is None or prepared_test is None:
+            prepared_train, prepared_test, numeric_cols = self._prepare_rfe_design(X_train, X_test)
 
         y_train_arr = pd.to_numeric(pd.Series(y_train), errors="coerce").to_numpy(dtype=float)
         y_test_arr = pd.to_numeric(pd.Series(y_test), errors="coerce").to_numpy(dtype=float)
@@ -1015,13 +1064,10 @@ class EvaluationService:
             single_feature_scores: List[Dict[str, Any]] = []
             for feature in numeric_cols:
                 try:
-                    med = X_train[[feature]].median(numeric_only=True)
-                    train_one = X_train[[feature]].fillna(med)
-                    test_one = X_test[[feature]].fillna(med)
                     single_feature_scores.append(
                         {
                             "feature": feature,
-                            "rmse": self._score_regression_feature_subset(train_one, test_one, y_train_arr, y_test_arr, [feature]),
+                            "rmse": self._score_regression_feature_subset(prepared_train, prepared_test, y_train_arr, y_test_arr, [feature]),
                         }
                     )
                 except Exception:
@@ -1031,9 +1077,8 @@ class EvaluationService:
                 for row in sorted(single_feature_scores, key=lambda row: row["rmse"])[:24]
             ]
 
-        medians = X_train[numeric_cols].median(numeric_only=True)
-        prepared_train = X_train[numeric_cols].fillna(medians)
-        prepared_test = X_test[numeric_cols].fillna(medians)
+        prepared_train = prepared_train[numeric_cols].copy()
+        prepared_test = prepared_test[numeric_cols].copy()
         means = prepared_train.mean()
         stds = prepared_train.std().replace(0, 1).fillna(1)
         prepared_train = (prepared_train - means) / stds
@@ -1169,11 +1214,12 @@ class EvaluationService:
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
 
-        train = X_train[selected_features].copy()
-        test = X_test[selected_features].copy()
-        for feature in selected_features:
-            train[feature] = pd.to_numeric(train[feature], errors="coerce")
-            test[feature] = pd.to_numeric(test[feature], errors="coerce")
+        train_all, test_all, dummy_columns = self._prepare_rfe_design(X_train, X_test)
+        selected_features = [feature for feature in selected_features if feature in train_all.columns]
+        if not selected_features:
+            return {"ok": False, "error": "Selected RFE features are unavailable after encoding."}
+        train = train_all[selected_features].copy()
+        test = test_all[selected_features].copy()
         medians = train.median(numeric_only=True)
         train = train.fillna(medians)
         test = test.fillna(medians)
@@ -1191,6 +1237,7 @@ class EvaluationService:
             "kind": "rfe_logistic",
             "model": final_estimator,
             "features": selected_features,
+            "dummy_columns": dummy_columns,
             "medians": medians,
             "means": means,
             "stds": stds,
@@ -1222,11 +1269,12 @@ class EvaluationService:
         if not selected_features:
             return {"ok": False, "error": "RFE did not return any selected features."}
 
-        train = X_train[selected_features].copy()
-        test = X_test[selected_features].copy()
-        for feature in selected_features:
-            train[feature] = pd.to_numeric(train[feature], errors="coerce")
-            test[feature] = pd.to_numeric(test[feature], errors="coerce")
+        train_all, test_all, dummy_columns = self._prepare_rfe_design(X_train, X_test)
+        selected_features = [feature for feature in selected_features if feature in train_all.columns]
+        if not selected_features:
+            return {"ok": False, "error": "Selected RFE features are unavailable after encoding."}
+        train = train_all[selected_features].copy()
+        test = test_all[selected_features].copy()
         medians = train.median(numeric_only=True)
         train = train.fillna(medians)
         test = test.fillna(medians)
@@ -1246,6 +1294,7 @@ class EvaluationService:
             "kind": "rfe_regression",
             "model": final_estimator,
             "features": selected_features,
+            "dummy_columns": dummy_columns,
             "medians": medians,
             "means": means,
             "stds": stds,

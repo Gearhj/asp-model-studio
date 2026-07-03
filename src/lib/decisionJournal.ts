@@ -34,6 +34,7 @@ export type DecisionJournalEntry = {
 };
 
 export const DECISION_JOURNAL_KEY = "modeling-tool-decision-journal";
+const MAX_LOCAL_DECISION_EVENTS = 300;
 
 type LogDecisionInput = {
   workflowStep: string;
@@ -160,7 +161,7 @@ export function logDecision(input: LogDecisionInput) {
     userReason: input.userReason ?? "",
   };
   const entries = safeReadEntries();
-  localStorage.setItem(DECISION_JOURNAL_KEY, JSON.stringify([entry, ...entries].slice(0, 1000)));
+  localStorage.setItem(DECISION_JOURNAL_KEY, JSON.stringify([entry, ...entries].slice(0, MAX_LOCAL_DECISION_EVENTS)));
   window.dispatchEvent(new CustomEvent("decision-journal-updated"));
   return entry;
 }
@@ -170,8 +171,32 @@ export function loadDecisionJournal() {
 }
 
 export function saveDecisionJournal(entries: DecisionJournalEntry[]) {
-  localStorage.setItem(DECISION_JOURNAL_KEY, JSON.stringify(entries));
+  localStorage.setItem(DECISION_JOURNAL_KEY, JSON.stringify(entries.slice(0, MAX_LOCAL_DECISION_EVENTS)));
   window.dispatchEvent(new CustomEvent("decision-journal-updated"));
+}
+
+const materialDecisionTypes = new Set<DecisionActionType>([
+  "project_context_updated",
+  "target_variable_selected",
+  "feature_inclusion_changed",
+  "outlier_method_selected",
+  "missing_value_strategy_selected",
+  "balancing_method_selected",
+  "split_strategy_selected",
+  "model_selected",
+  "champion_model_selected",
+  "challenge_response_recorded",
+  "final_model_saved",
+]);
+
+export function materialDecisionSummary(entries: DecisionJournalEntry[], maxEntries = 25) {
+  return entries
+    .filter((entry) => materialDecisionTypes.has(entry.actionType))
+    .filter((entry) => {
+      const text = `${entry.subject} ${entry.previousValue} ${entry.newValue}`.toLowerCase();
+      return !/hover|open panel|close panel|viewed|expanded|collapsed/.test(text);
+    })
+    .slice(0, maxEntries);
 }
 
 export function exportDecisionJournalMarkdown(entries: DecisionJournalEntry[]) {
@@ -184,24 +209,23 @@ export function exportDecisionJournalMarkdown(entries: DecisionJournalEntry[]) {
     "",
     `Generated: ${new Date().toISOString()}`,
     "",
-    "| Timestamp | Step | Action | Subject | Previous | New | Recommendation | Followed/Overrode | Rationale |",
-    "|---|---|---|---|---|---|---|---|---|",
+    "The decision journal is structured as an audit timeline. Each entry captures the workflow step, action, prior value, new value, Atlas Guide recommendation context, follow status, and rationale.",
+    "",
     ...entries.map((entry) =>
       [
-        entry.timestamp,
-        entry.workflowStep,
-        entry.actionType,
-        entry.subject,
-        entry.previousValue,
-        entry.newValue,
-        entry.systemRecommendation,
-        entry.followStatus,
-        entry.userReason || "",
-      ]
-        .map((value) => String(value).replace(/\|/g, "\\|").replace(/\n/g, " "))
-        .join(" | ")
-        .replace(/^/, "| ")
-        .replace(/$/, " |")
+        `## ${entry.timestamp}`,
+        "",
+        `**${entry.workflowStep}**`,
+        "",
+        `Action: ${entry.actionType.replace(/_/g, " ")}`,
+        `Subject: ${entry.subject || "-"}`,
+        `Previous: ${entry.previousValue || "-"}`,
+        `New: ${entry.newValue || "-"}`,
+        `Recommendation: ${entry.systemRecommendation || "-"}`,
+        `Follow status: ${entry.followStatus}`,
+        `Rationale: ${entry.userReason || "No user rationale captured."}`,
+        "",
+      ].join("\n")
     ),
     "",
   ].join("\n");

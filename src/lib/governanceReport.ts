@@ -4,6 +4,18 @@ import { inferLocalProblemType, loadLocalDataset } from "./localDataset";
 import { loadProjectContext, summarizeRegulatoryContext } from "./projectContext";
 import { loadDataAccessMetadata } from "./enterpriseDataAccess";
 import { BRAND } from "../config/brand";
+import { getWorkflowDefinition } from "../config/workflows";
+import { useWorkflowStore } from "../state/useWorkflowStore";
+import { loadWorkflowNodeEvidence, summarizeWorkflowNodeEvidence } from "./workflowNodeEvidence";
+import { buildExperimentalDesignAnalysis, type ExperimentalDesignNodeState } from "./experimentalDesign";
+import {
+  atlasReportStyles,
+  decisionJournalTimelineHtml,
+  objectTableHtml,
+  professionalTableHtml,
+  renderReportContentHtml,
+  sectionSummaryHtml,
+} from "./reportFormatting";
 
 export type GovernanceSection = {
   number: number;
@@ -49,10 +61,7 @@ function formatList(items: string[], fallback = "None documented") {
 }
 
 function formatObject(value: unknown, fallback = "None documented") {
-  if (!value || (typeof value === "object" && !Object.keys(value as Record<string, unknown>).length)) {
-    return fallback;
-  }
-  return JSON.stringify(value, null, 2);
+  return objectTableHtml(value, fallback);
 }
 
 function selectChampion(experiments: ExperimentRecord[]) {
@@ -144,27 +153,7 @@ function formatCandidateModels(experiments: ExperimentRecord[]) {
 }
 
 function formatDecisionAppendix(entries: DecisionJournalEntry[]) {
-  if (!entries.length) return "No decision journal entries captured.";
-  return [
-    "| Timestamp | Step | Action | Subject | Previous | New | Follow Status | Rationale |",
-    "|---|---|---|---|---|---|---|---|",
-    ...entries.slice(0, 200).map((entry) =>
-      [
-        entry.timestamp,
-        entry.workflowStep,
-        entry.actionType,
-        entry.subject,
-        entry.previousValue,
-        entry.newValue,
-        entry.followStatus,
-        entry.userReason || "",
-      ]
-        .map(escapeMarkdown)
-        .join(" | ")
-        .replace(/^/, "| ")
-        .replace(/$/, " |")
-    ),
-  ].join("\n");
+  return decisionJournalTimelineHtml(entries);
 }
 
 function formatExperimentAppendix(experiments: ExperimentRecord[]) {
@@ -234,6 +223,7 @@ function buildSections(): GovernanceSection[] {
     {
       title: "Executive Summary",
       content: [
+        `Model ID #: ${safe(context.modelId, "Required but not documented")}`,
         `Project: ${safe(context.projectName)}`,
         `Generated: ${new Date().toISOString()}`,
         `Model type: ${safe(context.modelType)}`,
@@ -250,6 +240,15 @@ function buildSections(): GovernanceSection[] {
     { title: "Business Objective", content: safe(context.businessObjective) },
     { title: "Model Purpose", content: `Model type: ${safe(context.modelType)}\nPurpose: ${safe(context.intendedModelUse)}` },
     { title: "Intended Use", content: `${safe(context.intendedModelUse)}\nDeployment expectation: ${safe(context.deploymentExpectation)}` },
+    {
+      title: "Model Implementation",
+      content: [
+        `Implementation owner: ${safe(context.implementationOwner)}`,
+        `Target implementation date: ${safe(context.implementationTargetDate)}`,
+        `Implementation environment: ${safe(context.implementationEnvironment)}`,
+        `Implementation notes: ${safe(context.implementationNotes)}`,
+      ].join("\n"),
+    },
     { title: "Population Definition", content: safe(context.populationDefinition) },
     { title: "Target Definition", content: `${safe(context.targetDefinition)}\nTarget variable: ${safe(dataset?.target)}` },
     {
@@ -286,8 +285,8 @@ function buildSections(): GovernanceSection[] {
     { title: "Observation Window", content: safe(context.observationWindow) },
     { title: "Performance Window", content: safe(context.performanceWindow) },
     { title: "Exclusions", content: formatList(excludedFeatures, "No feature exclusions were captured in the decision journal.") },
-    { title: "Missing Value Strategy", content: formatObject(missingStrategies, "No missing-value strategy was captured.") },
     { title: "Outlier Strategy", content: formatObject(outlierMethods, "No outlier strategy was captured.") },
+    { title: "Missing Value Strategy", content: formatObject(missingStrategies, "No missing-value strategy was captured.") },
     {
       title: "Feature Engineering",
       content: [
@@ -362,6 +361,13 @@ function buildSections(): GovernanceSection[] {
     {
       title: "Monitoring Recommendations",
       content: [
+        `Monitoring cadence: ${
+          context.monitoringCadence === "custom"
+            ? safe(context.monitoringCadenceCustom, "Custom cadence not documented")
+            : safe(context.monitoringCadence)
+        }`,
+        `Selected monitoring metrics: ${formatList(context.monitoringMetrics, "No monitoring metrics selected.")}`,
+        "",
         "- Monitor score PSI and feature VSI/PSI on scheduled production batches.",
         "- Track champion performance against the declared primary and secondary metrics.",
         "- Reassess calibration, lift, and threshold performance after policy or population shifts.",
@@ -388,7 +394,9 @@ export function renderGovernanceMarkdown(title: string, generatedAt: string, sec
     "",
     `Generated: ${generatedAt}`,
     "",
-    ...sections.flatMap((section) => [`## ${section.number}. ${section.title}`, "", section.content, ""]),
+    `<style>${atlasReportStyles()}</style>`,
+    "",
+    ...sections.flatMap((section) => [`## ${section.number}. ${section.title}`, "", renderReportContentHtml(section.content), ""]),
   ].join("\n");
 }
 
@@ -398,7 +406,7 @@ export function renderGovernanceHtml(title: string, generatedAt: string, section
       (section) => `
         <section>
           <h2>${section.number}. ${escapeHtml(section.title)}</h2>
-          <pre>${escapeHtml(section.content)}</pre>
+          ${renderReportContentHtml(section.content)}
         </section>`
     )
     .join("\n");
@@ -409,32 +417,29 @@ export function renderGovernanceHtml(title: string, generatedAt: string, section
   <meta charset="utf-8" />
   <title>${escapeHtml(title)}</title>
   <style>
-    body { margin: 32px; color: #0f172a; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif; line-height: 1.45; }
-    h1 { margin: 0 0 4px; font-size: 28px; }
-    .meta { color: #64748b; margin-bottom: 28px; }
-    section { break-inside: avoid; border-top: 1px solid #dbe3ef; padding: 18px 0; }
-    h2 { margin: 0 0 10px; font-size: 18px; }
-    pre { white-space: pre-wrap; font-family: inherit; font-size: 13px; margin: 0; }
-    table { border-collapse: collapse; width: 100%; margin: 8px 0; }
-    th, td { border: 1px solid #dbe3ef; padding: 6px 8px; text-align: left; }
-    @media print { body { margin: 0.5in; } }
+    body { background: #f8fafc; margin: 32px; }
+    ${atlasReportStyles()}
   </style>
 </head>
 <body${wordCompatible ? ' class="word-compatible"' : ""}>
+<main class="atlas-report">
   <h1>${escapeHtml(BRAND.productName)}</h1>
   <div class="meta"><strong>${escapeHtml(BRAND.productSubtitle)}</strong><br />${escapeHtml(BRAND.shortDescription)}</div>
   <h2>${escapeHtml(title)}</h2>
   <div class="meta">Generated: ${escapeHtml(generatedAt)}</div>
   ${sectionHtml}
+</main>
 </body>
 </html>`;
 }
 
 export function buildGovernanceReport(): GovernanceReport {
   const context = loadProjectContext();
+  const workflowState = useWorkflowStore.getState();
+  const workflow = getWorkflowDefinition(workflowState.workflowId);
   const generatedAt = new Date().toISOString();
-  const title = `${context.projectName || "Model"} Governance Report`;
-  const sections = buildSections();
+  const title = `${context.projectName || workflowState.projectName || workflow.label} Governance Report`;
+  const sections = workflowState.projectType === "predictive-modeling" ? buildSections() : buildWorkflowPlaceholderSections(workflowState, workflow);
   const fileBaseName = `${compactFileName(context.projectName || "model")}-governance-report`;
   return {
     title,
@@ -445,4 +450,160 @@ export function buildGovernanceReport(): GovernanceReport {
     html: renderGovernanceHtml(title, generatedAt, sections),
     wordHtml: renderGovernanceHtml(title, generatedAt, sections, true),
   };
+}
+
+function buildWorkflowPlaceholderSections(
+  workflowState: ReturnType<typeof useWorkflowStore.getState>,
+  workflow: ReturnType<typeof getWorkflowDefinition>
+): GovernanceSection[] {
+  const context = loadProjectContext();
+  const decisions = loadDecisionJournal();
+  const evidence = loadWorkflowNodeEvidence(workflowState.projectId, workflowState.workflowSteps);
+  const nodeStates = Object.fromEntries(
+    evidence.map((row) => [
+      row.stepLabel,
+      {
+        objective: row.objective,
+        inputs: row.inputs,
+        assumptions: row.assumptions,
+        method: row.method,
+        metrics: row.metrics,
+        validation: row.validation,
+        risks: row.risks,
+        decision: row.decision,
+        rationale: row.rationale,
+        notes: row.notes,
+        numeric: row.numeric,
+        simulationResults: row.simulationResults,
+      } satisfies ExperimentalDesignNodeState,
+    ])
+  );
+  const analysisSnapshots =
+    workflow.projectType === "experimental-design"
+      ? workflow.steps.map((step) =>
+          buildExperimentalDesignAnalysis({
+            stepLabel: step.label,
+            currentState: nodeStates[step.label],
+            nodeStates,
+          })
+        )
+      : evidence.map((row) => row.analysisSnapshot).filter((snapshot): snapshot is NonNullable<typeof snapshot> => Boolean(snapshot));
+  const evidenceByStep = new Map(evidence.map((row) => [row.stepId, row]));
+  const statusForWorkflowStep = (step: ReturnType<typeof getWorkflowDefinition>["steps"][number]) => {
+    const stored = workflowState.workflowSteps.find((item) => item.id === step.id)?.status ?? "pending";
+    const row = evidenceByStep.get(step.id);
+    const hasEvidence = Boolean(
+      row &&
+        ([row.objective, row.inputs, row.assumptions, row.method, row.validation, row.risks, row.decision, row.rationale, row.notes].some((value) => value?.trim()) ||
+          (row.metrics?.length ?? 0) > 0 ||
+          row.simulationResults ||
+          row.analysisSnapshot)
+    );
+    if (stored === "skipped") return "skipped";
+    if (stored === "complete" || hasEvidence) return "complete";
+    return "pending";
+  };
+  const sections: Omit<GovernanceSection, "number">[] = [
+    {
+      title: "Executive Summary",
+      content: [
+        `Model ID #: ${safe(context.modelId, "Required but not documented")}`,
+        `Project: ${safe(context.projectName || workflowState.projectName)}`,
+        `Workflow: ${workflow.label}`,
+        `Project Type: ${workflowState.projectType.replace(/-/g, " ")}`,
+        `Purpose: ${safe(context.businessObjective)}`,
+        "This is a workflow-aware placeholder report. Detailed analytical evidence will be populated as workflow-specific tooling is implemented.",
+      ].join("\n"),
+    },
+    {
+      title: "Workflow Definition",
+      content: [
+        sectionSummaryHtml(
+          "Workflow Status Summary",
+          `${workflow.steps.length} workflow stages define the ${workflow.label} journey. Status badges identify completed, skipped, and pending governance nodes.`
+        ),
+        professionalTableHtml(
+          ["Step", "Description", "Status"],
+          workflow.steps.map((step, index) => [
+            `${index + 1}. ${step.label}`,
+            step.description,
+            statusForWorkflowStep(step),
+          ]),
+          { badgeColumns: ["Status"] }
+        ),
+      ].join("\n"),
+    },
+    {
+      title: "Project Context",
+      content: [
+        `Target / Outcome Definition: ${safe(context.targetDefinition)}`,
+        `Population Definition: ${safe(context.populationDefinition)}`,
+        `Observation Window: ${safe(context.observationWindow)}`,
+        `Performance Window: ${safe(context.performanceWindow)}`,
+        `Intended Use: ${safe(context.intendedModelUse)}`,
+        `Regulatory Environment: ${summarizeRegulatoryContext(context)}`,
+      ].join("\n"),
+    },
+    {
+      title: "Implementation and Monitoring",
+      content: [
+        `Implementation owner: ${safe(context.implementationOwner)}`,
+        `Implementation target date: ${safe(context.implementationTargetDate)}`,
+        `Implementation environment: ${safe(context.implementationEnvironment)}`,
+        `Monitoring cadence: ${
+          context.monitoringCadence === "custom"
+            ? safe(context.monitoringCadenceCustom, "Custom cadence not documented")
+            : safe(context.monitoringCadence)
+        }`,
+        `Monitoring metrics: ${context.monitoringMetrics.length ? context.monitoringMetrics.join(", ") : "None selected"}`,
+        `Monitoring notes: ${safe(context.monitoringNotes)}`,
+      ].join("\n"),
+    },
+    {
+      title: "Workflow Evidence Status",
+      content: workflow.steps
+        .map((step) => {
+          const status = statusForWorkflowStep(step);
+          return `- ${step.label}: ${status === "complete" ? "Complete" : status === "skipped" ? "Skipped" : "Pending"}`;
+        })
+        .join("\n"),
+    },
+    {
+      title: "Workflow Analytics Summary",
+      content: analysisSnapshots.length
+        ? [
+            sectionSummaryHtml(
+              "Analysis Object Summary",
+              `${analysisSnapshots.length} workflow analysis object${analysisSnapshots.length === 1 ? "" : "s"} were captured. The live workflow and this report use the same executive insight, KPI, warning, and recommendation payloads.`
+            ),
+            professionalTableHtml(
+              ["Step", "Executive Insight", "Primary KPIs", "Warnings", "Recommended Next Step"],
+              analysisSnapshots.map((analysis) => [
+                analysis.stepLabel,
+                analysis.executiveInsight,
+                analysis.kpis.slice(0, 4).map((kpi) => `${kpi.label}: ${kpi.value}`).join("; "),
+                analysis.warnings.length ? analysis.warnings.join("; ") : "None",
+                analysis.recommendedNextSteps[0] ?? "-",
+              ]),
+              { wide: true }
+            ),
+          ].join("\n")
+        : "No workflow analysis snapshots have been saved yet. Save each workflow node to persist synchronized analytical evidence for the report.",
+    },
+    {
+      title: "Workflow Node Evidence",
+      content: summarizeWorkflowNodeEvidence(evidence),
+    },
+    {
+      title: "Governance Considerations",
+      content: [
+        "- Document all assumptions, exclusions, and user overrides.",
+        "- Preserve source data lineage and versioning for reproducibility.",
+        "- Capture decision rationale for material workflow choices.",
+        "- Define monitoring and implementation criteria before production use.",
+      ].join("\n"),
+    },
+    { title: "Decision Journal Appendix", content: formatDecisionAppendix(decisions) },
+  ];
+  return sections.map((section, index) => ({ ...section, number: index + 1 }));
 }

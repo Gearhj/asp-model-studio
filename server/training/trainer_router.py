@@ -5,6 +5,7 @@ from typing import Dict, Any
 from fastapi import APIRouter, HTTPException
 
 from .trainer_service import TRAINER
+from ..core.json_safety import json_safe
 from ..core.result_store import RESULTS
 from ..core.session_checkpoint import save_checkpoint
 
@@ -104,12 +105,12 @@ def train_models(request: Dict[str, Any]) -> Dict[str, Any]:
         status = summary.get("status", "ok")
         save_checkpoint()
 
-        return {
+        return json_safe({
             "ok": True,
             "summary": summary,
             "rows": rows,
             "status": status,
-        }
+        })
 
     except Exception as e:
         # Frontend will show a "training failed" banner if this bubbles up
@@ -126,4 +127,4 @@ def get_last_train() -> Dict[str, Any]:
     Returns whatever the last successful /model/train call stored in RESULTStore.
     """
     last = RESULTS.get_last_summary()
-    return {"ok": True, "summary": last}
+    return json_safe({"ok": True, "summary": last})

@@ -1,6 +1,8 @@
 import type React from "react";
 import { useMemo, useState } from "react";
+import LLMWritingAssist from "../components/LLMWritingAssist";
 import StepShell from "../components/StepShell";
+import { getWorkflowForProjectType, projectTypeOptions, type ProjectType } from "../config/workflows";
 import { logDecision } from "../lib/decisionJournal";
 import {
   defaultProjectContext,
@@ -15,16 +17,37 @@ import {
   type RegulatoryEnvironment,
   loadProjectContext,
 } from "../lib/projectContext";
+import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const inputClass =
   "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100";
 
 const labelClass = "text-xs font-semibold uppercase tracking-wide text-slate-500";
+const classificationSuccessMetrics = ["AUC", "KS", "PR-AUC", "Precision", "Recall", "F1", "Lift", "Calibration", "PSI", "VSI"];
+const regressionSuccessMetrics = ["RMSE", "MAE", "MAPE", "R-squared", "Adjusted R-squared", "PSI", "VSI"];
+
+const regulatoryDefinitions: Record<RegulatoryEnvironment, string> = {
+  "SR 11-7": "Federal Reserve guidance for model risk management: governance, validation, controls, documentation, and ongoing monitoring.",
+  OCC: "Office of the Comptroller of the Currency expectations for bank model risk, controls, auditability, and independent review.",
+  "Fair Lending": "Review for disparate treatment, disparate impact, proxy risk, explainability, and protected-class fairness concerns.",
+  FCRA: "Fair Credit Reporting Act requirements for credit-reporting data use, permissible purpose, accuracy, and adverse action support.",
+  ECOA: "Equal Credit Opportunity Act requirements related to prohibited basis discrimination and adverse action explanations.",
+  GDPR: "Privacy and automated decisioning requirements for applicable EU personal data.",
+  HIPAA: "Health data privacy and security controls for covered healthcare information.",
+  "internal governance": "Internal model risk, validation, documentation, implementation, monitoring, and approval standards.",
+  none: "No formal regulatory framework selected. Internal documentation and auditability may still be required.",
+};
 
 export default function Step00ProjectContext() {
   const [context, setContext] = useState<ProjectContext>(() => loadProjectContext());
+  const projectType = useWorkflowStore((state) => state.projectType);
+  const setModelId = useWorkflowStore((state) => state.setModelId);
+  const setProjectName = useWorkflowStore((state) => state.setProjectName);
+  const startProjectFromWorkflow = useWorkflowStore((state) => state.startProjectFromWorkflow);
+  const [selectedProjectType, setSelectedProjectType] = useState<ProjectType>(projectType);
 
   const requiredComplete = Boolean(
+    context.modelId.trim() &&
     context.projectName.trim() &&
       context.businessObjective.trim() &&
       context.targetDefinition.trim() &&
@@ -33,9 +56,21 @@ export default function Step00ProjectContext() {
   );
 
   const governanceNote = useMemo(() => summarizeRegulatoryContext(context), [context]);
+  const successMetricOptions = context.modelType === "regression" ? regressionSuccessMetrics : classificationSuccessMetrics;
+  const selectedPrimaryMetrics = context.primarySuccessMetric
+    .split(",")
+    .map((metric) => metric.trim())
+    .filter(Boolean);
 
   const update = <K extends keyof ProjectContext>(key: K, value: ProjectContext[K]) => {
     setContext((current) => ({ ...current, [key]: value }));
+  };
+
+  const togglePrimaryMetric = (metric: string) => {
+    const selected = selectedPrimaryMetrics.includes(metric)
+      ? selectedPrimaryMetrics.filter((item) => item !== metric)
+      : [...selectedPrimaryMetrics, metric];
+    update("primarySuccessMetric", selected.join(", "));
   };
 
   const toggleRegulation = (value: RegulatoryEnvironment) => {
@@ -53,11 +88,22 @@ export default function Step00ProjectContext() {
     <StepShell
       title="Step 0: Project Context"
       subtitle="Define the business objective, target, population, governance constraints, and deployment expectations before data acquisition."
-      nextPath="/step01"
+      nextPath={selectedProjectType === "predictive-modeling" ? "/step01" : "/project-overview"}
       nextDisabled={!requiredComplete}
       onNext={() => {
         const previous = loadProjectContext();
         saveProjectContext(context);
+        setModelId(context.modelId);
+        setProjectName(context.projectName || "Untitled ATLAS Project");
+        if (selectedProjectType !== projectType) {
+          const workflow = getWorkflowForProjectType(selectedProjectType);
+          startProjectFromWorkflow({
+            projectName: context.projectName || "Untitled ATLAS Project",
+            modelId: context.modelId,
+            projectType: selectedProjectType,
+            workflowId: workflow.id,
+          });
+        }
         logDecision({
           workflowStep: "Project Context",
           actionType: "project_context_updated",
@@ -71,6 +117,16 @@ export default function Step00ProjectContext() {
       <div className="space-y-5">
         <section className="rounded-lg border border-slate-200/80 bg-white/90 p-5 shadow-sm">
           <div className="grid gap-4 lg:grid-cols-3">
+            <Field label="Model ID #">
+              <input
+                className={inputClass}
+                value={context.modelId}
+                onChange={(event) => update("modelId", event.target.value)}
+                placeholder="15211"
+                aria-required="true"
+              />
+            </Field>
+
             <Field label="Project name">
               <input
                 className={inputClass}
@@ -78,6 +134,20 @@ export default function Step00ProjectContext() {
                 onChange={(event) => update("projectName", event.target.value)}
                 placeholder="Consumer lending attrition model"
               />
+            </Field>
+
+            <Field label="Project type">
+              <select
+                className={inputClass}
+                value={selectedProjectType}
+                onChange={(event) => setSelectedProjectType(event.target.value as ProjectType)}
+              >
+                {projectTypeOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
             </Field>
 
             <Field label="Model type">
@@ -94,34 +164,45 @@ export default function Step00ProjectContext() {
               </select>
             </Field>
 
-            <Field label="Primary success metric">
-              <input
-                className={inputClass}
-                value={context.primarySuccessMetric}
-                onChange={(event) => update("primarySuccessMetric", event.target.value)}
-                placeholder="PR-AUC, KS, RMSE, lift, recall"
-              />
-            </Field>
+            <div className="lg:col-span-2">
+              <div className={labelClass}>Primary success metric</div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {successMetricOptions.map((metric) => {
+                  const selected = selectedPrimaryMetrics.includes(metric);
+                  return (
+                    <button
+                      key={metric}
+                      type="button"
+                      className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
+                        selected ? "border-blue-300 bg-blue-50 text-blue-900" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                      }`}
+                      onClick={() => togglePrimaryMetric(metric)}
+                    >
+                      {metric}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-2 text-xs text-slate-500">Selected: {context.primarySuccessMetric || "None selected"}</p>
+            </div>
           </div>
 
           <div className="mt-4 grid gap-4 lg:grid-cols-2">
-            <Field label="Business objective">
-              <textarea
-                className={`${inputClass} min-h-[104px] resize-y`}
-                value={context.businessObjective}
-                onChange={(event) => update("businessObjective", event.target.value)}
-                placeholder="Describe the decision this model will support and the business outcome it should improve."
-              />
-            </Field>
+            <LLMWritingAssist
+              label="Business objective"
+              value={context.businessObjective}
+              onChange={(value) => update("businessObjective", value)}
+              placeholder="Describe the decision this model will support and the business outcome it should improve."
+              context={context}
+            />
 
-            <Field label="Intended model use">
-              <textarea
-                className={`${inputClass} min-h-[104px] resize-y`}
-                value={context.intendedModelUse}
-                onChange={(event) => update("intendedModelUse", event.target.value)}
-                placeholder="Describe how scores, rankings, or predictions will be used by the business."
-              />
-            </Field>
+            <LLMWritingAssist
+              label="Intended model use"
+              value={context.intendedModelUse}
+              onChange={(value) => update("intendedModelUse", value)}
+              placeholder="Describe how scores, rankings, or predictions will be used by the business."
+              context={context}
+            />
           </div>
         </section>
 
@@ -129,23 +210,23 @@ export default function Step00ProjectContext() {
           <div className="rounded-lg border border-slate-200/80 bg-white/90 p-5 shadow-sm">
             <h2 className="text-sm font-semibold text-slate-950">Target and Population</h2>
             <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              <Field label="Target definition">
-                <textarea
-                  className={`${inputClass} min-h-[92px] resize-y`}
-                  value={context.targetDefinition}
-                  onChange={(event) => update("targetDefinition", event.target.value)}
-                  placeholder="Define the dependent variable, event logic, exclusions, and timing."
-                />
-              </Field>
+              <LLMWritingAssist
+                label="Target definition"
+                value={context.targetDefinition}
+                onChange={(value) => update("targetDefinition", value)}
+                placeholder="Define the dependent variable, event logic, exclusions, and timing."
+                context={context}
+                minHeightClass="min-h-[92px]"
+              />
 
-              <Field label="Population definition">
-                <textarea
-                  className={`${inputClass} min-h-[92px] resize-y`}
-                  value={context.populationDefinition}
-                  onChange={(event) => update("populationDefinition", event.target.value)}
-                  placeholder="Define eligible accounts, customers, loans, applications, or transactions."
-                />
-              </Field>
+              <LLMWritingAssist
+                label="Population definition"
+                value={context.populationDefinition}
+                onChange={(value) => update("populationDefinition", value)}
+                placeholder="Define eligible accounts, customers, loans, applications, or transactions."
+                context={context}
+                minHeightClass="min-h-[92px]"
+              />
 
               <Field label="Observation window">
                 <input
@@ -263,9 +344,18 @@ export default function Step00ProjectContext() {
                     className="h-4 w-4 rounded border-slate-300 text-indigo-600"
                   />
                   {option}
+                  <span className="sr-only">{regulatoryDefinitions[option]}</span>
                 </label>
               );
             })}
+          </div>
+          <div className="mt-4 grid gap-2 md:grid-cols-2">
+            {regulatoryOptions.map((option) => (
+              <div key={`${option}-help`} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <div className="text-xs font-semibold text-slate-900">{option}</div>
+                <p className="mt-1 text-xs leading-5 text-slate-600">{regulatoryDefinitions[option]}</p>
+              </div>
+            ))}
           </div>
         </section>
       </div>

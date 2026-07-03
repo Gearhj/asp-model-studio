@@ -9,9 +9,11 @@ import {
   ListChecks,
   ShieldAlert,
 } from "lucide-react";
+import { getWorkflowDefinition, type ProjectType } from "../config/workflows";
 import { getAdaptiveRecommendations } from "../lib/adaptiveWorkflow";
 import { logDecision } from "../lib/decisionJournal";
 import { loadExperiments, type ExperimentRecord } from "../lib/experimentTracking";
+import { deriveSuggestedFactors, treatmentCellCount } from "../lib/experimentalDesign";
 import { inferLocalProblemType, loadLocalDataset } from "../lib/localDataset";
 import { loadModelingMode, type ModelingMode } from "../lib/modelingMode";
 import { hasGovernanceRegulation, loadProjectContext, type ProjectContext } from "../lib/projectContext";
@@ -41,6 +43,9 @@ type TrainingSummary = {
 type CopilotContext = {
   route: string;
   routeLabel: string;
+  projectType: ProjectType;
+  workflowLabel: string;
+  workflowStepLabel: string;
   mode: ModelingMode;
   completedSteps: number;
   problemType: "classification" | "regression" | null;
@@ -56,6 +61,7 @@ type CopilotContext = {
   splitStrategy: string | null;
   trainingSummary: TrainingSummary | null;
   projectContext: ProjectContext;
+  workflowNodeState: Record<string, any> | null;
 };
 
 type CopilotItem = {
@@ -127,6 +133,16 @@ function detectPcaLikeNames(headers: string[], target: string | null) {
   return pcaLike.length >= Math.max(4, Math.ceil(featureHeaders.length * 0.35));
 }
 
+function readWorkflowNodeState(projectId: string, stepId?: string) {
+  if (!stepId) return null;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(`atlas-workflow-node-state:${projectId}:${stepId}`) || "null");
+    return parsed && typeof parsed === "object" ? parsed as Record<string, any> : null;
+  } catch {
+    return null;
+  }
+}
+
 function routeLabel(pathname: string) {
   const labels: Record<string, string> = {
     "/workbench": "AI Workbench",
@@ -160,10 +176,17 @@ function buildContext(route: string, completedSteps: number, trainingSummary: Tr
   const outlierConfig = readOutlierConfig();
   const amountFeature = Object.keys(outlierConfig).find((feature) => /amount|balance|income|payment|loan/i.test(feature));
   const projectContext = loadProjectContext();
+  const workflowState = useWorkflowStore.getState();
+  const workflow = getWorkflowDefinition(workflowState.workflowId);
+  const activeStep = workflowState.workflowSteps.find((step) => step.route === route) ?? workflowState.workflowSteps.find((step) => route.includes(step.id));
+  const workflowNodeState = readWorkflowNodeState(workflowState.projectId, activeStep?.id);
 
   return {
     route,
     routeLabel: routeLabel(route),
+    projectType: workflowState.projectType,
+    workflowLabel: workflow.label,
+    workflowStepLabel: activeStep?.label ?? routeLabel(route),
     mode: loadModelingMode(),
     completedSteps,
     problemType: inferLocalProblemType(dataset),
@@ -179,6 +202,7 @@ function buildContext(route: string, completedSteps: number, trainingSummary: Tr
     splitStrategy: localStorage.getItem("splitStrategy"),
     trainingSummary,
     projectContext,
+    workflowNodeState,
   };
 }
 
@@ -278,11 +302,11 @@ export function buildCopilotRecommendations(context: CopilotContext): CopilotIte
   const items: CopilotItem[] = [];
   const champion = context.trainingSummary?.ranked?.[0];
 
-  if (!context.projectContext.projectName.trim() || !context.projectContext.businessObjective.trim()) {
+  if (!context.projectContext.modelId.trim() || !context.projectContext.projectName.trim() || !context.projectContext.businessObjective.trim()) {
     items.push({
       kind: "recommendation",
       title: "Complete the project context first",
-      body: "Define the project name, business objective, intended use, target, population, costs, and governance environment before locking modeling choices.",
+      body: "Define the required Model ID #, project name, business objective, intended use, target, population, costs, and governance environment before locking modeling choices.",
       why: "A regulated model cannot be evaluated only as a technical artifact; success metrics, thresholds, explainability, and documentation need to trace back to business use.",
       confidence: 0.97,
     });
@@ -291,18 +315,25 @@ export function buildCopilotRecommendations(context: CopilotContext): CopilotIte
   if (!context.rowCount) {
     items.push({
       kind: "recommendation",
-      title: "Start by loading the development dataset",
-      body: "No active dataset is visible to the Copilot. Load a CSV and select the target before making preprocessing or modeling decisions.",
-      why: "Every downstream recommendation depends on the target, sample size, feature schema, and target distribution.",
+      title: context.projectType === "predictive-modeling" ? "Start by loading the development dataset" : `Start the ${context.workflowLabel} workflow`,
+      body:
+        context.projectType === "predictive-modeling"
+          ? "No active dataset is visible to the Copilot. Load a CSV and select the target before making preprocessing or modeling decisions."
+          : workflowOpeningRecommendation(context.projectType, context.workflowStepLabel),
+      why:
+        context.projectType === "predictive-modeling"
+          ? "Every downstream recommendation depends on the target, sample size, feature schema, and target distribution."
+          : "Workflow-specific evidence needs to be captured in sequence so reports, notebook exports, and governance review remain coherent.",
       confidence: 0.98,
     });
+    if (context.projectType !== "predictive-modeling") return [...items, ...workflowSpecificRecommendations(context)].slice(0, 7);
     return items;
   }
 
   items.push({
     kind: "observation",
-    title: `${context.routeLabel} context detected`,
-    body: `${context.rowCount.toLocaleString()} cached rows, ${context.selectedColumnCount || "unknown"} selected features, target ${context.target ?? "not selected"}, project type ${context.projectContext.modelType}.`,
+      title: `${context.routeLabel} context detected`,
+    body: `${context.rowCount.toLocaleString()} cached rows, ${context.selectedColumnCount || "unknown"} selected features, target ${context.target ?? "not selected"}, workflow ${context.workflowLabel}.`,
     why: "Atlas Guide uses the active workflow state so guidance stays tied to what the user is doing now.",
     confidence: 0.9,
   });
@@ -324,6 +355,8 @@ export function buildCopilotRecommendations(context: CopilotContext): CopilotIte
       confidence: 0.9,
     });
   }
+
+  items.push(...workflowSpecificRecommendations(context));
 
   if (context.route === "/step00") {
     items.push({
@@ -411,6 +444,28 @@ export function buildCopilotRecommendations(context: CopilotContext): CopilotIte
       body: "Keep preprocessing deterministic, monitor latency, export the full pipeline, and validate missing-value behavior on scoring data.",
       why: "Real-time lending decisions fail in production when training transformations are not reproducible at scoring time.",
       confidence: 0.88,
+    });
+  }
+
+  if (context.projectContext.monitoringMetrics.length) {
+    items.push({
+      kind: "default",
+      title: "Monitoring plan captured",
+      body: `Cadence: ${
+        context.projectContext.monitoringCadence === "custom"
+          ? context.projectContext.monitoringCadenceCustom || "custom"
+          : context.projectContext.monitoringCadence
+      }. Metrics: ${context.projectContext.monitoringMetrics.join(", ")}.`,
+      why: "Model monitoring should be aligned to the model type and production risk before implementation approval.",
+      confidence: 0.86,
+    });
+  } else {
+    items.push({
+      kind: "warning",
+      title: "Monitoring metrics are not selected",
+      body: "Select production monitoring metrics such as AUC/KS/PSI/VSI for classification or RMSE/MAE/MAPE/PSI/VSI for regression.",
+      why: "A model is not production-ready without defined performance and stability monitoring evidence.",
+      confidence: 0.9,
     });
   }
 
@@ -556,6 +611,165 @@ export function buildCopilotRecommendations(context: CopilotContext): CopilotIte
   return items.slice(0, 7);
 }
 
+function workflowOpeningRecommendation(projectType: ProjectType, stepLabel: string) {
+  if (projectType === "ab-testing") return `Define the primary hypothesis and success metric before moving beyond ${stepLabel}.`;
+  if (projectType === "optimization") return `Document objective function, decision variables, and constraints before configuring solver logic.`;
+  if (projectType === "forecasting") return `Confirm time grain, forecast horizon, seasonality, and time-based validation before model selection.`;
+  if (projectType === "experimental-design") return `Define research question, factors, and levels before randomization or blocking decisions.`;
+  if (projectType === "reinforcement-learning") return `Define state space, action space, reward function, and safety constraints before policy learning.`;
+  return `Capture the required inputs and rationale for ${stepLabel}.`;
+}
+
+function workflowSpecificRecommendations(context: CopilotContext): CopilotItem[] {
+  if (context.projectType === "ab-testing") {
+    return [
+      {
+        kind: "recommendation",
+        title: "Define metrics before sample size",
+        body: "The primary success metric, guardrails, and minimum detectable effect should be set before power analysis.",
+        why: "Changing metrics after observing results weakens experiment validity and decision confidence.",
+        confidence: 0.93,
+      },
+      {
+        kind: "warning",
+        title: "Check randomization integrity",
+        body: "Monitor sample ratio mismatch and pre-treatment balance before interpreting treatment effects.",
+        why: "Assignment problems can create biased impact estimates even when the statistical test is implemented correctly.",
+        confidence: 0.9,
+      },
+    ];
+  }
+  if (context.projectType === "optimization") {
+    return [
+      {
+        kind: "recommendation",
+        title: "Lock objective and constraints first",
+        body: "Objective function and constraints must be explicit before scenario analysis or solver configuration.",
+        why: "Optimization outputs are only defensible if stakeholders agree what the solution is optimizing and what it cannot violate.",
+        confidence: 0.94,
+      },
+      {
+        kind: "default",
+        title: "Suggested evidence",
+        body: "Capture objective, decision variables, constraints, assumptions, optimal solution, and sensitivity results.",
+        why: "Optimization governance depends on clear traceability from business rules to recommended action.",
+        confidence: 0.86,
+      },
+    ];
+  }
+  if (context.projectType === "forecasting") {
+    return [
+      {
+        kind: "recommendation",
+        title: "Use time-based validation",
+        body: "Review seasonality and backtesting before model selection.",
+        why: "Random validation can overstate forecast performance when time trends or structural breaks exist.",
+        confidence: 0.92,
+      },
+      {
+        kind: "default",
+        title: "Report uncertainty",
+        body: "Include prediction intervals and forecast monitoring thresholds.",
+        why: "Forecast users need the range of plausible outcomes, not only a point estimate.",
+        confidence: 0.84,
+      },
+    ];
+  }
+  if (context.projectType === "experimental-design") {
+    const simulationResults = context.workflowStepLabel === "Monte Carlo Simulation" ? context.workflowNodeState?.simulationResults : null;
+    if (simulationResults) {
+      const meanPower = Number(simulationResults.meanPower ?? 0);
+      const wrongWinnerRate = Number(simulationResults.wrongWinnerRate ?? 0);
+      const missingnessStress = Array.isArray(simulationResults.scenarioSensitivity)
+        ? simulationResults.scenarioSensitivity.find((row: any) => row.scenario === "5% missingness")
+        : null;
+      const items: CopilotItem[] = [];
+      items.push(
+        meanPower >= 0.8
+          ? {
+              kind: "recommendation",
+              title: "Simulation results support launch planning",
+              body: "Mean simulated power is at or above the target threshold. Continue to execution planning while monitoring treatment balance and data quality.",
+              why: "Monte Carlo results indicate the design is likely to reach a reliable decision under the baseline assumptions.",
+              confidence: 0.9,
+            }
+          : {
+              kind: "warning",
+              title: "Power is below target",
+              body: "Simulation power is below 80%. Consider increasing population, reducing treatment cells, raising the minimum practical effect threshold, or simplifying interaction analysis.",
+              why: "Underpowered designs can consume customer population without producing a defensible decision.",
+              confidence: 0.92,
+            }
+      );
+      if (wrongWinnerRate > 0.1) {
+        items.push({
+          kind: "warning",
+          title: "Wrong-winner risk is elevated",
+          body: "The simulated wrong-winner rate is above 10%. Increase sample size or require stronger practical significance before selecting a champion treatment.",
+          why: "Selecting the wrong treatment can create operational cost, customer harm, or misleading business learning.",
+          confidence: 0.91,
+        });
+      }
+      if (missingnessStress && Number(missingnessStress.estimatedPower ?? 1) < meanPower - 0.05) {
+        items.push({
+          kind: "warning",
+          title: "Design is sensitive to missing outcomes",
+          body: "The missingness stress scenario materially reduces expected power. Strengthen response tracking and define missing-data handling before launch.",
+          why: "Outcome missingness reduces effective sample and may bias treatment conclusions.",
+          confidence: 0.88,
+        });
+      }
+      return items;
+    }
+    if (context.workflowStepLabel === "Monte Carlo Simulation") {
+      return [
+        {
+          kind: "recommendation",
+          title: "Run simulation before launch approval",
+          body: "Use the Monte Carlo dashboard to estimate power distribution, wrong-winner risk, missingness sensitivity, and operational imbalance sensitivity.",
+          why: "A single sample-size calculation does not show how reliable the design remains when assumptions are uncertain.",
+          confidence: 0.93,
+        },
+        {
+          kind: "default",
+          title: "Suggested simulation defaults",
+          body: "Start with seed 42 and 1,000 iterations, then increase iterations for final governance evidence.",
+          why: "Seeded simulation makes results reproducible for validation and documentation.",
+          confidence: 0.86,
+        },
+      ];
+    }
+    return [
+      {
+        kind: "warning",
+        title: "Execution governance must be documented",
+        body: "If the experiment may influence customer treatment, contact frequency, or pricing strategy, document decision logic, population exclusions, randomization, and monitoring before execution.",
+        why: "Customer-impacting experiments need traceable controls before launch so treatment assignment, exclusions, and monitoring can be reviewed and defended.",
+        confidence: 0.94,
+      },
+      {
+        kind: "recommendation",
+        title: "Define factors and levels early",
+        body: "Factors and levels should be documented before selecting randomization and blocking.",
+        why: "The analysis plan and sample size depend on the experimental structure.",
+        confidence: 0.91,
+      },
+    ];
+  }
+  if (context.projectType === "reinforcement-learning") {
+    return [
+      {
+        kind: "warning",
+        title: "Policy learning needs safety controls",
+        body: "Define action constraints, reward tradeoffs, off-policy limits, and controlled rollout before deployment planning.",
+        why: "Policy models can optimize unintended behavior if rewards and constraints are incomplete.",
+        confidence: 0.9,
+      },
+    ];
+  }
+  return [];
+}
+
 function iconFor(kind: CopilotItem["kind"]) {
   if (kind === "warning") return AlertTriangle;
   if (kind === "recommendation") return ListChecks;
@@ -578,6 +792,185 @@ function confidenceScore(items: CopilotItem[]) {
   return Math.round(average * 100);
 }
 
+type ExperimentalGuideHealth = {
+  focusTitle: string;
+  qualityLabel: string;
+  currentDecision: string;
+  mainRisk: string;
+  designSummary?: Array<{ label: string; value: string; tone?: "neutral" | "good" | "warning" | "risk" }>;
+  readiness: number;
+  designQuality: number;
+  governanceRisk: "Low" | "Medium" | "High";
+  statisticalRisk: "Low" | "Medium" | "High";
+  operationalRisk: "Low" | "Medium" | "High";
+  confidence: number;
+  nextAction: string;
+  estimatedTime: string;
+  difficulty: "Easy" | "Moderate" | "Advanced";
+  watchList: string[];
+  contributors: Array<{ label: string; value: number }>;
+};
+
+function textValue(value: unknown) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function metricList(value: unknown) {
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
+}
+
+function buildExperimentalGuideHealth(context: CopilotContext, confidence: number): ExperimentalGuideHealth | null {
+  if (context.projectType !== "experimental-design") return null;
+  const node = context.workflowNodeState ?? {};
+  const objective = textValue(node.objective);
+  const inputs = textValue(node.inputs);
+  const assumptions = textValue(node.assumptions);
+  const validation = textValue(node.validation);
+  const decision = textValue(node.decision);
+  const metrics = metricList(node.metrics);
+  const checks = [
+    { label: "Objective", pass: Boolean(objective), weight: 20 },
+    { label: "Population", pass: Boolean(inputs), weight: 18 },
+    { label: "Governance", pass: Boolean(validation), weight: 17 },
+    { label: "Metrics", pass: metrics.length > 0, weight: 14 },
+    { label: "Decision use", pass: Boolean(decision || objective), weight: 12 },
+    { label: "Practical lift", pass: /lift|effect|detectable|threshold|material/i.test(`${objective} ${assumptions}`), weight: 8 },
+    { label: "Response window", pass: /day|week|month|window|period|within|after/i.test(`${objective} ${inputs} ${assumptions}`), weight: 6 },
+  ];
+  const earned = checks.reduce((sum, check) => sum + (check.pass ? check.weight : 0), 0);
+  const total = checks.reduce((sum, check) => sum + check.weight, 0);
+  const readiness = Math.round((checks.filter((check) => check.pass).length / checks.length) * 100);
+  const designQuality = Math.max(0, Math.min(100, Math.round((earned / total) * 100)));
+  const watchList = checks.filter((check) => !check.pass).map((check) => `${check.label} not fully defined`);
+  if (context.projectContext.regulatoryEnvironment.some((item) => /fair lending|ecoa|fcra/i.test(item))) {
+    watchList.push("Fair Lending review pending");
+  }
+  if (context.workflowStepLabel === "Randomization") {
+    watchList.push("Assignment seed must be stored");
+    watchList.push("Balance diagnostics must pass");
+  }
+  const nextActionByStep: Record<string, string> = {
+    "Project Context": "Define research hypothesis",
+    "Research Question": "Confirm factors and measured covariates",
+    Factors: "Enter nested factor levels",
+    Levels: "Review treatment matrix",
+    Blocking: "Confirm nuisance variables",
+    Randomization: "Document assignment logic",
+    "Sample Size": "Finalize power assumptions",
+    "Monte Carlo Simulation": "Run design validation",
+    "Experiment Run Plan": "Confirm launch controls",
+    ANOVA: "Review statistical model",
+    "Interaction Effects": "Assess interaction evidence",
+    Optimization: "Confirm feasible recommendation",
+    Documentation: "Generate governance package",
+  };
+  const decisionByStep: Record<string, { currentDecision: string; mainRisk: string }> = {
+    "Project Context": {
+      currentDecision: "Is the business problem defined well enough to design an experiment?",
+      mainRisk: "Starting statistical design before population, decision use, or governance expectations are clear.",
+    },
+    "Research Question": {
+      currentDecision: "Is the business objective translated into a testable hypothesis?",
+      mainRisk: "Running an experiment without a measurable response, null hypothesis, or decision rule.",
+    },
+    Factors: {
+      currentDecision: "Are these true manipulated factors or measured covariates?",
+      mainRisk: "Treating observed customer attributes as treatment factors.",
+    },
+    Levels: {
+      currentDecision: "Are the proposed settings feasible and meaningfully different?",
+      mainRisk: "Creating levels that cannot be deployed consistently or interpreted cleanly.",
+    },
+    Blocking: {
+      currentDecision: "Which nuisance variables should be controlled without fragmenting the sample?",
+      mainRisk: "Creating sparse strata that reduce power and complicate execution.",
+    },
+    Randomization: {
+      currentDecision: "How will assignment be reproducible, fair, and auditable?",
+      mainRisk: "Allocation bias, missing assignment evidence, or imbalanced treatment cells.",
+    },
+    "Sample Size": {
+      currentDecision: "Is the design powered for the minimum practical effect?",
+      mainRisk: "Launching an underpowered experiment that cannot support a decision.",
+    },
+    "Monte Carlo Simulation": {
+      currentDecision: "Does the design remain reliable under uncertainty?",
+      mainRisk: "Wrong-winner or false-negative risk under realistic effect-size scenarios.",
+    },
+    "Experiment Run Plan": {
+      currentDecision: "Are launch controls sufficient to preserve treatment integrity?",
+      mainRisk: "Execution drift, delivery failure, or missing stopping rules.",
+    },
+    ANOVA: {
+      currentDecision: "Which effects and interactions matter statistically?",
+      mainRisk: "Interpreting main effects without checking interaction evidence.",
+    },
+    Optimization: {
+      currentDecision: "Which treatment configuration should be deployed?",
+      mainRisk: "Choosing a statistically strong treatment that violates guardrails or operations.",
+    },
+    Documentation: {
+      currentDecision: "Is the evidence package defensible for review?",
+      mainRisk: "Missing assumptions, execution controls, limitations, or rationale.",
+    },
+  };
+  const focusByStep: Record<string, { focusTitle: string; qualityLabel: string }> = {
+    "Project Context": { focusTitle: "Project Health", qualityLabel: "Design Quality" },
+    "Research Question": { focusTitle: "Statistical Readiness", qualityLabel: "Research Quality" },
+    Factors: { focusTitle: "Factor Balance", qualityLabel: "Factor Quality" },
+    Levels: { focusTitle: "Treatment Design", qualityLabel: "Cell Quality" },
+    Blocking: { focusTitle: "Nuisance Control", qualityLabel: "Blocking Quality" },
+    Randomization: { focusTitle: "Assignment Quality", qualityLabel: "Randomization Quality" },
+    "Sample Size": { focusTitle: "Power Diagnostics", qualityLabel: "Power Quality" },
+    "Monte Carlo Simulation": { focusTitle: "Simulation Confidence", qualityLabel: "Design Robustness" },
+    "Experiment Run Plan": { focusTitle: "Launch Readiness", qualityLabel: "Execution Quality" },
+    ANOVA: { focusTitle: "Model Diagnostics", qualityLabel: "ANOVA Readiness" },
+    "Interaction Effects": { focusTitle: "Interaction Review", qualityLabel: "Effect Quality" },
+    Optimization: { focusTitle: "Deployment Confidence", qualityLabel: "Recommendation Quality" },
+    Documentation: { focusTitle: "Governance Package", qualityLabel: "Documentation Quality" },
+  };
+  const focus = focusByStep[context.workflowStepLabel] ?? { focusTitle: "Project Health", qualityLabel: "Design Quality" };
+  const factorSummary = context.workflowStepLabel === "Factors" ? buildFactorGuideSummary(objective) : undefined;
+  return {
+    focusTitle: focus.focusTitle,
+    qualityLabel: focus.qualityLabel,
+    currentDecision: decisionByStep[context.workflowStepLabel]?.currentDecision ?? "What decision is being made on this page?",
+    mainRisk: decisionByStep[context.workflowStepLabel]?.mainRisk ?? "Incomplete evidence or rationale.",
+    designSummary: factorSummary,
+    readiness,
+    designQuality,
+    governanceRisk: validation ? "Low" : "Medium",
+    statisticalRisk: metrics.length && watchList.length <= 2 ? "Low" : "Medium",
+    operationalRisk: assumptions || decision ? "Medium" : "High",
+    confidence,
+    nextAction: nextActionByStep[context.workflowStepLabel] ?? "Complete current workflow evidence",
+    estimatedTime: context.workflowStepLabel === "Project Context" ? "2-3 minutes" : "3-5 minutes",
+    difficulty: context.workflowStepLabel === "ANOVA" || context.workflowStepLabel === "Monte Carlo Simulation" ? "Advanced" : "Easy",
+    watchList: watchList.slice(0, 4),
+    contributors: checks.map((check) => ({ label: check.label, value: check.pass ? check.weight : -Math.max(4, Math.round(check.weight / 2)) })),
+  };
+}
+
+function buildFactorGuideSummary(rawFactors: string): ExperimentalGuideHealth["designSummary"] {
+  const defaults = [
+    { factorName: "Pricing Strategy", levels: ["Current", "Personalized"] },
+    { factorName: "Contact Channel", levels: ["Email", "SMS"] },
+  ];
+  const factors = deriveSuggestedFactors(rawFactors).length ? deriveSuggestedFactors(rawFactors) : defaults;
+  const cells = treatmentCellCount(factors);
+  const balanced = new Set(factors.map((factor) => factor.levels.length)).size === 1;
+  const designEfficiency = Math.max(62, 100 - Math.max(0, cells - 4) * 3);
+  const aliasRisk = cells <= 8 ? "Low" : cells <= 16 ? "Medium" : "High";
+  return [
+    { label: "Factors", value: String(factors.length), tone: "neutral" },
+    { label: "Treatment Cells", value: cells.toLocaleString(), tone: cells <= 12 ? "good" : "warning" },
+    { label: "Balance", value: balanced ? "Balanced" : "Review", tone: balanced ? "good" : "warning" },
+    { label: "Alias Risk", value: aliasRisk, tone: aliasRisk === "Low" ? "good" : aliasRisk === "Medium" ? "warning" : "risk" },
+    { label: "Interaction Potential", value: factors.length >= 2 ? "High" : "Limited", tone: factors.length >= 2 ? "good" : "warning" },
+    { label: "Design Efficiency", value: `${designEfficiency}%`, tone: designEfficiency >= 85 ? "good" : designEfficiency >= 72 ? "warning" : "risk" },
+  ];
+}
+
 export default function CopilotCard() {
   const location = useLocation();
   const steps = useWorkflowStore((state) => state.steps);
@@ -585,6 +978,7 @@ export default function CopilotCard() {
   const [challengeMode, setChallengeMode] = useState(() => localStorage.getItem(CHALLENGE_MODE_KEY) === "true");
   const [overrideReasons, setOverrideReasons] = useState<Record<string, string>>({});
   const [savedChallenges, setSavedChallenges] = useState<Record<string, string>>({});
+  const [workflowNodeVersion, setWorkflowNodeVersion] = useState(0);
 
   useEffect(() => {
     fetch(`${API_BASE}/train/last`)
@@ -593,8 +987,14 @@ export default function CopilotCard() {
       .catch(() => setTrainingSummary(null));
   }, [location.pathname]);
 
+  useEffect(() => {
+    const refresh = () => setWorkflowNodeVersion((version) => version + 1);
+    window.addEventListener("atlas-workflow-node-updated", refresh);
+    return () => window.removeEventListener("atlas-workflow-node-updated", refresh);
+  }, []);
+
   const completedSteps = Object.entries(steps).filter(([key, status]) => key !== "dashboard" && status === "completed").length;
-  const context = buildContext(location.pathname, completedSteps, trainingSummary);
+  const context = buildContext(location.pathname, completedSteps + workflowNodeVersion * 0, trainingSummary);
   const challenges = challengeMode ? buildChallengeItems(context) : [];
   const adaptiveItems = getAdaptiveRecommendations(location.pathname).map((recommendation): CopilotItem => ({
     kind: recommendation.kind === "warning" ? "warning" : recommendation.kind === "default" ? "default" : "recommendation",
@@ -649,9 +1049,13 @@ export default function CopilotCard() {
     explanation: items.filter((item) => item.kind === "explanation"),
     default: items.filter((item) => item.kind === "default"),
   };
+  const experimentalHealth = buildExperimentalGuideHealth(context, confidence);
+  const hideRecommendedNextSteps =
+    context.projectType === "experimental-design" &&
+    (context.workflowStepLabel === "Blocking" || context.route.toLowerCase().includes("blocking"));
 
   return (
-    <aside className="sticky top-24 max-h-[calc(100vh-7rem)] overflow-auto rounded-lg border border-slate-200/80 bg-white/90 p-4 shadow-sm">
+    <aside className="sticky top-24 max-h-[calc(100vh-7rem)] overflow-auto rounded-lg border border-slate-200/80 bg-white/90 p-3 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
@@ -663,6 +1067,23 @@ export default function CopilotCard() {
         <div className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
           {confidence}% confidence
         </div>
+      </div>
+
+      {experimentalHealth ? (
+        <ExperimentalGuideHealthPanel health={experimentalHealth} />
+      ) : (
+        <div className="mt-4 grid gap-2">
+          <MiniContext label="Model ID" value={context.projectContext.modelId || "Required"} />
+          <MiniContext label="Project" value={context.projectContext.projectName || "Not defined"} />
+          <MiniContext label="Page" value={context.routeLabel} />
+          <MiniContext label="Mode" value={context.mode === "advanced" ? "Power User" : "Guided"} />
+          <MiniContext label="Task" value={context.problemType ?? context.projectContext.modelType ?? "Unknown"} />
+          <MiniContext label="Target" value={context.target ?? "Not selected"} />
+        </div>
+      )}
+
+      <div className="mt-4">
+        <CopilotSection title="Warnings" items={grouped.warning} />
       </div>
 
       <label className="mt-4 flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
@@ -678,24 +1099,136 @@ export default function CopilotCard() {
         />
       </label>
 
-      <div className="mt-4 grid gap-2">
-        <MiniContext label="Project" value={context.projectContext.projectName || "Not defined"} />
-        <MiniContext label="Page" value={context.routeLabel} />
-        <MiniContext label="Mode" value={context.mode === "advanced" ? "Power User" : "Guided"} />
-        <MiniContext label="Task" value={context.problemType ?? context.projectContext.modelType ?? "Unknown"} />
-        <MiniContext label="Target" value={context.target ?? "Not selected"} />
-      </div>
-
       {challengeMode && <ChallengeSection challenges={challenges} reasons={overrideReasons} saved={savedChallenges} onReasonChange={setOverrideReasons} onSave={saveChallengeResponse} />}
 
       <div className="mt-4 space-y-4">
         <CopilotSection title="Observations" items={grouped.observation} />
-        <CopilotSection title="Recommended Next Steps" items={grouped.recommendation} />
-        <CopilotSection title="Warnings" items={grouped.warning} />
+        {!hideRecommendedNextSteps && <CopilotSection title="Recommended Next Steps" items={grouped.recommendation} />}
         <CopilotSection title="Explanations" items={grouped.explanation} />
         <CopilotSection title="Suggested Defaults" items={grouped.default} />
       </div>
     </aside>
+  );
+}
+
+function riskClass(risk: ExperimentalGuideHealth["governanceRisk"]) {
+  if (risk === "Low") return "bg-emerald-50 text-emerald-800 border-emerald-200";
+  if (risk === "High") return "bg-rose-50 text-rose-800 border-rose-200";
+  return "bg-amber-50 text-amber-800 border-amber-200";
+}
+
+function ExperimentalGuideHealthPanel({ health }: { health: ExperimentalGuideHealth }) {
+  if (health.designSummary) {
+    return (
+      <section className="mt-4 space-y-3">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{health.focusTitle}</div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            {health.designSummary.map((item) => (
+              <MiniMetric key={item.label} label={item.label} value={item.value} tone={item.tone} />
+            ))}
+          </div>
+        </div>
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-800">Current Decision</div>
+          <p className="mt-2 text-xs leading-5 text-blue-950">{health.currentDecision}</p>
+        </div>
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">Main Risk</div>
+          <p className="mt-2 text-xs leading-5 text-amber-950">{health.mainRisk}</p>
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-3">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Suggested Next Improvement</div>
+          <div className="mt-1 text-sm font-semibold text-slate-950">{health.nextAction}</div>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="mt-4 space-y-3">
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{health.focusTitle}</div>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <MiniMetric label="Readiness" value={`${health.readiness}%`} />
+          <MiniMetric label={health.qualityLabel} value={String(health.designQuality)} />
+          <MiniMetric label="Confidence" value={`${health.confidence}%`} />
+          <MiniMetric label="Difficulty" value={health.difficulty} />
+        </div>
+        <div className="mt-3 grid gap-2">
+          {[
+            ["Governance Risk", health.governanceRisk],
+            ["Statistical Risk", health.statisticalRisk],
+            ["Operational Risk", health.operationalRisk],
+          ].map(([label, value]) => (
+            <div key={label} className="flex items-center justify-between gap-2">
+              <span className="text-[11px] font-semibold text-slate-600">{label}</span>
+              <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${riskClass(value as ExperimentalGuideHealth["governanceRisk"])}`}>
+                {value}
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-blue-200 bg-blue-50 p-3">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-800">Current Decision</div>
+        <p className="mt-2 text-xs leading-5 text-blue-950">{health.currentDecision}</p>
+      </div>
+
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">Main Risk</div>
+        <p className="mt-2 text-xs leading-5 text-amber-950">{health.mainRisk}</p>
+      </div>
+
+      <details className="rounded-xl border border-blue-200 bg-blue-50 p-3">
+        <summary className="cursor-pointer list-none text-xs font-semibold text-blue-950">Why {health.qualityLabel} is {health.designQuality}</summary>
+        <div className="mt-3 grid gap-2">
+          {health.contributors.map((item) => (
+            <div key={item.label} className="flex items-center justify-between rounded-lg bg-white/80 px-2 py-1.5 text-[11px]">
+              <span className="font-semibold text-slate-700">{item.label}</span>
+              <span className={`font-semibold ${item.value >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                {item.value >= 0 ? "+" : ""}{item.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      </details>
+
+      <div className="rounded-xl border border-slate-200 bg-white p-3">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Next Action</div>
+        <div className="mt-1 text-sm font-semibold text-slate-950">{health.nextAction}</div>
+        <div className="mt-2 grid grid-cols-2 gap-2">
+          <MiniMetric label="Estimated Time" value={health.estimatedTime} />
+          <MiniMetric label="Difficulty" value={health.difficulty} />
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-amber-200 bg-amber-50 p-3">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-amber-800">Watch List</div>
+        <ul className="mt-2 space-y-1 text-xs leading-5 text-amber-950">
+          {(health.watchList.length ? health.watchList : ["No immediate watch-list items detected."]).map((item) => (
+            <li key={item}>- {item}</li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function metricToneClass(tone?: "neutral" | "good" | "warning" | "risk") {
+  if (tone === "good") return "border-emerald-200 bg-emerald-50 text-emerald-950";
+  if (tone === "warning") return "border-amber-200 bg-amber-50 text-amber-950";
+  if (tone === "risk") return "border-rose-200 bg-rose-50 text-rose-950";
+  return "border-slate-200 bg-white text-slate-950";
+}
+
+function MiniMetric({ label, value, tone }: { label: string; value: string; tone?: "neutral" | "good" | "warning" | "risk" }) {
+  return (
+    <div className={`rounded-lg border px-2 py-2 ${metricToneClass(tone)}`}>
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-0.5 truncate text-xs font-semibold" title={value}>{value}</div>
+    </div>
   );
 }
 

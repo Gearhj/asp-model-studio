@@ -1,12 +1,13 @@
 # server/main.py
 # =============================================================================
-# DS Workflow Backend (Modular, Package-Aware)
+# ATLAS Backend (Modular, Package-Aware)
 # =============================================================================
 
 from __future__ import annotations
 
 from typing import Dict, Any, List
 import io
+import os
 
 import pandas as pd
 from fastapi import FastAPI, UploadFile, File, HTTPException
@@ -24,12 +25,16 @@ from .preprocessing.missing_router import router as missing_router
 from .splitting.split_router import router as split_router
 from .training.trainer_router import router as trainer_router
 from .evaluation.eval_router import router as eval_router
-from .stela_router import router as stela_router
+
+MAX_UPLOAD_BYTES = int(os.getenv("ATLAS_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+MAX_UPLOAD_ROWS = int(os.getenv("ATLAS_MAX_UPLOAD_ROWS", "500000"))
+MAX_UPLOAD_COLUMNS = int(os.getenv("ATLAS_MAX_UPLOAD_COLUMNS", "750"))
+ALLOWED_UPLOAD_EXTENSIONS = {".csv", ".txt"}
 
 
 def create_app() -> FastAPI:
     """
-    Application factory for the DS Workflow backend.
+    Application factory for the ATLAS backend.
 
     Keeps main.py thin:
       - CORS + app creation
@@ -38,9 +43,9 @@ def create_app() -> FastAPI:
       - router wiring
     """
     app = FastAPI(
-        title="DS Workflow API",
+        title="ATLAS API",
         version="0.1.0",
-        description="Backend API for the DS Workflow (regulated ML pipeline).",
+        description="Backend API for ATLAS regulated AI/ML model development.",
     )
 
     # -------------------------------------------------------------------------
@@ -53,9 +58,9 @@ def create_app() -> FastAPI:
         "http://127.0.0.1:5174",
         "http://localhost:3000",
         "http://127.0.0.1:3000",
-        # You can tighten this later; keeping "*" for now is simplest in dev.
-        "*",
     ]
+    extra_origins = [origin.strip() for origin in os.getenv("ATLAS_CORS_ORIGINS", "").split(",") if origin.strip()]
+    origins.extend(extra_origins)
 
     app.add_middleware(
         CORSMiddleware,
@@ -87,14 +92,29 @@ def create_app() -> FastAPI:
         NOTE: Your current Step01_DataAcquisition.tsx uses /api/data/set_sample
         with JSON rows. This endpoint is kept for compatibility / future use.
         """
+        filename = file.filename or ""
+        extension = os.path.splitext(filename)[1].lower()
+        if extension not in ALLOWED_UPLOAD_EXTENSIONS:
+            raise HTTPException(status_code=400, detail="Only CSV or TXT delimited uploads are accepted by this endpoint.")
+
+        content = await file.read()
+        if len(content) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Upload is too large. Maximum size is {MAX_UPLOAD_BYTES // (1024 * 1024)} MB.",
+            )
+
         try:
-            content = await file.read()
             df = pd.read_csv(io.BytesIO(content))
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"Failed to read CSV: {exc}")
 
         if df.empty:
             raise HTTPException(status_code=400, detail="Uploaded CSV has no rows.")
+        if int(df.shape[0]) > MAX_UPLOAD_ROWS:
+            raise HTTPException(status_code=413, detail=f"Uploaded CSV has too many rows. Maximum is {MAX_UPLOAD_ROWS:,}.")
+        if int(df.shape[1]) > MAX_UPLOAD_COLUMNS:
+            raise HTTPException(status_code=413, detail=f"Uploaded CSV has too many columns. Maximum is {MAX_UPLOAD_COLUMNS:,}.")
 
         DATASTORE.set_raw(df)
         save_checkpoint()
@@ -124,7 +144,6 @@ def create_app() -> FastAPI:
     app.include_router(split_router, prefix="/api/balancing_split", tags=["Splitting & Balancing"])
     app.include_router(trainer_router, prefix="/api", tags=["Training"])
     app.include_router(eval_router, prefix="/api", tags=["Evaluation"])
-    app.include_router(stela_router, prefix="/api", tags=["STELA"])
 
     return app
 
