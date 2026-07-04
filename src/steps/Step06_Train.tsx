@@ -171,6 +171,16 @@ const DEFAULT_REGRESSION_SELECTION: Partial<Record<ModelKey, boolean>> = {
   cat_reg: false,
 };
 
+type TrainingUiState = {
+  problem_type?: ProblemType | null;
+  selected_map?: Partial<Record<ModelKey, boolean>>;
+  grid_search?: boolean;
+  search_depth?: "quick" | "balanced" | "thorough";
+  calibration?: boolean;
+  max_parallel_models?: number;
+  use_pca?: boolean;
+};
+
 const gridSearchGuidance: Record<"quick" | "balanced" | "thorough", string> = {
   quick: "Definition: small parameter search. Use for fast baseline comparison or when runtime matters. Example: first challenger benchmark.",
   balanced: "Definition: moderate parameter search. Use when selecting a serious champion and runtime is acceptable.",
@@ -179,6 +189,55 @@ const gridSearchGuidance: Record<"quick" | "balanced" | "thorough", string> = {
 
 const ALL_MODEL_KEYS = MODEL_GROUPS.flatMap((group) => group.models.map((model) => model.key));
 const OPTIONAL_MODEL_KEYS = new Set<ModelKey>(["ebm", "xgb", "cat", "lgbm", "linsvm", "iso", "autoreg", "mlp", "xgb_reg", "lgbm_reg", "cat_reg"]);
+
+function readTrainingUiState(): TrainingUiState {
+  if (typeof localStorage === "undefined") return {};
+  try {
+    const parsed = JSON.parse(localStorage.getItem(LOCAL_TRAINING_CONFIG_KEY) || "{}") as TrainingUiState;
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function normalizeSelectedMap(map: unknown): Partial<Record<ModelKey, boolean>> | null {
+  if (!map || typeof map !== "object") return null;
+  const normalized: Partial<Record<ModelKey, boolean>> = {};
+  ALL_MODEL_KEYS.forEach((key) => {
+    if (Object.prototype.hasOwnProperty.call(map, key)) {
+      normalized[key] = Boolean((map as Record<string, unknown>)[key]);
+    }
+  });
+  return Object.keys(normalized).length ? normalized : null;
+}
+
+function buildDefaultSelected(problemType: ProblemType | null) {
+  const init = Object.fromEntries(ALL_MODEL_KEYS.map((key) => [key, false])) as Record<ModelKey, boolean>;
+  const defaults = problemType === "regression" ? DEFAULT_REGRESSION_SELECTION : DEFAULT_SELECTION;
+  (Object.keys(defaults) as ModelKey[]).forEach((key) => {
+    init[key] = !!defaults[key];
+  });
+  return init;
+}
+
+function buildInitialSelected(problemType: ProblemType | null) {
+  const saved = readTrainingUiState();
+  const savedMap = normalizeSelectedMap(saved.selected_map);
+  const init = buildDefaultSelected(problemType);
+  if (savedMap && (!saved.problem_type || !problemType || saved.problem_type === problemType)) {
+    ALL_MODEL_KEYS.forEach((key) => {
+      if (Object.prototype.hasOwnProperty.call(savedMap, key)) {
+        init[key] = !!savedMap[key];
+      }
+    });
+  }
+  return init;
+}
+
+function coercePositiveInt(value: unknown, fallback: number) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : fallback;
+}
 
 function inferTarget(headers: string[], current?: string | null) {
   if (current && headers.includes(current)) return current;
@@ -305,23 +364,20 @@ function saveLocalTrainingSummary(summary: { ranked?: RankedRow[]; problem_type?
 export default function Step06_Train() {
   const navigate = useNavigate();
   const markComplete = useWorkflowStore((state) => state.markComplete);
+  const initialProblemType = inferProblemTypeFromLocalDataset();
+  const savedTrainingUiState = readTrainingUiState();
 
   const [kFolds, setKFolds] = useState<number>(5);
-  const [maxParallel, setMaxParallel] = useState<number>(2);
-  const [calibrate, setCalibrate] = useState<boolean>(true);
-  const [usePCA, setUsePCA] = useState<boolean>(false);
-  const [useGridSearch, setUseGridSearch] = useState<boolean>(false);
-  const [gridSearchLevel, setGridSearchLevel] = useState<"quick" | "balanced" | "thorough">("quick");
+  const [maxParallel, setMaxParallel] = useState<number>(() => coercePositiveInt(savedTrainingUiState.max_parallel_models, 2));
+  const [calibrate, setCalibrate] = useState<boolean>(() => savedTrainingUiState.calibration ?? true);
+  const [usePCA, setUsePCA] = useState<boolean>(() => savedTrainingUiState.use_pca ?? false);
+  const [useGridSearch, setUseGridSearch] = useState<boolean>(() => savedTrainingUiState.grid_search ?? false);
+  const [gridSearchLevel, setGridSearchLevel] = useState<"quick" | "balanced" | "thorough">(
+    () => savedTrainingUiState.search_depth ?? "quick"
+  );
 
   const [selected, setSelected] = useState<Record<ModelKey, boolean>>(() => {
-    const init = Object.fromEntries(ALL_MODEL_KEYS.map((key) => [key, false])) as Record<
-      ModelKey,
-      boolean
-    >;
-    (Object.keys(DEFAULT_SELECTION) as ModelKey[]).forEach((k) => {
-      init[k] = !!DEFAULT_SELECTION[k];
-    });
-    return init;
+    return buildInitialSelected(initialProblemType);
   });
 
   const [status, setStatus] = useState<Record<ModelKey, Status>>(
@@ -339,7 +395,7 @@ export default function Step06_Train() {
 
   // NEW: summary of last training run (metrics per model)
   const [summary, setSummary] = useState<RankedRow[] | null>(null);
-  const [problemType, setProblemType] = useState<ProblemType | null>(() => inferProblemTypeFromLocalDataset());
+  const [problemType, setProblemType] = useState<ProblemType | null>(() => initialProblemType);
 
   const visibleGroups = useMemo(
     () => MODEL_GROUPS.filter((group) => !problemType || group.task === problemType),
@@ -392,6 +448,7 @@ export default function Step06_Train() {
         LOCAL_TRAINING_CONFIG_KEY,
         JSON.stringify({
           problem_type: problemType,
+          selected_map: selected,
           selected_models: selectedModels,
           selected_model_labels: modelLabels,
           grid_search: useGridSearch,
@@ -406,7 +463,7 @@ export default function Step06_Train() {
     } catch {
       // Training configuration remains visible in the UI if browser persistence is unavailable.
     }
-  }, [problemType, selectedModels, labels, useGridSearch, gridSearchLevel, calibrate, maxParallel, usePCA, summary]);
+  }, [problemType, selected, selectedModels, labels, useGridSearch, gridSearchLevel, calibrate, maxParallel, usePCA, summary]);
 
   const toggleModelSelection = (model: ModelDef) => {
     logDecision({
@@ -493,6 +550,9 @@ export default function Step06_Train() {
 
     const defaults =
       problemType === "regression" ? DEFAULT_REGRESSION_SELECTION : DEFAULT_SELECTION;
+    const saved = readTrainingUiState();
+    const savedMap = normalizeSelectedMap(saved.selected_map);
+    const hasSavedSelectionForProblem = !!savedMap && (!saved.problem_type || saved.problem_type === problemType);
     const allowedKeys = new Set(
       MODEL_GROUPS.filter((group) => group.task === problemType).flatMap((group) =>
         group.models.map((model) => model.key)
@@ -500,6 +560,13 @@ export default function Step06_Train() {
     );
 
     setSelected((prev) => {
+      if (hasSavedSelectionForProblem) {
+        const next = { ...buildDefaultSelected(problemType) };
+        (Object.keys(next) as ModelKey[]).forEach((key) => {
+          next[key] = allowedKeys.has(key) && !!savedMap?.[key];
+        });
+        return next;
+      }
       const hasAllowedSelection = (Object.keys(prev) as ModelKey[]).some(
         (key) => allowedKeys.has(key) && prev[key]
       );

@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import StepShell from "../components/StepShell";
 import { logDecision } from "../lib/decisionJournal";
 import {
@@ -27,7 +27,7 @@ import {
   type DataSourceType,
   type SamplingMethod,
 } from "../lib/enterpriseDataAccess";
-import { saveLocalDataset, type LocalDataset } from "../lib/localDataset";
+import { loadLocalDataset, saveLocalDataset, type LocalDataset } from "../lib/localDataset";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const BASE =
@@ -303,6 +303,31 @@ export default function Step01DataAcquisition() {
   const [backendImportSynced, setBackendImportSynced] = useState(false);
   const [backendRowCount, setBackendRowCount] = useState<number | null>(null);
   const datasetVersions = loadDatasetVersions();
+
+  useEffect(() => {
+    const saved = loadLocalDataset();
+    if (!saved?.headers.length) return;
+
+    const savedTarget = saved.target ?? "";
+    const selectedSet = new Set(saved.selected_columns ?? []);
+    setHeaders(saved.headers);
+    setRows(saved.rows ?? []);
+    setTarget(savedTarget);
+    setKept(
+      Object.fromEntries(
+        saved.headers.map((header) => [header, header !== savedTarget && selectedSet.has(header)])
+      )
+    );
+    setImportError(null);
+    setBackendImportSynced(false);
+    setBackendRowCount(null);
+    setMessage((current) => current || "Restored the cached modeling dataset and selected features for this browser session.");
+    setQuality(
+      saved.data_quality ??
+        inferDataQuality({ headers: saved.headers, rows: (saved.rows ?? []).slice(0, 5000), target: savedTarget || null })
+    );
+    if (saved.data_access) setMetadata(saved.data_access);
+  }, []);
 
   const modelingRows = useMemo(() => applySampling(rows, samplingMethod, samplingDetail), [rows, samplingMethod, samplingDetail]);
   const sampleRows = useMemo(() => modelingRows.slice(0, 5000), [modelingRows]);
@@ -719,8 +744,52 @@ export default function Step01DataAcquisition() {
                 <p className="mt-1 text-sm text-slate-500">Review data types, missingness, distinct counts, and selected model inputs.</p>
               </div>
               <div className="flex gap-2">
-                <button className="rounded-lg border px-3 py-2 text-sm" onClick={() => setKept(Object.fromEntries(headers.map((header) => [header, header !== target])))}>Select all</button>
-                <button className="rounded-lg border px-3 py-2 text-sm" onClick={() => setKept(Object.fromEntries(headers.map((header) => [header, false])))}>None</button>
+                <button
+                  className="rounded-lg border px-3 py-2 text-sm"
+                  onClick={() => {
+                    const nextKept = Object.fromEntries(headers.map((header) => [header, header !== target]));
+                    setKept(nextKept);
+                    const localView = buildSelectedDatasetView({
+                      headers,
+                      rows: sampleRows,
+                      selectedColumns: headers.filter((header) => header !== target),
+                      target: target || null,
+                    });
+                    saveLocalDataset({
+                      headers: localView.headers,
+                      rows: localView.rows,
+                      target: target || null,
+                      selected_columns: localView.selectedColumns,
+                      problem_type: target ? inferProblemType(localView.rows, target) : undefined,
+                    });
+                    window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
+                  }}
+                >
+                  Select all
+                </button>
+                <button
+                  className="rounded-lg border px-3 py-2 text-sm"
+                  onClick={() => {
+                    const nextKept = Object.fromEntries(headers.map((header) => [header, false]));
+                    setKept(nextKept);
+                    const localView = buildSelectedDatasetView({
+                      headers,
+                      rows: sampleRows,
+                      selectedColumns: [],
+                      target: target || null,
+                    });
+                    saveLocalDataset({
+                      headers: localView.headers,
+                      rows: localView.rows,
+                      target: target || null,
+                      selected_columns: localView.selectedColumns,
+                      problem_type: target ? inferProblemType(localView.rows, target) : undefined,
+                    });
+                    window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
+                  }}
+                >
+                  None
+                </button>
               </div>
             </div>
             <div className="mt-4 max-h-[560px] overflow-auto rounded-lg border border-slate-200">

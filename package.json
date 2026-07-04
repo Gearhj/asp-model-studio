@@ -15,6 +15,7 @@
     "test:persistence": "node tests/persistence.test.mjs",
     "test:phase4": "node tests/phase4Architecture.test.mjs",
     "test:data-acquisition": "node tests/dataAcquisition.test.mjs",
+    "test:workflow-navigation-state": "node tests/workflowNavigationState.test.mjs",
     "test:decision-journal": "node tests/decisionJournal.test.mjs",
     "test:python-execution": ".\\.venv\\Scripts\\python.exe tests\\python_execution_test.py",
     "test:regression": "node tests/regression.test.mjs"

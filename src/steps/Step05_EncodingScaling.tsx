@@ -50,6 +50,7 @@ type FeatureBuilderState = {
 
 type AnyRow = Record<string, any>;
 type LoadedDatasetContext = { columns: ColumnInfo[]; target: string | null; rows: AnyRow[] };
+const FEATURE_CONFIG_KEY = "modeling-tool-feature-builder";
 const transformGuidance = {
   poly: {
     None: "Definition: do not create polynomial terms. Use when relationships are mostly linear or model complexity should stay low.",
@@ -76,6 +77,22 @@ const parseNumberList = (txt: string) =>
     .map((t) => parseFloat(t.trim()))
     .filter((v) => Number.isFinite(v))
     .sort((a, b) => a - b);
+
+function loadFeatureBuilderConfig(): FeatureBuilderState | null {
+  if (typeof localStorage === "undefined") return null;
+  try {
+    const parsed = JSON.parse(localStorage.getItem(FEATURE_CONFIG_KEY) || "null") as Partial<FeatureBuilderState> | null;
+    if (!parsed || typeof parsed !== "object") return null;
+    return {
+      interactions: Array.isArray(parsed.interactions) ? (parsed.interactions as Interaction[]) : [],
+      bins: Array.isArray(parsed.bins) ? (parsed.bins as BinFeature[]) : [],
+      rules: Array.isArray(parsed.rules) ? (parsed.rules as RuleFeature[]) : [],
+      transforms: parsed.transforms ?? { poly: "None", scaler: "None", encoding: "None" },
+    };
+  } catch {
+    return null;
+  }
+}
 
 function filterRowsToHeaders(rows: AnyRow[], headers: string[]) {
   if (!headers.length) return rows;
@@ -118,13 +135,27 @@ export default function Step05_EncodingScaling() {
 
   // ---- store (defensive) ----
   const store = (useWorkflowStore as any)?.() || {};
-  const storeFB: FeatureBuilderState =
-    store?.featureBuilder ?? {
-      interactions: [],
-      bins: [],
-      rules: [],
-      transforms: { poly: "None", scaler: "None", encoding: "None" },
-    };
+  const savedFB = loadFeatureBuilderConfig();
+  const storeFeatureBuilder = store?.featureBuilder as Partial<FeatureBuilderState> | undefined;
+  const storeHasFeatureBuilder =
+    !!storeFeatureBuilder &&
+    ((storeFeatureBuilder.interactions?.length ?? 0) > 0 ||
+      (storeFeatureBuilder.bins?.length ?? 0) > 0 ||
+      (storeFeatureBuilder.rules?.length ?? 0) > 0 ||
+      !!storeFeatureBuilder.transforms);
+  const storeFB: FeatureBuilderState = storeHasFeatureBuilder
+    ? {
+        interactions: storeFeatureBuilder?.interactions ?? [],
+        bins: storeFeatureBuilder?.bins ?? [],
+        rules: storeFeatureBuilder?.rules ?? [],
+        transforms: storeFeatureBuilder?.transforms ?? { poly: "None", scaler: "None", encoding: "None" },
+      }
+    : savedFB ?? {
+        interactions: [],
+        bins: [],
+        rules: [],
+        transforms: { poly: "None", scaler: "None", encoding: "None" },
+      };
 
   // ---- local working state (starts from store snapshot) ----
   const [interactions, setInteractions] = useState<Interaction[]>(
@@ -505,6 +536,20 @@ export default function Step05_EncodingScaling() {
     [preview]
   );
 
+  useEffect(() => {
+    const payload: FeatureBuilderState = {
+      interactions: interactions.filter((item) => featureColumnNames.has(item.left) && featureColumnNames.has(item.right)),
+      bins: bins.filter((item) => featureColumnNames.has(item.source)),
+      rules: rules.filter((item) => featureColumnNames.has(item.source)),
+      transforms,
+    };
+    try {
+      localStorage.setItem(FEATURE_CONFIG_KEY, JSON.stringify(payload));
+    } catch {
+      // Keep the page state visible even if browser storage is full.
+    }
+  }, [interactions, bins, rules, transforms, featureColumnNames]);
+
   // persist current selections to the store (defensive: try several common setter names)
   const persistToStore = async () => {
     const payload: FeatureBuilderState = {
@@ -515,6 +560,7 @@ export default function Step05_EncodingScaling() {
     };
 
     try {
+      localStorage.setItem(FEATURE_CONFIG_KEY, JSON.stringify(payload));
       if (typeof store?.setFeatureBuilder === "function") {
         store.setFeatureBuilder(payload);
       } else if (typeof store?.updateFeatureBuilder === "function") {

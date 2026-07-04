@@ -26,10 +26,11 @@ function normalizeSelectedDataset(dataset: Partial<LocalDataset>): LocalDataset 
   if (!Array.isArray(dataset.headers) || !Array.isArray(dataset.rows)) return null;
   const headers = uniqueStrings(dataset.headers);
   const target = dataset.target && headers.includes(dataset.target) ? dataset.target : null;
+  const hasExplicitSelectedColumns = Array.isArray(dataset.selected_columns);
   const selected = uniqueStrings(dataset.selected_columns ?? []).filter(
     (column) => headers.includes(column) && column !== target
   );
-  const selectedColumns = selected.length ? selected : headers.filter((header) => header !== target);
+  const selectedColumns = hasExplicitSelectedColumns ? selected : headers.filter((header) => header !== target);
   const persistedHeaders = target ? [...selectedColumns, target] : [...selectedColumns];
   const rows = (dataset.rows as Record<string, unknown>[]).map((row) => {
     const filtered: Record<string, unknown> = {};

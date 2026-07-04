@@ -81,11 +81,12 @@ export default function Step04_MissingValues() {
           cols = [];
         }
 
-        if (!cols.length) {
-          localDataset = loadLocalDataset();
-          if (localDataset?.headers.length) {
-            cols = inferLocalColumns(localDataset);
-          }
+        localDataset = loadLocalDataset();
+        if (localDataset?.headers.length) {
+          const allowedHeaders = new Set(localDataset.headers);
+          cols = cols.length
+            ? cols.filter((column) => allowedHeaders.has(column.name))
+            : inferLocalColumns(localDataset);
         }
 
         if (localDataset) {
@@ -112,15 +113,21 @@ export default function Step04_MissingValues() {
         setUsingLocalDataset(Boolean(localDataset));
 
         // initialise config from store or default to "None"
-        const fromStore = Object.keys(storeConfig).length
-          ? storeConfig
-          : undefined;
+        let savedConfig: MissingConfig | undefined = Object.keys(storeConfig).length ? storeConfig : undefined;
+        if (!savedConfig) {
+          try {
+            const parsed = JSON.parse(localStorage.getItem(MISSING_CONFIG_KEY) || "{}") as MissingConfig;
+            savedConfig = parsed && Object.keys(parsed).length ? parsed : undefined;
+          } catch {
+            savedConfig = undefined;
+          }
+        }
 
         const init: MissingConfig = {};
         cols.forEach((col) => {
           const key = col.name;
-          if (fromStore && fromStore[key]) {
-            init[key] = { ...fromStore[key] };
+          if (savedConfig && savedConfig[key]) {
+            init[key] = { ...savedConfig[key] };
           } else {
             init[key] = { strategy: "None" };
           }
@@ -153,6 +160,16 @@ export default function Step04_MissingValues() {
         .toLowerCase()
         .match(/int|float|double|number|numeric/)
   );
+
+  useEffect(() => {
+    try {
+      if (Object.keys(missingConfig).length) {
+        localStorage.setItem(MISSING_CONFIG_KEY, JSON.stringify(missingConfig));
+      }
+    } catch {
+      // Keep the in-memory UI usable if browser storage is full.
+    }
+  }, [missingConfig]);
 
   const updateStrategy = (col: string, strategy: MissingStrategy) => {
     logDecision({

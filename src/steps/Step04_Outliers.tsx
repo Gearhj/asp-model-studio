@@ -442,10 +442,27 @@ export default function Step04_Outliers() {
         const headers = Array.isArray(sampleJson?.headers) ? sampleJson.headers : [];
         const targetName = (sampleJson?.target || colsJson?.target || allCols.find(c => c.role === "target")?.name || "") as string;
 
-        let { final, series } = buildOutlierData(allCols, rows, headers, targetName);
+        const localDatasetForFilter = loadLocalDataset();
+        const scopedHeaders = localDatasetForFilter?.headers.length ? localDatasetForFilter.headers : headers;
+        const scopedHeaderSet = new Set(scopedHeaders);
+        const scopedRows = localDatasetForFilter?.headers.length
+          ? rows.map((row) => {
+              const filtered: Record<string, any> = {};
+              scopedHeaders.forEach((header) => {
+                filtered[header] = row?.[header];
+              });
+              return filtered;
+            })
+          : rows;
+        const scopedColumns = localDatasetForFilter?.headers.length
+          ? allCols.filter((column) => scopedHeaderSet.has(column.name))
+          : allCols;
+        const scopedTarget = localDatasetForFilter?.target ?? targetName;
+
+        let { final, series } = buildOutlierData(scopedColumns, scopedRows, scopedHeaders, scopedTarget);
         let ivMap: Record<string, number> = {};
         final.forEach((feature) => {
-          ivMap[feature] = informationValue(series[feature] ?? [], rows, feature, targetName);
+          ivMap[feature] = informationValue(series[feature] ?? [], scopedRows, feature, scopedTarget);
         });
         if (!final.length) {
           const localDataset = loadLocalDataset();
