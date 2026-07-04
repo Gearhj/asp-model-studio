@@ -115,6 +115,7 @@ function buildSections(): NotebookSection[] {
   const splitStrategy = localStorage.getItem("splitStrategy") ?? "holdout";
   const balanceRatio = localStorage.getItem("balanceRatio") ?? "";
   const dataAccess = loadDataAccessMetadata();
+  const trainingConfig = readLocalStorageJson("modeling-tool-training-config") ?? {};
 
   return [
     {
@@ -325,10 +326,35 @@ else:
       routes: ["/step07"],
       title: "Model Training",
       explanation:
-        "Train candidate models and record hyperparameters, runtime, and metrics. The scaffold includes common transparent and challenger models.",
+        "Train candidate models and record selected models, hyperparameter search settings, calibration, runtime controls, and metrics.",
       decisionMatchers: ["model training", "model_selected", "hyperparameter"],
       outputPlaceholder: "Candidate model leaderboard should display here.",
-      code: `from sklearn.compose import ColumnTransformer
+      code: `TRAINING_CONFIG = ${safeJson(trainingConfig)}
+
+SELECTED_MODEL_KEYS = TRAINING_CONFIG.get("selected_models", [])
+SELECTED_MODEL_LABELS = TRAINING_CONFIG.get("selected_model_labels", {})
+GRID_SEARCH_ENABLED = bool(TRAINING_CONFIG.get("grid_search", False))
+SEARCH_DEPTH = TRAINING_CONFIG.get("search_depth", "quick")
+CALIBRATE_PROBABILITIES = bool(TRAINING_CONFIG.get("calibration", True))
+MAX_PARALLEL_MODELS = int(TRAINING_CONFIG.get("max_parallel_models", 2) or 2)
+USE_PCA_DISTANCE_FEATURES = bool(TRAINING_CONFIG.get("use_pca", False))
+TRAINING_SUMMARY = TRAINING_CONFIG.get("training_summary", [])
+
+print("Problem type:", TRAINING_CONFIG.get("problem_type", PROBLEM_TYPE))
+print("Selected models:", ", ".join(SELECTED_MODEL_LABELS.get(key, key) for key in SELECTED_MODEL_KEYS) or "Not documented")
+print("Grid search enabled:", GRID_SEARCH_ENABLED)
+print("Search depth:", SEARCH_DEPTH)
+print("Calibrate probabilities:", CALIBRATE_PROBABILITIES)
+print("Max parallel models:", MAX_PARALLEL_MODELS)
+print("Use PCA for distance-based models:", USE_PCA_DISTANCE_FEATURES)
+
+if TRAINING_SUMMARY:
+    print("Existing ATLAS training summary:")
+    display(pd.DataFrame(TRAINING_SUMMARY))
+else:
+    print("No ATLAS training summary captured yet.")
+
+from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.metrics import roc_auc_score, average_precision_score, f1_score, mean_absolute_error, mean_squared_error, r2_score
 from sklearn.pipeline import Pipeline
@@ -337,17 +363,26 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 if PROBLEM_TYPE == "classification":
     from sklearn.linear_model import LogisticRegression
     from sklearn.ensemble import RandomForestClassifier
-    estimators = {
+    candidate_estimators = {
         "Logistic Regression": LogisticRegression(max_iter=1000, class_weight="balanced"),
         "Random Forest": RandomForestClassifier(n_estimators=200, random_state=42, class_weight="balanced_subsample"),
     }
 else:
     from sklearn.linear_model import LinearRegression
     from sklearn.ensemble import RandomForestRegressor
-    estimators = {
+    candidate_estimators = {
         "Linear Regression": LinearRegression(),
         "Random Forest Regressor": RandomForestRegressor(n_estimators=200, random_state=42),
     }
+
+if SELECTED_MODEL_LABELS:
+    requested_names = set(SELECTED_MODEL_LABELS.values())
+    estimators = {name: estimator for name, estimator in candidate_estimators.items() if name in requested_names}
+    if not estimators:
+        print("Selected models are documented above. The reproducible scaffold supports:", ", ".join(candidate_estimators))
+        estimators = candidate_estimators
+else:
+    estimators = candidate_estimators
 
 preprocess = ColumnTransformer(
     transformers=[
