@@ -50,6 +50,23 @@ type FeatureBuilderState = {
 
 type AnyRow = Record<string, any>;
 type LoadedDatasetContext = { columns: ColumnInfo[]; target: string | null; rows: AnyRow[] };
+const transformGuidance = {
+  poly: {
+    None: "Definition: do not create polynomial terms. Use when relationships are mostly linear or model complexity should stay low.",
+    "Degree 2": "Definition: add squared terms. Use when a numeric feature may have a curved relationship with the target.",
+    "Degree 3": "Definition: add squared and cubed terms. Use only when nonlinear signal is expected and overfitting risk is controlled.",
+  },
+  scaler: {
+    None: "Definition: keep numeric values on their original scale. Use for tree-based models or already standardized features.",
+    StandardScaler: "Definition: center and scale to z-scores. Use for logistic regression, SVM, KNN, and PCA-like distance calculations.",
+    MinMaxScaler: "Definition: rescale numeric values to a fixed range. Use for neural nets or distance models when bounded inputs help.",
+  },
+  encoding: {
+    None: "Definition: do not encode categoricals here. Use when no categorical fields exist or the backend/model handles them.",
+    "One-Hot": "Definition: create one binary indicator per category. Use for nominal categories with no natural order.",
+    Label: "Definition: convert categories to integer codes. Use only for ordinal fields or models that can safely treat codes as labels.",
+  },
+} as const;
 
 // simple utilities
 const uniq = (arr: string[]) => Array.from(new Set(arr.filter(Boolean)));
@@ -59,6 +76,17 @@ const parseNumberList = (txt: string) =>
     .map((t) => parseFloat(t.trim()))
     .filter((v) => Number.isFinite(v))
     .sort((a, b) => a - b);
+
+function filterRowsToHeaders(rows: AnyRow[], headers: string[]) {
+  if (!headers.length) return rows;
+  return rows.map((row) => {
+    const filtered: AnyRow = {};
+    headers.forEach((header) => {
+      filtered[header] = row?.[header];
+    });
+    return filtered;
+  });
+}
 
 // ---------------------- Component ----------------------
 export default function Step05_EncodingScaling() {
@@ -183,6 +211,13 @@ export default function Step05_EncodingScaling() {
             name,
             dtype: rows.some((row) => Number.isFinite(Number(row[name]))) ? "float64" : "object",
           }));
+        }
+
+        if (localDataset?.headers.length) {
+          const allowedHeaders = new Set(localDataset.headers);
+          target = localDataset.target ?? target;
+          cols = cols.filter((column) => allowedHeaders.has(column.name));
+          rows = filterRowsToHeaders(rows, localDataset.headers);
         }
 
         return { columns: cols, target, rows };
@@ -522,13 +557,14 @@ export default function Step05_EncodingScaling() {
             className="w-full border rounded-md px-3 py-2"
             value={transforms.poly}
             onChange={(e) => setPoly(e.target.value)}
+            title={transformGuidance.poly[transforms.poly as keyof typeof transformGuidance.poly]}
           >
             <option>None</option>
             <option>Degree 2</option>
             <option>Degree 3</option>
           </select>
           <p className="text-sm text-gray-500 mt-2">
-            Adds squared/cubed terms for a couple of numeric columns (preview only).
+            {transformGuidance.poly[transforms.poly as keyof typeof transformGuidance.poly]}
           </p>
         </div>
 
@@ -538,11 +574,15 @@ export default function Step05_EncodingScaling() {
             className="w-full border rounded-md px-3 py-2"
             value={transforms.scaler}
             onChange={(e) => setScaler(e.target.value)}
+            title={transformGuidance.scaler[transforms.scaler as keyof typeof transformGuidance.scaler]}
           >
             <option>None</option>
             <option>StandardScaler</option>
             <option>MinMaxScaler</option>
           </select>
+          <p className="text-sm text-gray-500 mt-2">
+            {transformGuidance.scaler[transforms.scaler as keyof typeof transformGuidance.scaler]}
+          </p>
           <p className="text-sm text-gray-500 mt-2">
             Shows z-scores or min–max scaled columns (preview only).
           </p>
@@ -554,11 +594,15 @@ export default function Step05_EncodingScaling() {
             className="w-full border rounded-md px-3 py-2"
             value={transforms.encoding}
             onChange={(e) => setEncoding(e.target.value)}
+            title={transformGuidance.encoding[transforms.encoding as keyof typeof transformGuidance.encoding]}
           >
             <option>None</option>
             <option>One-Hot</option>
             <option>Label</option>
           </select>
+          <p className="text-sm text-gray-500 mt-2">
+            {transformGuidance.encoding[transforms.encoding as keyof typeof transformGuidance.encoding]}
+          </p>
           <p className="text-sm text-gray-500 mt-2">
             One-Hot preview uses the first categorical column if available.
           </p>

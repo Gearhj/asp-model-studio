@@ -25,7 +25,7 @@ class MissingApplyRequest(BaseModel):
 
 
 def _current_df() -> Optional[pd.DataFrame]:
-    return DATASTORE.processed_df if DATASTORE.processed_df is not None else DATASTORE.raw_df
+    return DATASTORE.get_active_df()
 
 
 def _normalize_missing(df: pd.DataFrame) -> pd.DataFrame:

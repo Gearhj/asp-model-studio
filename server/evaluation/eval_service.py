@@ -1432,7 +1432,7 @@ class EvaluationService:
             model_prior = self._positive_rate(y_train)
         original_prior = prevalence.get("original")
         if original_prior is None:
-            df = DATASTORE.processed_df if DATASTORE.processed_df is not None else DATASTORE.raw_df
+            df = DATASTORE.get_active_df()
             target = DATASTORE.target
             if df is not None and target and target in df.columns:
                 original_prior = self._positive_rate(df[target])

@@ -10,6 +10,12 @@ ATLAS is currently optimized for local development. The following controls are r
 - Use compact summaries for browser project persistence.
 - Validate imported project files before loading.
 
+## Local Python Execution
+
+The `/api/python/run` endpoint is for single-user local development only. It executes arbitrary Python from the Python Code View with a timeout, a temporary runtime directory, and a stripped environment that does not intentionally pass local secrets.
+
+Do not expose this endpoint in hosted or multi-user deployments unless it is protected by authentication, authorization, resource limits, network controls, filesystem sandboxing, process isolation, and audited execution logs. Set `ATLAS_HOSTED_MODE=true` or `ATLAS_ENABLE_PYTHON_RUN=0` to disable local execution while keeping Python code available for notebook export.
+
 ## File Uploads
 
 File upload controls now enforce:

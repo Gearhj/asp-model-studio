@@ -8,6 +8,7 @@ import { useWorkflowStore } from "../state/useWorkflowStore";
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
   "http://127.0.0.1:8001/api";
+const RFE_CACHE_KEY = "modeling-tool-rfe-cache";
 
 type RankedRow = { key: string; name: string; task?: "classification" | "regression" | "anomaly"; auc?: number; pr_auc?: number; rmse?: number; mae?: number; r2?: number; adjusted_r2?: number };
 type ImportanceRow = { feature: string; importance: number; source?: string; direction?: number };
@@ -73,6 +74,57 @@ type BoundaryResponse = {
   points?: BoundaryPoint[];
   numeric_features?: string[];
 };
+type TreeNode = {
+  id: number;
+  depth: number;
+  x?: number;
+  leaf: boolean;
+  feature?: string;
+  threshold?: number | null;
+  samples: number;
+  positive_rate: number;
+  prediction: string;
+};
+type TreeEdge = { source: number; target: number; label: string };
+type TreeResponse = { ok: boolean; nodes?: TreeNode[]; edges?: TreeEdge[]; error?: string };
+
+type CachedRfeResult = Pick<
+  RfeResult,
+  "rows" | "curve" | "recommended_count" | "best_count" | "best_auc" | "auc_tolerance" | "best_rmse" | "rmse_tolerance" | "metric" | "task"
+> & { keep: number; cachedAt: string };
+
+function loadRfeCache(modelKey: string): CachedRfeResult | null {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(RFE_CACHE_KEY) || "{}");
+    const cached = parsed?.[modelKey];
+    return cached && typeof cached === "object" ? cached : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveRfeCache(modelKey: string, data: RfeResult, keep: number) {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(RFE_CACHE_KEY) || "{}");
+    parsed[modelKey] = {
+      rows: data.rows ?? [],
+      curve: data.curve ?? [],
+      recommended_count: data.recommended_count ?? null,
+      best_count: data.best_count ?? null,
+      best_auc: data.best_auc ?? null,
+      auc_tolerance: data.auc_tolerance ?? null,
+      best_rmse: data.best_rmse ?? null,
+      rmse_tolerance: data.rmse_tolerance ?? null,
+      metric: data.metric ?? (data.task === "regression" ? "rmse" : "auc"),
+      task: data.task,
+      keep,
+      cachedAt: new Date().toISOString(),
+    };
+    sessionStorage.setItem(RFE_CACHE_KEY, JSON.stringify(parsed));
+  } catch {
+    // RFE can be rerun if session storage is unavailable.
+  }
+}
 
 async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -108,6 +160,7 @@ export default function Step09_Interpretation() {
   const [rfeRmseTolerance, setRfeRmseTolerance] = useState<number | null>(null);
   const [rfeMetric, setRfeMetric] = useState<"auc" | "rmse" | null>(null);
   const [boundary, setBoundary] = useState<BoundaryResponse | null>(null);
+  const [treeStructure, setTreeStructure] = useState<TreeResponse | null>(null);
   const [boundaryX, setBoundaryX] = useState("");
   const [boundaryY, setBoundaryY] = useState("");
   const [message, setMessage] = useState("");
@@ -143,6 +196,7 @@ export default function Step09_Interpretation() {
   useEffect(() => {
     if (!selectedModel) return;
     setMessage("");
+    setTreeStructure(null);
     Promise.all([
       getJson<{ ok: boolean; rows?: ImportanceRow[]; error?: string }>(
         `${API_BASE}/interpretation/importance?model=${encodeURIComponent(selectedModel)}`
@@ -164,21 +218,28 @@ export default function Step09_Interpretation() {
         setHyperparameters(hyperparameterRes.rows ?? []);
         setShapRows(shapRes.rows ?? []);
         setSelectedFeature(rows[0]?.feature?.replace(/^.*__/, "") || "");
-        setRfeRows([]);
-        setRfeCurve([]);
-        setRecommendedCount(null);
-        setBestRfeCount(null);
-        setBestRfeAuc(null);
-        setBestRfeRmse(null);
-        setRfeAucTolerance(null);
-        setRfeRmseTolerance(null);
-        setRfeMetric(null);
+        const cachedRfe = loadRfeCache(selectedModel);
+        setRfeRows(cachedRfe?.rows ?? []);
+        setRfeCurve(cachedRfe?.curve ?? []);
+        setRecommendedCount(cachedRfe?.recommended_count ?? null);
+        setBestRfeCount(cachedRfe?.best_count ?? null);
+        setBestRfeAuc(cachedRfe?.best_auc ?? null);
+        setBestRfeRmse(cachedRfe?.best_rmse ?? null);
+        setRfeAucTolerance(cachedRfe?.auc_tolerance ?? null);
+        setRfeRmseTolerance(cachedRfe?.rmse_tolerance ?? null);
+        setRfeMetric(cachedRfe?.metric ?? null);
+        if (cachedRfe?.keep) setRfeKeep(cachedRfe.keep);
         setFinalModelReady(false);
         setFinalDiagnosticsReady(false);
         setFinalModelMessage("");
         setFinalModelStatus("");
         setFinalSensitivityRows([]);
         setVifRows([]);
+        if (detailsRes.kind === "tree") {
+          getJson<TreeResponse>(`${API_BASE}/eval/tree?model=${encodeURIComponent(selectedModel)}&max_depth=4`)
+            .then((treeRes) => setTreeStructure(treeRes))
+            .catch((err) => setTreeStructure({ ok: false, error: String(err?.message ?? err) }));
+        }
       })
       .catch((err) => setMessage(String(err?.message ?? err)));
   }, [selectedModel]);
@@ -242,7 +303,9 @@ export default function Step09_Interpretation() {
         setRfeAucTolerance(data.auc_tolerance ?? null);
         setRfeRmseTolerance(data.rmse_tolerance ?? null);
         setRfeMetric(data.metric ?? (data.task === "regression" ? "rmse" : "auc"));
-        setRfeKeep(data.recommended_count ?? data.best_count ?? rfeKeep);
+        const nextKeep = data.recommended_count ?? data.best_count ?? rfeKeep;
+        setRfeKeep(nextKeep);
+        saveRfeCache(selectedModel, data, nextKeep);
       })
       .catch((err) => {
         const text = String(err?.message ?? err);
@@ -386,7 +449,7 @@ export default function Step09_Interpretation() {
 
       <section className="rounded-2xl border border-gray-200 bg-white p-4">
         <h2 className="text-sm font-semibold">Model-Specific Explanation</h2>
-        <ModelDetails details={details} />
+        <ModelDetails details={details} tree={treeStructure} />
       </section>
 
       <section className="rounded-2xl border border-gray-200 bg-white p-4">
@@ -511,6 +574,12 @@ export default function Step09_Interpretation() {
             {rfeError}
           </div>
         )}
+        {!canRunRfe && !rfeRunning && !rfeRows.length && (
+          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+            RFE requires a selected trained model and at least two loaded feature-importance rows.
+            If this stays unavailable, return to Model Training, train the selected model, then reload Interpretation.
+          </div>
+        )}
         {rfeRows.length > 0 && (
           <div className="mt-3 grid gap-3 md:grid-cols-4">
             <MetricTile label="Retained Features" value={String(rfeSelectedCount)} tone="emerald" />
@@ -619,7 +688,7 @@ export default function Step09_Interpretation() {
   );
 }
 
-function ModelDetails({ details }: { details: DetailResponse | null }) {
+function ModelDetails({ details, tree }: { details: DetailResponse | null; tree: TreeResponse | null }) {
   if (!details) return <div className="mt-3 text-sm text-gray-500">Loading model details...</div>;
   if (!details.ok) return <div className="mt-3 text-sm text-rose-700">{details.error}</div>;
   if (details.kind === "equation") {
@@ -631,9 +700,249 @@ function ModelDetails({ details }: { details: DetailResponse | null }) {
     );
   }
   if (details.kind === "tree") {
-    return <pre className="mt-3 max-h-[360px] overflow-auto rounded-lg bg-slate-950 p-4 text-xs text-slate-100">{details.tree_text}</pre>;
+    if (!tree) {
+      return <div className="mt-3 rounded-xl bg-slate-50 p-4 text-sm text-gray-500">Loading structured decision tree...</div>;
+    }
+    if (tree.ok && tree.nodes?.length) {
+      return <DecisionTreeExplanation tree={tree} />;
+    }
+    return (
+      <div className="mt-3 space-y-3">
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          {tree.error ?? "Structured decision tree output is unavailable. Showing the backend text export instead."}
+        </div>
+        <TreeTextFallback text={details.tree_text ?? ""} />
+      </div>
+    );
   }
   return <div className="mt-3 text-sm text-gray-600">{details.message}</div>;
+}
+
+function DecisionTreeExplanation({ tree }: { tree: TreeResponse }) {
+  const nodes = tree.nodes ?? [];
+  const edges = tree.edges ?? [];
+  const root = nodes.find((node) => node.depth === 0) ?? nodes[0];
+  const leaves = nodes.filter((node) => node.leaf);
+  const maxDepth = Math.max(...nodes.map((node) => node.depth), 0);
+  const topLeaves = buildLeafRules(nodes, edges).slice(0, 6);
+
+  return (
+    <div className="mt-3 space-y-4">
+      <div className="grid gap-3 md:grid-cols-4">
+        <MetricTile label="Root Split" value={root?.feature ? `${root.feature} <= ${formatThreshold(root.threshold)}` : "Leaf"} tone="indigo" />
+        <MetricTile label="Tree Depth" value={String(maxDepth)} tone="slate" />
+        <MetricTile label="Terminal Leaves" value={String(leaves.length)} tone="emerald" />
+        <MetricTile label="Root Event Rate" value={`${((root?.positive_rate ?? 0) * 100).toFixed(1)}%`} tone="amber" />
+      </div>
+      <DecisionTreeSvg nodes={nodes} edges={edges} />
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Terminal Decision Rules</h3>
+            <p className="mt-1 text-xs text-slate-500">Largest terminal segments from the fitted tree, sorted by sample count.</p>
+          </div>
+          <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
+            {topLeaves.length} rules shown
+          </div>
+        </div>
+        <div className="mt-3 grid gap-3 lg:grid-cols-2">
+          {topLeaves.map((rule) => (
+            <div key={rule.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Leaf {rule.prediction}</div>
+                <div className={`rounded-full px-2.5 py-1 text-xs font-semibold ${rule.positiveRate >= 0.5 ? "bg-rose-100 text-rose-700" : "bg-blue-100 text-blue-700"}`}>
+                  {(rule.positiveRate * 100).toFixed(1)}% event rate
+                </div>
+              </div>
+              <div className="mt-2 text-lg font-semibold text-slate-900">{rule.samples.toLocaleString()} records</div>
+              <ol className="mt-2 space-y-1 text-xs leading-5 text-slate-700">
+                {rule.conditions.length ? rule.conditions.map((condition, index) => <li key={`${rule.id}-${index}`}>{condition}</li>) : <li>No split conditions; root is terminal.</li>}
+              </ol>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DecisionTreeSvg({ nodes, edges }: { nodes: TreeNode[]; edges: TreeEdge[] }) {
+  const nodeW = 172;
+  const nodeH = 78;
+  const xGap = 42;
+  const yGap = 122;
+  const topPad = 52;
+  const sidePad = 44;
+  const maxDepth = Math.max(...nodes.map((node) => node.depth), 1);
+  const childMap = new Map<number, number[]>();
+  edges.forEach((edge) => childMap.set(edge.source, [...(childMap.get(edge.source) ?? []), edge.target]));
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const subtreeWidth = new Map<number, number>();
+
+  function measure(nodeId: number): number {
+    const children = childMap.get(nodeId) ?? [];
+    if (!children.length) {
+      subtreeWidth.set(nodeId, nodeW);
+      return nodeW;
+    }
+    const width = Math.max(nodeW, children.reduce((sum, childId) => sum + measure(childId), 0) + xGap * (children.length - 1));
+    subtreeWidth.set(nodeId, width);
+    return width;
+  }
+
+  const root = nodes.find((node) => node.depth === 0) ?? nodes[0];
+  const treeWidth = measure(root.id);
+  const width = Math.max(980, sidePad * 2 + treeWidth);
+  const height = topPad * 2 + (maxDepth + 1) * nodeH + maxDepth * (yGap - nodeH);
+  const positions = new Map<number, { x: number; y: number }>();
+
+  function place(nodeId: number, left: number): void {
+    const node = nodeById.get(nodeId);
+    if (!node) return;
+    const currentWidth = subtreeWidth.get(nodeId) ?? nodeW;
+    positions.set(nodeId, {
+      x: left + currentWidth / 2,
+      y: topPad + node.depth * yGap + nodeH / 2,
+    });
+    let childLeft = left;
+    (childMap.get(nodeId) ?? []).forEach((childId) => {
+      place(childId, childLeft);
+      childLeft += (subtreeWidth.get(childId) ?? nodeW) + xGap;
+    });
+  }
+
+  place(root.id, (width - treeWidth) / 2);
+
+  return (
+    <div className="overflow-auto rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-900">Decision Path Diagram</h3>
+          <p className="mt-1 text-xs text-slate-500">Blue nodes are lower event-rate segments; amber/red nodes are higher event-rate segments.</p>
+        </div>
+        <div className="flex flex-wrap gap-2 text-[11px] font-medium">
+          <span className="rounded-full bg-blue-100 px-2 py-1 text-blue-700">Low rate</span>
+          <span className="rounded-full bg-amber-100 px-2 py-1 text-amber-700">Moderate</span>
+          <span className="rounded-full bg-rose-100 px-2 py-1 text-rose-700">High rate</span>
+        </div>
+      </div>
+      <svg viewBox={`0 0 ${width} ${height}`} className="rounded-xl bg-white shadow-sm" style={{ minWidth: width }}>
+        {edges.map((edge) => {
+          const sourcePos = positions.get(edge.source);
+          const targetPos = positions.get(edge.target);
+          if (!sourcePos || !targetPos) return null;
+          const sx = sourcePos.x;
+          const sy = sourcePos.y + nodeH / 2;
+          const tx = targetPos.x;
+          const ty = targetPos.y - nodeH / 2;
+          return (
+            <g key={`${edge.source}-${edge.target}`}>
+              <path d={`M ${sx} ${sy} C ${sx} ${(sy + ty) / 2}, ${tx} ${(sy + ty) / 2}, ${tx} ${ty}`} fill="none" stroke="#94a3b8" strokeWidth={1.6} />
+              <rect x={(sx + tx) / 2 - 18} y={(sy + ty) / 2 - 16} width={36} height={18} rx={9} fill="#ffffff" stroke="#cbd5e1" />
+              <text x={(sx + tx) / 2} y={(sy + ty) / 2 - 3} textAnchor="middle" className="fill-slate-500 text-[10px] font-semibold">
+                {edge.label}
+              </text>
+            </g>
+          );
+        })}
+        {nodes.map((node) => {
+          const position = positions.get(node.id);
+          if (!position) return null;
+          const nx = position.x - nodeW / 2;
+          const ny = position.y - nodeH / 2;
+          return (
+            <g key={node.id}>
+              <rect x={nx} y={ny} width={nodeW} height={nodeH} rx={12} fill={fillForRate(node.positive_rate)} stroke={strokeForRate(node.positive_rate)} strokeWidth={1.4} />
+              <text x={nx + 12} y={ny + 19} className="fill-slate-900 text-[11px] font-semibold">
+                {node.leaf ? `Leaf: ${truncateTreeLabel(node.prediction, 17)}` : truncateTreeLabel(`${node.feature} <= ${formatThreshold(node.threshold)}`, 23)}
+              </text>
+              <text x={nx + 12} y={ny + 40} className="fill-slate-700 text-[10px]">
+                Event rate {(node.positive_rate * 100).toFixed(1)}%
+              </text>
+              <text x={nx + 12} y={ny + 56} className="fill-slate-600 text-[10px]">
+                Samples {node.samples.toLocaleString()}
+              </text>
+              <rect x={nx + 12} y={ny + 64} width={nodeW - 24} height={5} rx={2.5} fill="#e2e8f0" />
+              <rect x={nx + 12} y={ny + 64} width={(nodeW - 24) * Math.min(1, Math.max(0, node.positive_rate))} height={5} rx={2.5} fill={node.positive_rate >= 0.5 ? "#e11d48" : "#2563eb"} opacity={0.85} />
+            </g>
+          );
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function buildLeafRules(nodes: TreeNode[], edges: TreeEdge[]) {
+  const childEdges = new Map<number, TreeEdge[]>();
+  edges.forEach((edge) => childEdges.set(edge.source, [...(childEdges.get(edge.source) ?? []), edge]));
+  const nodeById = new Map(nodes.map((node) => [node.id, node]));
+  const root = nodes.find((node) => node.depth === 0) ?? nodes[0];
+  const rules: { id: number; prediction: string; positiveRate: number; samples: number; conditions: string[] }[] = [];
+
+  function walk(node: TreeNode, conditions: string[]) {
+    const outgoing = childEdges.get(node.id) ?? [];
+    if (node.leaf || !outgoing.length) {
+      rules.push({
+        id: node.id,
+        prediction: node.prediction,
+        positiveRate: node.positive_rate,
+        samples: node.samples,
+        conditions,
+      });
+      return;
+    }
+    outgoing.forEach((edge) => {
+      const child = nodeById.get(edge.target);
+      if (!child) return;
+      walk(child, [...conditions, splitConditionLabel(node, edge.label)]);
+    });
+  }
+
+  if (root) walk(root, []);
+  return rules.sort((a, b) => b.samples - a.samples);
+}
+
+function splitConditionLabel(node: TreeNode, edgeLabel: string) {
+  const threshold = formatThreshold(node.threshold);
+  const feature = node.feature ?? "split";
+  const label = edgeLabel.toLowerCase();
+  if (label.includes("yes") || label.includes("true") || label.includes("<=")) return `${feature} <= ${threshold}`;
+  if (label.includes("no") || label.includes("false") || label.includes(">")) return `${feature} > ${threshold}`;
+  return `${feature}: ${edgeLabel}`;
+}
+
+function TreeTextFallback({ text }: { text: string }) {
+  const lines = text.split("\n").filter(Boolean).slice(0, 40);
+  return (
+    <details className="rounded-xl border border-slate-200 bg-white p-4">
+      <summary className="cursor-pointer text-sm font-semibold text-slate-800">Show text export</summary>
+      <pre className="mt-3 max-h-[280px] overflow-auto rounded-lg bg-slate-50 p-3 text-xs leading-5 text-slate-700">
+        {lines.join("\n") || "No text export available."}
+      </pre>
+    </details>
+  );
+}
+
+function formatThreshold(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(3) : "-";
+}
+
+function truncateTreeLabel(value: string, maxLength: number) {
+  return value.length > maxLength ? `${value.slice(0, Math.max(0, maxLength - 1))}...` : value;
+}
+
+function fillForRate(rate: number) {
+  if (rate < 0.2) return "#dbeafe";
+  if (rate < 0.4) return "#bfdbfe";
+  if (rate < 0.6) return "#fef3c7";
+  if (rate < 0.8) return "#fed7aa";
+  return "#fee2e2";
+}
+
+function strokeForRate(rate: number) {
+  if (rate < 0.4) return "#2563eb";
+  if (rate < 0.6) return "#d97706";
+  return "#e11d48";
 }
 
 function formatNumber(value: number | null | undefined, digits = 4) {

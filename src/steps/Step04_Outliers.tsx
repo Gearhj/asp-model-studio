@@ -30,6 +30,15 @@ const METHOD_OPTIONS: { key: MethodKey; label: string }[] = [
   { key: "PCT_05_95", label: "Winsorize 5%/95%" },
 ];
 
+const METHOD_GUIDANCE: Record<MethodKey, string> = {
+  IQR_1_5: "Definition: flags values beyond 1.5x the interquartile range. Use when you need a standard, moderately sensitive outlier screen.",
+  IQR_3_0: "Definition: flags values beyond 3x the interquartile range. Use when extreme values may be meaningful and capping should be conservative.",
+  ZSCORE_3: "Definition: flags values more than 3 standard deviations from the mean. Use for roughly normal numeric fields.",
+  ZSCORE_4: "Definition: flags values more than 4 standard deviations from the mean. Use when you want a less aggressive normal-based rule.",
+  PCT_01_99: "Definition: caps the most extreme 0.5% tails. Use when you want minimal winsorization while preserving most signal.",
+  PCT_05_95: "Definition: caps the outer 5% tails. Use only when outliers are likely data quality issues or unstable leverage points.",
+};
+
 const BASE =
   (import.meta.env?.VITE_API_BASE?.replace(/\/$/, "") as string) ||
   "http://127.0.0.1:8001/api";
@@ -564,6 +573,15 @@ export default function Step04_Outliers() {
       subtitle="Identify and handle outliers in numeric features"
       nextPath="/step04"   // navigate to Missing Values
     >
+      <section className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950 shadow-sm">
+        <div className="font-semibold">Fraud, anomaly, and transaction-tail guidance</div>
+        <p className="mt-1">
+          For fraud or anomaly problems, extreme values may be meaningful signal rather than bad data.
+          Review amount, balance, income, payment, and transaction-count tails before removing or capping them.
+          Prefer conservative winsorization when values are operationally plausible.
+        </p>
+      </section>
+
       {/* Methods table */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">
@@ -578,6 +596,7 @@ export default function Step04_Outliers() {
                 value={globalMethod}
                 onChange={(e) => setGlobalMethod(e.target.value as MethodKey)}
                 className="w-64 rounded-lg border border-gray-300 bg-white p-2 text-sm"
+                title={METHOD_GUIDANCE[globalMethod]}
               >
                 {METHOD_OPTIONS.map((opt) => (
                   <option key={opt.key} value={opt.key}>
@@ -585,6 +604,7 @@ export default function Step04_Outliers() {
                   </option>
                 ))}
               </select>
+              <span className="max-w-lg text-[11px] font-normal leading-4 text-gray-500">{METHOD_GUIDANCE[globalMethod]}</span>
             </label>
             <button
               type="button"
@@ -634,6 +654,7 @@ export default function Step04_Outliers() {
                         value={methodByFeature[row.feature]}
                         onChange={(e) => handleChange(row.feature, e.target.value as MethodKey)}
                         className="w-56 p-2 border border-gray-300 rounded-lg"
+                        title={METHOD_GUIDANCE[methodByFeature[row.feature] || "IQR_1_5"]}
                       >
                         {METHOD_OPTIONS.map((opt) => (
                           <option key={opt.key} value={opt.key}>

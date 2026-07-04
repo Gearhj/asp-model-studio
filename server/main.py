@@ -18,17 +18,20 @@ from .core.dataset_store import DATASTORE
 from .core.session_checkpoint import load_checkpoint, save_checkpoint
 
 # Modular routers
-from .core.metadata_router import router as metadata_router
+from .core.metadata_router import _infer_target, router as metadata_router
+from .core.utils import df_to_records
 from .eda.eda_router import router as eda_router
 from .preprocessing.outlier_router import router as outlier_router
 from .preprocessing.missing_router import router as missing_router
 from .splitting.split_router import router as split_router
 from .training.trainer_router import router as trainer_router
 from .evaluation.eval_router import router as eval_router
+from .python_execution import router as python_execution_router
 
-MAX_UPLOAD_BYTES = int(os.getenv("ATLAS_MAX_UPLOAD_BYTES", str(50 * 1024 * 1024)))
+MAX_UPLOAD_BYTES = int(os.getenv("ATLAS_MAX_UPLOAD_BYTES", str(250 * 1024 * 1024)))
 MAX_UPLOAD_ROWS = int(os.getenv("ATLAS_MAX_UPLOAD_ROWS", "500000"))
 MAX_UPLOAD_COLUMNS = int(os.getenv("ATLAS_MAX_UPLOAD_COLUMNS", "750"))
+MAX_UPLOAD_SAMPLE_ROWS = int(os.getenv("ATLAS_MAX_UPLOAD_SAMPLE_ROWS", "5000"))
 ALLOWED_UPLOAD_EXTENSIONS = {".csv", ".txt"}
 
 
@@ -117,13 +120,36 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=413, detail=f"Uploaded CSV has too many columns. Maximum is {MAX_UPLOAD_COLUMNS:,}.")
 
         DATASTORE.set_raw(df)
+        target = _infer_target(df)
+        columns = [str(c) for c in df.columns]
+        selected_columns = [col for col in columns if col != target]
+        DATASTORE.meta["selected_columns"] = selected_columns
+        DATASTORE.meta["source"] = {
+            "kind": "backend_csv_import",
+            "filename": filename,
+            "rows": int(df.shape[0]),
+            "columns": int(df.shape[1]),
+            "target": target,
+            "selected_columns": selected_columns,
+        }
         save_checkpoint()
+        sample_df = df.head(max(1, min(MAX_UPLOAD_SAMPLE_ROWS, int(df.shape[0]))))
 
         return {
             "ok": True,
+            "source": "backend_csv_import",
+            "filename": filename,
             "rows": int(df.shape[0]),
+            "rows_loaded": int(df.shape[0]),
+            "row_count": int(df.shape[0]),
             "cols": int(df.shape[1]),
-            "columns": [str(c) for c in df.columns],
+            "columns": columns,
+            "headers": columns,
+            "target": target,
+            "selected_columns": selected_columns,
+            "sample_rows": df_to_records(sample_df),
+            "sample_row_count": int(sample_df.shape[0]),
+            "max_upload_mb": int(MAX_UPLOAD_BYTES // (1024 * 1024)),
         }
 
     # -------------------------------------------------------------------------
@@ -144,6 +170,7 @@ def create_app() -> FastAPI:
     app.include_router(split_router, prefix="/api/balancing_split", tags=["Splitting & Balancing"])
     app.include_router(trainer_router, prefix="/api", tags=["Training"])
     app.include_router(eval_router, prefix="/api", tags=["Evaluation"])
+    app.include_router(python_execution_router, prefix="/api", tags=["Python Execution"])
 
     return app
 

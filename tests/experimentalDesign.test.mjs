@@ -15,6 +15,7 @@ async function importTypeScriptModule(path) {
 }
 
 const design = await importTypeScriptModule(new URL("../src/lib/experimentalDesign.ts", import.meta.url));
+const workflows = await importTypeScriptModule(new URL("../src/config/workflows.ts", import.meta.url));
 
 const twoByTwoText = `
 Pricing Strategy
@@ -105,4 +106,36 @@ test("sample size plan is derived from treatment cells", () => {
   assert.equal(plan.plannedPerCell, 6250);
   assert.equal(plan.plannedTotal, 25000);
   assert.equal(plan.expectedPower >= 0.79, true);
+});
+
+test("run plan analysis carries forward Monte Carlo summary evidence", () => {
+  const analysis = design.buildExperimentalDesignAnalysis({
+    stepLabel: "Experiment Run Plan",
+    currentState: {},
+    nodeStates: {
+      Levels: { objective: twoByTwoText },
+      "Monte Carlo Simulation": {
+        simulationResults: {
+          meanPower: 0.942,
+          wrongWinnerRate: 0.042,
+          recommendedAction: "Proceed",
+        },
+      },
+    },
+  });
+  assert.equal(analysis.kpis.find((kpi) => kpi.label === "MC Readiness")?.value, "Proceed");
+  assert.equal(analysis.kpis.find((kpi) => kpi.label === "Wrong Winner")?.value, "4.2%");
+  assert.equal(analysis.interpretation.includes("Monte Carlo validation is Proceed"), true);
+});
+
+test("experimental design workflow routes progress to the correct next step", () => {
+  const workflow = workflows.getWorkflowDefinition("experimental-design");
+  assert.equal(workflow.steps.find((step) => step.label === "Monte Carlo Simulation")?.route, "/workflow/experimental-design/8");
+  assert.equal(workflow.steps[7].label, "Monte Carlo Simulation");
+  assert.equal(workflow.steps[8].label, "Experiment Run Plan");
+  assert.equal(workflow.steps[9].label, "ANOVA");
+  assert.equal(workflow.steps[10].label, "Optimization");
+  assert.equal(workflow.steps[11].label, "Documentation");
+  assert.equal(workflow.steps[11].route, "/workflow/experimental-design/12");
+  assert.equal(workflow.steps[12], undefined);
 });

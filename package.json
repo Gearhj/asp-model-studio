@@ -11,8 +11,13 @@
     "preview": "vite preview --host 127.0.0.1 --port 4174",
     "preview:modeling": "vite preview --host 127.0.0.1 --port 4174 --strictPort",
     "test:experimental-design": "node tests/experimentalDesign.test.mjs",
+    "test:open-project": "node tests/openProjectRoute.test.mjs",
     "test:persistence": "node tests/persistence.test.mjs",
-    "test:phase4": "node tests/phase4Architecture.test.mjs"
+    "test:phase4": "node tests/phase4Architecture.test.mjs",
+    "test:data-acquisition": "node tests/dataAcquisition.test.mjs",
+    "test:decision-journal": "node tests/decisionJournal.test.mjs",
+    "test:python-execution": ".\\.venv\\Scripts\\python.exe tests\\python_execution_test.py",
+    "test:regression": "node tests/regression.test.mjs"
   },
   "dependencies": {
     "d3": "^7.9.0",

@@ -1,4 +1,5 @@
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { lazy, Suspense } from "react";
+import { Navigate, Route, Routes } from "react-router-dom";
 import CopilotCard from "../components/CopilotCard";
 import BrandLogo from "../components/BrandLogo";
 import ModeSwitcher from "../components/ModeSwitcher";
@@ -28,13 +29,13 @@ import Step10Scoring from "../steps/Step10_Scoring";
 import Step11ModelDevelopmentDocument from "../steps/Step11_ModelDevelopmentDocument";
 import Step12ModelImplementation from "../steps/Step12_ModelImplementation";
 import Step13ModelMonitoring from "../steps/Step13_ModelMonitoring";
-import ExperimentalDesignWorkflowPage from "../features/experimental-design/pages/ExperimentalDesignWorkflowPage";
 import WorkflowTemplates from "../steps/WorkflowTemplates";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { experimentalDesignJourney } from "../config/workflows";
 
+const ExperimentalDesignWorkflowPage = lazy(() => import("../features/experimental-design/pages/ExperimentalDesignWorkflowPage"));
+
 export default function ModelingApp() {
-  const location = useLocation();
   const workflowSteps = useWorkflowStore((state) => state.workflowSteps);
   const workflowId = useWorkflowStore((state) => state.workflowId);
   const restoreWarnings = useWorkflowStore((state) => state.restoreWarnings);
@@ -88,11 +89,7 @@ export default function ModelingApp() {
           </header>
 
           <main className="min-w-0 flex-1 px-3 py-4 sm:px-4 lg:px-6 xl:px-8">
-            <div
-              className={`mx-auto grid w-full max-w-[1760px] gap-4 ${
-                location.pathname === "/step01" ? "xl:grid-cols-1" : "xl:grid-cols-[minmax(0,1fr)_320px]"
-              }`}
-            >
+            <div className="mx-auto grid w-full max-w-[1760px] gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
               <div className="min-w-0">
                 {restoreWarnings.length > 0 && (
                   <section className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">
@@ -137,16 +134,24 @@ export default function ModelingApp() {
                   <Route path="/step11" element={<Step11ModelDevelopmentDocument />} />
                   <Route path="/step12" element={<Step12ModelImplementation />} />
                   <Route path="/step13" element={<Step13ModelMonitoring />} />
-                  <Route path="/workflow/:workflowId/:stepNumber" element={<ExperimentalDesignWorkflowPage />} />
+                  <Route
+                    path="/workflow/:workflowId/:stepNumber"
+                    element={
+                      <Suspense
+                        fallback={
+                          <div className="rounded-xl border border-slate-200 bg-white p-6 text-sm font-semibold text-slate-600 shadow-sm">
+                            Loading workflow...
+                          </div>
+                        }
+                      >
+                        <ExperimentalDesignWorkflowPage />
+                      </Suspense>
+                    }
+                  />
                   <Route path="*" element={<Navigate to="/dashboard" replace />} />
                 </Routes>
-                {location.pathname === "/step01" && (
-                  <div className="mt-4">
-                    <CopilotCard />
-                  </div>
-                )}
               </div>
-              {location.pathname !== "/step01" && <CopilotCard />}
+              <CopilotCard />
             </div>
           </main>
         </div>

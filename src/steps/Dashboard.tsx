@@ -4,6 +4,7 @@ import { Activity, AlertTriangle, BarChart3, CheckCircle2, Database, GitBranch, 
 import BrandLogo from "../components/BrandLogo";
 import { BRAND } from "../config/brand";
 import { getWorkflowDefinition } from "../config/workflows";
+import { saveActiveProjectBeforeNavigation } from "../lib/localProjects";
 import { buildEscalationQueue, loadProductionModels } from "../lib/modelMonitoring";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
@@ -16,6 +17,9 @@ export default function Dashboard() {
   const workflow = getWorkflowDefinition(workflowId);
   const productionModels = loadProductionModels();
   const escalations = buildEscalationQueue(productionModels);
+  const saveBeforeOpenProject = () => {
+    saveActiveProjectBeforeNavigation(useWorkflowStore.getState());
+  };
 
   const completed = workflowSteps.filter((step) => step.status === "complete").length;
   const inProgress =
@@ -42,7 +46,7 @@ export default function Dashboard() {
             <Link to={inProgress.route} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
               Continue Journey
             </Link>
-            <Link to="/step01" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
+            <Link to="/projects/open" onClick={saveBeforeOpenProject} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
               Open Existing Project
             </Link>
             <Link to="/project-overview" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">

@@ -121,35 +121,30 @@ function formatCurveSummary(champion: ExperimentRecord | null) {
 function formatFeatureImportance(champion: ExperimentRecord | null) {
   const rows = champion?.featureImportance?.slice(0, 20) ?? [];
   if (!rows.length) return "No feature importance was captured for the champion experiment.";
-  return [
-    "| Feature | Importance | Direction | Source |",
-    "|---|---:|---:|---|",
-    ...rows.map(
-      (row) =>
-        `| ${escapeMarkdown(row.feature)} | ${formatNumber(row.importance)} | ${formatNumber(row.direction)} | ${escapeMarkdown(row.source ?? "-")} |`
-    ),
-  ].join("\n");
+  return professionalTableHtml(
+    ["Feature", "Importance", "Direction", "Source"],
+    rows.map((row) => [row.feature, formatNumber(row.importance), formatNumber(row.direction), row.source ?? "-"]),
+    { compact: true }
+  );
 }
 
 function formatCandidateModels(experiments: ExperimentRecord[]) {
   if (!experiments.length) return "No model experiments captured.";
-  return [
-    "| Model | Champion | AUC | PR-AUC | F1 | RMSE | MAE | R-squared | Runtime |",
-    "|---|---|---:|---:|---:|---:|---:|---:|---:|",
-    ...experiments.slice(0, 25).map((experiment) =>
-      [
-        escapeMarkdown(experiment.modelType),
-        experiment.champion ? "Yes" : "No",
-        formatNumber(experiment.metrics.auc),
-        formatNumber(experiment.metrics.pr_auc),
-        formatNumber(experiment.metrics.f1),
-        formatNumber(experiment.metrics.rmse),
-        formatNumber(experiment.metrics.mae),
-        formatNumber(experiment.metrics.r2),
-        `${Math.round(experiment.runtimeMs / 1000)}s`,
-      ].join(" | ").replace(/^/, "| ").replace(/$/, " |")
-    ),
-  ].join("\n");
+  return professionalTableHtml(
+    ["Model", "Champion", "AUC", "PR-AUC", "F1", "RMSE", "MAE", "R-squared", "Runtime"],
+    experiments.slice(0, 25).map((experiment) => [
+      experiment.modelType,
+      experiment.champion ? "Yes" : "No",
+      formatNumber(experiment.metrics.auc),
+      formatNumber(experiment.metrics.pr_auc),
+      formatNumber(experiment.metrics.f1),
+      formatNumber(experiment.metrics.rmse),
+      formatNumber(experiment.metrics.mae),
+      formatNumber(experiment.metrics.r2),
+      `${Math.round(experiment.runtimeMs / 1000)}s`,
+    ]),
+    { wide: true, badgeColumns: ["Champion"] }
+  );
 }
 
 function formatDecisionAppendix(entries: DecisionJournalEntry[]) {
@@ -158,23 +153,21 @@ function formatDecisionAppendix(entries: DecisionJournalEntry[]) {
 
 function formatExperimentAppendix(experiments: ExperimentRecord[]) {
   if (!experiments.length) return "No experiment records captured.";
-  return experiments
-    .slice(0, 50)
-    .map((experiment, index) =>
-      [
-        `${index + 1}. ${experiment.modelType}`,
-        `   - Experiment ID: ${experiment.experimentId}`,
-        `   - Timestamp: ${experiment.timestamp}`,
-        `   - Dataset version: ${experiment.datasetVersion}`,
-        `   - Selected features: ${experiment.selectedFeatures.length}`,
-        `   - Balancing: ${experiment.balancingMethod}`,
-        `   - Split strategy: ${experiment.splitStrategy}`,
-        `   - Hyperparameters: ${JSON.stringify(experiment.hyperparameters ?? {})}`,
-        `   - Champion: ${experiment.champion ? "Yes" : "No"}`,
-        `   - Notes: ${experiment.notes || "-"}`,
-      ].join("\n")
-    )
-    .join("\n\n");
+  return professionalTableHtml(
+    ["Experiment ID", "Timestamp", "Model", "Champion", "Dataset Version", "Features", "Balancing", "Split Strategy", "Notes"],
+    experiments.slice(0, 50).map((experiment) => [
+      experiment.experimentId,
+      experiment.timestamp,
+      experiment.modelType,
+      experiment.champion ? "Yes" : "No",
+      experiment.datasetVersion,
+      experiment.selectedFeatures.length,
+      experiment.balancingMethod,
+      experiment.splitStrategy,
+      experiment.notes || "-",
+    ]),
+    { wide: true, badgeColumns: ["Champion"] }
+  );
 }
 
 function escapeMarkdown(value: unknown) {

@@ -34,7 +34,8 @@ export type DecisionJournalEntry = {
 };
 
 export const DECISION_JOURNAL_KEY = "modeling-tool-decision-journal";
-const MAX_LOCAL_DECISION_EVENTS = 300;
+const MAX_LOCAL_DECISION_EVENTS = 150;
+const MAX_DECISION_FIELD_CHARS = 750;
 
 type LogDecisionInput = {
   workflowStep: string;
@@ -47,13 +48,17 @@ type LogDecisionInput = {
   userReason?: string;
 };
 
+function truncateText(value: string, maxChars = MAX_DECISION_FIELD_CHARS) {
+  return value.length > maxChars ? `${value.slice(0, maxChars)}... [truncated]` : value;
+}
+
 function stringifyValue(value: unknown) {
   if (value === null || value === undefined || value === "") return "-";
-  if (typeof value === "string") return value;
+  if (typeof value === "string") return truncateText(value);
   try {
-    return JSON.stringify(value);
+    return truncateText(JSON.stringify(value));
   } catch {
-    return String(value);
+    return truncateText(String(value));
   }
 }
 
@@ -64,6 +69,36 @@ function safeReadEntries(): DecisionJournalEntry[] {
   } catch {
     return [];
   }
+}
+
+function compactEntry(entry: Partial<DecisionJournalEntry>): DecisionJournalEntry {
+  return {
+    id: String(entry.id || `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`),
+    timestamp: String(entry.timestamp || new Date().toISOString()),
+    workflowStep: truncateText(String(entry.workflowStep || "Unknown"), 120),
+    actionType: (entry.actionType || "workflow_setting_changed") as DecisionActionType,
+    subject: truncateText(String(entry.subject || "-"), 180),
+    previousValue: truncateText(String(entry.previousValue || "-")),
+    newValue: truncateText(String(entry.newValue || "-")),
+    systemRecommendation: truncateText(String(entry.systemRecommendation || "Review whether this decision is consistent with current Atlas Guide guidance.")),
+    followStatus: (entry.followStatus || "unknown") as DecisionFollowStatus,
+    userReason: truncateText(String(entry.userReason || "")),
+  };
+}
+
+function persistDecisionEntries(entries: Partial<DecisionJournalEntry>[]) {
+  const compacted = entries.map(compactEntry);
+  const limits = [MAX_LOCAL_DECISION_EVENTS, 100, 50, 25, 10, 1];
+  for (const limit of limits) {
+    try {
+      localStorage.setItem(DECISION_JOURNAL_KEY, JSON.stringify(compacted.slice(0, limit)));
+      window.dispatchEvent(new CustomEvent("decision-journal-updated"));
+      return true;
+    } catch {
+      // Try a smaller audit slice before giving up. Workflow navigation should not be blocked by audit-log storage pressure.
+    }
+  }
+  return false;
 }
 
 function inferRecommendation(actionType: DecisionActionType, subject: string, newValue: unknown) {
@@ -161,8 +196,7 @@ export function logDecision(input: LogDecisionInput) {
     userReason: input.userReason ?? "",
   };
   const entries = safeReadEntries();
-  localStorage.setItem(DECISION_JOURNAL_KEY, JSON.stringify([entry, ...entries].slice(0, MAX_LOCAL_DECISION_EVENTS)));
-  window.dispatchEvent(new CustomEvent("decision-journal-updated"));
+  persistDecisionEntries([entry, ...entries]);
   return entry;
 }
 
@@ -171,8 +205,7 @@ export function loadDecisionJournal() {
 }
 
 export function saveDecisionJournal(entries: DecisionJournalEntry[]) {
-  localStorage.setItem(DECISION_JOURNAL_KEY, JSON.stringify(entries.slice(0, MAX_LOCAL_DECISION_EVENTS)));
-  window.dispatchEvent(new CustomEvent("decision-journal-updated"));
+  persistDecisionEntries(entries);
 }
 
 const materialDecisionTypes = new Set<DecisionActionType>([
@@ -189,13 +222,15 @@ const materialDecisionTypes = new Set<DecisionActionType>([
   "final_model_saved",
 ]);
 
+export function isMaterialDecisionEntry(entry: DecisionJournalEntry) {
+  if (!materialDecisionTypes.has(entry.actionType)) return false;
+  const text = `${entry.subject} ${entry.previousValue} ${entry.newValue}`.toLowerCase();
+  return !/hover|open panel|close panel|viewed|expanded|collapsed/.test(text);
+}
+
 export function materialDecisionSummary(entries: DecisionJournalEntry[], maxEntries = 25) {
   return entries
-    .filter((entry) => materialDecisionTypes.has(entry.actionType))
-    .filter((entry) => {
-      const text = `${entry.subject} ${entry.previousValue} ${entry.newValue}`.toLowerCase();
-      return !/hover|open panel|close panel|viewed|expanded|collapsed/.test(text);
-    })
+    .filter(isMaterialDecisionEntry)
     .slice(0, maxEntries);
 }
 

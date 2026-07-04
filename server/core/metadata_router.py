@@ -33,13 +33,10 @@ router = APIRouter()
 
 def _current_df() -> Optional[pd.DataFrame]:
     """
-    Prefer processed_df if available, otherwise raw_df.
+    Prefer processed_df if available, otherwise raw_df, restricted to the
+    selected modeling columns from Data Acquisition.
     """
-    if DATASTORE.processed_df is not None:
-        return DATASTORE.processed_df
-    if DATASTORE.raw_df is not None:
-        return DATASTORE.raw_df
-    return None
+    return DATASTORE.get_active_df()
 
 
 def _infer_target(df: pd.DataFrame) -> Optional[str]:
@@ -83,6 +80,11 @@ class SetSamplePayload(BaseModel):
     selected_columns: Optional[List[str]] = None
 
 
+class SetTargetPayload(BaseModel):
+    target: Optional[str] = None
+    selected_columns: Optional[List[str]] = None
+
+
 # -----------------------------------------------------------------------------
 # POST /api/data/set_sample
 # -----------------------------------------------------------------------------
@@ -116,9 +118,6 @@ def set_sample(payload: SetSamplePayload) -> Dict[str, Any]:
     if df.empty:
         return {"ok": False, "error": "Constructed DataFrame is empty."}
 
-    # Persist into DATASTORE
-    DATASTORE.set_raw(df)
-
     if payload.target:
         if payload.target in df.columns:
             DATASTORE.set_target(payload.target)
@@ -128,6 +127,22 @@ def set_sample(payload: SetSamplePayload) -> Dict[str, Any]:
     else:
         _infer_target(df)
 
+    columns = [str(col) for col in df.columns]
+    selected_columns = [
+        str(col)
+        for col in (payload.selected_columns or [])
+        if str(col) in columns and str(col) != DATASTORE.target
+    ]
+    if selected_columns:
+        keep = list(selected_columns)
+        if DATASTORE.target and DATASTORE.target in df.columns and DATASTORE.target not in keep:
+            keep.append(DATASTORE.target)
+        df = df.loc[:, keep].copy()
+
+    # Persist into DATASTORE after applying selected feature scope.
+    DATASTORE.set_raw(df)
+    DATASTORE.meta["selected_columns"] = selected_columns
+
     save_checkpoint()
 
     return {
@@ -136,6 +151,44 @@ def set_sample(payload: SetSamplePayload) -> Dict[str, Any]:
         "n_cols": int(df.shape[1]),
         "columns": [str(c) for c in df.columns],
         "target": DATASTORE.target,
+        "selected_columns": selected_columns,
+    }
+
+
+@router.post("/data/set_target")
+def set_target(payload: SetTargetPayload) -> Dict[str, Any]:
+    """
+    Update target/selected feature metadata without replacing DATASTORE.raw_df.
+
+    This is required after large backend CSV imports: the browser only keeps a
+    preview sample, but the backend must retain the full imported dataset.
+    """
+    df = DATASTORE.get_base_df()
+    if df is None or df.empty:
+        return {"ok": False, "error": "No backend dataset is loaded."}
+
+    if payload.target:
+        if payload.target not in df.columns:
+            return {"ok": False, "error": f"Target column '{payload.target}' is not present in the loaded dataset."}
+        DATASTORE.set_target(payload.target)
+    else:
+        DATASTORE.set_target(None)
+
+    columns = [str(col) for col in df.columns]
+    selected_columns = [str(col) for col in (payload.selected_columns or []) if str(col) in columns and str(col) != DATASTORE.target]
+    DATASTORE.meta["selected_columns"] = selected_columns
+    save_checkpoint()
+
+    active_df = DATASTORE.get_active_df()
+    active_columns = [str(col) for col in active_df.columns] if active_df is not None else columns
+
+    return {
+        "ok": True,
+        "n_rows": int(active_df.shape[0] if active_df is not None else df.shape[0]),
+        "n_cols": int(active_df.shape[1] if active_df is not None else df.shape[1]),
+        "columns": active_columns,
+        "target": DATASTORE.target,
+        "selected_columns": selected_columns,
     }
 
 
@@ -219,5 +272,5 @@ def get_sample(max_rows: int = 5000) -> Dict[str, Any]:
         "headers": headers,
         "rows": rows,
         "target": DATASTORE.target,
-        "selected_columns": None,
+        "selected_columns": DATASTORE.meta.get("selected_columns"),
     }

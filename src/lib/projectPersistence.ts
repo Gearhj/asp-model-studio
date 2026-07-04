@@ -4,6 +4,7 @@ import type { WorkflowProjectSnapshot } from "../state/useWorkflowStore";
 export const PROJECT_SAVE_STATUS_EVENT = "atlas-project-save-status";
 
 const LOCAL_PROJECTS_KEY = "atlas-local-projects";
+const PROJECT_SNAPSHOT_KEY_PREFIX = "atlas-project-snapshot:";
 const WORKFLOW_NODE_PREFIX = "atlas-workflow-node-state:";
 const DATASET_KEY = "modeling-tool-dataset";
 const TRAINING_SUMMARY_KEY = "modeling-tool-training-summary";
@@ -375,11 +376,45 @@ export function compactProjectForStorage<T extends { snapshot: WorkflowProjectSn
   };
 }
 
+export function thinProjectForStorage<T extends { snapshot: WorkflowProjectSnapshot }>(project: T): T {
+  const persisted = project.snapshot.persistedLocalState as PersistedProjectLocalState | undefined;
+  const warning =
+    "Detailed page artifacts were not embedded in the Recent Projects registry because browser storage quota was reached. Workflow progress is preserved; reload source data or rerun heavy artifacts if needed.";
+  return {
+    ...project,
+    snapshot: {
+      ...project.snapshot,
+      persistedLocalState: persisted
+        ? {
+            schemaVersion: 1 as const,
+            savedAt: persisted.savedAt,
+            localStorage: {},
+            sessionStorage: {},
+            workflowNodeStates: {},
+            datasetPreview: persisted.datasetPreview
+              ? {
+                  ...persisted.datasetPreview,
+                  previewRows: [],
+                  artifactStatus: "preview_restored_requires_reload" as const,
+                }
+              : undefined,
+            missingArtifacts: Array.from(new Set([...(persisted.missingArtifacts ?? []), warning])),
+            storageEstimateBytes: 0,
+          }
+        : undefined,
+      restoreWarnings: Array.from(new Set([...(project.snapshot.restoreWarnings ?? []), warning])),
+    },
+  };
+}
+
 export function projectPersistenceDebug(projectId: string, workflowSteps: WorkflowStep[]) {
   const registryRaw = typeof localStorage === "undefined" ? "" : localStorage.getItem(LOCAL_PROJECTS_KEY) ?? "";
   const registry = readJson(registryRaw);
   const currentProject = Array.isArray(registry) ? registry.find((project: any) => project?.projectId === projectId) : null;
-  const persisted = currentProject?.snapshot?.persistedLocalState as PersistedProjectLocalState | undefined;
+  const separatedSnapshot =
+    typeof localStorage === "undefined" ? undefined : readJson(localStorage.getItem(`${PROJECT_SNAPSHOT_KEY_PREFIX}${projectId}`));
+  const snapshot = currentProject?.snapshot ?? separatedSnapshot;
+  const persisted = snapshot?.persistedLocalState as PersistedProjectLocalState | undefined;
   const localKeys =
     typeof localStorage === "undefined"
       ? []
@@ -393,7 +428,7 @@ export function projectPersistenceDebug(projectId: string, workflowSteps: Workfl
   const missingWorkflowSteps = workflowSteps.filter((step) => !savedStepIds.has(step.id)).map((step) => step.label);
   return {
     projectId,
-    snapshotBytes: currentProject?.snapshot ? estimateBytes(currentProject.snapshot) : 0,
+    snapshotBytes: snapshot ? estimateBytes(snapshot) : 0,
     lastSavedAt: currentProject?.lastModified ?? persisted?.savedAt ?? "",
     restoreStatus: persisted ? (persisted.missingArtifacts?.length ? "Partial restore expected" : "Complete compact restore available") : "No compact artifact snapshot",
     missingArtifacts: persisted?.missingArtifacts ?? [],

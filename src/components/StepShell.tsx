@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AlertTriangle } from "lucide-react";
-import { upsertProjectFromState } from "../lib/localProjects";
+import { saveActiveProjectBeforeNavigation } from "../lib/localProjects";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import StepPythonPanel from "./StepPythonPanel";
 
@@ -10,6 +10,7 @@ type Props = {
   subtitle?: string;
   children: React.ReactNode;
   nextDisabled?: boolean;
+  nextDisabledReason?: string;
   nextLabel?: string;
   /** Optional pre-navigation task (persist/validate). Throw to block navigation. */
   onNext?: () => void | boolean | Promise<void | boolean>;
@@ -22,6 +23,7 @@ export default function StepShell({
   subtitle,
   children,
   nextDisabled,
+  nextDisabledReason,
   nextLabel = "Mark Complete & Next Step",
   onNext,
   nextPath,
@@ -47,7 +49,10 @@ export default function StepShell({
         targetPath = targetPath ?? getNextStepPath(currentStep as Parameters<typeof markComplete>[0]);
       }
 
-      upsertProjectFromState(useWorkflowStore.getState());
+      const saveResult = saveActiveProjectBeforeNavigation(useWorkflowStore.getState());
+      if (!saveResult.ok) {
+        setNavigationError(`${saveResult.message} Navigation will continue, but reopen may restore only workflow progress.`);
+      }
 
       if (targetPath) {
         navigate(targetPath);
@@ -84,7 +89,12 @@ export default function StepShell({
 
       <StepPythonPanel />
 
-      <div className="flex justify-center pb-14 pt-7">
+      <div className="flex flex-col items-center gap-3 pb-14 pt-7">
+        {nextDisabled && nextDisabledReason && (
+          <div className="max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-900">
+            {nextDisabledReason}
+          </div>
+        )}
         <button
           data-step-next-button="true"
           className={
@@ -94,7 +104,7 @@ export default function StepShell({
           }
           disabled={!!nextDisabled}
           onClick={handleNext}
-          title={nextDisabled ? "Complete required actions first" : nextLabel}
+          title={nextDisabled ? nextDisabledReason || "Complete required actions first" : nextLabel}
         >
           {nextLabel}
         </button>

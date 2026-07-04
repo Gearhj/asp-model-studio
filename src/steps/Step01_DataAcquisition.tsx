@@ -1,7 +1,18 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import StepShell from "../components/StepShell";
 import { logDecision } from "../lib/decisionJournal";
+import {
+  BROWSER_PARSE_EXTENSIONS,
+  DEFAULT_BROWSER_MAX_COLUMNS,
+  DEFAULT_BROWSER_MAX_ROWS,
+  backendImportFailureMessage,
+  buildSelectedDatasetView,
+  dataAcquisitionDisabledReason,
+  getUploadDecision,
+  guessTargetFromHeaders,
+  normalizeBackendImportResponse,
+  type NormalizedBackendImport,
+} from "../lib/dataAcquisitionUpload";
 import {
   buildDataAccessMetadata,
   inferDataQuality,
@@ -23,23 +34,6 @@ const BASE =
   (import.meta.env?.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
   "http://127.0.0.1:8001/api";
 
-const MAX_BROWSER_UPLOAD_BYTES = 25 * 1024 * 1024;
-const MAX_BROWSER_ROWS = 250_000;
-const MAX_BROWSER_COLUMNS = 500;
-const BROWSER_PARSE_EXTENSIONS = new Set(["csv", "txt", "json"]);
-const RECOGNIZED_UPLOAD_EXTENSIONS = new Set([
-  "csv",
-  "txt",
-  "json",
-  "xlsx",
-  "xls",
-  "parquet",
-  "feather",
-  "sas7bdat",
-  "pkl",
-  "zip",
-]);
-
 const sourceCards: { id: DataSourceType; title: string; body: string }[] = [
   { id: "upload", title: "Upload File", body: "CSV and JSON parse locally. Excel, Parquet, Feather, SAS, Pickle, and ZIP are staged for backend import." },
   { id: "sql", title: "SQL Database", body: "Author governed SQL, validate queries, capture lineage, and generate Python extraction code." },
@@ -50,6 +44,21 @@ const sourceCards: { id: DataSourceType; title: string; body: string }[] = [
 
 const databaseProviders = ["Oracle", "SQL Server", "PostgreSQL", "MySQL", "Snowflake", "BigQuery", "Databricks SQL", "Teradata", "SQLite", "DuckDB"];
 const cloudProviders = ["AWS S3", "Azure Blob Storage", "Google Cloud Storage", "SharePoint", "OneDrive"];
+const selectGuidance: Record<string, Record<string, string>> = {
+  Sampling: {
+    full: "Definition: use all loaded records. Use when the file is small enough for browser and backend processing.",
+    sample: "Definition: take the first bounded sample. Use for quick previews when full data is large.",
+    random: "Definition: randomly sample records. Use when the preview should represent the full population.",
+    stratified: "Definition: preserve target or segment mix while sampling. Use when class balance or business segments matter.",
+    time_based: "Definition: preserve temporal order. Use when future performance or out-of-time validation matters.",
+    top_n: "Definition: keep the first N rows. Use only for deterministic debugging or fixed extracts.",
+  },
+  Target: {
+    "": "Definition: no target selected. Select the dependent variable before modeling so ATLAS can infer classification versus regression.",
+  },
+  Provider: Object.fromEntries(databaseProviders.map((providerName) => [providerName, `Definition: ${providerName} governed SQL source. Use when lineage, query review, and repeatable extraction are required.`])),
+  "Cloud Provider": Object.fromEntries(cloudProviders.map((providerName) => [providerName, `Definition: ${providerName} object/file source. Use when data is staged in managed cloud or document storage.`])),
+};
 
 function parseDelimitedLine(line: string) {
   const out: string[] = [];
@@ -75,7 +84,7 @@ function coerce(value: string) {
   return Number.isFinite(numeric) ? numeric : value;
 }
 
-function parseCSV(text: string) {
+export function parseCSV(text: string) {
   const lines = text.replace(/\r/g, "").split("\n").filter((line) => line.trim().length);
   if (!lines.length) return { headers: [] as string[], rows: [] as Record<string, unknown>[] };
   const headers = parseDelimitedLine(lines[0]);
@@ -90,7 +99,7 @@ function parseCSV(text: string) {
   return { headers, rows };
 }
 
-function parseJSON(text: string) {
+export function parseJSON(text: string) {
   const parsed = JSON.parse(text);
   const rows = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.data) ? parsed.data : [];
   if (!Array.isArray(rows) || !rows.length) return { headers: [] as string[], rows: [] as Record<string, unknown>[] };
@@ -268,7 +277,6 @@ function applySampling(rows: Record<string, unknown>[], method: SamplingMethod, 
 }
 
 export default function Step01DataAcquisition() {
-  const navigate = useNavigate();
   const [sourceType, setSourceType] = useState<DataSourceType>("upload");
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
@@ -290,10 +298,15 @@ export default function Step01DataAcquisition() {
   const [pythonCode, setPythonCode] = useState("import pandas as pd\n\n# Assign final dataframe to df\n# df = pd.read_sql(...)\n");
   const [metadata, setMetadata] = useState<DataAccessMetadata | null>(() => loadDataAccessMetadata());
   const [quality, setQuality] = useState<DataQualitySummary | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [backendImportSynced, setBackendImportSynced] = useState(false);
+  const [backendRowCount, setBackendRowCount] = useState<number | null>(null);
   const datasetVersions = loadDatasetVersions();
 
   const modelingRows = useMemo(() => applySampling(rows, samplingMethod, samplingDetail), [rows, samplingMethod, samplingDetail]);
   const sampleRows = useMemo(() => modelingRows.slice(0, 5000), [modelingRows]);
+  const effectiveModelingRowCount = backendRowCount ?? modelingRows.length;
   const previewRows = sampleRows.slice(0, 100);
   const targetInfo = useMemo(() => targetMeta(modelingRows, target), [modelingRows, target]);
   const selectable = headers.filter((header) => header !== target);
@@ -317,8 +330,9 @@ export default function Step01DataAcquisition() {
       pythonCode: sourceType === "python" ? pythonCode : undefined,
       samplingMethod,
       samplingDetail,
+      rowCountOverride: effectiveModelingRowCount,
     });
-  }, [headers, modelingRows, target, sourceType, provider, cloudProvider, fileName, connectionName, database, schema, sql, cloudPath, pythonCode, samplingMethod, samplingDetail]);
+  }, [headers, modelingRows, target, sourceType, provider, cloudProvider, fileName, connectionName, database, schema, sql, cloudPath, pythonCode, samplingMethod, samplingDetail, effectiveModelingRowCount]);
 
   const variableSummary = useMemo(
     () =>
@@ -330,18 +344,102 @@ export default function Step01DataAcquisition() {
     [headers, sampleRows, target]
   );
 
+  function applyLoadedDataset(normalized: NormalizedBackendImport, options: { sourceLabel: string; backendSynced: boolean }) {
+    const guessedTarget = normalized.target || guessTargetFromHeaders(normalized.headers);
+    const keep: Record<string, boolean> = {};
+    normalized.headers.forEach((header) => {
+      keep[header] = header !== guessedTarget;
+    });
+    setHeaders(normalized.headers);
+    setRows(normalized.previewRows);
+    setKept(keep);
+    setTarget(guessedTarget);
+    setImportError(null);
+    setBackendImportSynced(options.backendSynced);
+    setBackendRowCount(options.backendSynced ? normalized.rowCount : null);
+    setSamplingMethod("full");
+    const selectedColumns = normalized.selectedColumns.length ? normalized.selectedColumns : normalized.headers.filter((header) => header !== guessedTarget);
+    const localView = buildSelectedDatasetView({
+      headers: normalized.headers,
+      rows: normalized.previewRows.slice(0, 5000),
+      selectedColumns,
+      target: guessedTarget || null,
+    });
+    saveLocalDataset({
+      headers: localView.headers,
+      rows: localView.rows,
+      target: guessedTarget || null,
+      selected_columns: localView.selectedColumns,
+      problem_type: guessedTarget ? inferProblemType(localView.rows, guessedTarget) : undefined,
+    });
+    window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
+    const dq = inferDataQuality({ headers: normalized.headers, rows: normalized.previewRows.slice(0, 5000), target: guessedTarget || null });
+    setQuality({
+      ...dq,
+      rowCount: normalized.rowCount,
+      memoryEstimateMb: normalized.rowCount * Math.max(1, normalized.headers.length) * 16 / 1024 / 1024,
+    });
+    logDecision({
+      workflowStep: "Data Acquisition",
+      actionType: "workflow_setting_changed",
+      subject: "Data source",
+      previousValue: metadata?.sourceLabel,
+      newValue: options.sourceLabel,
+      systemRecommendation: "Capture data source, version, sampling method, and data quality immediately after import.",
+      followStatus: "followed",
+    });
+  }
+
+  async function importCsvThroughBackend(file: File) {
+    setIsImporting(true);
+    setImportError(null);
+    setMessage(`Importing ${file.name} through the ATLAS backend. The browser will show a governed preview sample when loading is complete.`);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch(`${BASE}/data/upload_csv`, {
+        method: "POST",
+        body: formData,
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok || !payload?.ok) {
+        const errorMessage = payload?.detail ?? payload?.error ?? `HTTP ${response.status}`;
+        throw new Error(backendImportFailureMessage(errorMessage, payload?.max_upload_mb));
+      }
+      const normalized = normalizeBackendImportResponse(payload);
+      if (!normalized.headers.length || !normalized.previewRows.length || !normalized.rowCount) {
+        throw new Error("Backend import completed but did not return usable columns and preview rows.");
+      }
+      applyLoadedDataset(normalized, { sourceLabel: `Backend CSV import: ${file.name}`, backendSynced: true });
+      setMessage(`Loaded ${normalized.rowCount.toLocaleString()} rows and ${normalized.columnCount.toLocaleString()} columns through backend import. The browser preview shows ${normalized.previewRows.length.toLocaleString()} rows.`);
+    } catch (err: any) {
+      const errorText = err?.message ?? "ATLAS could not import this file through the backend.";
+      setImportError(errorText);
+      setBackendImportSynced(false);
+      setBackendRowCount(null);
+      setMessage(errorText);
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
   async function onFile(file: File) {
     setMessage("");
+    setImportError(null);
     setFileName(file.name);
-    const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
-    if (!RECOGNIZED_UPLOAD_EXTENSIONS.has(extension)) {
-      setMessage(`.${extension || "unknown"} is not an allowed project data file type. Upload CSV, JSON, Excel, Parquet, Feather, SAS, Pickle, or ZIP.`);
+    setBackendImportSynced(false);
+    setBackendRowCount(null);
+    const decision = getUploadDecision({ fileName: file.name, fileSize: file.size });
+    if (decision.mode === "invalid" || decision.mode === "recognized_unsupported") {
+      setImportError(decision.message);
+      setMessage(decision.message);
       return;
     }
-    if (file.size > MAX_BROWSER_UPLOAD_BYTES) {
-      setMessage(`This file is ${(file.size / 1024 / 1024).toFixed(1)} MB. Browser preview is limited to ${(MAX_BROWSER_UPLOAD_BYTES / 1024 / 1024).toFixed(0)} MB; use backend import for larger governed datasets.`);
+    if (decision.mode === "backend") {
+      await importCsvThroughBackend(file);
       return;
     }
+    const extension = decision.extension;
     if (!BROWSER_PARSE_EXTENSIONS.has(extension)) {
       setMessage(`${extension.toUpperCase()} files are recognized but require backend parser support before they can be loaded into the browser preview.`);
       return;
@@ -349,47 +447,29 @@ export default function Step01DataAcquisition() {
     try {
       const text = await file.text();
       const parsed = extension === "json" ? parseJSON(text) : parseCSV(text);
-      if (parsed.headers.length > MAX_BROWSER_COLUMNS) {
-        setMessage(`This dataset has ${parsed.headers.length.toLocaleString()} columns. Browser preview is limited to ${MAX_BROWSER_COLUMNS.toLocaleString()} columns.`);
+      if (parsed.headers.length > DEFAULT_BROWSER_MAX_COLUMNS) {
+        setMessage(`This dataset has ${parsed.headers.length.toLocaleString()} columns. Browser preview is limited to ${DEFAULT_BROWSER_MAX_COLUMNS.toLocaleString()} columns.`);
         return;
       }
-      if (parsed.rows.length > MAX_BROWSER_ROWS) {
-        setMessage(`This dataset has ${parsed.rows.length.toLocaleString()} rows. Browser preview is limited to ${MAX_BROWSER_ROWS.toLocaleString()} rows; use sampling or backend import for larger files.`);
+      if (parsed.rows.length > DEFAULT_BROWSER_MAX_ROWS) {
+        setMessage(`This dataset has ${parsed.rows.length.toLocaleString()} rows. Browser preview is limited to ${DEFAULT_BROWSER_MAX_ROWS.toLocaleString()} rows; use sampling or backend import for larger files.`);
         return;
       }
-      setHeaders(parsed.headers);
-      setRows(parsed.rows);
-      const keep: Record<string, boolean> = {};
-      parsed.headers.forEach((header) => {
-        keep[header] = true;
-      });
-      setKept(keep);
-      const guessedTarget =
-        parsed.headers.find((header) => /^(target|label|class|bad|default|fraud|response|outcome|event)$/i.test(header)) ??
-        parsed.headers.find((header) => /target|label|outcome/i.test(header)) ??
-        "";
-      setTarget(guessedTarget);
-      saveLocalDataset({
+      const normalized = {
         headers: parsed.headers,
-        rows: parsed.rows.slice(0, 5000),
-        target: guessedTarget || null,
-        selected_columns: parsed.headers.filter((header) => header !== guessedTarget),
-        problem_type: guessedTarget ? inferProblemType(parsed.rows.slice(0, 5000), guessedTarget) : undefined,
-      });
-      window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
-      const dq = inferDataQuality({ headers: parsed.headers, rows: parsed.rows.slice(0, 5000), target: guessedTarget || null });
-      setQuality(dq);
-      logDecision({
-        workflowStep: "Data Acquisition",
-        actionType: "workflow_setting_changed",
-        subject: "Data source",
-        previousValue: metadata?.sourceLabel,
-        newValue: `Uploaded ${file.name}`,
-        systemRecommendation: "Capture data source, version, sampling method, and data quality immediately after import.",
-        followStatus: "followed",
-      });
+        previewRows: parsed.rows,
+        rowCount: parsed.rows.length,
+        columnCount: parsed.headers.length,
+        target: guessTargetFromHeaders(parsed.headers),
+        selectedColumns: parsed.headers.filter((header) => header !== guessTargetFromHeaders(parsed.headers)),
+        filename: file.name,
+      };
+      applyLoadedDataset(normalized, { sourceLabel: `Uploaded ${file.name}`, backendSynced: false });
+      setMessage(`Loaded ${parsed.rows.length.toLocaleString()} rows and ${parsed.headers.length.toLocaleString()} columns in the browser preview.`);
     } catch (err: any) {
-      setMessage(err?.message ?? "Unable to parse file.");
+      const errorText = err?.message ?? "Unable to parse file.";
+      setImportError(errorText);
+      setMessage(errorText);
     }
   }
 
@@ -404,32 +484,57 @@ export default function Step01DataAcquisition() {
     });
     setKept(keep);
     setTarget("target");
+    setImportError(null);
+    setBackendImportSynced(false);
+    setBackendRowCount(null);
     setMessage("SQL metadata saved. Real query execution requires a backend connector; upload query output or connect the backend to populate rows.");
   }
 
   async function persistDataset() {
     if (!headers.length) throw new Error("No dataset or query metadata is available.");
     const selectedColumns = selected.length ? selected : selectable;
+    const localView = buildSelectedDatasetView({
+      headers,
+      rows: sampleRows,
+      selectedColumns,
+      target: target || null,
+    });
+    const backendView = buildSelectedDatasetView({
+      headers,
+      rows: modelingRows,
+      selectedColumns,
+      target: target || null,
+    });
     const meta = generatedMetadata;
     const dq = quality ?? inferDataQuality({ headers, rows: sampleRows, target: target || null });
     const problemType = targetInfo.kind === "continuous" ? "regression" : "classification";
     const localPayload: LocalDataset = {
-      headers,
-      rows: sampleRows,
+      headers: localView.headers,
+      rows: localView.rows,
       target: target || null,
-      selected_columns: selectedColumns,
+      selected_columns: localView.selectedColumns,
       problem_type: problemType,
       data_access: meta ?? undefined,
       data_quality: dq,
     };
     const backendPayload: LocalDataset = {
       ...localPayload,
-      rows: modelingRows,
+      headers: backendView.headers,
+      rows: backendView.rows,
+      selected_columns: backendView.selectedColumns,
     };
     const localSaveStatus = saveLocalDataset(localPayload);
+    if (localSaveStatus === "failed") {
+      setMessage("Dataset preview loaded, but browser session storage could not cache the sample. Continue is allowed; reload the source file if the browser session is refreshed.");
+    }
     if (meta) {
-      saveDataAccessMetadata(meta);
-      recordDatasetVersion(localPayload, meta);
+      try {
+        saveDataAccessMetadata(meta);
+        recordDatasetVersion(localPayload, meta);
+      } catch (error) {
+        console.warn("ATLAS could not update data access metadata history", error);
+        setMessage("Dataset is loaded and usable, but ATLAS could not update browser metadata history because local storage is full. Navigation is still allowed.");
+      }
       setMetadata(meta);
     }
     setQuality(dq);
@@ -441,32 +546,35 @@ export default function Step01DataAcquisition() {
         data: {
           ...(state?.trainSpec?.data ?? {}),
           source: sourceType,
-          n_samples: modelingRows.length,
+          n_samples: effectiveModelingRowCount,
           task: problemType === "regression" ? "regression" : "binary",
           target,
-          selected_columns: selectedColumns,
+          selected_columns: localView.selectedColumns,
           dataset_version: meta?.version,
         },
       },
     }));
 
+    let backendSynced = backendImportSynced;
     try {
-      const backendRes = await fetch(`${BASE}/data/set_sample`, {
+      const backendRes = await fetch(`${BASE}${backendImportSynced ? "/data/set_target" : "/data/set_sample"}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(backendPayload),
+        body: JSON.stringify(backendImportSynced ? { target, selected_columns: localView.selectedColumns } : backendPayload),
       });
       const backendJson = await backendRes.json().catch(() => null);
       if (!backendRes.ok || !backendJson?.ok) {
-        throw new Error(backendJson?.error ?? "Backend did not accept the modeling dataset.");
+        throw new Error(backendJson?.detail ?? backendJson?.error ?? "Backend did not accept the modeling dataset.");
       }
+      backendSynced = true;
     } catch (err: any) {
-      setMessage(err?.message ?? "Unable to send the modeling dataset to the backend.");
-      throw err;
+      setMessage(`Dataset preview is saved locally. Backend sync did not complete: ${err?.message ?? "Unable to send the modeling dataset to the backend."}`);
     }
 
-    if (localSaveStatus === "sample") {
-      setMessage(`Cached ${sampleRows.length.toLocaleString()} preview rows in the browser and sent ${modelingRows.length.toLocaleString()} rows to the backend for modeling.`);
+    if (backendSynced && localSaveStatus === "sample") {
+      setMessage(`Cached ${sampleRows.length.toLocaleString()} preview rows in the browser and sent ${effectiveModelingRowCount.toLocaleString()} rows to the backend for modeling.`);
+    } else if (backendSynced && localSaveStatus !== "failed") {
+      setMessage(`Cached ${sampleRows.length.toLocaleString()} preview rows in the browser and synced ${effectiveModelingRowCount.toLocaleString()} rows to the backend for modeling.`);
     }
     logDecision({
       workflowStep: "Data Acquisition",
@@ -479,18 +587,36 @@ export default function Step01DataAcquisition() {
     });
   }
 
+  const nextDisabledReason = dataAcquisitionDisabledReason({
+    isImporting,
+    hasHeaders: headers.length > 0,
+    hasTarget: !!target,
+    importError,
+  });
+  const messageClass =
+    importError && !headers.length
+      ? "border-red-200 bg-red-50 text-red-900"
+      : isImporting
+        ? "border-blue-200 bg-blue-50 text-blue-900"
+        : "border-amber-200 bg-amber-50 text-amber-900";
+
   return (
     <StepShell
       title="Step 1: Data Access & Data Acquisition"
       subtitle="Connect to enterprise data sources, validate extraction logic, preview data, capture lineage, and persist the governed modeling dataset."
-      nextDisabled={!headers.length}
+      nextDisabled={!!nextDisabledReason}
+      nextDisabledReason={nextDisabledReason}
+      nextPath="/step01b"
       onNext={async () => {
         await persistDataset();
-        navigate("/step01b");
       }}
     >
       <div className="space-y-5">
-        {message && <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{message}</div>}
+        {message && (
+          <div className={`rounded-lg border px-4 py-3 text-sm ${messageClass}`}>
+            {message}
+          </div>
+        )}
 
         <section className="grid gap-3 md:grid-cols-5">
           {sourceCards.map((card) => (
@@ -556,12 +682,19 @@ export default function Step01DataAcquisition() {
                 newValue: next,
               });
               setTarget(next);
-              saveLocalDataset({
+              if (headers.length) setImportError(null);
+              const localView = buildSelectedDatasetView({
                 headers,
                 rows: sampleRows,
+                selectedColumns: headers.filter((header) => header !== next && kept[header] !== false),
                 target: next || null,
-                selected_columns: headers.filter((header) => header !== next && kept[header] !== false),
-                problem_type: next ? inferProblemType(sampleRows, next) : undefined,
+              });
+              saveLocalDataset({
+                headers: localView.headers,
+                rows: localView.rows,
+                target: next || null,
+                selected_columns: localView.selectedColumns,
+                problem_type: next ? inferProblemType(localView.rows, next) : undefined,
               });
               window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
               if (rows.length) setQuality(inferDataQuality({ headers, rows: rows.slice(0, 5000), target: next || null }));
@@ -571,8 +704,9 @@ export default function Step01DataAcquisition() {
             samplingDetail={samplingDetail}
             setSamplingDetail={setSamplingDetail}
             targetInfo={targetInfo}
-            modelingRowCount={modelingRows.length}
+            effectiveModelingRowCount={effectiveModelingRowCount}
             previewRowCount={sampleRows.length}
+            backendImportSynced={backendImportSynced}
           />
           <DataQualityPanel quality={quality} metadata={generatedMetadata ?? metadata} />
         </section>
@@ -613,7 +747,22 @@ export default function Step01DataAcquisition() {
                             type="checkbox"
                             checked={!!kept[row.column]}
                             onChange={(event) => {
-                              setKept((current) => ({ ...current, [row.column]: event.target.checked }));
+                              const nextKept = { ...kept, [row.column]: event.target.checked };
+                              setKept(nextKept);
+                              const localView = buildSelectedDatasetView({
+                                headers,
+                                rows: sampleRows,
+                                selectedColumns: headers.filter((header) => header !== target && nextKept[header] !== false),
+                                target: target || null,
+                              });
+                              saveLocalDataset({
+                                headers: localView.headers,
+                                rows: localView.rows,
+                                target: target || null,
+                                selected_columns: localView.selectedColumns,
+                                problem_type: target ? inferProblemType(localView.rows, target) : undefined,
+                              });
+                              window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
                               logDecision({
                                 workflowStep: "Data Acquisition",
                                 actionType: "feature_inclusion_changed",
@@ -792,20 +941,20 @@ function DataPreview(props: {
   samplingDetail: string;
   setSamplingDetail: (value: string) => void;
   targetInfo: { kind: "none" | "binary" | "continuous"; eventRate: number | null };
-  modelingRowCount: number;
+  effectiveModelingRowCount: number;
   previewRowCount: number;
+  backendImportSynced: boolean;
 }) {
   return (
     <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(380px,520px)] lg:items-start">
         <div>
           <h2 className="text-base font-semibold text-slate-950">Data Preview</h2>
           <p className="mt-1 text-sm text-slate-500">First 100 rows, schema profile, and sampling controls.</p>
         </div>
-        <div className="grid gap-2 md:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <Select label="Sampling" value={props.samplingMethod} onChange={(value) => props.setSamplingMethod(value as SamplingMethod)} options={["full", "sample", "random", "stratified", "time_based", "top_n"]} />
           <Input label="Sample detail" value={props.samplingDetail} onChange={props.setSamplingDetail} />
-          <Select label="Target" value={props.target} onChange={props.setTarget} options={["", ...props.headers]} />
         </div>
       </div>
       {!!props.headers.length && (
@@ -830,15 +979,26 @@ function DataPreview(props: {
                 : "Select the dependent variable before continuing to EDA and model training."}
             </p>
           </div>
+          {props.targetInfo.kind === "binary" && props.targetInfo.eventRate !== null && props.targetInfo.eventRate < 0.01 && (
+            <div className="mt-3 rounded-lg border border-amber-300 bg-amber-100 px-3 py-2 text-xs leading-5 text-amber-950">
+              <span className="font-semibold">Rare-event target detected:</span> event rate is {formatPercent(props.targetInfo.eventRate)}.
+              Use PR-AUC, recall, lift, KS, and calibration in addition to ROC-AUC; accuracy will be misleading.
+            </div>
+          )}
         </div>
       )}
       <div className="mt-4 grid gap-3 md:grid-cols-4">
-        <Stat label="Rows for Modeling" value={props.modelingRowCount} />
+        <Stat label="Rows for Modeling" value={props.effectiveModelingRowCount} />
         <Stat label="Rows Cached for UI" value={props.previewRowCount} />
         <Stat label="Columns" value={props.headers.length} />
         <Stat label="Target Type" value={props.targetInfo.kind} />
         <Stat label="Event Rate" value={props.targetInfo.eventRate === null ? "-" : formatPercent(props.targetInfo.eventRate)} />
       </div>
+      {props.backendImportSynced && (
+        <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs leading-5 text-emerald-900">
+          Backend import is active. ATLAS cached {props.previewRowCount.toLocaleString()} rows for the browser preview while preserving {props.effectiveModelingRowCount.toLocaleString()} rows for backend modeling.
+        </div>
+      )}
       <div className="mt-4 max-h-[360px] overflow-auto rounded-lg border border-slate-200">
         <table className="min-w-full text-xs">
           <thead className="sticky top-0 bg-slate-50 text-slate-500">
@@ -903,12 +1063,14 @@ function PythonSyncPanel({ metadata }: { metadata: DataAccessMetadata | null }) 
 }
 
 function Select({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[] }) {
+  const guidance = selectGuidance[label]?.[value] ?? (label === "Target" && value ? `Definition: ${value} is the selected dependent variable. Use it only if it represents the outcome the model should predict.` : "");
   return (
     <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
       {label}
-      <select className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal normal-case text-slate-900" value={value} onChange={(event) => onChange(event.target.value)}>
+      <select className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal normal-case text-slate-900" value={value} onChange={(event) => onChange(event.target.value)}>
         {options.map((option) => <option key={option} value={option}>{option || "Select"}</option>)}
       </select>
+      {guidance && <span className="text-[11px] font-normal normal-case leading-4 text-slate-500">{guidance}</span>}
     </label>
   );
 }
@@ -917,7 +1079,7 @@ function Input({ label, value, onChange, placeholder }: { label: string; value: 
   return (
     <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
       {label}
-      <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal normal-case text-slate-900" value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
+      <input className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal normal-case text-slate-900" value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
     </label>
   );
 }

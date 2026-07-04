@@ -28,12 +28,11 @@ class OutlierRequest(BaseModel):
 def _require_df():
     """
     Helper to get a DataFrame from DATASTORE.
-    For now, we prefer the processed_df if present, otherwise raw_df.
+    Use the active selected-column view from Data Acquisition.
     """
-    if DATASTORE.processed_df is not None:
-        return DATASTORE.processed_df
-    if DATASTORE.raw_df is not None:
-        return DATASTORE.raw_df
+    df = DATASTORE.get_active_df()
+    if df is not None:
+        return df
     raise HTTPException(status_code=400, detail="No dataset loaded.")
 
 

@@ -21,7 +21,7 @@ class TrainerService:
     }
 
     def _current_dataset_and_target(self):
-        df = DATASTORE.processed_df if DATASTORE.processed_df is not None else DATASTORE.raw_df
+        df = DATASTORE.get_active_df()
         if df is None or df.empty:
             raise ValueError("No dataset is loaded. Return to Data Acquisition and load a dataset first.")
 

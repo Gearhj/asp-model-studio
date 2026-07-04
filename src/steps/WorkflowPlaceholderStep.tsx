@@ -263,6 +263,33 @@ function cleanNodeStateForStorage(state: NodeState): NodeState {
   };
 }
 
+function minimalNodeStateForStorage(state: NodeState): NodeState {
+  return {
+    ...emptyState(),
+    objective: state.objective,
+    inputs: state.inputs,
+    assumptions: state.assumptions,
+    validation: state.validation,
+    method: state.method,
+    metrics: state.metrics,
+    risks: state.risks,
+    decision: state.decision,
+    rationale: state.rationale,
+    notes: state.notes,
+    numeric: { ...emptyState().numeric, ...(state.numeric ?? {}) },
+    simulationResults: state.simulationResults
+      ? compactSimulationResults({
+          ...state.simulationResults,
+          powerByIteration: [],
+          intervalPreview: state.simulationResults.intervalPreview?.slice(0, 20) ?? [],
+          powerCurve: state.simulationResults.powerCurve?.slice(0, 40) ?? [],
+          scenarioSensitivity: state.simulationResults.scenarioSensitivity?.slice(0, 12) ?? [],
+          riskDrivers: state.simulationResults.riskDrivers?.slice(0, 8) ?? [],
+        })
+      : undefined,
+  };
+}
+
 function reclaimWorkflowStorage() {
   if (typeof localStorage === "undefined") return;
   for (let index = 0; index < localStorage.length; index += 1) {
@@ -294,7 +321,24 @@ function saveNodeState(projectId: string, stepId: string, state: NodeState) {
     localStorage.setItem(storageKey(projectId, stepId), JSON.stringify(cleaned));
   } catch (error) {
     reclaimWorkflowStorage();
-    localStorage.setItem(storageKey(projectId, stepId), JSON.stringify(cleaned));
+    try {
+      localStorage.setItem(storageKey(projectId, stepId), JSON.stringify(cleaned));
+    } catch {
+      const minimal = minimalNodeStateForStorage(cleaned);
+      localStorage.setItem(storageKey(projectId, stepId), JSON.stringify(minimal));
+      window.dispatchEvent(
+        new CustomEvent("atlas-project-save-status", {
+          detail: {
+            status: "partial_restore",
+            projectId,
+            savedAt: new Date().toISOString(),
+            message: "Saved a compact page summary because browser storage quota was reached.",
+          },
+        })
+      );
+      window.dispatchEvent(new CustomEvent("atlas-workflow-node-updated"));
+      return minimal;
+    }
   }
   window.dispatchEvent(new CustomEvent("atlas-workflow-node-updated"));
   return cleaned;
@@ -1423,32 +1467,152 @@ function InlineError({ message }: { message: string }) {
   );
 }
 
-const dropdownDefinitions: Record<string, string> = {
-  "Full factorial": "Tests all combinations of selected factors and levels so main effects and interactions can be estimated.",
-  "Fractional factorial": "Tests a structured subset of combinations to screen factors when a full design is too large.",
-  "Randomized block": "Compares treatments while controlling one known nuisance source of variation.",
-  "Randomized block design": "Compares treatments while controlling one known source of variation.",
-  "Screening Experiment": "Tests many factors quickly to identify which factors likely matter.",
-  "Factorial Experiment": "Tests multiple factors and their interactions in one integrated design.",
-  "Response surface": "Optimizes continuous inputs after important factors are known.",
-  "Response Surface": "Optimizes continuous inputs after important factors are known.",
-  "Taguchi": "Robust design focused on consistent performance under noise or operating variation.",
-  "Taguchi Design": "Robust design focused on performance under noise.",
-  "Power simulation": "Simulates repeated experiments to estimate detection probability and launch risk.",
-  "Treatment selection simulation": "Estimates how often the experiment chooses the correct winning treatment.",
-  "Interaction sensitivity simulation": "Stress-tests how interaction effects change power and treatment choice.",
-  "Missingness stress test": "Tests whether missing outcomes or attrition could invalidate conclusions.",
-  "Operational imbalance simulation": "Tests assignment imbalance and sparse-cell risk before launch.",
-  "Base Scenario": "Expected assumptions.",
-  "Conservative Scenario": "More cautious assumptions.",
-  "Stress Test": "Worst-case or high-risk assumptions.",
-  "Launch Readiness Simulation": "Final pre-launch validation.",
+type DropdownGuidance = {
+  definition: string;
+  useWhen: string;
+  example?: string;
+};
+
+const dropdownDefinitions: Record<string, DropdownGuidance> = {
+  "Full factorial": {
+    definition: "Tests all combinations of selected factors and levels so main effects and interactions can be estimated.",
+    useWhen: "Use when treatment-cell count and sample size are manageable.",
+    example: "2 pricing levels x 2 contact channels = 4 treatment cells.",
+  },
+  "Fractional factorial": {
+    definition: "Tests a structured subset of combinations to screen important drivers.",
+    useWhen: "Use when a full factorial design creates too many treatment cells.",
+    example: "Screen eight offer variables without launching all 256 combinations.",
+  },
+  "Randomized block": {
+    definition: "Compares treatments while controlling one known nuisance source of variation.",
+    useWhen: "Use when a variable shifts outcomes but is not itself a treatment.",
+    example: "Block by campaign wave before assigning pricing treatments.",
+  },
+  "Randomized block design": {
+    definition: "Compares treatments while controlling one known source of variation.",
+    useWhen: "Use when assignment should stay balanced within a known subgroup.",
+    example: "Randomize treatments separately within credit risk tiers.",
+  },
+  "Screening Experiment": {
+    definition: "Tests many factors quickly to identify which factors likely matter.",
+    useWhen: "Use early in discovery when the factor list is broad.",
+    example: "Screen pricing, channel, timing, and message factors before optimization.",
+  },
+  "Factorial Experiment": {
+    definition: "Tests multiple factors and their interactions in one integrated design.",
+    useWhen: "Use when main effects and combined effects both matter.",
+    example: "Estimate whether personalized pricing works differently by channel.",
+  },
+  "Response surface": {
+    definition: "Optimizes continuous inputs after important factors are known.",
+    useWhen: "Use when the goal is finding an optimal setting, not just comparing fixed options.",
+    example: "Optimize APR discount and contact frequency after screening.",
+  },
+  "Response Surface": {
+    definition: "Optimizes continuous inputs after important factors are known.",
+    useWhen: "Use when the objective is a best setting under constraints.",
+    example: "Find the pricing point that maximizes activation while controlling complaints.",
+  },
+  Taguchi: {
+    definition: "Robust design focused on consistent performance under noise or operating variation.",
+    useWhen: "Use when the treatment must be stable across hard-to-control conditions.",
+    example: "Test offer strategy robustness across region, staffing, and timing noise.",
+  },
+  "Taguchi Design": {
+    definition: "Robust design focused on performance under noise.",
+    useWhen: "Use when variability reduction is as important as average lift.",
+    example: "Choose a treatment that performs consistently across customer segments.",
+  },
+  "Simple randomization": {
+    definition: "Randomly assigns records across treatments without subgroup controls.",
+    useWhen: "Use when covariates are balanced by design or sample size is large.",
+    example: "Randomly split 100,000 eligible customers into two offers.",
+  },
+  "Stratified randomization": {
+    definition: "Random assignment within defined subgroups.",
+    useWhen: "Use when known segments may affect the outcome.",
+    example: "Randomize separately within credit score bands or customer risk tiers.",
+  },
+  "Blocked randomization": {
+    definition: "Assigns treatments within fixed operational blocks or waves.",
+    useWhen: "Use when assignments occur by branch, batch, time period, or launch wave.",
+    example: "Assign all treatments within each weekly campaign batch.",
+  },
+  "Cluster randomization": {
+    definition: "Randomizes groups rather than individual records.",
+    useWhen: "Use when individual-level randomization is impractical or creates contamination.",
+    example: "Randomize branches, call centers, or geographic markets.",
+  },
+  "Covariate-adaptive randomization": {
+    definition: "Adapts assignment to maintain balance across important covariates.",
+    useWhen: "Use when several covariates need tight balance and assignment can be computed centrally.",
+    example: "Balance risk tier, tenure, and prior response while assigning offers.",
+  },
+  "Power simulation": {
+    definition: "Simulates repeated experiments to estimate detection probability and launch risk.",
+    useWhen: "Use when closed-form power may understate interaction or operational risk.",
+    example: "Run 1,000 simulated launches before approving the design.",
+  },
+  "Treatment selection simulation": {
+    definition: "Estimates how often the experiment chooses the correct winning treatment.",
+    useWhen: "Use when selecting the wrong treatment creates material business risk.",
+    example: "Estimate wrong-winner risk across four pricing-channel cells.",
+  },
+  "Interaction sensitivity simulation": {
+    definition: "Stress-tests how interaction effects change power and treatment choice.",
+    useWhen: "Use when factor combinations may behave differently than individual factors.",
+    example: "Check whether pricing lift depends on contact channel.",
+  },
+  "Missingness stress test": {
+    definition: "Tests whether missing outcomes or attrition could invalidate conclusions.",
+    useWhen: "Use when response measurement may be incomplete or delayed.",
+    example: "Stress test delayed activation reporting in the performance window.",
+  },
+  "Operational imbalance simulation": {
+    definition: "Tests assignment imbalance and sparse-cell risk before launch.",
+    useWhen: "Use when exclusions, blocking, or operations may create uneven cells.",
+    example: "Simulate assignment after opt-out and recent-offer exclusions.",
+  },
+  "Base Scenario": {
+    definition: "Expected assumptions.",
+    useWhen: "Use for the most likely baseline case.",
+    example: "Current response rate and planned sample size.",
+  },
+  "Conservative Scenario": {
+    definition: "More cautious assumptions.",
+    useWhen: "Use when leadership wants a margin of safety.",
+    example: "Lower baseline response, higher missingness, or smaller lift.",
+  },
+  "Stress Test": {
+    definition: "Worst-case or high-risk assumptions.",
+    useWhen: "Use to test whether the design remains defensible under adverse conditions.",
+    example: "Reduced sample, higher opt-outs, or weaker treatment effect.",
+  },
+  "Launch Readiness Simulation": {
+    definition: "Final pre-launch validation.",
+    useWhen: "Use immediately before execution approval.",
+    example: "Confirm launch recommendation after sample size and assignment logic are final.",
+  },
 };
 
 function DropdownDefinition({ value }: { value: string }) {
   if (!value) return <span className="text-[11px] leading-4 text-slate-400">Select an option to see how ATLAS will use it.</span>;
-  const definition = dropdownDefinitions[value] ?? "ATLAS uses this selection to shape the analytical evidence and governance language for this workflow step.";
-  return <span className="text-[11px] leading-4 text-slate-500">{definition}</span>;
+  const guidance = dropdownDefinitions[value];
+  if (!guidance) {
+    return (
+      <span className="text-[11px] leading-4 text-slate-500">
+        Definition: ATLAS uses this selection to shape analytical evidence and governance language. Use when it matches the decision being made on this page.
+      </span>
+    );
+  }
+  return (
+    <span className="text-[11px] leading-4 text-slate-500">
+      <span className="font-semibold text-slate-600">Definition:</span> {guidance.definition}{" "}
+      <span className="font-semibold text-slate-600">Use when:</span> {guidance.useWhen}
+      {guidance.example ? <> <span className="font-semibold text-slate-600">Example:</span> {guidance.example}</> : null}
+    </span>
+  );
 }
 
 function draftGovernanceText(label: string, value: string, suggestion?: string, mode: "draft" | "clarity" | "audit" | "shorten" | "expand" | "regenerate" = "draft") {
@@ -2656,9 +2820,9 @@ function ResearchQuestionPage({
             <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Statistical Model</div>
             <h2 className="mt-1 text-base font-semibold text-slate-950">Response decomposition</h2>
             <div className="mt-5 flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-900">
-              {artifacts.modelTerms.map((term) => (
+              {artifacts.modelTerms.map((term, index) => (
                 <span
-                  key={term}
+                  key={`${term}-${index}`}
                   className={
                     /[+=]/.test(term)
                       ? "px-1 text-slate-400"

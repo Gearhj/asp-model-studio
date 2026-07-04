@@ -54,13 +54,9 @@ class SplitConfigPayload(BaseModel):
 
 def _require_df_and_target():
     """
-    Use processed_df if available, else raw_df. Require a valid target.
+    Use the active selected-column dataset and require a valid target.
     """
-    df = None
-    if DATASTORE.processed_df is not None:
-        df = DATASTORE.processed_df
-    elif DATASTORE.raw_df is not None:
-        df = DATASTORE.raw_df
+    df = DATASTORE.get_active_df()
 
     if df is None:
         raise HTTPException(status_code=400, detail="No dataset loaded.")

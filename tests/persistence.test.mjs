@@ -224,6 +224,42 @@ test("quota-safe compaction trims oversized registry artifacts", () => {
   assert.equal(compacted.snapshot.persistedLocalState.localStorage["modeling-tool-mlflow-lite-experiments"].length, 30);
 });
 
+test("thin project fallback preserves project metadata without large embedded artifacts", () => {
+  const thin = modules.persistence.thinProjectForStorage({
+    projectId: "p",
+    snapshot: {
+      projectId: "p",
+      projectName: "Quota Test",
+      projectType: "experimental-design",
+      workflowId: "experimental-design",
+      workflowSteps: [],
+      currentStepId: "experimental-design-8",
+      persistedLocalState: {
+        schemaVersion: 1,
+        savedAt: "2026-07-03T00:00:00.000Z",
+        localStorage: { huge: "x".repeat(1000) },
+        sessionStorage: { huge: "x".repeat(1000) },
+        workflowNodeStates: { huge: { rows: Array.from({ length: 1000 }, (_, index) => index) } },
+        datasetPreview: {
+          headers: ["a"],
+          target: null,
+          selected_columns: ["a"],
+          rowCount: 1000,
+          previewRows: Array.from({ length: 50 }, (_, index) => ({ a: index })),
+          artifactStatus: "preview_restored_requires_reload",
+        },
+        missingArtifacts: [],
+        storageEstimateBytes: 999999,
+      },
+    },
+  });
+  assert.equal(thin.snapshot.projectName, "Quota Test");
+  assert.deepEqual(thin.snapshot.persistedLocalState.localStorage, {});
+  assert.deepEqual(thin.snapshot.persistedLocalState.workflowNodeStates, {});
+  assert.equal(thin.snapshot.persistedLocalState.datasetPreview.previewRows.length, 0);
+  assert.equal(thin.snapshot.restoreWarnings.length > 0, true);
+});
+
 test("predictive project snapshot save and restore rehydrates compact artifacts", () => {
   resetStorage();
   seedPredictiveArtifacts();

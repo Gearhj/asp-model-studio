@@ -154,24 +154,21 @@ function formatDecisions(entries: DecisionJournalEntry[]) {
 
 function formatExperimentAppendix(experiments: ExperimentRecord[]) {
   if (!experiments.length) return "No experiment records have been captured.";
-  return experiments
-    .slice(0, 80)
-    .map((experiment, index) =>
-      [
-        `${index + 1}. ${experiment.modelType}`,
-        `   - Experiment ID: ${experiment.experimentId}`,
-        `   - Timestamp: ${experiment.timestamp}`,
-        `   - Dataset version: ${experiment.datasetVersion}`,
-        `   - Selected features: ${experiment.selectedFeatures.length}`,
-        `   - Balancing method: ${experiment.balancingMethod}`,
-        `   - Split strategy: ${experiment.splitStrategy}`,
-        `   - Hyperparameters: ${JSON.stringify(experiment.hyperparameters ?? {})}`,
-        `   - Metrics: ${JSON.stringify(experiment.metrics ?? {})}`,
-        `   - Champion: ${experiment.champion ? "Yes" : "No"}`,
-        `   - Notes: ${experiment.notes || "-"}`,
-      ].join("\n")
-    )
-    .join("\n\n");
+  return professionalTableHtml(
+    ["Experiment ID", "Timestamp", "Model", "Champion", "Dataset Version", "Features", "Preprocessing", "Metrics", "Notes"],
+    experiments.slice(0, 80).map((experiment) => [
+      experiment.experimentId,
+      experiment.timestamp,
+      experiment.modelType,
+      experiment.champion ? "Yes" : "No",
+      experiment.datasetVersion,
+      experiment.selectedFeatures.length,
+      [`Balancing: ${experiment.balancingMethod}`, `Split: ${experiment.splitStrategy}`].join("; "),
+      metricLines(experiment.metrics).replace(/\n/g, "; ").replace(/^- /g, ""),
+      experiment.notes || "-",
+    ]),
+    { wide: true, badgeColumns: ["Champion"] }
+  );
 }
 
 function formatBureauHandling() {

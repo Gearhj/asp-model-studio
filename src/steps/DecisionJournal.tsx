@@ -4,6 +4,7 @@ import BrandLogo from "../components/BrandLogo";
 import {
   exportDecisionJournalCsv,
   exportDecisionJournalMarkdown,
+  isMaterialDecisionEntry,
   loadDecisionJournal,
   saveDecisionJournal,
   type DecisionFollowStatus,
@@ -25,6 +26,8 @@ function downloadText(filename: string, text: string, type = "text/markdown") {
 export default function DecisionJournal() {
   const [entries, setEntries] = useState<DecisionJournalEntry[]>(() => loadDecisionJournal());
   const [filter, setFilter] = useState("");
+  const [stepFilter, setStepFilter] = useState("all");
+  const [materiality, setMateriality] = useState<"material" | "full">("material");
   const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
@@ -39,9 +42,11 @@ export default function DecisionJournal() {
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    if (!q) return entries;
-    return entries.filter((entry) =>
-      [
+    return entries.filter((entry) => {
+      if (materiality === "material" && !isMaterialDecisionEntry(entry)) return false;
+      if (stepFilter !== "all" && entry.workflowStep !== stepFilter) return false;
+      if (!q) return true;
+      return [
         entry.workflowStep,
         entry.actionType,
         entry.subject,
@@ -53,10 +58,12 @@ export default function DecisionJournal() {
       ]
         .join(" ")
         .toLowerCase()
-        .includes(q)
-    );
-  }, [entries, filter]);
+        .includes(q);
+    });
+  }, [entries, filter, materiality, stepFilter]);
   const visibleEntries = showAll ? filtered : filtered.slice(0, 50);
+  const stepOptions = useMemo(() => Array.from(new Set(entries.map((entry) => entry.workflowStep))).sort(), [entries]);
+  const materialCount = useMemo(() => entries.filter(isMaterialDecisionEntry).length, [entries]);
 
   const updateEntry = (id: string, patch: Partial<DecisionJournalEntry>) => {
     const next = entries.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry));
@@ -90,6 +97,26 @@ export default function DecisionJournal() {
             onChange={(event) => setFilter(event.target.value)}
             placeholder="Filter journal..."
           />
+          <select
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm"
+            value={materiality}
+            onChange={(event) => setMateriality(event.target.value as "material" | "full")}
+          >
+            <option value="material">Material decisions</option>
+            <option value="full">Full timeline</option>
+          </select>
+          <select
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm shadow-sm"
+            value={stepFilter}
+            onChange={(event) => setStepFilter(event.target.value)}
+          >
+            <option value="all">All steps</option>
+            {stepOptions.map((step) => (
+              <option key={step} value={step}>
+                {step}
+              </option>
+            ))}
+          </select>
           <button
             type="button"
             className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
@@ -119,17 +146,17 @@ export default function DecisionJournal() {
 
       <section className="grid gap-4 md:grid-cols-4">
         <Stat label="Journal Entries" value={entries.length} />
+        <Stat label="Material Decisions" value={materialCount} />
         <Stat label="Overrides" value={entries.filter((entry) => entry.followStatus === "overrode").length} />
         <Stat label="Rationales Added" value={entries.filter((entry) => entry.userReason?.trim()).length} />
-        <Stat label="Visible" value={visibleEntries.length} />
       </section>
 
       <section className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">
         <div className="font-semibold">Why this journal is long</div>
         <p className="mt-1">
           ATLAS records material modeling decisions automatically so validation can trace how the target, features,
-          treatments, sampling choices, model candidates, champion selection, and overrides were chosen. The page shows
-          the latest 50 entries by default; exports keep the full audit trail.
+          treatments, sampling choices, model candidates, champion selection, and overrides were chosen. The default
+          view shows material decisions; switch to Full timeline when you need lower-level operational events.
         </p>
       </section>
 
@@ -137,9 +164,9 @@ export default function DecisionJournal() {
         <div className="border-b border-slate-200 px-4 py-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-sm font-semibold text-slate-950">Audit Trail</h2>
+              <h2 className="text-sm font-semibold text-slate-950">{materiality === "material" ? "Material Decision Timeline" : "Full Audit Timeline"}</h2>
               <p className="mt-1 text-xs text-slate-500">
-                Each entry captures the recommendation context at the time of the decision. Add rationale where the user overrides guidance or makes a material judgment call.
+                Showing {visibleEntries.length} of {filtered.length} filtered entries. Each entry captures recommendation context, previous value, new value, follow status, and editable rationale.
               </p>
             </div>
             {filtered.length > 50 && (

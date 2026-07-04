@@ -110,6 +110,60 @@ class DatasetStore:
         """
         self.target = col_name
 
+    def get_selected_columns(self) -> list[str]:
+        """
+        Return the governed feature list selected on Data Acquisition.
+
+        The list intentionally excludes the target. Routers should use this
+        instead of raw_df.columns when the user has deselected variables.
+        """
+        selected = self.meta.get("selected_columns")
+        if not isinstance(selected, list):
+            return []
+
+        out: list[str] = []
+        seen: set[str] = set()
+        target = str(self.target) if self.target else None
+        for column in selected:
+            name = str(column)
+            if not name or name == target or name in seen:
+                continue
+            out.append(name)
+            seen.add(name)
+        return out
+
+    def get_base_df(self) -> Optional[pd.DataFrame]:
+        """
+        Return processed_df when present, otherwise raw_df.
+        """
+        if self.processed_df is not None:
+            return self.processed_df
+        if self.raw_df is not None:
+            return self.raw_df
+        return None
+
+    def get_active_df(self, include_target: bool = True) -> Optional[pd.DataFrame]:
+        """
+        Return the current dataset restricted to selected modeling features.
+
+        This is the canonical downstream view after Data Acquisition. The raw
+        uploaded file may contain columns the user deselected; those columns
+        should not leak into EDA, preprocessing, splitting, or training.
+        """
+        df = self.get_base_df()
+        if df is None or df.empty:
+            return df
+
+        selected = [column for column in self.get_selected_columns() if column in df.columns]
+        if not selected:
+            return df.copy()
+
+        keep = list(selected)
+        if include_target and self.target and self.target in df.columns and self.target not in keep:
+            keep.append(self.target)
+
+        return df.loc[:, keep].copy()
+
     def set_splits(
         self,
         X_train: Optional[pd.DataFrame],

@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import BrandLogo from "./BrandLogo";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { saveActiveProjectBeforeNavigation } from "../lib/localProjects";
 
 function linkClass(isActive: boolean, nested = false) {
   return [
@@ -41,6 +42,9 @@ export default function Sidebar() {
   const workflowSteps = useWorkflowStore((state) => state.workflowSteps);
   const projectName = useWorkflowStore((state) => state.projectName);
   const workflowId = useWorkflowStore((state) => state.workflowId);
+  const saveBeforeOpenProject = () => {
+    saveActiveProjectBeforeNavigation(useWorkflowStore.getState());
+  };
 
   return (
     <aside className="hidden w-64 shrink-0 border-r border-slate-900 bg-[#071526] shadow-[1px_0_0_rgba(15,23,42,0.2)] lg:block">
@@ -61,7 +65,7 @@ export default function Sidebar() {
             <Plus size={17} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">New Project</span>
           </NavLink>
-          <NavLink to="/projects/open" className={({ isActive }) => linkClass(isActive)}>
+          <NavLink to="/projects/open" onClick={saveBeforeOpenProject} className={({ isActive }) => linkClass(isActive)}>
             <FolderOpen size={17} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">Open Project</span>
           </NavLink>

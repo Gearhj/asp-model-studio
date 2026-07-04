@@ -475,7 +475,9 @@ export function buildExperimentalDesignAnalysis(input: {
     "Monte Carlo Simulation": simulation
       ? `Monte Carlo validation is ${simulation.recommendedAction ?? "not classified"} with mean power ${percent(Number(simulation.meanPower ?? 0))} and wrong-winner risk ${percent(Number(simulation.wrongWinnerRate ?? 0))}.`
       : "Monte Carlo simulation has not been run from the current assumptions. Run the simulation to quantify power distribution, wrong-winner risk, and launch readiness.",
-    "Experiment Run Plan": "The run plan should convert the design into operational sequence, QA checks, assignment controls, monitoring cadence, and stopping rules.",
+    "Experiment Run Plan": simulation
+      ? `The launch plan is anchored to Monte Carlo evidence: readiness ${simulation.recommendedAction ?? "not classified"}, mean power ${percent(Number(simulation.meanPower ?? 0))}, and wrong-winner risk ${percent(Number(simulation.wrongWinnerRate ?? 0))}. Execution controls should address any remaining simulation risk before launch.`
+      : "Run Monte Carlo before finalizing the execution plan. The run plan should convert simulation evidence into operational sequence, QA checks, assignment controls, monitoring cadence, and stopping rules.",
     ANOVA: anovaTerms.length
       ? `ATLAS generated ${anovaTerms.length} ANOVA term${anovaTerms.length === 1 ? "" : "s"} from the factor hierarchy. Model degrees of freedom equal ${fullFactorialModelDf(factors)} for the full factorial design.`
       : "ANOVA terms are waiting for factor hierarchy inputs. Define factors and levels before interpreting model effects.",
@@ -490,7 +492,7 @@ export function buildExperimentalDesignAnalysis(input: {
   const interpretation =
     input.stepLabel === "ANOVA" && anovaTerms.length
       ? `ATLAS generated ${anovaTerms.length} model term${anovaTerms.length === 1 ? "" : "s"} from the factor hierarchy. Interpret main effects first, then interaction terms that are both statistically and operationally meaningful.`
-      : input.stepLabel === "Monte Carlo Simulation" && simulation
+      : ["Monte Carlo Simulation", "Experiment Run Plan"].includes(input.stepLabel) && simulation
         ? `Monte Carlo validation is ${simulation.recommendedAction ?? "not classified"} with mean power ${percent(Number(simulation.meanPower ?? 0))} and wrong-winner risk ${percent(Number(simulation.wrongWinnerRate ?? 0))}.`
         : `ATLAS is using the current experimental design inputs to produce the live workflow view and report-ready evidence from the same analysis object.`;
 

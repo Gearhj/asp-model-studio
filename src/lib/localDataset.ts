@@ -11,10 +11,53 @@ export type LocalDataset = {
 const STORAGE_KEY = "modeling-tool-dataset";
 const MAX_LOCAL_ROWS = 5000;
 
+function uniqueStrings(values: unknown[]) {
+  const seen = new Set<string>();
+  return values
+    .map((value) => String(value ?? "").trim())
+    .filter((value) => {
+      if (!value || seen.has(value)) return false;
+      seen.add(value);
+      return true;
+    });
+}
+
+function normalizeSelectedDataset(dataset: Partial<LocalDataset>): LocalDataset | null {
+  if (!Array.isArray(dataset.headers) || !Array.isArray(dataset.rows)) return null;
+  const headers = uniqueStrings(dataset.headers);
+  const target = dataset.target && headers.includes(dataset.target) ? dataset.target : null;
+  const selected = uniqueStrings(dataset.selected_columns ?? []).filter(
+    (column) => headers.includes(column) && column !== target
+  );
+  const selectedColumns = selected.length ? selected : headers.filter((header) => header !== target);
+  const persistedHeaders = target ? [...selectedColumns, target] : [...selectedColumns];
+  const rows = (dataset.rows as Record<string, unknown>[]).map((row) => {
+    const filtered: Record<string, unknown> = {};
+    persistedHeaders.forEach((header) => {
+      filtered[header] = row?.[header];
+    });
+    return filtered;
+  });
+
+  return {
+    headers: persistedHeaders,
+    rows,
+    target,
+    selected_columns: selectedColumns,
+    problem_type:
+      dataset.problem_type === "classification" || dataset.problem_type === "regression"
+        ? dataset.problem_type
+        : undefined,
+    data_access: dataset.data_access,
+    data_quality: dataset.data_quality,
+  };
+}
+
 export function saveLocalDataset(dataset: LocalDataset) {
+  const normalizedDataset = normalizeSelectedDataset(dataset) ?? dataset;
   const compactDataset = {
-    ...dataset,
-    rows: dataset.rows.slice(0, MAX_LOCAL_ROWS),
+    ...normalizedDataset,
+    rows: normalizedDataset.rows.slice(0, MAX_LOCAL_ROWS),
   };
 
   try {
@@ -31,19 +74,7 @@ export function loadLocalDataset(): LocalDataset | null {
 
   try {
     const parsed = JSON.parse(raw) as Partial<LocalDataset>;
-    if (!Array.isArray(parsed.headers) || !Array.isArray(parsed.rows)) return null;
-    return {
-      headers: parsed.headers,
-      rows: parsed.rows as Record<string, unknown>[],
-      target: parsed.target ?? null,
-      selected_columns: parsed.selected_columns ?? parsed.headers.filter((header) => header !== parsed.target),
-      problem_type:
-        parsed.problem_type === "classification" || parsed.problem_type === "regression"
-          ? parsed.problem_type
-          : undefined,
-      data_access: parsed.data_access,
-      data_quality: parsed.data_quality,
-    };
+    return normalizeSelectedDataset(parsed);
   } catch {
     return null;
   }

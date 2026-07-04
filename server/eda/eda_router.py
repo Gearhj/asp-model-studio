@@ -16,10 +16,9 @@ router = APIRouter()
 
 
 def _require_df():
-    if DATASTORE.processed_df is not None:
-        return DATASTORE.processed_df
-    if DATASTORE.raw_df is not None:
-        return DATASTORE.raw_df
+    df = DATASTORE.get_active_df()
+    if df is not None:
+        return df
     raise HTTPException(status_code=400, detail="No dataset loaded.")
 
 

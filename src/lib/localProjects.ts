@@ -7,11 +7,17 @@ import {
   estimateBytes,
   projectPersistenceDebug,
   restoreProjectSnapshotArtifacts,
+  thinProjectForStorage,
 } from "./projectPersistence";
 import { validateProjectImport } from "./projectImportValidation";
 
 export const LOCAL_PROJECTS_KEY = "atlas-local-projects";
+export const PROJECT_SNAPSHOT_KEY_PREFIX = "atlas-project-snapshot:";
 const PROJECT_SCOPED_STORAGE_PREFIXES = ["atlas-workflow-node-state:"];
+const RECENT_PROJECTS_REGISTRY_BUDGET_BYTES = 100 * 1024;
+const PROJECT_REGISTRY_ENTRY_BUDGET_BYTES = 5 * 1024;
+const COMPACT_PROJECT_SNAPSHOT_TARGET_BYTES = 150 * 1024;
+const THIN_PROJECT_SNAPSHOT_BUDGET_BYTES = 50 * 1024;
 
 export type LocalProjectRecord = {
   projectId: string;
@@ -22,11 +28,27 @@ export type LocalProjectRecord = {
   createdAt: string;
   lastModified: string;
   source?: "browser" | "imported";
+  snapshotStorageKey?: string;
+  restoreStatus?: string;
   snapshot: WorkflowProjectSnapshot;
+};
+
+type LocalProjectRegistryRecord = Omit<LocalProjectRecord, "snapshot"> & {
+  snapshot?: WorkflowProjectSnapshot;
+  completedSteps?: string[];
+  currentStep?: string;
 };
 
 type CurrentWorkflowState = WorkflowProjectSnapshot & {
   projectTools?: WorkflowProjectSnapshot["projectTools"];
+};
+
+export type LocalProjectsRegistryStatus = {
+  ok: boolean;
+  corrupted: boolean;
+  message: string;
+  projectCount: number;
+  validProjects: LocalProjectRecord[];
 };
 
 function nowIso() {
@@ -37,14 +59,165 @@ function newProjectId() {
   return `atlas-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+function safeJsonParse(raw: string | null) {
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function projectSnapshotKey(projectId: string) {
+  return `${PROJECT_SNAPSHOT_KEY_PREFIX}${projectId}`;
+}
+
+function workflowStepSummary(steps: WorkflowStep[]) {
+  return steps
+    .filter((step) => step.status === "complete" || step.status === "skipped")
+    .map((step) => step.id);
+}
+
+function minimalSnapshot(snapshot: WorkflowProjectSnapshot): WorkflowProjectSnapshot {
+  const workflow = workflowFromProjectType(snapshot.projectType, snapshot.workflowId);
+  const persistedById = new Map((snapshot.workflowSteps ?? []).map((step) => [step.id, step]));
+  return {
+    projectId: snapshot.projectId,
+    modelId: snapshot.modelId ?? "",
+    projectName: snapshot.projectName?.trim() || "Untitled ATLAS Project",
+    projectType: snapshot.projectType,
+    workflowId: snapshot.workflowId || workflow.id,
+    workflowSteps: workflow.steps.map((step) => ({
+      ...step,
+      status: persistedById.get(step.id)?.status ?? step.status ?? "pending",
+    })),
+    currentStepId: snapshot.currentStepId || workflow.steps[0]?.id || "step00",
+    hasDataset: Boolean(snapshot.hasDataset),
+    projectTools: snapshot.projectTools,
+    restoreWarnings: snapshot.restoreWarnings,
+  };
+}
+
+function snapshotForProjectStorage(snapshot: WorkflowProjectSnapshot) {
+  const compacted = compactProjectForStorage({ snapshot }).snapshot;
+  if (estimateBytes(compacted) <= COMPACT_PROJECT_SNAPSHOT_TARGET_BYTES) return compacted;
+  const thin = thinProjectForStorage({ snapshot: compacted }).snapshot;
+  if (estimateBytes(thin) <= THIN_PROJECT_SNAPSHOT_BUDGET_BYTES) return thin;
+  return minimalSnapshot(snapshot);
+}
+
+function trySetStorageItem(key: string, value: string, replaceExisting = false) {
+  try {
+    if (replaceExisting) localStorage.removeItem(key);
+    localStorage.setItem(key, value);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function writeProjectSnapshot(snapshot: WorkflowProjectSnapshot) {
+  const key = projectSnapshotKey(snapshot.projectId);
+  const snapshotToStore = snapshotForProjectStorage(snapshot);
+  if (trySetStorageItem(key, JSON.stringify(snapshotToStore))) {
+    return { key, snapshot: snapshotToStore, thinned: snapshotToStore !== snapshot, persisted: true };
+  }
+
+  const fallback = minimalSnapshot(snapshot);
+  if (trySetStorageItem(key, JSON.stringify(fallback), true)) {
+    return { key, snapshot: fallback, thinned: true, persisted: true };
+  }
+
+  localStorage.removeItem(key);
+  return { key: "", snapshot: fallback, thinned: true, persisted: false };
+}
+
+function readProjectSnapshot(projectId: string, fallback?: WorkflowProjectSnapshot) {
+  if (typeof localStorage === "undefined") return fallback;
+  const stored = safeJsonParse(localStorage.getItem(projectSnapshotKey(projectId))) as WorkflowProjectSnapshot | null;
+  return stored?.projectId ? stored : fallback;
+}
+
+function registryRecordFromProject(project: LocalProjectRecord): LocalProjectRegistryRecord {
+  const completedSteps = workflowStepSummary(project.snapshot.workflowSteps ?? []);
+  const record: LocalProjectRegistryRecord = {
+    projectId: project.projectId,
+    modelId: project.modelId,
+    projectName: project.projectName,
+    projectType: project.projectType,
+    workflowId: project.workflowId,
+    createdAt: project.createdAt,
+    lastModified: project.lastModified,
+    source: project.source,
+    snapshotStorageKey: project.snapshotStorageKey,
+    completedSteps,
+    currentStep: project.snapshot.currentStepId,
+    restoreStatus: project.restoreStatus ?? (project.snapshot.persistedLocalState ? "compact_snapshot_available" : "workflow_progress_only"),
+  };
+  if (estimateBytes(record) <= PROJECT_REGISTRY_ENTRY_BUDGET_BYTES) return record;
+  return {
+    ...record,
+    completedSteps: completedSteps.slice(-12),
+  };
+}
+
+function hydrateRegistryRecord(project: LocalProjectRegistryRecord): LocalProjectRecord | null {
+  if (!project?.projectId || !project?.projectName) return null;
+  const snapshot = readProjectSnapshot(project.projectId, project.snapshot);
+  if (!snapshot?.projectId) return null;
+  return {
+    projectId: project.projectId,
+    modelId: project.modelId ?? snapshot.modelId,
+    projectName: project.projectName,
+    projectType: project.projectType ?? snapshot.projectType,
+    workflowId: project.workflowId ?? snapshot.workflowId,
+    createdAt: project.createdAt,
+    lastModified: project.lastModified,
+    source: project.source,
+    snapshotStorageKey: project.snapshotStorageKey ?? projectSnapshotKey(project.projectId),
+    restoreStatus: project.restoreStatus,
+    snapshot,
+  };
+}
+
 function parseProjects(raw: string | null): LocalProjectRecord[] {
-  if (!raw) return [];
+  return parseProjectsDetailed(raw).projects;
+}
+
+function parseProjectsDetailed(raw: string | null): { projects: LocalProjectRecord[]; corrupted: boolean; message: string } {
+  if (!raw) {
+    return {
+      projects: [],
+      corrupted: false,
+      message: "No Recent Projects registry exists yet.",
+    };
+  }
   try {
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((project): project is LocalProjectRecord => Boolean(project?.projectId && project?.projectName && project?.snapshot));
+    if (!Array.isArray(parsed)) {
+      return {
+        projects: [],
+        corrupted: true,
+        message: "Recent Projects registry is not a valid project list.",
+      };
+    }
+    const projects = parsed
+      .map((project: LocalProjectRegistryRecord) => hydrateRegistryRecord(project))
+      .filter((project): project is LocalProjectRecord => Boolean(project));
+    return {
+      projects,
+      corrupted: projects.length !== parsed.length,
+      message:
+        projects.length !== parsed.length
+          ? "Recent Projects registry contains invalid records. Valid projects can be repaired."
+          : "Recent Projects registry is valid.",
+    };
   } catch {
-    return [];
+    return {
+      projects: [],
+      corrupted: true,
+      message: "Recent Projects registry contains invalid JSON. Use Repair Recent Projects to rebuild the index.",
+    };
   }
 }
 
@@ -76,15 +249,7 @@ function deleteProjectScopedStorage(projectId: string) {
     );
     keys.forEach((key) => localStorage.removeItem(key));
   }
-}
-
-function safeJsonParse(raw: string | null) {
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+  localStorage.removeItem(projectSnapshotKey(projectId));
 }
 
 function inferProjectType(value: unknown): ProjectType {
@@ -200,18 +365,131 @@ export function loadLocalProjects(): LocalProjectRecord[] {
   return parseProjects(localStorage.getItem(LOCAL_PROJECTS_KEY)).sort((a, b) => b.lastModified.localeCompare(a.lastModified));
 }
 
+export function getLocalProjectsRegistryStatus(): LocalProjectsRegistryStatus {
+  if (typeof localStorage === "undefined") {
+    return {
+      ok: true,
+      corrupted: false,
+      message: "Browser storage is unavailable in this environment.",
+      projectCount: 0,
+      validProjects: [],
+    };
+  }
+  const parsed = parseProjectsDetailed(localStorage.getItem(LOCAL_PROJECTS_KEY));
+  const validProjects = parsed.projects.sort((a, b) => b.lastModified.localeCompare(a.lastModified));
+  return {
+    ok: !parsed.corrupted,
+    corrupted: parsed.corrupted,
+    message: parsed.message,
+    projectCount: validProjects.length,
+    validProjects,
+  };
+}
+
+export function repairLocalProjectsRegistry() {
+  if (typeof localStorage === "undefined") {
+    return { projects: [] as LocalProjectRecord[], repaired: false, message: "Browser storage is unavailable." };
+  }
+  const raw = localStorage.getItem(LOCAL_PROJECTS_KEY);
+  const parsed = parseProjectsDetailed(raw);
+  if (parsed.corrupted && raw) {
+    localStorage.setItem(`${LOCAL_PROJECTS_KEY}-corrupt-backup-${Date.now()}`, raw);
+  }
+  saveLocalProjects(parsed.projects);
+  const migration = migrateLegacyLocalProjects();
+  const projects = loadLocalProjects();
+  return {
+    projects,
+    repaired: parsed.corrupted || migration.migrated > 0,
+    message: parsed.corrupted
+      ? `Recent Projects index repaired. ${projects.length} valid project${projects.length === 1 ? "" : "s"} available.`
+      : `Recent Projects index checked. ${migration.migrated} legacy project${migration.migrated === 1 ? "" : "s"} recovered.`,
+  };
+}
+
 export function saveLocalProjects(projects: LocalProjectRecord[]) {
   if (typeof localStorage === "undefined") return;
+  const registry = projects.map((project) => {
+    const snapshotResult = writeProjectSnapshot(project.snapshot);
+    const record = registryRecordFromProject({
+      ...project,
+      snapshot: snapshotResult.snapshot,
+      snapshotStorageKey: snapshotResult.persisted ? snapshotResult.key : undefined,
+      restoreStatus: snapshotResult.persisted
+        ? snapshotResult.thinned
+          ? "thin_snapshot_available"
+          : project.restoreStatus
+        : "inline_minimal_snapshot",
+    });
+    if (!snapshotResult.persisted) {
+      return {
+        ...record,
+        snapshot: snapshotResult.snapshot,
+        snapshotStorageKey: undefined,
+        restoreStatus: "inline_minimal_snapshot",
+      };
+    }
+    return record;
+  });
+  const registryToPersist =
+    estimateBytes(registry) <= RECENT_PROJECTS_REGISTRY_BUDGET_BYTES
+      ? registry
+      : registry.map((record) => ({
+          projectId: record.projectId,
+          modelId: record.modelId,
+          projectName: record.projectName,
+          projectType: record.projectType,
+          workflowId: record.workflowId,
+          createdAt: record.createdAt,
+          lastModified: record.lastModified,
+          source: record.source,
+          snapshotStorageKey: record.snapshotStorageKey,
+          snapshot: record.snapshotStorageKey ? undefined : record.snapshot,
+          currentStep: record.currentStep,
+          completedSteps: record.completedSteps?.slice(-12),
+          restoreStatus: record.restoreStatus ?? "snapshot_reference_only",
+        }));
   try {
-    localStorage.setItem(LOCAL_PROJECTS_KEY, JSON.stringify(projects));
+    const registryJson = JSON.stringify(registryToPersist);
+    if (!trySetStorageItem(LOCAL_PROJECTS_KEY, registryJson) && !trySetStorageItem(LOCAL_PROJECTS_KEY, registryJson, true)) {
+      throw new Error("Browser storage quota exceeded while saving the Recent Projects index.");
+    }
   } catch (error) {
-    const compacted = projects.map(compactProjectForStorage);
+    const compacted = registryToPersist.map((record) => ({
+      projectId: record.projectId,
+      modelId: record.modelId,
+      projectName: record.projectName,
+      projectType: record.projectType,
+      workflowId: record.workflowId,
+      createdAt: record.createdAt,
+      lastModified: record.lastModified,
+      source: record.source,
+      snapshotStorageKey: record.snapshotStorageKey,
+      snapshot: record.snapshotStorageKey ? undefined : record.snapshot,
+      currentStep: record.currentStep,
+      completedSteps: [],
+      restoreStatus: "snapshot_reference_only",
+    }));
     try {
-      localStorage.setItem(LOCAL_PROJECTS_KEY, JSON.stringify(compacted));
-    } catch {
-      throw new Error(
-        `Browser storage quota exceeded while saving Recent Projects. Snapshot size was ${Math.round(estimateBytes(projects) / 1024).toLocaleString()} KB.`
-      );
+      const compactedJson = JSON.stringify(compacted);
+      if (!trySetStorageItem(LOCAL_PROJECTS_KEY, compactedJson) && !trySetStorageItem(LOCAL_PROJECTS_KEY, compactedJson, true)) {
+        throw new Error("Browser storage quota exceeded while saving the compact Recent Projects index.");
+      }
+    } catch (compactError) {
+      const thin = compacted.slice(0, 30);
+      try {
+        const thinJson = JSON.stringify(thin);
+        if (!trySetStorageItem(LOCAL_PROJECTS_KEY, thinJson) && !trySetStorageItem(LOCAL_PROJECTS_KEY, thinJson, true)) {
+          throw new Error("Browser storage quota exceeded while saving the thin Recent Projects index.");
+        }
+      } catch {
+        throw new Error(
+          `Browser storage quota exceeded while saving the Recent Projects index. Registry size was ${Math.round(estimateBytes(registryToPersist) / 1024).toLocaleString()} KB; compacted size was ${Math.round(estimateBytes(compacted) / 1024).toLocaleString()} KB.`
+        );
+      }
+      if (compactError instanceof Error) {
+        console.warn("ATLAS saved thin project registry after compact snapshot exceeded storage quota", compactError.message);
+      }
     }
     if (error instanceof Error) {
       console.warn("ATLAS compacted project registry after storage warning", error.message);
@@ -229,6 +507,7 @@ export function workflowLabel(projectType: ProjectType, workflowId?: string) {
 
 export function createSnapshotFromState(state: CurrentWorkflowState): WorkflowProjectSnapshot {
   const workflow = getWorkflowDefinition(state.workflowId || getWorkflowForProjectType(state.projectType).id);
+  const currentStepId = resolveCurrentBrowserStepId(state, workflow.steps);
   return {
     projectId: state.projectId,
     modelId: state.modelId ?? "",
@@ -236,10 +515,27 @@ export function createSnapshotFromState(state: CurrentWorkflowState): WorkflowPr
     projectType: state.projectType,
     workflowId: workflow.id,
     workflowSteps: state.workflowSteps?.length ? state.workflowSteps : workflow.steps,
-    currentStepId: state.currentStepId || workflow.steps[0]?.id || "step00",
+    currentStepId,
     hasDataset: Boolean(state.hasDataset),
     projectTools: state.projectTools,
   };
+}
+
+function normalizePath(value?: string) {
+  if (!value) return "";
+  const path = value.startsWith("/") ? value : `/${value}`;
+  return path.length > 1 ? path.replace(/\/+$/, "") : path;
+}
+
+function resolveCurrentBrowserStepId(state: CurrentWorkflowState, fallbackSteps: WorkflowStep[]) {
+  const steps = state.workflowSteps?.length ? state.workflowSteps : fallbackSteps;
+  if (typeof window === "undefined") return state.currentStepId || steps[0]?.id || "step00";
+  const pathname = normalizePath(window.location?.pathname);
+  if (!pathname || pathname === "/projects/open") return state.currentStepId || steps[0]?.id || "step00";
+  const routeMatch = steps.find((step) => normalizePath(step.route) === pathname);
+  if (routeMatch) return routeMatch.id;
+  const predictiveMatch = steps.find((step) => normalizePath(`/${step.id}`) === pathname);
+  return predictiveMatch?.id || state.currentStepId || steps[0]?.id || "step00";
 }
 
 export function isMeaningfulProjectSnapshot(snapshot: WorkflowProjectSnapshot) {
@@ -269,6 +565,7 @@ export function upsertProjectSnapshot(snapshot: WorkflowProjectSnapshot, source:
     lastModified: nowIso(),
     source: current?.source ?? source,
     snapshot: snapshotToPersist,
+    snapshotStorageKey: projectSnapshotKey(snapshotToPersist.projectId),
   };
   try {
     saveLocalProjects([record, ...existing.filter((project) => project.projectId !== record.projectId)]);
@@ -292,6 +589,56 @@ export function upsertProjectSnapshot(snapshot: WorkflowProjectSnapshot, source:
 
 export function upsertProjectFromState(state: CurrentWorkflowState) {
   return upsertProjectSnapshot(createSnapshotFromState(state), "browser");
+}
+
+export function saveActiveProjectBeforeNavigation(state: CurrentWorkflowState) {
+  try {
+    upsertProjectFromState(state);
+    return { ok: true, message: "Project saved before navigation." };
+  } catch (error) {
+    try {
+      const snapshot = minimalSnapshot(createSnapshotFromState(state));
+      const existing = loadLocalProjects();
+      const current = existing.find((project) => project.projectId === snapshot.projectId);
+      const record: LocalProjectRecord = {
+        projectId: snapshot.projectId,
+        modelId: snapshot.modelId,
+        projectName: snapshot.projectName,
+        projectType: snapshot.projectType,
+        workflowId: snapshot.workflowId,
+        createdAt: current?.createdAt ?? nowIso(),
+        lastModified: nowIso(),
+        source: current?.source ?? "browser",
+        snapshot,
+        snapshotStorageKey: projectSnapshotKey(snapshot.projectId),
+        restoreStatus: "thin_snapshot_available",
+      };
+      saveLocalProjects([record, ...existing.filter((project) => project.projectId !== record.projectId)]);
+      emitProjectSaveStatus({
+        status: "saved",
+        projectId: record.projectId,
+        savedAt: record.lastModified,
+        snapshotBytes: estimateBytes(snapshot),
+        message: "ATLAS saved a thin project snapshot before navigation.",
+      });
+      return { ok: true, message: "Project saved as a thin snapshot before navigation." };
+    } catch (fallbackError) {
+      emitProjectSaveStatus({
+        status: "save_failed",
+        projectId: state.projectId,
+        message:
+          fallbackError instanceof Error
+            ? fallbackError.message
+            : error instanceof Error
+              ? error.message
+              : "ATLAS could not save the current project before navigation.",
+      });
+    }
+    return {
+      ok: false,
+      message: error instanceof Error ? error.message : "ATLAS could not save the current project before navigation.",
+    };
+  }
 }
 
 export function renameLocalProject(projectId: string, projectName: string) {
@@ -335,6 +682,7 @@ export function duplicateLocalProject(projectId: string) {
       projectId: duplicatedId,
       projectName: `${source.projectName} Copy`,
     },
+    snapshotStorageKey: projectSnapshotKey(duplicatedId),
   };
   const next = [duplicate, ...projects];
   saveLocalProjects(next);
@@ -357,6 +705,7 @@ export function importLocalProject(candidate: unknown) {
     lastModified: nowIso(),
     source: "imported",
     snapshot: { ...snapshot, projectId },
+    snapshotStorageKey: projectSnapshotKey(projectId),
   };
   saveLocalProjects([record, ...loadLocalProjects().filter((item) => item.projectId !== projectId)]);
   return record;

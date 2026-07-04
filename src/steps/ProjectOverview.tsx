@@ -83,8 +83,8 @@ export default function ProjectOverview() {
         <div className="grid gap-5">
           <Panel icon={<FileClock size={18} />} title="Recent Decisions">
             {decisions.length ? (
-              decisions.map((entry) => (
-                <div key={entry.id} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              decisions.map((entry, index) => (
+                <div key={`${entry.id ?? entry.timestamp ?? entry.workflowStep ?? "decision"}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                   <div className="text-xs font-semibold text-slate-900">{entry.subject}</div>
                   <div className="mt-1 text-[11px] leading-4 text-slate-500">{entry.workflowStep} · {entry.actionType}</div>
                 </div>
@@ -96,8 +96,8 @@ export default function ProjectOverview() {
 
           <Panel icon={<FlaskConical size={18} />} title="Recent Experiments">
             {experiments.length ? (
-              experiments.map((experiment) => (
-                <div key={experiment.experimentId} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              experiments.map((experiment, index) => (
+                <div key={`${experiment.experimentId ?? experiment.modelType ?? "experiment"}-${index}`} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
                   <div className="text-xs font-semibold text-slate-900">{experiment.modelType}</div>
                   <div className="mt-1 text-[11px] leading-4 text-slate-500">{experiment.champion ? "Champion" : "Challenger"} · {experiment.datasetVersion}</div>
                 </div>

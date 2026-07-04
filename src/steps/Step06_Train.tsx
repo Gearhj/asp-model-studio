@@ -5,12 +5,14 @@ import { useNavigate } from "react-router-dom";
 import { logDecision } from "../lib/decisionJournal";
 import { recordTrainingExperiments } from "../lib/experimentTracking";
 import { inferLocalProblemType, loadLocalDataset } from "../lib/localDataset";
-import { upsertProjectFromState } from "../lib/localProjects";
+import { saveActiveProjectBeforeNavigation } from "../lib/localProjects";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import StepPythonPanel from "../components/StepPythonPanel";
 
 const API_BASE =
   import.meta.env.VITE_API_BASE?.replace(/\/$/, "") || "http://127.0.0.1:8001/api";
 const LOCAL_TRAINING_SUMMARY_KEY = "modeling-tool-training-summary";
+const LOCAL_TRAINING_CONFIG_KEY = "modeling-tool-training-config";
 
 type Status = "idle" | "pending" | "done" | "error";
 
@@ -99,9 +101,9 @@ const MODEL_GROUPS: GroupDef[] = [
     title: "Transparent Models",
     task: "classification",
     models: [
-      { key: "logreg", label: "Logistic Regression" },
-      { key: "dtree", label: "Decision Tree" },
-      { key: "ebm", label: "Explainable Boosting Machine (EBM)" },
+      { key: "logreg", label: "Logistic Regression", tooltip: "Transparent baseline for classification. Use when interpretability, odds ratios, or regulatory review matter." },
+      { key: "dtree", label: "Decision Tree", tooltip: "Rule-based classifier. Use when simple split logic is valuable and modest performance tradeoffs are acceptable." },
+      { key: "ebm", label: "Explainable Boosting Machine (EBM)", tooltip: "Interpretable boosting model. Use when you need nonlinear performance with clear feature-shape explanations." },
     ],
   },
   {
@@ -109,10 +111,10 @@ const MODEL_GROUPS: GroupDef[] = [
     title: "Ensemble Models (Black Box)",
     task: "classification",
     models: [
-      { key: "rf", label: "Random Forest" },
-      { key: "xgb", label: "XGBoost" },
-      { key: "cat", label: "CatBoost" },
-      { key: "lgbm", label: "LightGBM" },
+      { key: "rf", label: "Random Forest", tooltip: "Robust ensemble baseline. Use when nonlinear feature interactions are likely and interpretability is secondary." },
+      { key: "xgb", label: "XGBoost", tooltip: "Gradient-boosted trees. Use for high-performing challenger models with careful validation and tuning." },
+      { key: "cat", label: "CatBoost", tooltip: "Boosting model with strong categorical handling. Use when categorical predictors are important." },
+      { key: "lgbm", label: "LightGBM", tooltip: "Fast gradient boosting. Use for larger tabular datasets and challenger benchmarking." },
     ],
   },
   {
@@ -120,8 +122,8 @@ const MODEL_GROUPS: GroupDef[] = [
     title: "Distance Based",
     task: "classification",
     models: [
-      { key: "knn", label: "K-Nearest Neighbors" },
-      { key: "linsvm", label: "Linear SVM (Calibrated)" },
+      { key: "knn", label: "K-Nearest Neighbors", tooltip: "Distance-based classifier. Use when local similarity is meaningful and features are scaled." },
+      { key: "linsvm", label: "Linear SVM (Calibrated)", tooltip: "Margin-based linear classifier. Use with many standardized features and calibration for probabilities." },
     ],
   },
   {
@@ -129,26 +131,26 @@ const MODEL_GROUPS: GroupDef[] = [
     title: "Anomaly Detection Models",
     task: "classification",
     models: [
-      { key: "iso", label: "Isolation Forest (Anomaly)" },
-      { key: "autoreg", label: "Autoregression (Anomaly)" },
+      { key: "iso", label: "Isolation Forest (Anomaly)", tooltip: "Unsupervised anomaly detector. Use as a supplemental rare-pattern screen, not as a standard supervised champion." },
+      { key: "autoreg", label: "Autoregression (Anomaly)", tooltip: "Time-aware anomaly baseline. Use when sequential behavior or monitoring drift is central." },
     ],
   },
   {
     id: "nn",
     title: "Neural Network",
     task: "classification",
-    models: [{ key: "mlp", label: "Neural Net (MLP)" }],
+    models: [{ key: "mlp", label: "Neural Net (MLP)", tooltip: "Feed-forward neural network. Use as a black-box challenger when sample size and governance controls are sufficient." }],
   },
   {
     id: "regression-transparent",
     title: "Regression Models",
     task: "regression",
     models: [
-      { key: "linreg", label: "Linear Regression" },
-      { key: "rf_reg", label: "Random Forest Regressor" },
-      { key: "xgb_reg", label: "XGBoost Regressor" },
-      { key: "lgbm_reg", label: "LightGBM Regressor" },
-      { key: "cat_reg", label: "CatBoost Regressor" },
+      { key: "linreg", label: "Linear Regression", tooltip: "Transparent regression baseline. Use when coefficients, residuals, and auditability matter." },
+      { key: "rf_reg", label: "Random Forest Regressor", tooltip: "Nonlinear ensemble regressor. Use when interactions are likely and prediction accuracy matters." },
+      { key: "xgb_reg", label: "XGBoost Regressor", tooltip: "Gradient-boosted regression model. Use as a high-performance challenger with tuning." },
+      { key: "lgbm_reg", label: "LightGBM Regressor", tooltip: "Fast boosted regression model. Use for larger tabular data and challenger benchmarking." },
+      { key: "cat_reg", label: "CatBoost Regressor", tooltip: "Boosted regression model with categorical support. Use when categorical features carry signal." },
     ],
   },
 ];
@@ -167,6 +169,12 @@ const DEFAULT_REGRESSION_SELECTION: Partial<Record<ModelKey, boolean>> = {
   xgb_reg: false,
   lgbm_reg: false,
   cat_reg: false,
+};
+
+const gridSearchGuidance: Record<"quick" | "balanced" | "thorough", string> = {
+  quick: "Definition: small parameter search. Use for fast baseline comparison or when runtime matters. Example: first challenger benchmark.",
+  balanced: "Definition: moderate parameter search. Use when selecting a serious champion and runtime is acceptable.",
+  thorough: "Definition: deeper parameter search. Use when final performance matters and compute time is justified by governance impact.",
 };
 
 const ALL_MODEL_KEYS = MODEL_GROUPS.flatMap((group) => group.models.map((model) => model.key));
@@ -350,13 +358,11 @@ export default function Step06_Train() {
     const keys = new Set<ModelKey>();
     visibleGroups.forEach((group) => {
       group.models.forEach((model) => {
-        const explicitlyUnavailable = availabilityLoaded && availability[model.key] === false;
-        const optionalUnavailable = OPTIONAL_MODEL_KEYS.has(model.key) && explicitlyUnavailable;
-        if (!optionalUnavailable) keys.add(model.key);
+        keys.add(model.key);
       });
     });
     return keys;
-  }, [availability, availabilityLoaded, visibleGroups]);
+  }, [visibleGroups]);
   const canGoToEvaluation =
     !isTraining &&
     selectedModels.every((model) => status[model] !== "pending") &&
@@ -373,6 +379,34 @@ export default function Step06_Train() {
           typeof row.mae === "number" ||
           typeof row.r2 === "number"
       ));
+
+  useEffect(() => {
+    try {
+      const modelLabels = Object.fromEntries(
+        selectedModels.map((key) => {
+          const def = MODEL_GROUPS.flatMap((group) => group.models).find((model) => model.key === key);
+          return [key, displayModelName(labels[key] ?? def?.label ?? key)];
+        })
+      );
+      localStorage.setItem(
+        LOCAL_TRAINING_CONFIG_KEY,
+        JSON.stringify({
+          problem_type: problemType,
+          selected_models: selectedModels,
+          selected_model_labels: modelLabels,
+          grid_search: useGridSearch,
+          search_depth: gridSearchLevel,
+          calibration: calibrate,
+          max_parallel_models: maxParallel,
+          use_pca: usePCA,
+          training_summary: summary?.slice(0, 25) ?? [],
+          updated_at: new Date().toISOString(),
+        })
+      );
+    } catch {
+      // Training configuration remains visible in the UI if browser persistence is unavailable.
+    }
+  }, [problemType, selectedModels, labels, useGridSearch, gridSearchLevel, calibrate, maxParallel, usePCA, summary]);
 
   const toggleModelSelection = (model: ModelDef) => {
     logDecision({
@@ -678,8 +712,7 @@ export default function Step06_Train() {
 
       const fittedRanked = (j.summary?.ranked ?? []) as RankedRow[];
       if (fittedRanked.length) {
-        try {
-          const records = await recordTrainingExperiments({
+        void recordTrainingExperiments({
             apiBase: API_BASE,
             ranked: fittedRanked,
             selectedModelKeys: models,
@@ -693,12 +726,14 @@ export default function Step06_Train() {
               grid_search: useGridSearch,
               grid_search_level: gridSearchLevel,
             },
-          });
+          })
+          .then((records) => {
           setMessage((current) => `${current ?? ""} Created ${records.length} experiment record(s).`);
-        } catch (err) {
+          })
+          .catch((err) => {
           console.error("Experiment capture failed:", err);
           setMessage((current) => `${current ?? ""} Experiment capture failed; training results are still available.`);
-        }
+          });
       }
 
       // Keep the just-completed backend response as the authoritative table state.
@@ -873,6 +908,7 @@ export default function Step06_Train() {
               <option value="balanced">Balanced</option>
               <option value="thorough">Thorough</option>
             </select>
+            <span className="text-[11px] font-normal leading-4 text-slate-500">{gridSearchGuidance[gridSearchLevel]}</span>
           </label>
           <p className="self-end text-[11px] text-gray-500">
             {useGridSearch
@@ -953,9 +989,7 @@ export default function Step06_Train() {
                         {label}
                         <StatusPill status={status[m.key]} />
                       </div>
-                      {m.tooltip && (
-                        <div className="text-[11px] text-gray-500">{m.tooltip}</div>
-                      )}
+                      <div className="text-[11px] leading-4 text-gray-500">{m.tooltip ?? "Select this candidate model when it aligns with the project objective and validation plan."}</div>
                     </div>
                     <Toggle
                       checked={isChecked}
@@ -963,8 +997,8 @@ export default function Step06_Train() {
                       onChange={() => toggleModelSelection(m)}
                     />
                     {optionalUnavailable && (
-                      <span className="ml-2 text-[11px] font-medium text-slate-400" title="This optional algorithm package is not available in the backend environment.">
-                        unavailable
+                      <span className="ml-2 text-[11px] font-medium text-amber-600" title="ATLAS will include this model in the request. If the backend package is unavailable, the model will be reported as failed without blocking other selected models.">
+                        package warning
                       </span>
                     )}
                   </div>
@@ -974,6 +1008,8 @@ export default function Step06_Train() {
           </div>
         ))}
       </div>
+
+      <StepPythonPanel />
 
       {/* Summary + metrics table */}
       <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
@@ -1075,7 +1111,10 @@ export default function Step06_Train() {
               if (!canGoToEvaluation) return;
               try {
                 markComplete("step07");
-                upsertProjectFromState(useWorkflowStore.getState());
+                const saveResult = saveActiveProjectBeforeNavigation(useWorkflowStore.getState());
+                if (!saveResult.ok) {
+                  setMessage(`${saveResult.message} ATLAS will continue to Evaluation; reopen may restore only workflow progress.`);
+                }
                 navigate("/step08");
                 window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: "auto" }));
               } catch (error) {

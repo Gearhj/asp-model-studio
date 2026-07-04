@@ -11,6 +11,16 @@ type BalanceMethod = "undersample" | "smote" | "class_weight" | "none";
 
 const RATIO_OPTIONS = ["90/10", "80/20", "70/30", "60/40"];
 const KFOLD_OPTIONS = [3, 4, 5, 6, 7, 8, 9, 10];
+const splitGuidance: Record<SplitStrategy, string> = {
+  holdout: "Definition: one train/test split. Use when you need a simple independent test set or will score separate TEST/OOT files later.",
+  kfold: "Definition: repeated train/validation folds with preserved class mix. Use when the development sample is small or model selection needs more stable estimates.",
+};
+const balanceGuidance: Record<BalanceMethod, string> = {
+  undersample: "Definition: reduce majority-class records in training. Use for rare-event classification when fast training and lift/recall matter.",
+  smote: "Definition: synthesize minority-class examples in training. Use cautiously when the minority class has enough structure and synthetic cases are defensible.",
+  class_weight: "Definition: penalize minority-class errors more heavily. Use when you want to preserve all records while addressing imbalance.",
+  none: "Definition: do not alter class distribution. Use when event rate is acceptable or balancing would distort the production population.",
+};
 
 // Color convention: blue = Non-Fraud (0), red = Fraud (1)
 const BLUE = "bg-blue-500";
@@ -333,7 +343,10 @@ export default function Step06_BalancingSplit() {
               checked={isHoldout}
               onChange={() => chooseSplitStrategy("holdout")}
             />
-            <span className="text-sm font-medium">Holdout (Train/Test)</span>
+            <span>
+              <span className="text-sm font-medium">Holdout (Train/Test)</span>
+              <span className="block text-[11px] leading-4 text-gray-500">{splitGuidance.holdout}</span>
+            </span>
           </label>
 
           <label className="flex items-center gap-3 cursor-pointer">
@@ -343,7 +356,10 @@ export default function Step06_BalancingSplit() {
               checked={isCV}
               onChange={() => chooseSplitStrategy("kfold")}
             />
-            <span className="text-sm font-medium">Cross-validation (Stratified K-Fold)</span>
+            <span>
+              <span className="text-sm font-medium">Cross-validation (Stratified K-Fold)</span>
+              <span className="block text-[11px] leading-4 text-gray-500">{splitGuidance.kfold}</span>
+            </span>
           </label>
         </div>
 
@@ -367,6 +383,7 @@ export default function Step06_BalancingSplit() {
                 setKFolds(next);
               }}
               className="w-40 p-2 border border-gray-300 rounded-lg"
+              title="Definition: number of resampling folds. Use 5 as a practical default; higher K can be slower but may reduce validation variance."
             >
               {KFOLD_OPTIONS.map((k) => (
                 <option key={k} value={k}>
@@ -422,7 +439,7 @@ export default function Step06_BalancingSplit() {
                 </option>
               ))}
             </select>
-            <p className="text-xs text-gray-500 mt-1">Only used for undersampling previews.</p>
+            <p className="text-xs text-gray-500 mt-1">Definition: target majority/minority ratio after undersampling. Use 80/20 or 70/30 when rare events need stronger signal without fully balancing away population structure.</p>
           </div>
 
           <div className="col-span-2">
@@ -434,7 +451,10 @@ export default function Step06_BalancingSplit() {
                   checked={balanceMethod === "undersample"}
                   onChange={() => chooseBalanceMethod("undersample")}
                 />
-                <span>Undersampling</span>
+                <span>
+                  <span>Undersampling</span>
+                  <span className="block text-[11px] leading-4 text-gray-500">{balanceGuidance.undersample}</span>
+                </span>
               </label>
               <label className="inline-flex items-center gap-2">
                 <input
@@ -442,7 +462,10 @@ export default function Step06_BalancingSplit() {
                   checked={balanceMethod === "smote"}
                   onChange={() => chooseBalanceMethod("smote")}
                 />
-                <span>SMOTE (if available)</span>
+                <span>
+                  <span>SMOTE (if available)</span>
+                  <span className="block text-[11px] leading-4 text-gray-500">{balanceGuidance.smote}</span>
+                </span>
               </label>
               <label className="inline-flex items-center gap-2">
                 <input
@@ -450,7 +473,10 @@ export default function Step06_BalancingSplit() {
                   checked={balanceMethod === "class_weight"}
                   onChange={() => chooseBalanceMethod("class_weight")}
                 />
-                <span>Class Weights</span>
+                <span>
+                  <span>Class Weights</span>
+                  <span className="block text-[11px] leading-4 text-gray-500">{balanceGuidance.class_weight}</span>
+                </span>
               </label>
               <label className="inline-flex items-center gap-2">
                 <input
@@ -458,7 +484,10 @@ export default function Step06_BalancingSplit() {
                   checked={balanceMethod === "none"}
                   onChange={() => chooseBalanceMethod("none")}
                 />
-                <span>None</span>
+                <span>
+                  <span>None</span>
+                  <span className="block text-[11px] leading-4 text-gray-500">{balanceGuidance.none}</span>
+                </span>
               </label>
             </div>
           </div>

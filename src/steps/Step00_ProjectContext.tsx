@@ -38,6 +38,38 @@ const regulatoryDefinitions: Record<RegulatoryEnvironment, string> = {
   none: "No formal regulatory framework selected. Internal documentation and auditability may still be required.",
 };
 
+const projectTypeGuidance: Record<ProjectType, string> = Object.fromEntries(
+  projectTypeOptions.map((option) => [
+    option.value,
+    `Definition: ${option.description} Use when the project objective matches this workflow family.`,
+  ])
+) as Record<ProjectType, string>;
+
+const modelTypeGuidance: Record<ModelType, string> = {
+  fraud: "Definition: rare-event abuse or loss detection. Use when the model flags suspicious behavior for review or intervention.",
+  "credit risk": "Definition: repayment, default, or loss-risk modeling. Use when credit decisions, pricing, or exposure management are affected.",
+  "marketing response": "Definition: likelihood of response or conversion. Use when ranking customers for campaigns or offers.",
+  attrition: "Definition: churn or retention-risk modeling. Use when identifying customers likely to leave or reduce engagement.",
+  approval: "Definition: eligibility or decision-support modeling. Use when scores influence approve/decline or manual review decisions.",
+  collections: "Definition: collections prioritization or treatment modeling. Use when selecting outreach strategy, queue priority, or repayment support.",
+  "AML/KYC": "Definition: anti-money-laundering or know-your-customer risk detection. Use when regulatory investigation workflows are affected.",
+  "generic classification": "Definition: binary or multiclass outcome modeling. Use when the target is categorical and not covered by a specialized type.",
+  regression: "Definition: continuous-target prediction. Use when predicting dollars, rates, balances, time, or another numeric outcome.",
+};
+
+const interpretabilityGuidance: Record<InterpretabilityRequirement, string> = {
+  low: "Definition: black-box models may be acceptable. Use for research or low-impact decisions with strong monitoring.",
+  medium: "Definition: model behavior must be explainable at a feature or segment level. Use for most governed challenger models.",
+  high: "Definition: decisions must be readily explainable and defensible. Use for regulated credit, adverse action, or high-impact use cases.",
+};
+
+const deploymentGuidance: Record<DeploymentExpectation, string> = {
+  "research only": "Definition: exploratory analysis with no production decisioning. Use when validation and deployment are not yet planned.",
+  "batch scoring": "Definition: scheduled offline scoring. Use for periodic campaigns, portfolio reviews, or monitoring files.",
+  "real-time API": "Definition: low-latency scoring at decision time. Use only when latency, reliability, and controls are production-ready.",
+  "monitoring only": "Definition: no new decision model; track stability or performance. Use for surveillance, governance, or challenger observation.",
+};
+
 export default function Step00ProjectContext() {
   const [context, setContext] = useState<ProjectContext>(() => loadProjectContext());
   const projectType = useWorkflowStore((state) => state.projectType);
@@ -148,6 +180,7 @@ export default function Step00ProjectContext() {
                   </option>
                 ))}
               </select>
+              <GuidanceText>{projectTypeGuidance[selectedProjectType]}</GuidanceText>
             </Field>
 
             <Field label="Model type">
@@ -162,6 +195,7 @@ export default function Step00ProjectContext() {
                   </option>
                 ))}
               </select>
+              <GuidanceText>{modelTypeGuidance[context.modelType]}</GuidanceText>
             </Field>
 
             <div className="lg:col-span-2">
@@ -282,6 +316,7 @@ export default function Step00ProjectContext() {
                     <option value="medium">medium</option>
                     <option value="high">high</option>
                   </select>
+                  <GuidanceText>{interpretabilityGuidance[context.interpretabilityRequirement]}</GuidanceText>
                 </Field>
 
                 <Field label="Deployment expectation">
@@ -295,6 +330,7 @@ export default function Step00ProjectContext() {
                     <option value="real-time API">real-time API</option>
                     <option value="monitoring only">monitoring only</option>
                   </select>
+                  <GuidanceText>{deploymentGuidance[context.deploymentExpectation]}</GuidanceText>
                 </Field>
               </div>
 
@@ -370,4 +406,8 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       {children}
     </label>
   );
+}
+
+function GuidanceText({ children }: { children: React.ReactNode }) {
+  return <span className="text-[11px] font-normal normal-case leading-4 text-slate-500">{children}</span>;
 }

@@ -8,14 +8,17 @@ import {
   deleteLocalProject,
   duplicateLocalProject,
   formatProjectDate,
+  getLocalProjectsRegistryStatus,
   getProjectPersistenceDebug,
   importLocalProject,
   loadLocalProjects,
   migrateLegacyLocalProjects,
   projectProgress,
+  repairLocalProjectsRegistry,
   renameLocalProject,
   saveProjectSnapshotFromState,
   type LocalProjectRecord,
+  type LocalProjectsRegistryStatus,
   upsertProjectFromState,
   workflowLabel,
 } from "../lib/localProjects";
@@ -27,35 +30,59 @@ export function OpenProject() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [projects, setProjects] = useState<LocalProjectRecord[]>([]);
   const [importMessage, setImportMessage] = useState("");
-  const workflowState = useWorkflowStore((state) => ({
-    hasDataset: state.hasDataset,
-    projectId: state.projectId,
-    modelId: state.modelId,
-    projectName: state.projectName,
-    projectType: state.projectType,
-    workflowId: state.workflowId,
-    workflowSteps: state.workflowSteps,
-    currentStepId: state.currentStepId,
-    projectTools: state.projectTools,
+  const [registryStatus, setRegistryStatus] = useState<LocalProjectsRegistryStatus>(() => ({
+    ok: true,
+    corrupted: false,
+    message: "",
+    projectCount: 0,
+    validProjects: [],
   }));
   const loadProjectSnapshot = useWorkflowStore((state) => state.loadProjectSnapshot);
+  const activeProjectId = useWorkflowStore((state) => state.projectId);
   const setProjectName = useWorkflowStore((state) => state.setProjectName);
   const resetProject = useWorkflowStore((state) => state.reset);
 
   useEffect(() => {
-    const migration = migrateLegacyLocalProjects();
-    upsertProjectFromState(workflowState);
-    setProjects(loadLocalProjects());
-    if (migration.migrated > 0) {
-      setImportMessage(`Recovered ${migration.migrated} browser-saved project${migration.migrated === 1 ? "" : "s"} from legacy ATLAS storage.`);
+    const status = getLocalProjectsRegistryStatus();
+    setRegistryStatus(status);
+    if (status.corrupted) {
+      setProjects(status.validProjects);
+      setImportMessage(status.message);
+      return;
     }
-    // Seed the launcher from the active session when the page opens.
+    try {
+      const migration = migrateLegacyLocalProjects();
+      const nextStatus = getLocalProjectsRegistryStatus();
+      setRegistryStatus(nextStatus);
+      setProjects(loadLocalProjects());
+      if (migration.migrated > 0) {
+        setImportMessage(`Recovered ${migration.migrated} browser-saved project${migration.migrated === 1 ? "" : "s"} from legacy ATLAS storage.`);
+      }
+    } catch (error) {
+      setProjects(loadLocalProjects());
+      setImportMessage(error instanceof Error ? `Open Project loaded, but project registry maintenance failed: ${error.message}` : "Open Project loaded, but project registry maintenance failed.");
+    }
+    // Keep the launcher route resilient even when registry migration fails.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const openProject = (project: LocalProjectRecord) => {
     loadProjectSnapshot(project.snapshot);
-    navigate(project.snapshot.currentStepId === "step00" ? "/project-overview" : currentWorkflowStage(project.snapshot.workflowSteps, project.snapshot.currentStepId)?.route || "/project-overview");
+    const route = currentWorkflowStage(project.snapshot.workflowSteps, project.snapshot.currentStepId)?.route || "/project-overview";
+    navigate(route);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const repairRegistry = () => {
+    try {
+      const result = repairLocalProjectsRegistry();
+      const status = getLocalProjectsRegistryStatus();
+      setRegistryStatus(status);
+      setProjects(result.projects);
+      setImportMessage(result.message);
+    } catch (error) {
+      setImportMessage(error instanceof Error ? `Recent Projects repair failed: ${error.message}` : "Recent Projects repair failed.");
+    }
   };
 
   const duplicateProject = (event: React.MouseEvent, project: LocalProjectRecord) => {
@@ -71,7 +98,7 @@ export function OpenProject() {
     if (!nextName || !nextName.trim()) return;
     const nextProjects = renameLocalProject(project.projectId, nextName);
     setProjects(nextProjects);
-    if (project.projectId === workflowState.projectId) setProjectName(nextName.trim());
+    if (project.projectId === activeProjectId) setProjectName(nextName.trim());
     setImportMessage(`Renamed project to "${nextName.trim()}".`);
   };
 
@@ -80,7 +107,7 @@ export function OpenProject() {
     const confirmed = window.confirm(`Delete "${project.projectName}" from local recent projects? This will not remove source data files from your machine.`);
     if (!confirmed) return;
     setProjects(deleteLocalProject(project.projectId));
-    if (project.projectId === workflowState.projectId) resetProject();
+    if (project.projectId === activeProjectId) resetProject();
     setImportMessage(`Deleted "${project.projectName}" from Recent Projects.`);
   };
 
@@ -148,6 +175,20 @@ export function OpenProject() {
           </div>
         </div>
         <input ref={fileInputRef} type="file" accept="application/json,.json,.atlas" className="hidden" onChange={importProjectFile} />
+        {registryStatus.corrupted && (
+          <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+            <div className="font-semibold">Recent Projects index needs repair</div>
+            <p className="mt-1">{registryStatus.message}</p>
+            <button
+              type="button"
+              onClick={repairRegistry}
+              className="mt-3 inline-flex items-center gap-2 rounded-lg bg-amber-900 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-800"
+            >
+              <RefreshCw size={15} />
+              Repair Recent Projects
+            </button>
+          </div>
+        )}
         {importMessage && <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">{importMessage}</div>}
       </section>
 
@@ -164,7 +205,7 @@ export function OpenProject() {
               <ProjectCard
                 key={project.projectId}
                 project={project}
-                isActive={project.projectId === workflowState.projectId}
+                isActive={project.projectId === activeProjectId}
                 onOpen={openProject}
                 onDuplicate={duplicateProject}
                 onRename={renameProject}

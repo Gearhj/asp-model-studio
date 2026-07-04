@@ -36,6 +36,15 @@ type MissingConfig = {
   };
 };
 
+const missingStrategyGuidance: Record<MissingStrategy, string> = {
+  None: "Definition: leave missing values unchanged. Use when the downstream model can handle missingness or no missing values exist.",
+  Mean: "Definition: fill numeric missing values with the average. Use for roughly symmetric numeric features without strong outliers.",
+  Median: "Definition: fill numeric missing values with the middle value. Use for skewed numeric features or fields with outliers.",
+  Mode: "Definition: fill missing values with the most common value. Use for categorical fields or discrete codes.",
+  Constant: "Definition: fill with a user-provided value. Use when missingness has business meaning, such as Unknown or Not Reported.",
+  "Drop Row": "Definition: remove rows with missing values. Use only when missingness is rare and dropping records will not bias the population.",
+};
+
 export default function Step04_MissingValues() {
   const [columns, setColumns] = useState<ColumnInfo[]>([]);
   const [missingStats, setMissingStats] = useState<Record<string, MissingStats>>({});
@@ -259,6 +268,7 @@ export default function Step04_MissingValues() {
               className="w-56 rounded-lg border border-gray-300 bg-white p-2 text-sm"
               value={globalStrategy}
               onChange={(e) => setGlobalStrategy(e.target.value as MissingStrategy)}
+              title={missingStrategyGuidance[globalStrategy]}
             >
               {strategyOptions.map((opt) => (
                 <option key={opt} value={opt}>
@@ -266,6 +276,7 @@ export default function Step04_MissingValues() {
                 </option>
               ))}
             </select>
+            <span className="max-w-sm text-[11px] font-normal leading-4 text-gray-500">{missingStrategyGuidance[globalStrategy]}</span>
           </label>
           <label className="grid gap-1">
             <span className="text-xs font-medium text-gray-600">Global constant</span>
@@ -328,6 +339,7 @@ export default function Step04_MissingValues() {
                         <select
                           className="w-full border rounded-md px-2 py-1"
                           value={cfg.strategy}
+                          title={missingStrategyGuidance[cfg.strategy]}
                           onChange={(e) =>
                             updateStrategy(
                               col.name,
@@ -394,6 +406,7 @@ export default function Step04_MissingValues() {
                         <select
                           className="w-full border rounded-md px-2 py-1"
                           value={cfg.strategy}
+                          title={missingStrategyGuidance[cfg.strategy]}
                           onChange={(e) =>
                             updateStrategy(
                               col.name,

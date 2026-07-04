@@ -63,7 +63,11 @@ export default function Step02_EDA() {
         if (cachedDataset?.headers.length) {
           setUsingLocalDataset(true);
           setLocalDataset(cachedDataset);
-          if (!cols.length) {
+          const allowedHeaders = new Set(cachedDataset.headers);
+          if (cols.length) {
+            cols = cols.filter((column) => allowedHeaders.has(column.name));
+            backendTarget = cachedDataset.target ?? backendTarget;
+          } else {
             cols = inferLocalColumns(cachedDataset);
             backendTarget = cachedDataset.target ?? "";
           }

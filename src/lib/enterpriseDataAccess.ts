@@ -87,6 +87,10 @@ export function hashDataset(headers: string[], rows: Record<string, unknown>[]) 
   return hashText(JSON.stringify({ headers, rows: rows.slice(0, 1000), rowCount: rows.length }));
 }
 
+export function hashDatasetPreview(headers: string[], rows: Record<string, unknown>[], rowCount: number) {
+  return hashText(JSON.stringify({ headers, rows: rows.slice(0, 1000), rowCount }));
+}
+
 export function compactTimestamp(date = new Date()) {
   return date.toISOString().replace(/\D/g, "").slice(0, 14);
 }
@@ -113,7 +117,7 @@ export function recordDatasetVersion(dataset: LocalDataset, metadata: DataAccess
     sourceType: metadata.sourceType,
     sourceLabel: metadata.sourceLabel,
     target: dataset.target,
-    rows: dataset.rows.length,
+    rows: metadata.returnedRowCount || dataset.rows.length,
     columns: dataset.headers.length,
     importedAt: metadata.importedAt,
     samplingMethod: metadata.samplingMethod,
@@ -258,8 +262,10 @@ export function buildDataAccessMetadata(input: {
   pythonCode?: string;
   samplingMethod: SamplingMethod;
   samplingDetail: string;
+  rowCountOverride?: number;
 }) {
-  const hash = hashDataset(input.dataset.headers, input.dataset.rows);
+  const returnedRowCount = input.rowCountOverride ?? input.dataset.rows.length;
+  const hash = hashDatasetPreview(input.dataset.headers, input.dataset.rows, returnedRowCount);
   const datasetId = `${input.sourceType}-${hash.slice(0, 8)}`;
   const version = `${compactTimestamp()}-${hash.slice(0, 8)}`;
   const tablesReferenced = input.sqlQuery ? extractSqlTables(input.sqlQuery) : [];
@@ -291,7 +297,7 @@ export function buildDataAccessMetadata(input: {
     tablesReferenced,
     importedAt: new Date().toISOString(),
     importedBy: "Local user",
-    returnedRowCount: input.dataset.rows.length,
+    returnedRowCount,
     returnedColumns: input.dataset.headers,
     samplingMethod: input.samplingMethod,
     samplingDetail: input.samplingDetail,
