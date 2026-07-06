@@ -650,6 +650,28 @@ def diagnostics() -> Dict[str, Any]:
                 "detail": f"Security diagnostics failed: {exc}",
             }
         )
+    try:
+        from ..analytics.analytics_store import diagnostics as analytics_diagnostics
+
+        analytics = analytics_diagnostics()
+        for check in analytics.get("checks", []):
+            checks.append(
+                {
+                    "id": f"analytics_{check.get('id')}",
+                    "label": f"Analytics: {check.get('label')}",
+                    "status": check.get("status", "warning"),
+                    "detail": check.get("detail", ""),
+                }
+            )
+    except Exception as exc:
+        checks.append(
+            {
+                "id": "analytics_diagnostics",
+                "label": "Analytics diagnostics",
+                "status": "fail",
+                "detail": f"Analytics diagnostics failed: {exc}",
+            }
+        )
     return {
         "ok": True,
         "generatedAt": now_iso(),

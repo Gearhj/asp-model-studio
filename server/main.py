@@ -30,6 +30,7 @@ from .python_execution import router as python_execution_router
 from .datasets.dataset_router import router as dataset_library_router
 from .security.security_router import router as security_router
 from .security.security_store import init_security_store
+from .analytics.analytics_router import router as analytics_router
 
 MAX_UPLOAD_BYTES = int(os.getenv("ATLAS_MAX_UPLOAD_BYTES", str(250 * 1024 * 1024)))
 MAX_UPLOAD_ROWS = int(os.getenv("ATLAS_MAX_UPLOAD_ROWS", "500000"))
@@ -177,6 +178,7 @@ def create_app() -> FastAPI:
     app.include_router(python_execution_router, prefix="/api", tags=["Python Execution"])
     app.include_router(security_router, prefix="/api", tags=["Security"])
     app.include_router(dataset_library_router, prefix="/api", tags=["Dataset Library"])
+    app.include_router(analytics_router, prefix="/api", tags=["Analytics Workbench"])
 
     return app
 

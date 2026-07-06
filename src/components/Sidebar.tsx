@@ -18,6 +18,7 @@ import {
   Plus,
   Settings2,
   Activity,
+  BarChart3,
   ShieldCheck,
   UserCircle,
   Users,
@@ -81,6 +82,10 @@ export default function Sidebar() {
           <NavLink to="/datasets" className={({ isActive }) => linkClass(isActive)}>
             <Database size={17} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">Dataset Library</span>
+          </NavLink>
+          <NavLink to="/analytics" className={({ isActive }) => linkClass(isActive)}>
+            <BarChart3 size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Analytics Workbench</span>
           </NavLink>
         </NavGroup>
 

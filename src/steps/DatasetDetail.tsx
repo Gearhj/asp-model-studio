@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, Database, Link2, RefreshCw, ShieldCheck } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { ArrowLeft, Database, Link2, RefreshCw, ShieldCheck, Trash2 } from "lucide-react";
 import BrandLogo from "../components/BrandLogo";
 import {
   getDataset,
@@ -17,11 +17,14 @@ import {
   type DatasetPreview,
   type DatasetSummary,
   type DatasetVersionSummary,
+  archiveDataset,
 } from "../lib/datasetLibrary";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { listAnalyticsInsights, type AtlasAnalyticsInsight } from "../lib/analyticsWorkbench";
 
 export default function DatasetDetail() {
   const { datasetId = "" } = useParams();
+  const navigate = useNavigate();
   const projectId = useWorkflowStore((state) => state.projectId);
   const [dataset, setDataset] = useState<(DatasetSummary & { versions?: DatasetVersionSummary[] }) | null>(null);
   const [selectedVersion, setSelectedVersion] = useState("");
@@ -33,6 +36,7 @@ export default function DatasetDetail() {
   const [shareRole, setShareRole] = useState("viewer");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
+  const [insights, setInsights] = useState<AtlasAnalyticsInsight[]>([]);
 
   async function refresh(versionOverride?: string) {
     if (!datasetId) return;
@@ -44,6 +48,7 @@ export default function DatasetDetail() {
       setDataset(loaded);
       setAccess((await getDatasetAccess(datasetId)).access);
       setUsers((await getUsers()).users);
+      setInsights((await listAnalyticsInsights({ datasetId })).insights);
       setSelectedVersion(version);
       if (version) {
         const profilePayload = await getDatasetProfile(datasetId, version);
@@ -93,6 +98,19 @@ export default function DatasetDetail() {
     }
   }
 
+  async function deleteDataset() {
+    if (!datasetId || !dataset) return;
+    const confirmed = window.confirm(`Delete "${dataset.name}" from the Dataset Library? ATLAS will archive the dataset record so it no longer appears in the default library view.`);
+    if (!confirmed) return;
+    try {
+      await archiveDataset(datasetId);
+      setMessage("Dataset archived.");
+      navigate("/datasets");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "ATLAS could not delete this dataset.");
+    }
+  }
+
   return (
     <div className="w-full space-y-5">
       <section className="rounded-xl border border-slate-200/80 bg-white/90 p-5 shadow-sm">
@@ -131,6 +149,10 @@ export default function DatasetDetail() {
             <button type="button" onClick={() => refresh()} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
               <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
               Refresh
+            </button>
+            <button type="button" onClick={deleteDataset} className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 shadow-sm hover:bg-red-50">
+              <Trash2 size={16} />
+              Delete Dataset
             </button>
           </div>
         </div>
@@ -194,6 +216,37 @@ export default function DatasetDetail() {
               </tbody>
             </table>
           </div>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-base font-semibold text-slate-950">Saved Analytics Insights</h2>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              Findings created in the Analytics Workbench for this governed dataset.
+            </p>
+          </div>
+          <Link to="/analytics" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
+            Open Analytics Workbench
+          </Link>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          {insights.length ? (
+            insights.slice(0, 6).map((insight) => (
+              <article key={insight.insightId} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
+                <div className="text-sm font-semibold text-slate-950">{insight.title}</div>
+                <p className="mt-1 line-clamp-3 text-xs leading-5 text-slate-600">{insight.summary || "No narrative summary was saved."}</p>
+                <div className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                  {insight.analysisType} - {new Date(insight.createdAt).toLocaleString()}
+                </div>
+              </article>
+            ))
+          ) : (
+            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
+              No analytics insights are saved for this dataset yet.
+            </div>
+          )}
         </div>
       </section>
 

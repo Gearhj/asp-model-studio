@@ -28,8 +28,16 @@ const assertions = [
   ["login routes", modelingApp.includes('path="/login"') && modelingApp.includes('path="/register"')],
   ["account routes", modelingApp.includes('path="/account"') && modelingApp.includes('path="/admin/users"') && modelingApp.includes('path="/audit"')],
   ["auth guard", modelingApp.includes("Loading ATLAS security context") && modelingApp.includes("Navigate to=\"/login\"")],
+  ["header shows signed-in user", modelingApp.includes("HeaderUserMenu") && modelingApp.includes("Signed in as") && modelingApp.includes("Sign out")],
   ["auth pages", authPages.includes("LoginPage") && authPages.includes("AdminUsersPage") && authPages.includes("AuditPage")],
+  ["register password confirmation", authPages.includes("confirmPassword") && authPages.includes("Passwords do not match.")],
+  ["register uses 8 character helper", authPages.includes("Use at least 8 characters. Longer passphrases are recommended.")],
+  ["ordinary register has no role input", !authPages.slice(authPages.indexOf("export function RegisterPage"), authPages.indexOf("export function AccountPage")).includes("role")],
+  ["backend accepts 8 character passwords", securityStore.includes("len(password) < 8") && securityStore.includes("Password must be at least 8 characters.")],
+  ["default registration role", authPages.includes("register(email, displayName, password)")],
+  ["account test checklist", authPages.includes("Account Test Checklist") && authPages.includes("Session") && authPages.includes("Dataset access")],
   ["dataset sharing UI", datasetDetail.includes("Share Dataset") && datasetDetail.includes("grantDatasetAccess")],
+  ["dataset delete UI", datasetDetail.includes("Delete Dataset") && datasetDetail.includes("archiveDataset")],
 ];
 
 const failures = assertions.filter(([, ok]) => !ok);

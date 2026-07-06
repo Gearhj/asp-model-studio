@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import json
 import shutil
 import subprocess
 import sys
@@ -27,6 +28,7 @@ class PythonRunRequest(BaseModel):
     userCode: str = Field(default="")
     projectId: str = Field(default="")
     workflowStep: str = Field(default="")
+    context: Dict[str, Any] = Field(default_factory=dict)
 
 
 def run_python_request(request: PythonRunRequest) -> Dict[str, Any]:
@@ -57,7 +59,34 @@ def run_python_request(request: PythonRunRequest) -> Dict[str, Any]:
     temp_dir.mkdir(parents=True, exist_ok=False)
     try:
         script_path = temp_dir / "atlas_step_code.py"
-        script_path.write_text(code, encoding="utf-8")
+        context_code = ""
+        if request.context:
+            context_code = (
+                "# ATLAS execution context injected for local development.\n"
+                f"ATLAS_CONTEXT = {json.dumps(request.context)}\n"
+                "preview_rows = ATLAS_CONTEXT.get('preview_rows', [])\n"
+                "primary_preview_rows = ATLAS_CONTEXT.get('primary_preview_rows', preview_rows)\n"
+                "secondary_preview_rows = ATLAS_CONTEXT.get('secondary_preview_rows', [])\n"
+                "dataset_name = ATLAS_CONTEXT.get('dataset_name', '')\n"
+                "version_id = ATLAS_CONTEXT.get('version_id', '')\n\n"
+                "try:\n"
+                "    import pandas as pd\n"
+                "    df = pd.DataFrame(preview_rows)\n"
+                "except BaseException as ATLAS_PANDAS_ERROR:\n"
+                "    pd = None\n"
+                "    class ATLASPreviewFrame(list):\n"
+                "        @property\n"
+                "        def shape(self):\n"
+                "            cols = len(self[0].keys()) if self and isinstance(self[0], dict) else 0\n"
+                "            return (len(self), cols)\n"
+                "        def head(self, n=5):\n"
+                "            return list(self[:n])\n"
+                "        def describe(self, *args, **kwargs):\n"
+                "            return {'rows': len(self), 'columns': self.shape[1]}\n"
+                "    df = ATLASPreviewFrame(preview_rows)\n"
+                "    print(f'ATLAS warning: pandas is unavailable or failed to initialize: {ATLAS_PANDAS_ERROR}')\n\n"
+            )
+        script_path.write_text(context_code + code, encoding="utf-8")
         try:
             completed = subprocess.run(
                 [sys.executable, str(script_path)],

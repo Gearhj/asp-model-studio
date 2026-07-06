@@ -161,9 +161,9 @@ def normalize_email(email: str) -> str:
 
 
 def validate_password(password: str) -> None:
-    weak = {"passwordpassword", "password1234", "atlaspassword", "letmeinletmein", "123456789012"}
-    if len(password) < 12:
-        raise HTTPException(status_code=400, detail="Password must be at least 12 characters.")
+    weak = {"password", "password1", "password123", "passwordpassword", "password1234", "atlaspassword", "letmeinletmein", "12345678", "123456789012"}
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters.")
     if password.lower() in weak:
         raise HTTPException(status_code=400, detail="Choose a less common passphrase.")
 

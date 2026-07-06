@@ -195,6 +195,13 @@ export async function revokeDatasetAccess(datasetId: string, userId: string) {
   });
 }
 
+export async function archiveDataset(datasetId: string) {
+  const payload = await jsonFetch<{ ok: true; dataset: DatasetSummary }>(`/datasets/${datasetId}/archive`, {
+    method: "POST",
+  });
+  return payload.dataset;
+}
+
 export async function getSystemDiagnostics() {
   return jsonFetch<SystemDiagnostics>("/system/diagnostics");
 }

@@ -107,6 +107,184 @@
           "warnings": []
         }
       ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "local-user"
+        }
+      ],
+      "archived": false,
+      "createdAt": "2026-07-06T20:00:39.366224+00:00",
+      "datasetId": "ds_class_train_982c7a7d",
+      "description": "",
+      "domain": "General",
+      "linkedProjects": [],
+      "name": "CLASS_TRAIN",
+      "ownerDisplayName": "Local ATLAS User",
+      "ownerUserId": "local-user",
+      "sourceType": "upload",
+      "updatedAt": "2026-07-06T20:00:39.366224+00:00",
+      "versions": [
+        {
+          "columnCount": 31,
+          "createdAt": "2026-07-06T20:00:39.365227+00:00",
+          "createdBy": "local-user",
+          "hash": "982c7a7d79677dbc2497c7191182f5bd9a4fae89ffd18238ed1202e96999193c",
+          "originalFilename": "CLASS_TRAIN.csv",
+          "previewPath": "ds_class_train_982c7a7d\\versions\\v_1783368035278_982c7a7d\\preview.json",
+          "profilePath": "ds_class_train_982c7a7d\\versions\\v_1783368035278_982c7a7d\\profile.json",
+          "rowCount": 170884,
+          "samplePath": "ds_class_train_982c7a7d\\versions\\v_1783368035278_982c7a7d\\data_sample.csv",
+          "versionId": "v_1783368035278_982c7a7d",
+          "warnings": [
+            "35 duplicate rows detected in the profiled sample."
+          ]
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "local-user"
+        }
+      ],
+      "archived": true,
+      "createdAt": "2026-07-06T20:00:45.785438+00:00",
+      "datasetId": "ds_reg_test_c17dc872_45500",
+      "description": "",
+      "domain": "General",
+      "linkedProjects": [],
+      "name": "REG_TEST",
+      "ownerDisplayName": "Local ATLAS User",
+      "ownerUserId": "local-user",
+      "sourceType": "upload",
+      "updatedAt": "2026-07-06T20:11:39.771676+00:00",
+      "versions": [
+        {
+          "columnCount": 9,
+          "createdAt": "2026-07-06T20:00:45.784440+00:00",
+          "createdBy": "local-user",
+          "hash": "c17dc872fe035e3122da63b3bc947f9dcba4993df51886c604a7949c29698bd5",
+          "originalFilename": "REG_TEST.csv",
+          "previewPath": "ds_reg_test_c17dc872_45500\\versions\\v_1783368045500_c17dc872\\preview.json",
+          "profilePath": "ds_reg_test_c17dc872_45500\\versions\\v_1783368045500_c17dc872\\profile.json",
+          "rowCount": 4128,
+          "samplePath": "ds_reg_test_c17dc872_45500\\versions\\v_1783368045500_c17dc872\\data_sample.csv",
+          "versionId": "v_1783368045500_c17dc872",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "local-user"
+        }
+      ],
+      "archived": true,
+      "createdAt": "2026-07-06T20:00:56.269468+00:00",
+      "datasetId": "ds_class_oot_04af8914",
+      "description": "",
+      "domain": "General",
+      "linkedProjects": [],
+      "name": "CLASS_OOT",
+      "ownerDisplayName": "Local ATLAS User",
+      "ownerUserId": "local-user",
+      "sourceType": "upload",
+      "updatedAt": "2026-07-06T20:11:47.534994+00:00",
+      "versions": [
+        {
+          "columnCount": 31,
+          "createdAt": "2026-07-06T20:00:56.268469+00:00",
+          "createdBy": "local-user",
+          "hash": "04af891405d01ba39209355a062476af0d6f8fb0a00df65e085919007bba9e62",
+          "originalFilename": "CLASS_OOT.csv",
+          "previewPath": "ds_class_oot_04af8914\\versions\\v_1783368053712_04af8914\\preview.json",
+          "profilePath": "ds_class_oot_04af8914\\versions\\v_1783368053712_04af8914\\profile.json",
+          "rowCount": 56962,
+          "samplePath": "ds_class_oot_04af8914\\versions\\v_1783368053712_04af8914\\data_sample.csv",
+          "versionId": "v_1783368053712_04af8914",
+          "warnings": [
+            "28 duplicate rows detected in the profiled sample."
+          ]
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "local-user"
+        }
+      ],
+      "archived": false,
+      "createdAt": "2026-07-06T20:01:49.073995+00:00",
+      "datasetId": "ds_class_test_9b264260",
+      "description": "",
+      "domain": "General",
+      "linkedProjects": [],
+      "name": "CLASS_TEST",
+      "ownerDisplayName": "Local ATLAS User",
+      "ownerUserId": "local-user",
+      "sourceType": "upload",
+      "updatedAt": "2026-07-06T20:01:49.073995+00:00",
+      "versions": [
+        {
+          "columnCount": 31,
+          "createdAt": "2026-07-06T20:01:49.072997+00:00",
+          "createdBy": "local-user",
+          "hash": "9b264260222af780cbde51b7bdb1d13cfa7187a584b1bb29ae6349d59b3abe71",
+          "originalFilename": "CLASS_TEST.csv",
+          "previewPath": "ds_class_test_9b264260\\versions\\v_1783368106686_9b264260\\preview.json",
+          "profilePath": "ds_class_test_9b264260\\versions\\v_1783368106686_9b264260\\profile.json",
+          "rowCount": 56961,
+          "samplePath": "ds_class_test_9b264260\\versions\\v_1783368106686_9b264260\\data_sample.csv",
+          "versionId": "v_1783368106686_9b264260",
+          "warnings": [
+            "14 duplicate rows detected in the profiled sample."
+          ]
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "local-user"
+        }
+      ],
+      "archived": false,
+      "createdAt": "2026-07-06T20:11:56.491737+00:00",
+      "datasetId": "ds_class_oot_04af8914_14122",
+      "description": "",
+      "domain": "General",
+      "linkedProjects": [],
+      "name": "CLASS_OOT",
+      "ownerDisplayName": "Local ATLAS User",
+      "ownerUserId": "local-user",
+      "sourceType": "upload",
+      "updatedAt": "2026-07-06T20:11:56.491737+00:00",
+      "versions": [
+        {
+          "columnCount": 31,
+          "createdAt": "2026-07-06T20:11:56.491737+00:00",
+          "createdBy": "local-user",
+          "hash": "04af891405d01ba39209355a062476af0d6f8fb0a00df65e085919007bba9e62",
+          "originalFilename": "CLASS_OOT.csv",
+          "previewPath": "ds_class_oot_04af8914_14122\\versions\\v_1783368714122_04af8914\\preview.json",
+          "profilePath": "ds_class_oot_04af8914_14122\\versions\\v_1783368714122_04af8914\\profile.json",
+          "rowCount": 56962,
+          "samplePath": "ds_class_oot_04af8914_14122\\versions\\v_1783368714122_04af8914\\data_sample.csv",
+          "versionId": "v_1783368714122_04af8914",
+          "warnings": [
+            "28 duplicate rows detected in the profiled sample."
+          ]
+        }
+      ]
     }
   ]
 }

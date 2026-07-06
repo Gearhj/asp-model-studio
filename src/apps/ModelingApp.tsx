@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import CopilotCard from "../components/CopilotCard";
 import BrandLogo from "../components/BrandLogo";
 import ModeSwitcher from "../components/ModeSwitcher";
@@ -17,6 +17,7 @@ import NewProject from "../steps/NewProject";
 import ProjectOverview from "../steps/ProjectOverview";
 import { ExportsPage, OpenProject, SettingsPage } from "../steps/ProjectUtilityPages";
 import { AccountPage, AdminUsersPage, AuditPage, LoginPage, RegisterPage } from "../steps/AuthPages";
+import AnalyticsWorkbench from "../steps/AnalyticsWorkbench";
 import RegisterDataset from "../steps/RegisterDataset";
 import Step00ProjectContext from "../steps/Step00_ProjectContext";
 import Step01BCreditBureauReview from "../steps/Step01B_CreditBureauReview";
@@ -37,13 +38,14 @@ import SystemDiagnostics from "../steps/SystemDiagnostics";
 import WorkflowTemplates from "../steps/WorkflowTemplates";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { experimentalDesignJourney } from "../config/workflows";
-import { me } from "../lib/auth";
+import { logout, me } from "../lib/auth";
 import type { AtlasUser } from "../lib/datasetLibrary";
 
 const ExperimentalDesignWorkflowPage = lazy(() => import("../features/experimental-design/pages/ExperimentalDesignWorkflowPage"));
 
 export default function ModelingApp() {
   const location = useLocation();
+  const navigate = useNavigate();
   const [authChecked, setAuthChecked] = useState(false);
   const [authUser, setAuthUser] = useState<AtlasUser | null>(null);
   const workflowSteps = useWorkflowStore((state) => state.workflowSteps);
@@ -106,9 +108,19 @@ export default function ModelingApp() {
                 <ModeSwitcher />
 
                 <div className="w-full rounded-lg border border-slate-200/80 bg-white/70 px-3 py-2 shadow-sm">
-                  <div className="mb-2 flex items-center justify-between text-[11px] font-semibold text-slate-600">
+                  <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px] font-semibold text-slate-600">
                     <span>{completed} of {workflowSteps.length} steps complete</span>
-                    <span>{progress}%</span>
+                    <div className="flex items-center gap-3">
+                      <span>{progress}%</span>
+                      <HeaderUserMenu
+                        user={authUser}
+                        onLogout={async () => {
+                          await logout();
+                          setAuthUser(null);
+                          navigate("/login");
+                        }}
+                      />
+                    </div>
                   </div>
                   <div className="grid gap-1" style={{ gridTemplateColumns: `repeat(${Math.max(1, workflowSteps.length)}, minmax(0, 1fr))` }}>
                     {workflowSteps.map((step, index) => (
@@ -162,6 +174,7 @@ export default function ModelingApp() {
                   <Route path="/projects/open" element={<OpenProject />} />
                   <Route path="/templates" element={<WorkflowTemplates />} />
                   <Route path="/datasets" element={<DatasetLibrary />} />
+                  <Route path="/analytics" element={<AnalyticsWorkbench />} />
                   <Route path="/datasets/register" element={<RegisterDataset />} />
                   <Route path="/datasets/:datasetId" element={<DatasetDetail />} />
                   <Route path="/experiments" element={<ExperimentComparison />} />
@@ -212,6 +225,51 @@ export default function ModelingApp() {
           </main>
         </div>
       </div>
+    </div>
+  );
+}
+
+function HeaderUserMenu({ user, onLogout }: { user: AtlasUser | null; onLogout: () => Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  if (!user) {
+    return (
+      <Link to="/login" className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50">
+        Sign In
+      </Link>
+    );
+  }
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-800 shadow-sm hover:bg-slate-50"
+        title={`Signed in as ${user.displayName}`}
+      >
+        {user.displayName}
+      </button>
+      {open && (
+        <div className="absolute right-0 z-40 mt-2 w-56 rounded-xl border border-slate-200 bg-white p-2 text-sm shadow-lg">
+          <div className="border-b border-slate-100 px-3 py-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Signed in as</div>
+            <div className="mt-1 truncate font-semibold text-slate-950">{user.displayName}</div>
+            <div className="truncate text-xs text-slate-500">{user.email}</div>
+          </div>
+          <Link to="/account" onClick={() => setOpen(false)} className="mt-2 block rounded-lg px-3 py-2 font-semibold text-slate-700 hover:bg-slate-50">
+            Account
+          </Link>
+          <button
+            type="button"
+            onClick={async () => {
+              setOpen(false);
+              await onLogout();
+            }}
+            className="block w-full rounded-lg px-3 py-2 text-left font-semibold text-red-700 hover:bg-red-50"
+          >
+            Sign out
+          </button>
+        </div>
+      )}
     </div>
   );
 }

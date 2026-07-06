@@ -17,6 +17,7 @@ import {
   register,
 } from "../lib/auth";
 import { listDatasets, listProjectDatasets, type AtlasUser, type DatasetSummary, type ProjectDatasetLink } from "../lib/datasetLibrary";
+import { loadLocalProjects } from "../lib/localProjects";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const roles = ["admin", "data_steward", "model_owner", "model_manager", "data_scientist", "auditor", "viewer"];
@@ -52,10 +53,15 @@ export function RegisterPage() {
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [message, setMessage] = useState("");
 
   async function submit() {
     setMessage("");
+    if (password !== confirmPassword) {
+      setMessage("Passwords do not match.");
+      return;
+    }
     try {
       await register(email, displayName, password);
       navigate("/dashboard");
@@ -68,7 +74,8 @@ export function RegisterPage() {
     <AuthShell title="Create ATLAS Account" icon={<UserPlus size={21} />} message={message}>
       <Input label="Display Name" value={displayName} onChange={setDisplayName} />
       <Input label="Email" value={email} onChange={setEmail} />
-      <Input label="Password" type="password" value={password} onChange={setPassword} helper="Minimum 12 characters. Long passphrases are supported." />
+      <Input label="Password" type="password" value={password} onChange={setPassword} helper="Use at least 8 characters. Longer passphrases are recommended." />
+      <Input label="Confirm Password" type="password" value={confirmPassword} onChange={setConfirmPassword} />
       <button onClick={submit} className="w-full rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800">Create Account</button>
       <p className="text-center text-sm text-slate-600">Already have an account? <Link to="/login" className="font-semibold text-blue-700">Sign in</Link></p>
     </AuthShell>
@@ -81,6 +88,7 @@ export function AccountPage() {
   const [user, setUser] = useState<AtlasUser | null>(null);
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
   const [projectDatasets, setProjectDatasets] = useState<ProjectDatasetLink[]>([]);
+  const [projectCount, setProjectCount] = useState(0);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -91,6 +99,7 @@ export function AccountPage() {
       setUser(auth.user);
       setDatasets((await listDatasets()).datasets);
       setProjectDatasets(await listProjectDatasets(projectId));
+      setProjectCount(loadLocalProjects().length);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "ATLAS account details are unavailable.");
     }
@@ -110,6 +119,14 @@ export function AccountPage() {
         <Metric label="Role" value={user?.role ?? "-"} />
         <Metric label="Status" value={user?.status ?? "-"} />
       </section>
+      <Card title="Account Test Checklist">
+        <ChecklistRow label="You are signed in as" value={user?.displayName ?? "-"} />
+        <ChecklistRow label="User ID" value={user?.userId ?? "-"} />
+        <ChecklistRow label="Role" value={user?.role ?? "-"} />
+        <ChecklistRow label="Session" value={user ? "Active" : "Not active"} />
+        <ChecklistRow label="Dataset access" value={`${datasets.length} visible dataset${datasets.length === 1 ? "" : "s"}`} />
+        <ChecklistRow label="Project access" value={`${projectCount} visible browser project${projectCount === 1 ? "" : "s"}`} />
+      </Card>
       <section className="grid gap-5 xl:grid-cols-2">
         <Card title="Change Password">
           <Input label="Current Password" type="password" value={currentPassword} onChange={setCurrentPassword} />
@@ -336,6 +353,15 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function AssetList({ items, empty }: { items: string[]; empty: string }) {
   return <div className="grid gap-2">{items.length ? items.map((item) => <div key={item} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">{item}</div>) : <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">{empty}</div>}</div>;
+}
+
+function ChecklistRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+      <span className="text-sm font-medium text-slate-600">{label}</span>
+      <span className="break-all text-sm font-semibold text-slate-950">{value}</span>
+    </div>
+  );
 }
 
 function Banner({ message }: { message: string }) {

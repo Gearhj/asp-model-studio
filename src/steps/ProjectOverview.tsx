@@ -6,6 +6,7 @@ import BrandLogo from "../components/BrandLogo";
 import { getWorkflowDefinition } from "../config/workflows";
 import { loadDecisionJournal } from "../lib/decisionJournal";
 import { listProjectDatasets, type ProjectDatasetLink } from "../lib/datasetLibrary";
+import { listAnalyticsInsights, type AtlasAnalyticsInsight } from "../lib/analyticsWorkbench";
 import { loadExperiments } from "../lib/experimentTracking";
 import { loadProjectContext } from "../lib/projectContext";
 import { useWorkflowStore } from "../state/useWorkflowStore";
@@ -29,15 +30,25 @@ export default function ProjectOverview() {
       ? context.monitoringCadenceCustom || "Custom cadence not documented"
       : context.monitoringCadence;
   const [datasetLinks, setDatasetLinks] = useState<ProjectDatasetLink[]>([]);
+  const [analyticsInsights, setAnalyticsInsights] = useState<AtlasAnalyticsInsight[]>([]);
 
   useEffect(() => {
     let alive = true;
-    listProjectDatasets(projectId)
+    Promise.all([
+      listProjectDatasets(projectId),
+      listAnalyticsInsights({ projectId }).then((payload) => payload.insights).catch(() => []),
+    ])
       .then((links) => {
-        if (alive) setDatasetLinks(links);
+        if (alive) {
+          setDatasetLinks(links[0]);
+          setAnalyticsInsights(links[1]);
+        }
       })
       .catch(() => {
-        if (alive) setDatasetLinks([]);
+        if (alive) {
+          setDatasetLinks([]);
+          setAnalyticsInsights([]);
+        }
       });
     return () => {
       alive = false;
@@ -147,6 +158,19 @@ export default function ProjectOverview() {
               ))
             ) : (
               <Empty text="No Dataset Library assets linked yet." />
+            )}
+          </Panel>
+
+          <Panel icon={<Gauge size={18} />} title="Project Analytics Insights">
+            {analyticsInsights.length ? (
+              analyticsInsights.slice(0, 4).map((insight) => (
+                <Link key={insight.insightId} to="/analytics" className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 transition hover:border-blue-200 hover:bg-blue-50">
+                  <div className="text-xs font-semibold text-slate-900">{insight.title}</div>
+                  <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">{insight.summary || insight.analysisType}</div>
+                </Link>
+              ))
+            ) : (
+              <Empty text="No Analytics Workbench insights linked to this project yet." />
             )}
           </Panel>
 

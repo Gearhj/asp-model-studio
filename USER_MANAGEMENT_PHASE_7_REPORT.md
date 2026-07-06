@@ -6,6 +6,19 @@ Phase 7 adds the first governance-ready local authentication foundation for ATLA
 
 This is a local-development security foundation. It is not SSO, MFA, tenant isolation, FedRAMP, or production hosted security.
 
+## User Management UX Follow-Up
+
+- Added password confirmation on `/register`.
+- Registration is blocked with `Passwords do not match.` when password and confirmation differ.
+- Minimum password length changed from 12 to 8 characters.
+- Registration helper text now reads: `Use at least 8 characters. Longer passphrases are recommended.`
+- Ordinary self-registration no longer exposes or requires role selection.
+- Default self-registered role remains `data_scientist`.
+- Header now displays the signed-in user's display name in the upper-right workflow header.
+- Header user menu includes `Account` and `Sign out`.
+- `/account` now includes an Account Test Checklist with current identity, role, session status, visible dataset count, and visible project count.
+- Dataset Detail now exposes `Delete Dataset`, implemented as backend archive so the dataset is removed from the default Dataset Library view without deleting source artifacts.
+
 ## Files Changed
 
 - `server/main.py`
@@ -162,6 +175,28 @@ Manual backend smoke:
 - `POST /api/auth/login` with seeded admin - passed
 - `GET /api/auth/me` with session cookie - passed
 - `POST /api/auth/logout` - passed
+
+## Manual User Management Test
+
+1. Go to `/register`.
+2. Create User A.
+3. Confirm password mismatch is blocked.
+4. Confirm an 8-character password is accepted.
+5. Log in as User A.
+6. Confirm User A's name appears in the upper-right header.
+7. Go to `/datasets`.
+8. Upload or register a dataset.
+9. Confirm the dataset appears for User A.
+10. Sign out.
+11. Register or log in as User B.
+12. Confirm User A's private dataset is not visible to User B.
+13. Log back in as User A.
+14. Share the dataset with User B as viewer.
+15. Log in as User B.
+16. Confirm the shared dataset is visible.
+17. Confirm User B cannot archive/delete or edit the dataset as viewer.
+18. Go to `/audit`.
+19. Confirm login, logout, dataset access, share, and denied-access events are recorded.
 
 ## Known Limitations
 

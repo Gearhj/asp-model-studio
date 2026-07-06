@@ -10,6 +10,7 @@
     "build:modeling": "tsc -b && vite build --mode modeling",
     "preview": "vite preview --host 127.0.0.1 --port 4174",
     "preview:modeling": "vite preview --host 127.0.0.1 --port 4174 --strictPort",
+    "sync:atlas": "powershell -ExecutionPolicy Bypass -File scripts/sync-atlas-clean-copy.ps1",
     "test:experimental-design": "node tests/experimentalDesign.test.mjs",
     "test:open-project": "node tests/openProjectRoute.test.mjs",
     "test:persistence": "node tests/persistence.test.mjs",
@@ -20,7 +21,8 @@
     "test:python-execution": ".\\.venv\\Scripts\\python.exe tests\\python_execution_test.py",
     "test:regression": "node tests/regression.test.mjs",
     "test:dataset-library": "node tests/datasetLibrary.test.mjs",
-    "test:user-management": "node tests/userManagement.test.mjs"
+    "test:user-management": "node tests/userManagement.test.mjs",
+    "test:analytics-workbench": "node tests/analyticsWorkbench.test.mjs"
   },
   "dependencies": {
     "d3": "^7.9.0",

@@ -1,0 +1,90 @@
+{
+  "insights": [
+    {
+      "insightId": "insight_5f92565255e94feb",
+      "title": "Analytics summary for REG_TRAIN",
+      "summary": "Select a dataset and enter a business question to generate ATLAS takeaways.",
+      "datasetId": "ds_reg_train_309ce82d",
+      "versionId": "v_1783361298379_309ce82d",
+      "projectId": "atlas-mr5bp6oy",
+      "businessQuestion": "",
+      "analysisType": "pivot_table",
+      "createdByUserId": "unknown-user",
+      "createdAt": "2026-07-06T21:37:47.897556+00:00",
+      "evidence": {
+        "chartType": "analytics_workbench",
+        "columnsUsed": [
+          "MedInc",
+          "MedInc",
+          "MedInc"
+        ],
+        "filters": {
+          "primaryDatasetId": "ds_reg_train_309ce82d",
+          "primaryVersionId": "v_1783361298379_309ce82d"
+        },
+        "metrics": {
+          "rows": 12384,
+          "columns": 9,
+          "numericColumns": 9,
+          "categoricalColumns": 0,
+          "qualityFindings": 1,
+          "analysisPlan": [],
+          "pivotConfig": {
+            "rowField": "MedInc",
+            "columnField": "",
+            "valueField": "MedHouseVal",
+            "aggregation": "mean",
+            "autoBin": true,
+            "topN": 12,
+            "binaryTarget": ""
+          },
+          "pivotPreview": [
+            {
+              "MedInc band": "Q5: 0.866 to 0.917",
+              "mean": 1.7203005
+            },
+            {
+              "MedInc band": "Q1: 0.5 to 0.536",
+              "mean": 1.6515004545454546
+            },
+            {
+              "MedInc band": "Q4: 0.813 to 0.866",
+              "mean": 1.5028004999999998
+            },
+            {
+              "MedInc band": "Q2: 0.536 to 0.746",
+              "mean": 1.4071116666666665
+            },
+            {
+              "MedInc band": "Q3: 0.746 to 0.813",
+              "mean": 1.2693999999999999
+            }
+          ],
+          "pivotReadout": "mean MedHouseVal by MedInc band is highest for Q5: 0.866 to 0.917 in the preview (1.72). Review the full dataset before drawing production conclusions.",
+          "generatedPython": "import pandas as pd\n\n# ATLAS Analytics Workbench Python template\n# Dataset: REG_TRAIN\n# Version: v_1783361298379_309ce82d\n# Source: ATLAS Dataset Library preview/sample\n\ntry:\n    preview_rows\nexcept NameError:\n    preview_rows = []\n\ndf = pd.DataFrame(preview_rows)\nprint(\"ATLAS Analytics Workbench Python smoke test passed.\")\nprint(df.shape)\nprint(df.head())\nprint(df.describe(include=\"all\"))\n\nprint(df.groupby(\"MedInc\")[\"MedInc\"].mean())\n\n# Pivot Table Builder template\ndf[\"MedInc_band\"] = pd.qcut(df[\"MedInc\"], q=5, duplicates=\"drop\")\npivot = (\n    df.groupby(\"MedInc_band\")[\"MedHouseVal\"]\n    .mean()\n    .reset_index()\n)\nprint(pivot)\n\nprint(df.corr(numeric_only=True))",
+          "generatedSql": "-- ATLAS Analytics Workbench SQL template\n-- Dataset: REG_TRAIN\n-- Version: v_1783361298379_309ce82d\n-- Rows: 12,384\n-- Columns: 9\n-- atlas_dataset.* is a generated logical reference for documentation/export.\n-- SQL execution will be enabled when a backend SQL engine is connected.\n\nSELECT\n    MedInc,\n    HouseAge,\n    AveRooms,\n    AveBedrms,\n    Population,\n    AveOccup,\n    Latitude,\n    Longitude,\n    MedHouseVal\nFROM atlas_dataset.REG_TRAIN_v_1783361298379_309ce82d\nLIMIT 100;\n\n-- Pivot Table Builder template\n-- Numeric quantile binning shown conceptually.\n-- Exact syntax depends on the SQL engine connected to ATLAS.\nSELECT\n    MedInc AS pivot_row,\n    AVG(MedHouseVal) AS mean\nFROM atlas_dataset.REG_TRAIN_v_1783361298379_309ce82d\nGROUP BY MedInc\nORDER BY mean DESC\nLIMIT 12;"
+        }
+      }
+    },
+    {
+      "insightId": "insight_b3348d556b1e4f1f",
+      "title": "Business question: Which housing-area characteristics are most strongly associated with med",
+      "summary": "Which housing-area characteristics are most strongly associated with median home value?",
+      "datasetId": "ds_reg_train_309ce82d",
+      "versionId": "v_1783361298379_309ce82d",
+      "projectId": "atlas-mr5bp6oy",
+      "businessQuestion": "Which housing-area characteristics are most strongly associated with median home value?",
+      "analysisType": "business_question",
+      "createdByUserId": "unknown-user",
+      "createdAt": "2026-07-06T21:33:56.536718+00:00",
+      "evidence": {
+        "chartType": "question_record",
+        "columnsUsed": [],
+        "metrics": {
+          "savedAt": "2026-07-06T21:33:56.509Z",
+          "datasetName": "REG_TRAIN"
+        }
+      }
+    }
+  ]
+}
