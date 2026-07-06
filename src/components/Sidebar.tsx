@@ -18,6 +18,9 @@ import {
   Plus,
   Settings2,
   Activity,
+  ShieldCheck,
+  UserCircle,
+  Users,
   Workflow,
 } from "lucide-react";
 import BrandLogo from "./BrandLogo";
@@ -133,6 +136,18 @@ export default function Sidebar() {
         </NavGroup>
 
         <NavGroup label="Settings">
+          <NavLink to="/account" className={({ isActive }) => linkClass(isActive)}>
+            <UserCircle size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Account</span>
+          </NavLink>
+          <NavLink to="/admin/users" className={({ isActive }) => linkClass(isActive)}>
+            <Users size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">User Administration</span>
+          </NavLink>
+          <NavLink to="/audit" className={({ isActive }) => linkClass(isActive)}>
+            <ShieldCheck size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Audit Log</span>
+          </NavLink>
           <NavLink to="/settings" className={({ isActive }) => linkClass(isActive)}>
             <Settings2 size={17} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">Settings</span>

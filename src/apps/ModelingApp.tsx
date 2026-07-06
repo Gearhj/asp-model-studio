@@ -1,5 +1,5 @@
-import { lazy, Suspense } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { lazy, Suspense, useEffect, useState } from "react";
+import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import CopilotCard from "../components/CopilotCard";
 import BrandLogo from "../components/BrandLogo";
 import ModeSwitcher from "../components/ModeSwitcher";
@@ -16,6 +16,7 @@ import NotebookExport from "../steps/NotebookExport";
 import NewProject from "../steps/NewProject";
 import ProjectOverview from "../steps/ProjectOverview";
 import { ExportsPage, OpenProject, SettingsPage } from "../steps/ProjectUtilityPages";
+import { AccountPage, AdminUsersPage, AuditPage, LoginPage, RegisterPage } from "../steps/AuthPages";
 import RegisterDataset from "../steps/RegisterDataset";
 import Step00ProjectContext from "../steps/Step00_ProjectContext";
 import Step01BCreditBureauReview from "../steps/Step01B_CreditBureauReview";
@@ -36,15 +37,57 @@ import SystemDiagnostics from "../steps/SystemDiagnostics";
 import WorkflowTemplates from "../steps/WorkflowTemplates";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { experimentalDesignJourney } from "../config/workflows";
+import { me } from "../lib/auth";
+import type { AtlasUser } from "../lib/datasetLibrary";
 
 const ExperimentalDesignWorkflowPage = lazy(() => import("../features/experimental-design/pages/ExperimentalDesignWorkflowPage"));
 
 export default function ModelingApp() {
+  const location = useLocation();
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authUser, setAuthUser] = useState<AtlasUser | null>(null);
   const workflowSteps = useWorkflowStore((state) => state.workflowSteps);
   const workflowId = useWorkflowStore((state) => state.workflowId);
   const restoreWarnings = useWorkflowStore((state) => state.restoreWarnings);
   const completed = workflowSteps.filter((step) => step.status === "complete").length;
   const progress = Math.round((completed / Math.max(1, workflowSteps.length)) * 100);
+
+  useEffect(() => {
+    let cancelled = false;
+    me()
+      .then((payload) => {
+        if (!cancelled) setAuthUser(payload.user);
+      })
+      .catch(() => {
+        if (!cancelled) setAuthUser(null);
+      })
+      .finally(() => {
+        if (!cancelled) setAuthChecked(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [location.pathname]);
+
+  if (!authChecked) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-[#f5f5f7] text-sm font-semibold text-slate-600">
+        Loading ATLAS security context...
+      </div>
+    );
+  }
+
+  if (!authUser) {
+    return (
+      <div className="min-h-screen bg-[#f5f5f7] px-4 py-8 text-slate-950">
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="/register" element={<RegisterPage />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
+        </Routes>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#f5f5f7] text-slate-950">
@@ -110,6 +153,8 @@ export default function ModelingApp() {
                   </section>
                 )}
                 <Routes>
+                  <Route path="/login" element={<Navigate to="/dashboard" replace />} />
+                  <Route path="/register" element={<Navigate to="/dashboard" replace />} />
                   <Route path="/" element={<Navigate to="/dashboard" replace />} />
                   <Route path="/workbench" element={<IntelligentWorkbench />} />
                   <Route path="/project-overview" element={<ProjectOverview />} />
@@ -125,6 +170,9 @@ export default function ModelingApp() {
                   <Route path="/notebook-export" element={<NotebookExport />} />
                   <Route path="/exports" element={<ExportsPage />} />
                   <Route path="/settings" element={<SettingsPage />} />
+                  <Route path="/account" element={<AccountPage />} />
+                  <Route path="/admin/users" element={<AdminUsersPage />} />
+                  <Route path="/audit" element={<AuditPage />} />
                   <Route path="/system/diagnostics" element={<SystemDiagnostics />} />
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/step00" element={<Step00ProjectContext />} />

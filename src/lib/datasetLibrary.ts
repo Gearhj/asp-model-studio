@@ -7,6 +7,12 @@ export type AtlasUser = {
   displayName: string;
   email?: string;
   role: "admin" | "user" | string;
+  status?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  lastLoginAt?: string;
+  failedLoginCount?: number;
+  lockedUntil?: string | null;
 };
 
 export type DatasetVersionSummary = {
@@ -83,6 +89,7 @@ export type SystemDiagnostics = {
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${DATASET_API_BASE}${path}`, {
+    credentials: "include",
     ...init,
     headers: {
       ...(init?.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
@@ -162,15 +169,32 @@ export async function getUsers() {
   return jsonFetch<{ ok: true; users: AtlasUser[]; currentUser: AtlasUser }>("/users");
 }
 
-export async function switchDevUser(userId: string) {
-  const payload = await jsonFetch<{ ok: true; user: AtlasUser }>("/users/switch-dev-user", {
+export type DatasetAccessEntry = {
+  user_id?: string;
+  userId?: string;
+  role: string;
+  granted_by?: string;
+  granted_at?: string;
+};
+
+export async function getDatasetAccess(datasetId: string) {
+  return jsonFetch<{ ok: true; access: DatasetAccessEntry[] }>(`/datasets/${datasetId}/access`);
+}
+
+export async function grantDatasetAccess(datasetId: string, userId: string, role: string) {
+  return jsonFetch<{ ok: true; grant: DatasetAccessEntry }>(`/datasets/${datasetId}/access/grant`, {
+    method: "POST",
+    body: JSON.stringify({ userId, role }),
+  });
+}
+
+export async function revokeDatasetAccess(datasetId: string, userId: string) {
+  return jsonFetch<{ ok: true; revoked: number }>(`/datasets/${datasetId}/access/revoke`, {
     method: "POST",
     body: JSON.stringify({ userId }),
   });
-  return payload.user;
 }
 
 export async function getSystemDiagnostics() {
   return jsonFetch<SystemDiagnostics>("/system/diagnostics");
 }
-

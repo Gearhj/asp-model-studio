@@ -28,6 +28,8 @@ from .training.trainer_router import router as trainer_router
 from .evaluation.eval_router import router as eval_router
 from .python_execution import router as python_execution_router
 from .datasets.dataset_router import router as dataset_library_router
+from .security.security_router import router as security_router
+from .security.security_store import init_security_store
 
 MAX_UPLOAD_BYTES = int(os.getenv("ATLAS_MAX_UPLOAD_BYTES", str(250 * 1024 * 1024)))
 MAX_UPLOAD_ROWS = int(os.getenv("ATLAS_MAX_UPLOAD_ROWS", "500000"))
@@ -83,6 +85,7 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     def restore_session_checkpoint() -> None:
+        init_security_store()
         load_checkpoint()
 
     # -------------------------------------------------------------------------
@@ -172,6 +175,7 @@ def create_app() -> FastAPI:
     app.include_router(trainer_router, prefix="/api", tags=["Training"])
     app.include_router(eval_router, prefix="/api", tags=["Evaluation"])
     app.include_router(python_execution_router, prefix="/api", tags=["Python Execution"])
+    app.include_router(security_router, prefix="/api", tags=["Security"])
     app.include_router(dataset_library_router, prefix="/api", tags=["Dataset Library"])
 
     return app

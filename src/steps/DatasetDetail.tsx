@@ -4,9 +4,15 @@ import { ArrowLeft, Database, Link2, RefreshCw, ShieldCheck } from "lucide-react
 import BrandLogo from "../components/BrandLogo";
 import {
   getDataset,
+  getDatasetAccess,
   getDatasetPreview,
   getDatasetProfile,
+  getUsers,
+  grantDatasetAccess,
   linkDatasetToProject,
+  revokeDatasetAccess,
+  type AtlasUser,
+  type DatasetAccessEntry,
   type DatasetProfile,
   type DatasetPreview,
   type DatasetSummary,
@@ -21,6 +27,10 @@ export default function DatasetDetail() {
   const [selectedVersion, setSelectedVersion] = useState("");
   const [profile, setProfile] = useState<DatasetProfile | null>(null);
   const [preview, setPreview] = useState<DatasetPreview | null>(null);
+  const [access, setAccess] = useState<DatasetAccessEntry[]>([]);
+  const [users, setUsers] = useState<AtlasUser[]>([]);
+  const [shareUserId, setShareUserId] = useState("");
+  const [shareRole, setShareRole] = useState("viewer");
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -32,6 +42,8 @@ export default function DatasetDetail() {
       const loaded = await getDataset(datasetId);
       const version = versionOverride || selectedVersion || loaded.versions?.[loaded.versions.length - 1]?.versionId || "";
       setDataset(loaded);
+      setAccess((await getDatasetAccess(datasetId)).access);
+      setUsers((await getUsers()).users);
       setSelectedVersion(version);
       if (version) {
         const profilePayload = await getDatasetProfile(datasetId, version);
@@ -56,6 +68,28 @@ export default function DatasetDetail() {
       setMessage("Dataset version linked to the current project.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "ATLAS could not link this dataset to the project.");
+    }
+  }
+
+  async function shareDataset() {
+    if (!datasetId || !shareUserId) return;
+    try {
+      await grantDatasetAccess(datasetId, shareUserId, shareRole);
+      setMessage("Dataset access granted.");
+      setAccess((await getDatasetAccess(datasetId)).access);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "ATLAS could not grant dataset access.");
+    }
+  }
+
+  async function revokeAccess(userId: string) {
+    if (!datasetId) return;
+    try {
+      await revokeDatasetAccess(datasetId, userId);
+      setMessage("Dataset access revoked.");
+      setAccess((await getDatasetAccess(datasetId)).access);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "ATLAS could not revoke dataset access.");
     }
   }
 
@@ -164,6 +198,71 @@ export default function DatasetDetail() {
       </section>
 
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center gap-2">
+          <ShieldCheck size={18} className="text-blue-700" />
+          <h2 className="text-base font-semibold text-slate-950">Dataset Access</h2>
+        </div>
+        <p className="mt-1 text-sm leading-6 text-slate-600">
+          Grant governed access to another ATLAS user. Backend permissions determine whether this action is allowed.
+        </p>
+        <div className="mt-4 grid gap-3 lg:grid-cols-[1fr_180px_auto]">
+          <select className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" value={shareUserId} onChange={(event) => setShareUserId(event.target.value)}>
+            <option value="">Select user...</option>
+            {users.map((user) => (
+              <option key={user.userId} value={user.userId}>
+                {user.displayName} ({user.role})
+              </option>
+            ))}
+          </select>
+          <select className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" value={shareRole} onChange={(event) => setShareRole(event.target.value)}>
+            <option value="viewer">Viewer</option>
+            <option value="editor">Editor</option>
+            <option value="auditor">Auditor</option>
+          </select>
+          <button type="button" onClick={shareDataset} className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800">
+            Share Dataset
+          </button>
+        </div>
+        <div className="mt-4 overflow-auto rounded-lg border border-slate-200">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr>
+                <th className="px-3 py-2 text-left">User</th>
+                <th className="px-3 py-2 text-left">Permission</th>
+                <th className="px-3 py-2 text-left">Granted</th>
+                <th className="px-3 py-2 text-left">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {access.map((entry) => {
+                const userId = entry.user_id ?? entry.userId ?? "";
+                const found = users.find((user) => user.userId === userId);
+                return (
+                  <tr key={`${userId}-${entry.role}`} className="border-t">
+                    <td className="px-3 py-2 font-semibold">{found?.displayName ?? userId}</td>
+                    <td className="px-3 py-2">{entry.role}</td>
+                    <td className="px-3 py-2">{entry.granted_at ? new Date(entry.granted_at).toLocaleString() : "-"}</td>
+                    <td className="px-3 py-2">
+                      {entry.role !== "owner" && (
+                        <button type="button" onClick={() => revokeAccess(userId)} className="rounded border border-red-200 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50">
+                          Revoke
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+              {!access.length && (
+                <tr>
+                  <td className="px-3 py-4 text-slate-500" colSpan={4}>No explicit access grants are registered.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-base font-semibold text-slate-950">Preview</h2>
         <div className="mt-4 max-h-[440px] overflow-auto rounded-lg border border-slate-200">
           <table className="min-w-full text-xs">
@@ -202,4 +301,3 @@ function Meta({ label, value }: { label: string; value?: string | null }) {
     </div>
   );
 }
-

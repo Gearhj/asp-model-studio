@@ -15,6 +15,14 @@ from typing import Any, Dict, Iterable, List, Optional
 import pandas as pd
 from fastapi import HTTPException, UploadFile
 
+from ..security.security_store import (
+    active_user,
+    audit_event,
+    get_user,
+    list_users as security_list_users,
+    security_diagnostics,
+)
+
 
 ARTIFACT_ROOT = Path(__file__).resolve().parents[1] / "artifacts" / "datasets"
 REGISTRY_PATH = ARTIFACT_ROOT / "registry.json"
@@ -99,28 +107,21 @@ def save_users(payload: Dict[str, Any]) -> None:
 
 
 def current_user() -> Dict[str, Any]:
-    payload = load_users()
-    user_id = payload.get("currentUserId") or "local-user"
-    users = payload.get("users") or []
-    found = next((user for user in users if user.get("userId") == user_id), None)
+    found = active_user()
     if found:
         return found
+    fallback = get_user("local-user")
+    if fallback:
+        return fallback
     return {"userId": "local-user", "displayName": "Local ATLAS User", "email": "local.user@atlas.local", "role": "admin"}
 
 
 def list_users() -> List[Dict[str, Any]]:
-    return list(load_users().get("users") or [])
+    return security_list_users()
 
 
 def switch_user(user_id: str) -> Dict[str, Any]:
-    payload = load_users()
-    users = payload.get("users") or []
-    user = next((item for item in users if item.get("userId") == user_id), None)
-    if not user:
-        raise HTTPException(status_code=404, detail="Unknown local ATLAS user.")
-    payload["currentUserId"] = user_id
-    save_users(payload)
-    return user
+    raise HTTPException(status_code=410, detail="Development user switching was replaced by authentication.")
 
 
 def load_registry() -> Dict[str, Any]:
@@ -147,7 +148,7 @@ def user_can_access(dataset: Dict[str, Any], user: Optional[Dict[str, Any]] = No
     if dataset.get("ownerUserId") == user_id:
         return True
     grants = dataset.get("access") or []
-    allowed = {"admin", "editor"} if write else {"admin", "editor", "viewer"}
+    allowed = {"owner", "editor"} if write else {"owner", "editor", "viewer", "auditor"}
     return any(grant.get("userId") == user_id and grant.get("role") in allowed for grant in grants)
 
 
@@ -157,7 +158,9 @@ def require_dataset(dataset_id: str, write: bool = False) -> Dict[str, Any]:
     if not dataset or dataset.get("archived"):
         raise HTTPException(status_code=404, detail="Dataset not found.")
     if not user_can_access(dataset, write=write):
+        audit_event("access.denied", "dataset", dataset_id, "denied", reason="Dataset ACL denied")
         raise HTTPException(status_code=403, detail="You do not have access to this dataset.")
+    audit_event("dataset.viewed", "dataset", dataset_id, "success")
     return dataset
 
 
@@ -354,13 +357,14 @@ async def create_dataset_from_upload(
         "createdAt": now_iso(),
         "updatedAt": now_iso(),
         "archived": False,
-        "access": [{"userId": user.get("userId"), "role": "admin"}],
+        "access": [{"userId": user.get("userId"), "role": "owner"}],
         "versions": [version_summary],
         "linkedProjects": [],
     }
     registry = load_registry()
     registry["datasets"] = [item for item in registry.get("datasets", []) if item.get("datasetId") != dataset_id] + [dataset]
     save_registry(registry)
+    audit_event("dataset.created", "dataset", dataset_id, "success", metadata={"name": dataset_name, "versionId": version_id})
     return summarize_dataset(dataset)
 
 
@@ -410,6 +414,7 @@ async def add_dataset_version(dataset_id: str, file: UploadFile) -> Dict[str, An
             dataset = item
             break
     save_registry(registry)
+    audit_event("dataset.version.created", "dataset_version", version_id, "success", metadata={"datasetId": dataset_id})
     return version_summary
 
 
@@ -429,7 +434,7 @@ def create_metadata_only_dataset(payload: Dict[str, Any]) -> Dict[str, Any]:
         "createdAt": now_iso(),
         "updatedAt": now_iso(),
         "archived": False,
-        "access": [{"userId": user.get("userId"), "role": "admin"}],
+        "access": [{"userId": user.get("userId"), "role": "owner"}],
         "versions": [],
         "linkedProjects": [],
         "sourceInfo": payload.get("sourceInfo") or {},
@@ -437,6 +442,7 @@ def create_metadata_only_dataset(payload: Dict[str, Any]) -> Dict[str, Any]:
     registry = load_registry()
     registry["datasets"] = registry.get("datasets", []) + [dataset]
     save_registry(registry)
+    audit_event("dataset.created", "dataset", dataset_id, "success", metadata={"name": name, "metadataOnly": True})
     return summarize_dataset(dataset)
 
 
@@ -465,19 +471,51 @@ def share_dataset(dataset_id: str, grants: Iterable[Dict[str, str]]) -> Dict[str
     for grant in grants:
         user_id = grant.get("userId")
         role = grant.get("role")
-        if user_id not in valid_users or role not in {"viewer", "editor", "admin"}:
+        if user_id not in valid_users or role not in {"viewer", "editor", "owner", "auditor"}:
             continue
         clean_grants.append({"userId": user_id, "role": role})
     registry = load_registry()
     updated = None
     for item in registry.get("datasets", []):
         if item.get("datasetId") == dataset_id:
-            owner_grant = {"userId": item.get("ownerUserId"), "role": "admin"}
+            owner_grant = {"userId": item.get("ownerUserId"), "role": "owner"}
             item["access"] = [owner_grant] + [grant for grant in clean_grants if grant.get("userId") != owner_grant["userId"]]
             item["updatedAt"] = now_iso()
             updated = item
             break
     save_registry(registry)
+    audit_event("dataset.shared", "dataset", dataset_id, "success", metadata={"grants": clean_grants})
+    return summarize_dataset(updated or require_dataset(dataset_id))
+
+
+def dataset_access(dataset_id: str) -> List[Dict[str, str]]:
+    dataset = require_dataset(dataset_id)
+    return list(dataset.get("access") or [])
+
+
+def grant_dataset_access(dataset_id: str, user_id: str, role: str) -> Dict[str, Any]:
+    if role not in {"owner", "editor", "viewer", "auditor"}:
+        raise HTTPException(status_code=400, detail="Unsupported dataset permission.")
+    dataset = require_dataset(dataset_id, write=True)
+    grants = [grant for grant in dataset.get("access", []) if grant.get("userId") != user_id]
+    grants.append({"userId": user_id, "role": role})
+    return share_dataset(dataset_id, grants)
+
+
+def revoke_dataset_access(dataset_id: str, user_id: str) -> Dict[str, Any]:
+    require_dataset(dataset_id, write=True)
+    registry = load_registry()
+    updated = None
+    for item in registry.get("datasets", []):
+        if item.get("datasetId") == dataset_id:
+            if item.get("ownerUserId") == user_id:
+                raise HTTPException(status_code=400, detail="Dataset owner access cannot be revoked.")
+            item["access"] = [grant for grant in item.get("access", []) if grant.get("userId") != user_id]
+            item["updatedAt"] = now_iso()
+            updated = item
+            break
+    save_registry(registry)
+    audit_event("dataset.access.revoked", "dataset", dataset_id, "success", metadata={"targetUserId": user_id})
     return summarize_dataset(updated or require_dataset(dataset_id))
 
 
@@ -492,6 +530,7 @@ def archive_dataset(dataset_id: str) -> Dict[str, Any]:
             updated = item
             break
     save_registry(registry)
+    audit_event("dataset.archived", "dataset", dataset_id, "success")
     return summarize_dataset(updated or require_dataset(dataset_id))
 
 
@@ -574,9 +613,9 @@ def diagnostics() -> Dict[str, Any]:
         },
         {
             "id": "users",
-            "label": "Local users",
+            "label": "Authenticated users",
             "status": "pass" if list_users() else "fail",
-            "detail": f"{len(list_users())} local user records.",
+            "detail": f"{len(list_users())} authenticated user records.",
         },
         {
             "id": "project_links",
@@ -591,6 +630,26 @@ def diagnostics() -> Dict[str, Any]:
             "detail": "Dataset list/detail endpoints filter by owner, grants, or admin role.",
         },
     ]
+    try:
+        security = security_diagnostics()
+        for check in security.get("checks", []):
+            checks.append(
+                {
+                    "id": f"security_{check.get('id')}",
+                    "label": f"Security: {check.get('label')}",
+                    "status": check.get("status", "warning"),
+                    "detail": check.get("detail", ""),
+                }
+            )
+    except Exception as exc:
+        checks.append(
+            {
+                "id": "security_diagnostics",
+                "label": "Security diagnostics",
+                "status": "fail",
+                "detail": f"Security diagnostics failed: {exc}",
+            }
+        )
     return {
         "ok": True,
         "generatedAt": now_iso(),

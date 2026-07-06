@@ -77,7 +77,7 @@ export default function DatasetLibrary() {
             {currentUser && (
               <p className="mt-2 inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800">
                 <ShieldCheck size={13} />
-                Viewing as {currentUser.displayName} ({currentUser.role})
+                Signed in as {currentUser.displayName} ({currentUser.role})
               </p>
             )}
           </div>
@@ -163,4 +163,3 @@ function Metric({ label, value }: { label: string; value: string }) {
     </div>
   );
 }
-

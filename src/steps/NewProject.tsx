@@ -10,6 +10,7 @@ import {
   type WorkflowStep,
 } from "../config/workflows";
 import { logDecision } from "../lib/decisionJournal";
+import { grantProjectAccess, me } from "../lib/auth";
 import { upsertProjectFromState } from "../lib/localProjects";
 import { defaultMonitoringMetricsForModelType, loadProjectContext, saveProjectContext } from "../lib/projectContext";
 import { useWorkflowStore } from "../state/useWorkflowStore";
@@ -31,7 +32,7 @@ export default function NewProject() {
     return getWorkflowForProjectType(projectType);
   }, [customSteps, customWorkflowName, projectType]);
 
-  const startProject = () => {
+  const startProject = async () => {
     if (!modelId.trim()) return;
     const workflowSteps: WorkflowStep[] | undefined = projectType === "custom-workflow" ? selectedWorkflow.steps : undefined;
     const modelType = projectType === "forecasting" || projectType === "optimization" ? "regression" : "generic classification";
@@ -42,7 +43,14 @@ export default function NewProject() {
       workflowId: selectedWorkflow.id,
       workflowSteps,
     });
-    upsertProjectFromState(useWorkflowStore.getState());
+    const nextState = useWorkflowStore.getState();
+    upsertProjectFromState(nextState);
+    try {
+      const current = await me();
+      await grantProjectAccess(nextState.projectId, current.user.userId, "owner");
+    } catch {
+      // Browser project creation should remain usable if local auth persistence is temporarily unavailable.
+    }
     saveProjectContext({
       ...loadProjectContext(),
       modelId: modelId.trim(),

@@ -19,7 +19,8 @@
     "test:decision-journal": "node tests/decisionJournal.test.mjs",
     "test:python-execution": ".\\.venv\\Scripts\\python.exe tests\\python_execution_test.py",
     "test:regression": "node tests/regression.test.mjs",
-    "test:dataset-library": "node tests/datasetLibrary.test.mjs"
+    "test:dataset-library": "node tests/datasetLibrary.test.mjs",
+    "test:user-management": "node tests/userManagement.test.mjs"
   },
   "dependencies": {
     "d3": "^7.9.0",

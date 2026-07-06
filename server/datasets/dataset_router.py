@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import Depends
 from pydantic import BaseModel
 
 from .dataset_registry import (
@@ -11,6 +12,7 @@ from .dataset_registry import (
     create_dataset_from_upload,
     create_metadata_only_dataset,
     current_user,
+    dataset_access,
     diagnostics,
     latest_version_id,
     link_project,
@@ -20,13 +22,16 @@ from .dataset_registry import (
     project_dataset_links,
     read_version_artifact,
     require_dataset,
+    grant_dataset_access,
+    revoke_dataset_access,
     share_dataset,
     switch_user,
     unlink_project_dataset,
 )
+from ..security.security_store import require_user, user_can_access_project, audit_event
 
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_user)])
 
 
 class RegisterDatasetRequest(BaseModel):
@@ -39,6 +44,11 @@ class RegisterDatasetRequest(BaseModel):
 
 class ShareDatasetRequest(BaseModel):
     grants: list[Dict[str, str]] = []
+
+
+class DatasetGrantRequest(BaseModel):
+    userId: str
+    role: str = "viewer"
 
 
 class LinkDatasetRequest(BaseModel):
@@ -63,7 +73,7 @@ def get_users() -> Dict[str, Any]:
 
 @router.post("/users/switch-dev-user")
 def post_switch_user(payload: SwitchUserRequest) -> Dict[str, Any]:
-    return {"ok": True, "user": switch_user(payload.userId)}
+    return {"ok": False, "error": "Development user switching was replaced by sign-in/sign-out authentication."}
 
 
 @router.get("/datasets")
@@ -139,6 +149,21 @@ def post_share(dataset_id: str, payload: ShareDatasetRequest) -> Dict[str, Any]:
     return {"ok": True, "dataset": share_dataset(dataset_id, payload.grants)}
 
 
+@router.get("/datasets/{dataset_id}/access")
+def get_dataset_access(dataset_id: str) -> Dict[str, Any]:
+    return {"ok": True, "access": dataset_access(dataset_id)}
+
+
+@router.post("/datasets/{dataset_id}/access/grant")
+def post_dataset_grant(dataset_id: str, payload: DatasetGrantRequest) -> Dict[str, Any]:
+    return {"ok": True, "dataset": grant_dataset_access(dataset_id, payload.userId, payload.role)}
+
+
+@router.post("/datasets/{dataset_id}/access/revoke")
+def post_dataset_revoke(dataset_id: str, payload: DatasetGrantRequest) -> Dict[str, Any]:
+    return {"ok": True, "dataset": revoke_dataset_access(dataset_id, payload.userId)}
+
+
 @router.post("/datasets/{dataset_id}/archive")
 def post_archive(dataset_id: str) -> Dict[str, Any]:
     return {"ok": True, "dataset": archive_dataset(dataset_id)}
@@ -146,6 +171,9 @@ def post_archive(dataset_id: str) -> Dict[str, Any]:
 
 @router.post("/projects/{project_id}/datasets/link")
 def post_project_link(project_id: str, payload: LinkDatasetRequest) -> Dict[str, Any]:
+    if not user_can_access_project(project_id, write=True):
+        audit_event("access.denied", "project", project_id, "denied", reason="Project ACL denied for dataset link")
+        raise HTTPException(status_code=403, detail="You do not have access to link datasets to this project.")
     return {
         "ok": True,
         "link": link_project(project_id, payload.datasetId, payload.versionId, payload.datasetRole),

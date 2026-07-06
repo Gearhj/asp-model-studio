@@ -27,3 +27,4 @@ Thumbs.db
 # Scratch / temp
 .tmp/
 .runtime/
+server/artifacts/security/*.db
