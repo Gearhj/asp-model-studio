@@ -38,19 +38,38 @@ def get_knn_clusters(model: str, max_points: int = 900):
     return EVAL.knn_clusters(model, max_points=max_points)
 
 
+def _context(
+    project_id: str = "",
+    dataset_version: str = "",
+    target: str = "",
+    problem_type: str = "",
+) -> dict:
+    return {
+        "project_id": project_id,
+        "dataset_version": dataset_version,
+        "target": target,
+        "problem_type": problem_type,
+    }
+
+
 @router.get("/interpretation/importance")
-def get_feature_importance(model: str):
-    return EVAL.feature_importance(model)
+def get_feature_importance(model: str, project_id: str = "", dataset_version: str = "", target: str = "", problem_type: str = ""):
+    return EVAL.feature_importance(model, _context(project_id, dataset_version, target, problem_type))
 
 
 @router.get("/interpretation/details")
-def get_model_details(model: str):
-    return EVAL.model_details(model)
+def get_model_details(model: str, project_id: str = "", dataset_version: str = "", target: str = "", problem_type: str = ""):
+    return EVAL.model_details(model, _context(project_id, dataset_version, target, problem_type))
+
+
+@router.get("/interpretation/debug")
+def get_model_debug(model: str, project_id: str = "", dataset_version: str = "", target: str = "", problem_type: str = ""):
+    return EVAL.model_details(model, _context(project_id, dataset_version, target, problem_type))
 
 
 @router.get("/interpretation/hyperparameters")
-def get_hyperparameters(model: str):
-    return EVAL.hyperparameters(model)
+def get_hyperparameters(model: str, project_id: str = "", dataset_version: str = "", target: str = "", problem_type: str = ""):
+    return EVAL.hyperparameters(model, _context(project_id, dataset_version, target, problem_type))
 
 
 @router.get("/interpretation/pdp")

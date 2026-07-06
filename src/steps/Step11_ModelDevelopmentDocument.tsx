@@ -7,6 +7,7 @@ import {
   buildModelDevelopmentDocument,
   type ModelDevelopmentDocument,
   type ModelDevelopmentDocumentMode,
+  type ModelDevelopmentDocumentOptions,
 } from "../lib/modelDevelopmentDocument";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { upsertProjectFromState } from "../lib/localProjects";
@@ -25,9 +26,17 @@ export default function Step11ModelDevelopmentDocument() {
   const [version, setVersion] = useState(0);
   const [navigationError, setNavigationError] = useState("");
   const [mode, setMode] = useState<ModelDevelopmentDocumentMode>("governance");
+  const [includeFullDecisionJournalAppendix, setIncludeFullDecisionJournalAppendix] = useState(false);
   const navigate = useNavigate();
   const markComplete = useWorkflowStore((state) => state.markComplete);
-  const document = useMemo<ModelDevelopmentDocument>(() => buildModelDevelopmentDocument(mode), [mode, version]);
+  const documentOptions = useMemo<ModelDevelopmentDocumentOptions>(
+    () => ({ includeFullDecisionJournalAppendix }),
+    [includeFullDecisionJournalAppendix]
+  );
+  const document = useMemo<ModelDevelopmentDocument>(
+    () => buildModelDevelopmentDocument(mode, documentOptions),
+    [mode, version, documentOptions]
+  );
 
   async function handleContinue() {
     try {
@@ -136,6 +145,16 @@ export default function Step11ModelDevelopmentDocument() {
             ))}
           </div>
         </div>
+        {mode === "technical" && (
+          <label className="mt-3 flex items-center gap-2 text-xs font-semibold text-blue-900">
+            <input
+              type="checkbox"
+              checked={includeFullDecisionJournalAppendix}
+              onChange={(event) => setIncludeFullDecisionJournalAppendix(event.target.checked)}
+            />
+            Include Full Decision Journal Appendix
+          </label>
+        )}
       </section>
 
       <section className="rounded-lg border border-slate-200/80 bg-white/90 shadow-sm">

@@ -7,6 +7,8 @@ import ProjectSaveStatus from "../components/ProjectSaveStatus";
 import Sidebar from "../components/Sidebar";
 import Dashboard from "../steps/Dashboard";
 import DecisionJournal from "../steps/DecisionJournal";
+import DatasetDetail from "../steps/DatasetDetail";
+import DatasetLibrary from "../steps/DatasetLibrary";
 import ExperimentComparison from "../steps/ExperimentComparison";
 import GovernanceReport from "../steps/GovernanceReport";
 import IntelligentWorkbench from "../steps/IntelligentWorkbench";
@@ -14,6 +16,7 @@ import NotebookExport from "../steps/NotebookExport";
 import NewProject from "../steps/NewProject";
 import ProjectOverview from "../steps/ProjectOverview";
 import { ExportsPage, OpenProject, SettingsPage } from "../steps/ProjectUtilityPages";
+import RegisterDataset from "../steps/RegisterDataset";
 import Step00ProjectContext from "../steps/Step00_ProjectContext";
 import Step01BCreditBureauReview from "../steps/Step01B_CreditBureauReview";
 import Step01DataAcquisition from "../steps/Step01_DataAcquisition";
@@ -29,6 +32,7 @@ import Step10Scoring from "../steps/Step10_Scoring";
 import Step11ModelDevelopmentDocument from "../steps/Step11_ModelDevelopmentDocument";
 import Step12ModelImplementation from "../steps/Step12_ModelImplementation";
 import Step13ModelMonitoring from "../steps/Step13_ModelMonitoring";
+import SystemDiagnostics from "../steps/SystemDiagnostics";
 import WorkflowTemplates from "../steps/WorkflowTemplates";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { experimentalDesignJourney } from "../config/workflows";
@@ -112,12 +116,16 @@ export default function ModelingApp() {
                   <Route path="/projects/new" element={<NewProject />} />
                   <Route path="/projects/open" element={<OpenProject />} />
                   <Route path="/templates" element={<WorkflowTemplates />} />
+                  <Route path="/datasets" element={<DatasetLibrary />} />
+                  <Route path="/datasets/register" element={<RegisterDataset />} />
+                  <Route path="/datasets/:datasetId" element={<DatasetDetail />} />
                   <Route path="/experiments" element={<ExperimentComparison />} />
                   <Route path="/journal" element={<DecisionJournal />} />
                   <Route path="/governance-report" element={<GovernanceReport />} />
                   <Route path="/notebook-export" element={<NotebookExport />} />
                   <Route path="/exports" element={<ExportsPage />} />
                   <Route path="/settings" element={<SettingsPage />} />
+                  <Route path="/system/diagnostics" element={<SystemDiagnostics />} />
                   <Route path="/dashboard" element={<Dashboard />} />
                   <Route path="/step00" element={<Step00ProjectContext />} />
                   <Route path="/step01" element={<Step01DataAcquisition />} />

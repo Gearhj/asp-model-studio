@@ -150,6 +150,7 @@ export default function Step04_MissingValues() {
   }, []);
 
   const featureColumns = columns.filter((c) => c.role !== "target");
+  const totalMissing = featureColumns.reduce((sum, column) => sum + (missingStats[column.name]?.missing ?? 0), 0);
   const numericCols = featureColumns.filter((c) =>
     (c.dtype || "").toLowerCase().match(/int|float|double|number|numeric/)
   );
@@ -276,6 +277,37 @@ export default function Step04_MissingValues() {
         <div className="mb-4 rounded border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800">
           Missing-value profiling is using the browser sample from Step 1.
         </div>
+      )}
+      {columns.length > 0 && totalMissing === 0 && (
+        <section className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-950">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">No Action Needed</div>
+              <h3 className="mt-1 text-lg font-semibold">No missing values detected.</h3>
+              <p className="mt-2 max-w-3xl text-sm leading-6">
+                ATLAS recommends skipping imputation for this dataset. The workflow will preserve the current feature values and continue to feature engineering.
+              </p>
+            </div>
+            <div className="rounded-xl border border-emerald-200 bg-white px-4 py-3 text-center">
+              <div className="text-2xl font-bold text-emerald-700">0</div>
+              <div className="text-xs font-semibold uppercase text-emerald-700">Missing cells</div>
+            </div>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className="rounded-xl border border-emerald-100 bg-white p-3 text-sm">
+              <div className="font-semibold">Before/After Imputation</div>
+              <p className="mt-1 text-xs text-emerald-800">No imputation chart is required because no values are missing.</p>
+            </div>
+            <div className="rounded-xl border border-emerald-100 bg-white p-3 text-sm">
+              <div className="font-semibold">Categorical Preview</div>
+              <p className="mt-1 text-xs text-emerald-800">No category-fill preview is needed.</p>
+            </div>
+            <div className="rounded-xl border border-emerald-100 bg-white p-3 text-sm">
+              <div className="font-semibold">High-Missing Warning</div>
+              <p className="mt-1 text-xs text-emerald-800">No high-missing features were found.</p>
+            </div>
+          </div>
+        </section>
       )}
       {columns.length > 0 && (
         <div className="mb-6 flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3">

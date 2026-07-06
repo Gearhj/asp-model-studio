@@ -226,6 +226,21 @@ function informationValue(values: number[], rows: Array<Record<string, any>>, fe
   return Number.isFinite(iv) ? iv : 0;
 }
 
+function correlationWithTarget(rows: Array<Record<string, any>>, feature: string, targetName: string) {
+  if (!targetName || feature === targetName || !rows.length) return 0;
+  const pairs = rows
+    .map((row) => ({ x: Number(row?.[feature]), y: Number(row?.[targetName]) }))
+    .filter((row) => Number.isFinite(row.x) && Number.isFinite(row.y));
+  if (pairs.length < 3) return 0;
+  const meanX = pairs.reduce((sum, row) => sum + row.x, 0) / pairs.length;
+  const meanY = pairs.reduce((sum, row) => sum + row.y, 0) / pairs.length;
+  const numerator = pairs.reduce((sum, row) => sum + (row.x - meanX) * (row.y - meanY), 0);
+  const denomX = Math.sqrt(pairs.reduce((sum, row) => sum + (row.x - meanX) ** 2, 0));
+  const denomY = Math.sqrt(pairs.reduce((sum, row) => sum + (row.y - meanY) ** 2, 0));
+  const corr = numerator / ((denomX || 0) * (denomY || 0));
+  return Number.isFinite(corr) ? corr : 0;
+}
+
 type HistBin = { x0: number; x1: number; n: number; isOutlier?: boolean };
 
 function makeBins(values: number[], nbins = 24, lo?: number, hi?: number): HistBin[] {
@@ -265,12 +280,12 @@ function MiniHist({
   thresholds?: { lo: number; hi: number };
   afterCap?: boolean;
 }) {
-  const W = 300;
-  const H = 120;
-  const PL = 30,
-    PR = 10,
-    PT = 10,
-    PB = 22;
+  const W = 520;
+  const H = 210;
+  const PL = 52,
+    PR = 18,
+    PT = 24,
+    PB = 42;
   const w = W - PL - PR;
   const h = H - PT - PB;
 
@@ -297,13 +312,23 @@ function MiniHist({
   const b = bins[bins.length - 1].x1;
   const toX = (v: number) => PL + ((v - a) / (b - a || 1)) * w;
   const toY = (n: number) => PT + h - (n / (maxN || 1)) * h;
+  const xTicks = [a, a + (b - a) * 0.25, a + (b - a) * 0.5, a + (b - a) * 0.75, b];
+  const yTicks = [0, maxN * 0.5, maxN];
 
   return (
-    <div className="rounded-md bg-white border border-gray-200 p-2">
-      <div className="text-[10px] font-semibold text-gray-700 mb-1">{title}</div>
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full">
+    <div className="rounded-xl bg-white border border-gray-200 p-3">
+      <div className="text-xs font-semibold text-gray-800">{title}</div>
+      <p className="mt-1 text-[11px] text-gray-500">{afterCap ? "Distribution after applying the selected cap thresholds." : "Raw distribution with treatment thresholds marked."}</p>
+      <svg viewBox={`0 0 ${W} ${H}`} className="mt-2 w-full">
         <rect x="0" y="0" width={W} height={H} fill="#F9FAFB" />
+        {yTicks.map((tick) => (
+          <g key={`y-${tick}`}>
+            <line x1={PL} y1={toY(tick)} x2={PL + w} y2={toY(tick)} stroke="#E5E7EB" />
+            <text x={PL - 8} y={toY(tick) + 4} textAnchor="end" fontSize="10" fill="#64748B">{Math.round(tick)}</text>
+          </g>
+        ))}
         <line x1={PL} y1={PT + h} x2={PL + w} y2={PT + h} stroke="#D1D5DB" strokeWidth="1" />
+        <line x1={PL} y1={PT} x2={PL} y2={PT + h} stroke="#D1D5DB" strokeWidth="1" />
         {bins.map((b, i) => {
           const x0 = toX(b.x0) + 0.7;
           const x1 = toX(b.x1) - 0.7;
@@ -333,6 +358,7 @@ function MiniHist({
               strokeDasharray="3 3"
               strokeWidth="1"
             />
+            <text x={toX(thresholds.lo) + 3} y={PT + 12} fontSize="10" fill={COLOR_OUTLIER}>Low cap</text>
             <line
               x1={toX(thresholds.hi)}
               x2={toX(thresholds.hi)}
@@ -342,8 +368,17 @@ function MiniHist({
               strokeDasharray="3 3"
               strokeWidth="1"
             />
+            <text x={toX(thresholds.hi) - 3} y={PT + 26} textAnchor="end" fontSize="10" fill={COLOR_OUTLIER}>High cap</text>
           </>
         )}
+        {xTicks.map((tick) => (
+          <g key={`x-${tick}`}>
+            <line x1={toX(tick)} x2={toX(tick)} y1={PT + h} y2={PT + h + 5} stroke="#94A3B8" />
+            <text x={toX(tick)} y={PT + h + 18} textAnchor="middle" fontSize="10" fill="#64748B">{tick.toFixed(2)}</text>
+          </g>
+        ))}
+        <text x={PL + w / 2} y={H - 6} textAnchor="middle" fontSize="11" fill="#475569">Feature value</text>
+        <text x="14" y={PT + h / 2} textAnchor="middle" transform={`rotate(-90 14 ${PT + h / 2})`} fontSize="11" fill="#475569">Records</text>
       </svg>
     </div>
   );
@@ -397,7 +432,9 @@ export default function Step04_Outliers() {
   const [methodByFeature, setMethodByFeature] = useState<Record<string, MethodKey>>({});
   const [globalMethod, setGlobalMethod] = useState<MethodKey>("IQR_1_5");
   const [featureIv, setFeatureIv] = useState<Record<string, number>>({});
+  const [problemType, setProblemType] = useState<"classification" | "regression">("classification");
   const [featurePage, setFeaturePage] = useState(0);
+  const [selectedFeature, setSelectedFeature] = useState<string>("");
 
   useEffect(() => {
     try {
@@ -458,11 +495,14 @@ export default function Step04_Outliers() {
           ? allCols.filter((column) => scopedHeaderSet.has(column.name))
           : allCols;
         const scopedTarget = localDatasetForFilter?.target ?? targetName;
+        const scopedProblemType = localDatasetForFilter?.problem_type === "regression" ? "regression" : "classification";
 
         let { final, series } = buildOutlierData(scopedColumns, scopedRows, scopedHeaders, scopedTarget);
         let ivMap: Record<string, number> = {};
         final.forEach((feature) => {
-          ivMap[feature] = informationValue(series[feature] ?? [], scopedRows, feature, scopedTarget);
+          ivMap[feature] = scopedProblemType === "regression"
+            ? correlationWithTarget(scopedRows, feature, scopedTarget)
+            : informationValue(series[feature] ?? [], scopedRows, feature, scopedTarget);
         });
         if (!final.length) {
           const localDataset = loadLocalDataset();
@@ -478,16 +518,20 @@ export default function Step04_Outliers() {
             series = local.series;
             ivMap = {};
             final.forEach((feature) => {
-              ivMap[feature] = informationValue(local.series[feature] ?? [], localDataset.rows, feature, localDataset.target ?? "");
+              ivMap[feature] = localDataset.problem_type === "regression"
+                ? correlationWithTarget(localDataset.rows, feature, localDataset.target ?? "")
+                : informationValue(local.series[feature] ?? [], localDataset.rows, feature, localDataset.target ?? "");
             });
           }
         }
 
         if (!mounted) return;
-        const ordered = [...final].sort((a, b) => (ivMap[b] ?? 0) - (ivMap[a] ?? 0));
+        const ordered = [...final].sort((a, b) => Math.abs(ivMap[b] ?? 0) - Math.abs(ivMap[a] ?? 0));
         setNumericFeatures(ordered);
+        setSelectedFeature((current) => current && ordered.includes(current) ? current : ordered[0] ?? "");
         setSeriesMap(series);
         setFeatureIv(ivMap);
+        setProblemType(scopedProblemType);
         setFeaturePage(0);
         setMethodByFeature((prev) => {
           const next: Record<string, MethodKey> = { ...prev };
@@ -510,12 +554,16 @@ export default function Step04_Outliers() {
             if (!mounted) return;
             const ivMap: Record<string, number> = {};
             final.forEach((feature) => {
-              ivMap[feature] = informationValue(series[feature] ?? [], localDataset.rows, feature, localDataset.target ?? "");
+              ivMap[feature] = localDataset.problem_type === "regression"
+                ? correlationWithTarget(localDataset.rows, feature, localDataset.target ?? "")
+                : informationValue(series[feature] ?? [], localDataset.rows, feature, localDataset.target ?? "");
             });
-            const ordered = [...final].sort((a, b) => (ivMap[b] ?? 0) - (ivMap[a] ?? 0));
+            const ordered = [...final].sort((a, b) => Math.abs(ivMap[b] ?? 0) - Math.abs(ivMap[a] ?? 0));
             setNumericFeatures(ordered);
+            setSelectedFeature((current) => current && ordered.includes(current) ? current : ordered[0] ?? "");
             setSeriesMap(series);
             setFeatureIv(ivMap);
+            setProblemType(localDataset.problem_type === "regression" ? "regression" : "classification");
             setFeaturePage(0);
             setMethodByFeature((prev) => {
               const next: Record<string, MethodKey> = { ...prev };
@@ -555,6 +603,10 @@ export default function Step04_Outliers() {
   const currentPage = Math.min(featurePage, pageCount - 1);
   const pagedTableData = tableData.slice(currentPage * pageSize, currentPage * pageSize + pageSize);
   const pagedFeatures = numericFeatures.slice(currentPage * pageSize, currentPage * pageSize + pageSize);
+  const selectedRow = tableData.find((row) => row.feature === selectedFeature) ?? tableData[0];
+  const totalOutliers = tableData.reduce((sum, row) => sum + row.outliers, 0);
+  const featuresWithOutliers = tableData.filter((row) => row.outliers > 0).length;
+  const highestOutlierFeature = [...tableData].sort((a, b) => b.outliers - a.outliers)[0];
 
   const handleChange = useCallback((feature: string, key: MethodKey) => {
     logDecision({
@@ -587,17 +639,26 @@ export default function Step04_Outliers() {
   return (
     <StepShell
       title="Step 3: Outlier Analysis"
-      subtitle="Identify and handle outliers in numeric features"
+      subtitle="Identify and handle outliers in numeric features before missing-value treatment."
       nextPath="/step04"   // navigate to Missing Values
     >
       <section className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950 shadow-sm">
-        <div className="font-semibold">Fraud, anomaly, and transaction-tail guidance</div>
+        <div className="font-semibold">{problemType === "regression" ? "Regression tail and leverage guidance" : "Fraud, anomaly, and transaction-tail guidance"}</div>
         <p className="mt-1">
-          For fraud or anomaly problems, extreme values may be meaningful signal rather than bad data.
-          Review amount, balance, income, payment, and transaction-count tails before removing or capping them.
-          Prefer conservative winsorization when values are operationally plausible.
+          {problemType === "regression"
+            ? "Extreme predictor values can create high leverage in continuous-target models. Review whether tails are valid business behavior before capping, and compare correlation with the target before changing treatment."
+            : "For fraud or anomaly problems, extreme values may be meaningful signal rather than bad data. Review amount, balance, income, payment, and transaction-count tails before removing or capping them. Prefer conservative winsorization when values are operationally plausible."}
         </p>
       </section>
+
+      {numericFeatures.length > 0 && (
+        <section className="mb-6 grid gap-3 md:grid-cols-4">
+          <SummaryCard label="Total Outliers" value={totalOutliers.toLocaleString()} helper="Across numeric predictors" />
+          <SummaryCard label="Features With Outliers" value={featuresWithOutliers.toLocaleString()} helper={`${numericFeatures.length} numeric features reviewed`} />
+          <SummaryCard label="Highest Outlier Feature" value={highestOutlierFeature?.feature ?? "-"} helper={highestOutlierFeature ? `${highestOutlierFeature.outliers.toLocaleString()} flagged values` : "No outliers detected"} />
+          <SummaryCard label="Global Method" value={METHOD_OPTIONS.find((item) => item.key === globalMethod)?.label ?? globalMethod} helper="Default policy before overrides" />
+        </section>
+      )}
 
       {/* Methods table */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
@@ -648,45 +709,60 @@ export default function Step04_Outliers() {
             </p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-left text-gray-600">
-                  <th className="py-2 px-3">Feature</th>
-                  <th className="py-2 px-3">Outliers Detected</th>
-                  <th className="py-2 px-3">IV</th>
-                  <th className="py-2 px-3">Method</th>
-                </tr>
-              </thead>
-              <tbody>
-                {pagedTableData.map((row) => (
-                  <tr key={row.feature} className="border-t border-gray-100">
-                    <td className="py-2 px-3 font-medium text-gray-800">{row.feature}</td>
-                    <td className="py-2 px-3">
-                      <span className="text-red-600 font-semibold">{row.outliers}</span>
-                    </td>
-                    <td className="py-2 px-3 text-gray-700">{row.iv.toFixed(4)}</td>
-                    <td className="py-2 px-3">
-                      <select
-                        value={methodByFeature[row.feature]}
-                        onChange={(e) => handleChange(row.feature, e.target.value as MethodKey)}
-                        className="w-56 p-2 border border-gray-300 rounded-lg"
-                        title={METHOD_GUIDANCE[methodByFeature[row.feature] || "IQR_1_5"]}
-                      >
-                        {METHOD_OPTIONS.map((opt) => (
-                          <option key={opt.key} value={opt.key}>
-                            {opt.label}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.9fr)]">
+            <div className="overflow-x-auto rounded-xl border border-slate-200">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50">
+                  <tr className="text-left text-gray-600">
+                    <th className="py-2 px-3">Feature</th>
+                    <th className="py-2 px-3">Outliers Detected</th>
+                    <th className="py-2 px-3">{problemType === "regression" ? "Corr(Target)" : "IV"}</th>
+                    <th className="py-2 px-3">Method</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {pagedTableData.map((row) => (
+                    <tr
+                      key={row.feature}
+                      className={`cursor-pointer border-t border-gray-100 transition hover:bg-blue-50 ${selectedFeature === row.feature ? "bg-blue-50" : ""}`}
+                      onClick={() => setSelectedFeature(row.feature)}
+                    >
+                      <td className="py-2 px-3 font-medium text-gray-800">{row.feature}</td>
+                      <td className="py-2 px-3">
+                        <span className="text-red-600 font-semibold">{row.outliers}</span>
+                      </td>
+                      <td className="py-2 px-3 text-gray-700">{row.iv.toFixed(4)}</td>
+                      <td className="py-2 px-3" onClick={(event) => event.stopPropagation()}>
+                        <select
+                          value={methodByFeature[row.feature]}
+                          onChange={(e) => handleChange(row.feature, e.target.value as MethodKey)}
+                          className="w-56 p-2 border border-gray-300 rounded-lg"
+                          title={METHOD_GUIDANCE[methodByFeature[row.feature] || "IQR_1_5"]}
+                        >
+                          {METHOD_OPTIONS.map((opt) => (
+                            <option key={opt.key} value={opt.key}>
+                              {opt.label}
+                            </option>
+                          ))}
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {selectedRow && (
+              <SelectedOutlierPanel
+                row={selectedRow}
+                values={seriesMap[selectedRow.feature] ?? []}
+                method={methodByFeature[selectedRow.feature] || "IQR_1_5"}
+                problemType={problemType}
+                onMethodChange={(method) => handleChange(selectedRow.feature, method)}
+              />
+            )}
             <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-gray-600">
               <div>
-                Showing {currentPage * pageSize + 1}-{Math.min((currentPage + 1) * pageSize, tableData.length)} of {tableData.length} features, sorted by IV.
+                Showing {currentPage * pageSize + 1}-{Math.min((currentPage + 1) * pageSize, tableData.length)} of {tableData.length} features, sorted by {problemType === "regression" ? "absolute Corr(Target)" : "IV"}.
               </div>
               <div className="flex items-center gap-2">
                 <button
@@ -713,16 +789,21 @@ export default function Step04_Outliers() {
       </div>
 
       {/* Per-feature previews */}
-      <div className="grid xl:grid-cols-3 md:grid-cols-2 gap-6">
-        {pagedFeatures.map((f) => (
-          <FeaturePreview
-            key={f}
-            feature={f}
-            method={methodByFeature[f] || "IQR_1_5"}
-            series={seriesMap[f] || []}
-          />
-        ))}
-      </div>
+      <details className="rounded-xl border border-slate-200 bg-white p-4">
+        <summary className="cursor-pointer text-sm font-semibold text-slate-800">
+          Show all feature histogram cards for this page
+        </summary>
+        <div className="mt-4 grid xl:grid-cols-3 md:grid-cols-2 gap-6">
+          {pagedFeatures.map((f) => (
+            <FeaturePreview
+              key={f}
+              feature={f}
+              method={methodByFeature[f] || "IQR_1_5"}
+              series={seriesMap[f] || []}
+            />
+          ))}
+        </div>
+      </details>
 
       <div className="mt-6 text-xs text-gray-500">
         <p className="mb-1">
@@ -732,5 +813,88 @@ export default function Step04_Outliers() {
         </p>
       </div>
     </StepShell>
+  );
+}
+
+function SummaryCard({ label, value, helper }: { label: string; value: string; helper: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <div className="text-[11px] font-semibold uppercase text-slate-500">{label}</div>
+      <div className="mt-1 truncate text-lg font-semibold text-slate-950" title={value}>{value}</div>
+      <div className="mt-1 text-xs text-slate-500">{helper}</div>
+    </div>
+  );
+}
+
+function SelectedOutlierPanel({
+  row,
+  values,
+  method,
+  problemType,
+  onMethodChange,
+}: {
+  row: { feature: string; outliers: number; iv: number };
+  values: number[];
+  method: MethodKey;
+  problemType: "classification" | "regression";
+  onMethodChange: (method: MethodKey) => void;
+}) {
+  const safeValues = values.length ? values : synthSeries(row.feature, 1200);
+  const sorted = [...safeValues].sort((a, b) => a - b);
+  const thresholds = outlierThresholds(safeValues, method);
+  const pct = safeValues.length ? (row.outliers / safeValues.length) * 100 : 0;
+  return (
+    <aside className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="text-[11px] font-semibold uppercase text-slate-500">Selected Feature</div>
+          <h4 className="mt-1 text-lg font-semibold text-slate-950">{row.feature}</h4>
+        </div>
+        <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
+          {pct.toFixed(1)}% flagged
+        </span>
+      </div>
+      <div className="mt-4 grid gap-3">
+        <MiniHist title="Before Treatment" values={safeValues} thresholds={thresholds} />
+        <MiniHist title="After Capping" values={safeValues} thresholds={thresholds} afterCap />
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+        <Metric label="P1" value={quantile(sorted, 0.01).toFixed(4)} />
+        <Metric label="P5" value={quantile(sorted, 0.05).toFixed(4)} />
+        <Metric label="P25" value={quantile(sorted, 0.25).toFixed(4)} />
+        <Metric label="Median" value={quantile(sorted, 0.5).toFixed(4)} />
+        <Metric label="P75" value={quantile(sorted, 0.75).toFixed(4)} />
+        <Metric label="P95" value={quantile(sorted, 0.95).toFixed(4)} />
+        <Metric label="P99" value={quantile(sorted, 0.99).toFixed(4)} />
+        <Metric label={problemType === "regression" ? "Corr(Target)" : "IV"} value={row.iv.toFixed(4)} />
+      </div>
+      <label className="mt-4 block text-xs font-semibold uppercase text-slate-500">
+        Treatment method
+        <select
+          value={method}
+          onChange={(event) => onMethodChange(event.target.value as MethodKey)}
+          className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2 text-sm normal-case text-slate-900"
+          title={METHOD_GUIDANCE[method]}
+        >
+          {METHOD_OPTIONS.map((opt) => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
+        </select>
+      </label>
+      <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs leading-5 text-emerald-900">
+        <div className="font-semibold">ATLAS readout</div>
+        <p className="mt-1">
+          The before/after charts use comparable scales. Values beyond {thresholds.lo.toFixed(3)} and {thresholds.hi.toFixed(3)} are pulled back under capping, reducing leverage while preserving record count.
+        </p>
+        <p className="mt-1">Recommendation: use conservative capping unless this field is known to contain invalid values. Review target relationship before changing high-signal tails.</p>
+      </div>
+    </aside>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-2">
+      <div className="text-[10px] font-semibold uppercase text-slate-500">{label}</div>
+      <div className="mt-1 font-semibold text-slate-900">{value}</div>
+    </div>
   );
 }

@@ -13,6 +13,7 @@ class ResultStore:
         self.training_timestamp: Optional[str] = None
         self.model_availability: Dict[str, bool] = {}
         self.model_artifacts: Dict[str, Any] = {}
+        self.model_artifact_metadata: Dict[str, Dict[str, Any]] = {}
         self.final_model: Optional[Any] = None
         self.final_model_metadata: Optional[Dict[str, Any]] = None
         self.scoring_reference: Optional[Dict[str, Any]] = None
@@ -30,14 +31,27 @@ class ResultStore:
     def get_model_availability(self) -> Dict[str, bool]:
         return self.model_availability
 
-    def set_model_artifacts(self, artifacts: Dict[str, Any]):
+    def set_model_artifacts(self, artifacts: Dict[str, Any], metadata: Optional[Dict[str, Dict[str, Any]]] = None):
         self.model_artifacts = artifacts
+        self.model_artifact_metadata = metadata or {}
 
     def get_model_artifact(self, key: str) -> Optional[Any]:
         return self.model_artifacts.get(key)
 
+    def get_model_artifact_metadata(self, key: str) -> Dict[str, Any]:
+        return self.model_artifact_metadata.get(key, {})
+
     def get_model_artifacts(self) -> Dict[str, Any]:
         return self.model_artifacts
+
+    def clear_model_artifacts(self):
+        self.last_training_summary = None
+        self.training_timestamp = None
+        self.model_artifacts = {}
+        self.model_artifact_metadata = {}
+        self.final_model = None
+        self.final_model_metadata = None
+        self.scoring_reference = None
 
     def set_final_model(self, model: Any, metadata: Dict[str, Any]):
         self.final_model = model

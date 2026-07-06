@@ -4,7 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { logDecision } from "../lib/decisionJournal";
 import { recordTrainingExperiments } from "../lib/experimentTracking";
-import { inferLocalProblemType, loadLocalDataset } from "../lib/localDataset";
+import { inferLocalProblemType, loadLocalDataset, localDatasetVersion } from "../lib/localDataset";
 import { saveActiveProjectBeforeNavigation } from "../lib/localProjects";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import StepPythonPanel from "../components/StepPythonPanel";
@@ -76,6 +76,7 @@ type ModelKey =
   | "autoreg"
   | "mlp"
   | "linreg"
+  | "dt_reg"
   | "rf_reg"
   | "xgb_reg"
   | "lgbm_reg"
@@ -147,6 +148,7 @@ const MODEL_GROUPS: GroupDef[] = [
     task: "regression",
     models: [
       { key: "linreg", label: "Linear Regression", tooltip: "Transparent regression baseline. Use when coefficients, residuals, and auditability matter." },
+      { key: "dt_reg", label: "Decision Tree Regressor", tooltip: "Interpretable nonlinear regression baseline. Use when simple rule paths explain continuous target movement." },
       { key: "rf_reg", label: "Random Forest Regressor", tooltip: "Nonlinear ensemble regressor. Use when interactions are likely and prediction accuracy matters." },
       { key: "xgb_reg", label: "XGBoost Regressor", tooltip: "Gradient-boosted regression model. Use as a high-performance challenger with tuning." },
       { key: "lgbm_reg", label: "LightGBM Regressor", tooltip: "Fast boosted regression model. Use for larger tabular data and challenger benchmarking." },
@@ -165,6 +167,7 @@ const DEFAULT_SELECTION: Partial<Record<ModelKey, boolean>> = {
 
 const DEFAULT_REGRESSION_SELECTION: Partial<Record<ModelKey, boolean>> = {
   linreg: true,
+  dt_reg: true,
   rf_reg: true,
   xgb_reg: false,
   lgbm_reg: false,
@@ -364,6 +367,7 @@ function saveLocalTrainingSummary(summary: { ranked?: RankedRow[]; problem_type?
 export default function Step06_Train() {
   const navigate = useNavigate();
   const markComplete = useWorkflowStore((state) => state.markComplete);
+  const projectId = useWorkflowStore((state) => state.projectId);
   const initialProblemType = inferProblemTypeFromLocalDataset();
   const savedTrainingUiState = readTrainingUiState();
 
@@ -655,6 +659,8 @@ export default function Step06_Train() {
   async function startTraining() {
     setMessage(null);
     const startedAt = performance.now();
+    const currentDataset = loadLocalDataset();
+    const trainingProblemType = problemType ?? inferLocalProblemType(currentDataset);
 
     const models = selectedModels;
     if (!models.length) {
@@ -700,6 +706,10 @@ export default function Step06_Train() {
             use_pca: usePCA,
             grid_search: useGridSearch,
             grid_search_level: gridSearchLevel,
+            project_id: projectId,
+            dataset_version: localDatasetVersion(currentDataset),
+            target: currentDataset?.target ?? "",
+            problem_type: trainingProblemType ?? "",
           }),
         });
 
@@ -827,6 +837,9 @@ export default function Step06_Train() {
   // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
+  const readinessDataset = loadLocalDataset();
+  const readinessFeatureCount = readinessDataset?.selected_columns?.length ?? readinessDataset?.headers?.filter((header) => header !== readinessDataset.target).length ?? null;
+  const optimizationMetric = problemType === "regression" ? "RMSE primary, MAE/R-squared secondary" : "AUC/PR-AUC/F1 with lift and calibration";
 
   return (
     <div className="w-full space-y-6">
@@ -860,6 +873,36 @@ export default function Step06_Train() {
           </div>
         </div>
 
+        <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Validation Setup</div>
+          <p className="mt-1 text-xs text-slate-600">
+            Split strategy, folds, and holdout policy are inherited from Balance &amp; Split. Regression optimizes RMSE/MAE/R-squared; classification optimizes ranking and event-detection metrics.
+          </p>
+        </div>
+
+        <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Training Readiness</div>
+              <p className="mt-1 text-xs leading-5 text-blue-900">
+                This summarizes the request ATLAS will send to the training backend.
+              </p>
+            </div>
+            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${selectedModels.length ? "border border-emerald-200 bg-emerald-50 text-emerald-700" : "border border-amber-200 bg-amber-50 text-amber-700"}`}>
+              {selectedModels.length ? "Ready to train" : "Select models"}
+            </span>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+            <ReadinessCard label="Dataset" value={readinessDataset?.rows?.length ? "Loaded" : "Backend/local"} />
+            <ReadinessCard label="Target" value={readinessDataset?.target ?? "Backend target"} />
+            <ReadinessCard label="Features" value={readinessFeatureCount !== null ? readinessFeatureCount.toString() : "Backend"} />
+            <ReadinessCard label="Models" value={selectedModels.length.toString()} />
+            <ReadinessCard label="Optimization" value={optimizationMetric} />
+            <ReadinessCard label="Grid Search" value={useGridSearch ? gridSearchLevel : "Off"} />
+          </div>
+        </div>
+
+        <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Execution Settings</div>
         <div className="mt-4 grid gap-4 md:grid-cols-3">
           <div className="space-y-1">
             <label className="block text-xs font-medium text-gray-700">Max parallel models</label>
@@ -886,27 +929,29 @@ export default function Step06_Train() {
             </p>
           </div>
 
-          <div className="flex items-center space-x-2">
-            <input
-              id="calibrate"
-              type="checkbox"
-              checked={calibrate}
-              onChange={(e) => {
-                logDecision({
-                  workflowStep: "Model Training",
-                  actionType: "workflow_setting_changed",
-                  subject: "Calibrate probabilities",
-                  previousValue: calibrate,
-                  newValue: e.target.checked,
-                });
-                setCalibrate(e.target.checked);
-              }}
-              className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-            />
-            <label htmlFor="calibrate" className="text-xs font-medium text-gray-700">
-              Calibrate probabilities
-            </label>
-          </div>
+          {problemType !== "regression" && (
+            <div className="flex items-center space-x-2">
+              <input
+                id="calibrate"
+                type="checkbox"
+                checked={calibrate}
+                onChange={(e) => {
+                  logDecision({
+                    workflowStep: "Model Training",
+                    actionType: "workflow_setting_changed",
+                    subject: "Calibrate probabilities",
+                    previousValue: calibrate,
+                    newValue: e.target.checked,
+                  });
+                  setCalibrate(e.target.checked);
+                }}
+                className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+              />
+              <label htmlFor="calibrate" className="text-xs font-medium text-gray-700">
+                Calibrate probabilities
+              </label>
+            </div>
+          )}
 
           <div className="flex items-center space-x-2">
             <input
@@ -931,6 +976,7 @@ export default function Step06_Train() {
           </div>
         </div>
 
+        <div className="mt-5 text-xs font-semibold uppercase tracking-wide text-slate-500">Advanced Search</div>
         <div className="mt-4 grid gap-4 border-t border-gray-100 pt-4 md:grid-cols-[minmax(220px,1fr)_220px_minmax(0,2fr)]">
           <div className="flex items-center space-x-2">
             <input
@@ -983,6 +1029,15 @@ export default function Step06_Train() {
               : "Grid search is off. Models train with governed defaults; enable it when challenger performance or hyperparameter sensitivity matters."}
           </p>
         </div>
+
+        {problemType === "regression" && (
+          <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950">
+            <div className="font-semibold">Regression optimization metric</div>
+            <p className="mt-1 text-xs leading-5">
+              ATLAS ranks regression models by RMSE first, with MAE, R-squared, adjusted R-squared, residual bias, and prediction stability used as secondary evidence.
+            </p>
+          </div>
+        )}
 
         <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1170,7 +1225,7 @@ export default function Step06_Train() {
           </div>
         )}
 
-        <div className="mt-4 flex justify-end">
+        <div className="mt-6 flex justify-center">
           <button
             type="button"
             disabled={!canGoToEvaluation}
@@ -1188,12 +1243,21 @@ export default function Step06_Train() {
                 setMessage(error instanceof Error ? error.message : "ATLAS could not save the training summary before evaluation.");
               }
             }}
-            className="inline-flex items-center rounded-md bg-emerald-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-500 disabled:shadow-none"
+            className="inline-flex min-w-[260px] items-center justify-center rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-500 disabled:shadow-none"
           >
-            Go to Evaluation
+            Mark Complete &amp; Go to Evaluation
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ReadinessCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-blue-100 bg-white p-3">
+      <div className="text-[10px] font-semibold uppercase text-blue-500">{label}</div>
+      <div className="mt-1 truncate text-xs font-semibold text-slate-900" title={value}>{value}</div>
     </div>
   );
 }

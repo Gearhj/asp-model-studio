@@ -49,6 +49,21 @@ The backend supports explicit local Vite development origins and optional comma-
 
 The Settings page includes local cache clearing for the current project. This removes project-scoped workflow-node evidence and compact browser artifacts. It does not delete exported project files, backend datasets, or external governed data stores.
 
+## Dataset Library / Local Data Warehouse v1
+
+The Dataset Library uses backend artifact storage under `server/artifacts/datasets/` instead of browser `localStorage`.
+
+Dataset records include compact metadata, schema, profile, preview, lineage, version summaries, and project links. ATLAS does not persist raw uploaded files, full simulation arrays, full chart payloads, or row-level datasets in browser project snapshots.
+
+Local development access control is enforced in backend Dataset Library endpoints:
+
+- admin users can access all datasets,
+- owners can access and manage owned datasets,
+- editors can view and update granted datasets,
+- viewers can view granted datasets.
+
+The local Settings user switch is only for development and test validation. Hosted deployments must replace it with authenticated user identity, authorization policy, audited access decisions, and tenant/project boundaries.
+
 ## Production Readiness
 
 Before hosting:

@@ -26,6 +26,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, Field
 
 from .dataset_store import DATASTORE
+from .result_store import RESULTS
 from .session_checkpoint import save_checkpoint
 
 router = APIRouter()
@@ -142,6 +143,7 @@ def set_sample(payload: SetSamplePayload) -> Dict[str, Any]:
     # Persist into DATASTORE after applying selected feature scope.
     DATASTORE.set_raw(df)
     DATASTORE.meta["selected_columns"] = selected_columns
+    RESULTS.clear_model_artifacts()
 
     save_checkpoint()
 
@@ -177,6 +179,7 @@ def set_target(payload: SetTargetPayload) -> Dict[str, Any]:
     columns = [str(col) for col in df.columns]
     selected_columns = [str(col) for col in (payload.selected_columns or []) if str(col) in columns and str(col) != DATASTORE.target]
     DATASTORE.meta["selected_columns"] = selected_columns
+    RESULTS.clear_model_artifacts()
     save_checkpoint()
 
     active_df = DATASTORE.get_active_df()

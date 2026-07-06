@@ -23,6 +23,7 @@ import {
   workflowLabel,
 } from "../lib/localProjects";
 import { validateProjectImport } from "../lib/projectImportValidation";
+import { getUsers, switchDevUser, type AtlasUser } from "../lib/datasetLibrary";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 export function OpenProject() {
@@ -384,8 +385,22 @@ export function SettingsPage() {
   }));
   const [debug, setDebug] = useState(() => getProjectPersistenceDebug(workflowState.projectId, workflowState.workflowSteps));
   const [message, setMessage] = useState("");
+  const [users, setUsers] = useState<AtlasUser[]>([]);
+  const [currentUser, setCurrentUser] = useState<AtlasUser | null>(null);
 
   const refresh = () => setDebug(getProjectPersistenceDebug(workflowState.projectId, workflowState.workflowSteps));
+
+  useEffect(() => {
+    getUsers()
+      .then((payload) => {
+        setUsers(payload.users);
+        setCurrentUser(payload.currentUser);
+      })
+      .catch(() => {
+        setUsers([]);
+        setCurrentUser(null);
+      });
+  }, []);
 
   const saveNow = () => {
     try {
@@ -442,6 +457,44 @@ export function SettingsPage() {
         <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
           Global ATLAS settings will live here. Challenge Mode and workflow-specific settings are currently available inside Atlas Guide and each workflow step.
         </p>
+      </section>
+
+      <section className="rounded-xl border border-slate-200/80 bg-white/90 p-5 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <Database size={18} className="text-blue-700" />
+              <h2 className="text-base font-semibold text-slate-950">Dataset Library User Context</h2>
+            </div>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              Local development user switching controls backend dataset visibility and owner/editor/viewer access. Hosted deployment should replace this with authenticated identity.
+            </p>
+          </div>
+          <div className="min-w-[260px]">
+            <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Active local user
+              <select
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal normal-case text-slate-900"
+                value={currentUser?.userId ?? ""}
+                onChange={async (event) => {
+                  try {
+                    const next = await switchDevUser(event.target.value);
+                    setCurrentUser(next);
+                    setMessage(`Dataset Library user switched to ${next.displayName}.`);
+                  } catch (error) {
+                    setMessage(error instanceof Error ? error.message : "ATLAS could not switch local user.");
+                  }
+                }}
+              >
+                {users.map((user) => (
+                  <option key={user.userId} value={user.userId}>
+                    {user.displayName} ({user.role})
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        </div>
       </section>
 
       <section className="rounded-xl border border-slate-200/80 bg-white/90 p-5 shadow-sm">

@@ -1,0 +1,110 @@
+{
+  "columnCount": 9,
+  "createdAt": "2026-07-06T18:08:33.188910+00:00",
+  "duplicateRowsSample": 0,
+  "profiledRows": 4128,
+  "rowCount": 4128,
+  "schema": [
+    {
+      "distinctSample": 2289,
+      "dtype": "numeric",
+      "max": 5.1097,
+      "mean": 4.472552882751938,
+      "min": 3.9673,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "MedInc",
+      "std": 0.3359447289619224
+    },
+    {
+      "distinctSample": 52,
+      "dtype": "numeric",
+      "max": 52.0,
+      "mean": 27.70251937984496,
+      "min": 1.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "HouseAge",
+      "std": 12.864474968297229
+    },
+    {
+      "distinctSample": 4042,
+      "dtype": "numeric",
+      "max": 132.53333333333333,
+      "mean": 5.761313088646061,
+      "min": 0.8888888888888888,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "AveRooms",
+      "std": 2.8191982659010484
+    },
+    {
+      "distinctSample": 3651,
+      "dtype": "numeric",
+      "max": 34.06666666666667,
+      "mean": 1.0823520318921789,
+      "min": 0.375,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "AveBedrms",
+      "std": 0.6195289770094647
+    },
+    {
+      "distinctSample": 2068,
+      "dtype": "numeric",
+      "max": 16305.0,
+      "mean": 1457.4571220930231,
+      "min": 11.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "Population",
+      "std": 1168.3521130819715
+    },
+    {
+      "distinctSample": 4007,
+      "dtype": "numeric",
+      "max": 502.46153846153845,
+      "mean": 3.0240466819703,
+      "min": 1.2896725440806045,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "AveOccup",
+      "std": 7.929657194589916
+    },
+    {
+      "distinctSample": 546,
+      "dtype": "numeric",
+      "max": 40.94,
+      "mean": 35.51068798449612,
+      "min": 32.56,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "Latitude",
+      "std": 2.018212127226275
+    },
+    {
+      "distinctSample": 576,
+      "dtype": "numeric",
+      "max": -115.54,
+      "mean": -119.59825339147287,
+      "min": -124.17,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "Longitude",
+      "std": 2.0027808814887123
+    },
+    {
+      "distinctSample": 2049,
+      "dtype": "numeric",
+      "max": 5.00001,
+      "mean": 2.300291228197674,
+      "min": 0.14999,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "MedHouseVal",
+      "std": 0.9213991054816454
+    }
+  ],
+  "targetCandidates": [],
+  "warnings": []
+}

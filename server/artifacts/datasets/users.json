@@ -1,0 +1,23 @@
+{
+  "currentUserId": "local-user",
+  "users": [
+    {
+      "displayName": "Local ATLAS User",
+      "email": "local.user@atlas.local",
+      "role": "admin",
+      "userId": "local-user"
+    },
+    {
+      "displayName": "Analyst User",
+      "email": "analyst@atlas.local",
+      "role": "user",
+      "userId": "analyst"
+    },
+    {
+      "displayName": "Model Validator",
+      "email": "validator@atlas.local",
+      "role": "user",
+      "userId": "validator"
+    }
+  ]
+}

@@ -1,15 +1,18 @@
 import { Link } from "react-router-dom";
 import type React from "react";
-import { ArrowRight, BookOpenCheck, CheckCircle2, FileClock, FlaskConical, Gauge } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ArrowRight, BookOpenCheck, CheckCircle2, Database, FileClock, FlaskConical, Gauge } from "lucide-react";
 import BrandLogo from "../components/BrandLogo";
 import { getWorkflowDefinition } from "../config/workflows";
 import { loadDecisionJournal } from "../lib/decisionJournal";
+import { listProjectDatasets, type ProjectDatasetLink } from "../lib/datasetLibrary";
 import { loadExperiments } from "../lib/experimentTracking";
 import { loadProjectContext } from "../lib/projectContext";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 export default function ProjectOverview() {
   const projectName = useWorkflowStore((state) => state.projectName);
+  const projectId = useWorkflowStore((state) => state.projectId);
   const projectType = useWorkflowStore((state) => state.projectType);
   const workflowId = useWorkflowStore((state) => state.workflowId);
   const workflowSteps = useWorkflowStore((state) => state.workflowSteps);
@@ -25,6 +28,21 @@ export default function ProjectOverview() {
     context.monitoringCadence === "custom"
       ? context.monitoringCadenceCustom || "Custom cadence not documented"
       : context.monitoringCadence;
+  const [datasetLinks, setDatasetLinks] = useState<ProjectDatasetLink[]>([]);
+
+  useEffect(() => {
+    let alive = true;
+    listProjectDatasets(projectId)
+      .then((links) => {
+        if (alive) setDatasetLinks(links);
+      })
+      .catch(() => {
+        if (alive) setDatasetLinks([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [projectId]);
 
   return (
     <div className="w-full space-y-5">
@@ -115,6 +133,21 @@ export default function ProjectOverview() {
               </div>
               <p className="mt-1 text-xs leading-5">Reports and notebook exports are workflow-aware and will use placeholder outlines for non-modeling workflows.</p>
             </div>
+          </Panel>
+
+          <Panel icon={<Database size={18} />} title="Linked Datasets">
+            {datasetLinks.length ? (
+              datasetLinks.map((link) => (
+                <Link key={`${link.datasetId}-${link.versionId}`} to={`/datasets/${link.datasetId}`} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 transition hover:border-blue-200 hover:bg-blue-50">
+                  <div className="text-xs font-semibold text-slate-900">{link.dataset?.name || link.datasetId}</div>
+                  <div className="mt-1 text-[11px] leading-4 text-slate-500">
+                    {link.datasetRole} · {link.versionId} · {link.dataset?.latestVersion?.rowCount?.toLocaleString() ?? "-"} rows
+                  </div>
+                </Link>
+              ))
+            ) : (
+              <Empty text="No Dataset Library assets linked yet." />
+            )}
           </Panel>
 
           <Panel icon={<Gauge size={18} />} title="Implementation & Monitoring">

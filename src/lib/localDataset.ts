@@ -4,6 +4,16 @@ export type LocalDataset = {
   target: string | null;
   selected_columns: string[];
   problem_type?: "classification" | "regression";
+  dataset_library?: {
+    datasetId: string;
+    versionId: string;
+    datasetName: string;
+    datasetRole?: string;
+    sourceType?: string;
+    rowCount?: number;
+    columnCount?: number;
+    linkedAt?: string;
+  };
   data_access?: import("./enterpriseDataAccess").DataAccessMetadata;
   data_quality?: import("./enterpriseDataAccess").DataQualitySummary;
 };
@@ -49,6 +59,7 @@ function normalizeSelectedDataset(dataset: Partial<LocalDataset>): LocalDataset 
       dataset.problem_type === "classification" || dataset.problem_type === "regression"
         ? dataset.problem_type
         : undefined,
+    dataset_library: dataset.dataset_library,
     data_access: dataset.data_access,
     data_quality: dataset.data_quality,
   };
@@ -96,6 +107,21 @@ export function inferLocalProblemType(dataset: LocalDataset | null): "classifica
   const uniqueCount = new Set(values.map((value) => String(value))).size;
   if (numericCount / values.length >= 0.9 && uniqueCount > 10) return "regression";
   return "classification";
+}
+
+export function localDatasetVersion(dataset: LocalDataset | null): string {
+  if (!dataset) return "";
+  const selected = [...(dataset.selected_columns ?? [])].sort().join(",");
+  const target = dataset.target ?? "";
+  const problemType = dataset.problem_type ?? inferLocalProblemType(dataset) ?? "";
+  return [
+    target,
+    problemType,
+    dataset.rows.length,
+    dataset.headers.length,
+    selected.length,
+    selected.slice(0, 240),
+  ].join("|");
 }
 
 export function inferLocalColumns(dataset: LocalDataset) {

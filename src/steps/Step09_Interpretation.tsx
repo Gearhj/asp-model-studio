@@ -2,24 +2,85 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import StepPythonPanel from "../components/StepPythonPanel";
 import { logDecision } from "../lib/decisionJournal";
+import { inferLocalProblemType, loadLocalDataset, localDatasetVersion } from "../lib/localDataset";
 import { upsertProjectFromState } from "../lib/localProjects";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
+const QUERY_API_BASE =
+  typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("apiBase")?.replace(/\/$/, "") : undefined;
 const API_BASE =
+  QUERY_API_BASE ||
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
   "http://127.0.0.1:8001/api";
 const RFE_CACHE_KEY = "modeling-tool-rfe-cache";
+const LOCAL_SELECTED_INTERPRETATION_MODEL_KEY = "modeling-tool-selected-interpretation-model";
+const SHOW_LINEAR_REGRESSION_DEBUG = true;
 
 type RankedRow = { key: string; name: string; task?: "classification" | "regression" | "anomaly"; auc?: number; pr_auc?: number; rmse?: number; mae?: number; r2?: number; adjusted_r2?: number };
 type ImportanceRow = { feature: string; importance: number; source?: string; direction?: number };
 type DetailResponse = {
   ok: boolean;
   kind?: "equation" | "tree" | "generic";
+  model_type?: "classification" | "regression";
   intercept?: number;
-  coefficients?: { feature: string; coefficient: number; odds_ratio: number }[];
+  coefficients?: RegressionCoefficientRow[];
+  inference_available?: boolean;
+  inference_message?: string;
+  model_fit?: LinearModelFitSummary;
+  debug?: ArtifactDebug;
   tree_text?: string;
   message?: string;
   error?: string;
+};
+type ArtifactDebug = {
+  selected_model_key?: string;
+  requested_project_id?: string;
+  requested_dataset_version?: string;
+  requested_target?: string;
+  requested_problem_type?: string;
+  returned_model_key?: string;
+  returned_project_id?: string;
+  returned_dataset_version?: string;
+  returned_target?: string;
+  returned_problem_type?: string;
+  training_run_id?: string;
+  artifact_has_metadata?: boolean;
+};
+type RegressionCoefficientRow = {
+  variable?: string;
+  feature: string;
+  coefficient: number;
+  standardized_coefficient?: number | null;
+  standardized_weight?: number | null;
+  standard_error?: number | null;
+  t_statistic?: number | null;
+  p_value?: number | null;
+  ci_lower?: number | null;
+  ci_upper?: number | null;
+  confidence_interval_lower?: number | null;
+  confidence_interval_upper?: number | null;
+  direction?: number;
+  absolute_rank?: number;
+  odds_ratio?: number | null;
+};
+type LinearModelFitSummary = {
+  dependent_variable?: string;
+  model_type?: string;
+  r2?: number;
+  adjusted_r2?: number;
+  rmse?: number;
+  mae?: number;
+  mse?: number;
+  n_observations?: number;
+  n_predictors?: number;
+  residual_df?: number;
+  residual_standard_error?: number;
+  f_statistic?: number | null;
+  prob_f_statistic?: number | null;
+  aic?: number | null;
+  bic?: number | null;
+  log_likelihood?: number | null;
+  condition_number?: number | null;
 };
 type CurveRow = { value: string | number; label?: string; prediction: number };
 type SensitivityRow = { scenario: string; prediction: number; delta: number };
@@ -84,9 +145,11 @@ type TreeNode = {
   samples: number;
   positive_rate: number;
   prediction: string;
+  prediction_value?: number;
+  model_type?: "classification" | "regression";
 };
 type TreeEdge = { source: number; target: number; label: string };
-type TreeResponse = { ok: boolean; nodes?: TreeNode[]; edges?: TreeEdge[]; error?: string };
+type TreeResponse = { ok: boolean; nodes?: TreeNode[]; edges?: TreeEdge[]; error?: string; model_type?: "classification" | "regression" };
 
 type CachedRfeResult = Pick<
   RfeResult,
@@ -135,6 +198,7 @@ async function getJson<T>(url: string): Promise<T> {
 export default function Step09_Interpretation() {
   const navigate = useNavigate();
   const markComplete = useWorkflowStore((state) => state.markComplete);
+  const projectId = useWorkflowStore((state) => state.projectId);
   const [models, setModels] = useState<RankedRow[]>([]);
   const [selectedModel, setSelectedModel] = useState("");
   const [selectedFeature, setSelectedFeature] = useState("");
@@ -174,6 +238,16 @@ export default function Step09_Interpretation() {
   const rfeSelectedCount = rfeRows.filter((row) => row.rank <= rfeKeep).length;
   const rfeRemovedCount = Math.max(0, rfeRows.length - rfeSelectedCount);
   const canRunRfe = Boolean(selectedModel) && !rfeRunning && importance.length >= 2;
+  const interpretationContextQuery = useMemo(() => {
+    if (QUERY_API_BASE) return "";
+    const dataset = loadLocalDataset();
+    const params = new URLSearchParams();
+    params.set("project_id", projectId);
+    params.set("dataset_version", localDatasetVersion(dataset));
+    params.set("target", dataset?.target ?? "");
+    params.set("problem_type", inferLocalProblemType(dataset) ?? "");
+    return params.toString();
+  }, [projectId]);
 
   const exportModel = (format: "pkl" | "jar") => {
     if (format === "jar") {
@@ -188,7 +262,8 @@ export default function Step09_Interpretation() {
       .then((data) => {
         const ranked = data.summary?.ranked ?? [];
         setModels(ranked);
-        setSelectedModel(ranked[0]?.key ?? "");
+        const savedSelection = sessionStorage.getItem(LOCAL_SELECTED_INTERPRETATION_MODEL_KEY);
+        setSelectedModel(ranked.find((row) => row.key === savedSelection)?.key ?? ranked[0]?.key ?? "");
       })
       .catch((err) => setMessage(String(err?.message ?? err)));
   }, []);
@@ -199,13 +274,13 @@ export default function Step09_Interpretation() {
     setTreeStructure(null);
     Promise.all([
       getJson<{ ok: boolean; rows?: ImportanceRow[]; error?: string }>(
-        `${API_BASE}/interpretation/importance?model=${encodeURIComponent(selectedModel)}`
+        `${API_BASE}/interpretation/importance?model=${encodeURIComponent(selectedModel)}&${interpretationContextQuery}`
       ),
       getJson<DetailResponse>(
-        `${API_BASE}/interpretation/details?model=${encodeURIComponent(selectedModel)}`
+        `${API_BASE}/interpretation/details?model=${encodeURIComponent(selectedModel)}&${interpretationContextQuery}`
       ),
       getJson<{ ok: boolean; rows?: HyperparameterRow[] }>(
-        `${API_BASE}/interpretation/hyperparameters?model=${encodeURIComponent(selectedModel)}`
+        `${API_BASE}/interpretation/hyperparameters?model=${encodeURIComponent(selectedModel)}&${interpretationContextQuery}`
       ),
       getJson<{ ok: boolean; rows?: ImportanceRow[]; method?: string }>(
         `${API_BASE}/interpretation/shap?model=${encodeURIComponent(selectedModel)}`
@@ -242,7 +317,7 @@ export default function Step09_Interpretation() {
         }
       })
       .catch((err) => setMessage(String(err?.message ?? err)));
-  }, [selectedModel]);
+  }, [selectedModel, interpretationContextQuery]);
 
   useEffect(() => {
     if (!selectedModel || !selectedFeature) return;
@@ -433,6 +508,7 @@ export default function Step09_Interpretation() {
                 previousValue: selectedModel,
                 newValue: e.target.value,
               });
+              sessionStorage.setItem(LOCAL_SELECTED_INTERPRETATION_MODEL_KEY, e.target.value);
               setSelectedModel(e.target.value);
             }}
           >
@@ -447,9 +523,13 @@ export default function Step09_Interpretation() {
 
       {message && <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{message}</div>}
 
+      {SHOW_LINEAR_REGRESSION_DEBUG && /linreg|linear/i.test(`${selectedModelRow?.key ?? selectedModel} ${selectedModelRow?.name ?? ""}`) && (
+        <LinearRegressionDebugPanel details={details} />
+      )}
+
       <section className="rounded-2xl border border-gray-200 bg-white p-4">
         <h2 className="text-sm font-semibold">Model-Specific Explanation</h2>
-        <ModelDetails details={details} tree={treeStructure} />
+          <ModelDetails details={details} tree={treeStructure} forceRegression={selectedModelIsRegression} />
       </section>
 
       <section className="rounded-2xl border border-gray-200 bg-white p-4">
@@ -457,7 +537,23 @@ export default function Step09_Interpretation() {
         <HyperparameterTable rows={hyperparameters} />
       </section>
 
-      <section className="rounded-2xl border border-gray-200 bg-white p-4">
+      {selectedModelIsRegression && (
+        <section className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+          <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Regression Interpretation Focus</div>
+          <h2 className="mt-1 text-lg font-semibold text-slate-950">Use feature effects before projected surfaces</h2>
+          <p className="mt-1 text-sm leading-6 text-slate-700">
+            ATLAS prioritizes model behavior evidence that maps directly to features and predictions. Projected surfaces are kept as an advanced diagnostic because PCA or two-feature projections can make observations appear outside the visible response domain.
+          </p>
+          <div className="mt-4 grid gap-3 md:grid-cols-4">
+            <FocusCard title="Top Drivers" text="Feature importance ranks variables by predictive contribution." />
+            <FocusCard title="Direction" text="SHAP-style bars show whether a driver increases or decreases predictions." />
+            <FocusCard title="Nonlinear Effects" text="PDP and sensitivity show whether response changes are linear or curved." />
+            <FocusCard title="Reduced Set" text="RFE tests whether a smaller final feature set preserves holdout performance." />
+          </div>
+        </section>
+      )}
+
+      {!selectedModelIsRegression && <section className="rounded-2xl border border-gray-200 bg-white p-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold">{selectedModelIsRegression ? "Prediction Response Surface" : "Decision Boundary"}</h2>
@@ -477,7 +573,7 @@ export default function Step09_Interpretation() {
           </div>
         </div>
         <DecisionBoundaryChart boundary={boundary} />
-      </section>
+      </section>}
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-2xl border border-gray-200 bg-white p-4">
@@ -521,6 +617,26 @@ export default function Step09_Interpretation() {
           <SensitivityTable rows={sensitivity} />
         </div>
       </section>
+
+      {selectedModelIsRegression && (
+        <details className="rounded-2xl border border-gray-200 bg-white p-4">
+          <summary className="cursor-pointer text-sm font-semibold text-slate-900">
+            Advanced: Projected Prediction Surface
+          </summary>
+          <p className="mt-2 text-xs leading-5 text-slate-500">
+            Regression response surfaces can be useful for directional inspection, but they reduce the model to two features and should not be treated as the primary interpretation artifact. Use feature importance, SHAP-style summaries, PDP, sensitivity, and RFE first.
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <select className="rounded-md border px-3 py-2 text-sm" value={boundaryX} onChange={(e) => setBoundaryX(e.target.value)}>
+              {(boundary?.numeric_features ?? []).map((feature) => <option key={feature} value={feature}>{feature}</option>)}
+            </select>
+            <select className="rounded-md border px-3 py-2 text-sm" value={boundaryY} onChange={(e) => setBoundaryY(e.target.value)}>
+              {(boundary?.numeric_features ?? []).filter((feature) => feature !== boundaryX).map((feature) => <option key={feature} value={feature}>{feature}</option>)}
+            </select>
+          </div>
+          <DecisionBoundaryChart boundary={boundary} />
+        </details>
+      )}
 
       <section className="rounded-2xl border border-gray-200 bg-white p-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
@@ -688,14 +804,53 @@ export default function Step09_Interpretation() {
   );
 }
 
-function ModelDetails({ details, tree }: { details: DetailResponse | null; tree: TreeResponse | null }) {
+function FocusCard({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="rounded-xl border border-blue-100 bg-white p-3">
+      <div className="text-sm font-semibold text-slate-900">{title}</div>
+      <p className="mt-1 text-xs leading-5 text-slate-600">{text}</p>
+    </div>
+  );
+}
+
+function ModelDetails({ details, tree, forceRegression = false }: { details: DetailResponse | null; tree: TreeResponse | null; forceRegression?: boolean }) {
   if (!details) return <div className="mt-3 text-sm text-gray-500">Loading model details...</div>;
   if (!details.ok) return <div className="mt-3 text-sm text-rose-700">{details.error}</div>;
+  if (details.kind === "equation" && (details.model_type === "regression" || forceRegression)) {
+    return (
+      <div className="mt-3 space-y-4">
+        <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-3 border-b border-slate-100 pb-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Linear Regression Statistical Output</div>
+              <h3 className="mt-1 text-lg font-semibold text-slate-950">OLS-style coefficient inference</h3>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+                Standard regression output for the fitted Linear Regression pipeline. Inference is computed from the transformed design matrix used by the trained model.
+              </p>
+            </div>
+            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${details.inference_available ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"}`}>
+              {details.inference_available ? "Inference available" : "Inference limited"}
+            </span>
+          </div>
+          <LinearRegressionEquation intercept={details.intercept} rows={details.coefficients ?? []} />
+          <LinearModelFitSummaryCard fit={details.model_fit} />
+          <CoefficientTable rows={details.coefficients ?? []} isRegression />
+          {!details.inference_available && (
+            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              {details.inference_message ?? "Statistical inference unavailable for this fitted pipeline."}
+            </div>
+          )}
+          <LinearRegressionInterpretationReadout rows={details.coefficients ?? []} />
+        </section>
+        <BarTable rows={(details.coefficients ?? []).map((row) => ({ feature: row.feature, importance: row.coefficient, source: "coefficient" }))} valueKey="importance" color="indigo" />
+      </div>
+    );
+  }
   if (details.kind === "equation") {
     return (
       <div className="mt-3">
         <div className="rounded-lg bg-slate-50 p-3 font-mono text-xs">logit(p) = {details.intercept?.toFixed(4)} + Σ(coef × feature)</div>
-        <BarTable rows={(details.coefficients ?? []).map((row) => ({ feature: row.feature, importance: row.coefficient, source: `OR ${row.odds_ratio.toFixed(3)}` }))} valueKey="importance" color="indigo" />
+        <BarTable rows={(details.coefficients ?? []).map((row) => ({ feature: row.feature, importance: row.coefficient, source: row.odds_ratio ? `OR ${row.odds_ratio.toFixed(3)}` : "coefficient" }))} valueKey="importance" color="indigo" />
       </div>
     );
   }
@@ -718,9 +873,180 @@ function ModelDetails({ details, tree }: { details: DetailResponse | null; tree:
   return <div className="mt-3 text-sm text-gray-600">{details.message}</div>;
 }
 
+function LinearRegressionDebugPanel({ details }: { details: DetailResponse | null }) {
+  const debug = details?.debug ?? {};
+  const rows = [
+    ["Selected model key", debug.selected_model_key],
+    ["Returned model key", debug.returned_model_key],
+    ["Requested problem type", debug.requested_problem_type],
+    ["Returned problem type", debug.returned_problem_type],
+    ["Requested target", debug.requested_target],
+    ["Returned target", debug.returned_target],
+    ["Requested dataset version", debug.requested_dataset_version],
+    ["Returned dataset version", debug.returned_dataset_version],
+    ["Training run ID", debug.training_run_id],
+    ["Inference available", details?.inference_available ? "Yes" : "No"],
+    ["Inference reason", details?.inference_message || details?.error],
+  ];
+  return (
+    <details className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <summary className="cursor-pointer text-sm font-semibold text-slate-900">Linear Regression Debug</summary>
+      <div className="mt-3 grid gap-2 md:grid-cols-2">
+        {rows.map(([label, value]) => (
+          <div key={label} className="rounded-lg border border-slate-200 bg-white px-3 py-2">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+            <div className="mt-1 break-all font-mono text-xs text-slate-800">{String(value ?? "Not returned")}</div>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function CoefficientTable({ rows, isRegression }: { rows: RegressionCoefficientRow[]; isRegression: boolean }) {
+  const topRows = rows.slice(0, 12);
+  if (!topRows.length) {
+    return <div className="rounded-xl border border-slate-200 bg-white p-4 text-sm text-slate-500">No coefficient details are available.</div>;
+  }
+  return (
+    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+      <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+        <h3 className="text-sm font-semibold text-slate-900">{isRegression ? "Coefficient Inference Table" : "Coefficient / Odds Ratio Table"}</h3>
+        <p className="mt-1 text-xs text-slate-500">
+          {isRegression ? "Largest absolute coefficients from the fitted linear model." : "Largest absolute log-odds coefficients from the fitted classifier."}
+        </p>
+      </div>
+      <table className={`${isRegression ? "min-w-[1120px]" : ""} w-full text-sm`}>
+        <thead className="bg-white text-left text-xs uppercase tracking-wide text-slate-500">
+          <tr>
+            <th className="px-4 py-2">{isRegression ? "Variable" : "Feature"}</th>
+            <th className="px-4 py-2">Coefficient</th>
+            {isRegression && <th className="px-4 py-2">Std Error</th>}
+            {isRegression && <th className="px-4 py-2">t Value</th>}
+            {isRegression && <th className="px-4 py-2">p Value</th>}
+            {isRegression && <th className="px-4 py-2">95% CI Lower</th>}
+            {isRegression && <th className="px-4 py-2">95% CI Upper</th>}
+            {isRegression && <th className="px-4 py-2">Standardized Weight</th>}
+            <th className="px-4 py-2">Direction</th>
+            {isRegression && <th className="px-4 py-2">Rank</th>}
+            {!isRegression && <th className="px-4 py-2">Odds Ratio</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {topRows.map((row) => (
+            <tr key={row.feature} className="border-t border-slate-100 odd:bg-slate-50/50">
+              <td className="px-4 py-2 font-medium text-slate-800">{row.variable ?? row.feature}</td>
+              <td className="px-4 py-2 font-mono text-slate-700">{row.coefficient.toFixed(5)}</td>
+              {isRegression && <td className="px-4 py-2 font-mono text-slate-700">{formatOptional(row.standard_error, 5)}</td>}
+              {isRegression && <td className="px-4 py-2 font-mono text-slate-700">{formatOptional(row.t_statistic, 3)}</td>}
+              {isRegression && <td className="px-4 py-2 font-mono text-slate-700">{formatPValue(row.p_value)}</td>}
+              {isRegression && <td className="px-4 py-2 font-mono text-slate-700">{formatOptional(row.confidence_interval_lower ?? row.ci_lower, 5)}</td>}
+              {isRegression && <td className="px-4 py-2 font-mono text-slate-700">{formatOptional(row.confidence_interval_upper ?? row.ci_upper, 5)}</td>}
+              {isRegression && <td className="px-4 py-2 font-mono text-slate-700">{formatOptional(row.standardized_weight ?? row.standardized_coefficient, 5)}</td>}
+              <td className={`px-4 py-2 font-semibold ${row.coefficient >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                {row.coefficient >= 0 ? "Positive" : "Negative"}
+              </td>
+              {isRegression && <td className="px-4 py-2 font-mono text-slate-700">{row.absolute_rank ?? "-"}</td>}
+              {!isRegression && <td className="px-4 py-2 font-mono text-slate-700">{row.odds_ratio ? row.odds_ratio.toFixed(4) : "-"}</td>}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function LinearRegressionEquation({ intercept, rows }: { intercept?: number; rows: RegressionCoefficientRow[] }) {
+  const topTerms = rows.slice(0, 6);
+  const allTerms = rows;
+  const termText = (row: RegressionCoefficientRow) => `${row.coefficient >= 0 ? "+" : "-"} ${Math.abs(row.coefficient).toFixed(5)}*${row.feature}`;
+  return (
+    <div className="mt-4 rounded-xl border border-indigo-100 bg-indigo-50 p-4">
+      <div className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Regression Equation</div>
+      <div className="mt-2 rounded-lg bg-white p-3 font-mono text-xs leading-5 text-slate-800">
+        y_hat = {formatOptional(intercept, 5)} {topTerms.map(termText).join(" ")}
+        {allTerms.length > topTerms.length ? " + ..." : ""}
+      </div>
+      {allTerms.length > topTerms.length && (
+        <details className="mt-2 rounded-lg border border-indigo-100 bg-white p-3">
+          <summary className="cursor-pointer text-xs font-semibold text-indigo-700">Show full fitted equation</summary>
+          <div className="mt-2 max-h-40 overflow-auto font-mono text-xs leading-5 text-slate-700">
+            y_hat = {formatOptional(intercept, 5)} {allTerms.map(termText).join(" ")}
+          </div>
+        </details>
+      )}
+    </div>
+  );
+}
+
+function LinearModelFitSummaryCard({ fit }: { fit?: LinearModelFitSummary }) {
+  const rows = [
+    ["Dependent variable", fit?.dependent_variable || "Not available"],
+    ["Model type", fit?.model_type || "Linear Regression"],
+    ["Number of observations", fit?.n_observations?.toLocaleString() ?? "Not available"],
+    ["Number of predictors", fit?.n_predictors?.toLocaleString() ?? "Not available"],
+    ["Degrees of freedom residual", fit?.residual_df?.toLocaleString() ?? "Not available"],
+    ["R-squared", formatAvailable(fit?.r2, 4)],
+    ["Adjusted R-squared", formatAvailable(fit?.adjusted_r2, 4)],
+    ["RMSE", formatAvailable(fit?.rmse, 4)],
+    ["MAE", formatAvailable(fit?.mae, 4)],
+    ["MSE", formatAvailable(fit?.mse, 4)],
+    ["Residual Std. Error", formatAvailable(fit?.residual_standard_error, 4)],
+    ["F-statistic", formatAvailable(fit?.f_statistic, 4)],
+    ["Prob(F-statistic)", formatPValue(fit?.prob_f_statistic, "Not available")],
+    ["AIC", formatAvailable(fit?.aic, 4)],
+    ["BIC", formatAvailable(fit?.bic, 4)],
+    ["Log-likelihood", formatAvailable(fit?.log_likelihood, 4)],
+    ["Condition number", formatAvailable(fit?.condition_number, 4)],
+  ];
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-4">
+      <h3 className="text-sm font-semibold text-slate-900">Model Fit Summary</h3>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {rows.map(([label, value]) => (
+          <div key={label} className="rounded-lg border border-slate-100 bg-slate-50 px-3 py-2">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+            <div className="mt-1 font-mono text-sm font-semibold text-slate-900">{value}</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LinearRegressionInterpretationReadout({ rows }: { rows: RegressionCoefficientRow[] }) {
+  const strongest = rows.find((row) => Number.isFinite(row.coefficient));
+  if (!strongest) return null;
+  return (
+    <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
+      <div className="font-semibold">Diagnostic Notes</div>
+      <p className="mt-1">
+        ATLAS readout: Review coefficient signs, p-values, confidence intervals, and standardized weights to understand which variables materially contribute to the fitted linear regression model. P-values are statistical inference estimates for the fitted design matrix and should be interpreted with model assumptions in mind.
+      </p>
+      <p className="mt-1">
+        {strongest.feature} has a {strongest.coefficient >= 0 ? "positive" : "negative"} coefficient, meaning predicted target values {strongest.coefficient >= 0 ? "increase" : "decrease"} as {strongest.feature} increases, holding other transformed features constant. Review p-values and confidence intervals to determine which coefficients are statistically reliable.
+      </p>
+    </div>
+  );
+}
+
+function formatOptional(value: number | null | undefined, digits = 4) {
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "-";
+}
+
+function formatAvailable(value: number | null | undefined, digits = 4) {
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "Not available";
+}
+
+function formatPValue(value: number | null | undefined, fallback = "-") {
+  if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
+  return value < 0.0001 ? "<0.0001" : value.toFixed(4);
+}
+
 function DecisionTreeExplanation({ tree }: { tree: TreeResponse }) {
   const nodes = tree.nodes ?? [];
   const edges = tree.edges ?? [];
+  const isRegressionTree = tree.model_type === "regression" || nodes.some((node) => node.model_type === "regression");
   const root = nodes.find((node) => node.depth === 0) ?? nodes[0];
   const leaves = nodes.filter((node) => node.leaf);
   const maxDepth = Math.max(...nodes.map((node) => node.depth), 0);
@@ -732,14 +1058,14 @@ function DecisionTreeExplanation({ tree }: { tree: TreeResponse }) {
         <MetricTile label="Root Split" value={root?.feature ? `${root.feature} <= ${formatThreshold(root.threshold)}` : "Leaf"} tone="indigo" />
         <MetricTile label="Tree Depth" value={String(maxDepth)} tone="slate" />
         <MetricTile label="Terminal Leaves" value={String(leaves.length)} tone="emerald" />
-        <MetricTile label="Root Event Rate" value={`${((root?.positive_rate ?? 0) * 100).toFixed(1)}%`} tone="amber" />
+        <MetricTile label={isRegressionTree ? "Root Prediction" : "Root Event Rate"} value={isRegressionTree ? formatNumber(root?.prediction_value, 4) : `${((root?.positive_rate ?? 0) * 100).toFixed(1)}%`} tone="amber" />
       </div>
       <DecisionTreeSvg nodes={nodes} edges={edges} />
       <div className="rounded-xl border border-slate-200 bg-white p-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>
             <h3 className="text-sm font-semibold text-slate-900">Terminal Decision Rules</h3>
-            <p className="mt-1 text-xs text-slate-500">Largest terminal segments from the fitted tree, sorted by sample count.</p>
+            <p className="mt-1 text-xs text-slate-500">{isRegressionTree ? "Largest terminal segments from the fitted regressor, sorted by sample count." : "Largest terminal segments from the fitted tree, sorted by sample count."}</p>
           </div>
           <div className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-medium text-slate-600">
             {topLeaves.length} rules shown
@@ -750,8 +1076,8 @@ function DecisionTreeExplanation({ tree }: { tree: TreeResponse }) {
             <div key={rule.id} className="rounded-xl border border-slate-200 bg-slate-50 p-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Leaf {rule.prediction}</div>
-                <div className={`rounded-full px-2.5 py-1 text-xs font-semibold ${rule.positiveRate >= 0.5 ? "bg-rose-100 text-rose-700" : "bg-blue-100 text-blue-700"}`}>
-                  {(rule.positiveRate * 100).toFixed(1)}% event rate
+                <div className={`rounded-full px-2.5 py-1 text-xs font-semibold ${isRegressionTree ? "bg-indigo-100 text-indigo-700" : rule.positiveRate >= 0.5 ? "bg-rose-100 text-rose-700" : "bg-blue-100 text-blue-700"}`}>
+                  {isRegressionTree ? `Prediction ${formatNumber(rule.predictionValue, 4)}` : `${(rule.positiveRate * 100).toFixed(1)}% event rate`}
                 </div>
               </div>
               <div className="mt-2 text-lg font-semibold text-slate-900">{rule.samples.toLocaleString()} records</div>
@@ -767,6 +1093,10 @@ function DecisionTreeExplanation({ tree }: { tree: TreeResponse }) {
 }
 
 function DecisionTreeSvg({ nodes, edges }: { nodes: TreeNode[]; edges: TreeEdge[] }) {
+  const isRegressionTree = nodes.some((node) => node.model_type === "regression");
+  const predictionValues = nodes.map((node) => node.prediction_value).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  const minPrediction = predictionValues.length ? Math.min(...predictionValues) : 0;
+  const maxPrediction = predictionValues.length ? Math.max(...predictionValues) : 1;
   const nodeW = 172;
   const nodeH = 78;
   const xGap = 42;
@@ -818,12 +1148,14 @@ function DecisionTreeSvg({ nodes, edges }: { nodes: TreeNode[]; edges: TreeEdge[
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-semibold text-slate-900">Decision Path Diagram</h3>
-          <p className="mt-1 text-xs text-slate-500">Blue nodes are lower event-rate segments; amber/red nodes are higher event-rate segments.</p>
+          <p className="mt-1 text-xs text-slate-500">
+            {isRegressionTree ? "Node color deepens as predicted target values increase." : "Blue nodes are lower event-rate segments; amber/red nodes are higher event-rate segments."}
+          </p>
         </div>
         <div className="flex flex-wrap gap-2 text-[11px] font-medium">
-          <span className="rounded-full bg-blue-100 px-2 py-1 text-blue-700">Low rate</span>
-          <span className="rounded-full bg-amber-100 px-2 py-1 text-amber-700">Moderate</span>
-          <span className="rounded-full bg-rose-100 px-2 py-1 text-rose-700">High rate</span>
+          <span className="rounded-full bg-blue-100 px-2 py-1 text-blue-700">{isRegressionTree ? "Lower prediction" : "Low rate"}</span>
+          <span className="rounded-full bg-amber-100 px-2 py-1 text-amber-700">Middle</span>
+          <span className="rounded-full bg-rose-100 px-2 py-1 text-rose-700">{isRegressionTree ? "Higher prediction" : "High rate"}</span>
         </div>
       </div>
       <svg viewBox={`0 0 ${width} ${height}`} className="rounded-xl bg-white shadow-sm" style={{ minWidth: width }}>
@@ -850,20 +1182,23 @@ function DecisionTreeSvg({ nodes, edges }: { nodes: TreeNode[]; edges: TreeEdge[
           if (!position) return null;
           const nx = position.x - nodeW / 2;
           const ny = position.y - nodeH / 2;
+          const normalizedPrediction = (typeof node.prediction_value === "number" && Number.isFinite(node.prediction_value))
+            ? (node.prediction_value - minPrediction) / (maxPrediction - minPrediction || 1)
+            : node.positive_rate;
           return (
             <g key={node.id}>
-              <rect x={nx} y={ny} width={nodeW} height={nodeH} rx={12} fill={fillForRate(node.positive_rate)} stroke={strokeForRate(node.positive_rate)} strokeWidth={1.4} />
+              <rect x={nx} y={ny} width={nodeW} height={nodeH} rx={12} fill={fillForRate(normalizedPrediction)} stroke={strokeForRate(normalizedPrediction)} strokeWidth={1.4} />
               <text x={nx + 12} y={ny + 19} className="fill-slate-900 text-[11px] font-semibold">
                 {node.leaf ? `Leaf: ${truncateTreeLabel(node.prediction, 17)}` : truncateTreeLabel(`${node.feature} <= ${formatThreshold(node.threshold)}`, 23)}
               </text>
               <text x={nx + 12} y={ny + 40} className="fill-slate-700 text-[10px]">
-                Event rate {(node.positive_rate * 100).toFixed(1)}%
+                {isRegressionTree ? `Pred ${formatNumber(node.prediction_value, 4)}` : `Event rate ${(node.positive_rate * 100).toFixed(1)}%`}
               </text>
               <text x={nx + 12} y={ny + 56} className="fill-slate-600 text-[10px]">
                 Samples {node.samples.toLocaleString()}
               </text>
               <rect x={nx + 12} y={ny + 64} width={nodeW - 24} height={5} rx={2.5} fill="#e2e8f0" />
-              <rect x={nx + 12} y={ny + 64} width={(nodeW - 24) * Math.min(1, Math.max(0, node.positive_rate))} height={5} rx={2.5} fill={node.positive_rate >= 0.5 ? "#e11d48" : "#2563eb"} opacity={0.85} />
+              <rect x={nx + 12} y={ny + 64} width={(nodeW - 24) * Math.min(1, Math.max(0, normalizedPrediction))} height={5} rx={2.5} fill={normalizedPrediction >= 0.5 ? "#e11d48" : "#2563eb"} opacity={0.85} />
             </g>
           );
         })}
@@ -877,7 +1212,7 @@ function buildLeafRules(nodes: TreeNode[], edges: TreeEdge[]) {
   edges.forEach((edge) => childEdges.set(edge.source, [...(childEdges.get(edge.source) ?? []), edge]));
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
   const root = nodes.find((node) => node.depth === 0) ?? nodes[0];
-  const rules: { id: number; prediction: string; positiveRate: number; samples: number; conditions: string[] }[] = [];
+  const rules: { id: number; prediction: string; predictionValue?: number; positiveRate: number; samples: number; conditions: string[] }[] = [];
 
   function walk(node: TreeNode, conditions: string[]) {
     const outgoing = childEdges.get(node.id) ?? [];
@@ -885,6 +1220,7 @@ function buildLeafRules(nodes: TreeNode[], edges: TreeEdge[]) {
       rules.push({
         id: node.id,
         prediction: node.prediction,
+        predictionValue: node.prediction_value,
         positiveRate: node.positive_rate,
         samples: node.samples,
         conditions,

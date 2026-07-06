@@ -6,6 +6,7 @@ import {
   Boxes,
   ChevronDown,
   ChevronRight,
+  Database,
   FileArchive,
   FileClock,
   FileText,
@@ -16,6 +17,7 @@ import {
   NotebookTabs,
   Plus,
   Settings2,
+  Activity,
   Workflow,
 } from "lucide-react";
 import BrandLogo from "./BrandLogo";
@@ -72,6 +74,10 @@ export default function Sidebar() {
           <NavLink to="/templates" className={({ isActive }) => linkClass(isActive)}>
             <Boxes size={17} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">Templates</span>
+          </NavLink>
+          <NavLink to="/datasets" className={({ isActive }) => linkClass(isActive)}>
+            <Database size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Dataset Library</span>
           </NavLink>
         </NavGroup>
 
@@ -130,6 +136,10 @@ export default function Sidebar() {
           <NavLink to="/settings" className={({ isActive }) => linkClass(isActive)}>
             <Settings2 size={17} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">Settings</span>
+          </NavLink>
+          <NavLink to="/system/diagnostics" className={({ isActive }) => linkClass(isActive)}>
+            <Activity size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">System Diagnostics</span>
           </NavLink>
           {workflowId === "predictive-modeling" && (
             <NavLink to="/step11" className={({ isActive }) => linkClass(isActive)}>

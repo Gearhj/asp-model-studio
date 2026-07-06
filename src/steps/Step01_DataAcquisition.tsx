@@ -28,6 +28,12 @@ import {
   type SamplingMethod,
 } from "../lib/enterpriseDataAccess";
 import { loadLocalDataset, saveLocalDataset, type LocalDataset } from "../lib/localDataset";
+import {
+  getDatasetPreview,
+  linkDatasetToProject,
+  listDatasets,
+  type DatasetSummary,
+} from "../lib/datasetLibrary";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const BASE =
@@ -152,6 +158,24 @@ function summarizeColumn(rows: Record<string, unknown>[], column: string, target
   };
 }
 
+function numericValues(rows: Record<string, unknown>[], column: string) {
+  return rows.map((row) => Number(row[column])).filter(Number.isFinite);
+}
+
+function targetSummary(rows: Record<string, unknown>[], target: string) {
+  const nums = numericValues(rows, target).sort((a, b) => a - b);
+  if (!nums.length) return null;
+  const mean = nums.reduce((sum, value) => sum + value, 0) / nums.length;
+  const variance = nums.reduce((sum, value) => sum + (value - mean) ** 2, 0) / Math.max(1, nums.length - 1);
+  return {
+    mean,
+    median: nums[Math.floor(nums.length / 2)],
+    std: Math.sqrt(variance),
+    min: nums[0],
+    max: nums[nums.length - 1],
+  };
+}
+
 function getBinaryTargetProfile(rows: Record<string, unknown>[], target: string) {
   if (!target) return null;
   const values = rows
@@ -251,6 +275,21 @@ function informationValue(rows: Record<string, unknown>[], column: string, targe
   return Number.isFinite(iv) ? Math.max(0, iv) : null;
 }
 
+function correlationWithTarget(rows: Record<string, unknown>[], column: string, target: string) {
+  if (!target || column === target || !rows.length) return null;
+  const pairs = rows
+    .map((row) => ({ x: Number(row[column]), y: Number(row[target]) }))
+    .filter((row) => Number.isFinite(row.x) && Number.isFinite(row.y));
+  if (pairs.length < 3) return null;
+  const meanX = pairs.reduce((sum, row) => sum + row.x, 0) / pairs.length;
+  const meanY = pairs.reduce((sum, row) => sum + row.y, 0) / pairs.length;
+  const numerator = pairs.reduce((sum, row) => sum + (row.x - meanX) * (row.y - meanY), 0);
+  const denomX = Math.sqrt(pairs.reduce((sum, row) => sum + (row.x - meanX) ** 2, 0));
+  const denomY = Math.sqrt(pairs.reduce((sum, row) => sum + (row.y - meanY) ** 2, 0));
+  const corr = numerator / ((denomX || 0) * (denomY || 0));
+  return Number.isFinite(corr) ? corr : null;
+}
+
 function formatNumber(value: unknown, digits = 4) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric.toFixed(digits) : "-";
@@ -265,6 +304,13 @@ function ivStatusClass(value: unknown) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return "bg-slate-50 text-slate-400";
   if (numeric >= 0.02) return "bg-emerald-100 font-semibold text-emerald-900";
+  return "bg-red-100 font-semibold text-red-900";
+}
+
+function signalStatusClass(value: unknown) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "bg-slate-50 text-slate-400";
+  if (Math.abs(numeric) >= 0.1) return "bg-emerald-100 font-semibold text-emerald-900";
   return "bg-red-100 font-semibold text-red-900";
 }
 
@@ -302,7 +348,12 @@ export default function Step01DataAcquisition() {
   const [importError, setImportError] = useState<string | null>(null);
   const [backendImportSynced, setBackendImportSynced] = useState(false);
   const [backendRowCount, setBackendRowCount] = useState<number | null>(null);
+  const [libraryDatasets, setLibraryDatasets] = useState<DatasetSummary[]>([]);
+  const [selectedLibraryDatasetId, setSelectedLibraryDatasetId] = useState("");
+  const [selectedLibraryVersionId, setSelectedLibraryVersionId] = useState("");
+  const [libraryLoading, setLibraryLoading] = useState(false);
   const datasetVersions = loadDatasetVersions();
+  const projectId = useWorkflowStore((state) => state.projectId);
 
   useEffect(() => {
     const saved = loadLocalDataset();
@@ -329,11 +380,33 @@ export default function Step01DataAcquisition() {
     if (saved.data_access) setMetadata(saved.data_access);
   }, []);
 
+  useEffect(() => {
+    if (sourceType !== "existing") return;
+    let alive = true;
+    setLibraryLoading(true);
+    listDatasets()
+      .then((payload) => {
+        if (!alive) return;
+        setLibraryDatasets(payload.datasets);
+        const first = payload.datasets[0];
+        if (first && !selectedLibraryDatasetId) {
+          setSelectedLibraryDatasetId(first.datasetId);
+          setSelectedLibraryVersionId(first.latestVersion?.versionId ?? "");
+        }
+      })
+      .catch((error) => setMessage(error instanceof Error ? error.message : "ATLAS could not load Dataset Library records."))
+      .finally(() => alive && setLibraryLoading(false));
+    return () => {
+      alive = false;
+    };
+  }, [sourceType, selectedLibraryDatasetId]);
+
   const modelingRows = useMemo(() => applySampling(rows, samplingMethod, samplingDetail), [rows, samplingMethod, samplingDetail]);
   const sampleRows = useMemo(() => modelingRows.slice(0, 5000), [modelingRows]);
   const effectiveModelingRowCount = backendRowCount ?? modelingRows.length;
   const previewRows = sampleRows.slice(0, 100);
   const targetInfo = useMemo(() => targetMeta(modelingRows, target), [modelingRows, target]);
+  const continuousTargetSummary = useMemo(() => targetSummary(modelingRows, target), [modelingRows, target]);
   const selectable = headers.filter((header) => header !== target);
   const selected = selectable.filter((header) => kept[header]);
   const sqlWarnings = useMemo(() => validateSql(sql), [sql]);
@@ -342,7 +415,16 @@ export default function Step01DataAcquisition() {
     return buildDataAccessMetadata({
       dataset: { headers, rows: modelingRows, target },
       sourceType,
-      sourceLabel: sourceType === "sql" ? `${provider} SQL` : sourceType === "cloud" ? cloudProvider : sourceType === "python" ? "Python loader" : fileName || "Uploaded file",
+      sourceLabel:
+        sourceType === "sql"
+          ? `${provider} SQL`
+          : sourceType === "cloud"
+            ? cloudProvider
+            : sourceType === "python"
+              ? "Python loader"
+              : sourceType === "existing"
+                ? `Dataset Library: ${libraryDatasets.find((dataset) => dataset.datasetId === selectedLibraryDatasetId)?.name ?? (fileName || "Existing dataset")}`
+                : fileName || "Uploaded file",
       fileName,
       fileType: fileName.split(".").pop(),
       connectionName,
@@ -357,7 +439,7 @@ export default function Step01DataAcquisition() {
       samplingDetail,
       rowCountOverride: effectiveModelingRowCount,
     });
-  }, [headers, modelingRows, target, sourceType, provider, cloudProvider, fileName, connectionName, database, schema, sql, cloudPath, pythonCode, samplingMethod, samplingDetail, effectiveModelingRowCount]);
+  }, [headers, modelingRows, target, sourceType, provider, cloudProvider, fileName, connectionName, database, schema, sql, cloudPath, pythonCode, samplingMethod, samplingDetail, effectiveModelingRowCount, libraryDatasets, selectedLibraryDatasetId]);
 
   const variableSummary = useMemo(
     () =>
@@ -365,6 +447,7 @@ export default function Step01DataAcquisition() {
         column,
         ...summarizeColumn(sampleRows, column, target),
         iv: informationValue(sampleRows, column, target),
+        corr: correlationWithTarget(sampleRows, column, target),
       })),
     [headers, sampleRows, target]
   );
@@ -539,6 +622,19 @@ export default function Step01DataAcquisition() {
       target: target || null,
       selected_columns: localView.selectedColumns,
       problem_type: problemType,
+      dataset_library:
+        sourceType === "existing" && selectedLibraryDatasetId && selectedLibraryVersionId
+          ? {
+              datasetId: selectedLibraryDatasetId,
+              versionId: selectedLibraryVersionId,
+              datasetName: libraryDatasets.find((dataset) => dataset.datasetId === selectedLibraryDatasetId)?.name ?? "Dataset Library asset",
+              datasetRole: "modeling",
+              sourceType: "dataset-library",
+              rowCount: effectiveModelingRowCount,
+              columnCount: headers.length,
+              linkedAt: new Date().toISOString(),
+            }
+          : undefined,
       data_access: meta ?? undefined,
       data_quality: dq,
     };
@@ -600,6 +696,13 @@ export default function Step01DataAcquisition() {
       setMessage(`Cached ${sampleRows.length.toLocaleString()} preview rows in the browser and sent ${effectiveModelingRowCount.toLocaleString()} rows to the backend for modeling.`);
     } else if (backendSynced && localSaveStatus !== "failed") {
       setMessage(`Cached ${sampleRows.length.toLocaleString()} preview rows in the browser and synced ${effectiveModelingRowCount.toLocaleString()} rows to the backend for modeling.`);
+    }
+    if (sourceType === "existing" && selectedLibraryDatasetId && selectedLibraryVersionId) {
+      try {
+        await linkDatasetToProject(projectId, selectedLibraryDatasetId, selectedLibraryVersionId, "modeling");
+      } catch (error) {
+        setMessage("Dataset is usable in this workflow, but ATLAS could not update the project-dataset link registry.");
+      }
     }
     logDecision({
       workflowStep: "Data Acquisition",
@@ -686,7 +789,58 @@ export default function Step01DataAcquisition() {
             <CloudPanel cloudProvider={cloudProvider} setCloudProvider={setCloudProvider} cloudPath={cloudPath} setCloudPath={setCloudPath} />
           )}
           {sourceType === "existing" && (
-            <ExistingDatasetPanel versions={datasetVersions} />
+            <ExistingDatasetPanel
+              versions={datasetVersions}
+              libraryDatasets={libraryDatasets}
+              selectedDatasetId={selectedLibraryDatasetId}
+              selectedVersionId={selectedLibraryVersionId}
+              loading={libraryLoading}
+              onDatasetChange={(datasetId) => {
+                const dataset = libraryDatasets.find((item) => item.datasetId === datasetId);
+                setSelectedLibraryDatasetId(datasetId);
+                setSelectedLibraryVersionId(dataset?.latestVersion?.versionId ?? "");
+              }}
+              onVersionChange={setSelectedLibraryVersionId}
+              onRefresh={async () => {
+                setLibraryLoading(true);
+                try {
+                  const payload = await listDatasets();
+                  setLibraryDatasets(payload.datasets);
+                } finally {
+                  setLibraryLoading(false);
+                }
+              }}
+              onLoad={async () => {
+                if (!selectedLibraryDatasetId || !selectedLibraryVersionId) {
+                  setMessage("Select a dataset and version before loading from the Dataset Library.");
+                  return;
+                }
+                const dataset = libraryDatasets.find((item) => item.datasetId === selectedLibraryDatasetId);
+                setIsImporting(true);
+                try {
+                  const preview = await getDatasetPreview(selectedLibraryDatasetId, selectedLibraryVersionId);
+                  const normalized = {
+                    headers: preview.columns,
+                    previewRows: preview.rows,
+                    rowCount: dataset?.latestVersion?.rowCount ?? preview.rows.length,
+                    columnCount: preview.columns.length,
+                    target: guessTargetFromHeaders(preview.columns),
+                    selectedColumns: preview.columns.filter((header) => header !== guessTargetFromHeaders(preview.columns)),
+                    filename: dataset?.name ?? selectedLibraryDatasetId,
+                  };
+                  applyLoadedDataset(normalized, {
+                    sourceLabel: `Dataset Library: ${dataset?.name ?? selectedLibraryDatasetId} (${selectedLibraryVersionId})`,
+                    backendSynced: false,
+                  });
+                  setFileName(dataset?.name ?? "Dataset Library asset");
+                  setMessage(`Loaded ${dataset?.name ?? "Dataset Library asset"} version ${selectedLibraryVersionId} into Data Acquisition.`);
+                } catch (error) {
+                  setMessage(error instanceof Error ? error.message : "ATLAS could not load the selected dataset version.");
+                } finally {
+                  setIsImporting(false);
+                }
+              }}
+            />
           )}
           {sourceType === "python" && (
             <PythonPanel pythonCode={pythonCode} setPythonCode={setPythonCode} />
@@ -729,6 +883,7 @@ export default function Step01DataAcquisition() {
             samplingDetail={samplingDetail}
             setSamplingDetail={setSamplingDetail}
             targetInfo={targetInfo}
+            targetSummary={continuousTargetSummary}
             effectiveModelingRowCount={effectiveModelingRowCount}
             previewRowCount={sampleRows.length}
             backendImportSynced={backendImportSynced}
@@ -799,7 +954,7 @@ export default function Step01DataAcquisition() {
                     <th className="px-3 py-2 text-center">Keep</th>
                     <th className="px-3 py-2 text-left">Column</th>
                     <th className="px-3 py-2 text-left">Type</th>
-                    <th className="px-3 py-2 text-right">IV</th>
+                    <th className="px-3 py-2 text-right">{targetInfo.kind === "continuous" ? "Corr(Target)" : "IV"}</th>
                     <th className="px-3 py-2 text-right">Missing %</th>
                     <th className="px-3 py-2 text-right">Distinct</th>
                     <th className="px-3 py-2 text-right">Mean</th>
@@ -845,7 +1000,9 @@ export default function Step01DataAcquisition() {
                       </td>
                       <td className="px-3 py-2 font-medium">{row.column}</td>
                       <td className="px-3 py-2">{row.type}</td>
-                      <td className={`px-3 py-2 text-right ${ivStatusClass(row.iv)}`}>{formatNumber(row.iv)}</td>
+                      <td className={`px-3 py-2 text-right ${targetInfo.kind === "continuous" ? signalStatusClass(row.corr) : ivStatusClass(row.iv)}`}>
+                        {formatNumber(targetInfo.kind === "continuous" ? row.corr : row.iv)}
+                      </td>
                       <td className="px-3 py-2 text-right">{formatPercent(row.missingPct)}</td>
                       <td className="px-3 py-2 text-right">{row.distinct.toLocaleString()}</td>
                       <td className="px-3 py-2 text-right">{formatNumber(row.mean)}</td>
@@ -972,19 +1129,84 @@ function CloudPanel({ cloudProvider, setCloudProvider, cloudPath, setCloudPath }
   );
 }
 
-function ExistingDatasetPanel({ versions }: { versions: ReturnType<typeof loadDatasetVersions> }) {
+function ExistingDatasetPanel({
+  versions,
+  libraryDatasets,
+  selectedDatasetId,
+  selectedVersionId,
+  loading,
+  onDatasetChange,
+  onVersionChange,
+  onRefresh,
+  onLoad,
+}: {
+  versions: ReturnType<typeof loadDatasetVersions>;
+  libraryDatasets: DatasetSummary[];
+  selectedDatasetId: string;
+  selectedVersionId: string;
+  loading: boolean;
+  onDatasetChange: (datasetId: string) => void;
+  onVersionChange: (versionId: string) => void;
+  onRefresh: () => void;
+  onLoad: () => void;
+}) {
+  const selectedDataset = libraryDatasets.find((dataset) => dataset.datasetId === selectedDatasetId);
+  const selectedVersions = selectedDataset?.latestVersion ? [selectedDataset.latestVersion] : [];
   return (
     <div>
-      <h2 className="text-base font-semibold text-slate-950">Existing Project Dataset</h2>
-      <p className="mt-1 text-sm text-slate-500">Recent dataset versions are available for audit comparison and reuse planning.</p>
-      <div className="mt-4 overflow-auto rounded-lg border border-slate-200">
-        <table className="min-w-full text-sm">
-          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-            <tr><th className="px-3 py-2 text-left">Version</th><th className="px-3 py-2 text-left">Source</th><th className="px-3 py-2 text-right">Rows</th><th className="px-3 py-2 text-right">Columns</th><th className="px-3 py-2 text-left">Imported</th></tr>
-          </thead>
-          <tbody>{versions.map((row) => <tr key={row.version} className="border-t"><td className="px-3 py-2 font-mono text-xs">{row.version}</td><td className="px-3 py-2">{row.sourceLabel}</td><td className="px-3 py-2 text-right">{row.rows}</td><td className="px-3 py-2 text-right">{row.columns}</td><td className="px-3 py-2">{new Date(row.importedAt).toLocaleString()}</td></tr>)}</tbody>
-        </table>
-        {!versions.length && <div className="p-6 text-center text-sm text-slate-500">No dataset versions captured yet.</div>}
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h2 className="text-base font-semibold text-slate-950">Existing Dataset Library Asset</h2>
+          <p className="mt-1 text-sm text-slate-500">
+            Load a governed dataset version from the backend Dataset Library and link it to this ATLAS project.
+          </p>
+        </div>
+        <button type="button" onClick={onRefresh} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">
+          {loading ? "Refreshing..." : "Refresh Library"}
+        </button>
+      </div>
+      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(240px,360px)_auto] lg:items-end">
+        <Select
+          label="Dataset"
+          value={selectedDatasetId}
+          onChange={onDatasetChange}
+          options={libraryDatasets.map((dataset) => dataset.datasetId)}
+          optionLabels={Object.fromEntries(libraryDatasets.map((dataset) => [dataset.datasetId, `${dataset.name} (${dataset.latestVersion?.rowCount?.toLocaleString() ?? 0} rows)`]))}
+        />
+        <Select
+          label="Version"
+          value={selectedVersionId}
+          onChange={onVersionChange}
+          options={selectedVersions.map((version) => version.versionId)}
+        />
+        <button type="button" onClick={onLoad} className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800">
+          Load Selected Version
+        </button>
+      </div>
+      {selectedDataset && (
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          <Stat label="Library Dataset" value={selectedDataset.name} />
+          <Stat label="Rows" value={selectedDataset.latestVersion?.rowCount ?? "-"} />
+          <Stat label="Columns" value={selectedDataset.latestVersion?.columnCount ?? "-"} />
+          <Stat label="Owner" value={selectedDataset.ownerDisplayName || selectedDataset.ownerUserId || "-"} />
+        </div>
+      )}
+      {!libraryDatasets.length && (
+        <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+          No reusable datasets are registered yet. Open Dataset Library to upload or register governed datasets.
+        </div>
+      )}
+      <div className="mt-5">
+        <h3 className="text-sm font-semibold text-slate-950">Browser Session Dataset History</h3>
+        <div className="mt-2 overflow-auto rounded-lg border border-slate-200">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+              <tr><th className="px-3 py-2 text-left">Version</th><th className="px-3 py-2 text-left">Source</th><th className="px-3 py-2 text-right">Rows</th><th className="px-3 py-2 text-right">Columns</th><th className="px-3 py-2 text-left">Imported</th></tr>
+            </thead>
+            <tbody>{versions.map((row) => <tr key={row.version} className="border-t"><td className="px-3 py-2 font-mono text-xs">{row.version}</td><td className="px-3 py-2">{row.sourceLabel}</td><td className="px-3 py-2 text-right">{row.rows}</td><td className="px-3 py-2 text-right">{row.columns}</td><td className="px-3 py-2">{new Date(row.importedAt).toLocaleString()}</td></tr>)}</tbody>
+          </table>
+          {!versions.length && <div className="p-6 text-center text-sm text-slate-500">No browser-session dataset versions captured yet.</div>}
+        </div>
       </div>
     </div>
   );
@@ -1010,6 +1232,7 @@ function DataPreview(props: {
   samplingDetail: string;
   setSamplingDetail: (value: string) => void;
   targetInfo: { kind: "none" | "binary" | "continuous"; eventRate: number | null };
+  targetSummary: { mean: number; median: number; std: number; min: number; max: number } | null;
   effectiveModelingRowCount: number;
   previewRowCount: number;
   backendImportSynced: boolean;
@@ -1061,7 +1284,16 @@ function DataPreview(props: {
         <Stat label="Rows Cached for UI" value={props.previewRowCount} />
         <Stat label="Columns" value={props.headers.length} />
         <Stat label="Target Type" value={props.targetInfo.kind} />
-        <Stat label="Event Rate" value={props.targetInfo.eventRate === null ? "-" : formatPercent(props.targetInfo.eventRate)} />
+        {props.targetInfo.kind === "continuous" ? (
+          <>
+            <Stat label="Target Mean" value={formatNumber(props.targetSummary?.mean)} />
+            <Stat label="Target Median" value={formatNumber(props.targetSummary?.median)} />
+            <Stat label="Target Std Dev" value={formatNumber(props.targetSummary?.std)} />
+            <Stat label="Target Min / Max" value={`${formatNumber(props.targetSummary?.min)} / ${formatNumber(props.targetSummary?.max)}`} />
+          </>
+        ) : (
+          <Stat label="Event Rate" value={props.targetInfo.eventRate === null ? "-" : formatPercent(props.targetInfo.eventRate)} />
+        )}
       </div>
       {props.backendImportSynced && (
         <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs leading-5 text-emerald-900">
@@ -1131,13 +1363,25 @@ function PythonSyncPanel({ metadata }: { metadata: DataAccessMetadata | null }) 
   );
 }
 
-function Select({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[] }) {
+function Select({
+  label,
+  value,
+  onChange,
+  options,
+  optionLabels,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  options: string[];
+  optionLabels?: Record<string, string>;
+}) {
   const guidance = selectGuidance[label]?.[value] ?? (label === "Target" && value ? `Definition: ${value} is the selected dependent variable. Use it only if it represents the outcome the model should predict.` : "");
   return (
     <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
       {label}
       <select className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal normal-case text-slate-900" value={value} onChange={(event) => onChange(event.target.value)}>
-        {options.map((option) => <option key={option} value={option}>{option || "Select"}</option>)}
+        {options.map((option) => <option key={option} value={option}>{optionLabels?.[option] ?? (option || "Select")}</option>)}
       </select>
       {guidance && <span className="text-[11px] font-normal normal-case leading-4 text-slate-500">{guidance}</span>}
     </label>

@@ -36,7 +36,7 @@ import pandas as pd
 try:
     from sklearn.linear_model import LogisticRegression, LinearRegression
     from sklearn.svm import LinearSVC
-    from sklearn.tree import DecisionTreeClassifier
+    from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
     from sklearn.ensemble import (
         HistGradientBoostingClassifier,
         IsolationForest,
@@ -67,6 +67,7 @@ except Exception:  # pragma: no cover
     LinearRegression = None
     LinearSVC = None
     DecisionTreeClassifier = None
+    DecisionTreeRegressor = None
     HistGradientBoostingClassifier = None
     IsolationForest = None
     RandomForestClassifier = None
@@ -321,6 +322,23 @@ MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
         "factory": lambda: LinearRegression()
         if LinearRegression is not None
         else None,
+    },
+    "dt_reg": {
+        "label": "Decision Tree Regressor",
+        "task": "regression",
+        "factory": lambda: DecisionTreeRegressor(
+            max_depth=4,
+            min_samples_leaf=10,
+            min_samples_split=2,
+            random_state=42,
+        )
+        if DecisionTreeRegressor is not None
+        else None,
+        "param_grid": {
+            "model__max_depth": [3, 4, 6],
+            "model__min_samples_leaf": [5, 10, 20],
+            "model__min_samples_split": [2, 10],
+        },
     },
     "rf_reg": {
         "label": "Random Forest Regressor",
@@ -827,6 +845,8 @@ def _train_regression_model(
     X_test: pd.DataFrame,
     y_train: pd.Series,
     y_test: pd.Series,
+    grid_search: bool = False,
+    grid_search_level: str = "quick",
 ) -> Optional[Dict[str, Any]]:
     factory = spec.get("factory")
     if factory is None:
@@ -848,7 +868,40 @@ def _train_regression_model(
             ("model", model),
         ]
     )
-    estimator.fit(X_train, y_train_arr)
+
+    best_params = None
+    best_score = None
+    param_grid = spec.get("param_grid") or {}
+    can_search = bool(grid_search and param_grid and GridSearchCV is not None)
+    if can_search:
+        grid_limit = {"quick": 4, "balanced": 8, "thorough": 12}.get(
+            str(grid_search_level).lower(), 4
+        )
+        limited_grid: Dict[str, Any] = {}
+        combinations = 1
+        for param, values in param_grid.items():
+            kept_values = list(values)
+            if combinations * len(kept_values) > grid_limit:
+                keep_n = max(1, grid_limit // max(1, combinations))
+                kept_values = kept_values[:keep_n]
+            limited_grid[param] = kept_values
+            combinations *= len(kept_values)
+        search = GridSearchCV(
+            estimator=estimator,
+            param_grid=limited_grid,
+            scoring="neg_root_mean_squared_error",
+            cv=3,
+            n_jobs=1,
+            refit=True,
+        )
+        search.fit(X_train, y_train_arr)
+        estimator = search.best_estimator_
+        best_params = {
+            str(k).replace("model__", ""): v for k, v in search.best_params_.items()
+        }
+        best_score = float(search.best_score_)
+    else:
+        estimator.fit(X_train, y_train_arr)
     preds = estimator.predict(X_test)
     preds = np.asarray(preds, dtype=float)
 
@@ -861,6 +914,8 @@ def _train_regression_model(
         "metrics": metrics,
         "y_true": y_test_arr.tolist(),
         "y_score": preds.tolist(),  # kept name for schema compatibility
+        "best_params": best_params,
+        "best_score": best_score,
         "model": estimator,
     }
 
@@ -936,7 +991,14 @@ def train_models(
                 )
             else:
                 details = _train_regression_model(
-                    key, spec, X_train, X_test, y_train, y_test
+                    key,
+                    spec,
+                    X_train,
+                    X_test,
+                    y_train,
+                    y_test,
+                    grid_search=grid_search,
+                    grid_search_level=grid_search_level,
                 )
         except Exception as exc:
             failed_rows.append(

@@ -1,7 +1,8 @@
 import { loadDecisionJournal, type DecisionJournalEntry } from "./decisionJournal";
 import { loadExperiments, type ExperimentRecord, type ExperimentMetricSet } from "./experimentTracking";
-import { inferLocalProblemType, loadLocalDataset } from "./localDataset";
+import { loadLocalDataset } from "./localDataset";
 import { loadProjectContext, summarizeRegulatoryContext } from "./projectContext";
+import { getProblemType, type AtlasProblemType } from "./problemType";
 import { loadDataAccessMetadata } from "./enterpriseDataAccess";
 import { BRAND } from "../config/brand";
 import { getWorkflowDefinition } from "../config/workflows";
@@ -68,22 +69,37 @@ function selectChampion(experiments: ExperimentRecord[]) {
   return experiments.find((experiment) => experiment.champion) ?? experiments[0] ?? null;
 }
 
-function metricLines(metrics: ExperimentMetricSet | undefined) {
+function isRegressionExperiment(experiment: ExperimentRecord) {
+  return /regressor|linear regression|ridge|lasso/i.test(experiment.modelType) ||
+    ["rmse", "mae", "mse", "r2", "adjusted_r2"].some((key) => experiment.metrics[key as keyof ExperimentMetricSet] !== undefined);
+}
+
+function filterExperimentsForProblem(experiments: ExperimentRecord[], problemType: AtlasProblemType | string) {
+  return String(problemType).toLowerCase() === "regression"
+    ? experiments.filter(isRegressionExperiment)
+    : experiments.filter((experiment) => !isRegressionExperiment(experiment));
+}
+
+function metricLines(metrics: ExperimentMetricSet | undefined, problemType: AtlasProblemType | string = "unknown") {
   if (!metrics) return "No performance metrics captured.";
-  const labels: [keyof ExperimentMetricSet, string, number][] = [
-    ["auc", "AUC", 4],
-    ["pr_auc", "PR-AUC", 4],
-    ["precision", "Precision", 4],
-    ["recall", "Recall", 4],
-    ["f1", "F1", 4],
-    ["ks", "KS", 4],
-    ["lift", "Lift", 2],
-    ["rmse", "RMSE", 4],
-    ["mae", "MAE", 4],
-    ["mse", "MSE", 4],
-    ["r2", "R-squared", 4],
-    ["adjusted_r2", "Adjusted R-squared", 4],
-  ];
+  const isRegression = String(problemType).toLowerCase() === "regression";
+  const labels: [keyof ExperimentMetricSet, string, number][] = isRegression
+    ? [
+        ["rmse", "RMSE", 4],
+        ["mae", "MAE", 4],
+        ["mse", "MSE", 4],
+        ["r2", "R-squared", 4],
+        ["adjusted_r2", "Adjusted R-squared", 4],
+      ]
+    : [
+        ["auc", "AUC", 4],
+        ["pr_auc", "PR-AUC", 4],
+        ["precision", "Precision", 4],
+        ["recall", "Recall", 4],
+        ["f1", "F1", 4],
+        ["ks", "KS", 4],
+        ["lift", "Lift", 2],
+      ];
   const rows = labels
     .filter(([key]) => metrics[key] !== undefined && metrics[key] !== null)
     .map(([key, label, digits]) => `- ${label}: ${formatNumber(metrics[key], digits)}`);
@@ -128,19 +144,37 @@ function formatFeatureImportance(champion: ExperimentRecord | null) {
   );
 }
 
-function formatCandidateModels(experiments: ExperimentRecord[]) {
+function formatCandidateModels(experiments: ExperimentRecord[], problemType: AtlasProblemType | string) {
   if (!experiments.length) return "No model experiments captured.";
+  const isRegression = String(problemType).toLowerCase() === "regression";
+  if (isRegression) {
+    return professionalTableHtml(
+      ["Model", "Champion", "RMSE", "MAE", "MSE", "R-squared", "Adjusted R-squared", "Runtime"],
+      experiments.slice(0, 25).map((experiment) => [
+        experiment.modelType,
+        experiment.champion ? "Yes" : "No",
+        formatNumber(experiment.metrics.rmse),
+        formatNumber(experiment.metrics.mae),
+        formatNumber(experiment.metrics.mse),
+        formatNumber(experiment.metrics.r2),
+        formatNumber(experiment.metrics.adjusted_r2),
+        `${Math.round(experiment.runtimeMs / 1000)}s`,
+      ]),
+      { wide: true, badgeColumns: ["Champion"] }
+    );
+  }
   return professionalTableHtml(
-    ["Model", "Champion", "AUC", "PR-AUC", "F1", "RMSE", "MAE", "R-squared", "Runtime"],
+    ["Model", "Champion", "AUC", "PR-AUC", "Precision", "Recall", "F1", "KS", "Lift", "Runtime"],
     experiments.slice(0, 25).map((experiment) => [
       experiment.modelType,
       experiment.champion ? "Yes" : "No",
       formatNumber(experiment.metrics.auc),
       formatNumber(experiment.metrics.pr_auc),
+      formatNumber(experiment.metrics.precision),
+      formatNumber(experiment.metrics.recall),
       formatNumber(experiment.metrics.f1),
-      formatNumber(experiment.metrics.rmse),
-      formatNumber(experiment.metrics.mae),
-      formatNumber(experiment.metrics.r2),
+      formatNumber(experiment.metrics.ks),
+      formatNumber(experiment.metrics.lift, 2),
       `${Math.round(experiment.runtimeMs / 1000)}s`,
     ]),
     { wide: true, badgeColumns: ["Champion"] }
@@ -196,10 +230,10 @@ function compactFileName(value: string) {
 function buildSections(): GovernanceSection[] {
   const context = loadProjectContext();
   const dataset = loadLocalDataset();
-  const experiments = loadExperiments();
+  const problemType = getProblemType(context, dataset);
+  const experiments = filterExperimentsForProblem(loadExperiments(), problemType);
   const decisions = loadDecisionJournal();
   const champion = selectChampion(experiments);
-  const problemType = inferLocalProblemType(dataset);
   const missingStrategies = readJson<Record<string, unknown>>("modeling-tool-missing-config", {});
   const outlierMethods = readJson<Record<string, unknown>>("modeling-tool-outlier-methods", {});
   const balanceMethod = localStorage.getItem("balanceMethod") ?? "Not documented";
@@ -220,7 +254,7 @@ function buildSections(): GovernanceSection[] {
         `Project: ${safe(context.projectName)}`,
         `Generated: ${new Date().toISOString()}`,
         `Model type: ${safe(context.modelType)}`,
-        `Problem type: ${safe(problemType ?? dataset?.problem_type)}`,
+        `Problem type: ${safe(problemType)}`,
         `Champion model: ${safe(champion?.modelType, "No champion selected")}`,
         `Primary success metric: ${safe(context.primarySuccessMetric)}`,
         `Regulatory environment: ${summarizeRegulatoryContext(context)}`,
@@ -254,13 +288,16 @@ function buildSections(): GovernanceSection[] {
         `Schema: ${safe(dataAccess?.schema)}`,
         `SQL query: ${safe(dataAccess?.sqlQuery)}`,
         `Import date: ${safe(dataAccess?.importedAt)}`,
+        `Dataset Library ID: ${safe(dataset?.dataset_library?.datasetId)}`,
+        `Dataset Library version: ${safe(dataset?.dataset_library?.versionId)}`,
+        `Dataset Library name: ${safe(dataset?.dataset_library?.datasetName)}`,
         `Dataset version: ${safe(dataAccess?.version)}`,
         `Dataset hash: ${safe(dataAccess?.hash)}`,
         `Sampling approach: ${safe(dataAccess?.samplingMethod)} ${safe(dataAccess?.samplingDetail, "")}`,
         `Rows currently available in browser sample: ${dataset?.rows.length ?? 0}`,
         `Columns: ${dataset?.headers.length ?? 0}`,
         `Selected features: ${dataset?.selected_columns?.length ?? 0}`,
-        `Dataset versions in experiments: ${formatList([...new Set(experiments.map((experiment) => experiment.datasetVersion))])}`,
+        `Dataset versions in current problem-type experiments: ${formatList([...new Set(experiments.map((experiment) => experiment.datasetVersion))])}`,
         "",
         "Lineage:",
         dataAccess?.lineage?.length ? dataAccess.lineage.map((item) => `- ${item}`).join("\n") : "Not documented",
@@ -291,15 +328,15 @@ function buildSections(): GovernanceSection[] {
     },
     {
       title: "Balancing Strategy",
-      content: [`Method: ${balanceMethod}`, balanceRatio ? `Balance ratio: ${balanceRatio}` : "", problemType === "regression" ? "Balancing is not applicable to regression targets." : ""]
-        .filter(Boolean)
-        .join("\n"),
+      content: problemType === "regression"
+        ? "Balancing is not applicable to continuous-target regression. Validate target distribution alignment with holdout or cross-validation diagnostics."
+        : [`Method: ${balanceMethod}`, balanceRatio ? `Balance ratio: ${balanceRatio}` : ""].filter(Boolean).join("\n"),
     },
     {
       title: "Train/Test or Cross-Validation Strategy",
       content: [`Split strategy: ${splitStrategy}`, kFolds ? `Cross-validation folds: ${kFolds}` : ""].filter(Boolean).join("\n"),
     },
-    { title: "Candidate Models", content: formatCandidateModels(experiments) },
+    { title: "Candidate Models", content: formatCandidateModels(experiments, problemType) },
     {
       title: "Champion Model",
       content: champion
@@ -313,16 +350,26 @@ function buildSections(): GovernanceSection[] {
           ].join("\n")
         : "No champion model selected.",
     },
-    { title: "Performance Summary", content: metricLines(champion?.metrics) },
-    { title: "Confusion Matrix", content: formatConfusionMatrix(champion?.confusionMatrix) },
-    { title: "ROC and PR Summary", content: formatCurveSummary(champion) },
-    {
-      title: "Lift / Decile Analysis",
-      content:
-        champion?.metrics.lift !== undefined
-          ? `Top captured lift: ${formatNumber(champion.metrics.lift, 2)}\nDecile tables should be retained from the Evaluation or Scoring pages as validation evidence.`
-          : "No lift or decile analysis captured. This is expected for regression models.",
-    },
+    { title: "Performance Summary", content: metricLines(champion?.metrics, problemType) },
+    ...(problemType === "regression"
+      ? [
+          {
+            title: "Residual and Prediction Error Summary",
+            content:
+              "Regression governance should rely on RMSE, MAE, MSE, R-squared, adjusted R-squared, residual diagnostics, prediction stability, and actual-versus-predicted plots. Confusion matrix, ROC, PR, KS, and lift are not applicable to continuous targets.",
+          },
+        ]
+      : [
+          { title: "Confusion Matrix", content: formatConfusionMatrix(champion?.confusionMatrix) },
+          { title: "ROC and PR Summary", content: formatCurveSummary(champion) },
+          {
+            title: "Lift / Decile Analysis",
+            content:
+              champion?.metrics.lift !== undefined
+                ? `Top captured lift: ${formatNumber(champion.metrics.lift, 2)}\nDecile tables should be retained from the Evaluation or Scoring pages as validation evidence.`
+                : "No lift or decile analysis captured.",
+          },
+        ]),
     { title: "Feature Importance", content: formatFeatureImportance(champion) },
     {
       title: "Interpretability Notes",

@@ -112,7 +112,7 @@ export const regressionMonitoringMetricOptions = [
 ] as const;
 
 export function defaultMonitoringMetricsForModelType(modelType: ModelType) {
-  return modelType === "regression" ? ["RMSE", "MAE", "MAPE", "PSI", "VSI"] : ["AUC", "KS", "PSI", "VSI"];
+  return modelType === "regression" ? ["RMSE", "MAE", "MAPE", "R-squared", "Adjusted R-squared", "PSI", "VSI"] : ["AUC", "KS", "PSI", "VSI"];
 }
 
 export function monitoringMetricOptionsForModelType(modelType: ModelType) {

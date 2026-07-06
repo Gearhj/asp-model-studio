@@ -532,9 +532,37 @@ export default function Step05_EncodingScaling() {
 
   // columns to render in preview
   const previewCols = useMemo(
-    () => (preview[0] ? Object.keys(preview[0]) : []),
-    [preview]
+    () =>
+      preview[0]
+        ? Object.keys(preview[0]).filter((column) => column !== targetColumn)
+        : [],
+    [preview, targetColumn]
   );
+  const createdFeatureRows = useMemo(() => {
+    const rows: { name: string; type: string; formula: string; sources: string; leakage: string }[] = [];
+    interactions.forEach((item) => rows.push({
+      name: item.newName,
+      type: "Interaction",
+      formula: `${item.left} x ${item.right}`,
+      sources: `${item.left}, ${item.right}`,
+      leakage: item.left === targetColumn || item.right === targetColumn ? "Fail" : "Pass",
+    }));
+    bins.forEach((item) => rows.push({
+      name: item.newName,
+      type: "Binned numeric",
+      formula: `${item.source} cut at ${item.thresholds.join(", ")}`,
+      sources: item.source,
+      leakage: item.source === targetColumn ? "Fail" : "Pass",
+    }));
+    rules.forEach((item) => rows.push({
+      name: item.newName,
+      type: "Rule based",
+      formula: item.rules.map((rule) => `${item.source} ${rule.when.op} ${rule.when.value} => ${rule.thenLabel}`).join("; "),
+      sources: item.source,
+      leakage: item.source === targetColumn ? "Fail" : "Pass",
+    }));
+    return rows;
+  }, [interactions, bins, rules, targetColumn]);
 
   useEffect(() => {
     const payload: FeatureBuilderState = {
@@ -595,6 +623,57 @@ export default function Step05_EncodingScaling() {
           Feature controls are using the browser sample from Step 1.
         </div>
       )}
+      <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Feature Engineering Summary</div>
+            <h3 className="mt-1 text-lg font-semibold text-slate-950">Transformation plan</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              ATLAS excludes the target from all feature selectors and generated predictor previews to reduce leakage risk.
+            </p>
+          </div>
+          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">
+            Target excluded: {previewCols.includes(targetColumn ?? "") ? "No" : "Yes"}
+          </span>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-5">
+          <SummaryPill label="Polynomial" value={transforms.poly === "None" ? "0" : transforms.poly === "Degree 2" ? "2 preview cols" : "4 preview cols"} />
+          <SummaryPill label="Interactions" value={interactions.length.toString()} />
+          <SummaryPill label="Binned" value={bins.length.toString()} />
+          <SummaryPill label="Rule-based" value={rules.length.toString()} />
+          <SummaryPill label="Scaler" value={transforms.scaler} />
+        </div>
+        <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+              <tr>
+                <th className="px-3 py-2">Created Feature</th>
+                <th className="px-3 py-2">Type</th>
+                <th className="px-3 py-2">Formula / Rule</th>
+                <th className="px-3 py-2">Source Variables</th>
+                <th className="px-3 py-2">Leakage Check</th>
+              </tr>
+            </thead>
+            <tbody>
+              {createdFeatureRows.length ? createdFeatureRows.map((row) => (
+                <tr key={row.name} className="border-t">
+                  <td className="px-3 py-2 font-medium text-slate-900">{row.name}</td>
+                  <td className="px-3 py-2">{row.type}</td>
+                  <td className="px-3 py-2 text-slate-600">{row.formula}</td>
+                  <td className="px-3 py-2">{row.sources}</td>
+                  <td className={`px-3 py-2 font-semibold ${row.leakage === "Pass" ? "text-emerald-700" : "text-rose-700"}`}>{row.leakage}</td>
+                </tr>
+              )) : (
+                <tr>
+                  <td className="px-3 py-4 text-sm text-slate-500" colSpan={5}>
+                    No created features yet. Add interactions, bins, or rules below to populate this audit-ready list.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
       {/* Top controls: Polynomials / Scaling / Encoding */}
       <div className="grid gap-4 md:grid-cols-3 mb-6">
         <div className="bg-white border rounded-lg p-4">
@@ -792,33 +871,48 @@ export default function Step05_EncodingScaling() {
       {/* Rule-based categorical feature */}
       <div className="bg-white border rounded-lg p-4 mb-6">
         <h3 className="font-semibold mb-3">Rule-based Categorical Feature</h3>
+        <p className="mb-3 text-sm leading-5 text-slate-600">
+          Example: choose <span className="font-medium">merchant_category</span>, name the new feature
+          <span className="font-medium"> travel_flag</span>, set default value <span className="font-medium">Other</span>,
+          then define condition <span className="font-medium">CONTAINS Travel</span> with rule output value
+          <span className="font-medium"> TravelRelated</span>.
+        </p>
         <div className="grid gap-3 md:grid-cols-4 mb-2">
-          <select
-            className="border rounded-md px-3 py-2"
-            value={ruleSource}
-            onChange={(e) => setRuleSource(e.target.value)}
-          >
-            <option value="">Source column</option>
-            {uniq([...categoricalCols, ...numericCols]).map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          <input
-            className="border rounded-md px-3 py-2"
-            placeholder="New feature name"
-            value={ruleName}
-            onChange={(e) => setRuleName(e.target.value)}
-          />
-          <input
-            className="border rounded-md px-3 py-2"
-            placeholder="Else label (default)"
-            value={elseLabel}
-            onChange={(e) => setElseLabel(e.target.value)}
-          />
+          <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
+            Feature
+            <select
+              className="border rounded-md px-3 py-2 text-sm font-normal normal-case text-slate-900"
+              value={ruleSource}
+              onChange={(e) => setRuleSource(e.target.value)}
+            >
+              <option value="">Select feature</option>
+              {uniq([...categoricalCols, ...numericCols]).map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
+            New Feature Name
+            <input
+              className="border rounded-md px-3 py-2 text-sm font-normal normal-case text-slate-900"
+              placeholder="rule_feature"
+              value={ruleName}
+              onChange={(e) => setRuleName(e.target.value)}
+            />
+          </label>
+          <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
+            Default Value
+            <input
+              className="border rounded-md px-3 py-2 text-sm font-normal normal-case text-slate-900"
+              placeholder="Other"
+              value={elseLabel}
+              onChange={(e) => setElseLabel(e.target.value)}
+            />
+          </label>
           <button
-            className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-md px-3 py-2"
+            className="self-end bg-indigo-600 hover:bg-indigo-700 text-white rounded-md px-3 py-2"
             onClick={addRuleFeature}
           >
             Add Feature
@@ -827,29 +921,38 @@ export default function Step05_EncodingScaling() {
 
         {ruleRows.map((r, i) => (
           <div key={i} className="grid gap-2 md:grid-cols-6 mb-2">
-            <select
-              className="border rounded-md px-3 py-2"
-              value={r.op}
-              onChange={(e) => updateRuleRow(i, "op", e.target.value)}
-            >
-              {["=", "!=", ">", ">=", "<", "<=", "IN", "NOT IN", "CONTAINS"].map(
-                (op) => (
-                  <option key={op}>{op}</option>
-                )
-              )}
-            </select>
-            <input
-              className="border rounded-md px-3 py-2 md:col-span-3"
-              placeholder="Value (comma-list for IN / NOT IN)"
-              value={r.value}
-              onChange={(e) => updateRuleRow(i, "value", e.target.value)}
-            />
-            <input
-              className="border rounded-md px-3 py-2"
-              placeholder="Then label"
-              value={r.thenLabel}
-              onChange={(e) => updateRuleRow(i, "thenLabel", e.target.value)}
-            />
+            <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
+              Condition
+              <select
+                className="border rounded-md px-3 py-2 text-sm font-normal normal-case text-slate-900"
+                value={r.op}
+                onChange={(e) => updateRuleRow(i, "op", e.target.value)}
+              >
+                {["=", "!=", ">", ">=", "<", "<=", "IN", "NOT IN", "CONTAINS"].map(
+                  (op) => (
+                    <option key={op}>{op}</option>
+                  )
+                )}
+              </select>
+            </label>
+            <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500 md:col-span-3">
+              Rule Match Value
+              <input
+                className="border rounded-md px-3 py-2 text-sm font-normal normal-case text-slate-900"
+                placeholder="Value (comma-list for IN / NOT IN)"
+                value={r.value}
+                onChange={(e) => updateRuleRow(i, "value", e.target.value)}
+              />
+            </label>
+            <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
+              Rule Output Value
+              <input
+                className="border rounded-md px-3 py-2 text-sm font-normal normal-case text-slate-900"
+                placeholder="Then label"
+                value={r.thenLabel}
+                onChange={(e) => updateRuleRow(i, "thenLabel", e.target.value)}
+              />
+            </label>
             <button
               className="text-red-600 text-sm"
               onClick={() => deleteRuleRow(i)}
@@ -920,5 +1023,14 @@ export default function Step05_EncodingScaling() {
         </div>
       </div>
     </StepShell>
+  );
+}
+
+function SummaryPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+      <div className="text-[10px] font-semibold uppercase text-slate-500">{label}</div>
+      <div className="mt-1 truncate text-sm font-semibold text-slate-950" title={value}>{value}</div>
+    </div>
   );
 }

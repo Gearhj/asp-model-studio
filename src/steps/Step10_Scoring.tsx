@@ -155,8 +155,8 @@ export default function Step10Scoring() {
         <h1 className="text-2xl font-semibold text-slate-950">Step 10: Final Model Scoring</h1>
         <p className="mt-1 text-sm text-slate-600">
           {problemType === "regression"
-            ? "Score holdout TEST and OOT datasets using the saved final model. OOT scoring calculates prediction stability and VSI for input features."
-            : "Score holdout TEST and OOT datasets using the saved final model. OOT scoring calculates PSI for the score and VSI for input features."}
+            ? "Score External Validation and Out-of-Time datasets using the saved final model. Out-of-Time scoring calculates prediction stability and VSI for input features."
+            : "Score External Validation and Out-of-Time datasets using the saved final model. Out-of-Time scoring calculates score PSI and VSI for input features."}
         </p>
       </div>
 
@@ -187,7 +187,7 @@ export default function Step10Scoring() {
 
       <div className="grid gap-5 lg:grid-cols-2">
         <UploadCard
-          title="Holdout TEST Dataset"
+          title="External Validation Dataset"
           description="Upload a CSV with the same feature schema. If the target column is present, performance metrics are calculated."
           loading={loading === "test"}
           onFile={(file) => handleFile(file, "test")}
@@ -195,8 +195,8 @@ export default function Step10Scoring() {
           problemType={problemType}
         />
         <UploadCard
-          title="Out-of-Time OOT Dataset"
-          description="Upload a CSV from a later time window. PSI and VSI use the uploaded TEST dataset as reference when available."
+          title="Out-of-Time Dataset"
+          description="Upload a CSV from a later time window. PSI and VSI use the uploaded External Validation dataset as reference when available."
           loading={loading === "oot"}
           onFile={(file) => handleFile(file, "oot")}
           result={ootResult}
@@ -204,6 +204,16 @@ export default function Step10Scoring() {
           problemType={problemType}
         />
       </div>
+
+      {problemType === "regression" && (testResult || ootResult) && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <h2 className="text-base font-semibold text-slate-950">Regression Scoring Comparison</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Compare prediction distributions, performance metrics, and feature drift between External Validation and Out-of-Time data.
+          </p>
+          <RegressionScoringComparison testResult={testResult} ootResult={ootResult} />
+        </section>
+      )}
 
       <StepPythonPanel />
 
@@ -262,6 +272,9 @@ function UploadCard({
             <Stat label={problemType === "regression" ? "Mean Prediction" : "Mean Score"} value={format(result.score_summary?.mean)} />
             <Stat label={problemType === "regression" ? "Max Prediction" : "Max Score"} value={format(result.score_summary?.max)} />
           </div>
+          {problemType === "regression" && (
+            <RegressionScoreVisual result={result} />
+          )}
           {problemType === "classification" && result.probability_correction?.method && result.probability_correction.method !== "none" && (
             <div className="grid gap-3 sm:grid-cols-4">
               <Stat label="Adj Min" value={format(result.adjusted_score_summary?.min)} />
@@ -305,7 +318,7 @@ function UploadCard({
             <div>
               <h3 className="text-sm font-semibold text-slate-800">Stability Summary</h3>
               <div className={`mt-2 rounded-xl border px-4 py-3 ${statusClass(result.psi.status)}`}>
-                <div className="text-xs font-semibold uppercase">{problemType === "regression" ? "PSI Prediction Distribution" : "PSI Score Distribution"}</div>
+                <div className="text-xs font-semibold uppercase">{problemType === "regression" ? "Prediction PSI" : "PSI Score Distribution"}</div>
                 <div className="mt-1 text-2xl font-semibold">{result.psi.value.toFixed(4)}</div>
                 <div className="mt-1 text-xs">{result.psi.status.toUpperCase()}</div>
               </div>
@@ -313,7 +326,7 @@ function UploadCard({
                 VSI scope: {result.vsi_scope === "model_features" ? "saved final model features" : "all common uploaded features"}
               </div>
               <div className="mt-1 text-xs text-slate-500">
-                Stability reference: {result.stability_reference === "uploaded_test" ? "uploaded TEST dataset" : "development split"}
+                Stability reference: {result.stability_reference === "uploaded_test" ? "uploaded External Validation dataset" : "development split"}
               </div>
               <StabilityTable rows={result.vsi ?? []} />
             </div>
@@ -323,6 +336,165 @@ function UploadCard({
         </div>
       )}
     </section>
+  );
+}
+
+function RegressionScoreVisual({ result }: { result: ScoreResult }) {
+  const predictions = (result.preview ?? []).map((row) => row.score).filter(Number.isFinite);
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3">
+      <div className="mb-2 text-sm font-semibold text-slate-800">Prediction Distribution Preview</div>
+      <PredictionHistogram values={predictions} />
+      <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+        <span className="font-semibold text-slate-800">ATLAS readout: </span>
+        This chart shows prediction spread and central tendency. A very narrow distribution can indicate underfit, missing features, or a scoring schema issue.
+      </div>
+      {result.metrics && (
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          {["rmse", "mae", "r2", "adjusted_r2", "mean_residual", "mean_abs_residual"].map((metric) => (
+            result.metrics?.[metric] !== undefined ? <Stat key={metric} label={metric.toUpperCase()} value={format(result.metrics[metric])} /> : null
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RegressionScoringComparison({ testResult, ootResult }: { testResult: ScoreResult | null; ootResult: ScoreResult | null }) {
+  const metricKeys = ["rmse", "mae", "mse", "r2", "adjusted_r2", "mean_residual"];
+  const topVsi = [...(ootResult?.vsi ?? [])].sort((a, b) => b.value - a.value).slice(0, 8);
+  return (
+    <div className="mt-4 grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <div className="text-sm font-semibold text-slate-800">Performance Comparison</div>
+        <PerformanceMiniBars testResult={testResult} ootResult={ootResult} />
+        <div className="mt-3 overflow-hidden rounded-xl border border-slate-200 bg-white">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+              <tr><th className="px-3 py-2">Metric</th><th className="px-3 py-2">External Validation</th><th className="px-3 py-2">OOT</th><th className="px-3 py-2">Delta</th></tr>
+            </thead>
+            <tbody>
+              {metricKeys.map((key) => {
+                const testValue = Number(testResult?.metrics?.[key]);
+                const ootValue = Number(ootResult?.metrics?.[key]);
+                const delta = Number.isFinite(testValue) && Number.isFinite(ootValue) ? ootValue - testValue : NaN;
+                return (
+                  <tr key={key} className="border-t">
+                    <td className="px-3 py-2 font-medium uppercase">{key}</td>
+                    <td className="px-3 py-2">{format(testValue)}</td>
+                    <td className="px-3 py-2">{format(ootValue)}</td>
+                    <td className={`px-3 py-2 ${Number.isFinite(delta) && Math.abs(delta) > 0.1 ? "text-amber-700" : "text-slate-700"}`}>{format(delta)}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <div className="text-sm font-semibold text-slate-800">Top Feature Drift by VSI</div>
+        <p className="mt-1 text-xs text-slate-500">Thresholds: pass &lt; 0.10, warning 0.10-0.25, fail &gt;= 0.25.</p>
+        <div className="mt-3 space-y-2">
+          {topVsi.length ? topVsi.map((row) => (
+            <div key={row.feature} className="grid grid-cols-[120px_minmax(0,1fr)_56px] items-center gap-2 text-xs">
+              <div className="truncate font-medium" title={row.feature}>{row.feature}</div>
+              <div className="relative h-3 rounded-full bg-white">
+                <div className="absolute top-[-2px] h-4 border-l border-amber-500" style={{ left: "40%" }} title="Warning threshold 0.10" />
+                <div className="absolute top-[-2px] h-4 border-l border-rose-500" style={{ left: "100%" }} title="Fail threshold 0.25" />
+                <div className={`h-full rounded-full ${row.status === "fail" ? "bg-rose-500" : row.status === "warning" ? "bg-amber-500" : "bg-emerald-500"}`} style={{ width: `${Math.min(100, (row.value / 0.25) * 100)}%` }} />
+              </div>
+              <div className="text-right font-semibold">{row.value.toFixed(3)}</div>
+            </div>
+          )) : <div className="text-sm text-slate-500">Upload an OOT dataset to calculate VSI.</div>}
+        </div>
+        {topVsi.length > 0 && (
+          <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-600">
+            <span className="font-semibold text-slate-800">ATLAS readout: </span>
+            {topVsi.filter((row) => row.status === "fail").length
+              ? `${topVsi.filter((row) => row.status === "fail").length} top drift variables exceed the fail threshold. Review these drivers before production scoring.`
+              : "Top drift variables are below the fail threshold; continue monitoring warning-level variables."}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function PerformanceMiniBars({ testResult, ootResult }: { testResult: ScoreResult | null; ootResult: ScoreResult | null }) {
+  const metrics = ["rmse", "mae", "r2"];
+  const rows = metrics.map((metric) => ({
+    metric,
+    test: Number(testResult?.metrics?.[metric]),
+    oot: Number(ootResult?.metrics?.[metric]),
+  }));
+  const max = Math.max(1e-6, ...rows.flatMap((row) => [row.test, row.oot].filter(Number.isFinite)));
+  return (
+    <div className="mt-3 rounded-xl border border-slate-200 bg-white p-3">
+      <div className="text-xs font-semibold uppercase text-slate-500">Metric comparison bars</div>
+      <div className="mt-3 space-y-2">
+        {rows.map((row) => (
+          <div key={row.metric} className="grid grid-cols-[64px_minmax(0,1fr)_70px] items-center gap-2 text-xs">
+            <div className="font-semibold uppercase text-slate-600">{row.metric}</div>
+            <div className="space-y-1">
+              <div className="h-2 rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-500" style={{ width: `${Number.isFinite(row.test) ? Math.max(2, (row.test / max) * 100) : 0}%` }} /></div>
+              <div className="h-2 rounded-full bg-slate-100"><div className="h-full rounded-full bg-teal-500" style={{ width: `${Number.isFinite(row.oot) ? Math.max(2, (row.oot / max) * 100) : 0}%` }} /></div>
+            </div>
+            <div className="text-right text-slate-600">EV/OOT</div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function PredictionHistogram({ values }: { values: number[] }) {
+  const width = 520;
+  const height = 230;
+  const pad = 44;
+  if (!values.length) return <div className="flex h-[160px] items-center justify-center text-sm text-slate-500">Prediction preview is not available.</div>;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const bins = 18;
+  const counts = new Array(bins).fill(0);
+  values.forEach((value) => {
+    const index = Math.max(0, Math.min(bins - 1, Math.floor(((value - min) / (max - min || 1)) * bins)));
+    counts[index] += 1;
+  });
+  const maxCount = Math.max(1, ...counts);
+  const plotWidth = width - pad * 1.4;
+  const plotHeight = height - pad * 1.5;
+  const barWidth = plotWidth / bins;
+  const y = (value: number) => height - pad - (value / maxCount) * plotHeight;
+  const x = (value: number) => pad + ((value - min) / (max - min || 1)) * plotWidth;
+  const meanPrediction = values.reduce((sum, value) => sum + value, 0) / Math.max(values.length, 1);
+  const xTicks = Array.from({ length: 5 }, (_, index) => min + ((max - min) * index) / 4);
+  const yTicks = Array.from({ length: 4 }, (_, index) => (maxCount * index) / 3);
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-[230px] w-full rounded-xl bg-slate-50">
+      {yTicks.map((tick) => (
+        <g key={`pred-y-${tick}`}>
+          <line x1={pad} y1={y(tick)} x2={width - pad / 2} y2={y(tick)} stroke="#e2e8f0" />
+          <text x={pad - 8} y={y(tick) + 4} textAnchor="end" className="fill-slate-500 text-[10px]">{Math.round(tick)}</text>
+        </g>
+      ))}
+      <line x1={pad} y1={height - pad} x2={width - pad / 2} y2={height - pad} stroke="#cbd5e1" />
+      <line x1={pad} y1={pad / 2} x2={pad} y2={height - pad} stroke="#cbd5e1" />
+      {counts.map((count, index) => {
+        const x = pad + index * barWidth;
+        const barY = y(count);
+        return <rect key={index} x={x + 1} y={barY} width={Math.max(2, barWidth - 2)} height={height - pad - barY} rx={3} fill="#2563eb" opacity={0.75} />;
+      })}
+      <line x1={x(meanPrediction)} x2={x(meanPrediction)} y1={pad / 2} y2={height - pad} stroke="#dc2626" strokeWidth={2} strokeDasharray="5 5" />
+      <text x={x(meanPrediction) + 4} y={pad / 2 + 12} className="fill-rose-700 text-[10px]">Mean</text>
+      {xTicks.map((tick) => (
+        <g key={`pred-x-${tick}`}>
+          <line x1={x(tick)} x2={x(tick)} y1={height - pad} y2={height - pad + 5} stroke="#94a3b8" />
+          <text x={x(tick)} y={height - pad + 18} textAnchor="middle" className="fill-slate-500 text-[10px]">{tick.toFixed(3)}</text>
+        </g>
+      ))}
+      <text x={width / 2} y={height - 7} textAnchor="middle" className="fill-slate-600 text-[11px]">Predicted value</text>
+      <text x={14} y={height / 2} textAnchor="middle" transform={`rotate(-90 14 ${height / 2})`} className="fill-slate-600 text-[11px]">Records</text>
+    </svg>
   );
 }
 

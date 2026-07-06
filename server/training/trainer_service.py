@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
 from ..core.dataset_store import DATASTORE
@@ -92,6 +93,10 @@ class TrainerService:
         grid_search: bool = False,
         grid_search_level: str = "quick",
         model_params: Dict[str, Dict[str, Any]] | None = None,
+        project_id: str = "",
+        dataset_version: str = "",
+        target: str = "",
+        problem_type: str = "",
     ) -> Dict[str, Any]:
         X_train, X_test, y_train, y_test = self._get_or_create_splits(k_folds)
 
@@ -110,8 +115,27 @@ class TrainerService:
 
         summary = result["summary"]
         artifacts = summary.pop("_artifacts", {})
+        detected_problem_type = str(summary.get("problem_type") or problem_type or "")
+        active_target = str(target or DATASTORE.target or getattr(y_train, "name", "") or "")
+        training_run_id = f"train-{datetime.now().strftime('%Y%m%d%H%M%S%f')}"
+        artifact_metadata = {
+            key: {
+                "project_id": str(project_id or ""),
+                "dataset_version": str(dataset_version or ""),
+                "target": active_target,
+                "problem_type": detected_problem_type,
+                "model_key": key,
+                "training_run_id": training_run_id,
+                "trained_at": datetime.now().isoformat(),
+            }
+            for key in artifacts.keys()
+        }
         summary.update(
             {
+                "project_id": str(project_id or ""),
+                "dataset_version": str(dataset_version or ""),
+                "target": active_target,
+                "training_run_id": training_run_id,
                 "n_train": int(len(y_train)),
                 "n_test": int(len(y_test)),
                 "k_folds": int(k_folds),
@@ -125,7 +149,7 @@ class TrainerService:
             }
         )
 
-        RESULTS.set_model_artifacts(artifacts)
+        RESULTS.set_model_artifacts(artifacts, artifact_metadata)
         safe_summary = json_safe(summary)
         RESULTS.set_last_summary(safe_summary)
         return safe_summary

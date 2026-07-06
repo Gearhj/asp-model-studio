@@ -89,6 +89,10 @@ def train_models(request: Dict[str, Any]) -> Dict[str, Any]:
         model_params = request.get("model_params") or {}
         if not isinstance(model_params, dict):
             model_params = {}
+        project_id = str(request.get("project_id") or "")
+        dataset_version = str(request.get("dataset_version") or "")
+        target = str(request.get("target") or "")
+        problem_type = str(request.get("problem_type") or "")
 
         summary = TRAINER.train(
             models=models,
@@ -99,6 +103,10 @@ def train_models(request: Dict[str, Any]) -> Dict[str, Any]:
             grid_search=grid_search,
             grid_search_level=grid_search_level,
             model_params=model_params,
+            project_id=project_id,
+            dataset_version=dataset_version,
+            target=target,
+            problem_type=problem_type,
         )
 
         rows = summary.get("n_train")

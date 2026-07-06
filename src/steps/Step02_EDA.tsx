@@ -9,7 +9,7 @@ import { PairwiseSvg } from "../components/D3Pairplot";
 import StepPythonPanel from "../components/StepPythonPanel";
 import { useNavigate } from "react-router-dom";
 import { useWorkflowStore } from "../state/useWorkflowStore";
-import { inferLocalColumns, loadLocalDataset, type LocalDataset } from "../lib/localDataset";
+import { inferLocalColumns, inferLocalProblemType, loadLocalDataset, type LocalDataset } from "../lib/localDataset";
 import { upsertProjectFromState } from "../lib/localProjects";
 
 type ColumnInfo = { name: string; dtype?: string; role?: "feature" | "target" };
@@ -38,6 +38,7 @@ export default function Step02_EDA() {
   const [navigationError, setNavigationError] = useState<string>("");
   const [usingLocalDataset, setUsingLocalDataset] = useState(false);
   const [localDataset, setLocalDataset] = useState<LocalDataset | null>(null);
+  const [analysisDataset, setAnalysisDataset] = useState<LocalDataset | null>(null);
 
   // Ask backend what columns/target are currently loaded.
   useEffect(() => {
@@ -63,6 +64,7 @@ export default function Step02_EDA() {
         if (cachedDataset?.headers.length) {
           setUsingLocalDataset(true);
           setLocalDataset(cachedDataset);
+          setAnalysisDataset(cachedDataset);
           const allowedHeaders = new Set(cachedDataset.headers);
           if (cols.length) {
             cols = cols.filter((column) => allowedHeaders.has(column.name));
@@ -74,6 +76,7 @@ export default function Step02_EDA() {
         } else {
           setUsingLocalDataset(false);
           setLocalDataset(null);
+          setAnalysisDataset(null);
         }
 
         if (!alive) return;
@@ -93,6 +96,28 @@ export default function Step02_EDA() {
           cols.find((c) => /^fraud|target|label$/i.test(c.name))?.name ||
           "";
         setTarget(tgt);
+
+        if (!cachedDataset?.headers.length && tgt) {
+          try {
+            const sampleResponse = await fetch(`${BASE}/data/get_sample?max_rows=5000`);
+            if (sampleResponse.ok) {
+              const sample = await sampleResponse.json();
+              const headers = Array.isArray(sample?.headers) ? sample.headers.map(String) : [];
+              const rows = Array.isArray(sample?.rows) ? sample.rows : [];
+              const sampleTarget = typeof sample?.target === "string" ? sample.target : tgt;
+              if (headers.length && rows.length && sampleTarget && headers.includes(sampleTarget)) {
+                setAnalysisDataset({
+                  headers,
+                  rows,
+                  target: sampleTarget,
+                  selected_columns: headers.filter((header: string) => header !== sampleTarget),
+                });
+              }
+            }
+          } catch (sampleError) {
+            console.warn("[EDA] Backend sample unavailable for target analysis.", sampleError);
+          }
+        }
 
         // pick default feature (first non-target)
         const firstFeat = cols.find((c) => c.name !== tgt)?.name ?? "";
@@ -217,6 +242,10 @@ export default function Step02_EDA() {
         </label>
       </div>
 
+      {analysisDataset && target && (
+        <TargetVariableAnalysis dataset={analysisDataset} target={target} problemType={inferLocalProblemType(analysisDataset) ?? analysisDataset.problem_type ?? "classification"} />
+      )}
+
       {/* Row 1: Histogram + Boxplot */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
         <div className="rounded border bg-white p-4">
@@ -303,6 +332,255 @@ export default function Step02_EDA() {
   );
 }
 
+function mean(values: number[]) {
+  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+}
+
+function std(values: number[]) {
+  if (values.length < 2) return 0;
+  const m = mean(values);
+  return Math.sqrt(values.reduce((sum, value) => sum + (value - m) ** 2, 0) / (values.length - 1));
+}
+
+function skewness(values: number[]) {
+  const s = std(values);
+  if (!values.length || !s) return 0;
+  const m = mean(values);
+  return values.reduce((sum, value) => sum + ((value - m) / s) ** 3, 0) / values.length;
+}
+
+function kurtosis(values: number[]) {
+  const s = std(values);
+  if (!values.length || !s) return 0;
+  const m = mean(values);
+  return values.reduce((sum, value) => sum + ((value - m) / s) ** 4, 0) / values.length - 3;
+}
+
+function corr(rows: Record<string, any>[], xName: string, yName: string) {
+  const pairs = rows
+    .map((row) => ({ x: Number(row[xName]), y: Number(row[yName]) }))
+    .filter((row) => Number.isFinite(row.x) && Number.isFinite(row.y));
+  if (pairs.length < 3) return 0;
+  const mx = pairs.reduce((sum, row) => sum + row.x, 0) / pairs.length;
+  const my = pairs.reduce((sum, row) => sum + row.y, 0) / pairs.length;
+  const numerator = pairs.reduce((sum, row) => sum + (row.x - mx) * (row.y - my), 0);
+  const dx = Math.sqrt(pairs.reduce((sum, row) => sum + (row.x - mx) ** 2, 0));
+  const dy = Math.sqrt(pairs.reduce((sum, row) => sum + (row.y - my) ** 2, 0));
+  const value = numerator / ((dx || 0) * (dy || 0));
+  return Number.isFinite(value) ? value : 0;
+}
+
+function TargetVariableAnalysis({
+  dataset,
+  target,
+  problemType,
+}: {
+  dataset: LocalDataset;
+  target: string;
+  problemType: string;
+}) {
+  const values = dataset.rows.map((row) => Number(row[target])).filter(Number.isFinite);
+  const sorted = [...values].sort((a, b) => a - b);
+  const missing = dataset.rows.length - values.length;
+  const numericFeatureNames = dataset.headers
+    .filter((header) => header !== target)
+    .filter((header) => dataset.rows.slice(0, 250).some((row) => Number.isFinite(Number(row[header]))));
+  const topCorrelations = numericFeatureNames
+    .map((feature) => ({ feature, value: corr(dataset.rows, feature, target) }))
+    .filter((row) => Number.isFinite(row.value))
+    .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
+    .slice(0, 8);
+  const hasGeo = dataset.headers.includes("Latitude") && dataset.headers.includes("Longitude");
+  const stats = [
+    ["Rows", dataset.rows.length.toLocaleString()],
+    ["Missing %", dataset.rows.length ? `${((missing / dataset.rows.length) * 100).toFixed(2)}%` : "-"],
+    ["Mean", values.length ? mean(values).toFixed(4) : "-"],
+    ["Median", values.length ? quantile(sorted, 0.5).toFixed(4) : "-"],
+    ["Std Dev", values.length ? std(values).toFixed(4) : "-"],
+    ["Min", values.length ? Math.min(...values).toFixed(4) : "-"],
+    ["Max", values.length ? Math.max(...values).toFixed(4) : "-"],
+    ["Skewness", values.length ? skewness(values).toFixed(3) : "-"],
+    ["Kurtosis", values.length ? kurtosis(values).toFixed(3) : "-"],
+  ];
+  const percentiles = [
+    ["P1", 0.01],
+    ["P5", 0.05],
+    ["P25", 0.25],
+    ["P50", 0.5],
+    ["P75", 0.75],
+    ["P95", 0.95],
+    ["P99", 0.99],
+  ];
+  const skew = values.length ? skewness(values) : 0;
+  const kurt = values.length ? kurtosis(values) : 0;
+  const tailReadout =
+    Math.abs(skew) > 1
+      ? `${skew > 0 ? "Right" : "Left"}-skewed target distribution; review tail behavior before choosing split and residual diagnostics.`
+      : "Target distribution is not strongly skewed; residual diagnostics should still confirm tail behavior.";
+  const kurtosisReadout =
+    kurt > 1
+      ? "Kurtosis suggests heavier tails than a normal distribution."
+      : kurt < -1
+        ? "Kurtosis suggests a flatter distribution with lighter tails."
+        : "Kurtosis is broadly near normal-range tail behavior.";
+  return (
+    <section className="mb-6 rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Target Variable Analysis</div>
+          <h3 className="mt-1 text-lg font-semibold text-slate-950">{target}</h3>
+          <p className="mt-1 text-sm text-slate-600">
+            {problemType === "regression"
+              ? "Continuous target diagnostics drive the rest of the regression workflow: split alignment, residual analysis, and scoring drift."
+              : "Target diagnostics drive event-rate checks, class balance, and rare-event recommendations."}
+          </p>
+        </div>
+        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+          {problemType}
+        </span>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-5">
+        {stats.map(([label, value]) => (
+          <div key={label} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+            <div className="text-[11px] font-semibold uppercase text-slate-500">{label}</div>
+            <div className="mt-1 text-base font-semibold text-slate-950">{value}</div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.4fr)_minmax(320px,0.8fr)]">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="mb-2 text-sm font-semibold text-slate-800">Target Distribution</div>
+          <TargetHistogram values={values} meanValue={mean(values)} medianValue={quantile(sorted, 0.5)} quartiles={[quantile(sorted, 0.25), quantile(sorted, 0.75)]} />
+          <ChartReadout
+            what="Shows the target value distribution with mean, median, and quartile reference markers."
+            good="Good looks like a distribution that is understood and stable enough for split and residual diagnostics."
+            sees={`${tailReadout} ${kurtosisReadout}`}
+          />
+        </div>
+        <div className="grid gap-4">
+          <div className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="mb-2 text-sm font-semibold text-slate-800">Percentiles</div>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              {percentiles.map(([label, p]) => (
+                <div key={String(label)} className="flex justify-between rounded-lg bg-slate-50 px-3 py-2">
+                  <span className="font-medium text-slate-600">{String(label)}</span>
+                  <span className="font-semibold text-slate-900">{values.length ? quantile(sorted, Number(p)).toFixed(4) : "-"}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          {hasGeo && (
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
+              <div className="font-semibold">Geo target analysis available</div>
+              <p className="mt-1">
+                Latitude and Longitude were detected. ATLAS recommends a geographic target scatterplot to identify spatial price/error patterns.
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+      <div className="mt-5 rounded-xl border border-slate-200 bg-white p-4">
+        <div className="mb-3 text-sm font-semibold text-slate-800">Top Features by Corr(Target)</div>
+        <p className="mb-3 text-xs leading-5 text-slate-500">
+          Ranked signed correlations. Green bars move with the target; rose bars move opposite the target.
+        </p>
+        <div className="space-y-2">
+          {topCorrelations.map((row) => {
+            const strength = Math.abs(row.value) >= 0.5 ? "strong" : Math.abs(row.value) >= 0.25 ? "moderate" : "weak";
+            const width = `${Math.max(4, Math.min(100, Math.abs(row.value) * 100))}%`;
+            return (
+              <div key={row.feature} className="grid grid-cols-[160px_minmax(0,1fr)_82px_78px] items-center gap-3 text-sm">
+                <div className="truncate font-medium text-slate-700" title={row.feature}>{row.feature}</div>
+                <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                  <div className={`h-full rounded-full ${row.value >= 0 ? "bg-emerald-500" : "bg-rose-500"}`} style={{ width }} />
+                </div>
+                <div className="text-right font-semibold text-slate-800">{row.value.toFixed(3)}</div>
+                <div className={`rounded-full px-2 py-1 text-center text-[11px] font-semibold ${strength === "strong" ? "bg-emerald-50 text-emerald-700" : strength === "moderate" ? "bg-blue-50 text-blue-700" : "bg-slate-50 text-slate-600"}`}>
+                  {strength}
+                </div>
+              </div>
+            );
+          })}
+          {!topCorrelations.length && <div className="text-sm text-slate-500">No numeric feature correlations were available.</div>}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ChartReadout({ what, good, sees }: { what: string; good: string; sees: string }) {
+  const clean = (value: string) => value.replace(/^(shows|good looks like|good|atlas found|atlas):\s*/i, "");
+  return (
+    <div className="mt-3 grid gap-2 rounded-lg border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-600 md:grid-cols-3">
+      <div><span className="font-semibold text-slate-800">Shows: </span>{clean(what)}</div>
+      <div><span className="font-semibold text-slate-800">Good: </span>{clean(good)}</div>
+      <div><span className="font-semibold text-slate-800">ATLAS: </span>{clean(sees)}</div>
+    </div>
+  );
+}
+
+function niceTicks(min: number, max: number, count = 5) {
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return [min || 0];
+  return Array.from({ length: count }, (_, index) => min + ((max - min) * index) / (count - 1));
+}
+
+function TargetHistogram({ values, meanValue, medianValue, quartiles }: { values: number[]; meanValue: number; medianValue: number; quartiles: [number, number] }) {
+  const width = 760;
+  const height = 300;
+  const pad = 50;
+  if (!values.length) return <div className="flex h-[240px] items-center justify-center text-sm text-slate-500">No numeric target values available.</div>;
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const bins = 32;
+  const counts = new Array(bins).fill(0);
+  values.forEach((value) => {
+    const index = Math.max(0, Math.min(bins - 1, Math.floor(((value - min) / (max - min || 1)) * bins)));
+    counts[index] += 1;
+  });
+  const maxCount = Math.max(...counts, 1);
+  const plotWidth = width - pad * 1.4;
+  const plotHeight = height - pad * 1.5;
+  const x = (value: number) => pad + ((value - min) / (max - min || 1)) * plotWidth;
+  const y = (count: number) => height - pad - (count / maxCount) * plotHeight;
+  const barWidth = plotWidth / bins;
+  const xTicks = niceTicks(min, max, 6);
+  const yTicks = niceTicks(0, maxCount, 5);
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-[300px] w-full rounded-xl bg-white">
+      {yTicks.map((tick) => (
+        <g key={`y-${tick}`}>
+          <line x1={pad} y1={y(tick)} x2={width - pad / 2} y2={y(tick)} stroke="#e2e8f0" />
+          <text x={pad - 8} y={y(tick) + 4} textAnchor="end" className="fill-slate-500 text-[10px]">{Math.round(tick).toLocaleString()}</text>
+        </g>
+      ))}
+      <line x1={pad} y1={height - pad} x2={width - pad / 2} y2={height - pad} stroke="#cbd5e1" />
+      <line x1={pad} y1={pad / 2} x2={pad} y2={height - pad} stroke="#cbd5e1" />
+      {counts.map((count, index) => {
+        const barX = pad + index * barWidth;
+        const barY = y(count);
+        return <rect key={index} x={barX + 1} y={barY} width={Math.max(2, barWidth - 2)} height={height - pad - barY} rx={3} fill="#2563eb" opacity={0.72} />;
+      })}
+      {quartiles.map((quartile, index) => (
+        <line key={`q-${index}`} x1={x(quartile)} x2={x(quartile)} y1={pad / 2} y2={height - pad} stroke="#94a3b8" strokeWidth={1.5} strokeDasharray="2 5" />
+      ))}
+      <line x1={x(meanValue)} x2={x(meanValue)} y1={pad / 2} y2={height - pad} stroke="#dc2626" strokeWidth={2} strokeDasharray="5 4" />
+      <line x1={x(medianValue)} x2={x(medianValue)} y1={pad / 2} y2={height - pad} stroke="#059669" strokeWidth={2} strokeDasharray="5 4" />
+      {xTicks.map((tick) => (
+        <g key={`x-${tick}`}>
+          <line x1={x(tick)} x2={x(tick)} y1={height - pad} y2={height - pad + 5} stroke="#94a3b8" />
+          <text x={x(tick)} y={height - pad + 18} textAnchor="middle" className="fill-slate-500 text-[10px]">{tick.toFixed(2)}</text>
+        </g>
+      ))}
+      <text x={x(meanValue) + 4} y={26} className="fill-rose-700 text-[11px]">Mean</text>
+      <text x={x(medianValue) + 4} y={42} className="fill-emerald-700 text-[11px]">Median</text>
+      <text x={x(quartiles[0]) + 4} y={58} className="fill-slate-500 text-[10px]">Q1</text>
+      <text x={x(quartiles[1]) + 4} y={72} className="fill-slate-500 text-[10px]">Q3</text>
+      <text x={width / 2} y={height - 8} textAnchor="middle" className="fill-slate-600 text-[11px]">Target value</text>
+      <text x={14} y={height / 2} textAnchor="middle" transform={`rotate(-90 14 ${height / 2})`} className="fill-slate-600 text-[11px]">Records</text>
+    </svg>
+  );
+}
+
 function sampledRows(dataset: LocalDataset, samplePct: number) {
   const pct = Math.max(1, Math.min(100, samplePct || 10));
   const count = Math.max(1, Math.ceil(dataset.rows.length * (pct / 100)));
@@ -369,14 +647,31 @@ function LocalHistogram({ dataset, feature, bins, samplePct }: { dataset: LocalD
   const maxCount = Math.max(...counts, 1);
   const chartWidth = 820;
   const chartHeight = 270;
-  const pad = 34;
-  const barWidth = (chartWidth - pad * 2) / bucketCount;
+  const pad = 46;
+  const plotWidth = chartWidth - pad * 1.4;
+  const plotHeight = chartHeight - pad * 1.45;
+  const barWidth = plotWidth / bucketCount;
+  const sorted = [...values].sort((a, b) => a - b);
+  const meanValue = mean(values);
+  const medianValue = quantile(sorted, 0.5);
+  const x = (value: number) => pad + ((value - min) / (max - min || 1)) * plotWidth;
+  const y = (count: number) => chartHeight - pad - (count / maxCount) * plotHeight;
+  const xTicks = niceTicks(min, max, 5);
+  const yTicks = niceTicks(0, maxCount, 4);
 
   return (
-    <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="h-[320px] w-full">
-      <line x1={pad} y1={chartHeight - pad} x2={chartWidth - pad} y2={chartHeight - pad} stroke="#d1d5db" />
+    <div>
+      <svg viewBox={`0 0 ${chartWidth} ${chartHeight}`} className="h-[280px] w-full rounded-xl bg-white">
+      {yTicks.map((tick) => (
+        <g key={`y-${tick}`}>
+          <line x1={pad} x2={pad + plotWidth} y1={y(tick)} y2={y(tick)} stroke="#e2e8f0" />
+          <text x={pad - 8} y={y(tick) + 4} textAnchor="end" fontSize="10" fill="#64748b">{Math.round(tick)}</text>
+        </g>
+      ))}
+      <line x1={pad} y1={chartHeight - pad} x2={pad + plotWidth} y2={chartHeight - pad} stroke="#94a3b8" />
+      <line x1={pad} y1={chartHeight - pad} x2={pad} y2={chartHeight - pad - plotHeight} stroke="#cbd5e1" />
       {counts.map((count, index) => {
-        const height = ((chartHeight - pad * 2) * count) / maxCount;
+        const height = ((plotHeight) * count) / maxCount;
         return (
           <rect
             key={index}
@@ -390,13 +685,26 @@ function LocalHistogram({ dataset, feature, bins, samplePct }: { dataset: LocalD
           />
         );
       })}
-      <text x={pad} y={chartHeight - 8} fontSize="12" fill="#475569">
-        {min.toFixed(2)}
-      </text>
-      <text x={chartWidth - pad} y={chartHeight - 8} textAnchor="end" fontSize="12" fill="#475569">
-        {max.toFixed(2)}
-      </text>
+      {[{ label: "Mean", value: meanValue, color: "#0f766e" }, { label: "Median", value: medianValue, color: "#f97316" }].map((marker) => (
+        <g key={marker.label}>
+          <line x1={x(marker.value)} x2={x(marker.value)} y1={chartHeight - pad - plotHeight} y2={chartHeight - pad} stroke={marker.color} strokeWidth={2} strokeDasharray="4 4" />
+          <text x={x(marker.value) + 5} y={chartHeight - pad - plotHeight + 14} fontSize="10" fill={marker.color}>{marker.label}</text>
+        </g>
+      ))}
+      {xTicks.map((tick) => (
+        <g key={`x-${tick}`}>
+          <line x1={x(tick)} x2={x(tick)} y1={chartHeight - pad} y2={chartHeight - pad + 5} stroke="#94a3b8" />
+          <text x={x(tick)} y={chartHeight - 12} textAnchor="middle" fontSize="10" fill="#64748b">{tick.toFixed(2)}</text>
+        </g>
+      ))}
+      <text x={pad + plotWidth / 2} y={chartHeight - 2} textAnchor="middle" fontSize="11" fill="#475569">{feature}</text>
     </svg>
+    <ChartReadout
+      what={`${feature} distribution with count axis, value ticks, mean, and median markers.`}
+      good="A stable feature has a readable range, limited extreme tails, and no suspicious spikes caused by coding artifacts."
+      sees={`Sampled ${values.length.toLocaleString()} records; mean ${meanValue.toFixed(3)}, median ${medianValue.toFixed(3)}.`}
+    />
+    </div>
   );
 }
 

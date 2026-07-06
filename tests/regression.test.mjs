@@ -257,12 +257,126 @@ test("Feature Engineering respects selected columns from Data Acquisition", asyn
   assert.match(source, /allowedHeaders\.has\(column\.name\)/);
 });
 
+test("Model Training includes Decision Tree Regressor baseline and regression grid search", async () => {
+  const frontend = await readFile(new URL("../src/steps/Step06_Train.tsx", import.meta.url), "utf8");
+  const backend = await readFile(new URL("../server/training/trainer.py", import.meta.url), "utf8");
+
+  assert.match(frontend, /dt_reg/);
+  assert.match(frontend, /Decision Tree Regressor/);
+  assert.match(frontend, /DEFAULT_REGRESSION_SELECTION[\s\S]*dt_reg:\s*true/);
+  assert.match(backend, /DecisionTreeRegressor/);
+  assert.match(backend, /"dt_reg"/);
+  assert.match(backend, /neg_root_mean_squared_error/);
+});
+
+test("Predictive workflow uses regression-safe labels and metrics", async () => {
+  const projectContext = await readFile(new URL("../src/steps/Step00_ProjectContext.tsx", import.meta.url), "utf8");
+  const dataAcquisition = await readFile(new URL("../src/steps/Step01_DataAcquisition.tsx", import.meta.url), "utf8");
+  const balancing = await readFile(new URL("../src/steps/Step06_BalancingSplit.tsx", import.meta.url), "utf8");
+  const scoring = await readFile(new URL("../src/steps/Step10_Scoring.tsx", import.meta.url), "utf8");
+  const modelDocument = await readFile(new URL("../src/lib/modelDevelopmentDocument.ts", import.meta.url), "utf8");
+
+  assert.match(projectContext, /Overprediction cost/);
+  assert.match(projectContext, /Underprediction cost/);
+  assert.match(dataAcquisition, /Corr\(Target\)/);
+  assert.match(dataAcquisition, /Target Mean/);
+  assert.match(dataAcquisition, /props\.targetInfo\.kind === "continuous"/);
+  assert.match(balancing, /Regression Split Validation/);
+  assert.match(balancing, /Balancing, SMOTE, class weights, and event-rate controls are not applicable/);
+  assert.match(scoring, /External Validation Dataset/);
+  assert.match(scoring, /Out-of-Time Dataset/);
+  assert.match(modelDocument, /Overprediction cost/);
+  assert.match(modelDocument, /Not applicable for continuous-target regression/);
+});
+
 test("Interpretation renders structured decision tree logic instead of raw tree dump", async () => {
   const source = await readFile(new URL("../src/steps/Step09_Interpretation.tsx", import.meta.url), "utf8");
   assert.match(source, /\/eval\/tree\?model=/);
   assert.match(source, /DecisionTreeExplanation/);
   assert.match(source, /Terminal Decision Rules/);
   assert.match(source, /Decision Path Diagram/);
+});
+
+test("Interpretation has task-aware regression coefficient and tree displays", async () => {
+  const source = await readFile(new URL("../src/steps/Step09_Interpretation.tsx", import.meta.url), "utf8");
+  const evalService = await readFile(new URL("../server/evaluation/eval_service.py", import.meta.url), "utf8");
+
+  assert.match(source, /Regression Equation/);
+  assert.match(source, /Linear Regression Statistical Output/);
+  assert.match(source, /Coefficient Inference Table/);
+  assert.match(source, /Diagnostic Notes/);
+  assert.match(source, /Not available/);
+  assert.match(source, /CoefficientTable/);
+  assert.match(source, /Model Fit Summary/);
+  assert.match(source, /p Value/);
+  assert.match(source, /95% CI Lower/);
+  assert.match(source, /LinearRegressionInterpretationReadout/);
+  assert.match(source, /Root Prediction/);
+  assert.match(source, /Prediction \$/);
+  assert.match(evalService, /model_type/);
+  assert.match(evalService, /prediction_value/);
+  assert.match(evalService, /_linear_regression_inference/);
+  assert.match(evalService, /standard_error/);
+  assert.match(evalService, /p_value/);
+  assert.match(evalService, /confidence_interval_lower/);
+  assert.match(evalService, /confidence_interval_upper/);
+  assert.match(evalService, /standardized_weight/);
+  assert.match(evalService, /residual_standard_error/);
+  assert.match(evalService, /f_statistic/);
+  assert.match(evalService, /condition_number/);
+  assert.match(evalService, /Statistical inference unavailable because the transformed design matrix is singular/);
+  assert.match(evalService, /Statistical inference unavailable because SciPy is unavailable/);
+  assert.match(evalService, /scipy_stats/);
+});
+
+test("Linear Regression interpretation path is scoped to current project and rejects stale artifacts", async () => {
+  const trainPage = await readFile(new URL("../src/steps/Step06_Train.tsx", import.meta.url), "utf8");
+  const evalPage = await readFile(new URL("../src/steps/Step08_Evaluation.tsx", import.meta.url), "utf8");
+  const interpretationPage = await readFile(new URL("../src/steps/Step09_Interpretation.tsx", import.meta.url), "utf8");
+  const trainerService = await readFile(new URL("../server/training/trainer_service.py", import.meta.url), "utf8");
+  const trainerRouter = await readFile(new URL("../server/training/trainer_router.py", import.meta.url), "utf8");
+  const evalRouter = await readFile(new URL("../server/evaluation/eval_router.py", import.meta.url), "utf8");
+  const evalService = await readFile(new URL("../server/evaluation/eval_service.py", import.meta.url), "utf8");
+  const resultStore = await readFile(new URL("../server/core/result_store.py", import.meta.url), "utf8");
+
+  assert.match(trainPage, /project_id:\s*projectId/);
+  assert.match(trainPage, /dataset_version:\s*localDatasetVersion\(currentDataset\)/);
+  assert.match(trainPage, /target:\s*currentDataset\?\.target/);
+  assert.match(trainPage, /problem_type:\s*trainingProblemType/);
+  assert.match(evalPage, /LOCAL_SELECTED_INTERPRETATION_MODEL_KEY/);
+  assert.match(evalPage, /sessionStorage\.setItem\(LOCAL_SELECTED_INTERPRETATION_MODEL_KEY,\s*selected\)/);
+  assert.match(interpretationPage, /interpretationContextQuery/);
+  assert.match(interpretationPage, /project_id/);
+  assert.match(interpretationPage, /dataset_version/);
+  assert.match(interpretationPage, /LinearRegressionDebugPanel/);
+  assert.match(interpretationPage, /artifact_has_metadata/);
+  assert.match(trainerRouter, /project_id = str\(request\.get\("project_id"\)/);
+  assert.match(trainerService, /artifact_metadata/);
+  assert.match(trainerService, /training_run_id/);
+  assert.match(resultStore, /model_artifact_metadata/);
+  assert.match(resultStore, /get_model_artifact_metadata/);
+  assert.match(evalRouter, /\/interpretation\/debug/);
+  assert.match(evalService, /_artifact_context_mismatch/);
+  assert.match(evalService, /The selected model artifact does not match the current/);
+  assert.match(evalService, /Please retrain/);
+});
+
+test("Model Development Document summarizes material predictive decisions by default", async () => {
+  const modelDocument = await readFile(new URL("../src/lib/modelDevelopmentDocument.ts", import.meta.url), "utf8");
+  const documentPage = await readFile(new URL("../src/steps/Step11_ModelDevelopmentDocument.tsx", import.meta.url), "utf8");
+
+  assert.match(modelDocument, /summarizeMaterialReportDecisions/);
+  assert.match(modelDocument, /formatMaterialDecisionTable/);
+  assert.match(modelDocument, /Decision Area/);
+  assert.match(modelDocument, /Final Decision/);
+  assert.match(modelDocument, /Owner \/ Source/);
+  assert.match(modelDocument, /includeFullDecisionJournalAppendix/);
+  assert.match(modelDocument, /Full Audit Appendix/);
+  assert.match(modelDocument, /mode === "governance"/);
+  assert.match(modelDocument, /mode === "executive"\s*\?\s*\[\]/);
+  assert.doesNotMatch(modelDocument, /mode !== "executive"[\s\S]{0,160}formatDecisions\(decisions\)/);
+  assert.doesNotMatch(modelDocument, /title: "Material Decision Summary"[\s\S]{0,160}formatDecisions\(materialDecisions\)/);
+  assert.match(documentPage, /Include Full Decision Journal Appendix/);
 });
 
 test("Open Project and Experimental Design project restore still load through existing APIs", () => {

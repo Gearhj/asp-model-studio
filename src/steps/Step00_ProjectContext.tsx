@@ -286,21 +286,21 @@ export default function Step00ProjectContext() {
             <h2 className="text-sm font-semibold text-slate-950">Costs and Operating Constraints</h2>
             <div className="mt-4 grid gap-4">
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="False positive cost">
+                <Field label={context.modelType === "regression" ? "Overprediction cost" : "False positive cost"}>
                   <input
                     className={inputClass}
                     value={context.falsePositiveCost}
                     onChange={(event) => update("falsePositiveCost", event.target.value)}
-                    placeholder="$, operational, customer impact"
+                    placeholder={context.modelType === "regression" ? "$, over-reserve, over-price, operational impact" : "$, operational, customer impact"}
                   />
                 </Field>
 
-                <Field label="False negative cost">
+                <Field label={context.modelType === "regression" ? "Underprediction cost" : "False negative cost"}>
                   <input
                     className={inputClass}
                     value={context.falseNegativeCost}
                     onChange={(event) => update("falseNegativeCost", event.target.value)}
-                    placeholder="$, loss, fraud, compliance impact"
+                    placeholder={context.modelType === "regression" ? "$, loss, under-price, service-level impact" : "$, loss, fraud, compliance impact"}
                   />
                 </Field>
               </div>
@@ -339,7 +339,7 @@ export default function Step00ProjectContext() {
                   className={inputClass}
                   value={context.secondaryMetrics}
                   onChange={(event) => update("secondaryMetrics", event.target.value)}
-                  placeholder="Calibration, lift, recall, PSI, MAE, stability"
+                  placeholder={context.modelType === "regression" ? "RMSE, MAE, MAPE, R-squared, prediction PSI, VSI" : "Calibration, lift, recall, PSI, stability"}
                 />
               </Field>
             </div>

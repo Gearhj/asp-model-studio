@@ -12,6 +12,7 @@ const API_BASE =
   "http://127.0.0.1:8001/api";
 
 const LOCAL_TRAINING_SUMMARY_KEY = "modeling-tool-training-summary";
+const LOCAL_SELECTED_INTERPRETATION_MODEL_KEY = "modeling-tool-selected-interpretation-model";
 
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
@@ -316,6 +317,7 @@ export default function Step08_Evaluation() {
   async function handleContinue() {
     try {
       setNavigationError("");
+      if (selected) sessionStorage.setItem(LOCAL_SELECTED_INTERPRETATION_MODEL_KEY, selected);
       markComplete("step08");
       await upsertProjectFromState(useWorkflowStore.getState());
       navigate("/step09");
@@ -614,11 +616,47 @@ function RegressionDiagnostics({ curves }: { curves: Curves }) {
           <Stat label="P95 Abs Residual" v={summary.p95_abs_residual} />
         </div>
       )}
-      <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+      {summary && (
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <InterpretationCard
+            title="Bias Check"
+            tone={Math.abs(summary.mean_residual ?? 0) < Math.max(0.01, (summary.mean_abs_residual ?? 0) * 0.15) ? "pass" : "warn"}
+            text={Math.abs(summary.mean_residual ?? 0) < Math.max(0.01, (summary.mean_abs_residual ?? 0) * 0.15)
+              ? "Average residual is close to zero, so broad prediction bias appears controlled."
+              : "Mean residual is material relative to absolute error. Review systematic over/under prediction."}
+          />
+          <InterpretationCard
+            title="Error Concentration"
+            tone={(summary.p95_abs_residual ?? 0) > (summary.mean_abs_residual ?? 0) * 3 ? "warn" : "pass"}
+            text={(summary.p95_abs_residual ?? 0) > (summary.mean_abs_residual ?? 0) * 3
+              ? "Tail errors are much larger than average error. Review outlier segments and high-value observations."
+              : "Tail error is proportionate to average error."}
+          />
+          <InterpretationCard
+            title="Model Fit"
+            tone={(curves.metrics?.r2 ?? 0) >= 0.5 ? "pass" : "warn"}
+            text={(curves.metrics?.r2 ?? 0) >= 0.5
+              ? "R-squared indicates meaningful explanatory fit for a tabular regression model."
+              : "R-squared is modest. Confirm whether features capture the drivers of the target."}
+          />
+        </div>
+      )}
+      <div className="mt-4 rounded-xl border border-gray-200 bg-white p-3">
+        <div className="mb-2 text-xs font-semibold text-gray-700">Model Error Comparison</div>
+        <RegressionMetricBar label="Champion RMSE" value={curves.metrics?.rmse} benchmark={curves.metrics?.mae} benchmarkLabel="MAE reference" />
+      </div>
+      <div className="mt-4 grid grid-cols-1 xl:grid-cols-3 gap-4">
         <div className="rounded-xl border border-gray-200 bg-white p-3">
           <div className="mb-2 text-xs font-semibold text-gray-700">Actual vs Predicted</div>
           {points.length ? (
-            <ActualVsPredictedChart points={points} />
+            <>
+              <ActualVsPredictedChart points={points} />
+              <ChartReadout
+                what="Compares predicted values to actual target values."
+                good="Good points cluster around the 45-degree identity line."
+                sees={actualPredictedReadout(points)}
+              />
+            </>
           ) : (
             <div className="flex h-[280px] items-center justify-center text-xs text-gray-500">
               Actual/predicted data is not available for this model.
@@ -628,10 +666,34 @@ function RegressionDiagnostics({ curves }: { curves: Curves }) {
         <div className="rounded-xl border border-gray-200 bg-white p-3">
           <div className="mb-2 text-xs font-semibold text-gray-700">Residuals vs Predicted</div>
           {points.length ? (
-            <ResidualScatterChart points={points} />
+            <>
+              <ResidualScatterChart points={points} />
+              <ChartReadout
+                what="Shows prediction error across the prediction range."
+                good="Good residuals are centered around zero with roughly constant spread."
+                sees={residualSpreadReadout(points)}
+              />
+            </>
           ) : (
             <div className="flex h-[280px] items-center justify-center text-xs text-gray-500">
               Residual data is not available for this model.
+            </div>
+          )}
+        </div>
+        <div className="rounded-xl border border-gray-200 bg-white p-3">
+          <div className="mb-2 text-xs font-semibold text-gray-700">Q-Q Plot</div>
+          {points.length ? (
+            <>
+              <QQPlot points={points} />
+              <ChartReadout
+                what="Compares residual quantiles to a normal-reference line."
+                good="Good residuals stay near the diagonal, especially in the middle quantiles."
+                sees={qqReadout(points)}
+              />
+            </>
+          ) : (
+            <div className="flex h-[280px] items-center justify-center text-xs text-gray-500">
+              Residual quantile data is not available for this model.
             </div>
           )}
         </div>
@@ -639,14 +701,190 @@ function RegressionDiagnostics({ curves }: { curves: Curves }) {
       <div className="mt-4 rounded-xl border border-gray-200 bg-white p-3">
         <div className="mb-2 text-xs font-semibold text-gray-700">Residual Distribution</div>
         {curves.residual_histogram?.counts?.length ? (
-          <ResidualHistogram histogram={curves.residual_histogram} />
+          <>
+            <ResidualHistogram histogram={curves.residual_histogram} />
+            <ChartReadout
+              what="Shows the frequency distribution of residual errors."
+              good="Good residuals are centered near zero without extreme one-sided tails."
+              sees="Use this with the bias cards and Q-Q plot to review skew, tail risk, and systematic prediction error."
+            />
+          </>
         ) : (
           <div className="flex h-[240px] items-center justify-center text-xs text-gray-500">
             Residual distribution is not available for this model.
           </div>
         )}
       </div>
+      {points.length > 0 && (
+        <div className="mt-4 rounded-xl border border-gray-200 bg-white p-3">
+          <div className="mb-2 text-xs font-semibold text-gray-700">Residual Diagnostics by Predicted Decile</div>
+          <ResidualDecileTable points={points} />
+        </div>
+      )}
     </>
+  );
+}
+
+function InterpretationCard({ title, text, tone }: { title: string; text: string; tone: "pass" | "warn" }) {
+  return (
+    <div className={`rounded-xl border p-4 ${tone === "pass" ? "border-emerald-200 bg-emerald-50 text-emerald-950" : "border-amber-200 bg-amber-50 text-amber-950"}`}>
+      <div className="text-sm font-semibold">{title}</div>
+      <p className="mt-1 text-xs leading-5">{text}</p>
+    </div>
+  );
+}
+
+function ChartReadout({ what, good, sees }: { what: string; good: string; sees: string }) {
+  const clean = (value: string) => value.replace(/^(shows|good looks like|good|atlas found|atlas):\s*/i, "");
+  return (
+    <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+      <div><span className="font-semibold text-slate-800">Shows: </span>{clean(what)}</div>
+      <div><span className="font-semibold text-slate-800">Good: </span>{clean(good)}</div>
+      <div><span className="font-semibold text-slate-800">ATLAS: </span>{clean(sees)}</div>
+    </div>
+  );
+}
+
+function RegressionMetricBar({ label, value, benchmark, benchmarkLabel }: { label: string; value?: number; benchmark?: number; benchmarkLabel: string }) {
+  const main = typeof value === "number" && Number.isFinite(value) ? value : 0;
+  const ref = typeof benchmark === "number" && Number.isFinite(benchmark) ? benchmark : main;
+  const max = Math.max(main, ref, 1e-6);
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-[150px_minmax(0,1fr)_90px] items-center gap-3 text-sm">
+        <div className="font-medium text-slate-700">{label}</div>
+        <div className="h-3 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-indigo-500" style={{ width: `${(main / max) * 100}%` }} /></div>
+        <div className="text-right font-semibold">{formatMetric(main)}</div>
+      </div>
+      <div className="grid grid-cols-[150px_minmax(0,1fr)_90px] items-center gap-3 text-sm">
+        <div className="font-medium text-slate-700">{benchmarkLabel}</div>
+        <div className="h-3 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-teal-500" style={{ width: `${(ref / max) * 100}%` }} /></div>
+        <div className="text-right font-semibold">{formatMetric(ref)}</div>
+      </div>
+    </div>
+  );
+}
+
+function formatMetric(value: number) {
+  return Number.isFinite(value) ? value.toFixed(4) : "-";
+}
+
+function QQPlot({ points }: { points: { actual: number; predicted: number; residual: number }[] }) {
+  const width = 520;
+  const height = 300;
+  const pad = 42;
+  const residuals = points.map((point) => point.residual).filter(Number.isFinite).sort((a, b) => a - b);
+  const n = residuals.length;
+  const meanResidual = residuals.reduce((sum, value) => sum + value, 0) / Math.max(n, 1);
+  const sdResidual = Math.sqrt(residuals.reduce((sum, value) => sum + (value - meanResidual) ** 2, 0) / Math.max(n - 1, 1)) || 1;
+  const theoretical = residuals.map((_, index) => meanResidual + sdResidual * approxNormalQuantile((index + 0.5) / n));
+  const [minValue, maxValue] = chartDomain([...residuals, ...theoretical]);
+  const x = (value: number) => pad + ((value - minValue) / (maxValue - minValue || 1)) * (width - pad * 1.35);
+  const y = (value: number) => height - pad - ((value - minValue) / (maxValue - minValue || 1)) * (height - pad * 1.35);
+  const ticks = chartTicks(minValue, maxValue, 5);
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-[280px] w-full rounded-xl bg-slate-50">
+      {ticks.map((tick) => (
+        <g key={`qq-y-${tick}`}>
+          <line x1={pad} y1={y(tick)} x2={width - pad / 2} y2={y(tick)} stroke="#e2e8f0" />
+          <text x={pad - 8} y={y(tick) + 4} textAnchor="end" className="fill-slate-500 text-[10px]">{tick.toFixed(2)}</text>
+        </g>
+      ))}
+      <line x1={pad} y1={height - pad} x2={width - pad / 2} y2={height - pad} stroke="#cbd5e1" />
+      <line x1={pad} y1={pad / 2} x2={pad} y2={height - pad} stroke="#cbd5e1" />
+      <line x1={x(minValue)} y1={y(minValue)} x2={x(maxValue)} y2={y(maxValue)} stroke="#0f766e" strokeWidth={2} strokeDasharray="5 5" />
+      {residuals.map((value, index) => (
+        <circle key={index} cx={x(theoretical[index])} cy={y(value)} r={2.2} fill="#7c3aed" opacity={0.45} />
+      ))}
+      {ticks.map((tick) => (
+        <g key={`qq-x-${tick}`}>
+          <line x1={x(tick)} x2={x(tick)} y1={height - pad} y2={height - pad + 5} stroke="#94a3b8" />
+          <text x={x(tick)} y={height - pad + 18} textAnchor="middle" className="fill-slate-500 text-[10px]">{tick.toFixed(2)}</text>
+        </g>
+      ))}
+      <text x={width / 2} y={height - 8} textAnchor="middle" className="fill-slate-600 text-[11px]">Theoretical quantile</text>
+      <text x={14} y={height / 2} textAnchor="middle" transform={`rotate(-90 14 ${height / 2})`} className="fill-slate-600 text-[11px]">Residual quantile</text>
+    </svg>
+  );
+}
+
+function approxNormalQuantile(p: number) {
+  const a1 = -39.6968302866538;
+  const a2 = 220.946098424521;
+  const a3 = -275.928510446969;
+  const a4 = 138.357751867269;
+  const a5 = -30.6647980661472;
+  const a6 = 2.50662827745924;
+  const b1 = -54.4760987982241;
+  const b2 = 161.585836858041;
+  const b3 = -155.698979859887;
+  const b4 = 66.8013118877197;
+  const b5 = -13.2806815528857;
+  const c1 = -0.00778489400243029;
+  const c2 = -0.322396458041136;
+  const c3 = -2.40075827716184;
+  const c4 = -2.54973253934373;
+  const c5 = 4.37466414146497;
+  const c6 = 2.93816398269878;
+  const d1 = 0.00778469570904146;
+  const d2 = 0.32246712907004;
+  const d3 = 2.445134137143;
+  const d4 = 3.75440866190742;
+  const pLow = 0.02425;
+  const pHigh = 1 - pLow;
+  let q: number;
+  if (p < pLow) {
+    q = Math.sqrt(-2 * Math.log(p));
+    return (((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1);
+  }
+  if (p <= pHigh) {
+    q = p - 0.5;
+    const r = q * q;
+    return (((((a1 * r + a2) * r + a3) * r + a4) * r + a5) * r + a6) * q / (((((b1 * r + b2) * r + b3) * r + b4) * r + b5) * r + 1);
+  }
+  q = Math.sqrt(-2 * Math.log(1 - p));
+  return -(((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1);
+}
+
+function ResidualDecileTable({ points }: { points: { actual: number; predicted: number; residual: number }[] }) {
+  const sorted = [...points].sort((a, b) => a.predicted - b.predicted);
+  const rows = Array.from({ length: 10 }).map((_, index) => {
+    const start = Math.floor((index / 10) * sorted.length);
+    const end = Math.floor(((index + 1) / 10) * sorted.length);
+    const bucket = sorted.slice(start, Math.max(start + 1, end));
+    const meanPredicted = bucket.reduce((sum, point) => sum + point.predicted, 0) / Math.max(bucket.length, 1);
+    const meanActual = bucket.reduce((sum, point) => sum + point.actual, 0) / Math.max(bucket.length, 1);
+    const meanResidual = bucket.reduce((sum, point) => sum + point.residual, 0) / Math.max(bucket.length, 1);
+    const meanAbsError = bucket.reduce((sum, point) => sum + Math.abs(point.residual), 0) / Math.max(bucket.length, 1);
+    return { decile: index + 1, n: bucket.length, meanPredicted, meanActual, meanResidual, meanAbsError };
+  });
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+          <tr>
+            <th className="px-3 py-2">Predicted Decile</th>
+            <th className="px-3 py-2">N</th>
+            <th className="px-3 py-2">Mean Predicted</th>
+            <th className="px-3 py-2">Mean Actual</th>
+            <th className="px-3 py-2">Mean Residual</th>
+            <th className="px-3 py-2">Mean Abs Error</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.decile} className="border-t">
+              <td className="px-3 py-2 font-medium">{row.decile}</td>
+              <td className="px-3 py-2">{row.n.toLocaleString()}</td>
+              <td className="px-3 py-2">{row.meanPredicted.toFixed(4)}</td>
+              <td className="px-3 py-2">{row.meanActual.toFixed(4)}</td>
+              <td className={`px-3 py-2 ${row.meanResidual >= 0 ? "text-indigo-700" : "text-rose-700"}`}>{row.meanResidual.toFixed(4)}</td>
+              <td className="px-3 py-2">{row.meanAbsError.toFixed(4)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -658,6 +896,38 @@ function chartDomain(values: number[]) {
   return [min - pad, max + pad] as [number, number];
 }
 
+function chartTicks(min: number, max: number, count = 5) {
+  if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return [min || 0];
+  return Array.from({ length: count }, (_, index) => min + ((max - min) * index) / (count - 1));
+}
+
+function actualPredictedReadout(points: { actual: number; predicted: number; residual: number }[]) {
+  const sorted = [...points].sort((a, b) => a.actual - b.actual);
+  const upper = sorted.slice(Math.floor(sorted.length * 0.8));
+  const upperMeanResidual = upper.reduce((sum, point) => sum + point.residual, 0) / Math.max(upper.length, 1);
+  if (Math.abs(upperMeanResidual) < 0.05) return "High-value predictions appear broadly centered around actuals.";
+  return upperMeanResidual > 0 ? "High actual values tend to exceed predictions, suggesting underprediction in the upper range." : "Predictions tend to exceed high actual values, suggesting overprediction in the upper range.";
+}
+
+function residualSpreadReadout(points: { actual: number; predicted: number; residual: number }[]) {
+  const sorted = [...points].sort((a, b) => a.predicted - b.predicted);
+  const low = sorted.slice(0, Math.max(1, Math.floor(sorted.length * 0.25)));
+  const high = sorted.slice(Math.floor(sorted.length * 0.75));
+  const lowMae = low.reduce((sum, point) => sum + Math.abs(point.residual), 0) / Math.max(low.length, 1);
+  const highMae = high.reduce((sum, point) => sum + Math.abs(point.residual), 0) / Math.max(high.length, 1);
+  return highMae > lowMae * 1.5 ? "Residual spread increases at higher predictions; review heteroscedasticity and target transformations." : "Residual spread is not materially larger in the high-prediction range.";
+}
+
+function qqReadout(points: { actual: number; predicted: number; residual: number }[]) {
+  const residuals = points.map((point) => point.residual).filter(Number.isFinite).sort((a, b) => a - b);
+  const q05 = residuals[Math.floor(residuals.length * 0.05)] ?? 0;
+  const q95 = residuals[Math.floor(residuals.length * 0.95)] ?? 0;
+  const median = residuals[Math.floor(residuals.length * 0.5)] ?? 0;
+  return Math.abs(q95 + q05 - 2 * median) > Math.max(0.1, Math.abs(q95 - q05) * 0.25)
+    ? "Residual tails appear asymmetric; review skew and segment-level bias."
+    : "Residual tails appear reasonably balanced, but confirm with the residual histogram.";
+}
+
 function ActualVsPredictedChart({ points }: { points: { actual: number; predicted: number; residual: number }[] }) {
   const width = 520;
   const height = 300;
@@ -665,14 +935,28 @@ function ActualVsPredictedChart({ points }: { points: { actual: number; predicte
   const [minValue, maxValue] = chartDomain(points.flatMap((point) => [point.actual, point.predicted]));
   const x = (value: number) => pad + ((value - minValue) / (maxValue - minValue || 1)) * (width - pad * 1.35);
   const y = (value: number) => height - pad - ((value - minValue) / (maxValue - minValue || 1)) * (height - pad * 1.35);
+  const ticks = chartTicks(minValue, maxValue, 5);
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="h-[280px] w-full rounded-xl bg-slate-50">
+      {ticks.map((tick) => (
+        <g key={`avp-y-${tick}`}>
+          <line x1={pad} y1={y(tick)} x2={width - pad / 2} y2={y(tick)} stroke="#e2e8f0" />
+          <text x={pad - 8} y={y(tick) + 4} textAnchor="end" className="fill-slate-500 text-[10px]">{tick.toFixed(2)}</text>
+        </g>
+      ))}
       <line x1={pad} y1={height - pad} x2={width - pad / 2} y2={height - pad} stroke="#cbd5e1" />
       <line x1={pad} y1={pad / 2} x2={pad} y2={height - pad} stroke="#cbd5e1" />
       <line x1={x(minValue)} y1={y(minValue)} x2={x(maxValue)} y2={y(maxValue)} stroke="#0f766e" strokeWidth={2} strokeDasharray="5 5" />
       {points.map((point, index) => (
         <circle key={index} cx={x(point.predicted)} cy={y(point.actual)} r={2.4} fill="#4f46e5" opacity={0.45} />
       ))}
+      {ticks.map((tick) => (
+        <g key={`avp-x-${tick}`}>
+          <line x1={x(tick)} x2={x(tick)} y1={height - pad} y2={height - pad + 5} stroke="#94a3b8" />
+          <text x={x(tick)} y={height - pad + 18} textAnchor="middle" className="fill-slate-500 text-[10px]">{tick.toFixed(2)}</text>
+        </g>
+      ))}
+      <text x={x(maxValue) - 6} y={y(maxValue) + 12} textAnchor="end" className="fill-emerald-700 text-[10px]">45-degree identity</text>
       <text x={width / 2} y={height - 8} textAnchor="middle" className="fill-slate-600 text-[11px]">Predicted</text>
       <text x={14} y={height / 2} textAnchor="middle" transform={`rotate(-90 14 ${height / 2})`} className="fill-slate-600 text-[11px]">Actual</text>
     </svg>
@@ -687,14 +971,29 @@ function ResidualScatterChart({ points }: { points: { actual: number; predicted:
   const [yMin, yMax] = chartDomain(points.map((point) => point.residual));
   const x = (value: number) => pad + ((value - xMin) / (xMax - xMin || 1)) * (width - pad * 1.35);
   const y = (value: number) => height - pad - ((value - yMin) / (yMax - yMin || 1)) * (height - pad * 1.35);
+  const xTicks = chartTicks(xMin, xMax, 5);
+  const yTicks = chartTicks(yMin, yMax, 5);
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="h-[280px] w-full rounded-xl bg-slate-50">
+      {yTicks.map((tick) => (
+        <g key={`res-y-${tick}`}>
+          <line x1={pad} y1={y(tick)} x2={width - pad / 2} y2={y(tick)} stroke="#e2e8f0" />
+          <text x={pad - 8} y={y(tick) + 4} textAnchor="end" className="fill-slate-500 text-[10px]">{tick.toFixed(2)}</text>
+        </g>
+      ))}
       <line x1={pad} y1={height - pad} x2={width - pad / 2} y2={height - pad} stroke="#cbd5e1" />
       <line x1={pad} y1={pad / 2} x2={pad} y2={height - pad} stroke="#cbd5e1" />
       <line x1={pad} y1={y(0)} x2={width - pad / 2} y2={y(0)} stroke="#0f766e" strokeWidth={2} strokeDasharray="5 5" />
       {points.map((point, index) => (
         <circle key={index} cx={x(point.predicted)} cy={y(point.residual)} r={2.4} fill={point.residual >= 0 ? "#4f46e5" : "#dc2626"} opacity={0.45} />
       ))}
+      {xTicks.map((tick) => (
+        <g key={`res-x-${tick}`}>
+          <line x1={x(tick)} x2={x(tick)} y1={height - pad} y2={height - pad + 5} stroke="#94a3b8" />
+          <text x={x(tick)} y={height - pad + 18} textAnchor="middle" className="fill-slate-500 text-[10px]">{tick.toFixed(2)}</text>
+        </g>
+      ))}
+      <text x={width - pad / 2 - 6} y={y(0) - 5} textAnchor="end" className="fill-emerald-700 text-[10px]">zero residual</text>
       <text x={width / 2} y={height - 8} textAnchor="middle" className="fill-slate-600 text-[11px]">Predicted</text>
       <text x={14} y={height / 2} textAnchor="middle" transform={`rotate(-90 14 ${height / 2})`} className="fill-slate-600 text-[11px]">Residual</text>
     </svg>
@@ -711,8 +1010,19 @@ function ResidualHistogram({ histogram }: { histogram: { counts: number[]; edges
   const plotWidth = width - pad * 1.35;
   const barWidth = plotWidth / Math.max(counts.length, 1);
   const y = (value: number) => height - pad - (value / maxCount) * (height - pad * 1.45);
+  const minEdge = edges[0] ?? 0;
+  const maxEdge = edges[edges.length - 1] ?? 1;
+  const x = (value: number) => pad + ((value - minEdge) / (maxEdge - minEdge || 1)) * plotWidth;
+  const xTicks = chartTicks(minEdge, maxEdge, 5);
+  const yTicks = chartTicks(0, maxCount, 4);
   return (
     <svg viewBox={`0 0 ${width} ${height}`} className="h-[240px] w-full rounded-xl bg-slate-50">
+      {yTicks.map((tick) => (
+        <g key={`hist-y-${tick}`}>
+          <line x1={pad} y1={y(tick)} x2={width - pad / 2} y2={y(tick)} stroke="#e2e8f0" />
+          <text x={pad - 8} y={y(tick) + 4} textAnchor="end" className="fill-slate-500 text-[10px]">{Math.round(tick)}</text>
+        </g>
+      ))}
       <line x1={pad} y1={height - pad} x2={width - pad / 2} y2={height - pad} stroke="#cbd5e1" />
       <line x1={pad} y1={pad / 2} x2={pad} y2={height - pad} stroke="#cbd5e1" />
       {counts.map((count, index) => {
@@ -720,8 +1030,13 @@ function ResidualHistogram({ histogram }: { histogram: { counts: number[]; edges
         const barY = y(count);
         return <rect key={index} x={x + 2} y={barY} width={Math.max(2, barWidth - 4)} height={height - pad - barY} rx={3} fill="#0f766e" opacity={0.82} />;
       })}
-      <text x={pad} y={height - 12} className="fill-slate-500 text-[10px]">{edges[0]?.toFixed(3)}</text>
-      <text x={width - pad / 2} y={height - 12} textAnchor="end" className="fill-slate-500 text-[10px]">{edges[edges.length - 1]?.toFixed(3)}</text>
+      <line x1={x(0)} x2={x(0)} y1={pad / 2} y2={height - pad} stroke="#dc2626" strokeWidth={2} strokeDasharray="5 5" />
+      {xTicks.map((tick) => (
+        <g key={`hist-x-${tick}`}>
+          <line x1={x(tick)} x2={x(tick)} y1={height - pad} y2={height - pad + 5} stroke="#94a3b8" />
+          <text x={x(tick)} y={height - pad + 18} textAnchor="middle" className="fill-slate-500 text-[10px]">{tick.toFixed(2)}</text>
+        </g>
+      ))}
       <text x={width / 2} y={height - 8} textAnchor="middle" className="fill-slate-600 text-[11px]">Residual</text>
     </svg>
   );

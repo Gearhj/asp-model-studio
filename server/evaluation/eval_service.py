@@ -10,6 +10,11 @@ from ..core.dataset_store import DATASTORE
 from ..core.result_store import RESULTS
 
 try:
+    from scipy import stats as scipy_stats
+except Exception:  # pragma: no cover
+    scipy_stats = None
+
+try:
     from sklearn.metrics import (
         accuracy_score,
         confusion_matrix,
@@ -53,6 +58,51 @@ except Exception:  # pragma: no cover
 
 
 class EvaluationService:
+    def _artifact_context_mismatch(self, model_name: str, expected: Dict[str, Any] | None = None) -> str:
+        expected = expected or {}
+        metadata = RESULTS.get_model_artifact_metadata(model_name)
+        if not metadata:
+            if any(expected.get(key) for key in ("project_id", "dataset_version", "target", "problem_type")):
+                return "The selected model artifact is not scoped to the current project. Please retrain this model for this project."
+            return ""
+
+        checks = [
+            ("project_id", "project"),
+            ("dataset_version", "dataset version"),
+            ("target", "target"),
+            ("problem_type", "problem type"),
+        ]
+        for key, label in checks:
+            expected_value = str(expected.get(key) or "").strip()
+            actual_value = str(metadata.get(key) or "").strip()
+            if expected_value and actual_value and expected_value != actual_value:
+                return f"The selected model artifact does not match the current {label}. Please retrain {model_name} for this project."
+            if expected_value and not actual_value:
+                return f"The selected model artifact is missing {label} metadata. Please retrain {model_name} for this project."
+        if metadata.get("model_key") and str(metadata.get("model_key")) != str(model_name):
+            return f"The selected model artifact returned key {metadata.get('model_key')}, not {model_name}. Please retrain this model."
+        return ""
+
+    def _artifact_debug(self, model_name: str, expected: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        expected = expected or {}
+        metadata = RESULTS.get_model_artifact_metadata(model_name)
+        summary = RESULTS.get_last_summary() or {}
+        result = self._model_result(model_name) or {}
+        return {
+            "selected_model_key": model_name,
+            "requested_project_id": expected.get("project_id") or "",
+            "requested_dataset_version": expected.get("dataset_version") or "",
+            "requested_target": expected.get("target") or "",
+            "requested_problem_type": expected.get("problem_type") or "",
+            "returned_model_key": metadata.get("model_key") or model_name,
+            "returned_project_id": metadata.get("project_id") or summary.get("project_id") or "",
+            "returned_dataset_version": metadata.get("dataset_version") or summary.get("dataset_version") or "",
+            "returned_target": metadata.get("target") or summary.get("target") or "",
+            "returned_problem_type": metadata.get("problem_type") or result.get("task") or summary.get("problem_type") or "",
+            "training_run_id": metadata.get("training_run_id") or summary.get("training_run_id") or "",
+            "artifact_has_metadata": bool(metadata),
+        }
+
     def _model_result(self, model_name: str) -> Dict[str, Any] | None:
         summary = RESULTS.get_last_summary() or {}
         raw = summary.get("raw") or {}
@@ -164,7 +214,10 @@ class EvaluationService:
 
         return {"ok": True, "deciles": rows}
 
-    def _artifact(self, model_name: str):
+    def _artifact(self, model_name: str, expected: Dict[str, Any] | None = None):
+        mismatch = self._artifact_context_mismatch(model_name, expected)
+        if mismatch:
+            return None
         return RESULTS.get_model_artifact(model_name)
 
     def _test_data(self):
@@ -223,8 +276,11 @@ class EvaluationService:
         scores = self._predict_score(model, X)
         return (scores >= 0.5).astype(int)
 
-    def feature_importance(self, model_name: str) -> Dict[str, Any]:
-        model = self._artifact(model_name)
+    def feature_importance(self, model_name: str, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        mismatch = self._artifact_context_mismatch(model_name, context)
+        if mismatch:
+            return {"ok": False, "error": mismatch, "debug": self._artifact_debug(model_name, context)}
+        model = self._artifact(model_name, context)
         if model is None:
             return {"ok": False, "error": "No fitted model artifact found."}
         _, X_test, _, y_test = self._test_data()
@@ -259,7 +315,10 @@ class EvaluationService:
         rows.sort(key=lambda row: row["importance"], reverse=True)
         return {"ok": True, "rows": rows[:30]}
 
-    def hyperparameters(self, model_name: str) -> Dict[str, Any]:
+    def hyperparameters(self, model_name: str, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        mismatch = self._artifact_context_mismatch(model_name, context)
+        if mismatch:
+            return {"ok": False, "error": mismatch, "debug": self._artifact_debug(model_name, context)}
         result = self._model_result(model_name) or {}
         summary = RESULTS.get_last_summary() or {}
         ranked = summary.get("ranked") or []
@@ -267,7 +326,7 @@ class EvaluationService:
         params = result.get("best_params") or row.get("best_params") or {}
         score = result.get("best_score") or row.get("best_score")
         if not params:
-            model = self._artifact(model_name)
+            model = self._artifact(model_name, context)
             estimator = getattr(model, "named_steps", {}).get("model") if hasattr(model, "named_steps") else model
             if estimator is not None and hasattr(estimator, "get_params"):
                 raw_params = estimator.get_params(deep=False)
@@ -279,8 +338,11 @@ class EvaluationService:
         rows = [{"parameter": str(key), "value": str(value)} for key, value in sorted(params.items())]
         return {"ok": True, "best_score": score, "rows": rows}
 
-    def model_details(self, model_name: str) -> Dict[str, Any]:
-        model = self._artifact(model_name)
+    def model_details(self, model_name: str, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        mismatch = self._artifact_context_mismatch(model_name, context)
+        if mismatch:
+            return {"ok": False, "error": mismatch, "debug": self._artifact_debug(model_name, context)}
+        model = self._artifact(model_name, context)
         if model is None:
             return {"ok": False, "error": "No fitted model artifact found."}
         estimator = getattr(model, "named_steps", {}).get("model") if hasattr(model, "named_steps") else model
@@ -294,16 +356,43 @@ class EvaluationService:
         if hasattr(estimator, "coef_"):
             coef = np.asarray(estimator.coef_).ravel()
             intercept = float(np.asarray(getattr(estimator, "intercept_", [0])).ravel()[0])
+            is_classifier = hasattr(estimator, "classes_")
+            inference = None if is_classifier else self._linear_regression_inference(model, estimator, names)
+            inference_by_feature = {
+                str(row.get("feature")): row
+                for row in (inference or {}).get("coefficient_rows", [])
+            }
             rows = [
                 {
                     "feature": str(name).replace("num__", "").replace("cat__", ""),
                     "coefficient": float(value),
-                    "odds_ratio": float(np.exp(value)),
+                    "standardized_coefficient": inference_by_feature.get(str(name).replace("num__", "").replace("cat__", ""), {}).get("standardized_coefficient"),
+                    "standardized_weight": inference_by_feature.get(str(name).replace("num__", "").replace("cat__", ""), {}).get("standardized_weight"),
+                    "standard_error": inference_by_feature.get(str(name).replace("num__", "").replace("cat__", ""), {}).get("standard_error"),
+                    "t_statistic": inference_by_feature.get(str(name).replace("num__", "").replace("cat__", ""), {}).get("t_statistic"),
+                    "p_value": inference_by_feature.get(str(name).replace("num__", "").replace("cat__", ""), {}).get("p_value"),
+                    "ci_lower": inference_by_feature.get(str(name).replace("num__", "").replace("cat__", ""), {}).get("ci_lower"),
+                    "ci_upper": inference_by_feature.get(str(name).replace("num__", "").replace("cat__", ""), {}).get("ci_upper"),
+                    "confidence_interval_lower": inference_by_feature.get(str(name).replace("num__", "").replace("cat__", ""), {}).get("confidence_interval_lower"),
+                    "confidence_interval_upper": inference_by_feature.get(str(name).replace("num__", "").replace("cat__", ""), {}).get("confidence_interval_upper"),
+                    "odds_ratio": float(np.exp(value)) if is_classifier else None,
                 }
                 for name, value in zip(names, coef)
             ]
             rows.sort(key=lambda row: abs(row["coefficient"]), reverse=True)
-            return {"ok": True, "kind": "equation", "intercept": intercept, "coefficients": rows[:40]}
+            for rank, row in enumerate(rows, start=1):
+                row["absolute_rank"] = rank
+            return {
+                "ok": True,
+                "kind": "equation",
+                "model_type": "classification" if is_classifier else "regression",
+                "debug": self._artifact_debug(model_name, context),
+                "intercept": intercept,
+                "coefficients": rows[:40],
+                "inference_available": bool((inference or {}).get("ok")),
+                "inference_message": (inference or {}).get("message"),
+                "model_fit": (inference or {}).get("model_fit"),
+            }
 
         if estimator.__class__.__name__.lower().startswith("decisiontree"):
             try:
@@ -315,6 +404,123 @@ class EvaluationService:
             return {"ok": True, "kind": "tree", "tree_text": tree_text}
 
         return {"ok": True, "kind": "generic", "message": f"{estimator.__class__.__name__} uses model-agnostic interpretation panels below."}
+
+    def _linear_regression_inference(self, model: Any, estimator: Any, names: Any) -> Dict[str, Any]:
+        try:
+            X_train, _, y_train, _ = self._test_data()
+            if X_train is None or y_train is None:
+                return {"ok": False, "message": "Statistical inference unavailable because training data is unavailable."}
+            preprocess = model.named_steps.get("preprocess") if hasattr(model, "named_steps") else None
+            if preprocess is None or not hasattr(preprocess, "transform"):
+                return {"ok": False, "message": "Statistical inference unavailable because the fitted preprocessing design matrix is unavailable."}
+            matrix = preprocess.transform(X_train)
+            if hasattr(matrix, "toarray"):
+                matrix = matrix.toarray()
+            X = np.asarray(matrix, dtype=float)
+            y = np.asarray(y_train, dtype=float).ravel()
+            if X.ndim != 2 or len(y) != X.shape[0]:
+                return {"ok": False, "message": "Statistical inference unavailable because the transformed design matrix does not align to the target vector."}
+            n_obs, n_predictors = X.shape
+            residual_df = int(n_obs - n_predictors - 1)
+            if residual_df <= 0 or n_obs < 3:
+                return {"ok": False, "message": "Statistical inference unavailable because residual degrees of freedom are invalid."}
+
+            X_design = np.column_stack([np.ones(n_obs), X])
+            rank = int(np.linalg.matrix_rank(X_design))
+            if rank < X_design.shape[1]:
+                return {"ok": False, "message": "Statistical inference unavailable because the transformed design matrix is singular."}
+
+            coef = np.asarray(estimator.coef_, dtype=float).ravel()
+            intercept = float(np.asarray(getattr(estimator, "intercept_", [0])).ravel()[0])
+            params = np.concatenate([[intercept], coef])
+            y_hat = X_design @ params
+            residuals = y - y_hat
+            rss = float(np.sum(residuals ** 2))
+            mse = rss / residual_df
+            xtx_inv = np.linalg.inv(X_design.T @ X_design)
+            covariance = mse * xtx_inv
+            std_errors = np.sqrt(np.maximum(np.diag(covariance), 0))
+            t_stats = np.divide(params, std_errors, out=np.full_like(params, np.nan, dtype=float), where=std_errors > 0)
+
+            if scipy_stats is None:
+                p_values = np.full_like(t_stats, np.nan, dtype=float)
+                critical = np.nan
+                message = "Statistical inference unavailable because SciPy is unavailable."
+            else:
+                p_values = 2 * scipy_stats.t.sf(np.abs(t_stats), residual_df)
+                critical = float(scipy_stats.t.ppf(0.975, residual_df))
+                message = "OLS inference computed from the transformed design matrix used by the fitted pipeline."
+
+            y_std = float(np.std(y, ddof=1)) or 1.0
+            x_stds = np.std(X, axis=0, ddof=1)
+            feature_names = [str(name).replace("num__", "").replace("cat__", "") for name in names]
+            coefficient_rows = []
+            for idx, (feature, coefficient) in enumerate(zip(feature_names, coef), start=1):
+                se = float(std_errors[idx])
+                ci_delta = float(critical * se) if np.isfinite(critical) else np.nan
+                coefficient_rows.append(
+                    {
+                        "feature": feature,
+                        "variable": feature,
+                        "coefficient": float(coefficient),
+                        "standardized_coefficient": float(coefficient * (x_stds[idx - 1] / y_std)) if np.isfinite(x_stds[idx - 1]) else None,
+                        "standardized_weight": float(coefficient * (x_stds[idx - 1] / y_std)) if np.isfinite(x_stds[idx - 1]) else None,
+                        "standard_error": se if np.isfinite(se) else None,
+                        "t_statistic": float(t_stats[idx]) if np.isfinite(t_stats[idx]) else None,
+                        "p_value": float(p_values[idx]) if np.isfinite(p_values[idx]) else None,
+                        "ci_lower": float(coefficient - ci_delta) if np.isfinite(ci_delta) else None,
+                        "ci_upper": float(coefficient + ci_delta) if np.isfinite(ci_delta) else None,
+                        "confidence_interval_lower": float(coefficient - ci_delta) if np.isfinite(ci_delta) else None,
+                        "confidence_interval_upper": float(coefficient + ci_delta) if np.isfinite(ci_delta) else None,
+                    }
+                )
+
+            y_mean = float(np.mean(y))
+            tss = float(np.sum((y - y_mean) ** 2))
+            r2 = float(1 - rss / tss) if tss > 0 else 0.0
+            adjusted_r2 = float(1 - (1 - r2) * ((n_obs - 1) / residual_df)) if residual_df > 0 else 0.0
+            ess = max(tss - rss, 0.0)
+            f_statistic = None
+            prob_f_statistic = None
+            if n_predictors > 0 and residual_df > 0 and rss > 0:
+                f_statistic = float((ess / n_predictors) / (rss / residual_df))
+                if scipy_stats is not None and np.isfinite(f_statistic):
+                    prob_f_statistic = float(scipy_stats.f.sf(f_statistic, n_predictors, residual_df))
+            sigma2_mle = max(rss / n_obs, np.finfo(float).eps)
+            log_likelihood = float(-0.5 * n_obs * (np.log(2 * np.pi * sigma2_mle) + 1))
+            parameter_count = int(n_predictors + 1)
+            aic = float(2 * parameter_count - 2 * log_likelihood)
+            bic = float(np.log(n_obs) * parameter_count - 2 * log_likelihood)
+            try:
+                condition_number = float(np.linalg.cond(X_design))
+            except Exception:
+                condition_number = None
+            return {
+                "ok": scipy_stats is not None,
+                "message": message,
+                "coefficient_rows": coefficient_rows,
+                "model_fit": {
+                    "dependent_variable": str(getattr(y_train, "name", "Target") or "Target"),
+                    "model_type": "Linear Regression",
+                    "r2": r2,
+                    "adjusted_r2": adjusted_r2,
+                    "rmse": float(np.sqrt(np.mean(residuals ** 2))),
+                    "mae": float(np.mean(np.abs(residuals))),
+                    "mse": float(np.mean(residuals ** 2)),
+                    "n_observations": int(n_obs),
+                    "n_predictors": int(n_predictors),
+                    "residual_df": residual_df,
+                    "residual_standard_error": float(np.sqrt(mse)),
+                    "f_statistic": f_statistic,
+                    "prob_f_statistic": prob_f_statistic,
+                    "aic": aic,
+                    "bic": bic,
+                    "log_likelihood": log_likelihood,
+                    "condition_number": condition_number,
+                },
+            }
+        except Exception:
+            return {"ok": False, "message": "Statistical inference unavailable because the fitted pipeline could not be evaluated for OLS inference."}
 
     def decision_tree(self, model_name: str, max_depth: int = 4) -> Dict[str, Any]:
         model = self._artifact(model_name)
@@ -335,6 +541,7 @@ class EvaluationService:
 
         feature_names = [str(name).replace("num__", "").replace("cat__", "") for name in names]
         classes = [str(item) for item in getattr(estimator, "classes_", [])]
+        is_classifier = bool(classes)
         max_depth = max(1, min(int(max_depth or 4), 5))
         nodes: List[Dict[str, Any]] = []
         edges: List[Dict[str, Any]] = []
@@ -345,8 +552,9 @@ class EvaluationService:
             samples = int(tree.n_node_samples[node_id])
             values = np.asarray(tree.value[node_id]).ravel()
             total = float(values.sum()) or 1.0
-            positive_rate = float(values[-1] / total) if len(values) else 0.0
-            predicted_index = int(np.argmax(values)) if len(values) else 0
+            positive_rate = float(values[-1] / total) if is_classifier and len(values) else 0.0
+            prediction_value = float(values[0]) if len(values) else 0.0
+            predicted_index = int(np.argmax(values)) if is_classifier and len(values) else 0
             feature_index = int(tree.feature[node_id])
             feature = feature_names[feature_index] if 0 <= feature_index < len(feature_names) else ""
             threshold = float(tree.threshold[node_id]) if feature else None
@@ -362,7 +570,9 @@ class EvaluationService:
                     "threshold": threshold,
                     "samples": samples,
                     "positive_rate": positive_rate,
-                    "prediction": classes[predicted_index] if predicted_index < len(classes) else str(predicted_index),
+                    "prediction": classes[predicted_index] if is_classifier and predicted_index < len(classes) else f"{prediction_value:.4f}",
+                    "prediction_value": prediction_value,
+                    "model_type": "classification" if is_classifier else "regression",
                 }
             )
             if is_leaf:
@@ -378,7 +588,7 @@ class EvaluationService:
             walk(right, depth + 1, mid, x_max)
 
         walk(0, 0, 0.0, 1.0)
-        return {"ok": True, "nodes": nodes, "edges": edges, "max_depth": max_depth}
+        return {"ok": True, "nodes": nodes, "edges": edges, "max_depth": max_depth, "model_type": "classification" if is_classifier else "regression"}
 
     def knn_clusters(self, model_name: str, max_points: int = 900) -> Dict[str, Any]:
         try:

@@ -1,14 +1,16 @@
-import { loadDecisionJournal, materialDecisionSummary, type DecisionJournalEntry } from "./decisionJournal";
+import { loadDecisionJournal, type DecisionJournalEntry } from "./decisionJournal";
 import { loadExperiments, type ExperimentMetricSet, type ExperimentRecord } from "./experimentTracking";
 import { buildGovernanceReport } from "./governanceReport";
 import { sanitizeReportHtml } from "./htmlSanitizer";
-import { inferLocalProblemType, loadLocalDataset } from "./localDataset";
+import { loadLocalDataset } from "./localDataset";
 import { getNotebookSections } from "./notebookExport";
 import { loadProjectContext, summarizeRegulatoryContext } from "./projectContext";
+import { getProblemType, type AtlasProblemType } from "./problemType";
 import { summarizeBureauHandling, treatmentLabels } from "./creditBureau";
 import { loadDataAccessMetadata } from "./enterpriseDataAccess";
 import { buildReportReadiness } from "./reportReadiness";
 import { BRAND } from "../config/brand";
+import { useWorkflowStore } from "../state/useWorkflowStore";
 import {
   atlasReportStyles,
   decisionJournalTimelineHtml,
@@ -35,6 +37,10 @@ export type ModelDevelopmentDocument = {
 };
 
 export type ModelDevelopmentDocumentMode = "executive" | "governance" | "technical";
+
+export type ModelDevelopmentDocumentOptions = {
+  includeFullDecisionJournalAppendix?: boolean;
+};
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -80,6 +86,14 @@ function compactFileName(value: string) {
   return compact || "model-development-document";
 }
 
+function currentProjectId() {
+  try {
+    return useWorkflowStore.getState().projectId;
+  } catch {
+    return "";
+  }
+}
+
 function isRegressionExperiment(experiment: ExperimentRecord) {
   const metricKeys = ["rmse", "mae", "mse", "r2", "adjusted_r2"] as const;
   return /regressor|linear regression|ridge|lasso/i.test(experiment.modelType) || metricKeys.some((key) => experiment.metrics[key] !== undefined);
@@ -92,46 +106,75 @@ function filterExperimentsForProblem(experiments: ExperimentRecord[], problemTyp
   return experiments;
 }
 
+function filterExperimentsForCurrentDataset(experiments: ExperimentRecord[], dataset: ReturnType<typeof loadLocalDataset>) {
+  if (!dataset?.target || !dataset.rows?.length) return experiments;
+  const expectedPrefix = `${dataset.target}-${dataset.rows.length}-`;
+  const exact = experiments.filter((experiment) => experiment.datasetVersion?.startsWith(expectedPrefix));
+  return exact.length ? exact : experiments;
+}
+
 function selectChampion(experiments: ExperimentRecord[]) {
   return experiments.find((experiment) => experiment.champion) ?? experiments[0] ?? null;
 }
 
-function metricLines(metrics: ExperimentMetricSet | undefined) {
+function metricLines(metrics: ExperimentMetricSet | undefined, problemType: AtlasProblemType | string = "unknown") {
   if (!metrics) return "No model performance metrics captured.";
-  const rows: [keyof ExperimentMetricSet, string, number][] = [
-    ["auc", "AUC", 4],
-    ["pr_auc", "PR-AUC", 4],
-    ["precision", "Precision", 4],
-    ["recall", "Recall", 4],
-    ["f1", "F1", 4],
-    ["ks", "KS", 4],
-    ["lift", "Lift", 2],
-    ["rmse", "RMSE", 4],
-    ["mae", "MAE", 4],
-    ["mse", "MSE", 4],
-    ["r2", "R-squared", 4],
-    ["adjusted_r2", "Adjusted R-squared", 4],
-  ];
+  const isRegression = String(problemType).toLowerCase() === "regression";
+  const rows: [keyof ExperimentMetricSet, string, number][] = isRegression
+    ? [
+        ["rmse", "RMSE", 4],
+        ["mae", "MAE", 4],
+        ["mse", "MSE", 4],
+        ["r2", "R-squared", 4],
+        ["adjusted_r2", "Adjusted R-squared", 4],
+      ]
+    : [
+        ["auc", "AUC", 4],
+        ["pr_auc", "PR-AUC", 4],
+        ["precision", "Precision", 4],
+        ["recall", "Recall", 4],
+        ["f1", "F1", 4],
+        ["ks", "KS", 4],
+        ["lift", "Lift", 2],
+      ];
   const available = rows
     .filter(([key]) => metrics[key] !== undefined && metrics[key] !== null)
     .map(([key, label, digits]) => `- ${label}: ${formatNumber(metrics[key], digits)}`);
-  if (metrics.calibration !== undefined) available.push(`- Calibration: ${safe(metrics.calibration)}`);
+  if (!isRegression && metrics.calibration !== undefined) available.push(`- Calibration: ${safe(metrics.calibration)}`);
   return available.length ? available.join("\n") : "No model performance metrics captured.";
 }
 
-function formatCandidateModels(experiments: ExperimentRecord[]) {
+function formatCandidateModels(experiments: ExperimentRecord[], problemType: AtlasProblemType | string) {
   if (!experiments.length) return "No experiment records have been captured.";
+  const isRegression = String(problemType).toLowerCase() === "regression";
+  if (isRegression) {
+    return professionalTableHtml(
+      ["Model", "Champion", "RMSE", "MAE", "MSE", "R-squared", "Adjusted R-squared", "Runtime"],
+      experiments.slice(0, 30).map((experiment) => [
+        experiment.modelType,
+        experiment.champion ? "Yes" : "No",
+        formatNumber(experiment.metrics.rmse),
+        formatNumber(experiment.metrics.mae),
+        formatNumber(experiment.metrics.mse),
+        formatNumber(experiment.metrics.r2),
+        formatNumber(experiment.metrics.adjusted_r2),
+        `${Math.round((experiment.runtimeMs ?? 0) / 1000)}s`,
+      ]),
+      { wide: true, badgeColumns: ["Champion"] }
+    );
+  }
   return professionalTableHtml(
-    ["Model", "Champion", "AUC", "PR-AUC", "F1", "RMSE", "MAE", "R-squared", "Runtime"],
+    ["Model", "Champion", "AUC", "PR-AUC", "Precision", "Recall", "F1", "KS", "Lift", "Runtime"],
     experiments.slice(0, 30).map((experiment) => [
       experiment.modelType,
       experiment.champion ? "Yes" : "No",
       formatNumber(experiment.metrics.auc),
       formatNumber(experiment.metrics.pr_auc),
+      formatNumber(experiment.metrics.precision),
+      formatNumber(experiment.metrics.recall),
       formatNumber(experiment.metrics.f1),
-      formatNumber(experiment.metrics.rmse),
-      formatNumber(experiment.metrics.mae),
-      formatNumber(experiment.metrics.r2),
+      formatNumber(experiment.metrics.ks),
+      formatNumber(experiment.metrics.lift, 2),
       `${Math.round((experiment.runtimeMs ?? 0) / 1000)}s`,
     ]),
     { wide: true, badgeColumns: ["Champion"] }
@@ -152,6 +195,95 @@ function formatDecisions(entries: DecisionJournalEntry[]) {
   return decisionJournalTimelineHtml(entries);
 }
 
+function materialDecisionArea(entry: DecisionJournalEntry) {
+  const text = `${entry.workflowStep} ${entry.subject} ${entry.actionType}`.toLowerCase();
+  if (/target/.test(text)) return "Target selected";
+  if (/dataset|data acquisition|import/.test(text)) return "Dataset linked";
+  if (/feature/.test(text)) return "Feature set finalized";
+  if (/missing|outlier|preprocess/.test(text)) return "Preprocessing selected";
+  if (/split|holdout|k-fold|kfold/.test(text)) return "Split selected";
+  if (/model|train/.test(text)) return "Models trained";
+  if (/champion/.test(text)) return "Champion selected";
+  if (/final/.test(text)) return "Final model saved";
+  if (/scor|stability/.test(text)) return "Scoring reviewed";
+  if (/monitor/.test(text)) return "Monitoring plan selected";
+  if (/implementation/.test(text)) return "Implementation readiness";
+  return entry.subject || entry.workflowStep || "Material decision";
+}
+
+function formatMaterialDecisionTable(entries: DecisionJournalEntry[]) {
+  if (!entries.length) {
+    return "No material decision journal entries have been captured yet. Continue using workflow controls so champion selection, preprocessing, split, balancing, and final-model decisions are logged.";
+  }
+  return professionalTableHtml(
+    ["Decision Area", "Final Decision", "Evidence", "Owner / Source", "Timestamp"],
+    entries.slice(0, 15).map((entry) => [
+      materialDecisionArea(entry),
+      safe(entry.newValue, "Not documented"),
+      safe(entry.systemRecommendation, "Captured from ATLAS workflow state"),
+      entry.followStatus === "overrode" ? `User override: ${safe(entry.userReason, "No rationale captured")}` : "ATLAS workflow / Decision Journal",
+      entry.timestamp,
+    ]),
+    { wide: true }
+  );
+}
+
+const predictiveMaterialActionTypes = new Set<string>([
+  "project_created",
+  "project_context_updated",
+  "target_variable_selected",
+  "feature_inclusion_changed",
+  "outlier_method_selected",
+  "missing_value_strategy_selected",
+  "balancing_method_selected",
+  "split_strategy_selected",
+  "model_selected",
+  "models_trained",
+  "champion_model_selected",
+  "final_model_saved",
+  "scoring_reviewed",
+  "monitoring_plan_selected",
+  "implementation_readiness_decision",
+]);
+
+function summarizeMaterialReportDecisions(entries: DecisionJournalEntry[], maxEntries = 15) {
+  const excludedText = /autosave|save draft|page visit|visited|toggle testing|python smoke|run user python|copy code|expanded|collapsed/i;
+  const excludedStep = /experimental design|monte carlo|anova|randomization|blocking|levels|factors|research question/i;
+  const seen = new Set<string>();
+  const summarized: DecisionJournalEntry[] = [];
+
+  for (const entry of entries) {
+    const actionType = String(entry.actionType ?? "");
+    const workflowStep = String(entry.workflowStep ?? "");
+    const subject = String(entry.subject ?? "");
+    const combined = `${workflowStep} ${subject} ${entry.previousValue ?? ""} ${entry.newValue ?? ""} ${entry.userReason ?? ""}`;
+
+    if (excludedStep.test(workflowStep) || excludedText.test(combined)) continue;
+    if (!predictiveMaterialActionTypes.has(actionType) && !/target|feature|preprocess|outlier|missing|split|balance|train|champion|final model|scor|monitor|implementation/i.test(combined)) {
+      continue;
+    }
+
+    const key = `${workflowStep.toLowerCase()}::${actionType.toLowerCase()}::${subject.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    summarized.push(entry);
+    if (summarized.length >= maxEntries) break;
+  }
+
+  return summarized;
+}
+
+function collapsedAuditAppendix(entries: DecisionJournalEntry[]) {
+  if (!entries.length) return "No decision journal entries have been captured.";
+  return [
+    '<details class="atlas-callout">',
+    '<summary><strong>Full Audit Appendix</strong> - expand to review captured decision journal events.</summary>',
+    '<div class="atlas-spacer"></div>',
+    decisionJournalTimelineHtml(entries.slice(0, 100)),
+    "</details>",
+  ].join("\n");
+}
+
 function formatExperimentAppendix(experiments: ExperimentRecord[]) {
   if (!experiments.length) return "No experiment records have been captured.";
   return professionalTableHtml(
@@ -164,7 +296,7 @@ function formatExperimentAppendix(experiments: ExperimentRecord[]) {
       experiment.datasetVersion,
       experiment.selectedFeatures.length,
       [`Balancing: ${experiment.balancingMethod}`, `Split: ${experiment.splitStrategy}`].join("; "),
-      metricLines(experiment.metrics).replace(/\n/g, "; ").replace(/^- /g, ""),
+      metricLines(experiment.metrics, isRegressionExperiment(experiment) ? "regression" : "classification").replace(/\n/g, "; ").replace(/^- /g, ""),
       experiment.notes || "-",
     ]),
     { wide: true, badgeColumns: ["Champion"] }
@@ -232,14 +364,20 @@ function formatConfusionOrResidual(champion: ExperimentRecord | null) {
   return "For regression models, confusion matrix, ROC, and PR curves are not applicable. Use residual diagnostics, RMSE, MAE, MSE, R-squared, adjusted R-squared, prediction stability, and actual-versus-predicted plots.";
 }
 
-function buildSections(mode: ModelDevelopmentDocumentMode): ModelDevelopmentDocumentSection[] {
+function buildSections(
+  mode: ModelDevelopmentDocumentMode,
+  options: ModelDevelopmentDocumentOptions = {}
+): ModelDevelopmentDocumentSection[] {
   const context = loadProjectContext();
   const dataset = loadLocalDataset();
-  const problemType = inferLocalProblemType(dataset) ?? dataset?.problem_type ?? "Not documented";
-  const experiments = filterExperimentsForProblem(loadExperiments(), String(problemType));
+  const problemType = getProblemType(context, dataset);
+  const experiments = filterExperimentsForCurrentDataset(
+    filterExperimentsForProblem(loadExperiments(), String(problemType)),
+    dataset
+  );
   const decisions = loadDecisionJournal();
   const champion = selectChampion(experiments);
-  const materialDecisions = materialDecisionSummary(decisions);
+  const materialDecisions = summarizeMaterialReportDecisions(decisions);
   const readiness = buildReportReadiness({ problemType: String(problemType), experiments, champion, decisions, dataset, context });
   const governance = buildGovernanceReport();
   const missingStrategies = readJson<Record<string, unknown>>("modeling-tool-missing-config", {});
@@ -264,6 +402,10 @@ function buildSections(mode: ModelDevelopmentDocumentMode): ModelDevelopmentDocu
         `Development environment: ${BRAND.productName} local workbench`,
         `Prepared for: Consumer Lending AI/ML model development`,
         `Document type: Model Development Document`,
+        `Project ID: ${safe(currentProjectId())}`,
+        `Dataset version: ${safe(champion?.datasetVersion ?? dataAccess?.version)}`,
+        `Final model ID: ${safe(champion?.modelKey)}`,
+        `Final training run ID: ${safe(champion?.experimentId)}`,
         `Problem type: ${safe(problemType)}`,
         `Champion model: ${safe(champion?.modelType, "No champion selected")}`,
       ].join("\n"),
@@ -276,9 +418,11 @@ function buildSections(mode: ModelDevelopmentDocumentMode): ModelDevelopmentDocu
         `Rows in browser sample: ${dataset?.rows.length ?? 0}`,
         `Selected features: ${selectedFeatures.length}`,
         `Champion model: ${safe(champion?.modelType, "No champion selected")}`,
+        `Final training run ID: ${safe(champion?.experimentId)}`,
+        `Dataset version: ${safe(champion?.datasetVersion ?? dataAccess?.version)}`,
         `Primary success metric: ${safe(context.primarySuccessMetric)}`,
         "",
-        metricLines(champion?.metrics),
+        metricLines(champion?.metrics, problemType),
       ].join("\n"),
     },
     {
@@ -296,12 +440,14 @@ function buildSections(mode: ModelDevelopmentDocumentMode): ModelDevelopmentDocu
         readiness.missingEvidence.length ? `Missing evidence:\n${readiness.missingEvidence.map((item) => `- ${item}`).join("\n")}` : "",
       ].filter(Boolean).join("\n"),
     },
-    {
-      title: "Material Decision Summary",
-      content: materialDecisions.length
-        ? formatDecisions(materialDecisions)
-        : "No material decision journal entries have been captured yet. Continue using workflow controls so champion selection, preprocessing, split, balancing, and final-model decisions are logged.",
-    },
+    ...(mode === "executive"
+      ? []
+      : [
+          {
+            title: "Material Decision Summary",
+            content: formatMaterialDecisionTable(materialDecisions),
+          },
+        ]),
     {
       title: "Business Context",
       content: [
@@ -312,8 +458,8 @@ function buildSections(mode: ModelDevelopmentDocumentMode): ModelDevelopmentDocu
         `Target implementation date: ${safe(context.implementationTargetDate)}`,
         `Interpretability requirement: ${safe(context.interpretabilityRequirement)}`,
         `Regulatory environment: ${summarizeRegulatoryContext(context)}`,
-        `False positive cost: ${safe(context.falsePositiveCost)}`,
-        `False negative cost: ${safe(context.falseNegativeCost)}`,
+        `${problemType === "regression" ? "Overprediction cost" : "False positive cost"}: ${safe(context.falsePositiveCost)}`,
+        `${problemType === "regression" ? "Underprediction cost" : "False negative cost"}: ${safe(context.falseNegativeCost)}`,
       ].join("\n"),
     },
     {
@@ -336,6 +482,10 @@ function buildSections(mode: ModelDevelopmentDocumentMode): ModelDevelopmentDocu
         `SQL query: ${safe(dataAccess?.sqlQuery)}`,
         `Import date: ${safe(dataAccess?.importedAt)}`,
         `Dataset ID: ${safe(dataAccess?.datasetId)}`,
+        `Dataset Library ID: ${safe(dataset?.dataset_library?.datasetId)}`,
+        `Dataset Library version: ${safe(dataset?.dataset_library?.versionId)}`,
+        `Dataset Library name: ${safe(dataset?.dataset_library?.datasetName)}`,
+        `Dataset Library role: ${safe(dataset?.dataset_library?.datasetRole)}`,
         `Dataset version: ${safe(dataAccess?.version)}`,
         `Dataset hash: ${safe(dataAccess?.hash)}`,
         `Sampling approach: ${safe(dataAccess?.samplingMethod)} ${safe(dataAccess?.samplingDetail, "")}`,
@@ -376,19 +526,25 @@ function buildSections(mode: ModelDevelopmentDocumentMode): ModelDevelopmentDocu
       title: "Train/Test and Balancing Strategy",
       content: [
         `Split strategy: ${safe(splitStrategy)}`,
-        `Balancing method: ${safe(balanceMethod)}`,
-        `Balance ratio: ${safe(balanceRatio, "Not documented or not applicable")}`,
+        problemType === "regression" ? "Balancing method: Not applicable for continuous-target regression." : `Balancing method: ${safe(balanceMethod)}`,
+        problemType === "regression" ? "Balance ratio: Not applicable for continuous-target regression." : `Balance ratio: ${safe(balanceRatio, "Not documented or not applicable")}`,
       ].join("\n"),
     },
-    { title: "Candidate Models", content: formatCandidateModels(experiments) },
-    { title: "Model Performance", content: metricLines(champion?.metrics) },
+    { title: "Candidate Models", content: formatCandidateModels(experiments, problemType) },
+    { title: "Model Performance", content: metricLines(champion?.metrics, problemType) },
     {
       title: "Model Interpretation",
       content: [
         "Feature importance and SHAP-style summaries are appropriate for both classification and regression when interpreted as model behavior evidence, not causal proof.",
+        champion?.modelType && /linear regression/i.test(champion.modelType)
+          ? "Linear Regression champion: include the coefficient table, coefficient-weight chart, intercept, and any preprocessing assumptions in the validation package. ATLAS does not report p-values unless a statistical inference estimator provides them."
+          : "",
+        champion?.modelType && /decision tree regressor/i.test(champion.modelType)
+          ? "Decision Tree Regressor champion: include the rule table, root split, terminal leaves, tree depth, and most important decision paths in the validation package."
+          : "",
         "",
         formatFeatureImportance(champion),
-      ].join("\n"),
+      ].filter(Boolean).join("\n"),
     },
     {
       title: "Model Selection Rationale",
@@ -432,12 +588,19 @@ function buildSections(mode: ModelDevelopmentDocumentMode): ModelDevelopmentDocu
     },
   ];
 
-  if (mode !== "executive") {
-    sections.push({ title: "Decision Journal Appendix", content: formatDecisions(decisions) });
+  if (mode === "governance") {
+    sections.push({
+      title: "Decision Journal Appendix",
+      content: formatMaterialDecisionTable(materialDecisions),
+    });
     sections.push({ title: "Experiment Appendix", content: formatExperimentAppendix(experiments) });
   }
 
   if (mode === "technical") {
+    if (options.includeFullDecisionJournalAppendix) {
+      sections.push({ title: "Full Audit Appendix", content: collapsedAuditAppendix(decisions) });
+    }
+    sections.push({ title: "Experiment Appendix", content: formatExperimentAppendix(experiments) });
     sections.push({
       title: "Python / Reproducibility Appendix",
       content: [formatPythonAppendix(), "", "Governance report sections generated in parallel:", governance.sections.map((section) => `- ${section.number}. ${section.title}`).join("\n")].join("\n"),
@@ -498,11 +661,14 @@ function renderHtml(title: string, generatedAt: string, sections: ModelDevelopme
 </html>`);
 }
 
-export function buildModelDevelopmentDocument(mode: ModelDevelopmentDocumentMode = "governance"): ModelDevelopmentDocument {
+export function buildModelDevelopmentDocument(
+  mode: ModelDevelopmentDocumentMode = "governance",
+  options: ModelDevelopmentDocumentOptions = {}
+): ModelDevelopmentDocument {
   const context = loadProjectContext();
   const generatedAt = new Date().toISOString();
   const title = `${safe(context.projectName, "Model")} Model Development Document`;
-  const sections = buildSections(mode);
+  const sections = buildSections(mode, options);
   const markdown = renderMarkdown(title, generatedAt, sections);
   const html = renderHtml(title, generatedAt, sections);
 

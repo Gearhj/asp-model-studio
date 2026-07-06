@@ -1,0 +1,112 @@
+{
+  "datasets": [
+    {
+      "access": [
+        {
+          "role": "admin",
+          "userId": "local-user"
+        }
+      ],
+      "archived": false,
+      "createdAt": "2026-07-06T18:08:18.597382+00:00",
+      "datasetId": "ds_reg_train_309ce82d",
+      "description": "",
+      "domain": "General",
+      "linkedProjects": [
+        {
+          "datasetRole": "modeling",
+          "projectId": "atlas-mr6r2puh",
+          "versionId": "v_1783361298379_309ce82d"
+        }
+      ],
+      "name": "REG_TRAIN",
+      "ownerDisplayName": "Local ATLAS User",
+      "ownerUserId": "local-user",
+      "sourceType": "upload",
+      "updatedAt": "2026-07-06T18:13:40.664322+00:00",
+      "versions": [
+        {
+          "columnCount": 9,
+          "createdAt": "2026-07-06T18:08:18.597382+00:00",
+          "createdBy": "local-user",
+          "hash": "309ce82dce9a13ef158730715517e1f2d8ba9865b61994782a4f463242767cac",
+          "originalFilename": "REG_TRAIN.csv",
+          "previewPath": "ds_reg_train_309ce82d\\versions\\v_1783361298379_309ce82d\\preview.json",
+          "profilePath": "ds_reg_train_309ce82d\\versions\\v_1783361298379_309ce82d\\profile.json",
+          "rowCount": 12384,
+          "samplePath": "ds_reg_train_309ce82d\\versions\\v_1783361298379_309ce82d\\data_sample.csv",
+          "versionId": "v_1783361298379_309ce82d",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "admin",
+          "userId": "local-user"
+        }
+      ],
+      "archived": false,
+      "createdAt": "2026-07-06T18:08:33.259525+00:00",
+      "datasetId": "ds_reg_test_c17dc872",
+      "description": "",
+      "domain": "General",
+      "linkedProjects": [],
+      "name": "REG_TEST",
+      "ownerDisplayName": "Local ATLAS User",
+      "ownerUserId": "local-user",
+      "sourceType": "upload",
+      "updatedAt": "2026-07-06T18:08:33.259525+00:00",
+      "versions": [
+        {
+          "columnCount": 9,
+          "createdAt": "2026-07-06T18:08:33.258526+00:00",
+          "createdBy": "local-user",
+          "hash": "c17dc872fe035e3122da63b3bc947f9dcba4993df51886c604a7949c29698bd5",
+          "originalFilename": "REG_TEST.csv",
+          "previewPath": "ds_reg_test_c17dc872\\versions\\v_1783361313115_c17dc872\\preview.json",
+          "profilePath": "ds_reg_test_c17dc872\\versions\\v_1783361313115_c17dc872\\profile.json",
+          "rowCount": 4128,
+          "samplePath": "ds_reg_test_c17dc872\\versions\\v_1783361313115_c17dc872\\data_sample.csv",
+          "versionId": "v_1783361313115_c17dc872",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "admin",
+          "userId": "local-user"
+        }
+      ],
+      "archived": false,
+      "createdAt": "2026-07-06T18:08:38.553895+00:00",
+      "datasetId": "ds_reg_oot_12124cc2",
+      "description": "",
+      "domain": "General",
+      "linkedProjects": [],
+      "name": "REG_OOT",
+      "ownerDisplayName": "Local ATLAS User",
+      "ownerUserId": "local-user",
+      "sourceType": "upload",
+      "updatedAt": "2026-07-06T18:08:38.553895+00:00",
+      "versions": [
+        {
+          "columnCount": 9,
+          "createdAt": "2026-07-06T18:08:38.547416+00:00",
+          "createdBy": "local-user",
+          "hash": "12124cc2a29864b198035541c25f7e4c50627ddc60975f66fc84eade7396dc28",
+          "originalFilename": "REG_OOT.csv",
+          "previewPath": "ds_reg_oot_12124cc2\\versions\\v_1783361318362_12124cc2\\preview.json",
+          "profilePath": "ds_reg_oot_12124cc2\\versions\\v_1783361318362_12124cc2\\profile.json",
+          "rowCount": 4128,
+          "samplePath": "ds_reg_oot_12124cc2\\versions\\v_1783361318362_12124cc2\\data_sample.csv",
+          "versionId": "v_1783361318362_12124cc2",
+          "warnings": []
+        }
+      ]
+    }
+  ]
+}
