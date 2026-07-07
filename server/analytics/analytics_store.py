@@ -140,6 +140,26 @@ def diagnostics() -> Dict[str, Any]:
         {"id": "analytics_store_writable", "label": "Analytics insight store writable", "status": "pass" if writable else "fail", "detail": str(ANALYTICS_ROOT)},
         {"id": "analytics_acl", "label": "Dataset access enforced for analytics", "status": "pass", "detail": "Insight list/create/delete calls validate dataset access through Dataset Library ACLs."},
         {"id": "analytics_python", "label": "Python execution endpoint status", "status": "warning", "detail": "Workbench Python uses the local /api/python/run endpoint against user-provided preview/sample code."},
+        {"id": "analytics_sql_preview", "label": "SQL preview execution", "status": "pass", "detail": "Workbench SQL uses /api/analytics/sql/run for safe SELECT-only execution over preview rows."},
+        {"id": "analytics_r_template", "label": "R workspace status", "status": "warning", "detail": "R code generation is available. Execution depends on local Rscript diagnostics."},
+        {"id": "analytics_sas_compatible", "label": "SAS-compatible engine", "status": "pass", "detail": "ATLAS can execute supported SAS-style PROC and DATA step syntax without a SAS license."},
+        {"id": "analytics_code_insights", "label": "Code insight store writable", "status": "pass" if writable else "fail", "detail": "Python, SQL, R, and SAS snippets can be saved as analytics insights when the store is writable."},
         {"id": "analytics_notebook", "label": "Notebook export available", "status": "warning", "detail": "Saved workbench Python is not yet merged into the governed notebook export."},
     ]
+    try:
+        from ..python_execution import sas_diagnostics
+
+        sas = sas_diagnostics()
+        if sas.get("sasExecutionAvailable"):
+            status = "pass"
+            detail = f"Optional licensed SAS bridge is available through {sas.get('connectionMethod', 'SASPy')}."
+        elif sas.get("saspyInstalled"):
+            status = "warning"
+            detail = f"ATLAS SAS-Compatible mode is available. Optional SASPy bridge is installed but {sas.get('connectionMethod', 'Template only')}."
+        else:
+            status = "pass"
+            detail = "ATLAS SAS-Compatible mode is available. SASPy is only needed for the optional licensed SAS bridge."
+        checks.append({"id": "analytics_sas_runtime_setup", "label": "Optional licensed SAS bridge", "status": status, "detail": detail})
+    except Exception as exc:
+        checks.append({"id": "analytics_sas_runtime_setup", "label": "SAS runtime setup", "status": "warning", "detail": f"SAS runtime diagnostics unavailable: {exc}"})
     return {"ok": True, "checks": checks, "insightCount": len(payload.get("insights", [])), "artifactRoot": str(ANALYTICS_ROOT)}

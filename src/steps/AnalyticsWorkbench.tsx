@@ -3,6 +3,8 @@ import type React from "react";
 import { Link } from "react-router-dom";
 import { BarChart3, Brain, Code2, Copy, Database, FileText, Play, Save, Search, Sparkles, Trash2 } from "lucide-react";
 import BrandLogo from "../components/BrandLogo";
+import { CodeWorkspacePanel } from "../components/code/CodeWorkspacePanel";
+import ExportResultActions from "../components/export/ExportResultActions";
 import {
   getDataset,
   getDatasetAccess,
@@ -14,7 +16,24 @@ import {
   type DatasetSummary,
   type DatasetVersionSummary,
 } from "../lib/datasetLibrary";
-import { auditAnalyticsRun, listAnalyticsInsights, saveAnalyticsInsight, type AtlasAnalyticsInsight } from "../lib/analyticsWorkbench";
+import { auditAnalyticsRun, exportAnalyticsPackage, exportAnalyticsResultExcel, listAnalyticsInsights, runAnalyticsPreviewSql, saveAnalyticsInsight, type AnalyticsExportFormat, type AnalyticsSqlRunResult, type AtlasAnalyticsInsight } from "../lib/analyticsWorkbench";
+import {
+  cleanupQuestion as cleanupQuestionText,
+  fetchPythonDiagnostics,
+  fetchSasDiagnostics,
+  runUserPython,
+  runUserR,
+  runUserSas,
+  runUserSasCompatible,
+  saveSasRuntimeSettings,
+  testSasConnection,
+  type CodeRunResult,
+  type CodeLanguage,
+  type PythonDiagnostics,
+  type PythonExecutionResult,
+  type SasDiagnostics,
+  type SasExecutionMode,
+} from "../lib/codeExecution";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") || "http://127.0.0.1:8001/api";
@@ -35,21 +54,13 @@ type NumericSummary = {
   distinct: number;
 };
 
-type PythonOutput = {
-  ok: boolean;
-  stdout: string;
-  stderr: string;
-  runtimeMs: number;
-  status?: string;
-  returnCode?: number;
-};
-
 type PivotConfig = {
   rowField: string;
   columnField: string;
   valueField: string;
   aggregation: string;
-  autoBin: boolean;
+  autoBinRows: boolean;
+  autoBinColumns: boolean;
   topN: number;
   binaryTarget: string;
 };
@@ -89,14 +100,31 @@ export default function AnalyticsWorkbench() {
   const [message, setMessage] = useState("");
   const [userPython, setUserPython] = useState('print("ATLAS Analytics Workbench Python smoke test passed.")\nprint(df.shape)\nprint(df.head())');
   const [userSql, setUserSql] = useState("");
-  const [pythonOutput, setPythonOutput] = useState<PythonOutput | null>(null);
+  const [userR, setUserR] = useState('cat("ATLAS R smoke test passed.\\n")\ncat("Rows:", nrow(df), " Columns:", ncol(df), "\\n")\nprint(head(df))');
+  const [userSas, setUserSas] = useState("");
+  const [activeCodeLanguage, setActiveCodeLanguage] = useState<CodeLanguage>("python");
+  const [insightFilter, setInsightFilter] = useState("all");
+  const [pythonOutput, setPythonOutput] = useState<PythonExecutionResult | null>(null);
+  const [pythonDiagnostics, setPythonDiagnostics] = useState<PythonDiagnostics | null>(null);
+  const [sasDiagnostics, setSasDiagnostics] = useState<SasDiagnostics | null>(null);
+  const [sasMode, setSasMode] = useState<SasExecutionMode>("template_only");
+  const [sasCfgname, setSasCfgname] = useState("");
+  const [sasCfgfile, setSasCfgfile] = useState("");
+  const [savingSasSettings, setSavingSasSettings] = useState(false);
+  const [testingSasConnection, setTestingSasConnection] = useState(false);
   const [runningPython, setRunningPython] = useState(false);
-  const [sqlValidation, setSqlValidation] = useState("");
+  const [sqlResult, setSqlResult] = useState<AnalyticsSqlRunResult | null>(null);
+  const [rResult, setRResult] = useState<CodeRunResult | null>(null);
+  const [sasResult, setSasResult] = useState<CodeRunResult | null>(null);
+  const [runningSql, setRunningSql] = useState(false);
+  const [runningR, setRunningR] = useState(false);
+  const [runningSas, setRunningSas] = useState(false);
   const [pivotRowField, setPivotRowField] = useState("");
   const [pivotColumnField, setPivotColumnField] = useState("");
   const [pivotValueField, setPivotValueField] = useState("");
   const [pivotAggregation, setPivotAggregation] = useState("mean");
-  const [pivotAutoBin, setPivotAutoBin] = useState(true);
+  const [pivotAutoBinRows, setPivotAutoBinRows] = useState(true);
+  const [pivotAutoBinColumns, setPivotAutoBinColumns] = useState(false);
   const [pivotTopN, setPivotTopN] = useState(12);
 
   useEffect(() => {
@@ -106,7 +134,18 @@ export default function AnalyticsWorkbench() {
         if (!datasetId && payload.datasets[0]) setDatasetId(payload.datasets[0].datasetId);
       })
       .catch((error) => setMessage(error instanceof Error ? error.message : "ATLAS could not load accessible datasets."));
+    fetchPythonDiagnostics().then(setPythonDiagnostics).catch(() => undefined);
+    refreshSasDiagnostics().catch(() => undefined);
   }, []);
+
+  async function refreshSasDiagnostics() {
+    const diagnostics = await fetchSasDiagnostics();
+    setSasDiagnostics(diagnostics);
+    setSasMode(diagnostics.settings?.executionMode ?? diagnostics.sasExecutionMode ?? "template_only");
+    setSasCfgname(diagnostics.settings?.cfgname ?? diagnostics.activeCfgName ?? "");
+    setSasCfgfile(diagnostics.settings?.cfgfile ?? diagnostics.activeCfgFile ?? "");
+    return diagnostics;
+  }
 
   useEffect(() => {
     if (!datasetId) return;
@@ -189,10 +228,171 @@ export default function AnalyticsWorkbench() {
   const groupRows = useMemo(() => groupComparison(rows, groupColumn, metricColumn, aggregation, target), [rows, groupColumn, metricColumn, aggregation, target]);
   const correlations = useMemo(() => topCorrelations(rows, numericColumns), [rows, numericColumns]);
   const quality = useMemo(() => qualityReview(profile, rows, columns, numericColumns), [profile, rows, columns, numericColumns]);
-  const pivot = useMemo(() => buildPivot(rows, { rowField: pivotRowField, columnField: pivotColumnField, valueField: pivotValueField, aggregation: pivotAggregation, autoBin: pivotAutoBin, topN: pivotTopN, binaryTarget: target }), [rows, pivotRowField, pivotColumnField, pivotValueField, pivotAggregation, pivotAutoBin, pivotTopN, target]);
-  const generatedPython = useMemo(() => buildPythonTemplate({ dataset, versionId, rows, columns, target, groupColumn, metricColumn, secondaryDataset, secondaryVersionId, joinKey, joinType, pivot }), [dataset, versionId, rows, columns, target, groupColumn, metricColumn, secondaryDataset, secondaryVersionId, joinKey, joinType, pivot]);
-  const generatedSql = useMemo(() => buildSqlTemplate({ dataset, versionId, profile, columns, target, secondaryDataset, secondaryVersionId, secondaryPreview, joinKey, joinType, pivot }), [dataset, versionId, profile, columns, target, secondaryDataset, secondaryVersionId, secondaryPreview, joinKey, joinType, pivot]);
+  const pivot = useMemo(() => buildPivot(rows, { rowField: pivotRowField, columnField: pivotColumnField, valueField: pivotValueField, aggregation: pivotAggregation, autoBinRows: pivotAutoBinRows, autoBinColumns: pivotAutoBinColumns, topN: pivotTopN, binaryTarget: target }), [rows, pivotRowField, pivotColumnField, pivotValueField, pivotAggregation, pivotAutoBinRows, pivotAutoBinColumns, pivotTopN, target]);
+  const codeContext = { dataset, versionId, profile, rows, columns, target, groupColumn, metricColumn, secondaryDataset, secondaryVersionId, secondaryPreview, joinKey, joinType, pivot, businessQuestion };
+  const generatedPython = useMemo(() => buildPythonTemplate(codeContext), [dataset, versionId, rows, columns, target, groupColumn, metricColumn, secondaryDataset, secondaryVersionId, joinKey, joinType, pivot, businessQuestion]);
+  const generatedSql = useMemo(() => buildSqlTemplate(codeContext), [dataset, versionId, profile, columns, target, secondaryDataset, secondaryVersionId, secondaryPreview, joinKey, joinType, pivot, businessQuestion]);
+  const generatedR = useMemo(() => buildRTemplate(codeContext), [dataset, versionId, columns, target, secondaryDataset, secondaryVersionId, joinKey, joinType, pivot, businessQuestion]);
+  const generatedSas = useMemo(() => buildSasTemplate(codeContext), [dataset, versionId, columns, target, secondaryDataset, secondaryVersionId, joinKey, joinType, pivot, businessQuestion]);
   const recommendedAnalyses = useMemo(() => recommendAnalyses(businessQuestion, target, targetSummary.mode, columns), [businessQuestion, target, targetSummary.mode, columns]);
+  const languageCode = {
+    python: { label: "Python", generated: generatedPython, user: userPython, setUser: setUserPython },
+    sql: { label: "SQL", generated: generatedSql, user: userSql, setUser: setUserSql },
+    r: { label: "R", generated: generatedR, user: userR, setUser: setUserR },
+    sas: { label: "SAS-compatible", generated: generatedSas, user: userSas, setUser: setUserSas },
+  } satisfies Record<CodeLanguage, { label: string; generated: string; user: string; setUser: (value: string) => void }>;
+  const activeLanguageCode = languageCode[activeCodeLanguage];
+  const filteredInsights = useMemo(() => filterInsights(insights, insightFilter), [insights, insightFilter]);
+  const activeExecutionResult = activeCodeLanguage === "python" ? pythonOutput : activeCodeLanguage === "sql" ? sqlResult : activeCodeLanguage === "r" ? rResult : sasResult;
+  const datasetName = dataset?.name ?? datasetId;
+  const moduleExportMetadata = {
+    datasetId,
+    linkedProjectId: projectId,
+    target,
+    previewRowCount: rows.length,
+    profileRows: profile?.rowCount ?? dataset?.latestVersion?.rowCount ?? rows.length,
+    profileColumns: profile?.columnCount ?? columns.length,
+  };
+
+  const currentExportPayload = (savedInsight?: AtlasAnalyticsInsight) => buildExportPayload({
+    businessQuestion,
+    cleanedQuestion: businessQuestion,
+    analysisPlan,
+    generatedPython,
+    generatedSql,
+    generatedR,
+    generatedSas,
+    userPython,
+    userSql,
+    userR,
+    userSas,
+    activeLanguage: activeCodeLanguage,
+    activeCode: activeLanguageCode.user || activeLanguageCode.generated,
+    dataset,
+    datasetId,
+    versionId,
+    projectId,
+    target,
+    previewRowCount: rows.length,
+    pivot,
+    sqlResult,
+    sasResult,
+    pythonResult: pythonOutput,
+    rResult,
+    savedInsight,
+    metadata: {
+      profileRows: profile?.rowCount ?? dataset?.latestVersion?.rowCount ?? rows.length,
+      profileColumns: profile?.columnCount ?? columns.length,
+      selectedColumn,
+      groupColumn,
+      metricColumn,
+      aggregation,
+      secondaryDatasetId,
+      secondaryDatasetName: secondaryDataset?.name ?? "",
+      secondaryVersionId,
+      joinKey,
+      joinType,
+      recommendedAnalyses,
+      qualityFindings: quality.slice(0, 10).map((item) => item.label),
+    },
+  });
+
+  const downloadExport = async (format: AnalyticsExportFormat, savedInsight?: AtlasAnalyticsInsight) => {
+    try {
+      const { blob, filename } = await exportAnalyticsPackage(format, currentExportPayload(savedInsight));
+      downloadBlob(blob, filename);
+      const label = format === "excel" ? "Excel" : format === "word" ? "Word" : "PowerPoint";
+      setMessage(`${label} export created.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "ATLAS could not create this analytics export.");
+    }
+  };
+
+  const downloadResultExport = async (_format: AnalyticsExportFormat, resultType: string, resultPayload: Record<string, unknown>) => {
+    try {
+      const { blob, filename } = await exportAnalyticsResultExcel({
+        resultType: resultType as never,
+        exportTitle: resultExportTitle(resultType),
+        datasetName,
+        versionId,
+        businessQuestion,
+        resultPayload,
+        metadata: moduleExportMetadata,
+        createdAt: new Date().toISOString(),
+      });
+      downloadBlob(blob, filename);
+      setMessage(`${resultExportTitle(resultType)} Excel export created.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "ATLAS could not create this Excel result export.");
+    }
+  };
+
+  const columnExplorerExportPayload = () => ({
+    selectedColumn,
+    statistics: selectedSummary.kind === "numeric" ? numericSummaryRows(selectedSummary.summary) : [["Column", selectedColumn], ["Type", "Categorical"], ["Distinct preview values", counts(rows, selectedColumn).length]],
+    histogramBins: selectedSummary.kind === "numeric" ? histogramBins(numericValues(rows, selectedColumn)) : counts(rows, selectedColumn).map(([label, value]) => ({ category: label, count: value })),
+    missingness: selectedSummary.kind === "numeric" ? selectedSummary.summary.missingPct : rows.length ? rows.filter((row) => row[selectedColumn] === null || row[selectedColumn] === undefined || row[selectedColumn] === "").length / rows.length : 0,
+    distinctCount: new Set(rows.map((row) => row[selectedColumn])).size,
+    warnings: quality.filter((item) => item.label.includes(selectedColumn)).map((item) => item.detail),
+  });
+
+  const targetRelationshipExportPayload = () => ({
+    target,
+    summary: [["Mode", targetSummary.mode], ["Summary", targetSummary.text]],
+    ranking: targetSummary.rankings.map((row) => ({ feature: row.feature, score: row.value })),
+  });
+
+  const groupComparisonExportPayload = () => ({
+    configuration: [["Group field", groupColumn], ["Measure field", metricColumn], ["Aggregation", aggregation], ["Target", target || "-"]],
+    rows: groupRows,
+    chartData: groupRows.map((row) => ({ group: row.group, value: row.value })),
+  });
+
+  const dataQualityExportPayload = () => ({
+    qualityChecks: quality,
+    correlations,
+    warnings: quality.filter((item) => item.status !== "pass").map((item) => `${item.label}: ${item.detail}`),
+  });
+
+  const pivotExportPayload = () => ({
+    configuration: Object.entries(pivot.config),
+    rows: pivot.rows,
+    readout: pivot.readout,
+    chartData: pivotChartRows(pivot),
+  });
+
+  const codeResultExportPayload = () => {
+    if (activeCodeLanguage === "sql") {
+      return {
+        rows: sqlResult?.rows ?? [],
+        execution: [["Status", sqlResult?.status ?? "not run"], ["Rows", sqlResult?.rowCount ?? 0], ["Runtime ms", sqlResult?.runtimeMs ?? 0], ["Error", sqlResult?.error ?? ""]],
+      };
+    }
+    if (activeCodeLanguage === "sas") {
+      const result = sasResult as ({ stdout?: string; stderr?: string; tables?: Array<{ title?: string; name?: string; rows?: Array<Record<string, unknown>> }>; unsupportedStatements?: string[]; translatedPython?: string } | null);
+      return {
+        tables: result?.tables ?? [],
+        stdout: result?.stdout ?? "",
+        stderr: result?.stderr ?? "",
+        translatedPython: result?.translatedPython ?? "",
+        unsupportedStatements: result?.unsupportedStatements ?? [],
+      };
+    }
+    const result = (activeCodeLanguage === "python" ? pythonOutput : rResult) as ({ status?: string; runtimeMs?: number; returnCode?: number; stdout?: string; stderr?: string; tables?: Array<Record<string, unknown>> } | null);
+    return {
+      execution: [["Status", result?.status ?? "not run"], ["Runtime ms", result?.runtimeMs ?? 0], ["Return code", (result as { returnCode?: number } | null)?.returnCode ?? ""]],
+      stdout: result?.stdout ?? "",
+      stderr: result?.stderr ?? "",
+      tables: (result as { tables?: Array<Record<string, unknown>> } | null)?.tables ?? [],
+    };
+  };
+
+  const useGeneratedCode = (language: CodeLanguage) => {
+    const config = languageCode[language];
+    config.setUser(config.generated);
+    setActiveCodeLanguage(language);
+    setMessage(`${config.label} generated code loaded into the user-edited code workspace.`);
+  };
 
   const saveBusinessQuestion = async () => {
     if (!datasetId || !versionId || !businessQuestion.trim()) {
@@ -223,15 +423,31 @@ export default function AnalyticsWorkbench() {
     }
   };
 
-  const cleanupQuestion = () => {
+  const cleanupQuestion = async () => {
     if (!businessQuestion.trim()) {
-      setMessage("Enter rough question language before using deterministic cleanup.");
+      setMessage("Enter rough question language before cleanup.");
       return;
     }
-    const cleaned = deterministicQuestionCleanup(businessQuestion, target || columns[0] || "the selected target");
+    let cleaned = "";
+    let source: "llm" | "deterministic" = "deterministic";
+    try {
+      const result = await cleanupQuestionText({
+        text: businessQuestion,
+        context: {
+          datasetName: dataset?.name ?? "",
+          targetColumn: target || columns[0] || "the selected target",
+          columns,
+          businessQuestion,
+        },
+      });
+      cleaned = result.cleanedText;
+      source = result.source;
+    } catch {
+      cleaned = deterministicQuestionCleanup(businessQuestion, target || columns[0] || "the selected target");
+    }
     if (businessQuestion.trim() && cleaned !== businessQuestion && !window.confirm("Replace the current question with the cleaned ATLAS draft?")) return;
     setBusinessQuestion(cleaned);
-    setMessage("ATLAS deterministic cleanup updated the question. LLM cleanup can replace this when connected.");
+    setMessage(source === "llm" ? "Question cleaned up using the configured ATLAS LLM endpoint." : "Question cleaned up using deterministic ATLAS cleanup.");
   };
 
   const generatePlan = () => {
@@ -284,7 +500,15 @@ export default function AnalyticsWorkbench() {
             pivotPreview: pivot.rows.slice(0, 20),
             pivotReadout: pivot.readout,
             generatedPython,
-            generatedSql: userSql || generatedSql,
+            generatedSql,
+            generatedR,
+            generatedSas,
+            userEditedPython: userPython,
+            userEditedSql: userSql,
+            userEditedR: userR,
+            userEditedSas: userSas,
+            activeLanguage: activeCodeLanguage,
+            activeCode: activeLanguageCode.user || activeLanguageCode.generated,
           },
         },
       });
@@ -300,48 +524,227 @@ export default function AnalyticsWorkbench() {
     await saveInsight("pivot_table");
   };
 
-  const validateSqlTemplate = () => {
-    const checks = [
-      generatedSql.trim() ? "SQL template is not empty." : "SQL template is empty.",
-      dataset?.name && generatedSql.includes(logicalTableName(dataset.name, versionId)) ? "Selected dataset appears in FROM." : "Selected dataset logical reference was not found.",
-      columns.every((column) => generatedSql.includes(quoteSqlIdentifier(column)) || generatedSql.includes("a.*")) ? "Selected schema columns are represented." : "Some selected schema columns are not represented.",
-    ];
-    setSqlValidation([
-      "SQL execution is preview-only in Analytics Workbench v1. This SQL is a governed analysis template using the selected Dataset Library reference. Connect a SQL engine in a future release to execute it directly.",
-      ...checks,
-    ].join("\n"));
+  const runSqlOnPreview = async () => {
+    setRunningSql(true);
+    setSqlResult(null);
+    try {
+      const result = await runAnalyticsPreviewSql({
+        sql: userSql || generatedSql,
+        datasetName: dataset?.name ?? "primary_dataset",
+        versionId,
+        previewRows: rows,
+        secondaryDatasetName: secondaryDataset?.name,
+        secondaryPreviewRows: secondaryRows,
+      });
+      setSqlResult(result);
+      await auditAnalyticsRun({ datasetId, versionId, analysisType: result.status === "success" ? "sql_preview_run" : "sql_preview_blocked" }).catch(() => undefined);
+    } catch (error) {
+      setSqlResult({
+        status: "error",
+        columns: [],
+        rows: [],
+        rowCount: 0,
+        runtimeMs: 0,
+        error: error instanceof Error ? error.message : "ATLAS could not run this SQL against preview rows.",
+      });
+    } finally {
+      setRunningSql(false);
+    }
   };
 
   const runPython = async () => {
     setRunningPython(true);
     setPythonOutput(null);
     try {
-      const response = await fetch(`${API_BASE}/python/run`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({
-          page: "Analytics Workbench",
-          userCode: userPython,
-          projectId,
-          workflowStep: "analytics",
-          context: {
-            preview_rows: rows,
-            primary_preview_rows: rows,
-            secondary_preview_rows: secondaryRows,
-            dataset_name: dataset?.name ?? "",
-            dataset_id: datasetId,
-            version_id: versionId,
-          },
-        }),
+      const payload = await runUserPython({
+        code: userPython,
+        projectId,
+        workflowStep: "analytics",
+        context: {
+          preview_rows: rows,
+          primary_preview_rows: rows,
+          secondary_preview_rows: secondaryRows,
+          dataset_name: dataset?.name ?? "",
+          dataset_id: datasetId,
+          version_id: versionId,
+        },
       });
-      const payload = await response.json();
+      if (!payload.ok) {
+        const diagnostics = await fetchPythonDiagnostics().catch(() => null);
+        if (diagnostics) {
+          setPythonDiagnostics(diagnostics);
+          payload.diagnostics = diagnostics;
+        }
+      }
       setPythonOutput(payload);
       await auditAnalyticsRun({ datasetId, versionId, analysisType: "python_run" }).catch(() => undefined);
     } catch {
       setPythonOutput({ ok: false, status: "unavailable", stdout: "", stderr: "Python execution backend is unavailable. Code will still be included in notebook export.", runtimeMs: 0 });
     } finally {
       setRunningPython(false);
+    }
+  };
+
+  const codeContextPayload = () => ({
+    datasetName: dataset?.name ?? "",
+    versionId,
+    previewRows: rows,
+    businessQuestion,
+    targetColumn: target,
+  });
+
+  const refreshRuntimeDiagnostics = async () => {
+    try {
+      const diagnostics = await fetchPythonDiagnostics();
+      setPythonDiagnostics(diagnostics);
+      await refreshSasDiagnostics().catch(() => undefined);
+      setMessage("Runtime diagnostics refreshed.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "ATLAS could not refresh runtime diagnostics.");
+    }
+  };
+
+  const runRCode = async () => {
+    if (!pythonDiagnostics?.rExecutionAvailable) {
+      setRResult({
+        ok: false,
+        status: "unavailable",
+        stdout: "",
+        stderr: "R execution is not configured on this machine. Install R and ensure Rscript is on PATH to enable local R execution.",
+        runtimeMs: 0,
+      });
+      return;
+    }
+    setRunningR(true);
+    setRResult(null);
+    try {
+      const result = await runUserR({ code: userR || generatedR, context: codeContextPayload() });
+      setRResult(result);
+    } finally {
+      setRunningR(false);
+    }
+  };
+
+  const runSasCompatibleCode = async () => {
+    setRunningSas(true);
+    setSasResult(null);
+    try {
+      const result = await runUserSasCompatible({ code: userSas || generatedSas, context: codeContextPayload() });
+      setSasResult(result);
+    } finally {
+      setRunningSas(false);
+    }
+  };
+
+  const saveSasSettings = async (override?: { executionMode: SasExecutionMode; cfgname?: string; cfgfile?: string }) => {
+    setSavingSasSettings(true);
+    setMessage("");
+    try {
+      const payload = await saveSasRuntimeSettings({
+        executionMode: override?.executionMode ?? sasMode,
+        cfgname: override?.cfgname ?? sasCfgname,
+        cfgfile: override?.cfgfile ?? sasCfgfile,
+      });
+      if (!payload.ok) {
+        setMessage(payload.detail || "ATLAS could not save SAS runtime settings.");
+        return;
+      }
+      if (payload.diagnostics) {
+        setSasDiagnostics(payload.diagnostics);
+        setSasMode(payload.diagnostics.settings?.executionMode ?? payload.diagnostics.sasExecutionMode ?? "template_only");
+        setSasCfgname(payload.diagnostics.settings?.cfgname ?? payload.diagnostics.activeCfgName ?? "");
+        setSasCfgfile(payload.diagnostics.settings?.cfgfile ?? payload.diagnostics.activeCfgFile ?? "");
+      } else {
+        await refreshSasDiagnostics();
+      }
+      const diagnostics = await fetchPythonDiagnostics().catch(() => null);
+      if (diagnostics) setPythonDiagnostics(diagnostics);
+      setMessage("SAS runtime settings saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "ATLAS could not save SAS runtime settings.");
+    } finally {
+      setSavingSasSettings(false);
+    }
+  };
+
+  const resetSasTemplateOnly = async () => {
+    setSasMode("template_only");
+    setSasCfgname("");
+    setSasCfgfile("");
+    await saveSasSettings({ executionMode: "template_only", cfgname: "", cfgfile: "" });
+  };
+
+  const runSasConnectionTest = async () => {
+    setTestingSasConnection(true);
+    setSasResult(null);
+    setMessage("");
+    try {
+      const result = await testSasConnection();
+      setSasResult(result);
+      await refreshSasDiagnostics();
+      const diagnostics = await fetchPythonDiagnostics().catch(() => null);
+      if (diagnostics) setPythonDiagnostics(diagnostics);
+      setMessage(result.ok && result.status === "success" ? "SAS connection test succeeded." : "SAS connection test completed. Review the result panel for details.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "ATLAS could not test the SAS connection.");
+    } finally {
+      setTestingSasConnection(false);
+    }
+  };
+
+  const saveCodeInsight = async (language: "python" | "sql" | "r" | "sas", code: string) => {
+    const config = languageCode[language];
+    const title = `${config.label} code snippet: ${dataset?.name ?? "dataset"}`;
+    const createdAt = new Date().toISOString();
+    try {
+      const insight = await saveAnalyticsInsight({
+        title,
+        summary: `Saved ${config.label} code generated from the ATLAS Analytics Workbench context.`,
+        datasetId,
+        versionId,
+        projectId,
+        businessQuestion,
+        analysisType: `${language}_code_snippet`,
+        evidence: {
+          chartType: "code_workspace",
+          columnsUsed: [target, pivot.config.rowField, pivot.config.columnField, pivot.config.valueField].filter(Boolean),
+          metrics: {
+            language,
+            languageLabel: config.label,
+            datasetName: dataset?.name ?? datasetId,
+            versionId,
+            code,
+            activeLanguage: language,
+            activeCode: code,
+            generatedCode: config.generated,
+            userEditedCode: config.user,
+            generatedPython,
+            generatedSql,
+            generatedR,
+            generatedSas,
+            pivotConfig: pivot.config,
+            activeAnalysisContext: {
+              target,
+              selectedColumn,
+              groupColumn,
+              metricColumn,
+              aggregation,
+              secondaryDatasetId,
+              secondaryVersionId,
+              joinKey,
+              joinType,
+            },
+            secondaryDatasetId,
+            createdAt,
+            createdBy: "local_user",
+            linkedProjectId: projectId,
+          },
+        },
+      });
+      setInsights((current) => [insight, ...current]);
+      setMessage(`${config.label} code snippet saved as an insight.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : `ATLAS could not save the ${config.label} code snippet.`);
     }
   };
 
@@ -405,12 +808,12 @@ export default function AnalyticsWorkbench() {
                 />
                 <div className="mt-3 flex flex-wrap gap-2">
                   <ActionButton onClick={saveBusinessQuestion} label="Save Business Question" icon={<Save size={15} />} />
-                  <ActionButton onClick={cleanupQuestion} label="Clean Up with ATLAS LLM" icon={<Sparkles size={15} />} variant="secondary" />
+                  <ActionButton onClick={cleanupQuestion} label="Clean Up Question" icon={<Sparkles size={15} />} variant="secondary" />
                   <ActionButton onClick={generatePlan} label="Generate Analysis Plan" icon={<Brain size={15} />} variant="secondary" />
                   <ActionButton onClick={() => { setBusinessQuestion(""); setAnalysisPlan([]); setSavedQuestionAt(""); }} label="Clear" icon={<Trash2 size={15} />} variant="ghost" />
                 </div>
                 <p className="mt-2 text-xs text-slate-500">
-                  LLM cleanup is deterministic in v1 and clearly labeled until a live LLM service is connected.
+                  Uses deterministic ATLAS cleanup in this local build. Connect `ATLAS_LLM_ENDPOINT` to enable LLM rewrite.
                 </p>
               </div>
               <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
@@ -481,6 +884,7 @@ export default function AnalyticsWorkbench() {
                   {columns.map((column) => <option key={column} value={column}>{column}</option>)}
                 </select>
                 {selectedSummary.kind === "numeric" ? <NumericColumnView summary={selectedSummary.summary} values={numericValues(rows, selectedColumn)} column={selectedColumn} /> : <CategoricalColumnView rows={rows} column={selectedColumn} />}
+                <ExportResultActions resultType="column_explorer" payload={columnExplorerExportPayload()} onExport={downloadResultExport} />
               </Card>
               <Card title="Target Relationship Explorer" icon={<BarChart3 size={18} />}>
                 <select className="rounded-lg border border-slate-300 px-3 py-2 text-sm" value={target} onChange={(event) => setTarget(event.target.value)}>
@@ -488,6 +892,7 @@ export default function AnalyticsWorkbench() {
                   {columns.map((column) => <option key={column} value={column}>{column}</option>)}
                 </select>
                 <TargetPanel target={target} summary={targetSummary} />
+                <ExportResultActions resultType="target_relationship" payload={targetRelationshipExportPayload()} onExport={downloadResultExport} />
               </Card>
               <Card title="Group Comparison" icon={<BarChart3 size={18} />}>
                 <div className="grid gap-2 md:grid-cols-3">
@@ -496,10 +901,12 @@ export default function AnalyticsWorkbench() {
                   <select className="rounded-lg border px-2 py-2 text-sm" value={aggregation} onChange={(event) => setAggregation(event.target.value)}>{["count", "mean", "median", "sum", "min", "max", "std", "event rate"].map((item) => <option key={item}>{item}</option>)}</select>
                 </div>
                 <GroupComparison rows={groupRows} metric={aggregation} />
+                <ExportResultActions resultType="group_comparison" payload={groupComparisonExportPayload()} onExport={downloadResultExport} />
               </Card>
               <Card title="Data Quality Review" icon={<FileText size={18} />}>
                 <MiniCorrelation pairs={correlations} />
                 <QualityList findings={quality.slice(0, 5)} />
+                <ExportResultActions resultType="data_quality" payload={dataQualityExportPayload()} onExport={downloadResultExport} />
               </Card>
             </div>
             <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
@@ -550,13 +957,22 @@ export default function AnalyticsWorkbench() {
                   Top-N
                   <input className="rounded-lg border border-slate-300 px-2 py-2 text-sm font-normal normal-case text-slate-900" type="number" min={3} max={50} value={pivotTopN} onChange={(event) => setPivotTopN(Number(event.target.value) || 12)} />
                 </label>
-                <label className="flex items-end gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
-                  <input type="checkbox" checked={pivotAutoBin} onChange={(event) => setPivotAutoBin(event.target.checked)} />
-                  Auto-bin numeric rows into quantiles
-                </label>
+                <div className="grid gap-2">
+                  <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
+                    <input type="checkbox" checked={pivotAutoBinRows} onChange={(event) => setPivotAutoBinRows(event.target.checked)} />
+                    Auto-bin numeric row fields into quantiles
+                  </label>
+                  <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
+                    <input type="checkbox" checked={pivotAutoBinColumns} onChange={(event) => setPivotAutoBinColumns(event.target.checked)} />
+                    Auto-bin numeric column fields into quantiles
+                  </label>
+                </div>
               </div>
               <div className="mt-4 grid gap-4 xl:grid-cols-[1fr_300px]">
-                <PivotTable result={pivot} />
+                <div className="space-y-3">
+                  <PivotTable result={pivot} />
+                  <ExportResultActions resultType="pivot" payload={pivotExportPayload()} onExport={downloadResultExport} />
+                </div>
                 <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
                   <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Pivot Readout</div>
                   <p className="mt-2 text-sm leading-6 text-blue-950">{pivot.readout}</p>
@@ -569,51 +985,200 @@ export default function AnalyticsWorkbench() {
           </WorkbenchSection>
 
           <WorkbenchSection id="code" title="Code Workspace" tone="slate">
-            <div className="grid gap-5 xl:grid-cols-2">
-              <CodePanel
-                title="Python Workspace"
-                generatedTitle="Generated Python"
-                userTitle="User-Edited Python"
-                generatedCode={generatedPython}
-                userCode={userPython}
-                setUserCode={setUserPython}
-                runLabel={runningPython ? "Running..." : "Run User Python"}
-                onRun={runPython}
-                onCopy={() => copyText(generatedPython)}
-                disabled={runningPython}
-                note="Python execution is local-development-only. ATLAS injects preview_rows and df can be created from the selected dataset preview."
-              />
-              <CodePanel
-                title="SQL Workspace"
-                generatedTitle="Generated SQL"
-                userTitle="User-Edited SQL"
-                generatedCode={generatedSql}
-                userCode={userSql}
-                setUserCode={setUserSql}
-                runLabel="Validate SQL Template"
-                onRun={validateSqlTemplate}
-                onCopy={() => copyText(userSql || generatedSql)}
-                note="SQL execution is preview-only in v1. The atlas_dataset.* reference is generated for documentation/export until a backend SQL engine is connected."
-              />
+            <div className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-950">Code Runtime Configuration</h3>
+                  <p className="mt-1 text-xs text-slate-600">Local execution uses the ATLAS Python engine, SQLite preview SQL, Rscript when installed, and SAS-compatible execution with no SAS license required.</p>
+                </div>
+                <button type="button" onClick={refreshRuntimeDiagnostics} className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-800">
+                  Refresh Runtime Diagnostics
+                </button>
+              </div>
+              <div className="mt-3 grid gap-2 md:grid-cols-4">
+                <Metric label="Python" value={pythonDiagnostics?.canStartPython ? "Executable" : "Unknown"} />
+                <Metric label="Pandas" value={pythonDiagnostics?.canImportPandas ? "Available" : "Unavailable"} />
+                <Metric label="SQL Preview" value="SQLite SELECT" />
+                <Metric label="Rscript" value={pythonDiagnostics?.rExecutionAvailable ? "Executable" : "Template only"} />
+                <Metric label="R Path" value={pythonDiagnostics?.rscriptPath || "Not found"} />
+                <Metric label="SAS-Compatible Engine" value={sasDiagnostics?.sasCompatibleAvailable ? "Available" : "Unavailable"} />
+                <Metric label="SAS-Compatible PROCs" value={(sasDiagnostics?.sasCompatibleSupportedProcs ?? ["CONTENTS", "MEANS", "FREQ", "CORR", "PRINT", "SQL", "RANK"]).join(", ")} />
+                <Metric label="SASPy" value={sasDiagnostics?.saspyInstalled ? "Installed" : "Not installed"} />
+                <Metric label="Licensed SAS Bridge" value={sasDiagnostics?.sasExecutionAvailable ? "Executable" : sasDiagnostics?.sasExecutionMode === "saspy_config" ? "Configured" : "Optional"} />
+              </div>
+              <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+                <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <h4 className="text-sm font-semibold text-slate-950">SAS Mode: ATLAS SAS-Compatible</h4>
+                    <p className="mt-1 max-w-3xl text-xs leading-5 text-emerald-950">
+                      Executable by default. ATLAS runs a supported subset of familiar SAS-style PROC and DATA step syntax through the local Python execution engine. No SAS license, SASPy, Java, SAS Studio, or SAS Viya connection is required.
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold uppercase text-emerald-800">Executable</span>
+                </div>
+              </div>
+              <details className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
+                <summary className="cursor-pointer text-sm font-semibold text-slate-950">Advanced: Licensed SAS Bridge</summary>
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                  <div>
+                    <h4 className="mt-4 text-sm font-semibold text-slate-950">Optional SASPy Runtime Setup</h4>
+                    <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-600">
+                      This bridge is only for users who already have access to a licensed SAS runtime. It is not needed for ATLAS SAS-Compatible execution.
+                    </p>
+                  </div>
+                  <span className={`rounded-full px-2 py-1 text-xs font-semibold uppercase ${sasDiagnostics?.sasExecutionAvailable ? "bg-emerald-100 text-emerald-800" : "bg-blue-100 text-blue-800"}`}>
+                    {sasDiagnostics?.connectionMethod ?? "Template only"}
+                  </span>
+                </div>
+                <div className="mt-3 grid gap-2 md:grid-cols-4">
+                  <Metric label="SASPy Version" value={sasDiagnostics?.saspyVersion || "-"} />
+                  <Metric label="SASPy Module" value={sasDiagnostics?.saspyModulePath || "-"} />
+                  <Metric label="Active cfgname" value={sasDiagnostics?.activeCfgName || "-"} />
+                  <Metric label="Last Test" value={sasDiagnostics?.lastConnectionTest || "Not tested"} />
+                </div>
+                <div className="mt-4 grid gap-3 lg:grid-cols-[220px_1fr_1fr]">
+                  <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    SAS execution mode
+                    <select className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal normal-case text-slate-900" value={sasMode} onChange={(event) => setSasMode(event.target.value as SasExecutionMode)}>
+                      <option value="template_only">Template only</option>
+                      <option value="saspy_config">SASPy configured session</option>
+                      <option value="external_export">External SAS export only</option>
+                    </select>
+                    <span className="text-[11px] font-normal normal-case leading-4 text-slate-500">Template mode validates/export code. SASPy mode runs only after a successful connection test.</span>
+                  </label>
+                  <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    SASPy cfgname
+                    <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal normal-case text-slate-900" value={sasCfgname} onChange={(event) => setSasCfgname(event.target.value)} placeholder="winlocal, iomlinux, viya..." disabled={sasMode !== "saspy_config"} />
+                    <span className="text-[11px] font-normal normal-case leading-4 text-slate-500">Name of a SASPy configuration. Do not enter passwords or tokens.</span>
+                  </label>
+                  <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
+                    SASPy cfgfile path
+                    <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal normal-case text-slate-900" value={sasCfgfile} onChange={(event) => setSasCfgfile(event.target.value)} placeholder="C:/Users/james/path/to/sascfg_personal.py" disabled={sasMode !== "saspy_config"} />
+                    <span className="text-[11px] font-normal normal-case leading-4 text-slate-500">Optional path to a SASPy config file. The file must already exist.</span>
+                  </label>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button type="button" onClick={() => saveSasSettings()} disabled={savingSasSettings} className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white disabled:bg-slate-400">
+                    {savingSasSettings ? "Saving..." : "Save SAS Runtime Settings"}
+                  </button>
+                  <button type="button" onClick={runSasConnectionTest} disabled={testingSasConnection} className="rounded-lg border border-blue-300 bg-white px-3 py-2 text-sm font-semibold text-blue-800 disabled:text-slate-400">
+                    {testingSasConnection ? "Testing..." : "Test SAS Connection"}
+                  </button>
+                  <button type="button" onClick={resetSasTemplateOnly} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+                    Reset to Template Only
+                  </button>
+                </div>
+                {sasDiagnostics?.lastError ? <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">Last SAS error: {sasDiagnostics.lastError}</div> : null}
+                <div className="mt-4 grid gap-3 lg:grid-cols-2">
+                  <div className="rounded-lg border border-slate-200 bg-white p-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">Detected SAS Config Files</div>
+                    <ul className="mt-2 space-y-1 text-xs leading-5 text-slate-700">
+                      {(sasDiagnostics?.detectedConfigFiles?.length ? sasDiagnostics.detectedConfigFiles : ["No SASPy config files detected yet."]).map((item) => <li key={item} className="break-all">{item}</li>)}
+                    </ul>
+                  </div>
+                  <div className="rounded-lg border border-slate-200 bg-white p-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">Setup Guidance</div>
+                    <ul className="mt-2 list-disc space-y-1 pl-5 text-xs leading-5 text-slate-700">
+                      {(sasDiagnostics?.setupGuidance?.length ? sasDiagnostics.setupGuidance : ["Choose Template only for external SAS execution, or configure SASPy with a licensed SAS runtime to run SAS inside ATLAS."]).slice(0, 5).map((item) => <li key={item}>{item}</li>)}
+                    </ul>
+                  </div>
+                </div>
+                <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-700">
+                  <div className="font-semibold text-slate-950">Which SAS setup do you have?</div>
+                  <div className="mt-2 grid gap-2 md:grid-cols-2">
+                    <div><span className="font-semibold">Local SAS:</span> ATLAS needs a working SASPy cfgname/cfgfile that can start a local licensed SAS session.</div>
+                    <div><span className="font-semibold">Remote SAS server:</span> ATLAS needs a SASPy config pointing to the remote server. Do not store credentials in ATLAS.</div>
+                    <div><span className="font-semibold">SAS Studio / Viya:</span> ATLAS needs a SASPy config that can connect to the SAS Viya environment.</div>
+                    <div><span className="font-semibold">Export only:</span> ATLAS generates SAS programs for external execution but does not run them inside ATLAS.</div>
+                  </div>
+                </div>
+              </details>
             </div>
-            {sqlValidation && (
-              <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
-                <div className="font-semibold">SQL Template Validation</div>
-                <pre className="mt-2 whitespace-pre-wrap font-sans text-sm leading-6">{sqlValidation}</pre>
-              </div>
-            )}
-            {pythonOutput && (
-              <div className={`mt-4 rounded-xl border p-4 text-sm ${pythonOutput.ok ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"}`}>
-                <div className="flex flex-wrap items-center justify-between gap-2 font-semibold">
-                  <span>{pythonOutput.ok ? "Python execution succeeded" : "Python execution returned an issue"}</span>
-                  <span>{pythonOutput.status ?? (pythonOutput.ok ? "success" : "error")} - {pythonOutput.runtimeMs} ms - return code {pythonOutput.returnCode ?? "-"}</span>
+            <CodeWorkspacePanel
+              activeLanguage={activeCodeLanguage}
+              onActiveLanguageChange={setActiveCodeLanguage}
+              cleanStderr={cleanPythonStderr}
+              languages={[
+                {
+                  language: "python",
+                  label: "Python",
+                  supportBadge: "executable",
+                  generatedCode: generatedPython,
+                  userCode: userPython,
+                  setUserCode: setUserPython,
+                  runLabel: "Run User Python",
+                  canRun: true,
+                  running: runningPython,
+                  result: pythonOutput,
+                  diagnostics: pythonDiagnostics,
+                  onRun: runPython,
+                  onCopy: () => copyText(userPython || generatedPython),
+                  onSave: () => saveCodeInsight("python", userPython || generatedPython),
+                  note: "Executable locally through /api/python/run. ATLAS injects preview_rows and creates df from the selected dataset preview when pandas is available.",
+                },
+                {
+                  language: "sql",
+                  label: "SQL",
+                  supportBadge: "preview SQL",
+                  generatedCode: generatedSql,
+                  userCode: userSql,
+                  setUserCode: setUserSql,
+                  runLabel: "Run SQL on Preview",
+                  canRun: true,
+                  running: runningSql,
+                  result: sqlResult,
+                  onRun: runSqlOnPreview,
+                  onCopy: () => copyText(userSql || generatedSql),
+                  onSave: () => saveCodeInsight("sql", userSql || generatedSql),
+                  note: "Executable over preview/sample rows using safe SELECT-only in-memory SQLite. Full warehouse-scale execution is deferred.",
+                },
+                {
+                  language: "r",
+                  label: "R",
+                  supportBadge: pythonDiagnostics?.rExecutionAvailable ? "executable" : "template only",
+                  generatedCode: generatedR,
+                  userCode: userR,
+                  setUserCode: setUserR,
+                  runLabel: pythonDiagnostics?.rExecutionAvailable ? "Run R" : "Validate Template",
+                  canRun: true,
+                  running: runningR,
+                  result: rResult,
+                  onRun: runRCode,
+                  onCopy: () => copyText(userR || generatedR),
+                  onSave: () => saveCodeInsight("r", userR || generatedR),
+                  note: pythonDiagnostics?.rExecutionAvailable ? "Rscript is detected. ATLAS executes R locally against a temporary preview CSV." : "R execution is not configured on this machine. Install R and ensure Rscript is on PATH to enable local R execution.",
+                },
+                {
+                  language: "sas",
+                  label: "SAS",
+                  supportBadge: "SAS-compatible",
+                  generatedCode: generatedSas,
+                  userCode: userSas,
+                  setUserCode: setUserSas,
+                  runLabel: "Run SAS-Compatible Code",
+                  canRun: true,
+                  running: runningSas,
+                  result: sasResult,
+                  onRun: runSasCompatibleCode,
+                  onCopy: () => copyText(userSas || generatedSas),
+                  onSave: () => saveCodeInsight("sas", userSas || generatedSas),
+                  note: "ATLAS runs a supported subset of SAS-style code using the local Python execution engine. No SAS license is required. Unsupported SAS statements are listed with guidance instead of crashing the app.",
+                },
+              ]}
+            />
+            <div className="mt-4 rounded-xl border border-slate-200 bg-white p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-slate-950">Export Code Workspace Result</div>
+                  <p className="mt-1 text-xs text-slate-500">Exports the current package, including generated code, user-edited code, and the latest execution output.</p>
                 </div>
-                <div className="mt-3 grid gap-3 xl:grid-cols-2">
-                  <OutputBlock title="STDOUT" text={pythonOutput.stdout || "No stdout captured."} />
-                  <OutputBlock title="STDERR / ERRORS" text={pythonOutput.stderr || "No stderr captured."} />
-                </div>
+                {activeExecutionResult ? (
+                  <ExportResultActions resultType={`${activeCodeLanguage === "sas" ? "sas_compatible" : activeCodeLanguage}_result`} payload={codeResultExportPayload()} onExport={downloadResultExport} />
+                ) : (
+                  <span className="text-xs text-slate-500">Run code to enable result-level Excel export.</span>
+                )}
               </div>
-            )}
+            </div>
           </WorkbenchSection>
         </main>
 
@@ -625,26 +1190,49 @@ export default function AnalyticsWorkbench() {
             </div>
             <p className="mt-3 text-sm leading-6 text-slate-700">{assistantText}</p>
             <div className="mt-4 grid gap-2">
-              <button className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white" onClick={keyTakeaways}>Generate Key Takeaways</button>
-              <button className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-800" onClick={generatePlan}>Generate Analysis Plan</button>
-              <button className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-800" onClick={() => setUserPython(generatedPython)}>Use Generated Python</button>
-              <button className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-800" onClick={() => setUserSql(generatedSql)}>Use Generated SQL</button>
+              <div className="grid gap-2">
+                <button className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white" onClick={keyTakeaways}>Generate Key Takeaways</button>
+                <button className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-800" onClick={generatePlan}>Generate Analysis Plan</button>
+              </div>
+              <div className="rounded-xl border border-blue-100 bg-white p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Use Generated Code</div>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  {(["python", "sql", "r", "sas"] as CodeLanguage[]).map((language) => (
+                    <button key={language} className="rounded-lg border border-blue-200 bg-blue-50 px-2 py-2 text-xs font-semibold text-blue-900 hover:border-blue-400" onClick={() => useGeneratedCode(language)}>
+                      {languageCode[language].label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <button className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3 py-2 text-sm font-semibold text-white" onClick={() => saveInsight("workbench_summary")}><Save size={15} /> Save Insight</button>
-              <button className="rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-800" onClick={() => saveInsight("code_snippet")}>Save Code Snippet</button>
+              <button className="rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-800" onClick={() => saveCodeInsight(activeCodeLanguage, activeLanguageCode.user || activeLanguageCode.generated)}>Save {activeLanguageCode.label} Code Snippet</button>
               <button className="rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-800" onClick={() => saveInsight("analysis_plan")}>Save Analysis Plan</button>
-              <button className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700" onClick={() => exportInsight({ businessQuestion, analysisPlan, generatedPython, generatedSql, dataset: dataset?.name })}>Export Insight</button>
+              <div className="rounded-xl border border-slate-200 bg-white p-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-600">Export Analysis</div>
+                <ExportButtonRow label="Export Analysis" onExport={(format) => downloadExport(format)} compact fullLabels />
+                <button className="mt-2 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700" onClick={() => exportInsight(currentExportPayload())}>Export JSON</button>
+              </div>
             </div>
           </section>
           <Card title="Dataset Context" icon={<Database size={18} />}>
             <SummaryGrid items={[["Dataset", dataset?.name ?? "-"], ["Version", versionId || "-"], ["Rows", profile?.rowCount?.toLocaleString() ?? "-"], ["Secondary", secondaryDataset?.name ?? "None"], ["Linked project", projectId || "-"]]} />
           </Card>
           <Card title="Saved Findings" icon={<FileText size={18} />}>
-            {insights.length ? insights.map((insight) => (
-              <div key={insight.insightId} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
-                <div className="font-semibold text-slate-950">{insight.title}</div>
-                <div className="mt-1 text-xs leading-5 text-slate-500">{insight.analysisType} - {new Date(insight.createdAt).toLocaleString()}</div>
-              </div>
-            )) : <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">No saved insights for this dataset yet.</div>}
+            <div className="mb-3 flex flex-wrap gap-2">
+              {["all", "insights", "code", "pivot", "questions", "plans"].map((filter) => (
+                <button
+                  key={filter}
+                  type="button"
+                  onClick={() => setInsightFilter(filter)}
+                  className={`rounded-full border px-2.5 py-1 text-xs font-semibold capitalize ${insightFilter === filter ? "border-blue-300 bg-blue-50 text-blue-800" : "border-slate-200 bg-white text-slate-600"}`}
+                >
+                  {filter}
+                </button>
+              ))}
+            </div>
+            {filteredInsights.length ? filteredInsights.map((insight) => (
+              <SavedFindingItem key={insight.insightId} insight={insight} datasetName={dataset?.name ?? datasetId} onExport={downloadExport} />
+            )) : <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-500">No saved findings match this filter.</div>}
           </Card>
         </aside>
       </section>
@@ -662,6 +1250,155 @@ function WorkbenchSection({ id, title, tone, children }: { id: string; title: st
   );
 }
 
+function SavedFindingItem({ insight, datasetName, onExport }: { insight: AtlasAnalyticsInsight; datasetName: string; onExport: (format: AnalyticsExportFormat, insight?: AtlasAnalyticsInsight) => void }) {
+  const metrics = insight.evidence?.metrics ?? {};
+  const language = normalizeInsightLanguage(String(metrics.language ?? ""));
+  const insightType = insight.analysisType.replace(/_/g, " ");
+  const badge = language || typeBadge(insight.analysisType);
+  return (
+    <div className="mb-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate font-semibold text-slate-950">{insight.title}</div>
+          <div className="mt-1 text-xs leading-5 text-slate-500">
+            {insightType} - {new Date(insight.createdAt).toLocaleString()} - {String(metrics.datasetName ?? datasetName)}
+          </div>
+        </div>
+        <span className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-800">{badge}</span>
+      </div>
+      <SavedFindingExportMenu onExport={(format) => onExport(format, insight)} />
+    </div>
+  );
+}
+
+function SavedFindingExportMenu({ onExport }: { onExport: (format: AnalyticsExportFormat) => void }) {
+  return (
+    <details className="mt-2">
+      <summary className="inline-flex cursor-pointer rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 hover:border-blue-300 hover:text-blue-800">
+        Export
+      </summary>
+      <div className="mt-2 flex flex-wrap gap-2 rounded-lg border border-slate-200 bg-white p-2">
+        <button type="button" className="rounded-md px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => onExport("excel")}>Excel</button>
+        <button type="button" className="rounded-md px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => onExport("word")}>Word</button>
+        <button type="button" className="rounded-md px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50" onClick={() => onExport("powerpoint")}>PowerPoint</button>
+      </div>
+    </details>
+  );
+}
+
+function ExportButtonRow({ label, onExport, compact = false, fullLabels = false }: { label: string; onExport: (format: AnalyticsExportFormat) => void; compact?: boolean; fullLabels?: boolean }) {
+  const buttonClass = compact
+    ? "rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 hover:border-blue-300 hover:text-blue-800"
+    : "rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:border-blue-300 hover:text-blue-800";
+  return (
+    <div className={`flex flex-wrap items-center gap-2 ${compact ? "mt-2" : ""}`} aria-label={label}>
+      <button type="button" className={buttonClass} onClick={() => onExport("excel")}>{fullLabels ? "Export to Excel" : "Excel"}</button>
+      <button type="button" className={buttonClass} onClick={() => onExport("word")}>{fullLabels ? "Export to Word" : "Word"}</button>
+      <button type="button" className={buttonClass} onClick={() => onExport("powerpoint")}>{fullLabels ? "Export to PowerPoint" : "PowerPoint"}</button>
+    </div>
+  );
+}
+
+function normalizeInsightLanguage(language: string) {
+  if (language === "python") return "Python";
+  if (language === "sql") return "SQL";
+  if (language === "r") return "R";
+  if (language === "sas") return "SAS-compatible";
+  return "";
+}
+
+function typeBadge(analysisType: string) {
+  if (analysisType.includes("pivot")) return "Pivot";
+  if (analysisType.includes("question")) return "Question";
+  if (analysisType.includes("plan")) return "Plan";
+  return "Insight";
+}
+
+function filterInsights(insights: AtlasAnalyticsInsight[], filter: string) {
+  if (filter === "all") return insights;
+  return insights.filter((insight) => {
+    const type = insight.analysisType;
+    if (filter === "code") return type.includes("code_snippet");
+    if (filter === "pivot") return type.includes("pivot");
+    if (filter === "questions") return type.includes("question");
+    if (filter === "plans") return type.includes("plan");
+    if (filter === "insights") return !type.includes("code_snippet") && !type.includes("pivot") && !type.includes("question") && !type.includes("plan");
+    return true;
+  });
+}
+
+function buildExportPayload(input: {
+  businessQuestion: string;
+  cleanedQuestion: string;
+  analysisPlan: string[];
+  generatedPython: string;
+  generatedSql: string;
+  generatedR: string;
+  generatedSas: string;
+  userPython: string;
+  userSql: string;
+  userR: string;
+  userSas: string;
+  activeLanguage: CodeLanguage;
+  activeCode: string;
+  dataset: DatasetSummary | null;
+  datasetId: string;
+  versionId: string;
+  projectId: string;
+  target: string;
+  previewRowCount: number;
+  pivot: PivotResult;
+  sqlResult: AnalyticsSqlRunResult | null;
+  sasResult: CodeRunResult | null;
+  pythonResult: PythonExecutionResult | null;
+  rResult: CodeRunResult | null;
+  savedInsight?: AtlasAnalyticsInsight;
+  metadata?: Record<string, unknown>;
+}) {
+  const datasetName = input.dataset?.name ?? input.datasetId;
+  return {
+    exportTitle: `ATLAS Analytics Workbench Report - ${datasetName}`,
+    exportedAt: new Date().toISOString(),
+    createdAt: new Date().toISOString(),
+    createdBy: "ATLAS local user",
+    businessQuestion: input.businessQuestion,
+    cleanedQuestion: input.cleanedQuestion,
+    analysisPlan: input.analysisPlan,
+    datasetName,
+    datasetId: input.datasetId,
+    versionId: input.versionId,
+    targetVariable: input.target,
+    previewRowCount: input.previewRowCount,
+    dataset: {
+      datasetId: input.datasetId,
+      name: datasetName,
+      versionId: input.versionId,
+    },
+    linkedProjectId: input.projectId,
+    generatedPython: input.generatedPython,
+    generatedSql: input.generatedSql,
+    generatedR: input.generatedR,
+    generatedSas: input.generatedSas,
+    userEditedPython: input.userPython,
+    userEditedSql: input.userSql,
+    userEditedR: input.userR,
+    userEditedSas: input.userSas,
+    activeLanguage: input.activeLanguage,
+    activeCode: input.activeCode,
+    pivotConfig: input.pivot.config,
+    pivotRows: input.pivot.rows.slice(0, 250),
+    pivotPreview: input.pivot.rows.slice(0, 20),
+    pivotReadout: input.pivot.readout,
+    sqlResult: input.sqlResult ?? {},
+    sasResult: input.sasResult ?? {},
+    pythonResult: input.pythonResult ?? {},
+    rResult: input.rResult ?? {},
+    savedInsight: input.savedInsight ?? {},
+    metadata: input.metadata ?? {},
+    limitations: "Analytics Workbench results are based on the current dataset preview and selected saved findings. Validate against governed full-data execution before using in production decisions.",
+  };
+}
+
 function isNumericColumn(rows: Record<string, unknown>[], column: string) {
   const values = rows.map((row) => row[column]).filter((value) => value !== null && value !== undefined && value !== "");
   if (!values.length) return false;
@@ -670,6 +1407,50 @@ function isNumericColumn(rows: Record<string, unknown>[], column: string) {
 
 function numericValues(rows: Record<string, unknown>[], column: string) {
   return rows.map((row) => Number(row[column])).filter((value) => Number.isFinite(value));
+}
+
+function numericSummaryRows(summary: NumericSummary): Array<[string, string | number]> {
+  return [
+    ["Count", summary.count],
+    ["Mean", summary.mean],
+    ["Median", summary.median],
+    ["Std dev", summary.std],
+    ["Min", summary.min],
+    ["Max", summary.max],
+    ["P5", summary.p5],
+    ["P25", summary.p25],
+    ["P50", summary.p50],
+    ["P75", summary.p75],
+    ["P95", summary.p95],
+    ["Missing %", summary.missingPct],
+    ["Distinct count", summary.distinct],
+  ];
+}
+
+function histogramBins(values: number[]) {
+  const min = Math.min(...values, 0);
+  const max = Math.max(...values, 1);
+  const bins = Array.from({ length: 12 }, (_, index) => ({ bin: index + 1, rangeStart: min + ((max - min) / 12) * index, rangeEnd: min + ((max - min) / 12) * (index + 1), count: 0 }));
+  values.forEach((value) => {
+    const idx = Math.min(11, Math.max(0, Math.floor(((value - min) / Math.max(0.000001, max - min)) * 12)));
+    bins[idx].count += 1;
+  });
+  return bins;
+}
+
+function resultExportTitle(resultType: string) {
+  const labels: Record<string, string> = {
+    column_explorer: "Column Explorer",
+    target_relationship: "Target Relationship",
+    group_comparison: "Group Comparison",
+    data_quality: "Data Quality",
+    pivot: "Pivot",
+    sql_result: "SQL Result",
+    sas_compatible_result: "SAS Compatible Result",
+    r_result: "R Result",
+    python_result: "Python Result",
+  };
+  return labels[resultType] ?? "Analytics Result";
 }
 
 function quantile(values: number[], q: number) {
@@ -846,14 +1627,16 @@ function buildPivot(rows: Record<string, unknown>[], config: PivotConfig): Pivot
   }
 
   const rowIsNumeric = isNumericColumn(rows, rowField);
-  const rowLabel = config.autoBin && rowIsNumeric ? `${rowField} band` : rowField;
+  const columnIsNumeric = !!config.columnField && isNumericColumn(rows, config.columnField);
+  const rowLabel = config.autoBinRows && rowIsNumeric ? `${rowField} band` : rowField;
+  const columnLabel = config.columnField && config.autoBinColumns && columnIsNumeric ? `${config.columnField} band` : config.columnField;
   const columnValues = config.columnField
-    ? [...new Set(rows.map((row) => String(row[config.columnField] ?? "Missing")))].slice(0, Math.max(2, Math.min(12, config.topN)))
+    ? [...new Set(rows.map((row) => pivotGroupLabel(rows, row, config.columnField, config.autoBinColumns)))].slice(0, Math.max(2, Math.min(12, config.topN)))
     : [];
   const buckets = new Map<string, Record<string, number[]>>();
   rows.forEach((row) => {
-    const bucket = pivotGroupLabel(rows, row, rowField, config.autoBin);
-    const columnBucket = config.columnField ? String(row[config.columnField] ?? "Missing") : config.aggregation;
+    const bucket = pivotGroupLabel(rows, row, rowField, config.autoBinRows);
+    const columnBucket = config.columnField ? pivotGroupLabel(rows, row, config.columnField, config.autoBinColumns) : config.aggregation;
     const metric = config.aggregation === "event rate" ? Number(row[config.binaryTarget]) : Number(row[valueField]);
     if (!buckets.has(bucket)) buckets.set(bucket, {});
     const record = buckets.get(bucket);
@@ -884,7 +1667,7 @@ function buildPivot(rows: Record<string, unknown>[], config: PivotConfig): Pivot
   const topLabel = top ? String(top[rowLabel] ?? "-") : "-";
   const topValue = top ? Number(top[sortColumn] ?? 0) : 0;
   const readout = sortedRows.length
-    ? `${formatPivotLabel(config.aggregation)} ${config.valueField || config.binaryTarget || "records"} by ${rowLabel}${config.columnField ? ` and ${config.columnField}` : ""} is highest for ${topLabel} in the preview (${formatNumber(topValue)}). Review the full dataset before drawing production conclusions.`
+    ? `${formatPivotLabel(config.aggregation)} ${config.valueField || config.binaryTarget || "records"} by ${rowLabel}${columnLabel ? ` and ${columnLabel}` : ""} is highest for ${topLabel} in the preview (${formatNumber(topValue)}). Review the full dataset before drawing production conclusions.`
     : "No pivot rows were generated from the current preview. Select fields with non-missing values.";
   return { config, columns: outputColumns, rows: sortedRows, readout };
 }
@@ -943,6 +1726,7 @@ function buildPythonTemplate(input: {
   joinKey: string;
   joinType: string;
   pivot: PivotResult;
+  businessQuestion?: string;
 }) {
   const datasetName = input.dataset?.name ?? "selected_dataset";
   const lines = [
@@ -952,6 +1736,7 @@ function buildPythonTemplate(input: {
     `# Dataset: ${datasetName}`,
     `# Version: ${input.versionId || "not_selected"}`,
     "# Source: ATLAS Dataset Library preview/sample",
+    `# Business question: ${input.businessQuestion || "not provided"}`,
     "",
     "try:",
     "    preview_rows",
@@ -970,17 +1755,23 @@ function buildPythonTemplate(input: {
     const rowField = input.pivot.config.rowField;
     const valueField = input.pivot.config.valueField;
     const bandName = `${rowField}_band`;
-    const groupField = input.pivot.config.autoBin ? bandName : rowField;
+    const columnField = input.pivot.config.columnField;
+    const columnBandName = columnField ? `${columnField}_band` : "";
+    const groupField = input.pivot.config.autoBinRows ? bandName : rowField;
+    const groupFields = columnField ? [groupField, input.pivot.config.autoBinColumns ? columnBandName : columnField] : [groupField];
     lines.push(
       "",
       "# Pivot Table Builder template",
-      input.pivot.config.autoBin
+      input.pivot.config.autoBinRows
         ? `df[${JSON.stringify(bandName)}] = pd.qcut(df[${JSON.stringify(rowField)}], q=5, duplicates="drop")`
         : `# Row field: ${rowField}`,
+      columnField && input.pivot.config.autoBinColumns
+        ? `df[${JSON.stringify(columnBandName)}] = pd.qcut(df[${JSON.stringify(columnField)}], q=5, duplicates="drop")`
+        : columnField ? `# Column field: ${columnField}` : "# No pivot column field selected.",
       "pivot = (",
-      input.pivot.config.columnField
-        ? `    df.groupby([${JSON.stringify(groupField)}, ${JSON.stringify(input.pivot.config.columnField)}])[${JSON.stringify(valueField)}]`
-        : `    df.groupby(${JSON.stringify(groupField)})[${JSON.stringify(valueField)}]`,
+      groupFields.length > 1
+        ? `    df.groupby(${JSON.stringify(groupFields)})[${JSON.stringify(valueField)}]`
+        : `    df.groupby(${JSON.stringify(groupFields[0])})[${JSON.stringify(valueField)}]`,
       `    .${pythonAggregation(input.pivot.config.aggregation)}()`,
       "    .reset_index()",
       ")",
@@ -1016,21 +1807,27 @@ function buildSqlTemplate(input: {
   joinKey: string;
   joinType: string;
   pivot: PivotResult;
+  businessQuestion?: string;
 }) {
-  const table = logicalTableName(input.dataset?.name ?? "selected_dataset", input.versionId);
-  const secondary = input.secondaryDataset ? logicalTableName(input.secondaryDataset.name, input.secondaryVersionId) : "";
+  const datasetName = input.dataset?.name ?? "selected_dataset";
+  const table = executableTableName(datasetName);
+  const logicalTable = logicalTableName(datasetName, input.versionId);
+  const secondary = input.secondaryDataset ? executableTableName(input.secondaryDataset.name) : "";
+  const secondaryLogical = input.secondaryDataset ? logicalTableName(input.secondaryDataset.name, input.secondaryVersionId) : "";
   const selectColumns = input.columns.length ? input.columns : input.profile?.schema?.map((column) => column.name) ?? ["*"];
   const header = [
     "-- ATLAS Analytics Workbench SQL template",
-    `-- Dataset: ${input.dataset?.name ?? "selected dataset"}`,
+    `-- Dataset: ${datasetName}`,
     `-- Version: ${input.versionId || "not_selected"}`,
     `-- Rows: ${input.profile?.rowCount?.toLocaleString() ?? "unknown"}`,
     `-- Columns: ${input.profile?.columnCount?.toLocaleString() ?? selectColumns.length}`,
-    "-- atlas_dataset.* is a generated logical reference for documentation/export.",
-    "-- SQL execution will be enabled when a backend SQL engine is connected.",
+    `-- Logical ATLAS reference: ${logicalTable}`,
+    `-- Business question: ${input.businessQuestion || "not provided"}`,
+    "-- Runs against preview/sample rows loaded into local SQLite memory.",
     "",
   ];
   if (secondary && input.joinKey) {
+    header.push(`-- Secondary logical ATLAS reference: ${secondaryLogical}`, "");
     const join = input.joinType === "append/union"
       ? [`SELECT * FROM ${table}`, "UNION ALL", `SELECT * FROM ${secondary};`]
       : [
@@ -1051,22 +1848,32 @@ function buildSqlTemplate(input: {
   ];
   if (!input.pivot.config.rowField || !input.pivot.config.valueField) return header.concat(baseSql).join("\n");
   const rowField = quoteSqlIdentifier(input.pivot.config.rowField);
+  const rawRowField = input.pivot.config.rowField;
+  const rawColumnField = input.pivot.config.columnField;
+  const columnField = rawColumnField ? quoteSqlIdentifier(rawColumnField) : "";
   const valueField = quoteSqlIdentifier(input.pivot.config.valueField);
   const aggregate = sqlAggregation(input.pivot.config.aggregation, valueField);
+  const aggregateAlias = quoteSqlIdentifier(`${input.pivot.config.aggregation.replace(/\s+/g, "_")}_${input.pivot.config.valueField}`);
+  const selectFields = [
+    input.pivot.config.autoBinRows ? `    ${rowField} AS pivot_row, -- Use NTILE/quantile banding in warehouse SQL for ${rawRowField}` : `    ${rowField} AS pivot_row,`,
+    rawColumnField ? (input.pivot.config.autoBinColumns ? `    ${columnField} AS pivot_column, -- Use NTILE/quantile banding in warehouse SQL for ${rawColumnField}` : `    ${columnField} AS pivot_column,`) : "",
+    `    ${aggregate} AS ${aggregateAlias},`,
+    "    COUNT(*) AS n",
+  ].filter(Boolean);
+  const groupByFields = rawColumnField ? `${rowField}, ${columnField}` : rowField;
   const pivotSql = [
     "",
     "-- Pivot Table Builder template",
-    "-- Numeric quantile binning shown conceptually.",
+    "-- Numeric quantile row/column binning shown conceptually for SQL engines.",
     "-- Exact syntax depends on the SQL engine connected to ATLAS.",
     "SELECT",
-    `    ${rowField} AS pivot_row,`,
-    `    ${aggregate} AS ${quoteSqlIdentifier(input.pivot.config.aggregation.replace(/\s+/g, "_"))}`,
+    selectFields.join("\n"),
     `FROM ${table}`,
-    `GROUP BY ${rowField}`,
-    `ORDER BY ${quoteSqlIdentifier(input.pivot.config.aggregation.replace(/\s+/g, "_"))} DESC`,
+    `GROUP BY ${groupByFields}`,
+    `ORDER BY ${aggregateAlias} DESC`,
     `LIMIT ${Math.max(3, Math.min(50, input.pivot.config.topN))};`,
   ];
-  return header.concat(baseSql, pivotSql).join("\n");
+  return header.concat(pivotSql).join("\n");
 }
 
 function sqlAggregation(aggregation: string, valueField: string) {
@@ -1080,8 +1887,199 @@ function sqlAggregation(aggregation: string, valueField: string) {
   return `AVG(${valueField})`;
 }
 
+function buildRTemplate(input: {
+  dataset: DatasetSummary | null;
+  versionId: string;
+  columns: string[];
+  target: string;
+  secondaryDataset: DatasetSummary | null;
+  secondaryVersionId: string;
+  joinKey: string;
+  joinType: string;
+  pivot: PivotResult;
+  businessQuestion?: string;
+}) {
+  const datasetName = input.dataset?.name ?? "selected_dataset";
+  const numericColumns = input.columns.slice(0, 12);
+  const lines = [
+    "# ATLAS Analytics Workbench R template",
+    `# Dataset: ${datasetName}`,
+    `# Version: ${input.versionId || "not_selected"}`,
+    "# Source: ATLAS Dataset Library preview/sample",
+    `# Business question: ${input.businessQuestion || "not provided"}`,
+    "",
+    "cat(\"ATLAS R smoke test passed.\\n\")",
+    "cat(\"Rows:\", nrow(df), \" Columns:\", ncol(df), \"\\n\")",
+    "print(head(df))",
+    "summary(df)",
+  ];
+  if (input.target) lines.push("", `summary(df$${rName(input.target)})`);
+  if (numericColumns.length >= 2) lines.push("", `cor(df$${rName(numericColumns[0])}, df$${rName(numericColumns[1])}, use = "complete.obs")`);
+  if (input.pivot.config.rowField && input.pivot.config.valueField) {
+    const rowField = input.pivot.config.rowField;
+    const columnField = input.pivot.config.columnField;
+    const valueField = input.pivot.config.valueField;
+    const rowBand = `${rowField}_band`;
+    const columnBand = columnField ? `${columnField}_band` : "";
+    const grouping = [
+      input.pivot.config.autoBinRows ? rowBand : rowField,
+      columnField ? (input.pivot.config.autoBinColumns ? columnBand : columnField) : "",
+    ].filter(Boolean).map(rName).join(", ");
+    lines.push(
+      "",
+      "# Pivot Table Builder template",
+      "library(dplyr)",
+      "pivot <- df %>%",
+      input.pivot.config.autoBinRows ? `  mutate(${rName(rowBand)} = dplyr::ntile(${rName(rowField)}, 5)) %>%` : `  # Row field: ${rowField}`,
+      columnField && input.pivot.config.autoBinColumns ? `  mutate(${rName(columnBand)} = dplyr::ntile(${rName(columnField)}, 5)) %>%` : columnField ? `  # Column field: ${columnField}` : "  # No pivot column field selected.",
+      `  group_by(${grouping}) %>%`,
+      "  summarise(",
+      `    ${rName(`${pythonAggregation(input.pivot.config.aggregation)}_${valueField}`)} = ${rAggregation(input.pivot.config.aggregation)}(${rName(valueField)}, na.rm = TRUE),`,
+      "    n = dplyr::n(),",
+      "    .groups = \"drop\"",
+      "  )",
+      "",
+      "print(pivot)",
+    );
+  }
+  if (input.secondaryDataset) {
+    lines.push(
+      "",
+      "# Secondary dataset join template",
+      "# primary_df and secondary_df should be loaded from the selected ATLAS datasets.",
+      input.joinKey
+        ? input.joinType === "append/union"
+          ? "joined <- bind_rows(primary_df, secondary_df)"
+          : `joined <- ${rJoin(input.joinType)}(primary_df, secondary_df, by = ${JSON.stringify(input.joinKey)})`
+        : "# Select a join key to generate executable join code.",
+      "print(dim(joined))",
+      "head(joined)",
+    );
+  }
+  return lines.join("\n");
+}
+
+function buildSasTemplate(input: {
+  dataset: DatasetSummary | null;
+  versionId: string;
+  columns: string[];
+  target: string;
+  secondaryDataset: DatasetSummary | null;
+  secondaryVersionId: string;
+  joinKey: string;
+  joinType: string;
+  pivot: PivotResult;
+  businessQuestion?: string;
+}) {
+  const datasetName = executableTableName(input.dataset?.name ?? "selected_dataset");
+  const workTable = `work.${datasetName.toLowerCase()}`;
+  const exportTable = `atlas.${datasetName}`;
+  const secondaryName = input.secondaryDataset ? executableTableName(input.secondaryDataset.name) : "";
+  const numericList = input.columns.slice(0, 12).join(" ") || "_numeric_";
+  const lines = [
+    "/* ATLAS Analytics Workbench SAS-Compatible template */",
+    `/* Dataset: ${input.dataset?.name ?? "selected_dataset"} */`,
+    `/* Version: ${input.versionId || "not_selected"} */`,
+    "/* Mode: ATLAS SAS-Compatible, no SAS license required */",
+    `/* Table available as: ${workTable} */`,
+    "/* Source: ATLAS Dataset Library preview/sample */",
+    `/* Business question: ${input.businessQuestion || "not provided"} */`,
+    `/* Optional external export table name: ${exportTable} */`,
+    "",
+    `proc contents data=${workTable};`,
+    "run;",
+    "",
+    `proc means data=${workTable} n mean median std min max;`,
+    `    var ${numericList};`,
+    "run;",
+    "",
+    `proc corr data=${workTable};`,
+    `    var ${numericList};`,
+    "run;",
+    "",
+    `proc print data=${workTable}(obs=10);`,
+    "run;",
+  ];
+  if (input.pivot.config.rowField && input.pivot.config.valueField) {
+    const rowField = input.pivot.config.rowField;
+    const columnField = input.pivot.config.columnField;
+    const classFields = [
+      input.pivot.config.autoBinRows ? `${rowField}_band` : rowField,
+      columnField ? (input.pivot.config.autoBinColumns ? `${columnField}_band` : columnField) : "",
+    ].filter(Boolean).join(" ");
+    lines.push(
+      "",
+      "/* Pivot-style summary */",
+      input.pivot.config.autoBinRows || input.pivot.config.autoBinColumns
+        ? `proc rank data=${workTable} groups=5 out=work.${datasetName.toLowerCase()}_binned;`
+        : `data work.${datasetName.toLowerCase()}_binned; set ${workTable}; run;`,
+    );
+    if (input.pivot.config.autoBinRows || input.pivot.config.autoBinColumns) {
+      lines.push(`    var ${[input.pivot.config.autoBinRows ? rowField : "", input.pivot.config.autoBinColumns ? columnField : ""].filter(Boolean).join(" ")};`);
+      lines.push(`    ranks ${[input.pivot.config.autoBinRows ? `${rowField}_band` : "", input.pivot.config.autoBinColumns ? `${columnField}_band` : ""].filter(Boolean).join(" ")};`);
+      lines.push("run;");
+    }
+    lines.push(
+      "",
+      `proc means data=work.${datasetName.toLowerCase()}_binned n mean median std;`,
+      `    class ${classFields};`,
+      `    var ${input.pivot.config.valueField};`,
+      "run;",
+    );
+  }
+  if (input.secondaryDataset) {
+    lines.push(
+      "",
+      "/* Secondary dataset join template */",
+      "proc sql;",
+      input.joinKey
+        ? input.joinType === "append/union"
+          ? `    create table work.joined as select * from ${workTable} union all select * from work.${secondaryName.toLowerCase()};`
+          : [
+              "    create table work.joined as",
+              "    select a.*, b.*",
+              `    from ${workTable} as a`,
+              `    ${sasJoin(input.joinType)} join work.${secondaryName.toLowerCase()} as b`,
+              `        on a.${input.joinKey} = b.${input.joinKey};`,
+            ].join("\n")
+        : "    /* Select a join key to generate executable join code. */",
+      "quit;",
+    );
+  }
+  return lines.join("\n");
+}
+
+function rName(value: string) {
+  return /^[A-Za-z.][A-Za-z0-9._]*$/.test(value) ? value : `\`${value.replace(/`/g, "")}\``;
+}
+
+function rAggregation(aggregation: string) {
+  if (aggregation === "count") return "length";
+  if (aggregation === "std dev" || aggregation === "std") return "sd";
+  if (aggregation === "event rate") return "mean";
+  return aggregation === "mean" ? "mean" : aggregation;
+}
+
+function rJoin(joinType: string) {
+  if (joinType === "inner") return "inner_join";
+  if (joinType === "right") return "right_join";
+  if (joinType === "outer") return "full_join";
+  return "left_join";
+}
+
+function sasJoin(joinType: string) {
+  if (joinType === "inner") return "inner";
+  if (joinType === "right") return "right";
+  if (joinType === "outer") return "full";
+  return "left";
+}
+
 function logicalTableName(name: string, versionId: string) {
   return `atlas_dataset.${sqlSafe(name)}_${sqlSafe(versionId || "current")}`;
+}
+
+function executableTableName(name: string) {
+  return sqlSafe(name || "primary_dataset");
 }
 
 function sqlSafe(value: string) {
@@ -1098,10 +2096,14 @@ function copyText(text: string) {
 
 function exportInsight(payload: Record<string, unknown>) {
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  downloadBlob(blob, "atlas-analytics-insight.json");
+}
+
+function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "atlas-analytics-insight.json";
+  link.download = filename;
   link.click();
   URL.revokeObjectURL(url);
 }
@@ -1148,6 +2150,35 @@ function PivotTable({ result }: { result: PivotResult }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+function SqlResultPanel({ result }: { result: AnalyticsSqlRunResult }) {
+  const isSuccess = result.status === "success";
+  return (
+    <div className={`mt-4 rounded-xl border p-4 text-sm ${isSuccess ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"}`}>
+      <div className="flex flex-wrap items-center justify-between gap-2 font-semibold">
+        <span>{isSuccess ? "SQL preview completed" : "SQL preview blocked or failed"}</span>
+        <span>{result.runtimeMs} ms - {result.rowCount.toLocaleString()} rows</span>
+      </div>
+      {!isSuccess && <div className="mt-3 rounded-lg border border-rose-200 bg-white p-3 text-rose-900">{result.error || "ATLAS could not run this SQL against preview rows."}</div>}
+      {isSuccess && (
+        <div className="mt-3 max-h-80 overflow-auto rounded-lg border border-slate-200 bg-white">
+          <table className="min-w-full text-xs">
+            <thead className="sticky top-0 bg-slate-100 uppercase tracking-wide text-slate-500">
+              <tr>{result.columns.map((column) => <th key={column} className="border-b border-slate-200 px-3 py-2 text-left">{column}</th>)}</tr>
+            </thead>
+            <tbody>
+              {result.rows.map((row, index) => (
+                <tr key={index} className={index % 2 ? "bg-slate-50/70" : "bg-white"}>
+                  {result.columns.map((column) => <td key={column} className="border-b border-slate-100 px-3 py-2 text-slate-800">{String(row[column] ?? "")}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
@@ -1234,6 +2265,24 @@ function CodePanel(props: { title: string; generatedTitle: string; userTitle: st
 
 function OutputBlock({ title, text }: { title: string; text: string }) {
   return <div><div className="text-xs font-semibold uppercase tracking-wide text-slate-600">{title}</div><pre className="mt-1 max-h-52 overflow-auto rounded-lg bg-white p-3 text-xs leading-5 text-slate-900">{text}</pre></div>;
+}
+
+function cleanPythonStderr(stderr: string) {
+  const text = (stderr || "").trim();
+  if (!text) return "";
+  if (text.includes("Failed checking if argv[0] is an import path entry") && text.includes("zipimport")) return "";
+  const nonFatalPatterns = [
+    "Failed checking if argv[0] is an import path entry",
+    "KeyError:",
+    "zipimport",
+    "During handling of the above exception",
+  ];
+  const lines = text.split(/\r?\n/);
+  const isOnlyBootstrapNoise = lines.every((line) => {
+    const trimmed = line.trim();
+    return !trimmed || nonFatalPatterns.some((pattern) => trimmed.includes(pattern)) || /^Traceback \(most recent call last\):$/.test(trimmed) || /^File "<frozen/.test(trimmed);
+  });
+  return isOnlyBootstrapNoise ? "" : text;
 }
 
 function formatNumber(value: number) {

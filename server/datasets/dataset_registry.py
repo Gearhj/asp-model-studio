@@ -672,6 +672,28 @@ def diagnostics() -> Dict[str, Any]:
                 "detail": f"Analytics diagnostics failed: {exc}",
             }
         )
+    try:
+        from ..charts.chart_store import chart_diagnostics
+
+        charts = chart_diagnostics()
+        for check in charts.get("checks", []):
+            checks.append(
+                {
+                    "id": f"chart_studio_{check.get('id')}",
+                    "label": f"Chart Studio: {check.get('label')}",
+                    "status": check.get("status", "warning"),
+                    "detail": check.get("detail", ""),
+                }
+            )
+    except Exception as exc:
+        checks.append(
+            {
+                "id": "chart_studio_diagnostics",
+                "label": "Chart Studio diagnostics",
+                "status": "fail",
+                "detail": f"Chart Studio diagnostics failed: {exc}",
+            }
+        )
     return {
         "ok": True,
         "generatedAt": now_iso(),

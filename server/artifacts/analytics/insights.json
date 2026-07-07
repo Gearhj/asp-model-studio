@@ -1,6 +1,145 @@
 {
   "insights": [
     {
+      "insightId": "insight_4ecd8571e432420d",
+      "title": "SAS code snippet: REG_TRAIN",
+      "summary": "Saved SAS code generated from the ATLAS Analytics Workbench context.",
+      "datasetId": "ds_reg_train_309ce82d",
+      "versionId": "v_1783361298379_309ce82d",
+      "projectId": "atlas-mr5bp6oy",
+      "businessQuestion": "",
+      "analysisType": "sas_code_snippet",
+      "createdByUserId": "unknown-user",
+      "createdAt": "2026-07-07T01:24:51.835715+00:00",
+      "evidence": {
+        "chartType": "code_workspace",
+        "columnsUsed": [
+          "MedInc",
+          "MedInc"
+        ],
+        "metrics": {
+          "language": "sas",
+          "datasetName": "REG_TRAIN",
+          "versionId": "v_1783361298379_309ce82d",
+          "code": "/* ATLAS Analytics Workbench SAS template */\n/* Dataset: REG_TRAIN */\n/* Version: v_1783361298379_309ce82d */\n/* Source: ATLAS Dataset Library preview/sample */\n/* Business question: not provided */\n/* Export table: atlas.REG_TRAIN */\n/* Preview execution table, when SASPy is configured: work.reg_train */\n/* Replace work.reg_train with your SAS libref/table when running externally. */\n\nproc contents data=work.reg_train;\nrun;\n\nproc means data=work.reg_train n mean median std min max;\n    var MedInc HouseAge AveRooms AveBedrms Population AveOccup Latitude Longitude MedHouseVal;\nrun;\n\nproc corr data=work.reg_train;\n    var MedInc HouseAge AveRooms AveBedrms Population AveOccup Latitude Longitude MedHouseVal;\nrun;\n\nproc sgplot data=work.reg_train;\n    histogram MedInc;\n    density MedInc;\nrun;\n\n/* Pivot-style summary */\nproc rank data=work.reg_train groups=5 out=work.reg_train_binned;\n    var MedInc;\n    ranks MedInc_band;\nrun;\n\nproc means data=work.reg_train_binned n mean median std;\n    class MedInc_band;\n    var MedInc;\nrun;",
+          "pivotConfig": {
+            "rowField": "MedInc",
+            "columnField": "",
+            "valueField": "MedInc",
+            "aggregation": "mean",
+            "autoBinRows": true,
+            "autoBinColumns": false,
+            "topN": 12,
+            "binaryTarget": ""
+          },
+          "secondaryDatasetId": ""
+        }
+      }
+    },
+    {
+      "insightId": "insight_e6087f7cfa204d87",
+      "title": "SAS code snippet: REG_TRAIN",
+      "summary": "Saved SAS code generated from the ATLAS Analytics Workbench context.",
+      "datasetId": "ds_reg_train_309ce82d",
+      "versionId": "v_1783361298379_309ce82d",
+      "projectId": "atlas-mr5bp6oy",
+      "businessQuestion": "",
+      "analysisType": "sas_code_snippet",
+      "createdByUserId": "unknown-user",
+      "createdAt": "2026-07-07T00:59:18.718593+00:00",
+      "evidence": {
+        "chartType": "code_workspace",
+        "columnsUsed": [
+          "MedInc",
+          "HouseAge",
+          "MedHouseVal"
+        ],
+        "metrics": {
+          "language": "sas",
+          "datasetName": "REG_TRAIN",
+          "versionId": "v_1783361298379_309ce82d",
+          "code": "/* ATLAS Analytics Workbench SAS template */\n/* Dataset: REG_TRAIN */\n/* Version: v_1783361298379_309ce82d */\n/* Source: ATLAS Dataset Library preview/sample */\n/* Business question: not provided */\n/* Replace atlas.REG_TRAIN with the assigned SAS libref/table in your SAS environment. */\n\nproc contents data=atlas.REG_TRAIN;\nrun;\n\nproc means data=atlas.REG_TRAIN n mean median std min max;\n    var MedInc HouseAge AveRooms AveBedrms Population AveOccup Latitude Longitude MedHouseVal;\nrun;\n\nproc corr data=atlas.REG_TRAIN;\n    var MedInc HouseAge AveRooms AveBedrms Population AveOccup Latitude Longitude MedHouseVal;\nrun;\n\nproc sgplot data=atlas.REG_TRAIN;\n    histogram MedInc;\n    density MedInc;\nrun;\n\n/* Pivot-style summary */\nproc rank data=atlas.REG_TRAIN groups=5 out=work.reg_train_binned;\n    var MedInc HouseAge;\n    ranks MedInc_band HouseAge_band;\nrun;\n\nproc means data=work.reg_train_binned n mean median std;\n    class MedInc_band HouseAge_band;\n    var MedHouseVal;\nrun;",
+          "pivotConfig": {
+            "rowField": "MedInc",
+            "columnField": "HouseAge",
+            "valueField": "MedHouseVal",
+            "aggregation": "mean",
+            "autoBinRows": true,
+            "autoBinColumns": true,
+            "topN": 12,
+            "binaryTarget": ""
+          },
+          "secondaryDatasetId": ""
+        }
+      }
+    },
+    {
+      "insightId": "insight_35bd202a90de4b6d",
+      "title": "Analytics summary for REG_TRAIN",
+      "summary": "Select a dataset and enter a business question to generate ATLAS takeaways.",
+      "datasetId": "ds_reg_train_309ce82d",
+      "versionId": "v_1783361298379_309ce82d",
+      "projectId": "atlas-mr5bp6oy",
+      "businessQuestion": "",
+      "analysisType": "pivot_table",
+      "createdByUserId": "unknown-user",
+      "createdAt": "2026-07-06T22:02:52.226381+00:00",
+      "evidence": {
+        "chartType": "analytics_workbench",
+        "columnsUsed": [
+          "MedInc",
+          "MedInc",
+          "MedInc"
+        ],
+        "filters": {
+          "primaryDatasetId": "ds_reg_train_309ce82d",
+          "primaryVersionId": "v_1783361298379_309ce82d"
+        },
+        "metrics": {
+          "rows": 12384,
+          "columns": 9,
+          "numericColumns": 9,
+          "categoricalColumns": 0,
+          "qualityFindings": 1,
+          "analysisPlan": [],
+          "pivotConfig": {
+            "rowField": "MedInc",
+            "columnField": "",
+            "valueField": "MedHouseVal",
+            "aggregation": "mean",
+            "autoBin": true,
+            "topN": 12,
+            "binaryTarget": ""
+          },
+          "pivotPreview": [
+            {
+              "MedInc band": "Q5: 0.866 to 0.917",
+              "mean": 1.7203005
+            },
+            {
+              "MedInc band": "Q1: 0.5 to 0.536",
+              "mean": 1.6515004545454546
+            },
+            {
+              "MedInc band": "Q4: 0.813 to 0.866",
+              "mean": 1.5028004999999998
+            },
+            {
+              "MedInc band": "Q2: 0.536 to 0.746",
+              "mean": 1.4071116666666665
+            },
+            {
+              "MedInc band": "Q3: 0.746 to 0.813",
+              "mean": 1.2693999999999999
+            }
+          ],
+          "pivotReadout": "mean MedHouseVal by MedInc band is highest for Q5: 0.866 to 0.917 in the preview (1.72). Review the full dataset before drawing production conclusions.",
+          "generatedPython": "import pandas as pd\n\n# ATLAS Analytics Workbench Python template\n# Dataset: REG_TRAIN\n# Version: v_1783361298379_309ce82d\n# Source: ATLAS Dataset Library preview/sample\n\ntry:\n    preview_rows\nexcept NameError:\n    preview_rows = []\n\ndf = pd.DataFrame(preview_rows)\nprint(\"ATLAS Analytics Workbench Python smoke test passed.\")\nprint(df.shape)\nprint(df.head())\nprint(df.describe(include=\"all\"))\n\nprint(df.groupby(\"MedInc\")[\"MedInc\"].mean())\n\n# Pivot Table Builder template\ndf[\"MedInc_band\"] = pd.qcut(df[\"MedInc\"], q=5, duplicates=\"drop\")\npivot = (\n    df.groupby(\"MedInc_band\")[\"MedHouseVal\"]\n    .mean()\n    .reset_index()\n)\nprint(pivot)\n\nprint(df.corr(numeric_only=True))",
+          "generatedSql": "-- ATLAS Analytics Workbench SQL template\n-- Dataset: REG_TRAIN\n-- Version: v_1783361298379_309ce82d\n-- Rows: 12,384\n-- Columns: 9\n-- Logical ATLAS reference: atlas_dataset.REG_TRAIN_v_1783361298379_309ce82d\n-- Runs against preview/sample rows loaded into local SQLite memory.\n\n\n-- Pivot Table Builder template\n-- Numeric quantile binning shown conceptually.\n-- Exact syntax depends on the SQL engine connected to ATLAS.\nSELECT\n    MedInc AS pivot_row,\n    AVG(MedHouseVal) AS mean_MedHouseVal,\n    COUNT(*) AS n\nFROM REG_TRAIN\nGROUP BY MedInc\nORDER BY mean_MedHouseVal DESC\nLIMIT 12;"
+        }
+      }
+    },
+    {
       "insightId": "insight_5f92565255e94feb",
       "title": "Analytics summary for REG_TRAIN",
       "summary": "Select a dataset and enter a business question to generate ATLAS takeaways.",
