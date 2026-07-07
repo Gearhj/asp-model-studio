@@ -87,6 +87,10 @@ export default function Sidebar() {
             <BarChart3 size={17} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">Analytics Workbench</span>
           </NavLink>
+          <NavLink to="/chart-studio" className={({ isActive }) => linkClass(isActive)}>
+            <BarChart3 size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Chart Studio</span>
+          </NavLink>
         </NavGroup>
 
         <NavGroup label="Current Project" detail={projectName}>

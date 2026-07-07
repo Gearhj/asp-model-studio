@@ -222,13 +222,13 @@ export default function DatasetDetail() {
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-base font-semibold text-slate-950">Saved Analytics Insights</h2>
+            <h2 className="text-base font-semibold text-slate-950">Saved Analytics Insights and Chart Insights</h2>
             <p className="mt-1 text-sm leading-6 text-slate-600">
-              Findings created in the Analytics Workbench for this governed dataset.
+              Findings created in Analytics Workbench and Chart Studio for this governed dataset.
             </p>
           </div>
-          <Link to="/analytics" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
-            Open Analytics Workbench
+          <Link to="/chart-studio" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
+            Open Chart Studio
           </Link>
         </div>
         <div className="mt-4 grid gap-3 md:grid-cols-2">
@@ -238,13 +238,13 @@ export default function DatasetDetail() {
                 <div className="text-sm font-semibold text-slate-950">{insight.title}</div>
                 <p className="mt-1 line-clamp-3 text-xs leading-5 text-slate-600">{insight.summary || "No narrative summary was saved."}</p>
                 <div className="mt-2 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  {insight.analysisType} - {new Date(insight.createdAt).toLocaleString()}
+                  {(insight.analysisType === "chart_studio" ? `Chart Studio - ${insight.evidence?.chartType || "chart"}` : insight.analysisType)} - {new Date(insight.createdAt).toLocaleString()}
                 </div>
               </article>
             ))
           ) : (
             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-500">
-              No analytics insights are saved for this dataset yet.
+              No analytics or chart insights are saved for this dataset yet.
             </div>
           )}
         </div>

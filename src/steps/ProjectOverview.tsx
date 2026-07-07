@@ -161,16 +161,16 @@ export default function ProjectOverview() {
             )}
           </Panel>
 
-          <Panel icon={<Gauge size={18} />} title="Project Analytics Insights">
+          <Panel icon={<Gauge size={18} />} title="Project Analytics Insights and Chart Insights">
             {analyticsInsights.length ? (
               analyticsInsights.slice(0, 4).map((insight) => (
-                <Link key={insight.insightId} to="/analytics" className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 transition hover:border-blue-200 hover:bg-blue-50">
+                <Link key={insight.insightId} to={insight.analysisType === "chart_studio" ? "/chart-studio" : "/analytics"} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 transition hover:border-blue-200 hover:bg-blue-50">
                   <div className="text-xs font-semibold text-slate-900">{insight.title}</div>
-                  <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">{insight.summary || insight.analysisType}</div>
+                  <div className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-500">{insight.summary || (insight.analysisType === "chart_studio" ? "Chart Studio insight" : insight.analysisType)}</div>
                 </Link>
               ))
             ) : (
-              <Empty text="No Analytics Workbench insights linked to this project yet." />
+              <Empty text="No Analytics Workbench or Chart Studio insights linked to this project yet." />
             )}
           </Panel>
 

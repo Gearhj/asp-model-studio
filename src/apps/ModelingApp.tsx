@@ -18,6 +18,7 @@ import ProjectOverview from "../steps/ProjectOverview";
 import { ExportsPage, OpenProject, SettingsPage } from "../steps/ProjectUtilityPages";
 import { AccountPage, AdminUsersPage, AuditPage, LoginPage, RegisterPage } from "../steps/AuthPages";
 import AnalyticsWorkbench from "../steps/AnalyticsWorkbench";
+import ChartStudio from "../steps/ChartStudio";
 import RegisterDataset from "../steps/RegisterDataset";
 import Step00ProjectContext from "../steps/Step00_ProjectContext";
 import Step01BCreditBureauReview from "../steps/Step01B_CreditBureauReview";
@@ -175,6 +176,7 @@ export default function ModelingApp() {
                   <Route path="/templates" element={<WorkflowTemplates />} />
                   <Route path="/datasets" element={<DatasetLibrary />} />
                   <Route path="/analytics" element={<AnalyticsWorkbench />} />
+                  <Route path="/chart-studio" element={<ChartStudio />} />
                   <Route path="/datasets/register" element={<RegisterDataset />} />
                   <Route path="/datasets/:datasetId" element={<DatasetDetail />} />
                   <Route path="/experiments" element={<ExperimentComparison />} />
