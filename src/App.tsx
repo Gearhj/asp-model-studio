@@ -356,9 +356,15 @@ function SignIn({ onSignIn }: { onSignIn: (user: User) => void }) {
   const [email, setEmail] = useState("manager@company.com");
   const [name, setName] = useState("James Davis");
   const [role, setRole] = useState<Role>("Model Manager");
+  const [keepSignedIn, setKeepSignedIn] = useState(true);
 
   function submit(event: FormEvent) {
     event.preventDefault();
+    if (keepSignedIn) {
+      localStorage.setItem("modelflow-keep-signed-in-email", email);
+    } else {
+      localStorage.removeItem("modelflow-keep-signed-in-email");
+    }
     onSignIn({ name, email, role });
   }
 
@@ -406,6 +412,10 @@ function SignIn({ onSignIn }: { onSignIn: (user: User) => void }) {
               <option>Developer</option>
               <option>Reviewer</option>
             </select>
+          </label>
+          <label className="signin-checkbox">
+            <input type="checkbox" checked={keepSignedIn} onChange={(event) => setKeepSignedIn(event.target.checked)} />
+            <span>Keep me Signed In</span>
           </label>
 
           <button className="primary-button" type="submit">

@@ -14,6 +14,117 @@
   .atlas-secondary-button {
     @apply inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60;
   }
+
+  .atlas-page-shell {
+    @apply w-full space-y-5;
+  }
+
+  .atlas-studio-hero {
+    @apply overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm;
+  }
+
+  .atlas-studio-hero__band {
+    @apply border-b p-5 text-white;
+    background: linear-gradient(135deg, #020617 0%, #0f172a 52%, var(--atlas-accent-900, #172554) 100%);
+    border-color: color-mix(in srgb, var(--atlas-accent-300, #93c5fd) 34%, transparent);
+  }
+
+  .atlas-studio-hero__nav {
+    @apply flex flex-wrap gap-2 px-5 py-3 text-xs font-semibold;
+    background: color-mix(in srgb, var(--atlas-accent-50, #eff6ff) 70%, white);
+    color: color-mix(in srgb, var(--atlas-accent-900, #172554) 62%, #475569);
+  }
+
+  .atlas-studio-chip {
+    @apply rounded-full border bg-white px-3 py-1.5 shadow-sm transition;
+    border-color: color-mix(in srgb, var(--atlas-accent-200, #bfdbfe) 72%, #e2e8f0);
+  }
+
+  .atlas-studio-chip:hover {
+    border-color: var(--atlas-accent-300, #93c5fd);
+    color: var(--atlas-accent-800, #1e40af);
+  }
+
+  .atlas-surface {
+    @apply rounded-2xl border p-5 shadow-sm;
+    border-color: color-mix(in srgb, var(--atlas-accent-200, #bfdbfe) 70%, #e2e8f0);
+    background: color-mix(in srgb, var(--atlas-accent-50, #eff6ff) 52%, white);
+  }
+
+  .atlas-surface-white {
+    @apply rounded-2xl border bg-white p-5 shadow-sm;
+    border-color: color-mix(in srgb, var(--atlas-accent-200, #bfdbfe) 46%, #e2e8f0);
+  }
+
+  .atlas-theme-analytics {
+    --atlas-accent-50: #eff6ff;
+    --atlas-accent-100: #dbeafe;
+    --atlas-accent-200: #bfdbfe;
+    --atlas-accent-300: #93c5fd;
+    --atlas-accent-700: #1d4ed8;
+    --atlas-accent-800: #1e40af;
+    --atlas-accent-900: #172554;
+  }
+
+  .atlas-theme-chart {
+    --atlas-accent-50: #ecfeff;
+    --atlas-accent-100: #cffafe;
+    --atlas-accent-200: #a5f3fc;
+    --atlas-accent-300: #67e8f9;
+    --atlas-accent-700: #0e7490;
+    --atlas-accent-800: #155e75;
+    --atlas-accent-900: #164e63;
+  }
+
+  .atlas-theme-credit {
+    --atlas-accent-50: #ecfdf5;
+    --atlas-accent-100: #d1fae5;
+    --atlas-accent-200: #a7f3d0;
+    --atlas-accent-300: #6ee7b7;
+    --atlas-accent-700: #047857;
+    --atlas-accent-800: #065f46;
+    --atlas-accent-900: #064e3b;
+  }
+
+  .atlas-theme-diagnostics {
+    --atlas-accent-50: #fff7ed;
+    --atlas-accent-100: #ffedd5;
+    --atlas-accent-200: #fed7aa;
+    --atlas-accent-300: #fdba74;
+    --atlas-accent-700: #c2410c;
+    --atlas-accent-800: #9a3412;
+    --atlas-accent-900: #7c2d12;
+  }
+
+  .atlas-theme-documentation {
+    --atlas-accent-50: #f5f3ff;
+    --atlas-accent-100: #ede9fe;
+    --atlas-accent-200: #ddd6fe;
+    --atlas-accent-300: #c4b5fd;
+    --atlas-accent-700: #6d28d9;
+    --atlas-accent-800: #5b21b6;
+    --atlas-accent-900: #4c1d95;
+  }
+
+  .atlas-theme-notebook {
+    --atlas-accent-50: #f0f9ff;
+    --atlas-accent-100: #e0f2fe;
+    --atlas-accent-200: #bae6fd;
+    --atlas-accent-300: #7dd3fc;
+    --atlas-accent-700: #0369a1;
+    --atlas-accent-800: #075985;
+    --atlas-accent-900: #0c4a6e;
+  }
+
+  .atlas-theme-sql {
+    --atlas-accent-50: #f0fdfa;
+    --atlas-accent-100: #ccfbf1;
+    --atlas-accent-200: #99f6e4;
+    --atlas-accent-300: #5eead4;
+    --atlas-accent-700: #0f766e;
+    --atlas-accent-800: #115e59;
+    --atlas-accent-900: #134e4a;
+  }
 }
 
 :root {
@@ -693,6 +804,21 @@ svg {
   outline: 0;
   background: rgba(255, 255, 255, 0.88);
   color: #111827;
+}
+
+.signin-form .signin-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.signin-form .signin-checkbox input {
+  min-height: 0;
+  width: 16px;
+  height: 16px;
+  padding: 0;
 }
 
 .modal-backdrop {

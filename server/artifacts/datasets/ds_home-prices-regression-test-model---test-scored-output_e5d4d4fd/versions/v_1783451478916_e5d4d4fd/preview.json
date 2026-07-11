@@ -1,0 +1,134 @@
+{
+  "columns": [
+    "row",
+    "predicted_value",
+    "prediction"
+  ],
+  "rows": [
+    {
+      "predicted_value": 2.5035908598,
+      "prediction": 2.5035908598,
+      "row": 1
+    },
+    {
+      "predicted_value": 2.3440387581,
+      "prediction": 2.3440387581,
+      "row": 2
+    },
+    {
+      "predicted_value": 1.5274352201,
+      "prediction": 1.5274352201,
+      "row": 3
+    },
+    {
+      "predicted_value": 2.4785446177,
+      "prediction": 2.4785446177,
+      "row": 4
+    },
+    {
+      "predicted_value": 1.9683675538,
+      "prediction": 1.9683675538,
+      "row": 5
+    },
+    {
+      "predicted_value": 2.3088401833,
+      "prediction": 2.3088401833,
+      "row": 6
+    },
+    {
+      "predicted_value": 2.1309129217,
+      "prediction": 2.1309129217,
+      "row": 7
+    },
+    {
+      "predicted_value": 1.5382474938,
+      "prediction": 1.5382474938,
+      "row": 8
+    },
+    {
+      "predicted_value": 2.3048050891,
+      "prediction": 2.3048050891,
+      "row": 9
+    },
+    {
+      "predicted_value": 2.4470295096,
+      "prediction": 2.4470295096,
+      "row": 10
+    },
+    {
+      "predicted_value": 1.9807060201,
+      "prediction": 1.9807060201,
+      "row": 11
+    },
+    {
+      "predicted_value": 1.6319101358,
+      "prediction": 1.6319101358,
+      "row": 12
+    },
+    {
+      "predicted_value": 2.4596544004,
+      "prediction": 2.4596544004,
+      "row": 13
+    },
+    {
+      "predicted_value": 1.3237976405,
+      "prediction": 1.3237976405,
+      "row": 14
+    },
+    {
+      "predicted_value": 2.0918802829,
+      "prediction": 2.0918802829,
+      "row": 15
+    },
+    {
+      "predicted_value": 2.4158050975,
+      "prediction": 2.4158050975,
+      "row": 16
+    },
+    {
+      "predicted_value": 2.6020263552,
+      "prediction": 2.6020263552,
+      "row": 17
+    },
+    {
+      "predicted_value": 1.8145566604,
+      "prediction": 1.8145566604,
+      "row": 18
+    },
+    {
+      "predicted_value": 2.2152140888,
+      "prediction": 2.2152140888,
+      "row": 19
+    },
+    {
+      "predicted_value": 2.1798337015,
+      "prediction": 2.1798337015,
+      "row": 20
+    },
+    {
+      "predicted_value": 2.4123968026,
+      "prediction": 2.4123968026,
+      "row": 21
+    },
+    {
+      "predicted_value": 2.5919273966,
+      "prediction": 2.5919273966,
+      "row": 22
+    },
+    {
+      "predicted_value": 2.0810911787,
+      "prediction": 2.0810911787,
+      "row": 23
+    },
+    {
+      "predicted_value": 1.0241154081,
+      "prediction": 1.0241154081,
+      "row": 24
+    },
+    {
+      "predicted_value": 2.157327362,
+      "prediction": 2.157327362,
+      "row": 25
+    }
+  ]
+}

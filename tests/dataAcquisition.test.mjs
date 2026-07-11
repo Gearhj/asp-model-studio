@@ -135,10 +135,12 @@ test("frontend source calls backend upload and avoids set_sample for backend-imp
   assert.match(source, /nextDisabledReason/);
 });
 
-test("data preview has one target selector and shared next navigation", async () => {
+test("data acquisition uses canonical target setup and shared next navigation", async () => {
   const source = await readFile(new URL("../src/steps/Step01_DataAcquisition.tsx", import.meta.url), "utf8");
-  assert.doesNotMatch(source, /<Select label="Target"/);
-  assert.match(source, /<div className="font-semibold">Target variable<\/div>/);
+  assert.match(source, /function TargetSetup/);
+  assert.match(source, /<Select label="Target Column"/);
+  assert.match(source, /Target profile/);
+  assert.match(source, /Target and sampling controls are managed in the setup panels above/);
   assert.match(source, /nextPath="\/step01b"/);
   assert.doesNotMatch(source, /navigate\("\/step01b"\)/);
 });

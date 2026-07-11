@@ -13,8 +13,6 @@ export const RECOGNIZED_UPLOAD_EXTENSIONS = new Set([
   "parquet",
   "feather",
   "sas7bdat",
-  "pkl",
-  "pickle",
   "zip",
 ]);
 
@@ -95,7 +93,7 @@ export function getUploadDecision(input: {
     return {
       mode: "invalid",
       extension,
-      message: `.${extension || "unknown"} is not an allowed project data file type. Upload CSV, JSON, Excel, Parquet, Feather, SAS, Pickle, or ZIP.`,
+      message: `.${extension || "unknown"} is not an allowed project data file type. Upload CSV, JSON, Excel, Parquet, Feather, SAS, or ZIP.`,
     };
   }
 

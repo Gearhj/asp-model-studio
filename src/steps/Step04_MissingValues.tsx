@@ -354,7 +354,7 @@ export default function Step04_MissingValues() {
           {statusMessage}
         </div>
       )}
-      <div className="grid gap-6 md:grid-cols-2">
+      <div className="grid gap-6">
         {/* Numeric Features */}
         <div className="bg-white border rounded-lg p-4">
           <h3 className="font-semibold mb-2">Numeric Features</h3>
@@ -363,7 +363,8 @@ export default function Step04_MissingValues() {
               No numeric features detected. Load a CSV in Step 1 if this is unexpected.
             </p>
           ) : (
-            <table className="min-w-full text-sm">
+            <div className="overflow-x-auto rounded-lg border border-gray-200">
+            <table className="min-w-[760px] w-full text-sm">
               <thead>
                 <tr className="text-left">
                   <th className="px-2 py-1 border-b">Feature</th>
@@ -381,12 +382,12 @@ export default function Step04_MissingValues() {
                   const stats = missingStats[col.name];
                   return (
                     <tr key={col.name} className="odd:bg-gray-50">
-                      <td className="px-2 py-1 border-b">{col.name}</td>
+                      <td className="px-2 py-1 border-b font-medium break-words">{col.name}</td>
                       <td className="px-2 py-1 border-b">{stats ? stats.missing.toLocaleString() : "—"}</td>
                       <td className="px-2 py-1 border-b">{stats ? `${stats.missingPct.toFixed(2)}%` : "—"}</td>
                       <td className="px-2 py-1 border-b">
                         <select
-                          className="w-full border rounded-md px-2 py-1"
+                          className="w-36 border rounded-md px-2 py-1"
                           value={cfg.strategy}
                           title={missingStrategyGuidance[cfg.strategy]}
                           onChange={(e) =>
@@ -405,7 +406,7 @@ export default function Step04_MissingValues() {
                       </td>
                       <td className="px-2 py-1 border-b">
                         <input
-                          className="w-full border rounded-md px-2 py-1 text-xs"
+                          className="w-44 border rounded-md px-2 py-1 text-xs disabled:bg-gray-100"
                           placeholder="Only used if Constant"
                           value={cfg.constantValue ?? ""}
                           onChange={(e) =>
@@ -419,6 +420,7 @@ export default function Step04_MissingValues() {
                 })}
               </tbody>
             </table>
+            </div>
           )}
         </div>
 
@@ -430,7 +432,8 @@ export default function Step04_MissingValues() {
               No categorical features detected. Load a CSV in Step 1 if this is unexpected.
             </p>
           ) : (
-            <table className="min-w-full text-sm">
+            <div className="overflow-x-auto rounded-lg border border-gray-200">
+            <table className="min-w-[760px] w-full text-sm">
               <thead>
                 <tr className="text-left">
                   <th className="px-2 py-1 border-b">Feature</th>
@@ -448,12 +451,12 @@ export default function Step04_MissingValues() {
                   const stats = missingStats[col.name];
                   return (
                     <tr key={col.name} className="odd:bg-gray-50">
-                      <td className="px-2 py-1 border-b">{col.name}</td>
+                      <td className="px-2 py-1 border-b font-medium break-words">{col.name}</td>
                       <td className="px-2 py-1 border-b">{stats ? stats.missing.toLocaleString() : "—"}</td>
                       <td className="px-2 py-1 border-b">{stats ? `${stats.missingPct.toFixed(2)}%` : "—"}</td>
                       <td className="px-2 py-1 border-b">
                         <select
-                          className="w-full border rounded-md px-2 py-1"
+                          className="w-36 border rounded-md px-2 py-1"
                           value={cfg.strategy}
                           title={missingStrategyGuidance[cfg.strategy]}
                           onChange={(e) =>
@@ -472,7 +475,7 @@ export default function Step04_MissingValues() {
                       </td>
                       <td className="px-2 py-1 border-b">
                         <input
-                          className="w-full border rounded-md px-2 py-1 text-xs"
+                          className="w-44 border rounded-md px-2 py-1 text-xs disabled:bg-gray-100"
                           placeholder="Only used if Constant"
                           value={cfg.constantValue ?? ""}
                           onChange={(e) =>
@@ -486,6 +489,7 @@ export default function Step04_MissingValues() {
                 })}
               </tbody>
             </table>
+            </div>
           )}
         </div>
       </div>

@@ -70,4 +70,38 @@ class ResultStore:
         return self.scoring_reference
 
 
-RESULTS = ResultStore()
+_RESULT_STORES: Dict[str, ResultStore] = {}
+
+
+def _scope_key() -> str:
+    try:
+        from ..security.security_store import active_user
+
+        user = active_user() or {}
+        return str(user.get("userId") or "anonymous")
+    except Exception:
+        return "anonymous"
+
+
+def get_scoped_result_store(scope: Optional[str] = None) -> ResultStore:
+    key = scope or _scope_key()
+    if key not in _RESULT_STORES:
+        _RESULT_STORES[key] = ResultStore()
+    return _RESULT_STORES[key]
+
+
+class ResultStoreProxy:
+    def current(self) -> ResultStore:
+        return get_scoped_result_store()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.current(), name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "_ignored":
+            super().__setattr__(name, value)
+            return
+        setattr(self.current(), name, value)
+
+
+RESULTS = ResultStoreProxy()

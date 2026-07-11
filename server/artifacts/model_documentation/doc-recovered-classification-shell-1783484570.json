@@ -1,0 +1,560 @@
+{
+  "contextSummary": {
+    "analyticsInsights": [],
+    "chartInsights": [],
+    "datasets": [
+      {
+        "columns": 41,
+        "createdAt": "2026-07-07T23:10:48.758630+00:00",
+        "dataset": "Recovered Classification Predictive Model - TRAIN Scored Output",
+        "datasetId": "ds_recovered-classification-predictive-model---train-scored-output_84f8db0a",
+        "eventRateOrTargetMean": "",
+        "owner": "Local ATLAS User",
+        "role": "scored_output",
+        "rows": 1440,
+        "sourceType": "scored_output",
+        "target": "Class",
+        "updatedAt": "2026-07-07T23:10:49.173758+00:00",
+        "version": "v_1783465847543_84f8db0a"
+      },
+      {
+        "columns": 42,
+        "createdAt": "2026-07-07T23:11:31.154460+00:00",
+        "dataset": "Recovered Classification Predictive Model - TEST Scored Output",
+        "datasetId": "ds_recovered-classification-predictive-model---test-scored-output_0b477260",
+        "eventRateOrTargetMean": "",
+        "owner": "Local ATLAS User",
+        "role": "scored_output",
+        "rows": 56961,
+        "sourceType": "scored_output",
+        "target": "Class",
+        "updatedAt": "2026-07-07T23:11:31.555594+00:00",
+        "version": "v_1783465874502_0b477260"
+      },
+      {
+        "columns": 42,
+        "createdAt": "2026-07-07T23:11:31.915375+00:00",
+        "dataset": "Recovered Classification Predictive Model - OOT Scored Output",
+        "datasetId": "ds_recovered-classification-predictive-model---oot-scored-output_84e442cf",
+        "eventRateOrTargetMean": "",
+        "owner": "Local ATLAS User",
+        "role": "scored_output",
+        "rows": 56962,
+        "sourceType": "scored_output",
+        "target": "Class",
+        "updatedAt": "2026-07-07T23:11:32.021249+00:00",
+        "version": "v_1783465880343_84e442cf"
+      }
+    ],
+    "diagnosticInsights": [],
+    "generatedAt": "2026-07-08T04:22:50.734341+00:00",
+    "project": {
+      "championModel": "Not selected",
+      "createdAt": "2026-07-07T23:10:48.758630+00:00",
+      "lastModified": "2026-07-07T23:11:32.021249+00:00",
+      "projectId": "recovered-classification-shell",
+      "projectName": "Recovered Classification Predictive Model",
+      "projectType": "predictive_modeling",
+      "recoveryStatus": "Dataset-linked shell only",
+      "storageLocation": "recovered",
+      "target": "Class",
+      "taskType": "classification"
+    },
+    "recoveredShell": true
+  },
+  "createdAt": "2026-07-08T04:22:50.734341+00:00",
+  "createdBy": "ATLAS local user",
+  "documentId": "doc-recovered-classification-shell-1783484570",
+  "exports": [],
+  "projectId": "recovered-classification-shell",
+  "projectName": "Recovered Classification Predictive Model",
+  "quality": {
+    "checks": [
+      {
+        "detail": "0 of 25 required sections complete.",
+        "id": "required_sections",
+        "label": "Required sections complete",
+        "status": "warning"
+      },
+      {
+        "detail": "Dataset inventory evidence is attached.",
+        "id": "dataset_lineage",
+        "label": "Dataset lineage documented",
+        "status": "pass"
+      },
+      {
+        "detail": "Target definition draft is available.",
+        "id": "target_definition",
+        "label": "Target definition documented",
+        "status": "pass"
+      },
+      {
+        "detail": "Attach evaluation or diagnostic evidence.",
+        "id": "performance_table",
+        "label": "Model performance table",
+        "status": "warning"
+      },
+      {
+        "detail": "Interpretability narrative is drafted.",
+        "id": "model_interpretation",
+        "label": "Model interpretation",
+        "status": "pass"
+      },
+      {
+        "detail": "Monitoring plan draft is available.",
+        "id": "monitoring_plan",
+        "label": "Monitoring plan",
+        "status": "pass"
+      },
+      {
+        "detail": "3 governance note(s) detected.",
+        "id": "governance_notes",
+        "label": "Fair Lending / governance notes",
+        "status": "pass"
+      }
+    ],
+    "completionPct": 0,
+    "exportReady": false,
+    "governanceWarningsCount": 3,
+    "missingEvidenceCount": 19,
+    "requiredSectionsComplete": 0,
+    "requiredSectionsTotal": 25,
+    "sectionsNeedingReview": 7
+  },
+  "sections": [
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Recovered Classification Predictive Model is documented as a classification model development effort targeting Class. The current champion model is Not selected. ATLAS assembled this draft from Dataset Library assets, workflow metadata, model diagnostics, chart insights, and governance evidence. Review missing evidence warnings before final approval.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 1,
+      "required": true,
+      "sectionId": "executive_summary",
+      "status": "missing_evidence",
+      "title": "Executive Summary",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "The business objective is to support the documented decision use case for Recovered Classification Predictive Model using a governed, reproducible model development process.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 2,
+      "required": true,
+      "sectionId": "business_objective",
+      "status": "missing_evidence",
+      "title": "Business Objective",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "The model is intended for classification decision support. Intended-use language should be reviewed by business, compliance, and model risk stakeholders.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 3,
+      "required": true,
+      "sectionId": "model_use_case",
+      "status": "missing_evidence",
+      "title": "Model Use Case",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "The modeled target is Class. The definition should state the event/outcome, observation window, performance window, exclusions, and treatment of ambiguous records.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 4,
+      "required": true,
+      "sectionId": "target_definition",
+      "status": "missing_evidence",
+      "title": "Target Definition",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [
+        {
+          "rows": [
+            {
+              "columns": 41,
+              "createdAt": "2026-07-07T23:10:48.758630+00:00",
+              "dataset": "Recovered Classification Predictive Model - TRAIN Scored Output",
+              "datasetId": "ds_recovered-classification-predictive-model---train-scored-output_84f8db0a",
+              "eventRateOrTargetMean": "",
+              "owner": "Local ATLAS User",
+              "role": "scored_output",
+              "rows": 1440,
+              "sourceType": "scored_output",
+              "target": "Class",
+              "updatedAt": "2026-07-07T23:10:49.173758+00:00",
+              "version": "v_1783465847543_84f8db0a"
+            },
+            {
+              "columns": 42,
+              "createdAt": "2026-07-07T23:11:31.154460+00:00",
+              "dataset": "Recovered Classification Predictive Model - TEST Scored Output",
+              "datasetId": "ds_recovered-classification-predictive-model---test-scored-output_0b477260",
+              "eventRateOrTargetMean": "",
+              "owner": "Local ATLAS User",
+              "role": "scored_output",
+              "rows": 56961,
+              "sourceType": "scored_output",
+              "target": "Class",
+              "updatedAt": "2026-07-07T23:11:31.555594+00:00",
+              "version": "v_1783465874502_0b477260"
+            },
+            {
+              "columns": 42,
+              "createdAt": "2026-07-07T23:11:31.915375+00:00",
+              "dataset": "Recovered Classification Predictive Model - OOT Scored Output",
+              "datasetId": "ds_recovered-classification-predictive-model---oot-scored-output_84e442cf",
+              "eventRateOrTargetMean": "",
+              "owner": "Local ATLAS User",
+              "role": "scored_output",
+              "rows": 56962,
+              "sourceType": "scored_output",
+              "target": "Class",
+              "updatedAt": "2026-07-07T23:11:32.021249+00:00",
+              "version": "v_1783465880343_84e442cf"
+            }
+          ],
+          "source": "Dataset Library",
+          "title": "Dataset Inventory",
+          "type": "table"
+        }
+      ],
+      "autoDraft": "Data sources currently linked to the project include: Recovered Classification Predictive Model - TRAIN Scored Output, Recovered Classification Predictive Model - TEST Scored Output, Recovered Classification Predictive Model - OOT Scored Output. Dataset lineage, owners, versions, and source types are listed in the attached evidence table.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "",
+      "order": 5,
+      "required": true,
+      "sectionId": "data_sources",
+      "status": "draft",
+      "title": "Data Sources",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Appendices should include generated code, detailed diagnostics, evidence inventories, governance notes, and decision summaries as appropriate.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 6,
+      "required": true,
+      "sectionId": "population_definition",
+      "status": "missing_evidence",
+      "title": "Population Definition",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Appendices should include generated code, detailed diagnostics, evidence inventories, governance notes, and decision summaries as appropriate.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 7,
+      "required": true,
+      "sectionId": "inclusion_exclusion",
+      "status": "missing_evidence",
+      "title": "Inclusion and Exclusion Criteria",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [
+        {
+          "rows": [
+            {
+              "columns": 41,
+              "createdAt": "2026-07-07T23:10:48.758630+00:00",
+              "dataset": "Recovered Classification Predictive Model - TRAIN Scored Output",
+              "datasetId": "ds_recovered-classification-predictive-model---train-scored-output_84f8db0a",
+              "eventRateOrTargetMean": "",
+              "owner": "Local ATLAS User",
+              "role": "scored_output",
+              "rows": 1440,
+              "sourceType": "scored_output",
+              "target": "Class",
+              "updatedAt": "2026-07-07T23:10:49.173758+00:00",
+              "version": "v_1783465847543_84f8db0a"
+            },
+            {
+              "columns": 42,
+              "createdAt": "2026-07-07T23:11:31.154460+00:00",
+              "dataset": "Recovered Classification Predictive Model - TEST Scored Output",
+              "datasetId": "ds_recovered-classification-predictive-model---test-scored-output_0b477260",
+              "eventRateOrTargetMean": "",
+              "owner": "Local ATLAS User",
+              "role": "scored_output",
+              "rows": 56961,
+              "sourceType": "scored_output",
+              "target": "Class",
+              "updatedAt": "2026-07-07T23:11:31.555594+00:00",
+              "version": "v_1783465874502_0b477260"
+            },
+            {
+              "columns": 42,
+              "createdAt": "2026-07-07T23:11:31.915375+00:00",
+              "dataset": "Recovered Classification Predictive Model - OOT Scored Output",
+              "datasetId": "ds_recovered-classification-predictive-model---oot-scored-output_84e442cf",
+              "eventRateOrTargetMean": "",
+              "owner": "Local ATLAS User",
+              "role": "scored_output",
+              "rows": 56962,
+              "sourceType": "scored_output",
+              "target": "Class",
+              "updatedAt": "2026-07-07T23:11:32.021249+00:00",
+              "version": "v_1783465880343_84e442cf"
+            }
+          ],
+          "source": "Dataset Library",
+          "title": "Dataset Inventory",
+          "type": "table"
+        }
+      ],
+      "autoDraft": "Development, test, and OOT data should be reviewed for separation, leakage risk, temporal ordering, population consistency, and target availability.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "",
+      "order": 8,
+      "required": true,
+      "sectionId": "development_test_oot",
+      "status": "draft",
+      "title": "Development, Test, and OOT Data",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "EDA evidence should summarize target distribution, missingness, data quality, distribution shape, key relationships, and potential leakage or stability concerns.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 9,
+      "required": true,
+      "sectionId": "eda",
+      "status": "missing_evidence",
+      "title": "Exploratory Data Analysis",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Missing value treatment should identify variable-level strategies, rationale, imputation statistics, and any variables excluded due to missingness.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 10,
+      "required": true,
+      "sectionId": "missing_value_treatment",
+      "status": "missing_evidence",
+      "title": "Missing Value Treatment",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Outlier treatment should document detection thresholds, caps or no-treatment decisions, and whether extreme values represent valid signal.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 11,
+      "required": true,
+      "sectionId": "outlier_treatment",
+      "status": "missing_evidence",
+      "title": "Outlier Treatment",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Feature engineering should document transformations, encodings, scaling, generated features, excluded fields, and reproducibility considerations.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 12,
+      "required": true,
+      "sectionId": "feature_engineering",
+      "status": "missing_evidence",
+      "title": "Feature Engineering",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Correlation and VIF review should document multicollinearity risks, high-VIF predictors, and the modeling decision for correlated fields.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 13,
+      "required": true,
+      "sectionId": "correlation_vif",
+      "status": "missing_evidence",
+      "title": "Correlation and VIF Review",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Training strategy should document split or cross-validation design, candidate algorithms, hyperparameter search, calibration, PCA settings, and optimization metric.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 14,
+      "required": true,
+      "sectionId": "model_training_strategy",
+      "status": "missing_evidence",
+      "title": "Model Training Strategy",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Candidate models should be compared using task-appropriate metrics, runtime, interpretability, stability, and governance constraints.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 15,
+      "required": true,
+      "sectionId": "candidate_models",
+      "status": "missing_evidence",
+      "title": "Candidate Models",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "The champion selection rationale should explain why Not selected was selected over challengers, including performance, interpretability, stability, and implementation constraints.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 16,
+      "required": true,
+      "sectionId": "champion_model_selection",
+      "status": "missing_evidence",
+      "title": "Champion Model Selection",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Performance summary should include the primary metric, secondary metrics, train/test/OOT comparison, and whether performance is sufficient for the intended use.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 17,
+      "required": true,
+      "sectionId": "performance_summary",
+      "status": "missing_evidence",
+      "title": "Model Performance Summary",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Evaluation diagnostics should include residual diagnostics for regression or lift, calibration, ROC/PR, threshold analysis, and decile review for classification.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 18,
+      "required": true,
+      "sectionId": "evaluation_diagnostics",
+      "status": "missing_evidence",
+      "title": "Evaluation Diagnostics",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Interpretation should summarize feature importance, coefficients, SHAP-style summaries, PDP/sensitivity, RFE, and model behavior caveats.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 19,
+      "required": true,
+      "sectionId": "model_interpretation",
+      "status": "missing_evidence",
+      "title": "Model Interpretation",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Scoring and external validation should document TEST and OOT scoring outputs, stability metrics, prediction distribution, and any model drift or validation warnings.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 20,
+      "required": true,
+      "sectionId": "scoring_external_validation",
+      "status": "missing_evidence",
+      "title": "Scoring and External Validation",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Model diagnostics should summarize prediction distribution, fit summary, VIF, lift/decile, top/bottom predictions, largest errors, and segment performance.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 21,
+      "required": true,
+      "sectionId": "model_diagnostics",
+      "status": "missing_evidence",
+      "title": "Model Diagnostics",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [
+        {
+          "rows": [
+            {
+              "detail": "Document validation readiness, limitations, monitoring, and final model approval.",
+              "topic": "Model Risk"
+            },
+            {
+              "detail": "Review protected-class proxy risk and adverse-action explainability where applicable.",
+              "topic": "Fair Lending"
+            },
+            {
+              "detail": "This project was reconstructed from artifacts; review section evidence before finalization.",
+              "topic": "Recovered Project"
+            }
+          ],
+          "source": "ATLAS Guide",
+          "title": "Governance Notes",
+          "type": "warning"
+        }
+      ],
+      "autoDraft": "Governance considerations should address fair lending, FCRA/ECOA applicability, data lineage, model risk controls, limitations, and monitoring expectations.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "",
+      "order": 22,
+      "required": true,
+      "sectionId": "fair_lending_governance",
+      "status": "draft",
+      "title": "Fair Lending and Governance Considerations",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Implementation plan should identify the deployment path, scoring cadence, controls, owners, dependencies, rollback plan, and production readiness decision.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "Drafted from standard ATLAS guidance; attach project-specific evidence before final governance review.",
+      "order": 23,
+      "required": true,
+      "sectionId": "implementation_plan",
+      "status": "draft",
+      "title": "Implementation Plan",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Monitoring plan should include performance metrics, PSI/VSI, input drift, prediction drift, outcome drift, residual drift for regression, calibration/lift drift for classification, review cadence, and redevelopment triggers.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "Drafted from standard ATLAS guidance; attach project-specific evidence before final governance review.",
+      "order": 24,
+      "required": true,
+      "sectionId": "monitoring_plan",
+      "status": "draft",
+      "title": "Monitoring Plan",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Known limitations should include sample constraints, data quality issues, external validation gaps, interpretability caveats, monitoring dependencies, and assumptions requiring stakeholder approval.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "Drafted from standard ATLAS guidance; attach project-specific evidence before final governance review.",
+      "order": 25,
+      "required": true,
+      "sectionId": "limitations",
+      "status": "draft",
+      "title": "Limitations",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Appendices should include generated code, detailed diagnostics, evidence inventories, governance notes, and decision summaries as appropriate.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "Drafted from standard ATLAS guidance; attach project-specific evidence before final governance review.",
+      "order": 26,
+      "required": false,
+      "sectionId": "appendices",
+      "status": "draft",
+      "title": "Appendices",
+      "userNarrative": ""
+    }
+  ],
+  "templateType": "model_development_document",
+  "updatedAt": "2026-07-08T14:13:09.189503+00:00"
+}

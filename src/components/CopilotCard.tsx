@@ -1055,7 +1055,7 @@ export default function CopilotCard() {
     (context.workflowStepLabel === "Blocking" || context.route.toLowerCase().includes("blocking"));
 
   return (
-    <aside className="sticky top-24 max-h-[calc(100vh-7rem)] overflow-auto rounded-lg border border-slate-200/80 bg-white/90 p-3 shadow-sm">
+    <aside className="self-start overflow-x-hidden overflow-y-auto rounded-lg border border-slate-200/80 bg-white/90 p-3 shadow-sm xl:sticky xl:top-28 xl:max-h-[calc(100vh-8rem)]">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">

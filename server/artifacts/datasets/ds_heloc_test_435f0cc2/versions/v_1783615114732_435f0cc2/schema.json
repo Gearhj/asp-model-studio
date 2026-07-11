@@ -1,0 +1,282 @@
+{
+  "columns": [
+    {
+      "distinctSample": 2,
+      "dtype": "categorical",
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "RiskPerformance"
+    },
+    {
+      "distinctSample": 47,
+      "dtype": "numeric",
+      "max": 93.0,
+      "mean": 67.63862332695984,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "ExternalRiskEstimate",
+      "std": 20.995465330298426
+    },
+    {
+      "distinctSample": 436,
+      "dtype": "numeric",
+      "max": 803.0,
+      "mean": 185.80736137667304,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "MSinceOldestTradeOpen",
+      "std": 111.11101330293326
+    },
+    {
+      "distinctSample": 70,
+      "dtype": "numeric",
+      "max": 156.0,
+      "mean": 8.631931166347993,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "MSinceMostRecentTradeOpen",
+      "std": 12.84433131627571
+    },
+    {
+      "distinctSample": 188,
+      "dtype": "numeric",
+      "max": 257.0,
+      "mean": 74.1434034416826,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "AverageMInFile",
+      "std": 38.52465084339132
+    },
+    {
+      "distinctSample": 68,
+      "dtype": "numeric",
+      "max": 75.0,
+      "mean": 19.867590822179732,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "NumSatisfactoryTrades",
+      "std": 13.257056856926011
+    },
+    {
+      "distinctSample": 12,
+      "dtype": "numeric",
+      "max": 13.0,
+      "mean": 0.01577437858508604,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "NumTrades60Ever2DerogPubRec",
+      "std": 2.433474453843107
+    },
+    {
+      "distinctSample": 11,
+      "dtype": "numeric",
+      "max": 12.0,
+      "mean": -0.1630019120458891,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "NumTrades90Ever2DerogPubRec",
+      "std": 2.305195133712528
+    },
+    {
+      "distinctSample": 60,
+      "dtype": "numeric",
+      "max": 100.0,
+      "mean": 86.79923518164436,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "PercentTradesNeverDelq",
+      "std": 25.882987981425558
+    },
+    {
+      "distinctSample": 85,
+      "dtype": "numeric",
+      "max": 81.0,
+      "mean": 6.640057361376673,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "MSinceMostRecentDelq",
+      "std": 20.60449407495121
+    },
+    {
+      "distinctSample": 9,
+      "dtype": "numeric",
+      "max": 7.0,
+      "mean": 4.909655831739962,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "MaxDelq2PublicRecLast12M",
+      "std": 3.7396069882656504
+    },
+    {
+      "distinctSample": 8,
+      "dtype": "numeric",
+      "max": 8.0,
+      "mean": 5.531548757170172,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "MaxDelqEver",
+      "std": 3.950126536787923
+    },
+    {
+      "distinctSample": 79,
+      "dtype": "numeric",
+      "max": 85.0,
+      "mean": 21.438336520076483,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "NumTotalTrades",
+      "std": 14.998374619591212
+    },
+    {
+      "distinctSample": 14,
+      "dtype": "numeric",
+      "max": 14.0,
+      "mean": 1.2289674952198852,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "NumTradesOpeninLast12M",
+      "std": 3.024791914521528
+    },
+    {
+      "distinctSample": 90,
+      "dtype": "numeric",
+      "max": 100.0,
+      "mean": 32.36806883365201,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "PercentInstallTrades",
+      "std": 20.26640583927792
+    },
+    {
+      "distinctSample": 28,
+      "dtype": "numeric",
+      "max": 24.0,
+      "mean": -0.14340344168260039,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "MSinceMostRecentInqexcl7days",
+      "std": 6.164529557204035
+    },
+    {
+      "distinctSample": 19,
+      "dtype": "numeric",
+      "max": 46.0,
+      "mean": 0.8675908221797323,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "NumInqLast6M",
+      "std": 3.171664559399757
+    },
+    {
+      "distinctSample": 19,
+      "dtype": "numeric",
+      "max": 46.0,
+      "mean": 0.8111854684512428,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "NumInqLast6Mexcl7days",
+      "std": 3.140151895429476
+    },
+    {
+      "distinctSample": 113,
+      "dtype": "numeric",
+      "max": 131.0,
+      "mean": 30.958413001912046,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "NetFractionRevolvingBurden",
+      "std": 30.029456142555762
+    },
+    {
+      "distinctSample": 114,
+      "dtype": "numeric",
+      "max": 190.0,
+      "mean": 39.66300191204589,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "NetFractionInstallBurden",
+      "std": 41.95946334844734
+    },
+    {
+      "distinctSample": 25,
+      "dtype": "numeric",
+      "max": 27.0,
+      "mean": 3.1763862332695987,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "NumRevolvingTradesWBalance",
+      "std": 4.547844044368746
+    },
+    {
+      "distinctSample": 17,
+      "dtype": "numeric",
+      "max": 23.0,
+      "mean": 1.0124282982791586,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "NumInstallTradesWBalance",
+      "std": 4.005357296224459
+    },
+    {
+      "distinctSample": 16,
+      "dtype": "numeric",
+      "max": 16.0,
+      "mean": 0.03154875717017208,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "NumBank2NatlTradesWHighUtilization",
+      "std": 3.420331772191665
+    },
+    {
+      "distinctSample": 88,
+      "dtype": "numeric",
+      "max": 100.0,
+      "mean": 61.22848948374761,
+      "min": -9.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "PercentTradesWBalance",
+      "std": 27.7615967903412
+    },
+    {
+      "distinctSample": 2,
+      "dtype": "numeric",
+      "max": 1.0,
+      "mean": 0.5219885277246654,
+      "min": 0.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "bad_flag",
+      "std": 0.4996357007268127
+    },
+    {
+      "distinctSample": 1,
+      "dtype": "categorical",
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "atlas_split"
+    }
+  ]
+}

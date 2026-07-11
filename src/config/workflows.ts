@@ -132,7 +132,7 @@ const predictiveModelingSteps: WorkflowStep[] = [
     label: "Evaluation",
     shortLabel: "Evaluate",
     route: "/step08",
-    description: "Compare the leaderboard, champion metrics, curves, lift, and residual diagnostics.",
+    description: "Compare model metrics, curves, lift, residual diagnostics, and validation results before final RFE model selection.",
     required: true,
   },
   {
@@ -140,7 +140,7 @@ const predictiveModelingSteps: WorkflowStep[] = [
     label: "Interpretation",
     shortLabel: "Interpret",
     route: "/step09",
-    description: "Review feature importance, PDP, SHAP-style impacts, sensitivity, model details, and RFE.",
+    description: "Review feature importance, PDP, SHAP-style impacts, sensitivity, model details, and RFE to establish the verified final model before scoring.",
     required: true,
   },
   {
@@ -148,14 +148,14 @@ const predictiveModelingSteps: WorkflowStep[] = [
     label: "Scoring",
     shortLabel: "Score",
     route: "/step10",
-    description: "Score holdout and OOT data, review stability, and prepare final production outputs.",
+    description: "Score TRAIN, TEST, and OOT data with the final model selected in Interpretation, review stability, and prepare final production outputs.",
   },
   {
     id: "step11",
-    label: "Model Development Document",
+    label: "Documentation Review",
     shortLabel: "Document",
     route: "/step11",
-    description: "Generate the formal model development document for governance and validation.",
+    description: "Review documentation readiness and open the Model Documentation Studio for governed artifacts.",
     required: true,
   },
   {
@@ -175,6 +175,8 @@ const predictiveModelingSteps: WorkflowStep[] = [
     required: true,
   },
 ];
+
+const creditRiskStudioSteps: WorkflowStep[] = predictiveModelingSteps.filter((step) => step.id !== "step01b");
 
 function placeholderSteps(workflowId: string, labels: Array<[string, string]>) {
   return labels.map(([label, description], index) => ({
@@ -372,6 +374,13 @@ export const workflowDefinitions: WorkflowDefinition[] = [
     description: "Regulated supervised model development from source data to documented champion model.",
     projectType: "predictive-modeling",
     steps: predictiveModelingSteps,
+  },
+  {
+    id: "credit-risk-studio",
+    label: "Credit Risk Studio",
+    description: "Credit risk model development with RFE interpretation before final scoring.",
+    projectType: "predictive-modeling",
+    steps: creditRiskStudioSteps,
   },
   {
     id: "ab-testing",

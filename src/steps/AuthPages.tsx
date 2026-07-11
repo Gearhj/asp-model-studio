@@ -21,17 +21,24 @@ import { loadLocalProjects } from "../lib/localProjects";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const roles = ["admin", "data_steward", "model_owner", "model_manager", "data_scientist", "auditor", "viewer"];
+const KEEP_SIGNED_IN_EMAIL_KEY = "atlas-keep-signed-in-email";
 
 export function LoginPage() {
   const navigate = useNavigate();
-  const [email, setEmail] = useState("admin@atlas.local");
+  const [email, setEmail] = useState(() => localStorage.getItem(KEEP_SIGNED_IN_EMAIL_KEY) || "admin@atlas.local");
   const [password, setPassword] = useState("");
+  const [keepSignedIn, setKeepSignedIn] = useState(() => Boolean(localStorage.getItem(KEEP_SIGNED_IN_EMAIL_KEY)));
   const [message, setMessage] = useState("");
 
   async function submit() {
     setMessage("");
     try {
       await login(email, password);
+      if (keepSignedIn) {
+        localStorage.setItem(KEEP_SIGNED_IN_EMAIL_KEY, email);
+      } else {
+        localStorage.removeItem(KEEP_SIGNED_IN_EMAIL_KEY);
+      }
       navigate("/dashboard");
     } catch {
       setMessage("Sign in failed. Check your email and password.");
@@ -42,6 +49,10 @@ export function LoginPage() {
     <AuthShell title="Sign in to ATLAS" icon={<LockKeyhole size={21} />} message={message}>
       <Input label="Email" value={email} onChange={setEmail} />
       <Input label="Password" type="password" value={password} onChange={setPassword} />
+      <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-700">
+        <input type="checkbox" checked={keepSignedIn} onChange={(event) => setKeepSignedIn(event.target.checked)} />
+        Keep me Signed In
+      </label>
       <button onClick={submit} className="w-full rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800">Sign In</button>
       <p className="text-center text-sm text-slate-600">Need access? <Link to="/register" className="font-semibold text-blue-700">Create an account</Link></p>
     </AuthShell>

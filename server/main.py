@@ -10,8 +10,9 @@ import io
 import os
 
 import pandas as pd
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import Depends, FastAPI, UploadFile, File, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.routing import APIRoute
 
 # Core in-memory store
 from .core.dataset_store import DATASTORE
@@ -29,15 +30,54 @@ from .evaluation.eval_router import router as eval_router
 from .python_execution import router as python_execution_router
 from .datasets.dataset_router import router as dataset_library_router
 from .security.security_router import router as security_router
-from .security.security_store import init_security_store
+from .security.security_store import init_security_store, require_user
 from .analytics.analytics_router import router as analytics_router
 from .charts.chart_router import router as chart_router
+from .model_diagnostics.diagnostics_router import router as model_diagnostics_router
+from .model_documentation.documentation_router import router as model_documentation_router
+from .notebooks.notebook_router import router as notebook_router
+from .scoring.scoring_router import router as scoring_router
+from .projects.project_router import router as project_registry_router
+from .sql_studio.sql_router import router as sql_studio_router
+from .evidence.evidence_router import router as evidence_router
+from .credit_risk.credit_risk_router import router as credit_risk_router
 
 MAX_UPLOAD_BYTES = int(os.getenv("ATLAS_MAX_UPLOAD_BYTES", str(250 * 1024 * 1024)))
 MAX_UPLOAD_ROWS = int(os.getenv("ATLAS_MAX_UPLOAD_ROWS", "500000"))
 MAX_UPLOAD_COLUMNS = int(os.getenv("ATLAS_MAX_UPLOAD_COLUMNS", "750"))
 MAX_UPLOAD_SAMPLE_ROWS = int(os.getenv("ATLAS_MAX_UPLOAD_SAMPLE_ROWS", "5000"))
 ALLOWED_UPLOAD_EXTENSIONS = {".csv", ".txt"}
+PUBLIC_API_PATHS = {
+    "/api/health",
+    "/api/auth/login",
+    "/api/auth/register",
+    "/api/auth/request-password-reset",
+    "/api/auth/reset-password",
+}
+
+
+def _has_require_user_dependency(route: APIRoute) -> bool:
+    pending = list(route.dependant.dependencies)
+    while pending:
+        dependency = pending.pop()
+        if dependency.call is require_user:
+            return True
+        pending.extend(dependency.dependencies)
+    return False
+
+
+def assert_api_routes_authenticated(app: FastAPI) -> None:
+    unsecured = []
+    for route in app.routes:
+        if not isinstance(route, APIRoute):
+            continue
+        path = route.path
+        if not path.startswith("/api/") or path in PUBLIC_API_PATHS:
+            continue
+        if not _has_require_user_dependency(route):
+            unsecured.append(path)
+    if unsecured:
+        raise RuntimeError(f"Unauthenticated API routes are not allowed: {', '.join(sorted(set(unsecured)))}")
 
 
 def create_app() -> FastAPI:
@@ -94,7 +134,7 @@ def create_app() -> FastAPI:
     # Data Acquisition – optional CSV upload endpoint (Step01 alternative)
     # -------------------------------------------------------------------------
     @app.post("/api/data/upload_csv")
-    async def upload_csv(file: UploadFile = File(...)) -> Dict[str, Any]:
+    async def upload_csv(file: UploadFile = File(...), _user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
         """
         Upload a CSV file and store it as the RAW dataset in DATASTORE.
 
@@ -169,19 +209,29 @@ def create_app() -> FastAPI:
     #   • /api/model/train       – Training (Step07)
     #   • /api/train/last        – Last training summary (Step07/08)
     #   • /api/evaluation/*      – ROC, PR, Deciles (Step08)
-    app.include_router(metadata_router, prefix="/api", tags=["Metadata"])
-    app.include_router(eda_router, prefix="/api/eda", tags=["EDA"])
-    app.include_router(outlier_router, prefix="/api/outliers", tags=["Outliers"])
-    app.include_router(missing_router, prefix="/api/missing", tags=["Missing Values"])
-    app.include_router(split_router, prefix="/api/balancing_split", tags=["Splitting & Balancing"])
-    app.include_router(trainer_router, prefix="/api", tags=["Training"])
-    app.include_router(eval_router, prefix="/api", tags=["Evaluation"])
-    app.include_router(python_execution_router, prefix="/api", tags=["Python Execution"])
+    authenticated = [Depends(require_user)]
+    app.include_router(metadata_router, prefix="/api", tags=["Metadata"], dependencies=authenticated)
+    app.include_router(eda_router, prefix="/api/eda", tags=["EDA"], dependencies=authenticated)
+    app.include_router(outlier_router, prefix="/api/outliers", tags=["Outliers"], dependencies=authenticated)
+    app.include_router(missing_router, prefix="/api/missing", tags=["Missing Values"], dependencies=authenticated)
+    app.include_router(split_router, prefix="/api/balancing_split", tags=["Splitting & Balancing"], dependencies=authenticated)
+    app.include_router(trainer_router, prefix="/api", tags=["Training"], dependencies=authenticated)
+    app.include_router(eval_router, prefix="/api", tags=["Evaluation"], dependencies=authenticated)
+    app.include_router(python_execution_router, prefix="/api", tags=["Python Execution"], dependencies=authenticated)
     app.include_router(security_router, prefix="/api", tags=["Security"])
-    app.include_router(dataset_library_router, prefix="/api", tags=["Dataset Library"])
-    app.include_router(analytics_router, prefix="/api", tags=["Analytics Workbench"])
-    app.include_router(chart_router, prefix="/api", tags=["Chart Studio"])
+    app.include_router(dataset_library_router, prefix="/api", tags=["Dataset Library"], dependencies=authenticated)
+    app.include_router(project_registry_router, prefix="/api", tags=["Project Registry"], dependencies=authenticated)
+    app.include_router(analytics_router, prefix="/api", tags=["Analytics Workbench"], dependencies=authenticated)
+    app.include_router(chart_router, prefix="/api", tags=["Chart Studio"], dependencies=authenticated)
+    app.include_router(scoring_router, prefix="/api", tags=["Scoring"], dependencies=authenticated)
+    app.include_router(model_diagnostics_router, prefix="/api", tags=["Model Diagnostics"], dependencies=authenticated)
+    app.include_router(model_documentation_router, prefix="/api", tags=["Model Documentation Studio"], dependencies=authenticated)
+    app.include_router(notebook_router, prefix="/api", tags=["Notebook Studio"], dependencies=authenticated)
+    app.include_router(sql_studio_router, prefix="/api", tags=["SQL Data Studio"], dependencies=authenticated)
+    app.include_router(evidence_router, prefix="/api", tags=["Evidence Graph"], dependencies=authenticated)
+    app.include_router(credit_risk_router, prefix="/api", tags=["Credit Risk Studio"], dependencies=authenticated)
 
+    assert_api_routes_authenticated(app)
     return app
 
 

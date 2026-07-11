@@ -179,6 +179,7 @@ def set_target(payload: SetTargetPayload) -> Dict[str, Any]:
     columns = [str(col) for col in df.columns]
     selected_columns = [str(col) for col in (payload.selected_columns or []) if str(col) in columns and str(col) != DATASTORE.target]
     DATASTORE.meta["selected_columns"] = selected_columns
+    DATASTORE.reset_splits()
     RESULTS.clear_model_artifacts()
     save_checkpoint()
 

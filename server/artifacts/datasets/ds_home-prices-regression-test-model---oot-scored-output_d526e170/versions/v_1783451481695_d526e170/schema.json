@@ -1,0 +1,37 @@
+{
+  "columns": [
+    {
+      "distinctSample": 25,
+      "dtype": "numeric",
+      "max": 25.0,
+      "mean": 13.0,
+      "min": 1.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "row",
+      "std": 7.359800721939872
+    },
+    {
+      "distinctSample": 25,
+      "dtype": "numeric",
+      "max": 2.890359627285897,
+      "mean": 2.4916220446311597,
+      "min": 1.7561310549635776,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "predicted_value",
+      "std": 0.24358316439453234
+    },
+    {
+      "distinctSample": 25,
+      "dtype": "numeric",
+      "max": 2.890359627285897,
+      "mean": 2.4916220446311597,
+      "min": 1.7561310549635776,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "prediction",
+      "std": 0.24358316439453234
+    }
+  ]
+}

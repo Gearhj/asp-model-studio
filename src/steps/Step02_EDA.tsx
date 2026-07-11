@@ -8,9 +8,7 @@ import D3Pairplot from "../components/D3Pairplot";
 import { PairwiseSvg } from "../components/D3Pairplot";
 import StepPythonPanel from "../components/StepPythonPanel";
 import { useNavigate } from "react-router-dom";
-import { useWorkflowStore } from "../state/useWorkflowStore";
 import { inferLocalColumns, inferLocalProblemType, loadLocalDataset, type LocalDataset } from "../lib/localDataset";
-import { upsertProjectFromState } from "../lib/localProjects";
 
 type ColumnInfo = { name: string; dtype?: string; role?: "feature" | "target" };
 
@@ -22,7 +20,6 @@ const edaCorrelationCache = new Map<string, { columns: string[]; values: number[
 
 export default function Step02_EDA() {
   const navigate = useNavigate();
-  const markComplete = useWorkflowStore((state) => state.markComplete);
 
   // controls
   const [columns, setColumns] = useState<ColumnInfo[]>([]);
@@ -35,7 +32,6 @@ export default function Step02_EDA() {
   // status
   const [loading, setLoading] = useState<boolean>(true);
   const [errMsg, setErrMsg] = useState<string>("");
-  const [navigationError, setNavigationError] = useState<string>("");
   const [usingLocalDataset, setUsingLocalDataset] = useState(false);
   const [localDataset, setLocalDataset] = useState<LocalDataset | null>(null);
   const [analysisDataset, setAnalysisDataset] = useState<LocalDataset | null>(null);
@@ -139,18 +135,6 @@ export default function Step02_EDA() {
     [columns, target]
   );
 
-  async function handleContinue() {
-    try {
-      setNavigationError("");
-      markComplete("step02");
-      await upsertProjectFromState(useWorkflowStore.getState());
-      navigate("/step03");
-      window.scrollTo({ top: 0, left: 0 });
-    } catch (error: any) {
-      setNavigationError(error?.message ?? "ATLAS could not save this step before navigating.");
-    }
-  }
-
   // Hard guards so the page never shows a blank screen
   if (loading) {
     return (
@@ -184,67 +168,74 @@ export default function Step02_EDA() {
     <div className="p-6">
       <h2 className="text-xl font-semibold mb-4">Step 2 — Exploratory Data Analysis</h2>
 
-      {/* Controls */}
-      <div className="mb-4 flex flex-wrap gap-4 items-end">
-        <label className="flex items-center gap-2">
-          <span className="text-sm text-gray-600">Feature</span>
-          <select
-            className="border rounded px-2 py-1"
-            value={feature}
-            onChange={(e) => setFeature(e.target.value)}
-          >
-            {featureOptions.map((f) => (
-              <option key={f} value={f}>
-                {f}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="flex items-center gap-2">
-          <span className="text-sm text-gray-600">Render Sample %</span>
-          <select
-            className="border rounded px-2 py-1"
-            value={samplePct}
-            onChange={(e) => setSamplePct(Number(e.target.value))}
-          >
-            {[5, 10, 20, 50, 100].map((p) => (
-              <option key={p} value={p}>
-                {p}%
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="flex items-center gap-2">
-          <span className="text-sm text-gray-600">Bins</span>
-          <input
-            type="range"
-            min={5}
-            max={60}
-            step={1}
-            value={bins}
-            onChange={(e) => setBins(Number(e.target.value))}
-          />
-          <span className="text-sm text-gray-700 w-10 text-center">{bins}</span>
-        </label>
-
-        <label className="flex items-center gap-2">
-          <span className="text-sm text-gray-600">Layout</span>
-          <select
-            className="border rounded px-2 py-1"
-            value={layout}
-            onChange={(e) => setLayout(e.target.value as "grouped" | "stacked")}
-          >
-            <option value="grouped">Grouped</option>
-            <option value="stacked">Stacked</option>
-          </select>
-        </label>
-      </div>
-
       {analysisDataset && target && (
         <TargetVariableAnalysis dataset={analysisDataset} target={target} problemType={inferLocalProblemType(analysisDataset) ?? analysisDataset.problem_type ?? "classification"} />
       )}
+
+      <section className="mb-4 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        <div className="mb-3">
+          <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Feature Investigation Controls</div>
+          <p className="mt-1 text-sm text-slate-600">
+            Select a predictor after reviewing the target. These controls drive the selected feature analysis and relationship charts below.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-4 items-end">
+          <label className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Feature</span>
+            <select
+              className="border rounded px-2 py-1"
+              value={feature}
+              onChange={(e) => setFeature(e.target.value)}
+            >
+              {featureOptions.map((f) => (
+                <option key={f} value={f}>
+                  {f}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Render Sample %</span>
+            <select
+              className="border rounded px-2 py-1"
+              value={samplePct}
+              onChange={(e) => setSamplePct(Number(e.target.value))}
+            >
+              {[5, 10, 20, 50, 100].map((p) => (
+                <option key={p} value={p}>
+                  {p}%
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Bins</span>
+            <input
+              type="range"
+              min={5}
+              max={60}
+              step={1}
+              value={bins}
+              onChange={(e) => setBins(Number(e.target.value))}
+            />
+            <span className="text-sm text-gray-700 w-10 text-center">{bins}</span>
+          </label>
+
+          <label className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Layout</span>
+            <select
+              className="border rounded px-2 py-1"
+              value={layout}
+              onChange={(e) => setLayout(e.target.value as "grouped" | "stacked")}
+            >
+              <option value="grouped">Grouped</option>
+              <option value="stacked">Stacked</option>
+            </select>
+          </label>
+        </div>
+      </section>
 
       {/* Row 1: Histogram + Boxplot */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
@@ -314,20 +305,6 @@ export default function Step02_EDA() {
 
       <StepPythonPanel />
 
-      {/* Bottom nav */}
-      <div className="mt-8 flex flex-col items-center gap-3">
-        {navigationError && (
-          <div className="w-full max-w-2xl rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-            {navigationError}
-          </div>
-        )}
-        <button
-          className="px-4 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700"
-          onClick={handleContinue}
-        >
-          Mark Complete & Next Step
-        </button>
-      </div>
     </div>
   );
 }
@@ -379,6 +356,10 @@ function TargetVariableAnalysis({
   target: string;
   problemType: string;
 }) {
+  if (problemType !== "regression" || isClassificationTarget(dataset, target)) {
+    return <ClassificationTargetAnalysis dataset={dataset} target={target} problemType={problemType} />;
+  }
+
   const values = dataset.rows.map((row) => Number(row[target])).filter(Number.isFinite);
   const sorted = [...values].sort((a, b) => a - b);
   const missing = dataset.rows.length - values.length;
@@ -505,6 +486,204 @@ function TargetVariableAnalysis({
         </div>
       </div>
     </section>
+  );
+}
+
+function isMissingValue(value: any) {
+  return value === null || value === undefined || String(value).trim() === "";
+}
+
+function isClassificationTarget(dataset: LocalDataset, target: string) {
+  const rawValues = dataset.rows.map((row) => row[target]).filter((value) => !isMissingValue(value));
+  const uniqueValues = new Set(rawValues.map((value) => String(value)));
+  return uniqueValues.size > 0 && uniqueValues.size <= 20;
+}
+
+function ClassificationTargetAnalysis({
+  dataset,
+  target,
+  problemType,
+}: {
+  dataset: LocalDataset;
+  target: string;
+  problemType: string;
+}) {
+  const totalRows = dataset.rows.length;
+  const rawValues = dataset.rows.map((row) => row[target]);
+  const observedValues = rawValues.filter((value) => !isMissingValue(value));
+  const missing = totalRows - observedValues.length;
+  const classCounts = observedValues.reduce<Map<string, number>>((map, value) => {
+      const label = String(value);
+      map.set(label, (map.get(label) ?? 0) + 1);
+      return map;
+    }, new Map<string, number>());
+  const classRows: [string, number][] = Array.from(classCounts.entries()).sort(([a], [b]) => {
+    const numericA = Number(a);
+    const numericB = Number(b);
+    if (Number.isFinite(numericA) && Number.isFinite(numericB)) return numericA - numericB;
+    return a.localeCompare(b);
+  });
+  const eventEntry = classRows.find(([label]) => label === "1") ?? classRows[classRows.length - 1] ?? ["event", 0];
+  const eventLabel = eventEntry[0];
+  const eventCount = eventEntry[1] ?? 0;
+  const nonEventCount = Math.max(0, observedValues.length - eventCount);
+  const eventRate = observedValues.length ? eventCount / observedValues.length : 0;
+  const nonEventRate = observedValues.length ? nonEventCount / observedValues.length : 0;
+  const imbalanceRatio = eventCount > 0 ? nonEventCount / eventCount : null;
+  const classBalance = imbalanceRatio == null ? "No event class found" : `${imbalanceRatio.toFixed(1)}:1 non-event to event`;
+  const rareEvent = eventRate > 0 && eventRate < 0.01;
+  const numericFeatureNames = dataset.headers
+    .filter((header) => header !== target)
+    .filter((header) => dataset.rows.slice(0, 250).some((row) => Number.isFinite(Number(row[header]))));
+  const topCorrelations = numericFeatureNames
+    .map((feature) => ({ feature, value: corr(dataset.rows, feature, target) }))
+    .filter((row) => Number.isFinite(row.value))
+    .sort((a, b) => Math.abs(b.value) - Math.abs(a.value))
+    .slice(0, 8);
+
+  const summary = [
+    ["Rows", totalRows.toLocaleString()],
+    ["Target Missingness", totalRows ? `${((missing / totalRows) * 100).toFixed(2)}%` : "-"],
+    ["Non-event Count", nonEventCount.toLocaleString()],
+    ["Event Count", eventCount.toLocaleString()],
+    ["Event Rate", `${(eventRate * 100).toFixed(3)}%`],
+    ["Non-event Rate", `${(nonEventRate * 100).toFixed(3)}%`],
+    ["Class Balance", classBalance],
+    ["Event Class", eventLabel],
+  ];
+
+  return (
+    <section className="mb-6 rounded-2xl border border-blue-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Target Variable Analysis</div>
+          <h3 className="mt-1 text-lg font-semibold text-slate-950">{target}</h3>
+          <p className="mt-1 text-sm text-slate-600">
+            Classification target diagnostics focus on class distribution, event rate, class balance, and rare-event risk.
+          </p>
+        </div>
+        <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-700">
+          {problemType}
+        </span>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-4">
+        {summary.map(([label, value]) => (
+          <div key={label} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
+            <div className="text-[11px] font-semibold uppercase text-slate-500">{label}</div>
+            <div className="mt-1 text-base font-semibold text-slate-950">{value}</div>
+          </div>
+        ))}
+      </div>
+      {rareEvent && (
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
+          <div className="font-semibold">Rare-event workflow recommended</div>
+          <p className="mt-1">
+            The target event rate is below 1%. Accuracy will be misleading; use PR-AUC, recall, lift, KS, calibration, threshold analysis, and stability diagnostics in addition to ROC-AUC.
+          </p>
+        </div>
+      )}
+      <div className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.3fr)_minmax(320px,0.7fr)]">
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="mb-2 text-sm font-semibold text-slate-800">Class Distribution</div>
+          <ClassDistributionChart rows={classRows} total={observedValues.length} eventLabel={eventLabel} />
+          <ChartReadout
+            what="Class count bar chart with the event class highlighted."
+            good="Good classification targets have enough events to train, validate, and calibrate the model."
+            sees={`${eventCount.toLocaleString()} events and ${nonEventCount.toLocaleString()} non-events; event rate ${(eventRate * 100).toFixed(3)}%.`}
+          />
+        </div>
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="text-sm font-semibold text-slate-800">Event Rate Summary</div>
+          <div className="mt-4">
+            <div className="flex items-center justify-between text-xs font-semibold uppercase tracking-wide text-slate-500">
+              <span>Event Rate</span>
+              <span>{(eventRate * 100).toFixed(3)}%</span>
+            </div>
+            <div className="mt-2 h-3 overflow-hidden rounded-full bg-slate-100">
+              <div className="h-full rounded-full bg-rose-500" style={{ width: `${Math.max(1, Math.min(100, eventRate * 100))}%` }} />
+            </div>
+          </div>
+          <div className="mt-4 rounded-lg border border-slate-100 bg-slate-50 p-3 text-sm leading-6 text-slate-700">
+            <div><span className="font-semibold">Class Balance:</span> {classBalance}</div>
+            <div><span className="font-semibold">Target Missingness:</span> {totalRows ? `${((missing / totalRows) * 100).toFixed(2)}%` : "-"}</div>
+            <div><span className="font-semibold">Modeling implication:</span> {rareEvent ? "Rare-event metrics and sampling strategy required." : "Review class balance before split and model selection."}</div>
+          </div>
+        </div>
+      </div>
+      <FeatureTargetCorrelation rows={topCorrelations} title="Feature Relationship / Correlation to Target" />
+    </section>
+  );
+}
+
+function ClassDistributionChart({ rows, total, eventLabel }: { rows: [string, number][]; total: number; eventLabel: string }) {
+  const width = 760;
+  const height = 280;
+  const pad = 56;
+  const maxCount = Math.max(...rows.map((row) => row[1]), 1);
+  const barGap = 18;
+  const plotWidth = width - pad * 1.4;
+  const plotHeight = height - pad * 1.5;
+  const barWidth = rows.length ? Math.max(26, (plotWidth - barGap * (rows.length - 1)) / rows.length) : plotWidth;
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="h-[280px] w-full rounded-xl bg-white">
+      <line x1={pad} y1={height - pad} x2={width - pad / 2} y2={height - pad} stroke="#cbd5e1" />
+      <line x1={pad} y1={pad / 2} x2={pad} y2={height - pad} stroke="#cbd5e1" />
+      {niceTicks(0, maxCount, 5).map((tick) => {
+        const y = height - pad - (tick / maxCount) * plotHeight;
+        return (
+          <g key={`class-y-${tick}`}>
+            <line x1={pad} y1={y} x2={width - pad / 2} y2={y} stroke="#e2e8f0" />
+            <text x={pad - 8} y={y + 4} textAnchor="end" className="fill-slate-500 text-[10px]">{Math.round(tick).toLocaleString()}</text>
+          </g>
+        );
+      })}
+      {rows.map(([label, count], index) => {
+        const x = pad + index * (barWidth + barGap);
+        const barHeight = (count / maxCount) * plotHeight;
+        const y = height - pad - barHeight;
+        const pct = total ? (count / total) * 100 : 0;
+        const isEvent = label === eventLabel;
+        return (
+          <g key={label}>
+            <rect x={x} y={y} width={barWidth} height={barHeight} rx="8" fill={isEvent ? "#f43f5e" : "#2563eb"} opacity={0.88} />
+            <text x={x + barWidth / 2} y={Math.max(18, y - 8)} textAnchor="middle" className="fill-slate-700 text-[11px] font-semibold">{count.toLocaleString()}</text>
+            <text x={x + barWidth / 2} y={height - pad + 18} textAnchor="middle" className="fill-slate-700 text-[11px]">{label}</text>
+            <text x={x + barWidth / 2} y={height - pad + 34} textAnchor="middle" className="fill-slate-500 text-[10px]">{pct.toFixed(2)}%</text>
+          </g>
+        );
+      })}
+      <text x={pad + plotWidth / 2} y={height - 4} textAnchor="middle" className="fill-slate-600 text-[11px]">Target class</text>
+    </svg>
+  );
+}
+
+function FeatureTargetCorrelation({ rows, title }: { rows: { feature: string; value: number }[]; title: string }) {
+  return (
+    <div className="mt-5 rounded-xl border border-slate-200 bg-white p-4">
+      <div className="mb-3 text-sm font-semibold text-slate-800">{title}</div>
+      <p className="mb-3 text-xs leading-5 text-slate-500">
+        Ranked signed correlations. Green bars move with the target; rose bars move opposite the target.
+      </p>
+      <div className="space-y-2">
+        {rows.map((row) => {
+          const strength = Math.abs(row.value) >= 0.5 ? "strong" : Math.abs(row.value) >= 0.25 ? "moderate" : "weak";
+          const width = `${Math.max(4, Math.min(100, Math.abs(row.value) * 100))}%`;
+          return (
+            <div key={row.feature} className="grid grid-cols-[160px_minmax(0,1fr)_82px_78px] items-center gap-3 text-sm">
+              <div className="truncate font-medium text-slate-700" title={row.feature}>{row.feature}</div>
+              <div className="h-2 overflow-hidden rounded-full bg-slate-100">
+                <div className={`h-full rounded-full ${row.value >= 0 ? "bg-emerald-500" : "bg-rose-500"}`} style={{ width }} />
+              </div>
+              <div className="text-right font-semibold text-slate-800">{row.value.toFixed(3)}</div>
+              <div className={`rounded-full px-2 py-1 text-center text-[11px] font-semibold ${strength === "strong" ? "bg-emerald-50 text-emerald-700" : strength === "moderate" ? "bg-blue-50 text-blue-700" : "bg-slate-50 text-slate-600"}`}>
+                {strength}
+              </div>
+            </div>
+          );
+        })}
+        {!rows.length && <div className="text-sm text-slate-500">No numeric feature correlations were available.</div>}
+      </div>
+    </div>
   );
 }
 

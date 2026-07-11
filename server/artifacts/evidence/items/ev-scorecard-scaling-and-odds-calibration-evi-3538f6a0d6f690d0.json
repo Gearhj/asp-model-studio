@@ -1,0 +1,74 @@
+{
+  "projectId": "recovered-classification-shell",
+  "projectName": "Recovered Classification Predictive Model",
+  "evidenceType": "governance",
+  "title": "Scorecard Scaling and Odds Calibration Evidence",
+  "summary": "Scorecard Scaling and Odds Calibration Evidence captured from Credit Risk Studio for Credit Card Application Underwriting governance.",
+  "sourcePage": "Credit Risk Studio",
+  "sourceRoute": "/credit-risk-studio",
+  "artifactType": "credit_risk_profile",
+  "artifactId": "cr-recovered-classification-predictive-mode-098512d2df",
+  "datasetIds": [
+    "ds_reg_train_309ce82d"
+  ],
+  "supportsSections": [
+    "Champion Model",
+    "Model Interpretation",
+    "Appendix"
+  ],
+  "tags": [
+    "credit_risk",
+    "scorecard_scaling",
+    "underwriting",
+    "governance"
+  ],
+  "financialDomain": "credit_risk",
+  "financialTechnique": "scorecard_scaling",
+  "creditRiskContext": {
+    "productType": "Credit Card",
+    "modelPurpose": "Application Underwriting",
+    "targetEvent": "Default",
+    "targetWindow": "Defaults in following 90 days",
+    "ttcPitAssumption": "Not Selected"
+  },
+  "regulatoryRelevance": {
+    "fair_lending": false,
+    "model_risk": true,
+    "adverse_action": false
+  },
+  "lineage": {
+    "profileId": "cr-recovered-classification-predictive-mode-098512d2df",
+    "source": "Credit Risk Studio"
+  },
+  "payload": {
+    "technique": "scorecard_scaling",
+    "profileSummary": {
+      "profileId": "cr-recovered-classification-predictive-mode-098512d2df",
+      "projectId": "recovered-classification-shell",
+      "projectName": "Recovered Classification Predictive Model",
+      "datasetId": "ds_reg_train_309ce82d",
+      "datasetVersionId": "v_1783361298379_309ce82d",
+      "productType": "Credit Card",
+      "modelPurpose": "Application Underwriting",
+      "targetEvent": "Default",
+      "targetWindow": "Defaults in following 90 days",
+      "ttcPitAssumption": "Not Selected",
+      "readinessScore": 40,
+      "updatedAt": "2026-07-09T14:58:53.323312+00:00",
+      "createdAt": "2026-07-09T14:58:53.287196+00:00"
+    }
+  },
+  "governance": {
+    "note": "Credit Risk Studio stores compact evidence metadata and profile references only."
+  },
+  "status": "ready",
+  "importance": "high",
+  "evidenceId": "ev-scorecard-scaling-and-odds-calibration-evi-3538f6a0d6f690d0",
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "createdAt": "2026-07-09T14:58:53.339852+00:00",
+  "updatedAt": "2026-07-09T14:58:53.339852+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 100
+}

@@ -1,0 +1,198 @@
+{
+  "columns": [
+    {
+      "distinctSample": 9907,
+      "dtype": "numeric",
+      "max": 9907.0,
+      "mean": 4954.0,
+      "min": 1.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "row",
+      "std": 2860.0488923559797
+    },
+    {
+      "distinctSample": 5902,
+      "dtype": "numeric",
+      "max": 3.9667,
+      "mean": 2.707863086706369,
+      "min": 0.4999,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "MedInc",
+      "std": 0.7534307206671518
+    },
+    {
+      "distinctSample": 52,
+      "dtype": "numeric",
+      "max": 52.0,
+      "mean": 29.94650247299889,
+      "min": 1.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "HouseAge",
+      "std": 12.241362819954091
+    },
+    {
+      "distinctSample": 9520,
+      "dtype": "numeric",
+      "max": 141.9090909090909,
+      "mean": 4.883770323593443,
+      "min": 0.8461538461538461,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "AveRooms",
+      "std": 2.452178850952402
+    },
+    {
+      "distinctSample": 8005,
+      "dtype": "numeric",
+      "max": 25.636363636363637,
+      "mean": 1.1162632525121035,
+      "min": 0.4444444444444444,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "AveBedrms",
+      "std": 0.47783289480115015
+    },
+    {
+      "distinctSample": 3065,
+      "dtype": "numeric",
+      "max": 35682.0,
+      "mean": 1415.4443322902998,
+      "min": 5.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "Population",
+      "std": 1099.1749992550829
+    },
+    {
+      "distinctSample": 9409,
+      "dtype": "numeric",
+      "max": 63.75,
+      "mean": 2.968938044320343,
+      "min": 0.6923076923076923,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "AveOccup",
+      "std": 1.1087721713455942
+    },
+    {
+      "distinctSample": 815,
+      "dtype": "numeric",
+      "max": 41.95,
+      "mean": 35.76438275966488,
+      "min": 32.54,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "Latitude",
+      "std": 2.2337756092994
+    },
+    {
+      "distinctSample": 794,
+      "dtype": "numeric",
+      "max": -114.31,
+      "mean": -119.5542323609569,
+      "min": -124.3,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "Longitude",
+      "std": 2.006688805810741
+    },
+    {
+      "distinctSample": 2512,
+      "dtype": "numeric",
+      "max": 5.00001,
+      "mean": 1.5606270142323608,
+      "min": 0.14999,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "MedHouseVal",
+      "std": 0.8371612011985244
+    },
+    {
+      "distinctSample": 9907,
+      "dtype": "numeric",
+      "max": 4.151463283658489,
+      "mean": 1.5606270142323606,
+      "min": -8.110479719705443,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "predicted_value",
+      "std": 0.5311129931511525
+    },
+    {
+      "distinctSample": 9907,
+      "dtype": "numeric",
+      "max": 4.151463283658489,
+      "mean": 1.5606270142323606,
+      "min": -8.110479719705443,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "prediction",
+      "std": 0.5311129931511525
+    },
+    {
+      "distinctSample": 2512,
+      "dtype": "numeric",
+      "max": 5.00001,
+      "mean": 1.5606270142323608,
+      "min": 0.14999,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "actual",
+      "std": 0.8371612011985244
+    },
+    {
+      "distinctSample": 9907,
+      "dtype": "numeric",
+      "max": 9.735479719705443,
+      "mean": 2.072745035173806e-16,
+      "min": -3.4764632836584894,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "atlas_residual",
+      "std": 0.64711503250827
+    },
+    {
+      "distinctSample": 9907,
+      "dtype": "numeric",
+      "max": 9.735479719705443,
+      "mean": 0.4427427842524463,
+      "min": 3.567101657275806e-05,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "atlas_abs_residual",
+      "std": 0.47192891855118285
+    },
+    {
+      "distinctSample": 9907,
+      "dtype": "numeric",
+      "max": 94.77956537279599,
+      "mean": 0.41871559641099904,
+      "min": 1.2724214233339804e-09,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "atlas_squared_residual",
+      "std": 1.4795457844262205
+    },
+    {
+      "distinctSample": 9907,
+      "dtype": "numeric",
+      "max": 5.991064442895658,
+      "mean": -0.1381425245866942,
+      "min": -10.342109401964652,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "atlas_percent_error",
+      "std": 0.4898038383385884
+    },
+    {
+      "distinctSample": 1,
+      "dtype": "categorical",
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "split"
+    }
+  ]
+}

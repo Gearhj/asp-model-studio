@@ -1,0 +1,12 @@
+[
+  {
+    "modelId": "ml-credit-90cd8a502aef66",
+    "projectId": "p",
+    "datasetId": "d",
+    "modelType": "Logistic Regression Baseline",
+    "auc": 1.0,
+    "ks": 1.0,
+    "gini": 1.0,
+    "updatedAt": "2026-07-09T21:38:47.732410+00:00"
+  }
+]

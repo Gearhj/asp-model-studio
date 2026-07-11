@@ -37,7 +37,8 @@ export type ProjectSaveStatus =
   | "unsaved"
   | "save_failed"
   | "restored"
-  | "partial_restore";
+  | "partial_restore"
+  | "registry_warning";
 
 export type ProjectSaveStatusDetail = {
   status: ProjectSaveStatus;
@@ -221,6 +222,10 @@ function readStorageKeys(storage: Storage | undefined, keys: string[]) {
   return values;
 }
 
+function piiPersistenceDisabledWarning() {
+  return "Browser project snapshots do not persist dataset previews, session artifacts, or page-level evidence because they may contain regulated data. Reopen the project and reload governed source data before modeling or reporting.";
+}
+
 function collectWorkflowNodeStates(projectId: string) {
   const states: Record<string, unknown> = {};
   if (typeof localStorage === "undefined") return states;
@@ -253,21 +258,14 @@ function datasetPreviewFromSession(sessionValues: Record<string, unknown>) {
 
 export function buildPersistedProjectState(projectId: string): PersistedProjectLocalState | undefined {
   if (typeof localStorage === "undefined" || typeof sessionStorage === "undefined") return undefined;
-  const localValues = readStorageKeys(localStorage, SNAPSHOT_LOCAL_KEYS);
-  const sessionValues = readStorageKeys(sessionStorage, SNAPSHOT_SESSION_KEYS);
-  const workflowNodeStates = collectWorkflowNodeStates(projectId);
-  const datasetPreview = datasetPreviewFromSession(sessionValues);
-  const missingArtifacts: string[] = [];
-  if (datasetPreview?.previewRows?.length) {
-    missingArtifacts.push("Raw dataset rows are not persisted in browser projects. Reload source data before retraining or scoring.");
-  }
+  const missingArtifacts: string[] = [piiPersistenceDisabledWarning()];
   const snapshot = {
     schemaVersion: 1 as const,
     savedAt: new Date().toISOString(),
-    localStorage: localValues,
-    sessionStorage: sessionValues,
-    workflowNodeStates,
-    datasetPreview,
+    localStorage: {},
+    sessionStorage: {},
+    workflowNodeStates: {},
+    datasetPreview: undefined,
     missingArtifacts,
     storageEstimateBytes: 0,
   };
@@ -314,8 +312,8 @@ export function restoreProjectSnapshotArtifacts(snapshot: WorkflowProjectSnapsho
   }
 
   try {
-    restoreStorageValues(typeof localStorage === "undefined" ? undefined : localStorage, SNAPSHOT_LOCAL_KEYS, persisted.localStorage ?? {});
-    restoreStorageValues(typeof sessionStorage === "undefined" ? undefined : sessionStorage, SNAPSHOT_SESSION_KEYS, persisted.sessionStorage ?? {});
+    restoreStorageValues(typeof localStorage === "undefined" ? undefined : localStorage, SNAPSHOT_LOCAL_KEYS, {});
+    restoreStorageValues(typeof sessionStorage === "undefined" ? undefined : sessionStorage, SNAPSHOT_SESSION_KEYS, {});
     deleteCurrentWorkflowNodeStates(snapshot.projectId);
     if (typeof localStorage !== "undefined") {
       Object.entries(persisted.workflowNodeStates ?? {}).forEach(([stepId, value]) => {
@@ -391,13 +389,7 @@ export function thinProjectForStorage<T extends { snapshot: WorkflowProjectSnaps
             localStorage: {},
             sessionStorage: {},
             workflowNodeStates: {},
-            datasetPreview: persisted.datasetPreview
-              ? {
-                  ...persisted.datasetPreview,
-                  previewRows: [],
-                  artifactStatus: "preview_restored_requires_reload" as const,
-                }
-              : undefined,
+            datasetPreview: undefined,
             missingArtifacts: Array.from(new Set([...(persisted.missingArtifacts ?? []), warning])),
             storageEstimateBytes: 0,
           }

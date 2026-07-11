@@ -1,0 +1,134 @@
+{
+  "columns": [
+    "row",
+    "predicted_value",
+    "prediction"
+  ],
+  "rows": [
+    {
+      "predicted_value": 2.421638543,
+      "prediction": 2.421638543,
+      "row": 1
+    },
+    {
+      "predicted_value": 2.5106848743,
+      "prediction": 2.5106848743,
+      "row": 2
+    },
+    {
+      "predicted_value": 2.3719686128,
+      "prediction": 2.3719686128,
+      "row": 3
+    },
+    {
+      "predicted_value": 2.8005822217,
+      "prediction": 2.8005822217,
+      "row": 4
+    },
+    {
+      "predicted_value": 1.756131055,
+      "prediction": 1.756131055,
+      "row": 5
+    },
+    {
+      "predicted_value": 2.4535757987,
+      "prediction": 2.4535757987,
+      "row": 6
+    },
+    {
+      "predicted_value": 2.3147994128,
+      "prediction": 2.3147994128,
+      "row": 7
+    },
+    {
+      "predicted_value": 2.8794410108,
+      "prediction": 2.8794410108,
+      "row": 8
+    },
+    {
+      "predicted_value": 2.5693421425,
+      "prediction": 2.5693421425,
+      "row": 9
+    },
+    {
+      "predicted_value": 2.6836371157,
+      "prediction": 2.6836371157,
+      "row": 10
+    },
+    {
+      "predicted_value": 2.4863613683,
+      "prediction": 2.4863613683,
+      "row": 11
+    },
+    {
+      "predicted_value": 2.7856801503,
+      "prediction": 2.7856801503,
+      "row": 12
+    },
+    {
+      "predicted_value": 2.5176996013,
+      "prediction": 2.5176996013,
+      "row": 13
+    },
+    {
+      "predicted_value": 2.4568884104,
+      "prediction": 2.4568884104,
+      "row": 14
+    },
+    {
+      "predicted_value": 2.4275703996,
+      "prediction": 2.4275703996,
+      "row": 15
+    },
+    {
+      "predicted_value": 2.8903596273,
+      "prediction": 2.8903596273,
+      "row": 16
+    },
+    {
+      "predicted_value": 2.4382766542,
+      "prediction": 2.4382766542,
+      "row": 17
+    },
+    {
+      "predicted_value": 2.5068872385,
+      "prediction": 2.5068872385,
+      "row": 18
+    },
+    {
+      "predicted_value": 2.0220826195,
+      "prediction": 2.0220826195,
+      "row": 19
+    },
+    {
+      "predicted_value": 2.6265875277,
+      "prediction": 2.6265875277,
+      "row": 20
+    },
+    {
+      "predicted_value": 2.4342235923,
+      "prediction": 2.4342235923,
+      "row": 21
+    },
+    {
+      "predicted_value": 2.5083865479,
+      "prediction": 2.5083865479,
+      "row": 22
+    },
+    {
+      "predicted_value": 2.3891152407,
+      "prediction": 2.3891152407,
+      "row": 23
+    },
+    {
+      "predicted_value": 2.3906303511,
+      "prediction": 2.3906303511,
+      "row": 24
+    },
+    {
+      "predicted_value": 2.6480009995,
+      "prediction": 2.6480009995,
+      "row": 25
+    }
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "projectId": "recovered-classification-shell",
+  "projectName": "Recovered Classification Predictive Model",
+  "evidenceType": "dataset",
+  "title": "Dataset: CLASS_TEST",
+  "summary": "Governed dataset registered in the ATLAS Dataset Library.",
+  "sourcePage": "Dataset Library",
+  "sourceRoute": "/datasets/ds_class_test_9b264260",
+  "artifactType": "dataset",
+  "artifactId": "ds_class_test_9b264260",
+  "datasetIds": [
+    "ds_class_test_9b264260"
+  ],
+  "tags": [
+    "model_risk",
+    "general"
+  ],
+  "lineage": {
+    "registry": "datasets/registry.json"
+  },
+  "governance": {
+    "retention": "Reference only; raw dataset is not duplicated in Evidence Graph."
+  },
+  "evidenceId": "ev-dataset-class-test-5b76172d3ed0e2b0",
+  "status": "ready",
+  "importance": "medium",
+  "supportsSections": [
+    "Data Sources",
+    "Data Quality",
+    "Population Definition"
+  ],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "payload": {},
+  "createdAt": "2026-07-08T21:08:42.202293+00:00",
+  "updatedAt": "2026-07-08T21:08:42.202293+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 100
+}

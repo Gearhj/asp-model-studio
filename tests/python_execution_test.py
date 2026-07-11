@@ -9,12 +9,13 @@ sys.path.insert(0, str(ROOT))
 os.environ["ATLAS_ENABLE_PYTHON_RUN"] = "1"
 os.environ["ATLAS_PYTHON_RUNTIME_DIR"] = str(ROOT / ".tmp" / "python-execution")
 os.environ.pop("ATLAS_HOSTED_MODE", None)
+os.environ.pop("ATLAS_CODE_SANDBOX_COMMAND", None)
 
 from server.python_execution import PythonRunRequest, run_python_request  # noqa: E402
 
 
 class PythonExecutionTests(unittest.TestCase):
-    def test_smoke_run_returns_stdout(self) -> None:
+    def test_python_execution_requires_sandbox(self) -> None:
         result = run_python_request(
             PythonRunRequest(
                 page="Smoke",
@@ -22,12 +23,12 @@ class PythonExecutionTests(unittest.TestCase):
                 userCode='print("ATLAS Python integration smoke test passed.")',
             )
         )
-        self.assertTrue(result["ok"], result)
-        self.assertIn("ATLAS Python integration smoke test passed.", result["stdout"])
-        self.assertEqual(result["stderr"], "")
+        self.assertFalse(result["ok"], result)
+        self.assertEqual(result["status"], "unavailable")
+        self.assertIn("ATLAS_CODE_SANDBOX_COMMAND", result["stderr"])
         self.assertIsInstance(result["runtimeMs"], int)
 
-    def test_python_exception_returns_structured_error(self) -> None:
+    def test_python_exception_is_not_executed_without_sandbox(self) -> None:
         result = run_python_request(
             PythonRunRequest(
                 page="Smoke",
@@ -36,8 +37,8 @@ class PythonExecutionTests(unittest.TestCase):
             )
         )
         self.assertFalse(result["ok"], result)
-        self.assertEqual(result["status"], "error")
-        self.assertIn("ValueError: structured boom", result["stderr"])
+        self.assertEqual(result["status"], "unavailable")
+        self.assertNotIn("structured boom", result["stderr"])
 
     def test_user_edited_python_is_preserved_after_execution(self) -> None:
         source = (ROOT / "src/components/StepPythonPanel.tsx").read_text(encoding="utf-8")

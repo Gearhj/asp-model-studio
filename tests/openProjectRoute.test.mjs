@@ -87,6 +87,7 @@ const modules = await compileTestModules();
 function resetStorage() {
   localStorage.clear();
   sessionStorage.clear();
+  modules?.localProjects?.clearVolatileProjectRegistryForTests?.();
   browserEvents.length = 0;
   window.location.pathname = "/";
 }
@@ -141,7 +142,48 @@ test("Open Project page includes Recent Projects, import, empty state, and repai
   assert.match(source, /Import Project/);
   assert.match(source, /No local projects yet/);
   assert.match(source, /Repair Recent Projects/);
+  assert.match(source, /Project Recovery/);
+  assert.match(source, /Recover Current Project/);
+  assert.match(source, /Export Current Project Backup/);
+  assert.match(source, /Rebuild Recent Projects Index/);
+  assert.match(source, /Compact Browser Project Storage/);
+  assert.match(source, /Project Storage Diagnostics/);
   assert.match(source, /getLocalProjectsRegistryStatus/);
+  assert.match(source, /Deep Recovery Scan/);
+  assert.match(source, /Scan Browser Storage/);
+  assert.match(source, /Scan Server Artifacts/);
+  assert.match(source, /Scan Dataset Links/);
+  assert.match(source, /Recover Selected Projects/);
+  assert.match(source, /Export Recovery Report/);
+  assert.match(source, /Detailed View/);
+  assert.match(source, /OPEN_PROJECT_VIEW_MODE_KEY/);
+  assert.match(source, /atlas-open-project-view-mode/);
+  assert.match(source, /readSavedViewMode\(OPEN_PROJECT_VIEW_MODE_KEY,\s*"detail"\)/);
+  assert.match(source, /ProjectSortKey/);
+  assert.match(source, /EnterpriseProjectTable/);
+  assert.match(source, /SortableProjectHeader/);
+  assert.match(source, /compareProjectRows/);
+  assert.match(source, /Project Type/);
+  assert.match(source, /Current Stage/);
+  assert.match(source, /Progress/);
+  assert.match(source, /Linked Datasets/);
+  assert.match(source, /Last Modified/);
+  assert.match(source, /Storage Location/);
+  assert.match(source, /Recovery Status/);
+  assert.match(source, /inferProjectStorageLocation/);
+  assert.match(source, /inferProjectRecoveryStatus/);
+  assert.match(source, /Predictive Modeling/);
+  assert.match(source, /Experimental Design/);
+  assert.match(source, /Regression/);
+  assert.match(source, /Classification/);
+  assert.match(source, /ProjectDetailTable/);
+  assert.match(source, /RecoveryCandidateTable/);
+  assert.match(source, /Advanced Recovery Tools/);
+  assert.match(source, /shouldAutoExpandRecoveryTools/);
+  assert.ok(
+    source.indexOf("projectListSection") < source.indexOf("Advanced Recovery Tools"),
+    "Open Project should define/render the normal project launcher before advanced recovery tooling."
+  );
 });
 
 test("Open Project storage loads with no projects", () => {
@@ -209,7 +251,7 @@ test("opening a project restores compact persisted state", () => {
   assert.equal(localStorage.getItem("atlas-workflow-node-state:open-project-experimental:experimental-design-4") !== null, true);
 });
 
-test("save-before-navigation returns failure without throwing", () => {
+test("quota write failure preserves active project in recovery registry without throwing", () => {
   resetStorage();
   const originalSetItem = localStorage.setItem.bind(localStorage);
   localStorage.setItem = () => {
@@ -217,8 +259,41 @@ test("save-before-navigation returns failure without throwing", () => {
   };
   const result = modules.localProjects.saveActiveProjectBeforeNavigation(predictiveSnapshot());
   localStorage.setItem = originalSetItem;
-  assert.equal(result.ok, false);
+  assert.equal(result.ok, true);
   assert.match(result.message, /quota|storage/i);
+  const status = modules.localProjects.getLocalProjectsRegistryStatus();
+  assert.equal(status.volatileFallback, true);
+  assert.equal(modules.localProjects.loadLocalProjects()[0].projectName, "Open Project Predictive Test");
+});
+
+test("safe localStorage write reports quota errors without throwing", () => {
+  resetStorage();
+  const originalSetItem = localStorage.setItem.bind(localStorage);
+  localStorage.setItem = () => {
+    const error = new Error("QuotaExceededError");
+    error.name = "QuotaExceededError";
+    throw error;
+  };
+  const result = modules.localProjects.safeSetLocalStorage("atlas-test", "value");
+  localStorage.setItem = originalSetItem;
+  assert.equal(result.ok, false);
+  assert.equal(result.quotaExceeded, true);
+  assert.match(result.errorMessage, /QuotaExceededError/);
+});
+
+test("storage diagnostics expose registry fallback and largest keys", () => {
+  resetStorage();
+  localStorage.setItem("modeling-tool-decision-journal", "x".repeat(90000));
+  const originalSetItem = localStorage.setItem.bind(localStorage);
+  localStorage.setItem = (key, value) => {
+    if (String(key) === modules.localProjects.LOCAL_PROJECTS_KEY) throw new Error("quota");
+    originalSetItem(key, value);
+  };
+  modules.localProjects.saveActiveProjectBeforeNavigation(predictiveSnapshot());
+  localStorage.setItem = originalSetItem;
+  const diagnostics = modules.localProjects.getProjectStorageDiagnostics("open-project-predictive", predictiveSnapshot().workflowSteps);
+  assert.equal(diagnostics.volatileFallback, true);
+  assert.equal(diagnostics.largestKeys.some((item) => item.key === "modeling-tool-decision-journal"), true);
 });
 
 test("save-before-navigation infers predictive current step from browser route", () => {

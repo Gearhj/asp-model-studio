@@ -15,6 +15,7 @@ const API_BASE =
 const RFE_CACHE_KEY = "modeling-tool-rfe-cache";
 const LOCAL_SELECTED_INTERPRETATION_MODEL_KEY = "modeling-tool-selected-interpretation-model";
 const SHOW_LINEAR_REGRESSION_DEBUG = true;
+const RFE_TIMEOUT_MS = 30000;
 
 type RankedRow = { key: string; name: string; task?: "classification" | "regression" | "anomaly"; auc?: number; pr_auc?: number; rmse?: number; mae?: number; r2?: number; adjusted_r2?: number };
 type ImportanceRow = { feature: string; importance: number; source?: string; direction?: number };
@@ -87,10 +88,18 @@ type SensitivityRow = { scenario: string; prediction: number; delta: number };
 type SensitivitySummaryRow = {
   feature: string;
   baseline: number;
+  baseline_prediction?: number;
+  negative_scenario_prediction?: number | null;
+  positive_scenario_prediction?: number | null;
   max_abs_delta: number;
   worst_scenario: string;
   worst_prediction: number;
   worst_delta: number;
+  largest_scenario?: string;
+  delta?: number;
+  direction?: string;
+  direction_explanation?: string;
+  special_value_note?: string;
 };
 type VsiRow = { feature: string; value: number; status: "pass" | "warning" | "fail" };
 type VifRow = { feature: string; vif: number; tolerance: number; r_squared: number; status: "pass" | "warning" | "fail" };
@@ -195,6 +204,39 @@ async function getJson<T>(url: string): Promise<T> {
   return (await res.json()) as T;
 }
 
+async function getJsonWithTimeout<T>(url: string, timeoutMs: number, timeoutMessage: string): Promise<T> {
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`Request failed (${res.status})`);
+    return (await res.json()) as T;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw new Error(timeoutMessage);
+    throw error;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+function isKnnModel(model?: RankedRow, fallbackKey = "") {
+  return /knn|nearest/i.test(`${model?.key ?? fallbackKey} ${model?.name ?? ""}`);
+}
+
+function isLinearRegressionModel(model?: RankedRow, fallbackKey = "") {
+  const text = `${model?.key ?? fallbackKey} ${model?.name ?? ""}`.toLowerCase();
+  return /linear regression|linreg|linear_regression/.test(text) && !/logistic|svm|support/.test(text);
+}
+
+function isRfeUnsupportedModel(model?: RankedRow, fallbackKey = "") {
+  return /knn|nearest|svm|support vector|isolation|anomaly|autoregression/i.test(`${model?.key ?? fallbackKey} ${model?.name ?? ""}`);
+}
+
+function displayModelName(model?: RankedRow, fallbackKey = "") {
+  if (isKnnModel(model, fallbackKey)) return "K-Nearest Neighbors";
+  return model?.name ?? fallbackKey;
+}
+
 export default function Step09_Interpretation() {
   const navigate = useNavigate();
   const markComplete = useWorkflowStore((state) => state.markComplete);
@@ -233,11 +275,20 @@ export default function Step09_Interpretation() {
   const [savingFinalModel, setSavingFinalModel] = useState(false);
   const [finalModelReady, setFinalModelReady] = useState(false);
   const selectedModelRow = models.find((model) => model.key === selectedModel) ?? models[0];
-  const selectedModelIsRegression = selectedModelRow?.task === "regression" || selectedModelRow?.rmse !== undefined;
+  const activeProblemType = inferLocalProblemType(loadLocalDataset());
+  const selectedModelIsRegression =
+    activeProblemType === "regression" ||
+    selectedModelRow?.task === "regression" ||
+    (selectedModelRow?.rmse !== undefined && selectedModelRow?.auc === undefined);
+  const selectedModelIsLinearRegression = selectedModelIsRegression && isLinearRegressionModel(selectedModelRow, selectedModel);
+  const selectedModelIsKnn = !selectedModelIsRegression && isKnnModel(selectedModelRow, selectedModel);
+  const rfeUnsupportedMessage = isRfeUnsupportedModel(selectedModelRow, selectedModel)
+    ? "RFE is not available for the selected model. Select a linear, tree, or estimator-compatible model."
+    : "";
   const rfeIsRegression = rfeMetric === "rmse" || (!rfeMetric && selectedModelIsRegression);
   const rfeSelectedCount = rfeRows.filter((row) => row.rank <= rfeKeep).length;
   const rfeRemovedCount = Math.max(0, rfeRows.length - rfeSelectedCount);
-  const canRunRfe = Boolean(selectedModel) && !rfeRunning && importance.length >= 2;
+  const canRunRfe = Boolean(selectedModel) && !rfeRunning && !rfeUnsupportedMessage && importance.length >= 2;
   const interpretationContextQuery = useMemo(() => {
     if (QUERY_API_BASE) return "";
     const dataset = loadLocalDataset();
@@ -249,12 +300,12 @@ export default function Step09_Interpretation() {
     return params.toString();
   }, [projectId]);
 
-  const exportModel = (format: "pkl" | "jar") => {
+  const exportModel = (format: "json" | "jar") => {
     if (format === "jar") {
-      setMessage("JAR export is not available for the current Python/scikit-learn pipeline. Use the PKL bundle for Python deployment, or add an ONNX/PMML export path for JVM scoring.");
+      setMessage("JAR export is not available for the current Python/scikit-learn pipeline. Use the JSON manifest for governed review, or add an approved ONNX/skops export path for runtime scoring.");
       return;
     }
-    window.location.href = `${API_BASE}/model/export?model=final&format=pkl`;
+    window.location.href = `${API_BASE}/model/export?model=final&format=json`;
   };
 
   useEffect(() => {
@@ -361,11 +412,18 @@ export default function Step09_Interpretation() {
 
   const runRfe = () => {
     if (!selectedModel || rfeRunning) return;
+    if (rfeUnsupportedMessage) {
+      setRfeError(rfeUnsupportedMessage);
+      setMessage(rfeUnsupportedMessage);
+      return;
+    }
     setRfeRunning(true);
-    setMessage("");
+    setMessage("Running RFE with timeout protection. ATLAS limits feature elimination requests so the workflow cannot remain stuck.");
     setRfeError("");
-    getJson<RfeResult>(
-      `${API_BASE}/interpretation/rfe?model=${encodeURIComponent(selectedModel)}&keep=${rfeKeep}`
+    getJsonWithTimeout<RfeResult>(
+      `${API_BASE}/interpretation/rfe?model=${encodeURIComponent(selectedModel)}&keep=${rfeKeep}`,
+      RFE_TIMEOUT_MS,
+      "RFE timed out after 30 seconds. Try a smaller feature set or select a linear, tree, or estimator-compatible model."
     )
       .then((data) => {
         if (!data.ok) throw new Error(data.error ?? "RFE failed.");
@@ -384,8 +442,8 @@ export default function Step09_Interpretation() {
       })
       .catch((err) => {
         const text = String(err?.message ?? err);
-        setRfeError(text);
-        setMessage(`RFE could not run: ${text}`);
+        setRfeError(`RFE could not complete: ${text}`);
+        setMessage(`RFE could not complete: ${text}`);
       })
       .finally(() => setRfeRunning(false));
   };
@@ -514,7 +572,7 @@ export default function Step09_Interpretation() {
           >
             {models.map((model) => (
               <option key={model.key} value={model.key}>
-                {model.name}
+                {displayModelName(model, model.key)}
               </option>
             ))}
           </select>
@@ -523,13 +581,17 @@ export default function Step09_Interpretation() {
 
       {message && <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{message}</div>}
 
-      {SHOW_LINEAR_REGRESSION_DEBUG && /linreg|linear/i.test(`${selectedModelRow?.key ?? selectedModel} ${selectedModelRow?.name ?? ""}`) && (
+      {SHOW_LINEAR_REGRESSION_DEBUG && selectedModelIsLinearRegression && (
         <LinearRegressionDebugPanel details={details} />
       )}
 
       <section className="rounded-2xl border border-gray-200 bg-white p-4">
         <h2 className="text-sm font-semibold">Model-Specific Explanation</h2>
-          <ModelDetails details={details} tree={treeStructure} forceRegression={selectedModelIsRegression} />
+        {selectedModelIsKnn ? (
+          <KnnClassifierInterpretation hyperparameters={hyperparameters} selectedName={displayModelName(selectedModelRow, selectedModel)} />
+        ) : (
+          <ModelDetails details={details} tree={treeStructure} forceRegression={selectedModelIsLinearRegression} />
+        )}
       </section>
 
       <section className="rounded-2xl border border-gray-200 bg-white p-4">
@@ -656,14 +718,14 @@ export default function Step09_Interpretation() {
             )}
             {rfeRunning && (
               <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs font-medium text-indigo-800">
-                Running RFE...
+                Running RFE with timeout protection...
               </div>
             )}
             <button
               className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 active:scale-95 disabled:cursor-not-allowed disabled:bg-indigo-300 disabled:active:scale-100"
               disabled={!canRunRfe}
               onClick={runRfe}
-              title={canRunRfe ? "Run recursive feature elimination for the selected model." : "Train a model and load at least two candidate features before running RFE."}
+              title={canRunRfe ? "Run recursive feature elimination for the selected model." : rfeUnsupportedMessage || "Train a model and load at least two candidate features before running RFE."}
             >
               {rfeRunning ? "Running..." : rfeRows.length ? "Rerun RFE" : "Run RFE"}
             </button>
@@ -690,10 +752,16 @@ export default function Step09_Interpretation() {
             {rfeError}
           </div>
         )}
+        {rfeUnsupportedMessage && !rfeRunning && (
+          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+            {rfeUnsupportedMessage}
+          </div>
+        )}
         {!canRunRfe && !rfeRunning && !rfeRows.length && (
           <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
-            RFE requires a selected trained model and at least two loaded feature-importance rows.
-            If this stays unavailable, return to Model Training, train the selected model, then reload Interpretation.
+            {rfeUnsupportedMessage
+              ? "Select another model to run RFE, or use KNN diagnostics without recursive elimination."
+              : "RFE requires a selected trained model and at least two loaded feature-importance rows. If this stays unavailable, return to Model Training, train the selected model, then reload Interpretation."}
           </div>
         )}
         {rfeRows.length > 0 && (
@@ -731,17 +799,17 @@ export default function Step09_Interpretation() {
           <div>
             <h2 className="text-sm font-semibold">Production Export</h2>
             <p className="mt-1 text-xs text-gray-500">
-              Save the RFE-selected final model first, then export the fitted preprocessing pipeline, model, and metadata.
+              Save the RFE-selected final model first, then export a governed deployment manifest and metadata.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <button
               className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300"
               disabled={!finalModelReady}
-              onClick={() => exportModel("pkl")}
+              onClick={() => exportModel("json")}
               title={finalModelReady ? "Download final model package" : "Save as Final Model first"}
             >
-              Download Final .pkl Bundle
+              Download Final Manifest
             </button>
             <button
               className="rounded-md border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50"
@@ -848,8 +916,16 @@ function ModelDetails({ details, tree, forceRegression = false }: { details: Det
   }
   if (details.kind === "equation") {
     return (
-      <div className="mt-3">
-        <div className="rounded-lg bg-slate-50 p-3 font-mono text-xs">logit(p) = {details.intercept?.toFixed(4)} + Σ(coef × feature)</div>
+      <div className="mt-3 space-y-4">
+        <div className="rounded-xl border border-indigo-100 bg-indigo-50 p-4">
+          <div className="text-xs font-semibold uppercase tracking-wide text-indigo-700">Logistic Regression Coefficients</div>
+          <h3 className="mt-1 text-base font-semibold text-slate-950">Odds ratios and log-odds direction</h3>
+          <p className="mt-1 text-sm leading-6 text-slate-700">
+            Logistic Regression estimates how each feature changes the log-odds of the positive class. Odds ratios above 1 increase event odds; below 1 reduce event odds, holding other features constant.
+          </p>
+          <div className="mt-3 rounded-lg bg-white p-3 font-mono text-xs">logit(p) = {details.intercept?.toFixed(4)} + sum(coef x feature)</div>
+        </div>
+        <CoefficientTable rows={details.coefficients ?? []} isRegression={false} />
         <BarTable rows={(details.coefficients ?? []).map((row) => ({ feature: row.feature, importance: row.coefficient, source: row.odds_ratio ? `OR ${row.odds_ratio.toFixed(3)}` : "coefficient" }))} valueKey="importance" color="indigo" />
       </div>
     );
@@ -871,6 +947,39 @@ function ModelDetails({ details, tree, forceRegression = false }: { details: Det
     );
   }
   return <div className="mt-3 text-sm text-gray-600">{details.message}</div>;
+}
+
+function KnnClassifierInterpretation({ hyperparameters, selectedName }: { hyperparameters: HyperparameterRow[]; selectedName: string }) {
+  const getParam = (patterns: RegExp[]) =>
+    hyperparameters.find((row) => patterns.some((pattern) => pattern.test(`${row.parameter} ${row.value}`)))?.value;
+  const kValue = getParam([/n_neighbors/i, /^k$/i, /\bk\b/i]) ?? "k not available";
+  const metric = getParam([/metric/i, /distance/i]) ?? "distance metric not available";
+  const weights = getParam([/weight/i]) ?? "weights not available";
+  return (
+    <div className="mt-3 space-y-4">
+      <section className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+        <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">KNN Model Interpretation</div>
+        <h3 className="mt-1 text-lg font-semibold text-slate-950">{selectedName || "KNN Classifier"}</h3>
+        <p className="mt-1 text-sm leading-6 text-slate-700">
+          K-Nearest Neighbors classifies each record from the labels of nearby records in feature space. Interpretation should focus on preprocessing, distance behavior, class balance, and local neighbor evidence rather than global coefficients.
+        </p>
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          <FocusCard title="k value" text={kValue} />
+          <FocusCard title="Distance metric" text={metric} />
+          <FocusCard title="Neighbor weights" text={weights} />
+        </div>
+      </section>
+      <section className="rounded-2xl border border-slate-200 bg-white p-4">
+        <h3 className="text-sm font-semibold text-slate-900">Classifier-Specific Guidance</h3>
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          <FocusCard title="Feature scaling dependency" text="KNN is distance based. Standardization or comparable feature scales are usually required before relying on the classifier." />
+          <FocusCard title="Nearest-neighbor caveats" text="Local neighborhoods can be unstable in sparse, high-dimensional, or imbalanced data. Review recall, PR-AUC, lift, and calibration." />
+          <FocusCard title="Classification performance" text="Use holdout classification metrics and threshold analysis. Accuracy alone is not sufficient for rare-event targets." />
+          <FocusCard title="Local explanation guidance" text="Explain individual predictions by showing the nearest neighbor mix, distances, and observed class labels when available." />
+        </div>
+      </section>
+    </div>
+  );
 }
 
 function LinearRegressionDebugPanel({ details }: { details: DetailResponse | null }) {
@@ -1600,31 +1709,45 @@ function SensitivitySummaryTable({ rows }: { rows: SensitivitySummaryRow[] }) {
         <thead>
           <tr className="text-left text-xs text-gray-500">
             <th className="py-2 pr-4">Feature</th>
+            <th className="py-2 pr-4">Negative Scenario Prediction</th>
+            <th className="py-2 pr-4">Positive Scenario Prediction</th>
+            <th className="py-2 pr-4">Baseline Prediction</th>
             <th className="py-2 pr-4">Largest Scenario</th>
-            <th className="py-2 pr-4">Prediction</th>
             <th className="py-2 pr-4">Delta</th>
+            <th className="py-2 pr-4">Direction</th>
             <th className="py-2">Relative Impact</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((row) => (
-            <tr key={row.feature} className="border-t">
-              <td className="py-2 pr-4 font-medium text-gray-800">{row.feature}</td>
-              <td className="py-2 pr-4">{row.worst_scenario}</td>
-              <td className="py-2 pr-4">{row.worst_prediction.toFixed(4)}</td>
-              <td className={`py-2 pr-4 ${row.worst_delta >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
-                {row.worst_delta.toFixed(4)}
-              </td>
-              <td className="py-2">
-                <div className="h-2 rounded-full bg-gray-100">
-                  <div
-                    className="h-2 rounded-full bg-indigo-600"
-                    style={{ width: `${Math.max(3, (row.max_abs_delta / maxDelta) * 100)}%` }}
-                  />
-                </div>
-              </td>
-            </tr>
-          ))}
+          {rows.map((row) => {
+            const delta = row.delta ?? row.worst_delta;
+            return (
+              <tr key={row.feature} className="border-t align-top">
+                <td className="py-2 pr-4 font-medium text-gray-800">
+                  {row.feature}
+                  {row.special_value_note && <div className="mt-1 max-w-xs text-[11px] font-normal leading-4 text-amber-700">{row.special_value_note}</div>}
+                </td>
+                <td className="py-2 pr-4">{row.negative_scenario_prediction == null ? "-" : row.negative_scenario_prediction.toFixed(4)}</td>
+                <td className="py-2 pr-4">{row.positive_scenario_prediction == null ? "-" : row.positive_scenario_prediction.toFixed(4)}</td>
+                <td className="py-2 pr-4">{(row.baseline_prediction ?? row.baseline).toFixed(4)}</td>
+                <td className="py-2 pr-4">{row.largest_scenario ?? row.worst_scenario}</td>
+                <td className={`py-2 pr-4 ${delta >= 0 ? "text-emerald-700" : "text-rose-700"}`}>
+                  {delta.toFixed(4)}
+                </td>
+                <td className="max-w-xs py-2 pr-4 text-xs leading-5 text-slate-700">
+                  {row.direction_explanation || (delta >= 0 ? "Increasing this feature increases predicted bad risk." : "Increasing this feature decreases predicted bad risk.")}
+                </td>
+                <td className="py-2">
+                  <div className="h-2 rounded-full bg-gray-100">
+                    <div
+                      className="h-2 rounded-full bg-indigo-600"
+                      style={{ width: `${Math.max(3, (row.max_abs_delta / maxDelta) * 100)}%` }}
+                    />
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

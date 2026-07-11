@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import json
 import shutil
+import shlex
 import subprocess
 import sys
 import time
@@ -30,10 +31,28 @@ TIMEOUT_SECONDS = float(os.getenv("ATLAS_PYTHON_RUN_TIMEOUT_SECONDS", "5"))
 RUNTIME_ROOT = Path(os.getenv("ATLAS_PYTHON_RUNTIME_DIR", ".tmp/python-execution")).resolve()
 HOSTED_MODE = os.getenv("ATLAS_HOSTED_MODE", "").strip().lower() in {"1", "true", "yes"}
 EXECUTION_ENABLED = os.getenv("ATLAS_ENABLE_PYTHON_RUN", "1").strip().lower() not in {"0", "false", "no"} and not HOSTED_MODE
+SANDBOX_COMMAND = os.getenv("ATLAS_CODE_SANDBOX_COMMAND", "").strip()
 SAS_CONFIG_DIR = Path(os.getenv("ATLAS_SAS_CONFIG_DIR", "server/artifacts/config")).resolve()
 SAS_CONFIG_PATH = SAS_CONFIG_DIR / "sas_runtime.json"
 SAS_CONFIG_EXAMPLE_PATH = SAS_CONFIG_DIR / "sas_runtime.example.json"
 SAFE_CFG_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,63}$")
+SAFE_ENV_KEYS = {
+    "PATH",
+    "PATHEXT",
+    "SYSTEMROOT",
+    "WINDIR",
+    "TEMP",
+    "TMP",
+    "PYTHONPATH",
+    "VIRTUAL_ENV",
+    "CONDA_PREFIX",
+    "R_HOME",
+    "R_LIBS_USER",
+    "SAS_CONFIG_NAME",
+    "SASPY_CONFIG_PATH",
+    "ATLAS_SAS_CFGNAME",
+    "ATLAS_SAS_CFGFILE",
+}
 
 
 class PythonRunRequest(BaseModel):
@@ -42,6 +61,7 @@ class PythonRunRequest(BaseModel):
     projectId: str = Field(default="")
     workflowStep: str = Field(default="")
     context: Dict[str, Any] = Field(default_factory=dict)
+    captureImages: bool = Field(default=False)
 
 
 class CodeRunRequest(BaseModel):
@@ -60,13 +80,34 @@ class SasSettingsRequest(BaseModel):
     executionMode: Literal["template_only", "saspy_config", "external_export"] = Field(default="template_only")
 
 
+def execution_env() -> Dict[str, str]:
+    env = {key: value for key, value in os.environ.items() if key.upper() in SAFE_ENV_KEYS}
+    env["ATLAS_CODE_EXECUTION"] = "1"
+    env["PYTHONNOUSERSITE"] = "1"
+    return env
+
+
+def sandbox_command(script_path: Path, workdir: Path) -> list[str] | None:
+    if not SANDBOX_COMMAND:
+        return None
+    replacements = {
+        "{script}": str(script_path),
+        "{script_name}": script_path.name,
+        "{workdir}": str(workdir),
+    }
+    command = SANDBOX_COMMAND
+    for token, value in replacements.items():
+        command = command.replace(token, value)
+    return shlex.split(command)
+
+
 def run_python_request(request: PythonRunRequest) -> Dict[str, Any]:
-    if not EXECUTION_ENABLED:
+    if not EXECUTION_ENABLED or not SANDBOX_COMMAND:
         return {
             "ok": False,
             "status": "unavailable",
             "stdout": "",
-            "stderr": "Python execution backend is unavailable. Code will still be included in notebook export.",
+            "stderr": "Python execution is disabled until ATLAS_CODE_SANDBOX_COMMAND points to an approved OS/container sandbox. Code will still be included in notebook export.",
             "runtimeMs": 0,
         }
 
@@ -115,26 +156,112 @@ def run_python_request(request: PythonRunRequest) -> Dict[str, Any]:
                 "    df = ATLASPreviewFrame(preview_rows)\n"
                 "    print(f'ATLAS warning: pandas is unavailable or failed to initialize: {ATLAS_PANDAS_ERROR}')\n\n"
             )
-        script_path.write_text(context_code + code, encoding="utf-8")
+        capture_images = bool(request.captureImages or request.page == "Notebook Studio")
+        plot_prelude = ""
+        plot_postlude = ""
+        if capture_images:
+            plot_prelude = (
+                "# ATLAS notebook image capture. Local development only.\n"
+                "ATLAS_IMAGE_OUTPUTS = []\n"
+                "ATLAS_TABLE_OUTPUTS = []\n"
+                "def atlas_display(value, title='ATLAS table output'):\n"
+                "    try:\n"
+                "        if hasattr(value, 'head'):\n"
+                "            value = value.head(100)\n"
+                "        if hasattr(value, 'to_dict'):\n"
+                "            rows = value.to_dict(orient='records')\n"
+                "            columns = [str(col) for col in getattr(value, 'columns', [])]\n"
+                "        elif isinstance(value, list):\n"
+                "            rows = value[:100]\n"
+                "            columns = list(rows[0].keys()) if rows and isinstance(rows[0], dict) else []\n"
+                "        else:\n"
+                "            rows = [{'value': str(value)}]\n"
+                "            columns = ['value']\n"
+                "        ATLAS_TABLE_OUTPUTS.append({'title': title, 'columns': columns, 'rows': rows})\n"
+                "        print(f'ATLAS displayed table: {title} ({len(rows)} rows)')\n"
+                "    except BaseException as atlas_display_error:\n"
+                "        print(f'ATLAS table display warning: {atlas_display_error}')\n"
+                "try:\n"
+                "    import matplotlib\n"
+                "    matplotlib.use('Agg', force=True)\n"
+                "except BaseException:\n"
+                "    pass\n\n"
+            )
+            plot_postlude = (
+                "\n\n# ATLAS captures matplotlib figures after user code runs.\n"
+                "try:\n"
+                "    import io, base64, json as _atlas_json\n"
+                "    import matplotlib.pyplot as plt\n"
+                "    for _atlas_index, _atlas_num in enumerate(plt.get_fignums()[:5], start=1):\n"
+                "        _atlas_fig = plt.figure(_atlas_num)\n"
+                "        _atlas_buffer = io.BytesIO()\n"
+                "        _atlas_fig.savefig(_atlas_buffer, format='png', bbox_inches='tight', dpi=144)\n"
+                "        _atlas_data = base64.b64encode(_atlas_buffer.getvalue()).decode('ascii')\n"
+                "        if len(_atlas_data) <= 1500000:\n"
+                "            ATLAS_IMAGE_OUTPUTS.append({'mimeType': 'image/png', 'data': _atlas_data, 'alt': f'matplotlib output {_atlas_index}'})\n"
+                "    plt.close('all')\n"
+                "    print('ATLAS_IMAGE_OUTPUTS_JSON:' + _atlas_json.dumps(ATLAS_IMAGE_OUTPUTS))\n"
+                "    print('ATLAS_TABLE_OUTPUTS_JSON:' + _atlas_json.dumps(ATLAS_TABLE_OUTPUTS, default=str))\n"
+                "except BaseException as _atlas_plot_error:\n"
+                "    import sys as _atlas_sys\n"
+                "    print(f'ATLAS plot capture warning: {_atlas_plot_error}', file=_atlas_sys.stderr)\n"
+            )
+        script_path.write_text(context_code + plot_prelude + code + plot_postlude, encoding="utf-8")
         try:
+            command = sandbox_command(script_path, temp_dir)
+            if not command:
+                return {
+                    "ok": False,
+                    "status": "unavailable",
+                    "stdout": "",
+                    "stderr": "Python execution is disabled because no approved sandbox command is configured.",
+                    "runtimeMs": int((time.perf_counter() - started) * 1000),
+                }
             completed = subprocess.run(
-                [sys.executable, str(script_path)],
+                command,
                 cwd=str(temp_dir),
                 capture_output=True,
                 text=True,
                 encoding="utf-8",
                 errors="replace",
                 timeout=TIMEOUT_SECONDS,
-                env=os.environ.copy(),
+                env=execution_env(),
             )
             runtime_ms = int((time.perf_counter() - started) * 1000)
+            stdout = completed.stdout or ""
+            images = []
+            tables = []
+            image_sentinel = "ATLAS_IMAGE_OUTPUTS_JSON:"
+            table_sentinel = "ATLAS_TABLE_OUTPUTS_JSON:"
+            if image_sentinel in stdout or table_sentinel in stdout:
+                cleaned_lines = []
+                for line in stdout.splitlines():
+                    if line.startswith(image_sentinel):
+                        try:
+                            images = json.loads(line[len(image_sentinel) :])
+                        except Exception:
+                            images = []
+                    elif line.startswith(table_sentinel):
+                        try:
+                            tables = json.loads(line[len(table_sentinel) :])
+                        except Exception:
+                            tables = []
+                    else:
+                        cleaned_lines.append(line)
+                stdout = "\n".join(cleaned_lines)
+                if completed.stdout.endswith("\n") and stdout:
+                    stdout += "\n"
             return {
                 "ok": completed.returncode == 0,
                 "status": "success" if completed.returncode == 0 else "error",
-                "stdout": completed.stdout,
+                "stdout": stdout,
                 "stderr": completed.stderr,
                 "runtimeMs": runtime_ms,
                 "returnCode": completed.returncode,
+                "images": images[:5],
+                "tables": tables[:5],
+                "rows": (tables[0].get("rows") if tables and isinstance(tables[0], dict) else []),
+                "columns": (tables[0].get("columns") if tables and isinstance(tables[0], dict) else []),
             }
         except subprocess.TimeoutExpired as exc:
             runtime_ms = int((time.perf_counter() - started) * 1000)
@@ -183,6 +310,16 @@ def cleanup_question(request: QuestionCleanupRequest) -> Dict[str, Any]:
 @router.post("/code/r/run")
 def run_r(request: CodeRunRequest) -> Dict[str, Any]:
     started = time.perf_counter()
+    if not SANDBOX_COMMAND:
+        return {
+            "ok": False,
+            "status": "unavailable",
+            "stdout": "",
+            "stderr": "R execution is disabled until ATLAS_CODE_SANDBOX_COMMAND points to an approved OS/container sandbox.",
+            "runtimeMs": int((time.perf_counter() - started) * 1000),
+            "returnCode": None,
+            "diagnostics": {"rscriptDetected": bool(shutil.which("Rscript")), "rscriptPath": shutil.which("Rscript") or ""},
+        }
     rscript = shutil.which("Rscript")
     if not rscript:
         return {
@@ -210,15 +347,25 @@ def run_r(request: CodeRunRequest) -> Dict[str, Any]:
             "print(head(df))\n\n"
         )
         script_path.write_text(prelude + (request.code or ""), encoding="utf-8")
+        command = sandbox_command(script_path, temp_dir)
+        if not command:
+            return {
+                "ok": False,
+                "status": "unavailable",
+                "stdout": "",
+                "stderr": "R execution is disabled because no approved sandbox command is configured.",
+                "runtimeMs": int((time.perf_counter() - started) * 1000),
+                "returnCode": None,
+            }
         completed = subprocess.run(
-            [rscript, str(script_path)],
+            command,
             cwd=str(temp_dir),
             capture_output=True,
             text=True,
             encoding="utf-8",
             errors="replace",
             timeout=TIMEOUT_SECONDS,
-            env=os.environ.copy(),
+            env=execution_env(),
         )
         return {
             "ok": completed.returncode == 0,
@@ -455,7 +602,7 @@ def python_diagnostics() -> Dict[str, Any]:
             encoding="utf-8",
             errors="replace",
             timeout=TIMEOUT_SECONDS,
-            env=os.environ.copy(),
+            env=execution_env(),
         )
         can_start_python = completed.returncode == 0
         can_import_site = completed.returncode == 0
@@ -475,7 +622,7 @@ def python_diagnostics() -> Dict[str, Any]:
             encoding="utf-8",
             errors="replace",
             timeout=TIMEOUT_SECONDS,
-            env=os.environ.copy(),
+            env=execution_env(),
         )
         can_import_pandas = pandas_probe.returncode == 0
         if pandas_probe.returncode != 0:
@@ -492,7 +639,7 @@ def python_diagnostics() -> Dict[str, Any]:
                 encoding="utf-8",
                 errors="replace",
                 timeout=TIMEOUT_SECONDS,
-                env=os.environ.copy(),
+            env=execution_env(),
             )
             r_can_run = r_probe.returncode == 0
             r_version = (r_probe.stdout or r_probe.stderr).strip()

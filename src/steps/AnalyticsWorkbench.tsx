@@ -35,6 +35,7 @@ import {
   type SasExecutionMode,
 } from "../lib/codeExecution";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { isScoredOutputDataset } from "../lib/modelDiagnostics";
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") || "http://127.0.0.1:8001/api";
 
@@ -220,6 +221,7 @@ export default function AnalyticsWorkbench() {
 
   const rows = preview?.rows ?? [];
   const columns = preview?.columns ?? [];
+  const selectedDatasetIsScored = dataset ? isScoredOutputDataset(dataset) : false;
   const secondaryRows = secondaryPreview?.rows ?? [];
   const numericColumns = useMemo(() => columns.filter((column) => isNumericColumn(rows, column)), [columns, rows]);
   const categoricalColumns = useMemo(() => columns.filter((column) => !numericColumns.includes(column)), [columns, numericColumns]);
@@ -760,9 +762,9 @@ export default function AnalyticsWorkbench() {
   };
 
   return (
-    <div className="w-full space-y-5">
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="border-b border-slate-200 bg-gradient-to-r from-slate-950 via-slate-900 to-blue-950 p-5 text-white">
+    <div className="atlas-page-shell atlas-theme-analytics">
+      <section className="atlas-studio-hero">
+        <div className="atlas-studio-hero__band">
           <BrandLogo size="md" variant="dark" showSubtitle className="mb-4" />
           <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
             <div>
@@ -781,17 +783,34 @@ export default function AnalyticsWorkbench() {
             </div>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2 bg-slate-50 px-5 py-3 text-xs font-semibold text-slate-600">
+        <div className="atlas-studio-hero__nav">
           {["Question", "Data", "Analyze", "Code", "Insights"].map((label) => (
-            <a key={label} href={`#${label.toLowerCase()}`} className="rounded-full border border-slate-200 bg-white px-3 py-1.5 hover:border-blue-300 hover:text-blue-700">
+            <a key={label} href={`#${label.toLowerCase()}`} className="atlas-studio-chip">
               {label}
             </a>
           ))}
-          <Link to="/datasets" className="ml-auto rounded-full border border-slate-200 bg-white px-3 py-1.5 hover:border-blue-300 hover:text-blue-700">
+          <Link to="/datasets" className="atlas-studio-chip ml-auto">
             Dataset Library
+          </Link>
+          <Link to={`/notebook-studio?datasetId=${datasetId}&versionId=${versionId}`} className="atlas-studio-chip">
+            Send to Notebook Studio
+          </Link>
+          <Link to="/model-document-studio" className="atlas-studio-chip">
+            Add Insight to Model Documentation
           </Link>
         </div>
         {message && <div className="mx-5 my-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">{message}</div>}
+        {selectedDatasetIsScored && (
+          <div className="mx-5 my-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
+            <div className="font-semibold">Scored output context detected</div>
+            <p className="mt-1 leading-6">
+              ATLAS recommends Model Diagnostics for lift, calibration, residual, actual-vs-predicted, and segment performance before broader analysis.
+            </p>
+            <Link to={`/model-diagnostics?datasetId=${datasetId}&versionId=${versionId}`} className="mt-2 inline-flex font-semibold text-emerald-800 underline">
+              Open Model Diagnostics
+            </Link>
+          </div>
+        )}
       </section>
 
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">

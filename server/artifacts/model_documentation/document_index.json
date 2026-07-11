@@ -1,0 +1,65 @@
+{
+  "documents": [
+    {
+      "createdAt": "2026-07-08T04:22:50.734341+00:00",
+      "documentId": "doc-recovered-classification-shell-1783484570",
+      "projectId": "recovered-classification-shell",
+      "projectName": "Recovered Classification Predictive Model",
+      "quality": {
+        "checks": [
+          {
+            "detail": "0 of 25 required sections complete.",
+            "id": "required_sections",
+            "label": "Required sections complete",
+            "status": "warning"
+          },
+          {
+            "detail": "Dataset inventory evidence is attached.",
+            "id": "dataset_lineage",
+            "label": "Dataset lineage documented",
+            "status": "pass"
+          },
+          {
+            "detail": "Target definition draft is available.",
+            "id": "target_definition",
+            "label": "Target definition documented",
+            "status": "pass"
+          },
+          {
+            "detail": "Attach evaluation or diagnostic evidence.",
+            "id": "performance_table",
+            "label": "Model performance table",
+            "status": "warning"
+          },
+          {
+            "detail": "Interpretability narrative is drafted.",
+            "id": "model_interpretation",
+            "label": "Model interpretation",
+            "status": "pass"
+          },
+          {
+            "detail": "Monitoring plan draft is available.",
+            "id": "monitoring_plan",
+            "label": "Monitoring plan",
+            "status": "pass"
+          },
+          {
+            "detail": "3 governance note(s) detected.",
+            "id": "governance_notes",
+            "label": "Fair Lending / governance notes",
+            "status": "pass"
+          }
+        ],
+        "completionPct": 0,
+        "exportReady": false,
+        "governanceWarningsCount": 3,
+        "missingEvidenceCount": 19,
+        "requiredSectionsComplete": 0,
+        "requiredSectionsTotal": 25,
+        "sectionsNeedingReview": 7
+      },
+      "templateType": "model_development_document",
+      "updatedAt": "2026-07-08T14:13:09.189503+00:00"
+    }
+  ]
+}

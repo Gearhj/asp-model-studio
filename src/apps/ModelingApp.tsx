@@ -13,13 +13,19 @@ import ExperimentComparison from "../steps/ExperimentComparison";
 import GovernanceReport from "../steps/GovernanceReport";
 import IntelligentWorkbench from "../steps/IntelligentWorkbench";
 import NotebookExport from "../steps/NotebookExport";
+import NotebookStudio from "../steps/NotebookStudio";
 import NewProject from "../steps/NewProject";
 import ProjectOverview from "../steps/ProjectOverview";
 import { ExportsPage, OpenProject, SettingsPage } from "../steps/ProjectUtilityPages";
 import { AccountPage, AdminUsersPage, AuditPage, LoginPage, RegisterPage } from "../steps/AuthPages";
 import AnalyticsWorkbench from "../steps/AnalyticsWorkbench";
 import ChartStudio from "../steps/ChartStudio";
+import CreditRiskStudio from "../steps/CreditRiskStudio";
+import EvidenceGraph from "../steps/EvidenceGraph";
+import ModelDiagnostics from "../steps/ModelDiagnostics";
+import ModelDocumentationStudio from "../steps/ModelDocumentationStudio";
 import RegisterDataset from "../steps/RegisterDataset";
+import SqlDataStudio from "../steps/SqlDataStudio";
 import Step00ProjectContext from "../steps/Step00_ProjectContext";
 import Step01BCreditBureauReview from "../steps/Step01B_CreditBureauReview";
 import Step01DataAcquisition from "../steps/Step01_DataAcquisition";
@@ -54,6 +60,7 @@ export default function ModelingApp() {
   const restoreWarnings = useWorkflowStore((state) => state.restoreWarnings);
   const completed = workflowSteps.filter((step) => step.status === "complete").length;
   const progress = Math.round((completed / Math.max(1, workflowSteps.length)) * 100);
+  const isFullWidthStudioRoute = ["/sql-data-studio", "/notebook-studio", "/model-evidence-center", "/evidence-graph", "/credit-risk-studio"].includes(location.pathname);
 
   useEffect(() => {
     let cancelled = false;
@@ -149,7 +156,7 @@ export default function ModelingApp() {
           </header>
 
           <main className="min-w-0 flex-1 px-3 py-4 sm:px-4 lg:px-6 xl:px-8">
-            <div className="mx-auto grid w-full max-w-[1760px] gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+            <div className={`mx-auto grid w-full max-w-[1760px] gap-4 ${isFullWidthStudioRoute ? "xl:grid-cols-1" : "xl:grid-cols-[minmax(0,1fr)_320px]"}`}>
               <div className="min-w-0">
                 {restoreWarnings.length > 0 && (
                   <section className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">
@@ -175,8 +182,17 @@ export default function ModelingApp() {
                   <Route path="/projects/open" element={<OpenProject />} />
                   <Route path="/templates" element={<WorkflowTemplates />} />
                   <Route path="/datasets" element={<DatasetLibrary />} />
+                  <Route path="/sql-data-studio" element={<SqlDataStudio />} />
+                  <Route path="/notebook-studio" element={<NotebookStudio />} />
                   <Route path="/analytics" element={<AnalyticsWorkbench />} />
                   <Route path="/chart-studio" element={<ChartStudio />} />
+                  <Route path="/credit-risk-studio" element={<CreditRiskStudio />} />
+                  <Route path="/model-evidence-center" element={<EvidenceGraph />} />
+                  <Route path="/evidence-graph" element={<Navigate to="/model-evidence-center" replace />} />
+                  <Route path="/model-diagnostics" element={<ModelDiagnostics />} />
+                  <Route path="/model-document-studio" element={<ModelDocumentationStudio />} />
+                  <Route path="/model-document" element={<Navigate to="/model-document-studio" replace />} />
+                  <Route path="/model-development-document" element={<Navigate to="/model-document-studio" replace />} />
                   <Route path="/datasets/register" element={<RegisterDataset />} />
                   <Route path="/datasets/:datasetId" element={<DatasetDetail />} />
                   <Route path="/experiments" element={<ExperimentComparison />} />
@@ -222,7 +238,7 @@ export default function ModelingApp() {
                   <Route path="*" element={<Navigate to="/dashboard" replace />} />
                 </Routes>
               </div>
-              <CopilotCard />
+              {!isFullWidthStudioRoute && <CopilotCard />}
             </div>
           </main>
         </div>

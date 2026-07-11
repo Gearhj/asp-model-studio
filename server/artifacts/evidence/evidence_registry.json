@@ -1,0 +1,624 @@
+{
+  "items": [
+    {
+      "evidenceId": "ev-credit-risk-evidence-c124d4eb5c683dc1",
+      "projectId": "atlas-mrfehkqu",
+      "projectName": "Regulated Credit Model",
+      "evidenceType": "governance",
+      "title": "Credit Risk Evidence",
+      "summary": "Credit Risk Evidence captured from Credit Risk Studio for Credit Card Application Underwriting governance.",
+      "sourcePage": "Credit Risk Studio",
+      "sourceRoute": "/credit-risk-studio",
+      "artifactType": "credit_risk_profile",
+      "artifactId": "cr-regulated-credit-model-f776e2a5ee",
+      "datasetIds": [
+        "ds_heloc_train_6bdb184b"
+      ],
+      "modelIds": [],
+      "documentIds": [],
+      "notebookIds": [],
+      "supportsSections": [
+        "Data Sources",
+        "Exploratory Data Analysis",
+        "Fair Lending / Compliance Considerations"
+      ],
+      "tags": [
+        "credit_risk",
+        "credit_risk_eda",
+        "underwriting",
+        "governance"
+      ],
+      "financialDomain": "credit_risk",
+      "financialTechnique": "credit_risk_eda",
+      "regulatoryRelevance": {
+        "fair_lending": false,
+        "model_risk": true,
+        "adverse_action": false
+      },
+      "creditRiskContext": {
+        "productType": "Credit Card",
+        "modelPurpose": "Application Underwriting",
+        "targetEvent": "Default",
+        "targetWindow": "Defaults in following 90 days",
+        "ttcPitAssumption": "Point-in-Time"
+      },
+      "status": "ready",
+      "importance": "high",
+      "qualityScore": 100,
+      "createdAt": "2026-07-11T15:11:27.770117+00:00",
+      "updatedAt": "2026-07-11T15:11:27.770117+00:00",
+      "createdBy": "ATLAS"
+    },
+    {
+      "evidenceId": "ev-credit-risk-evidence-267fea7a815f5cfc",
+      "projectId": "atlas-mre78yxq",
+      "projectName": "Untitled ATLAS Project",
+      "evidenceType": "governance",
+      "title": "Credit Risk Evidence",
+      "summary": "Credit Risk Evidence captured from Credit Risk Studio for Credit Card Application Underwriting governance.",
+      "sourcePage": "Credit Risk Studio",
+      "sourceRoute": "/credit-risk-studio",
+      "artifactType": "credit_risk_profile",
+      "artifactId": "cr-atlas-mre78yxq-3ba140eefc",
+      "datasetIds": [
+        "ds_heloc_train_6bdb184b"
+      ],
+      "modelIds": [],
+      "documentIds": [],
+      "notebookIds": [],
+      "supportsSections": [
+        "Data Sources",
+        "Population Definition",
+        "Target Definition"
+      ],
+      "tags": [
+        "credit_risk",
+        "data_acquisition",
+        "underwriting",
+        "governance"
+      ],
+      "financialDomain": "credit_risk",
+      "financialTechnique": "data_acquisition",
+      "regulatoryRelevance": {
+        "fair_lending": false,
+        "model_risk": true,
+        "adverse_action": false
+      },
+      "creditRiskContext": {
+        "productType": "Credit Card",
+        "modelPurpose": "Application Underwriting",
+        "targetEvent": "90+ DPD",
+        "targetWindow": "Defaults in following 90 days",
+        "ttcPitAssumption": "Not Selected"
+      },
+      "status": "ready",
+      "importance": "high",
+      "qualityScore": 100,
+      "createdAt": "2026-07-10T13:56:19.605657+00:00",
+      "updatedAt": "2026-07-10T13:56:19.605657+00:00",
+      "createdBy": "ATLAS"
+    },
+    {
+      "evidenceId": "ev-target-definition-evidence-3e8be09c16e5f77b",
+      "projectId": "atlas-mrdqvea1",
+      "projectName": "HELOC Traditional Scorecard Test Run",
+      "evidenceType": "governance",
+      "title": "Target Definition Evidence",
+      "summary": "Target Definition Evidence captured from Credit Risk Studio for Credit Card Application Underwriting governance.",
+      "sourcePage": "Credit Risk Studio",
+      "sourceRoute": "/credit-risk-studio",
+      "artifactType": "credit_risk_profile",
+      "artifactId": "cr-heloc-traditional-scorecard-test-run-b41b52f826",
+      "datasetIds": [
+        "ds_heloc_train_6bdb184b"
+      ],
+      "modelIds": [],
+      "documentIds": [],
+      "notebookIds": [],
+      "supportsSections": [
+        "Target Definition",
+        "Population Definition",
+        "Development Test and OOT Data"
+      ],
+      "tags": [
+        "credit_risk",
+        "target_definition",
+        "underwriting",
+        "governance"
+      ],
+      "financialDomain": "credit_risk",
+      "financialTechnique": "target_definition",
+      "regulatoryRelevance": {
+        "fair_lending": false,
+        "model_risk": true,
+        "adverse_action": false
+      },
+      "creditRiskContext": {
+        "productType": "Credit Card",
+        "modelPurpose": "Application Underwriting",
+        "targetEvent": "Default",
+        "targetWindow": "Defaults in following 90 days",
+        "ttcPitAssumption": "Point-in-Time"
+      },
+      "status": "ready",
+      "importance": "high",
+      "qualityScore": 100,
+      "createdAt": "2026-07-09T18:40:22.203676+00:00",
+      "updatedAt": "2026-07-09T20:03:54.184313+00:00",
+      "createdBy": "ATLAS"
+    },
+    {
+      "evidenceId": "ev-credit-risk-evidence-682a669abbfaf87c",
+      "projectId": "atlas-mrdqvea1",
+      "projectName": "HELOC Traditional Scorecard Test Run",
+      "evidenceType": "governance",
+      "title": "Credit Risk Evidence",
+      "summary": "Credit Risk Evidence captured from Credit Risk Studio for Credit Card Application Underwriting governance.",
+      "sourcePage": "Credit Risk Studio",
+      "sourceRoute": "/credit-risk-studio",
+      "artifactType": "credit_risk_profile",
+      "artifactId": "cr-heloc-traditional-scorecard-test-run-b41b52f826",
+      "datasetIds": [
+        "ds_heloc_train_6bdb184b"
+      ],
+      "modelIds": [],
+      "documentIds": [],
+      "notebookIds": [],
+      "supportsSections": [
+        "Data Sources",
+        "Exploratory Data Analysis",
+        "Fair Lending / Compliance Considerations"
+      ],
+      "tags": [
+        "credit_risk",
+        "credit_risk_eda",
+        "underwriting",
+        "governance"
+      ],
+      "financialDomain": "credit_risk",
+      "financialTechnique": "credit_risk_eda",
+      "regulatoryRelevance": {
+        "fair_lending": false,
+        "model_risk": true,
+        "adverse_action": false
+      },
+      "creditRiskContext": {
+        "productType": "Credit Card",
+        "modelPurpose": "Application Underwriting",
+        "targetEvent": "Default",
+        "targetWindow": "Defaults in following 90 days",
+        "ttcPitAssumption": "Point-in-Time"
+      },
+      "status": "ready",
+      "importance": "high",
+      "qualityScore": 100,
+      "createdAt": "2026-07-09T18:46:16.669811+00:00",
+      "updatedAt": "2026-07-09T18:46:16.669811+00:00",
+      "createdBy": "ATLAS"
+    },
+    {
+      "evidenceId": "ev-woe-iv-analysis-evidence-5dbfe5569d0025f6",
+      "projectId": "atlas-mrdqvea1",
+      "projectName": "",
+      "evidenceType": "feature_engineering",
+      "title": "WOE / IV Analysis Evidence",
+      "summary": "WOE / IV analysis reviewed 25 candidate underwriting characteristics for target bad_flag.",
+      "sourcePage": "Credit Risk Studio",
+      "sourceRoute": "/credit-risk-studio",
+      "artifactType": "woe_iv_analysis",
+      "artifactId": "woeiv-a4d71429e70100",
+      "datasetIds": [
+        "ds_heloc_train_6bdb184b"
+      ],
+      "modelIds": [],
+      "documentIds": [],
+      "notebookIds": [],
+      "supportsSections": [
+        "Feature Engineering",
+        "Correlation and VIF Review",
+        "Model Interpretation",
+        "Appendices"
+      ],
+      "tags": [
+        "credit_risk",
+        "woe",
+        "iv",
+        "manual_binning",
+        "underwriting"
+      ],
+      "financialDomain": "credit_risk",
+      "financialTechnique": "woe_iv",
+      "regulatoryRelevance": {},
+      "creditRiskContext": {
+        "targetColumn": "bad_flag",
+        "eventValue": "1",
+        "eventRate": 0.5218
+      },
+      "status": "ready",
+      "importance": "high",
+      "qualityScore": 86,
+      "createdAt": "2026-07-09T17:24:36.977382+00:00",
+      "updatedAt": "2026-07-09T17:24:36.977382+00:00",
+      "createdBy": "ATLAS"
+    },
+    {
+      "evidenceId": "ev-scorecard-scaling-and-odds-calibration-evi-3538f6a0d6f690d0",
+      "projectId": "recovered-classification-shell",
+      "projectName": "Recovered Classification Predictive Model",
+      "evidenceType": "governance",
+      "title": "Scorecard Scaling and Odds Calibration Evidence",
+      "summary": "Scorecard Scaling and Odds Calibration Evidence captured from Credit Risk Studio for Credit Card Application Underwriting governance.",
+      "sourcePage": "Credit Risk Studio",
+      "sourceRoute": "/credit-risk-studio",
+      "artifactType": "credit_risk_profile",
+      "artifactId": "cr-recovered-classification-predictive-mode-098512d2df",
+      "datasetIds": [
+        "ds_reg_train_309ce82d"
+      ],
+      "modelIds": [],
+      "documentIds": [],
+      "notebookIds": [],
+      "supportsSections": [
+        "Champion Model",
+        "Model Interpretation",
+        "Appendix"
+      ],
+      "tags": [
+        "credit_risk",
+        "scorecard_scaling",
+        "underwriting",
+        "governance"
+      ],
+      "financialDomain": "credit_risk",
+      "financialTechnique": "scorecard_scaling",
+      "regulatoryRelevance": {
+        "fair_lending": false,
+        "model_risk": true,
+        "adverse_action": false
+      },
+      "creditRiskContext": {
+        "productType": "Credit Card",
+        "modelPurpose": "Application Underwriting",
+        "targetEvent": "Default",
+        "targetWindow": "Defaults in following 90 days",
+        "ttcPitAssumption": "Not Selected"
+      },
+      "status": "ready",
+      "importance": "high",
+      "qualityScore": 100,
+      "createdAt": "2026-07-09T14:58:53.339852+00:00",
+      "updatedAt": "2026-07-09T14:58:53.339852+00:00",
+      "createdBy": "ATLAS"
+    },
+    {
+      "evidenceId": "ev-dataset-recovered-classification-predictiv-c38e274198e99fb2",
+      "projectId": "recovered-classification-shell",
+      "projectName": "Recovered Classification Predictive Model",
+      "evidenceType": "dataset",
+      "title": "Dataset: Recovered Classification Predictive Model - OOT Scored Output",
+      "summary": "ATLAS scored output for OOT scoring. Contains predictions, scores, and diagnostics-ready columns.",
+      "sourcePage": "Dataset Library",
+      "sourceRoute": "/datasets/ds_recovered-classification-predictive-model---oot-scored-output_84e442cf",
+      "artifactType": "dataset",
+      "artifactId": "ds_recovered-classification-predictive-model---oot-scored-output_84e442cf",
+      "datasetIds": [
+        "ds_recovered-classification-predictive-model---oot-scored-output_84e442cf"
+      ],
+      "modelIds": [],
+      "documentIds": [],
+      "notebookIds": [],
+      "supportsSections": [
+        "Data Sources",
+        "Data Quality",
+        "Population Definition"
+      ],
+      "tags": [
+        "model_risk",
+        "model outputs"
+      ],
+      "status": "ready",
+      "importance": "medium",
+      "qualityScore": 100,
+      "createdAt": "2026-07-08T21:08:42.300610+00:00",
+      "updatedAt": "2026-07-08T21:08:42.300610+00:00",
+      "createdBy": "ATLAS"
+    },
+    {
+      "evidenceId": "ev-dataset-recovered-classification-predictiv-bcdaf1dce567221a",
+      "projectId": "recovered-classification-shell",
+      "projectName": "Recovered Classification Predictive Model",
+      "evidenceType": "dataset",
+      "title": "Dataset: Recovered Classification Predictive Model - TEST Scored Output",
+      "summary": "ATLAS scored output for TEST scoring. Contains predictions, scores, and diagnostics-ready columns.",
+      "sourcePage": "Dataset Library",
+      "sourceRoute": "/datasets/ds_recovered-classification-predictive-model---test-scored-output_0b477260",
+      "artifactType": "dataset",
+      "artifactId": "ds_recovered-classification-predictive-model---test-scored-output_0b477260",
+      "datasetIds": [
+        "ds_recovered-classification-predictive-model---test-scored-output_0b477260"
+      ],
+      "modelIds": [],
+      "documentIds": [],
+      "notebookIds": [],
+      "supportsSections": [
+        "Data Sources",
+        "Data Quality",
+        "Population Definition"
+      ],
+      "tags": [
+        "model_risk",
+        "model outputs"
+      ],
+      "status": "ready",
+      "importance": "medium",
+      "qualityScore": 100,
+      "createdAt": "2026-07-08T21:08:42.269627+00:00",
+      "updatedAt": "2026-07-08T21:08:42.269627+00:00",
+      "createdBy": "ATLAS"
+    },
+    {
+      "evidenceId": "ev-dataset-recovered-classification-predictiv-345b85e868fab24f",
+      "projectId": "recovered-classification-shell",
+      "projectName": "Recovered Classification Predictive Model",
+      "evidenceType": "dataset",
+      "title": "Dataset: Recovered Classification Predictive Model - TRAIN Scored Output",
+      "summary": "ATLAS scored output for TRAIN scoring. Contains predictions, scores, and diagnostics-ready columns.",
+      "sourcePage": "Dataset Library",
+      "sourceRoute": "/datasets/ds_recovered-classification-predictive-model---train-scored-output_84f8db0a",
+      "artifactType": "dataset",
+      "artifactId": "ds_recovered-classification-predictive-model---train-scored-output_84f8db0a",
+      "datasetIds": [
+        "ds_recovered-classification-predictive-model---train-scored-output_84f8db0a"
+      ],
+      "modelIds": [],
+      "documentIds": [],
+      "notebookIds": [],
+      "supportsSections": [
+        "Data Sources",
+        "Data Quality",
+        "Population Definition"
+      ],
+      "tags": [
+        "model_risk",
+        "model outputs"
+      ],
+      "status": "ready",
+      "importance": "medium",
+      "qualityScore": 100,
+      "createdAt": "2026-07-08T21:08:42.245062+00:00",
+      "updatedAt": "2026-07-08T21:08:42.245062+00:00",
+      "createdBy": "ATLAS"
+    },
+    {
+      "evidenceId": "ev-dataset-class-oot-0a2050cef5e95d59",
+      "projectId": "recovered-classification-shell",
+      "projectName": "Recovered Classification Predictive Model",
+      "evidenceType": "dataset",
+      "title": "Dataset: CLASS_OOT",
+      "summary": "Governed dataset registered in the ATLAS Dataset Library.",
+      "sourcePage": "Dataset Library",
+      "sourceRoute": "/datasets/ds_class_oot_04af8914_14122",
+      "artifactType": "dataset",
+      "artifactId": "ds_class_oot_04af8914_14122",
+      "datasetIds": [
+        "ds_class_oot_04af8914_14122"
+      ],
+      "modelIds": [],
+      "documentIds": [],
+      "notebookIds": [],
+      "supportsSections": [
+        "Data Sources",
+        "Data Quality",
+        "Population Definition"
+      ],
+      "tags": [
+        "model_risk",
+        "general"
+      ],
+      "status": "ready",
+      "importance": "medium",
+      "qualityScore": 100,
+      "createdAt": "2026-07-08T21:08:42.223280+00:00",
+      "updatedAt": "2026-07-08T21:08:42.223280+00:00",
+      "createdBy": "ATLAS"
+    },
+    {
+      "evidenceId": "ev-dataset-class-test-5b76172d3ed0e2b0",
+      "projectId": "recovered-classification-shell",
+      "projectName": "Recovered Classification Predictive Model",
+      "evidenceType": "dataset",
+      "title": "Dataset: CLASS_TEST",
+      "summary": "Governed dataset registered in the ATLAS Dataset Library.",
+      "sourcePage": "Dataset Library",
+      "sourceRoute": "/datasets/ds_class_test_9b264260",
+      "artifactType": "dataset",
+      "artifactId": "ds_class_test_9b264260",
+      "datasetIds": [
+        "ds_class_test_9b264260"
+      ],
+      "modelIds": [],
+      "documentIds": [],
+      "notebookIds": [],
+      "supportsSections": [
+        "Data Sources",
+        "Data Quality",
+        "Population Definition"
+      ],
+      "tags": [
+        "model_risk",
+        "general"
+      ],
+      "status": "ready",
+      "importance": "medium",
+      "qualityScore": 100,
+      "createdAt": "2026-07-08T21:08:42.202293+00:00",
+      "updatedAt": "2026-07-08T21:08:42.202293+00:00",
+      "createdBy": "ATLAS"
+    },
+    {
+      "evidenceId": "ev-dataset-class-oot-85a17621505d6802",
+      "projectId": "recovered-classification-shell",
+      "projectName": "Recovered Classification Predictive Model",
+      "evidenceType": "dataset",
+      "title": "Dataset: CLASS_OOT",
+      "summary": "Governed dataset registered in the ATLAS Dataset Library.",
+      "sourcePage": "Dataset Library",
+      "sourceRoute": "/datasets/ds_class_oot_04af8914",
+      "artifactType": "dataset",
+      "artifactId": "ds_class_oot_04af8914",
+      "datasetIds": [
+        "ds_class_oot_04af8914"
+      ],
+      "modelIds": [],
+      "documentIds": [],
+      "notebookIds": [],
+      "supportsSections": [
+        "Data Sources",
+        "Data Quality",
+        "Population Definition"
+      ],
+      "tags": [
+        "model_risk",
+        "general"
+      ],
+      "status": "ready",
+      "importance": "medium",
+      "qualityScore": 100,
+      "createdAt": "2026-07-08T21:08:42.169267+00:00",
+      "updatedAt": "2026-07-08T21:08:42.169267+00:00",
+      "createdBy": "ATLAS"
+    },
+    {
+      "evidenceId": "ev-dataset-reg-test-e2780020f27b5083",
+      "projectId": "recovered-classification-shell",
+      "projectName": "Recovered Classification Predictive Model",
+      "evidenceType": "dataset",
+      "title": "Dataset: REG_TEST",
+      "summary": "Governed dataset registered in the ATLAS Dataset Library.",
+      "sourcePage": "Dataset Library",
+      "sourceRoute": "/datasets/ds_reg_test_c17dc872_45500",
+      "artifactType": "dataset",
+      "artifactId": "ds_reg_test_c17dc872_45500",
+      "datasetIds": [
+        "ds_reg_test_c17dc872_45500"
+      ],
+      "modelIds": [],
+      "documentIds": [],
+      "notebookIds": [],
+      "supportsSections": [
+        "Data Sources",
+        "Data Quality",
+        "Population Definition"
+      ],
+      "tags": [
+        "model_risk",
+        "general"
+      ],
+      "status": "ready",
+      "importance": "medium",
+      "qualityScore": 100,
+      "createdAt": "2026-07-08T21:08:42.147280+00:00",
+      "updatedAt": "2026-07-08T21:08:42.147280+00:00",
+      "createdBy": "ATLAS"
+    },
+    {
+      "evidenceId": "ev-dataset-class-train-7cbb09a4e3f268ac",
+      "projectId": "recovered-classification-shell",
+      "projectName": "Recovered Classification Predictive Model",
+      "evidenceType": "dataset",
+      "title": "Dataset: CLASS_TRAIN",
+      "summary": "Governed dataset registered in the ATLAS Dataset Library.",
+      "sourcePage": "Dataset Library",
+      "sourceRoute": "/datasets/ds_class_train_982c7a7d",
+      "artifactType": "dataset",
+      "artifactId": "ds_class_train_982c7a7d",
+      "datasetIds": [
+        "ds_class_train_982c7a7d"
+      ],
+      "modelIds": [],
+      "documentIds": [],
+      "notebookIds": [],
+      "supportsSections": [
+        "Data Sources",
+        "Data Quality",
+        "Population Definition"
+      ],
+      "tags": [
+        "model_risk",
+        "general"
+      ],
+      "status": "ready",
+      "importance": "medium",
+      "qualityScore": 100,
+      "createdAt": "2026-07-08T21:08:42.126517+00:00",
+      "updatedAt": "2026-07-08T21:08:42.126517+00:00",
+      "createdBy": "ATLAS"
+    },
+    {
+      "evidenceId": "ev-dataset-reg-oot-f13a2ce5963d0838",
+      "projectId": "recovered-classification-shell",
+      "projectName": "Recovered Classification Predictive Model",
+      "evidenceType": "dataset",
+      "title": "Dataset: REG_OOT",
+      "summary": "Governed dataset registered in the ATLAS Dataset Library.",
+      "sourcePage": "Dataset Library",
+      "sourceRoute": "/datasets/ds_reg_oot_12124cc2",
+      "artifactType": "dataset",
+      "artifactId": "ds_reg_oot_12124cc2",
+      "datasetIds": [
+        "ds_reg_oot_12124cc2"
+      ],
+      "modelIds": [],
+      "documentIds": [],
+      "notebookIds": [],
+      "supportsSections": [
+        "Data Sources",
+        "Data Quality",
+        "Population Definition"
+      ],
+      "tags": [
+        "model_risk",
+        "general"
+      ],
+      "status": "ready",
+      "importance": "medium",
+      "qualityScore": 100,
+      "createdAt": "2026-07-08T21:08:42.103732+00:00",
+      "updatedAt": "2026-07-08T21:08:42.103732+00:00",
+      "createdBy": "ATLAS"
+    },
+    {
+      "evidenceId": "ev-dataset-reg-test-d3a4454077a9264f",
+      "projectId": "recovered-classification-shell",
+      "projectName": "Recovered Classification Predictive Model",
+      "evidenceType": "dataset",
+      "title": "Dataset: REG_TEST",
+      "summary": "Governed dataset registered in the ATLAS Dataset Library.",
+      "sourcePage": "Dataset Library",
+      "sourceRoute": "/datasets/ds_reg_test_c17dc872",
+      "artifactType": "dataset",
+      "artifactId": "ds_reg_test_c17dc872",
+      "datasetIds": [
+        "ds_reg_test_c17dc872"
+      ],
+      "modelIds": [],
+      "documentIds": [],
+      "notebookIds": [],
+      "supportsSections": [
+        "Data Sources",
+        "Data Quality",
+        "Population Definition"
+      ],
+      "tags": [
+        "model_risk",
+        "general"
+      ],
+      "status": "ready",
+      "importance": "medium",
+      "qualityScore": 100,
+      "createdAt": "2026-07-08T21:08:42.099735+00:00",
+      "updatedAt": "2026-07-08T21:08:42.099735+00:00",
+      "createdBy": "ATLAS"
+    }
+  ]
+}

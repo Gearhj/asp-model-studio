@@ -187,19 +187,16 @@ function seedExperimentalArtifacts(projectId = "experimental-test") {
   });
 }
 
-test("compact project snapshot creation preserves summaries and removes large artifacts", () => {
+test("compact project snapshot creation excludes regulated browser artifacts", () => {
   resetStorage();
   seedPredictiveArtifacts();
   const snapshot = modules.persistence.buildPersistedProjectState("predictive-test");
   assert.ok(snapshot);
-  assert.equal(snapshot.datasetPreview.rowCount, 250);
-  assert.equal(snapshot.datasetPreview.previewRows.length, 100);
-  assert.equal(snapshot.sessionStorage["modeling-tool-dataset"].rows.length, 100);
-  assert.equal(snapshot.sessionStorage["modeling-tool-training-summary"].ranked.length, 25);
-  assert.equal(snapshot.localStorage["modeling-tool-decision-journal"].length, 100);
-  assert.equal(snapshot.workflowNodeStates.step09.analysisSnapshot, undefined);
-  assert.equal(snapshot.workflowNodeStates.step09.simulationResults.powerByIteration.length, 0);
-  assert.equal(snapshot.missingArtifacts.some((warning) => warning.includes("Raw dataset rows")), true);
+  assert.equal(snapshot.datasetPreview, undefined);
+  assert.deepEqual(snapshot.sessionStorage, {});
+  assert.deepEqual(snapshot.localStorage, {});
+  assert.deepEqual(snapshot.workflowNodeStates, {});
+  assert.equal(snapshot.missingArtifacts.some((warning) => warning.includes("regulated data")), true);
 });
 
 test("quota-safe compaction trims oversized registry artifacts", () => {
@@ -256,11 +253,11 @@ test("thin project fallback preserves project metadata without large embedded ar
   assert.equal(thin.snapshot.projectName, "Quota Test");
   assert.deepEqual(thin.snapshot.persistedLocalState.localStorage, {});
   assert.deepEqual(thin.snapshot.persistedLocalState.workflowNodeStates, {});
-  assert.equal(thin.snapshot.persistedLocalState.datasetPreview.previewRows.length, 0);
+  assert.equal(thin.snapshot.persistedLocalState.datasetPreview, undefined);
   assert.equal(thin.snapshot.restoreWarnings.length > 0, true);
 });
 
-test("predictive project snapshot save and restore rehydrates compact artifacts", () => {
+test("predictive project snapshot save and restore does not rehydrate regulated artifacts", () => {
   resetStorage();
   seedPredictiveArtifacts();
   const record = modules.localProjects.upsertProjectSnapshot(predictiveSnapshot());
@@ -271,13 +268,13 @@ test("predictive project snapshot save and restore rehydrates compact artifacts"
   localStorage.removeItem("atlas-workflow-node-state:predictive-test:step09");
 
   const warnings = modules.localProjects.restoreLocalProjectArtifacts(record.snapshot);
-  assert.equal(JSON.parse(localStorage.getItem("modeling-tool-project-context")).targetDefinition, "Class indicates confirmed fraud.");
-  assert.equal(JSON.parse(sessionStorage.getItem("modeling-tool-dataset")).rows.length, 100);
-  assert.equal(JSON.parse(localStorage.getItem("atlas-workflow-node-state:predictive-test:step09")).simulationResults.powerByIteration.length, 0);
-  assert.equal(warnings.some((warning) => warning.includes("Raw dataset rows")), true);
+  assert.equal(localStorage.getItem("modeling-tool-project-context"), null);
+  assert.equal(sessionStorage.getItem("modeling-tool-dataset"), null);
+  assert.equal(localStorage.getItem("atlas-workflow-node-state:predictive-test:step09"), null);
+  assert.equal(warnings.some((warning) => warning.includes("regulated data")), true);
 });
 
-test("experimental design snapshot save and restore preserves factors, levels, and Monte Carlo summary", () => {
+test("experimental design snapshot save and restore leaves page artifacts out of localStorage", () => {
   resetStorage();
   seedExperimentalArtifacts();
   const record = modules.localProjects.upsertProjectSnapshot(experimentalSnapshot());
@@ -286,12 +283,9 @@ test("experimental design snapshot save and restore preserves factors, levels, a
   localStorage.removeItem("atlas-workflow-node-state:experimental-test:experimental-design-8");
 
   const warnings = modules.localProjects.restoreLocalProjectArtifacts(record.snapshot);
-  const factors = JSON.parse(localStorage.getItem("atlas-workflow-node-state:experimental-test:experimental-design-3"));
-  const monteCarlo = JSON.parse(localStorage.getItem("atlas-workflow-node-state:experimental-test:experimental-design-8"));
-  assert.equal(factors.decision, "Two-factor design approved.");
-  assert.equal(monteCarlo.simulationResults.meanPower, 0.812);
-  assert.equal(monteCarlo.simulationResults.powerByIteration.length, 0);
-  assert.deepEqual(warnings, []);
+  assert.equal(localStorage.getItem("atlas-workflow-node-state:experimental-test:experimental-design-3"), null);
+  assert.equal(localStorage.getItem("atlas-workflow-node-state:experimental-test:experimental-design-8"), null);
+  assert.equal(warnings.some((warning) => warning.includes("regulated data")), true);
 });
 
 test("corrupted registry and missing artifact references are handled without crashing", () => {

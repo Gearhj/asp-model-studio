@@ -30,6 +30,7 @@ const assertions = [
   ["auth guard", modelingApp.includes("Loading ATLAS security context") && modelingApp.includes("Navigate to=\"/login\"")],
   ["header shows signed-in user", modelingApp.includes("HeaderUserMenu") && modelingApp.includes("Signed in as") && modelingApp.includes("Sign out")],
   ["auth pages", authPages.includes("LoginPage") && authPages.includes("AdminUsersPage") && authPages.includes("AuditPage")],
+  ["keep signed in checkbox", authPages.includes("Keep me Signed In") && authPages.includes("KEEP_SIGNED_IN_EMAIL_KEY") && authPages.includes("keepSignedIn")],
   ["register password confirmation", authPages.includes("confirmPassword") && authPages.includes("Passwords do not match.")],
   ["register uses 8 character helper", authPages.includes("Use at least 8 characters. Longer passphrases are recommended.")],
   ["ordinary register has no role input", !authPages.slice(authPages.indexOf("export function RegisterPage"), authPages.indexOf("export function AccountPage")).includes("role")],

@@ -224,6 +224,14 @@ test("Data Acquisition route uses right-side Atlas Guide layout", async () => {
   assert.doesNotMatch(source, /location\.pathname === "\/step01"[\s\S]{0,120}<CopilotCard/);
 });
 
+test("Atlas Guide rail keeps a visible sticky header below app chrome", async () => {
+  const source = await readFile(new URL("../src/components/CopilotCard.tsx", import.meta.url), "utf8");
+  assert.match(source, /self-start/);
+  assert.match(source, /overflow-x-hidden overflow-y-auto/);
+  assert.match(source, /xl:top-28/);
+  assert.match(source, /xl:max-h-\[calc\(100vh-8rem\)\]/);
+});
+
 test("Data Acquisition upload handler accepts valid small CSV affordances and rejects invalid extensions inline", async () => {
   const source = await readFile(new URL("../src/steps/Step01_DataAcquisition.tsx", import.meta.url), "utf8");
   const helper = await readFile(new URL("../src/lib/dataAcquisitionUpload.ts", import.meta.url), "utf8");
@@ -243,10 +251,11 @@ test("Model Training source allows more than three selectable models and unlocke
   assert.match(source, /models,\s*k_folds/s);
 });
 
-test("Go to Evaluation navigates to /step08 with quota-tolerant save", async () => {
+test("Model Training keeps Studio-routed continuation and no direct Evaluation button", async () => {
   const source = await readFile(new URL("../src/steps/Step06_Train.tsx", import.meta.url), "utf8");
-  assert.match(source, /saveActiveProjectBeforeNavigation/);
-  assert.match(source, /navigate\("\/step08"\)/);
+  assert.doesNotMatch(source, /saveActiveProjectBeforeNavigation/);
+  assert.doesNotMatch(source, /navigate\("\/step08"\)/);
+  assert.doesNotMatch(source, /Mark Complete &amp; Go to Evaluation|Mark Complete & Go to Evaluation/);
   assert.match(source, /void recordTrainingExperiments/);
 });
 
@@ -285,6 +294,7 @@ test("Predictive workflow uses regression-safe labels and metrics", async () => 
   assert.match(balancing, /Balancing, SMOTE, class weights, and event-rate controls are not applicable/);
   assert.match(scoring, /External Validation Dataset/);
   assert.match(scoring, /Out-of-Time Dataset/);
+  assert.doesNotMatch(scoring, /Mark Complete &amp; Build Document|Mark Complete & Build Document|navigate\("\/step11"\)/);
   assert.match(modelDocument, /Overprediction cost/);
   assert.match(modelDocument, /Not applicable for continuous-target regression/);
 });
@@ -329,6 +339,47 @@ test("Interpretation has task-aware regression coefficient and tree displays", a
   assert.match(evalService, /scipy_stats/);
 });
 
+test("EDA and Interpretation handle classification-specific predictive workflow output", async () => {
+  const edaPage = await readFile(new URL("../src/steps/Step02_EDA.tsx", import.meta.url), "utf8");
+  const interpretationPage = await readFile(new URL("../src/steps/Step09_Interpretation.tsx", import.meta.url), "utf8");
+
+  for (const term of [
+    "ClassificationTargetAnalysis",
+    "Class Distribution",
+    "Event Rate",
+    "Non-event Count",
+    "Event Count",
+    "Class Balance",
+    "Rare-event workflow recommended",
+    "Target Missingness",
+    "Feature Investigation Controls",
+    "Feature Relationship / Correlation to Target",
+  ]) {
+    assert.match(edaPage, new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `EDA missing classification target term ${term}.`);
+  }
+  assert.ok(
+    edaPage.indexOf("TargetVariableAnalysis") < edaPage.indexOf("Feature Investigation Controls"),
+    "Feature controls should appear after Target Variable Analysis."
+  );
+
+  for (const term of [
+    "KNN Model Interpretation",
+    "K-Nearest Neighbors",
+    "k not available",
+    "Feature scaling dependency",
+    "Nearest-neighbor caveats",
+    "Logistic Regression Coefficients",
+    "Odds ratios and log-odds direction",
+    "selectedModelIsLinearRegression",
+    "RFE is not available for the selected model",
+    "RFE could not complete",
+    "getJsonWithTimeout",
+    "RFE_TIMEOUT_MS",
+  ]) {
+    assert.match(interpretationPage, new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Interpretation missing classification/RFE term ${term}.`);
+  }
+});
+
 test("Linear Regression interpretation path is scoped to current project and rejects stale artifacts", async () => {
   const trainPage = await readFile(new URL("../src/steps/Step06_Train.tsx", import.meta.url), "utf8");
   const evalPage = await readFile(new URL("../src/steps/Step08_Evaluation.tsx", import.meta.url), "utf8");
@@ -343,8 +394,7 @@ test("Linear Regression interpretation path is scoped to current project and rej
   assert.match(trainPage, /dataset_version:\s*localDatasetVersion\(currentDataset\)/);
   assert.match(trainPage, /target:\s*currentDataset\?\.target/);
   assert.match(trainPage, /problem_type:\s*trainingProblemType/);
-  assert.match(evalPage, /LOCAL_SELECTED_INTERPRETATION_MODEL_KEY/);
-  assert.match(evalPage, /sessionStorage\.setItem\(LOCAL_SELECTED_INTERPRETATION_MODEL_KEY,\s*selected\)/);
+  assert.doesNotMatch(evalPage, /Mark Complete &amp; Interpret Model|Mark Complete & Interpret Model/);
   assert.match(interpretationPage, /interpretationContextQuery/);
   assert.match(interpretationPage, /project_id/);
   assert.match(interpretationPage, /dataset_version/);
@@ -359,6 +409,13 @@ test("Linear Regression interpretation path is scoped to current project and rej
   assert.match(evalService, /_artifact_context_mismatch/);
   assert.match(evalService, /The selected model artifact does not match the current/);
   assert.match(evalService, /Please retrain/);
+  assert.match(trainPage, /trainingFeatureColumns/);
+  assert.match(trainPage, /Target-derived fields excluded before training/);
+  assert.match(trainerService, /_sanitize_feature_frame/);
+  assert.match(trainerService, /excluded_target_features/);
+  assert.match(trainerService, /riskperformance/);
+  assert.match(evalService, /_filter_target_derived_rows/);
+  assert.match(evalService, /_is_target_derived_feature/);
 });
 
 test("Model Development Document summarizes material predictive decisions by default", async () => {
@@ -376,7 +433,10 @@ test("Model Development Document summarizes material predictive decisions by def
   assert.match(modelDocument, /mode === "executive"\s*\?\s*\[\]/);
   assert.doesNotMatch(modelDocument, /mode !== "executive"[\s\S]{0,160}formatDecisions\(decisions\)/);
   assert.doesNotMatch(modelDocument, /title: "Material Decision Summary"[\s\S]{0,160}formatDecisions\(materialDecisions\)/);
-  assert.match(documentPage, /Include Full Decision Journal Appendix/);
+  assert.match(documentPage, /Documentation Review/);
+  assert.match(documentPage, /Model Documentation Studio/);
+  assert.match(documentPage, /to="\/model-document-studio"/);
+  assert.doesNotMatch(documentPage, /Include Full Decision Journal Appendix/);
 });
 
 test("Open Project and Experimental Design project restore still load through existing APIs", () => {

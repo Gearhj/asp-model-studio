@@ -50,5 +50,47 @@ assert(dataAcquisition.includes("getDatasetPreview"), "Data Acquisition Existing
 assert(dataAcquisition.includes("linkDatasetToProject"), "Data Acquisition does not link selected datasets to projects.");
 assert(localDataset.includes("dataset_library"), "LocalDataset does not preserve Dataset Library references.");
 
-console.log("Dataset Library v1 static checks passed.");
+const datasetLibraryPage = read("src/steps/DatasetLibrary.tsx");
+[
+  "DATASET_LIBRARY_VIEW_MODE_KEY",
+  "atlas-dataset-library-view-mode",
+  "readSavedViewMode(DATASET_LIBRARY_VIEW_MODE_KEY, \"detail\")",
+  "DatasetSortKey",
+  "compareDatasetRows",
+  "sort.direction",
+  "ownerFilter",
+  "All Owners",
+  "Detailed View",
+  "DatasetDetailTable",
+  "SortableDatasetHeader",
+  "Dataset Name",
+  "Rows",
+  "Columns",
+  "Owner",
+  "Created",
+  "Updated",
+  "Linked Projects",
+  "Status",
+  "Actions",
+  "Training",
+  "Test",
+  "OOT",
+  "Scored Outputs",
+  "Regression",
+  "Classification",
+  "Linked to Current Project",
+  "Unlinked",
+  "Open in Analytics",
+  "Open in Chart Studio",
+  "Open in Model Diagnostics",
+  "Link to Project",
+  "Delete",
+  "Export Metadata",
+  "setDatasetViewMode",
+  "formatDatasetType",
+  "formatSourceType",
+].forEach((text) => {
+  assert(datasetLibraryPage.includes(text), `Dataset Library detailed view is missing: ${text}`);
+});
 
+console.log("Dataset Library v1 static checks passed.");

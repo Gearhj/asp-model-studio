@@ -1,18 +1,14 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import StepPythonPanel from "../components/StepPythonPanel";
-import { useWorkflowStore } from "../state/useWorkflowStore";
 import { logDecision } from "../lib/decisionJournal";
 import { buildExecutiveSummary, type ExecutiveSummary } from "../lib/executiveSummary";
 import { inferLocalProblemType, loadLocalDataset } from "../lib/localDataset";
-import { upsertProjectFromState } from "../lib/localProjects";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
   "http://127.0.0.1:8001/api";
 
 const LOCAL_TRAINING_SUMMARY_KEY = "modeling-tool-training-summary";
-const LOCAL_SELECTED_INTERPRETATION_MODEL_KEY = "modeling-tool-selected-interpretation-model";
 
 async function fetchJson<T>(url: string): Promise<T> {
   const response = await fetch(url);
@@ -173,15 +169,12 @@ function displayModelName(name: string) {
 }
 
 export default function Step08_Evaluation() {
-  const navigate = useNavigate();
-  const markComplete = useWorkflowStore((state) => state.markComplete);
   const [ranked, setRanked] = useState<Ranked | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [curves, setCurves] = useState<Curves | null>(null);
   const [tree, setTree] = useState<TreeResponse | null>(null);
   const [knn, setKnn] = useState<KnnResponse | null>(null);
   const [sortKey, setSortKey] = useState<"auc" | "pr_auc" | "rmse" | "mae" | "r2" | "adjusted_r2">("auc");
-  const [navigationError, setNavigationError] = useState("");
   const [summaryProblemType, setSummaryProblemType] = useState<"classification" | "regression" | null>(
     () => inferLocalProblemType(loadLocalDataset())
   );
@@ -313,19 +306,6 @@ export default function Step08_Evaluation() {
   const tn = curves?.confusion && curves.confusion.length === 2 ? curves.confusion[0][0] : null;
   const fpr = fp !== null && tn !== null && fp + tn > 0 ? fp / (fp + tn) : null;
   const executiveSummary = buildExecutiveSummary(selectedModel, curves);
-
-  async function handleContinue() {
-    try {
-      setNavigationError("");
-      if (selected) sessionStorage.setItem(LOCAL_SELECTED_INTERPRETATION_MODEL_KEY, selected);
-      markComplete("step08");
-      await upsertProjectFromState(useWorkflowStore.getState());
-      navigate("/step09");
-      window.scrollTo({ top: 0, left: 0 });
-    } catch (error: any) {
-      setNavigationError(error?.message ?? "ATLAS could not save this step before navigating.");
-    }
-  }
 
   return (
     <div className="w-full space-y-6">
@@ -512,20 +492,6 @@ export default function Step08_Evaluation() {
       {!isRegression && selected && <Deciles model={selected} ranked={ranked} />}
 
       <StepPythonPanel />
-
-      <div className="pt-2 pb-10 flex justify-center">
-        {navigationError && (
-          <div className="mr-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
-            {navigationError}
-          </div>
-        )}
-        <button
-          className="px-5 py-3 rounded-xl bg-indigo-600 text-white shadow-sm"
-          onClick={handleContinue}
-        >
-          Mark Complete &amp; Interpret Model
-        </button>
-      </div>
     </div>
   );
 }
@@ -905,8 +871,8 @@ function actualPredictedReadout(points: { actual: number; predicted: number; res
   const sorted = [...points].sort((a, b) => a.actual - b.actual);
   const upper = sorted.slice(Math.floor(sorted.length * 0.8));
   const upperMeanResidual = upper.reduce((sum, point) => sum + point.residual, 0) / Math.max(upper.length, 1);
-  if (Math.abs(upperMeanResidual) < 0.05) return "High-value predictions appear broadly centered around actuals.";
-  return upperMeanResidual > 0 ? "High actual values tend to exceed predictions, suggesting underprediction in the upper range." : "Predictions tend to exceed high actual values, suggesting overprediction in the upper range.";
+  if (Math.abs(upperMeanResidual) < 0.05) return "High-value predictions appear broadly centered around actuals. Recommended action: keep reviewing segment-level residuals before production use.";
+  return upperMeanResidual > 0 ? "High actual values tend to exceed predictions, suggesting underprediction in the upper range. Recommended action: review nonlinear terms, interactions, high-value segments, and target transformation." : "Predictions tend to exceed high actual values, suggesting overprediction in the upper range. Recommended action: inspect high-score drivers and cap/transform unstable predictors only if justified.";
 }
 
 function residualSpreadReadout(points: { actual: number; predicted: number; residual: number }[]) {
@@ -915,7 +881,7 @@ function residualSpreadReadout(points: { actual: number; predicted: number; resi
   const high = sorted.slice(Math.floor(sorted.length * 0.75));
   const lowMae = low.reduce((sum, point) => sum + Math.abs(point.residual), 0) / Math.max(low.length, 1);
   const highMae = high.reduce((sum, point) => sum + Math.abs(point.residual), 0) / Math.max(high.length, 1);
-  return highMae > lowMae * 1.5 ? "Residual spread increases at higher predictions; review heteroscedasticity and target transformations." : "Residual spread is not materially larger in the high-prediction range.";
+  return highMae > lowMae * 1.5 ? "Residual spread increases at higher predictions. Recommended action: review heteroscedasticity, consider log/Box-Cox target transformations, segment models, or robust loss functions." : "Residual spread is not materially larger in the high-prediction range. Recommended action: confirm this pattern holds by business segment and OOT sample.";
 }
 
 function qqReadout(points: { actual: number; predicted: number; residual: number }[]) {
@@ -924,8 +890,8 @@ function qqReadout(points: { actual: number; predicted: number; residual: number
   const q95 = residuals[Math.floor(residuals.length * 0.95)] ?? 0;
   const median = residuals[Math.floor(residuals.length * 0.5)] ?? 0;
   return Math.abs(q95 + q05 - 2 * median) > Math.max(0.1, Math.abs(q95 - q05) * 0.25)
-    ? "Residual tails appear asymmetric; review skew and segment-level bias."
-    : "Residual tails appear reasonably balanced, but confirm with the residual histogram.";
+    ? "Residual quantiles deviate from the normal-reference pattern, especially in the tails. This means confidence intervals and inference may be less reliable for extreme observations. Recommended actions: inspect outlier segments, consider target transformation, add nonlinear terms/interactions, test robust regression, and validate OOT residual behavior before approval."
+    : "Residual quantiles are reasonably aligned with the normal-reference line. Recommended actions: confirm the middle quantiles and tails remain stable in OOT data, then review residual deciles for localized bias.";
 }
 
 function ActualVsPredictedChart({ points }: { points: { actual: number; predicted: number; residual: number }[] }) {

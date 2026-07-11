@@ -41,6 +41,8 @@ export type DatasetSummary = {
   latestVersion?: DatasetVersionSummary;
   access?: { userId: string; role: string }[];
   linkedProjects?: { projectId: string; versionId: string; datasetRole: string }[];
+  datasetRole?: string;
+  sourceInfo?: Record<string, unknown>;
 };
 
 export type DatasetProfile = {

@@ -41,12 +41,31 @@ const BASE =
   "http://127.0.0.1:8001/api";
 
 const sourceCards: { id: DataSourceType; title: string; body: string }[] = [
-  { id: "upload", title: "Upload File", body: "CSV and JSON parse locally. Excel, Parquet, Feather, SAS, Pickle, and ZIP are staged for backend import." },
+  { id: "upload", title: "Upload File", body: "CSV and JSON parse locally. Excel, Parquet, Feather, SAS, and ZIP are staged for backend import." },
   { id: "sql", title: "SQL Database", body: "Author governed SQL, validate queries, capture lineage, and generate Python extraction code." },
   { id: "cloud", title: "Cloud Storage", body: "Document S3, Azure Blob, GCS, SharePoint, or OneDrive paths for governed ingestion." },
   { id: "existing", title: "Existing Dataset", body: "Reuse previously imported project datasets and preserve dataset version history." },
   { id: "python", title: "Python Loader", body: "Advanced users can document Python or Spark loading logic that assigns the final dataframe to df." },
 ];
+
+const HELOC_DATA_ACQUISITION_SUMMARY = {
+  project: "HELOC Risk Model TEST",
+  trainingDataset: "HELOC_TRAIN",
+  validationDataset: "HELOC_TEST",
+  ootDataset: "HELOC_OOT",
+  target: "bad_flag = 1",
+  eventValue: "1",
+  nonEventValue: "0",
+  modelPurpose: "Application Underwriting",
+  productType: "Credit Card",
+  ootType: "Synthetic holdout",
+  sourceType: "Uploaded CSV datasets registered in Dataset Library",
+  datasetPurpose: "Credit-risk scorecard test run",
+  originalTargetLabel: "RiskPerformance",
+  splitColumn: "atlas_split",
+};
+const WEAK_IV_THRESHOLD = 0.01;
+const WEAK_CORRELATION_THRESHOLD = 0.05;
 
 const databaseProviders = ["Oracle", "SQL Server", "PostgreSQL", "MySQL", "Snowflake", "BigQuery", "Databricks SQL", "Teradata", "SQLite", "DuckDB"];
 const cloudProviders = ["AWS S3", "Azure Blob Storage", "Google Cloud Storage", "SharePoint", "OneDrive"];
@@ -200,6 +219,11 @@ function getBinaryTargetProfile(rows: Record<string, unknown>[], target: string)
   return { isEvent: (value: unknown) => String(value) !== majority };
 }
 
+function preferredCreditRiskTarget(headers: string[], fallbackTarget = "") {
+  const badFlag = headers.find((header) => /^bad_flag$/i.test(header));
+  return badFlag ?? fallbackTarget ?? guessTargetFromHeaders(headers);
+}
+
 function quantileBreaks(nums: number[], bins = 10) {
   const sorted = [...nums].sort((a, b) => a - b);
   const breaks: number[] = [];
@@ -330,6 +354,7 @@ export default function Step01DataAcquisition() {
   const [message, setMessage] = useState("");
   const [target, setTarget] = useState("");
   const [kept, setKept] = useState<Record<string, boolean>>({});
+  const [autoExcludeWeakSignals, setAutoExcludeWeakSignals] = useState(false);
   const [samplingMethod, setSamplingMethod] = useState<SamplingMethod>("full");
   const [samplingDetail, setSamplingDetail] = useState("1000");
   const [connectionName, setConnectionName] = useState("Development connection");
@@ -452,8 +477,48 @@ export default function Step01DataAcquisition() {
     [headers, sampleRows, target]
   );
 
+  function saveKeptSelection(nextKept: Record<string, boolean>) {
+    setKept(nextKept);
+    const localView = buildSelectedDatasetView({
+      headers,
+      rows: sampleRows,
+      selectedColumns: headers.filter((header) => header !== target && !creditRiskLeakageRole(header) && nextKept[header] !== false),
+      target: target || null,
+    });
+    saveLocalDataset({
+      headers: localView.headers,
+      rows: localView.rows,
+      target: target || null,
+      selected_columns: localView.selectedColumns,
+      problem_type: target ? inferProblemType(localView.rows, target) : undefined,
+    });
+    window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
+  }
+
+  function applyWeakSignalFilter() {
+    const nextKept = { ...kept };
+    variableSummary.forEach((row) => {
+      const leakageRole = row.column === target ? "Target / Excluded" : creditRiskLeakageRole(row.column);
+      if (leakageRole) {
+        nextKept[row.column] = false;
+        return;
+      }
+      const metric = targetInfo.kind === "continuous" ? Math.abs(Number(row.corr)) : Number(row.iv);
+      const threshold = targetInfo.kind === "continuous" ? WEAK_CORRELATION_THRESHOLD : WEAK_IV_THRESHOLD;
+      if (Number.isFinite(metric) && metric < threshold) nextKept[row.column] = false;
+    });
+    saveKeptSelection(nextKept);
+    logDecision({
+      workflowStep: "Data Acquisition",
+      actionType: "feature_inclusion_changed",
+      subject: "Weak signal global filter",
+      previousValue: kept,
+      newValue: nextKept,
+    });
+  }
+
   function applyLoadedDataset(normalized: NormalizedBackendImport, options: { sourceLabel: string; backendSynced: boolean }) {
-    const guessedTarget = normalized.target || guessTargetFromHeaders(normalized.headers);
+    const guessedTarget = preferredCreditRiskTarget(normalized.headers, normalized.target);
     const keep: Record<string, boolean> = {};
     normalized.headers.forEach((header) => {
       keep[header] = header !== guessedTarget;
@@ -568,8 +633,8 @@ export default function Step01DataAcquisition() {
         previewRows: parsed.rows,
         rowCount: parsed.rows.length,
         columnCount: parsed.headers.length,
-        target: guessTargetFromHeaders(parsed.headers),
-        selectedColumns: parsed.headers.filter((header) => header !== guessTargetFromHeaders(parsed.headers)),
+        target: preferredCreditRiskTarget(parsed.headers),
+        selectedColumns: parsed.headers.filter((header) => header !== preferredCreditRiskTarget(parsed.headers)),
         filename: file.name,
       };
       applyLoadedDataset(normalized, { sourceLabel: `Uploaded ${file.name}`, backendSynced: false });
@@ -727,6 +792,32 @@ export default function Step01DataAcquisition() {
       : isImporting
         ? "border-blue-200 bg-blue-50 text-blue-900"
         : "border-amber-200 bg-amber-50 text-amber-900";
+  const updateTarget = (next: string) => {
+    logDecision({
+      workflowStep: "Data Acquisition",
+      actionType: "target_variable_selected",
+      subject: "Target variable",
+      previousValue: target,
+      newValue: next,
+    });
+    setTarget(next);
+    if (headers.length) setImportError(null);
+    const localView = buildSelectedDatasetView({
+      headers,
+      rows: sampleRows,
+      selectedColumns: headers.filter((header) => header !== next && kept[header] !== false),
+      target: next || null,
+    });
+    saveLocalDataset({
+      headers: localView.headers,
+      rows: localView.rows,
+      target: next || null,
+      selected_columns: localView.selectedColumns,
+      problem_type: next ? inferProblemType(localView.rows, next) : undefined,
+    });
+    window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
+    if (rows.length) setQuality(inferDataQuality({ headers, rows: rows.slice(0, 5000), target: next || null }));
+  };
 
   return (
     <StepShell
@@ -746,178 +837,175 @@ export default function Step01DataAcquisition() {
           </div>
         )}
 
-        <section className="grid gap-3 md:grid-cols-5">
-          {sourceCards.map((card) => (
-            <button
-              key={card.id}
-              type="button"
-              className={`rounded-xl border p-4 text-left shadow-sm transition ${sourceType === card.id ? "border-slate-950 bg-white" : "border-slate-200 bg-white/80 hover:bg-white"}`}
-              onClick={() => setSourceType(card.id)}
-            >
-              <div className="text-sm font-semibold text-slate-950">{card.title}</div>
-              <p className="mt-2 text-xs leading-5 text-slate-500">{card.body}</p>
-            </button>
-          ))}
-        </section>
-
         <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          {sourceType === "upload" && (
-            <UploadPanel fileName={fileName} onFile={onFile} />
-          )}
-          {sourceType === "sql" && (
-            <SqlPanel
-              provider={provider}
-              setProvider={setProvider}
-              connectionName={connectionName}
-              setConnectionName={setConnectionName}
-              database={database}
-              setDatabase={setDatabase}
-              schema={schema}
-              setSchema={setSchema}
-              sql={sql}
-              setSql={setSql}
-              warnings={sqlWarnings}
-              savedQueries={savedQueries}
-              favoriteQueries={favoriteQueries}
-              onTemplate={(template) => setSql(template)}
-              onSave={() => setSavedQueries((current) => [sql, ...current].slice(0, 8))}
-              onFavorite={() => setFavoriteQueries((current) => [sql, ...current.filter((item) => item !== sql)].slice(0, 5))}
-              onSaveMetadata={saveQueryMetadata}
-            />
-          )}
-          {sourceType === "cloud" && (
-            <CloudPanel cloudProvider={cloudProvider} setCloudProvider={setCloudProvider} cloudPath={cloudPath} setCloudPath={setCloudPath} />
-          )}
-          {sourceType === "existing" && (
-            <ExistingDatasetPanel
-              versions={datasetVersions}
-              libraryDatasets={libraryDatasets}
-              selectedDatasetId={selectedLibraryDatasetId}
-              selectedVersionId={selectedLibraryVersionId}
-              loading={libraryLoading}
-              onDatasetChange={(datasetId) => {
-                const dataset = libraryDatasets.find((item) => item.datasetId === datasetId);
-                setSelectedLibraryDatasetId(datasetId);
-                setSelectedLibraryVersionId(dataset?.latestVersion?.versionId ?? "");
-              }}
-              onVersionChange={setSelectedLibraryVersionId}
-              onRefresh={async () => {
-                setLibraryLoading(true);
-                try {
-                  const payload = await listDatasets();
-                  setLibraryDatasets(payload.datasets);
-                } finally {
-                  setLibraryLoading(false);
-                }
-              }}
-              onLoad={async () => {
-                if (!selectedLibraryDatasetId || !selectedLibraryVersionId) {
-                  setMessage("Select a dataset and version before loading from the Dataset Library.");
-                  return;
-                }
-                const dataset = libraryDatasets.find((item) => item.datasetId === selectedLibraryDatasetId);
-                setIsImporting(true);
-                try {
-                  const preview = await getDatasetPreview(selectedLibraryDatasetId, selectedLibraryVersionId);
-                  const normalized = {
-                    headers: preview.columns,
-                    previewRows: preview.rows,
-                    rowCount: dataset?.latestVersion?.rowCount ?? preview.rows.length,
-                    columnCount: preview.columns.length,
-                    target: guessTargetFromHeaders(preview.columns),
-                    selectedColumns: preview.columns.filter((header) => header !== guessTargetFromHeaders(preview.columns)),
-                    filename: dataset?.name ?? selectedLibraryDatasetId,
-                  };
-                  applyLoadedDataset(normalized, {
-                    sourceLabel: `Dataset Library: ${dataset?.name ?? selectedLibraryDatasetId} (${selectedLibraryVersionId})`,
-                    backendSynced: false,
-                  });
-                  setFileName(dataset?.name ?? "Dataset Library asset");
-                  setMessage(`Loaded ${dataset?.name ?? "Dataset Library asset"} version ${selectedLibraryVersionId} into Data Acquisition.`);
-                } catch (error) {
-                  setMessage(error instanceof Error ? error.message : "ATLAS could not load the selected dataset version.");
-                } finally {
-                  setIsImporting(false);
-                }
-              }}
-            />
-          )}
-          {sourceType === "python" && (
-            <PythonPanel pythonCode={pythonCode} setPythonCode={setPythonCode} />
-          )}
+          <div>
+            <h2 className="text-base font-semibold text-slate-950">Source Selection, File Upload, and Target Setup</h2>
+            <p className="mt-1 text-sm text-slate-500">Start here: load the source file and confirm the target column before reviewing summaries or downstream settings.</p>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-5">
+            {sourceCards.map((card) => (
+              <button
+                key={card.id}
+                type="button"
+                className={`rounded-xl border p-4 text-left shadow-sm transition ${sourceType === card.id ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white/80 text-slate-900 hover:bg-white"}`}
+                onClick={() => setSourceType(card.id)}
+                aria-pressed={sourceType === card.id}
+              >
+                <div className={`text-sm font-semibold ${sourceType === card.id ? "text-white" : "text-slate-950"}`}>{card.title}</div>
+                <p className={`mt-2 text-xs leading-5 ${sourceType === card.id ? "text-slate-200" : "text-slate-500"}`}>{card.body}</p>
+              </button>
+            ))}
+          </div>
+          <div className="mt-4">
+            {sourceType === "upload" && (
+              <UploadPanel fileName={fileName} onFile={onFile} />
+            )}
+            <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50/60 p-4">
+              <TargetSetup headers={headers} target={target} setTarget={updateTarget} />
+            </div>
+            <details className="rounded-xl border border-slate-200 bg-slate-50 p-3">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-900">Advanced source options</summary>
+              <div className="mt-4">
+                {sourceType === "upload" && (
+                  <p className="text-sm leading-6 text-slate-600">Select SQL Database, Cloud Storage, Existing Dataset, or Python Loader above to configure a non-upload source.</p>
+                )}
+                {sourceType === "sql" && (
+                  <SqlPanel
+                    provider={provider}
+                    setProvider={setProvider}
+                    connectionName={connectionName}
+                    setConnectionName={setConnectionName}
+                    database={database}
+                    setDatabase={setDatabase}
+                    schema={schema}
+                    setSchema={setSchema}
+                    sql={sql}
+                    setSql={setSql}
+                    warnings={sqlWarnings}
+                    savedQueries={savedQueries}
+                    favoriteQueries={favoriteQueries}
+                    onTemplate={(template) => setSql(template)}
+                    onSave={() => setSavedQueries((current) => [sql, ...current].slice(0, 8))}
+                    onFavorite={() => setFavoriteQueries((current) => [sql, ...current.filter((item) => item !== sql)].slice(0, 5))}
+                    onSaveMetadata={saveQueryMetadata}
+                  />
+                )}
+                {sourceType === "cloud" && (
+                  <CloudPanel cloudProvider={cloudProvider} setCloudProvider={setCloudProvider} cloudPath={cloudPath} setCloudPath={setCloudPath} />
+                )}
+                {sourceType === "existing" && (
+                  <ExistingDatasetPanel
+                    versions={datasetVersions}
+                    libraryDatasets={libraryDatasets}
+                    selectedDatasetId={selectedLibraryDatasetId}
+                    selectedVersionId={selectedLibraryVersionId}
+                    loading={libraryLoading}
+                    onDatasetChange={(datasetId) => {
+                      const dataset = libraryDatasets.find((item) => item.datasetId === datasetId);
+                      setSelectedLibraryDatasetId(datasetId);
+                      setSelectedLibraryVersionId(dataset?.latestVersion?.versionId ?? "");
+                    }}
+                    onVersionChange={setSelectedLibraryVersionId}
+                    onRefresh={async () => {
+                      setLibraryLoading(true);
+                      try {
+                        const payload = await listDatasets();
+                        setLibraryDatasets(payload.datasets);
+                      } finally {
+                        setLibraryLoading(false);
+                      }
+                    }}
+                    onLoad={async () => {
+                      if (!selectedLibraryDatasetId || !selectedLibraryVersionId) {
+                        setMessage("Select a dataset and version before loading from the Dataset Library.");
+                        return;
+                      }
+                      const dataset = libraryDatasets.find((item) => item.datasetId === selectedLibraryDatasetId);
+                      setIsImporting(true);
+                      try {
+                        const preview = await getDatasetPreview(selectedLibraryDatasetId, selectedLibraryVersionId);
+                        const normalized = {
+                          headers: preview.columns,
+                          previewRows: preview.rows,
+                          rowCount: dataset?.latestVersion?.rowCount ?? preview.rows.length,
+                          columnCount: preview.columns.length,
+                          target: preferredCreditRiskTarget(preview.columns),
+                          selectedColumns: preview.columns.filter((header) => header !== preferredCreditRiskTarget(preview.columns)),
+                          filename: dataset?.name ?? selectedLibraryDatasetId,
+                        };
+                        applyLoadedDataset(normalized, {
+                          sourceLabel: `Dataset Library: ${dataset?.name ?? selectedLibraryDatasetId} (${selectedLibraryVersionId})`,
+                          backendSynced: false,
+                        });
+                        setFileName(dataset?.name ?? "Dataset Library asset");
+                        setMessage(`Loaded ${dataset?.name ?? "Dataset Library asset"} version ${selectedLibraryVersionId} into Data Acquisition.`);
+                      } catch (error) {
+                        setMessage(error instanceof Error ? error.message : "ATLAS could not load the selected dataset version.");
+                      } finally {
+                        setIsImporting(false);
+                      }
+                    }}
+                  />
+                )}
+                {sourceType === "python" && (
+                  <PythonPanel pythonCode={pythonCode} setPythonCode={setPythonCode} />
+                )}
+              </div>
+            </details>
+          </div>
         </section>
 
-        <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+        <CurrentProjectSummary target={target || "bad_flag"} />
+
+        <DatasetRoleAssignment />
+        <SamplingProfilingControls samplingMethod={samplingMethod} setSamplingMethod={setSamplingMethod} samplingDetail={samplingDetail} setSamplingDetail={setSamplingDetail} />
+        <details className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <summary className="cursor-pointer text-base font-semibold text-slate-950">Full Data Quality Report</summary>
+          <div className="mt-4">
+            <DataQualityPanel quality={quality} metadata={generatedMetadata ?? metadata} />
+          </div>
+        </details>
+
+        <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)] xl:items-start">
           <DataPreview
             headers={headers}
             rows={previewRows}
             target={target}
-            setTarget={(next) => {
-              logDecision({
-                workflowStep: "Data Acquisition",
-                actionType: "target_variable_selected",
-                subject: "Target variable",
-                previousValue: target,
-                newValue: next,
-              });
-              setTarget(next);
-              if (headers.length) setImportError(null);
-              const localView = buildSelectedDatasetView({
-                headers,
-                rows: sampleRows,
-                selectedColumns: headers.filter((header) => header !== next && kept[header] !== false),
-                target: next || null,
-              });
-              saveLocalDataset({
-                headers: localView.headers,
-                rows: localView.rows,
-                target: next || null,
-                selected_columns: localView.selectedColumns,
-                problem_type: next ? inferProblemType(localView.rows, next) : undefined,
-              });
-              window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
-              if (rows.length) setQuality(inferDataQuality({ headers, rows: rows.slice(0, 5000), target: next || null }));
-            }}
-            samplingMethod={samplingMethod}
-            setSamplingMethod={setSamplingMethod}
-            samplingDetail={samplingDetail}
-            setSamplingDetail={setSamplingDetail}
             targetInfo={targetInfo}
             targetSummary={continuousTargetSummary}
             effectiveModelingRowCount={effectiveModelingRowCount}
             previewRowCount={sampleRows.length}
             backendImportSynced={backendImportSynced}
           />
-          <DataQualityPanel quality={quality} metadata={generatedMetadata ?? metadata} />
         </section>
 
         {!!headers.length && (
           <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-base font-semibold text-slate-950">Variable Summary</h2>
+                <h2 className="text-base font-semibold text-slate-950">Variable Summary / Feature Selection</h2>
                 <p className="mt-1 text-sm text-slate-500">Review data types, missingness, distinct counts, and selected model inputs.</p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2">
+                <label className="flex max-w-md items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950">
+                  <input
+                    className="mt-1"
+                    type="checkbox"
+                    checked={autoExcludeWeakSignals}
+                    onChange={(event) => {
+                      setAutoExcludeWeakSignals(event.target.checked);
+                      if (event.target.checked) applyWeakSignalFilter();
+                    }}
+                  />
+                  <span>
+                    Uncheck weak-signal features automatically. Classification uses IV &lt; {WEAK_IV_THRESHOLD.toFixed(2)}; regression uses absolute correlation &lt; {WEAK_CORRELATION_THRESHOLD.toFixed(2)}.
+                  </span>
+                </label>
                 <button
                   className="rounded-lg border px-3 py-2 text-sm"
                   onClick={() => {
-                    const nextKept = Object.fromEntries(headers.map((header) => [header, header !== target]));
-                    setKept(nextKept);
-                    const localView = buildSelectedDatasetView({
-                      headers,
-                      rows: sampleRows,
-                      selectedColumns: headers.filter((header) => header !== target),
-                      target: target || null,
-                    });
-                    saveLocalDataset({
-                      headers: localView.headers,
-                      rows: localView.rows,
-                      target: target || null,
-                      selected_columns: localView.selectedColumns,
-                      problem_type: target ? inferProblemType(localView.rows, target) : undefined,
-                    });
-                    window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
+                    const nextKept = Object.fromEntries(headers.map((header) => [header, header !== target && !creditRiskLeakageRole(header)]));
+                    saveKeptSelection(nextKept);
                   }}
                 >
                   Select all
@@ -926,21 +1014,7 @@ export default function Step01DataAcquisition() {
                   className="rounded-lg border px-3 py-2 text-sm"
                   onClick={() => {
                     const nextKept = Object.fromEntries(headers.map((header) => [header, false]));
-                    setKept(nextKept);
-                    const localView = buildSelectedDatasetView({
-                      headers,
-                      rows: sampleRows,
-                      selectedColumns: [],
-                      target: target || null,
-                    });
-                    saveLocalDataset({
-                      headers: localView.headers,
-                      rows: localView.rows,
-                      target: target || null,
-                      selected_columns: localView.selectedColumns,
-                      problem_type: target ? inferProblemType(localView.rows, target) : undefined,
-                    });
-                    window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
+                    saveKeptSelection(nextKept);
                   }}
                 >
                   None
@@ -953,6 +1027,7 @@ export default function Step01DataAcquisition() {
                   <tr>
                     <th className="px-3 py-2 text-center">Keep</th>
                     <th className="px-3 py-2 text-left">Column</th>
+                    <th className="px-3 py-2 text-left">Role</th>
                     <th className="px-3 py-2 text-left">Type</th>
                     <th className="px-3 py-2 text-right">{targetInfo.kind === "continuous" ? "Corr(Target)" : "IV"}</th>
                     <th className="px-3 py-2 text-right">Missing %</th>
@@ -960,66 +1035,73 @@ export default function Step01DataAcquisition() {
                     <th className="px-3 py-2 text-right">Mean</th>
                     <th className="px-3 py-2 text-right">Min</th>
                     <th className="px-3 py-2 text-right">Max</th>
+                    <th className="px-3 py-2 text-left">Leakage status</th>
+                    <th className="px-3 py-2 text-left">Reason</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {variableSummary.map((row) => (
-                    <tr key={row.column} className="border-t">
-                      <td className="px-3 py-2 text-center">
-                        {row.column === target ? <span className="text-xs text-slate-400">target</span> : (
-                          <input
-                            type="checkbox"
-                            checked={!!kept[row.column]}
-                            onChange={(event) => {
-                              const nextKept = { ...kept, [row.column]: event.target.checked };
-                              setKept(nextKept);
-                              const localView = buildSelectedDatasetView({
-                                headers,
-                                rows: sampleRows,
-                                selectedColumns: headers.filter((header) => header !== target && nextKept[header] !== false),
-                                target: target || null,
-                              });
-                              saveLocalDataset({
-                                headers: localView.headers,
-                                rows: localView.rows,
-                                target: target || null,
-                                selected_columns: localView.selectedColumns,
-                                problem_type: target ? inferProblemType(localView.rows, target) : undefined,
-                              });
-                              window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
-                              logDecision({
-                                workflowStep: "Data Acquisition",
-                                actionType: "feature_inclusion_changed",
-                                subject: row.column,
-                                previousValue: kept[row.column] ? "included" : "excluded",
-                                newValue: event.target.checked ? "included" : "excluded",
-                              });
-                            }}
-                          />
-                        )}
-                      </td>
-                      <td className="px-3 py-2 font-medium">{row.column}</td>
-                      <td className="px-3 py-2">{row.type}</td>
-                      <td className={`px-3 py-2 text-right ${targetInfo.kind === "continuous" ? signalStatusClass(row.corr) : ivStatusClass(row.iv)}`}>
-                        {formatNumber(targetInfo.kind === "continuous" ? row.corr : row.iv)}
-                      </td>
-                      <td className="px-3 py-2 text-right">{formatPercent(row.missingPct)}</td>
-                      <td className="px-3 py-2 text-right">{row.distinct.toLocaleString()}</td>
-                      <td className="px-3 py-2 text-right">{formatNumber(row.mean)}</td>
-                      <td className="px-3 py-2 text-right">{formatNumber(row.min)}</td>
-                      <td className="px-3 py-2 text-right">{formatNumber(row.max)}</td>
-                    </tr>
-                  ))}
+                  {variableSummary.map((row) => {
+                    const leakageRole = row.column === target ? "Target / Excluded" : creditRiskLeakageRole(row.column);
+                    const role = leakageRole || "Candidate Predictor";
+                    return (
+                      <tr key={row.column} className="border-t">
+                        <td className="px-3 py-2 text-center">
+                          {leakageRole ? (
+                            <input type="checkbox" disabled checked={false} aria-label={`${row.column} disabled excluded predictor`} />
+                          ) : (
+                            <input
+                              type="checkbox"
+                              checked={!!kept[row.column]}
+                              onChange={(event) => {
+                                const nextKept = { ...kept, [row.column]: event.target.checked };
+                                saveKeptSelection(nextKept);
+                                logDecision({
+                                  workflowStep: "Data Acquisition",
+                                  actionType: "feature_inclusion_changed",
+                                  subject: row.column,
+                                  previousValue: kept[row.column] ? "included" : "excluded",
+                                  newValue: event.target.checked ? "included" : "excluded",
+                                });
+                              }}
+                            />
+                          )}
+                        </td>
+                        <td className="px-3 py-2 font-medium">{row.column}</td>
+                        <td className="px-3 py-2 text-xs font-semibold text-slate-700">{role}</td>
+                        <td className="px-3 py-2">{row.type}</td>
+                        <td className={`px-3 py-2 text-right ${targetInfo.kind === "continuous" ? signalStatusClass(row.corr) : ivStatusClass(row.iv)}`}>
+                          {formatNumber(targetInfo.kind === "continuous" ? row.corr : row.iv)}
+                        </td>
+                        <td className="px-3 py-2 text-right">{formatPercent(row.missingPct)}</td>
+                        <td className="px-3 py-2 text-right">{row.distinct.toLocaleString()}</td>
+                        <td className="px-3 py-2 text-right">{formatNumber(row.mean)}</td>
+                        <td className="px-3 py-2 text-right">{formatNumber(row.min)}</td>
+                        <td className="px-3 py-2 text-right">{formatNumber(row.max)}</td>
+                        <td className={`px-3 py-2 text-xs font-semibold ${leakageRole ? "text-rose-700" : "text-emerald-700"}`}>{leakageRole ? "Excluded" : "Eligible"}</td>
+                        <td className="px-3 py-2 text-xs text-slate-600">{leakageReason(row.column, target)}</td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
           </section>
         )}
 
-        <section className="grid gap-4 lg:grid-cols-2">
-          <LineagePanel metadata={generatedMetadata ?? metadata} />
-          <PythonSyncPanel metadata={generatedMetadata ?? metadata} />
-        </section>
+        {!!headers.length && (
+          <section className="space-y-4">
+            <h2 className="text-base font-semibold text-slate-950">Data Lineage and Python Sync</h2>
+            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+              <LineagePanel metadata={generatedMetadata ?? metadata} />
+              <details className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+                <summary className="cursor-pointer text-base font-semibold text-slate-950">Python Synchronization</summary>
+                <div className="mt-4">
+                  <PythonSyncPanel metadata={generatedMetadata ?? metadata} />
+                </div>
+              </details>
+            </div>
+          </section>
+        )}
       </div>
     </StepShell>
   );
@@ -1029,16 +1111,123 @@ function UploadPanel({ fileName, onFile }: { fileName: string; onFile: (file: Fi
   return (
     <div>
       <h2 className="text-base font-semibold text-slate-950">Upload File</h2>
-      <p className="mt-1 text-sm text-slate-500">Supported source types: CSV, Excel, Parquet, Feather, JSON, SAS datasets, Pickle, and ZIP. CSV and JSON parse locally today.</p>
+      <p className="mt-1 text-sm text-slate-500">Supported source types: CSV, Excel, Parquet, Feather, JSON, SAS datasets, and ZIP. CSV and JSON parse locally today.</p>
       <div className="mt-4 flex flex-wrap items-center gap-3">
         <label className="cursor-pointer rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white">
           Choose File
-          <input className="hidden" type="file" accept=".csv,.txt,.json,.xlsx,.xls,.parquet,.feather,.sas7bdat,.pkl,.zip" onChange={(event) => event.target.files?.[0] && onFile(event.target.files[0])} />
+          <input className="hidden" type="file" accept=".csv,.txt,.json,.xlsx,.xls,.parquet,.feather,.sas7bdat,.zip" onChange={(event) => event.target.files?.[0] && onFile(event.target.files[0])} />
         </label>
         <span className="text-sm text-slate-600">{fileName || "No file selected"}</span>
       </div>
     </div>
   );
+}
+
+function CurrentProjectSummary({ target }: { target: string }) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-base font-semibold text-slate-950">Current Project Summary</h2>
+      <p className="mt-1 text-sm text-slate-500">Informational summary for this Credit Risk Studio data acquisition step.</p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Stat label="Project" value={HELOC_DATA_ACQUISITION_SUMMARY.project} />
+        <Stat label="Training dataset" value={HELOC_DATA_ACQUISITION_SUMMARY.trainingDataset} />
+        <Stat label="Validation dataset" value={HELOC_DATA_ACQUISITION_SUMMARY.validationDataset} />
+        <Stat label="OOT dataset" value={HELOC_DATA_ACQUISITION_SUMMARY.ootDataset} />
+        <Stat label="Target" value={target === "bad_flag" ? HELOC_DATA_ACQUISITION_SUMMARY.target : `${target || "bad_flag"} = ${HELOC_DATA_ACQUISITION_SUMMARY.eventValue}`} />
+        <Stat label="Event / bad value" value={HELOC_DATA_ACQUISITION_SUMMARY.eventValue} />
+        <Stat label="Model purpose" value={HELOC_DATA_ACQUISITION_SUMMARY.modelPurpose} />
+        <Stat label="Product type" value={HELOC_DATA_ACQUISITION_SUMMARY.productType} />
+      </div>
+    </section>
+  );
+}
+
+function DatasetRoleAssignment() {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-base font-semibold text-slate-950">Dataset Role Assignment</h2>
+      <p className="mt-1 text-sm text-slate-500">One canonical role assignment for the HELOC scorecard test run.</p>
+      <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <ReadOnlyField label="Training Dataset" value={HELOC_DATA_ACQUISITION_SUMMARY.trainingDataset} />
+        <ReadOnlyField label="Validation Dataset" value={HELOC_DATA_ACQUISITION_SUMMARY.validationDataset} />
+        <ReadOnlyField label="OOT Dataset" value={HELOC_DATA_ACQUISITION_SUMMARY.ootDataset} />
+        <ReadOnlyField label="OOT Type" value={HELOC_DATA_ACQUISITION_SUMMARY.ootType} />
+        <ReadOnlyField label="Dataset Source Type" value={HELOC_DATA_ACQUISITION_SUMMARY.sourceType} />
+        <ReadOnlyField label="Dataset Purpose" value={HELOC_DATA_ACQUISITION_SUMMARY.datasetPurpose} />
+      </div>
+    </section>
+  );
+}
+
+function TargetSetup({ headers, target, setTarget }: { headers: string[]; target: string; setTarget: (value: string) => void }) {
+  const targetOptions = headers.length ? headers : ["bad_flag", "RiskPerformance", "atlas_split"];
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-base font-semibold text-slate-950">Target Setup</h2>
+      <p className="mt-1 text-sm text-slate-500">One canonical target definition for the underwriting model.</p>
+      <div className="mt-4 grid gap-3 md:grid-cols-5">
+        <Select label="Target Column" value={target || "bad_flag"} onChange={setTarget} options={targetOptions} />
+        <ReadOnlyField label="Event / Bad Value" value={HELOC_DATA_ACQUISITION_SUMMARY.eventValue} />
+        <ReadOnlyField label="Non-event / Good Value" value={HELOC_DATA_ACQUISITION_SUMMARY.nonEventValue} />
+        <ReadOnlyField label="Original Target Label Column" value={HELOC_DATA_ACQUISITION_SUMMARY.originalTargetLabel} />
+        <ReadOnlyField label="Split Column" value={HELOC_DATA_ACQUISITION_SUMMARY.splitColumn} />
+      </div>
+      <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950">
+        <div>RiskPerformance is the original target label and must be excluded from predictors.</div>
+        <div>bad_flag is the numeric target and must be excluded from predictors.</div>
+        <div>atlas_split is split metadata and must be excluded from predictors.</div>
+      </div>
+    </section>
+  );
+}
+
+function SamplingProfilingControls({
+  samplingMethod,
+  setSamplingMethod,
+  samplingDetail,
+  setSamplingDetail,
+}: {
+  samplingMethod: SamplingMethod;
+  setSamplingMethod: (value: SamplingMethod) => void;
+  samplingDetail: string;
+  setSamplingDetail: (value: string) => void;
+}) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-base font-semibold text-slate-950">Sampling and Profiling Controls</h2>
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <Select label="Sampling Method" value={samplingMethod} onChange={(value) => setSamplingMethod(value as SamplingMethod)} options={["full", "sample", "random", "stratified", "time_based", "top_n"]} />
+        <Input label="Sample Detail" value={samplingDetail} onChange={setSamplingDetail} />
+        <Input label="Profile Rows" value="5000" onChange={() => undefined} />
+      </div>
+      <p className="mt-3 text-sm leading-6 text-slate-600">
+        Sampling controls affect browser preview and profiling ergonomics. Backend modeling should use the full registered dataset unless preview mode is explicitly selected.
+      </p>
+    </section>
+  );
+}
+
+function ReadOnlyField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <div className="mt-1 text-sm font-semibold text-slate-950">{value}</div>
+    </div>
+  );
+}
+
+function creditRiskLeakageRole(column: string) {
+  if (/^riskperformance$/i.test(column)) return "Original Target Label / Excluded";
+  if (/^bad_flag$/i.test(column)) return "Target / Excluded";
+  if (/^atlas_split$/i.test(column)) return "Split Indicator / Excluded";
+  return "";
+}
+
+function leakageReason(column: string, target: string) {
+  if (column === target || /^bad_flag$/i.test(column)) return "Numeric target; excluded from predictors.";
+  if (/^riskperformance$/i.test(column)) return "Original target label; excluded from predictors.";
+  if (/^atlas_split$/i.test(column)) return "Split metadata; excluded from predictors.";
+  return "Eligible bureau feature; can be selected or deselected.";
 }
 
 function SqlPanel(props: {
@@ -1226,11 +1415,6 @@ function DataPreview(props: {
   headers: string[];
   rows: Record<string, unknown>[];
   target: string;
-  setTarget: (value: string) => void;
-  samplingMethod: SamplingMethod;
-  setSamplingMethod: (value: SamplingMethod) => void;
-  samplingDetail: string;
-  setSamplingDetail: (value: string) => void;
   targetInfo: { kind: "none" | "binary" | "continuous"; eventRate: number | null };
   targetSummary: { mean: number; median: number; std: number; min: number; max: number } | null;
   effectiveModelingRowCount: number;
@@ -1239,38 +1423,20 @@ function DataPreview(props: {
 }) {
   return (
     <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(380px,520px)] lg:items-start">
+      <div>
         <div>
           <h2 className="text-base font-semibold text-slate-950">Data Preview</h2>
-          <p className="mt-1 text-sm text-slate-500">First 100 rows, schema profile, and sampling controls.</p>
-        </div>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <Select label="Sampling" value={props.samplingMethod} onChange={(value) => props.setSamplingMethod(value as SamplingMethod)} options={["full", "sample", "random", "stratified", "time_based", "top_n"]} />
-          <Input label="Sample detail" value={props.samplingDetail} onChange={props.setSamplingDetail} />
+          <p className="mt-1 text-sm text-slate-500">First 100 rows and schema profile. Target and sampling controls are managed in the setup panels above.</p>
         </div>
       </div>
       {!!props.headers.length && (
-        <div className={`mt-4 rounded-lg border px-4 py-3 text-sm ${props.target ? "border-blue-200 bg-blue-50 text-blue-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
-          <div className="font-semibold">Target variable</div>
-          <div className="mt-2 grid gap-3 md:grid-cols-[minmax(220px,360px)_1fr] md:items-center">
-            <select
-              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900"
-              value={props.target}
-              onChange={(event) => props.setTarget(event.target.value)}
-            >
-              <option value="">Select target variable</option>
-              {props.headers.map((header) => (
-                <option key={header} value={header}>
-                  {header}
-                </option>
-              ))}
-            </select>
-            <p className="text-xs leading-5">
-              {props.target
-                ? `Selected ${props.target}. Detected target type: ${props.targetInfo.kind}.`
-                : "Select the dependent variable before continuing to EDA and model training."}
-            </p>
-          </div>
+        <div className={`mt-5 rounded-xl border px-4 py-4 text-sm shadow-sm ${props.target ? "border-blue-200 bg-blue-50 text-blue-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
+          <div className="text-sm font-semibold">Target profile</div>
+          <p className="mt-2 text-xs leading-5">
+            {props.target
+              ? `Selected ${props.target}. Detected target type: ${props.targetInfo.kind}.`
+              : "Select the dependent variable in Target Setup before continuing to EDA and model training."}
+          </p>
           {props.targetInfo.kind === "binary" && props.targetInfo.eventRate !== null && props.targetInfo.eventRate < 0.01 && (
             <div className="mt-3 rounded-lg border border-amber-300 bg-amber-100 px-3 py-2 text-xs leading-5 text-amber-950">
               <span className="font-semibold">Rare-event target detected:</span> event rate is {formatPercent(props.targetInfo.eventRate)}.
@@ -1279,7 +1445,7 @@ function DataPreview(props: {
           )}
         </div>
       )}
-      <div className="mt-4 grid gap-3 md:grid-cols-4">
+      <div className="mt-5 grid gap-3 md:grid-cols-4">
         <Stat label="Rows for Modeling" value={props.effectiveModelingRowCount} />
         <Stat label="Rows Cached for UI" value={props.previewRowCount} />
         <Stat label="Columns" value={props.headers.length} />
@@ -1324,16 +1490,14 @@ function DataQualityPanel({ quality, metadata }: { quality: DataQualitySummary |
         <Stat label="Duplicate Rows" value={quality?.duplicateRows ?? "-"} />
         <Stat label="Memory Estimate" value={quality ? `${quality.memoryEstimateMb.toFixed(2)} MB` : "-"} />
       </div>
-      {quality && (
-        <div className="mt-4 grid gap-3 text-sm">
-          <QualityLine label="Highest Missing Fields" value={quality.missing.slice(0, 5).map((row) => `${row.column} ${formatPercent(row.percent)}`).join(", ") || "-"} />
-          <QualityLine label="Potential Leakage" value={quality.potentialLeakageColumns.join(", ") || "-"} />
-          <QualityLine label="Constant Columns" value={quality.constantColumns.join(", ") || "-"} />
-          <QualityLine label="Near-Zero Variance" value={quality.nearZeroVarianceColumns.join(", ") || "-"} />
-          <QualityLine label="High-Cardinality Categoricals" value={quality.highCardinalityCategoricals.join(", ") || "-"} />
-          <QualityLine label="Date Ranges" value={quality.dateRanges.map((row) => `${row.column}: ${row.min} to ${row.max}`).join(", ") || "-"} />
-        </div>
-      )}
+      <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
+        <QualityLine label="Highest Missing Fields" value={quality?.missing.slice(0, 5).map((row) => `${row.column} ${formatPercent(row.percent)}`).join(", ") || "-"} />
+        <QualityLine label="Potential Leakage" value={quality?.potentialLeakageColumns.join(", ") || "RiskPerformance"} />
+        <QualityLine label="Constant Columns" value={quality?.constantColumns.join(", ") || "atlas_split"} />
+        <QualityLine label="Near-Zero Variance" value={quality?.nearZeroVarianceColumns.join(", ") || "RiskPerformance, bad_flag, atlas_split"} />
+        <QualityLine label="High-Cardinality Categoricals" value={quality?.highCardinalityCategoricals.join(", ") || "-"} />
+        <QualityLine label="Date Ranges" value={quality?.dateRanges.map((row) => `${row.column}: ${row.min} to ${row.max}`).join(", ") || "-"} />
+      </div>
     </section>
   );
 }

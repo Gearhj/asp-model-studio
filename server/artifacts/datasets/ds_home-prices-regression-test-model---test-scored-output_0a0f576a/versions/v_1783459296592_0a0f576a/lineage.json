@@ -1,0 +1,73 @@
+{
+  "datasetRole": "scored_output",
+  "hash": "0a0f576afeacb3189529ea9058af7637668f612988bb8657a4d0045769ea4a12",
+  "registeredAt": "2026-07-07T21:21:36.709566+00:00",
+  "registeredBy": "local-user",
+  "sourceInfo": {
+    "absResidualColumn": "atlas_abs_residual",
+    "actualColumn": "MedHouseVal",
+    "columnRoles": {
+      "actual": "actual",
+      "prediction": "predicted_value",
+      "residual": "atlas_residual",
+      "score": null
+    },
+    "datasetRole": "scored_output",
+    "datasetType": "test",
+    "diagnosticsAvailable": [
+      "Residual Diagnostics",
+      "Actual vs Predicted",
+      "Prediction Distribution",
+      "Segment Performance"
+    ],
+    "limitation": "Registered from full scored rows returned by the ATLAS scoring response. Original feature columns, target values when present, predictions, residuals, and split metadata are preserved.",
+    "metrics": {
+      "adjusted_r2": -1.2179672456202053,
+      "mae": 0.5883105385318019,
+      "mean_abs_residual": 0.5883105385318019,
+      "mean_residual": 0.06131239809677545,
+      "mse": 1.878896269889761,
+      "r2": -1.2136678179572633,
+      "rmse": 1.3707283720306374
+    },
+    "modelName": "Final Parsimonious RFE Regression Model",
+    "predictionColumn": "predicted_value",
+    "projectId": "atlas-mr6r2puh",
+    "projectName": "Home Prices Regression Test Model",
+    "registeredRows": 4128,
+    "residualColumn": "atlas_residual",
+    "rowScope": "full_scored_output",
+    "scoreSummary": {
+      "max": 9.69084309320599,
+      "mean": 2.238978830100899,
+      "min": -67.9216644912535
+    },
+    "scoredColumns": [
+      "row",
+      "MedInc",
+      "HouseAge",
+      "AveRooms",
+      "AveBedrms",
+      "Population",
+      "AveOccup",
+      "Latitude",
+      "Longitude",
+      "MedHouseVal",
+      "predicted_value",
+      "prediction",
+      "actual",
+      "atlas_residual",
+      "atlas_abs_residual",
+      "atlas_squared_residual",
+      "atlas_percent_error",
+      "split"
+    ],
+    "sourceRows": 4128,
+    "split": "TEST",
+    "squaredResidualColumn": "atlas_squared_residual",
+    "stability": {},
+    "targetColumn": "MedHouseVal",
+    "task": "regression"
+  },
+  "sourceType": "scored_output"
+}

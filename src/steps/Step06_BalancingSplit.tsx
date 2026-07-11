@@ -201,11 +201,13 @@ function KFoldPreview({
   balanceMethod,
   undersampleRatio,
   valPreviewRatio,
+  totalRows,
 }: {
   k: number;
   balanceMethod: BalanceMethod;
   undersampleRatio: string;
   valPreviewRatio: string;
+  totalRows?: number;
 }) {
   const us = parseRatio(undersampleRatio);
   const val = parseRatio(valPreviewRatio);
@@ -217,6 +219,10 @@ function KFoldPreview({
 
   return (
     <div className="mt-4 space-y-2">
+      <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900">
+        <span className="font-semibold">K-Fold Cross-Validation visualization:</span> each row is one training run. The highlighted validation block rotates across {k} folds, while the remaining folds train the model.
+        {totalRows ? ` Estimated rows per fold: ${Math.max(1, Math.floor(totalRows / Math.max(k, 1))).toLocaleString()}.` : ""}
+      </div>
       {Array.from({ length: k }).map((_, i) => (
         <KFoldRow
           key={i}
@@ -736,6 +742,7 @@ export default function Step06_BalancingSplit() {
               balanceMethod={balanceMethod}
               undersampleRatio={balanceRatio}
               valPreviewRatio={balanceRatio}
+              totalRows={dataset?.rows?.length}
             />
           </div>
         )}

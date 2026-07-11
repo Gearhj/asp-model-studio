@@ -33,6 +33,7 @@ MAX_PROFILE_ROWS = int(os.getenv("ATLAS_DATASET_LIBRARY_MAX_PROFILE_ROWS", "1000
 MAX_SAMPLE_ROWS = int(os.getenv("ATLAS_DATASET_LIBRARY_MAX_SAMPLE_ROWS", "5000"))
 MAX_PREVIEW_ROWS = int(os.getenv("ATLAS_DATASET_LIBRARY_MAX_PREVIEW_ROWS", "100"))
 ALLOWED_EXTENSIONS = {".csv", ".txt"}
+SAFE_ARTIFACT_SEGMENT_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
 
 
 def now_iso() -> str:
@@ -179,6 +180,8 @@ def dataset_dir(dataset_id: str) -> Path:
 
 
 def version_dir(dataset_id: str, version_id: str) -> Path:
+    if not SAFE_ARTIFACT_SEGMENT_RE.match(dataset_id) or not SAFE_ARTIFACT_SEGMENT_RE.match(version_id):
+        raise HTTPException(status_code=400, detail="Dataset artifact identifier is not valid.")
     return dataset_dir(dataset_id) / "versions" / version_id
 
 
@@ -200,6 +203,8 @@ def summarize_dataset(dataset: Dict[str, Any]) -> Dict[str, Any]:
         "versionCount": len(versions),
         "latestVersion": latest,
         "linkedProjects": dataset.get("linkedProjects") or [],
+        "sourceInfo": dataset.get("sourceInfo") or {},
+        "datasetRole": dataset.get("datasetRole") or dataset.get("sourceInfo", {}).get("datasetRole"),
     }
 
 
@@ -287,6 +292,11 @@ def write_csv_sample(path: Path, df: pd.DataFrame) -> None:
     df.head(MAX_SAMPLE_ROWS).to_csv(path, index=False, quoting=csv.QUOTE_MINIMAL)
 
 
+def write_csv_full(path: Path, df: pd.DataFrame) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(path, index=False, quoting=csv.QUOTE_MINIMAL)
+
+
 async def create_dataset_from_upload(
     file: UploadFile,
     name: Optional[str] = None,
@@ -332,6 +342,7 @@ async def create_dataset_from_upload(
             "hash": digest,
         },
     )
+    write_csv_full(vdir / "data_full.csv", df)
     write_csv_sample(vdir / "data_sample.csv", df)
     version_summary = {
         "versionId": version_id,
@@ -343,6 +354,7 @@ async def create_dataset_from_upload(
         "columnCount": int(df.shape[1]),
         "profilePath": str((vdir / "profile.json").relative_to(ARTIFACT_ROOT)),
         "previewPath": str((vdir / "preview.json").relative_to(ARTIFACT_ROOT)),
+        "fullDataPath": str((vdir / "data_full.csv").relative_to(ARTIFACT_ROOT)),
         "samplePath": str((vdir / "data_sample.csv").relative_to(ARTIFACT_ROOT)),
         "warnings": profile.get("warnings", []),
     }
@@ -365,6 +377,99 @@ async def create_dataset_from_upload(
     registry["datasets"] = [item for item in registry.get("datasets", []) if item.get("datasetId") != dataset_id] + [dataset]
     save_registry(registry)
     audit_event("dataset.created", "dataset", dataset_id, "success", metadata={"name": dataset_name, "versionId": version_id})
+    return summarize_dataset(dataset)
+
+
+def create_dataset_from_dataframe(
+    df: pd.DataFrame,
+    name: str,
+    description: str = "",
+    domain: str = "Model Outputs",
+    source_type: str = "scored_output",
+    source_info: Optional[Dict[str, Any]] = None,
+    dataset_role: str = "scored_output",
+) -> Dict[str, Any]:
+    if df.empty:
+        raise HTTPException(status_code=400, detail="Scored output has no rows to register.")
+    user = current_user()
+    normalized = df.copy()
+    normalized.columns = [str(column) for column in normalized.columns]
+    content = normalized.to_csv(index=False).encode("utf-8")
+    digest = sha256_bytes(content)
+    ts = str(int(time.time() * 1000))
+    dataset_name = (name or "Scored Output").strip()
+    dataset_id = f"ds_{safe_slug(dataset_name)}_{digest[:8]}"
+    version_id = f"v_{ts}_{digest[:8]}"
+    if dataset_dir(dataset_id).exists():
+        dataset_id = f"{dataset_id}_{ts[-5:]}"
+    profile = profile_dataframe(normalized)
+    vdir = version_dir(dataset_id, version_id)
+    vdir.mkdir(parents=True, exist_ok=True)
+    metadata = {
+        "datasetId": dataset_id,
+        "versionId": version_id,
+        "originalFilename": f"{safe_slug(dataset_name)}.csv",
+        "datasetRole": dataset_role,
+        "sourceInfo": source_info or {},
+    }
+    write_json(vdir / "metadata.json", metadata)
+    write_json(vdir / "schema.json", {"columns": profile["schema"]})
+    write_json(vdir / "profile.json", profile)
+    write_json(vdir / "preview.json", {"rows": records_from_df(normalized.head(MAX_PREVIEW_ROWS)), "columns": [str(c) for c in normalized.columns]})
+    write_json(
+        vdir / "lineage.json",
+        {
+            "sourceType": source_type,
+            "datasetRole": dataset_role,
+            "registeredBy": user.get("userId"),
+            "registeredAt": now_iso(),
+            "hash": digest,
+            "sourceInfo": source_info or {},
+        },
+    )
+    write_csv_full(vdir / "data_full.csv", normalized)
+    write_csv_sample(vdir / "data_sample.csv", normalized)
+    version_summary = {
+        "versionId": version_id,
+        "createdAt": now_iso(),
+        "createdBy": user.get("userId"),
+        "originalFilename": f"{safe_slug(dataset_name)}.csv",
+        "hash": digest,
+        "rowCount": int(normalized.shape[0]),
+        "columnCount": int(normalized.shape[1]),
+        "profilePath": str((vdir / "profile.json").relative_to(ARTIFACT_ROOT)),
+        "previewPath": str((vdir / "preview.json").relative_to(ARTIFACT_ROOT)),
+        "fullDataPath": str((vdir / "data_full.csv").relative_to(ARTIFACT_ROOT)),
+        "samplePath": str((vdir / "data_sample.csv").relative_to(ARTIFACT_ROOT)),
+        "warnings": profile.get("warnings", []),
+    }
+    dataset = {
+        "datasetId": dataset_id,
+        "name": dataset_name,
+        "description": description,
+        "domain": domain,
+        "sourceType": source_type,
+        "datasetRole": dataset_role,
+        "sourceInfo": source_info or {},
+        "ownerUserId": user.get("userId"),
+        "ownerDisplayName": user.get("displayName"),
+        "createdAt": now_iso(),
+        "updatedAt": now_iso(),
+        "archived": False,
+        "access": [{"userId": user.get("userId"), "role": "owner"}],
+        "versions": [version_summary],
+        "linkedProjects": [],
+    }
+    registry = load_registry()
+    registry["datasets"] = [item for item in registry.get("datasets", []) if item.get("datasetId") != dataset_id] + [dataset]
+    save_registry(registry)
+    audit_event(
+        "dataset.scored_output.created",
+        "dataset",
+        dataset_id,
+        "success",
+        metadata={"name": dataset_name, "versionId": version_id, "rowCount": int(normalized.shape[0])},
+    )
     return summarize_dataset(dataset)
 
 
@@ -392,6 +497,7 @@ async def add_dataset_version(dataset_id: str, file: UploadFile) -> Dict[str, An
     write_json(vdir / "profile.json", profile)
     write_json(vdir / "preview.json", {"rows": records_from_df(df.head(MAX_PREVIEW_ROWS)), "columns": [str(c) for c in df.columns]})
     write_json(vdir / "lineage.json", {"sourceType": dataset.get("sourceType"), "originalFilename": filename, "registeredBy": current_user().get("userId"), "registeredAt": now_iso(), "hash": digest})
+    write_csv_full(vdir / "data_full.csv", df)
     write_csv_sample(vdir / "data_sample.csv", df)
     version_summary = {
         "versionId": version_id,
@@ -403,6 +509,7 @@ async def add_dataset_version(dataset_id: str, file: UploadFile) -> Dict[str, An
         "columnCount": int(df.shape[1]),
         "profilePath": str((vdir / "profile.json").relative_to(ARTIFACT_ROOT)),
         "previewPath": str((vdir / "preview.json").relative_to(ARTIFACT_ROOT)),
+        "fullDataPath": str((vdir / "data_full.csv").relative_to(ARTIFACT_ROOT)),
         "samplePath": str((vdir / "data_sample.csv").relative_to(ARTIFACT_ROOT)),
         "warnings": profile.get("warnings", []),
     }
@@ -447,8 +554,17 @@ def create_metadata_only_dataset(payload: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def read_version_artifact(dataset_id: str, version_id: str, name: str, default: Any) -> Any:
-    require_dataset(dataset_id)
+    dataset = require_dataset(dataset_id)
+    if not SAFE_ARTIFACT_SEGMENT_RE.match(name) or "/" in name or "\\" in name:
+        raise HTTPException(status_code=400, detail="Dataset artifact name is not valid.")
+    versions = {str(version.get("versionId")) for version in dataset.get("versions") or []}
+    if version_id not in versions:
+        raise HTTPException(status_code=404, detail="Dataset version was not found for this dataset.")
     path = version_dir(dataset_id, version_id) / name
+    try:
+        path.resolve().relative_to(version_dir(dataset_id, version_id).resolve())
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Dataset artifact path is not valid.") from exc
     if not path.exists():
         raise HTTPException(status_code=404, detail=f"Dataset version artifact {name} was not found.")
     return read_json(path, default)

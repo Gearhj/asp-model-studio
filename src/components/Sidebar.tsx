@@ -9,7 +9,7 @@ import {
   Database,
   FileArchive,
   FileClock,
-  FileText,
+  FileCode2,
   FlaskConical,
   FolderOpen,
   Gauge,
@@ -19,6 +19,9 @@ import {
   Settings2,
   Activity,
   BarChart3,
+  LineChart,
+  Landmark,
+  Network,
   ShieldCheck,
   UserCircle,
   Users,
@@ -83,6 +86,10 @@ export default function Sidebar() {
             <Database size={17} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">Dataset Library</span>
           </NavLink>
+          <NavLink to="/sql-data-studio" className={({ isActive }) => linkClass(isActive)}>
+            <FileCode2 size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">SQL Data Studio</span>
+          </NavLink>
           <NavLink to="/analytics" className={({ isActive }) => linkClass(isActive)}>
             <BarChart3 size={17} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">Analytics Workbench</span>
@@ -90,6 +97,26 @@ export default function Sidebar() {
           <NavLink to="/chart-studio" className={({ isActive }) => linkClass(isActive)}>
             <BarChart3 size={17} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">Chart Studio</span>
+          </NavLink>
+          <NavLink to="/notebook-studio" className={({ isActive }) => linkClass(isActive)}>
+            <NotebookTabs size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Notebook Studio</span>
+          </NavLink>
+          <NavLink to="/model-diagnostics" className={({ isActive }) => linkClass(isActive)}>
+            <LineChart size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Model Diagnostics</span>
+          </NavLink>
+          <NavLink to="/model-document-studio" className={({ isActive }) => linkClass(isActive)}>
+            <BookOpenCheck size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Model Documentation Studio</span>
+          </NavLink>
+          <NavLink to="/model-evidence-center" className={({ isActive }) => linkClass(isActive)}>
+            <Network size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Model Evidence Center</span>
+          </NavLink>
+          <NavLink to="/credit-risk-studio" className={({ isActive }) => linkClass(isActive)}>
+            <Landmark size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Credit Risk Studio</span>
           </NavLink>
         </NavGroup>
 
@@ -165,12 +192,6 @@ export default function Sidebar() {
             <Activity size={17} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">System Diagnostics</span>
           </NavLink>
-          {workflowId === "predictive-modeling" && (
-            <NavLink to="/step11" className={({ isActive }) => linkClass(isActive)}>
-              <FileText size={17} className="shrink-0" />
-              <span className="min-w-0 flex-1 truncate">Model Document</span>
-            </NavLink>
-          )}
         </NavGroup>
       </nav>
     </aside>

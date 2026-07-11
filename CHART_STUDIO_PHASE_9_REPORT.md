@@ -81,6 +81,68 @@ Generated code now reflects binned numeric roles:
 - R uses `dplyr::ntile`.
 - SAS-compatible code uses `PROC RANK` before summary procedures.
 
+## Phase 9D Advanced Analytical Chart Families
+
+Phase 9D adds v1 advanced analytical chart families for model development, validation, monitoring, forecasting, EDA, and presentation evidence.
+
+New working analytical charts:
+
+- Residual Diagnostics
+- Lift / Decile
+- Forecast
+- Survival
+- Data Profile
+- Data Profile Matrix
+- Grouped Bar
+- Grouped Box Plot
+- Grouped Scatter
+- Panel by Category
+- Small Multiples
+
+Residual Diagnostics:
+
+- Role controls: actual value, predicted value, optional observation/order, optional segment.
+- Derived fields: residual, absolute residual, squared residual, percent error.
+- Preview includes residual vs predicted, actual vs predicted, residual histogram, and fit summary.
+- Fit summary includes N, MAE, RMSE, MSE, R-squared, mean residual, median residual, and residual standard deviation.
+
+Lift / Decile:
+
+- Role controls: score/probability, actual outcome, positive class value, optional weight, number of deciles.
+- Preview computes sorted deciles, count, positives, response rate, cumulative positives, cumulative capture rate, and lift.
+- Preview includes lift bars and a decile table.
+
+Forecast:
+
+- Role controls: time/order, measure, optional group, aggregation, forecast horizon.
+- Preview aggregates historical values and adds a simple linear-trend forecast.
+- This is explicitly a preview trend, not a production forecasting model.
+
+Survival:
+
+- Role controls: duration/time-to-event and event indicator.
+- Preview computes a basic Kaplan-Meier style survival curve from preview rows.
+- This is v1 survival preview support, not a full survival modeling suite.
+
+Data Profile / Matrix:
+
+- Role controls: numeric variables, optional target, optional group.
+- Preview summarizes missingness, distinct count, mean, median, standard deviation, min/max, and target correlation.
+
+Grouped and Panel charts:
+
+- Grouped Bar, Grouped Box, and Grouped Scatter support grouped/segmented review.
+- Panel by Category and Small Multiples provide a simple faceted preview grid.
+- Binned numeric category and color roles remain supported.
+
+Generated code updates:
+
+- Residual diagnostics generate Python, SQL, R, and SAS-compatible residual-prep code.
+- Lift / Decile generates Python, SQL, R, and SAS-compatible decile-prep code.
+- Forecast generates simple trend/aggregation prep code across Python, SQL, R, and SAS-compatible output.
+- Survival generates v1 survival data-prep guidance/code.
+- Data Profile generates summary/statistical profile code.
+
 ## Implemented Chart Types
 
 Working in v1:
@@ -203,6 +265,17 @@ Phase 9C source verification:
 - `npm run build:modeling` - passed
 - `npm run build` - passed
 
+Phase 9D source verification:
+
+- `npx tsc -b` - passed
+- `npm run test:chart-studio` - passed
+- `npm run test:analytics-workbench` - passed
+- `npm run test:user-management` - passed
+- `npm run test:dataset-library` - passed
+- `npm run test:persistence` - passed
+- `npm run build:modeling` - passed
+- `npm run build` - passed
+
 Clean copy `C:\Users\james\Projects\ATLAS\atlas-app`:
 
 - `npm run test:chart-studio` - passed
@@ -218,9 +291,125 @@ Phase 9C clean-copy verification:
 - `npm run test:chart-studio` - passed
 - `npm run build` - passed
 
+Phase 9D clean-copy verification:
+
+- `npm run test:chart-studio` - passed
+- `npm run build` - passed
+
+## Phase 9F Chart Completion and Executable Code Workspace
+
+Phase 9F completed the remaining feasible preview-row chart cards and replaced the read-only generated-code drawer with an executable code workspace for Chart Studio.
+
+### Remaining Chart Status Audit
+
+Working / role-ready chart cards now include:
+
+- Step Plot
+- Density Plot
+- Stacked Bar
+- Heatmap
+- Grouped Line
+- Panel by Time
+- Comparison Panels
+- Scatter Matrix
+- Correlation Matrix
+- Pair Plot
+- Means Plot
+- Existing Phase 9D charts such as residual diagnostics, lift/decile, forecast, survival, grouped charts, panels, data profile, Pareto, waterfall, control, dual-axis, and Sankey
+
+True Coming soon cards are limited to infrastructure-dependent chart concepts:
+
+- Custom Chart: custom renderer infrastructure is not implemented yet.
+- User-defined Role Mapping: custom visual encoding engine is not implemented yet.
+- Saved Templates: governed chart template infrastructure is not implemented yet.
+
+### Newly Enabled Chart Types
+
+The following chart types moved from Coming soon to Working where feasible using Dataset Library preview/sample rows:
+
+- Step Plot: sorted ordered values rendered as a step-style line.
+- Density Plot: smoothed histogram approximation.
+- Stacked Bar: category-by-segment aggregation using existing grouped preview logic.
+- Heatmap: category or binned-numeric by category or binned-numeric matrix.
+- Grouped Line: multi-series grouped trend preview.
+- Panel by Time and Comparison Panels: small-multiple panel renderer.
+- Scatter Matrix, Correlation Matrix, and Pair Plot: compact pairwise relationship matrix.
+- Means Plot: grouped mean comparison.
+
+### Executable Generated Code Drawer
+
+Generated Code now includes:
+
+- Python, SQL, R, and SAS-compatible tabs
+- Generated read-only code panel
+- User-edited code panel
+- Run button for the active language
+- Copy Code
+- Reset to Generated Code
+- Save Code Snippet
+- Export Result to Excel
+- Shared execution result panel with stdout, stderr/errors, runtime, return code, and result tables when returned
+
+### Execution Endpoints
+
+- Python uses `/api/python/run` through `runUserPython`.
+- SQL uses `/api/analytics/sql/run` through `runAnalyticsPreviewSql`.
+- R uses `/api/code/r/run` through `runUserR`; if Rscript is unavailable, the shared endpoint returns honest unavailable/template guidance.
+- SAS-compatible uses `/api/code/sas-compatible/run` through `runUserSasCompatible` and does not require a licensed SAS installation.
+
+### Save Code Snippets
+
+Chart Studio saves generated/user-edited code snippets as analytics insights with:
+
+- `sourcePage: chart_studio`
+- chart type
+- language
+- generated code
+- user-edited code
+- dataset name/version
+- role assignments
+- business question
+- linked project ID
+
+Saved snippets flow through the existing analytics insight store so they can surface with dataset/project findings.
+
+### Export Code Results to Excel
+
+Execution output can be exported using the existing analytics result Excel export path. SQL and SAS-compatible table outputs are exported as tabular result payloads; Python/R text output is exported as stdout/stderr result payloads.
+
+### Scored Dataset Awareness
+
+Chart Studio now includes a Dataset Type selector with a Scored Outputs filter. Scored-output datasets are detected by dataset metadata/name/source heuristics and receive a recommendation to use lift/decile, residual diagnostics, score distribution, calibration, and stability views. If no scored outputs are registered, the UI explains that scoring workflows must register actual scored rows into the Dataset Library.
+
+### Phase 9F Source Verification
+
+- `npx tsc -b` - passed
+- `npm run test:chart-studio` - passed
+- `npm run test:analytics-workbench` - passed
+- `npm run test:user-management` - passed
+- `npm run test:dataset-library` - passed
+- `npm run test:persistence` - passed
+- `npm run build:modeling` - passed
+- `npm run build` - passed
+
+### Phase 9F Clean-Copy Verification
+
+- `npm run sync:atlas` - passed
+- Clean copy `npm run test:chart-studio` - passed
+- Clean copy `npm run build` - passed
+
+### Phase 9F Endpoint Smoke Checks
+
+- Backend health endpoint `http://127.0.0.1:8001/api/health` - returned 200
+- Frontend route `http://127.0.0.1:5174/chart-studio` - returned 200
+- `/api/python/run` direct smoke - returned `ok: true` and stdout
+- `/api/code/r/run` direct smoke - returned `ok: true` and stdout
+- `/api/code/sas-compatible/run` direct smoke - returned `ok: true` and a PROC MEANS result table
+- `/api/analytics/sql/run` raw shell smoke - returned authentication required without a browser session; Chart Studio uses this endpoint with credentials from the signed-in UI
+
 ## Manual QA Results
 
-Manual browser QA was not run in this pass. Static tests and builds verify route registration, chart type availability, binned role support, generated code, saved insight plumbing, Excel endpoint implementation, and diagnostics wiring.
+Manual browser click-through QA was not run in this pass. Static tests, builds, clean-copy verification, and direct endpoint smoke checks verify route registration, chart type availability, binned role support, generated code, executable code controls, saved snippet plumbing, Excel endpoint implementation, scored-output filter visibility, and execution endpoint reachability.
 
 ## Clean-Copy Sync Confirmation
 
@@ -230,7 +419,99 @@ Manual browser QA was not run in this pass. Static tests and builds verify route
 
 - Chart previews use preview/sample rows, not full warehouse-scale data.
 - Chart image export is not included.
-- Grouped charts, matrix views, panel layouts, custom templates, density, step, forecast, survival, residual diagnostics, and lift/decile views are marked coming soon.
-- Chart Studio does not yet share the full Analytics Workbench code workspace editor; generated code is displayed read-only in this phase.
+- Custom chart renderers, user-defined role mapping, and governed saved templates remain coming soon.
+- Relationship edge-list and full network rendering remain out of scope for this phase.
+- Full production forecast, survival modeling, and residual diagnostic panel images remain future enhancements; v1 uses preview-row analytical approximations.
 - Hover/readout behavior is limited to the chart data table and visible labels.
 - SQL binning remains documented guidance because exact quantile syntax depends on the production SQL engine.
+
+## Phase 9G Final Checkpoint
+
+Phase 9G is the final Chart Studio checkpoint before moving to the next ATLAS build. The focus was stability, honest coming-soon language, executable generated-code status, clean-copy verification, and browser-level QA.
+
+### Final Browser QA Results
+
+Browser QA was run against the local app at `http://127.0.0.1:5174/chart-studio` using the local seeded admin account.
+
+- `/chart-studio` opened after authentication.
+- `REG_TRAIN` loaded as the selected dataset with version `v_1783361298379_309ce82d`.
+- Basic, Grouped, Analytical, Matrix, Panels, and Custom gallery tabs rendered and were selectable.
+- Bar Chart rendered with binned numeric category roles and a visible preview/data table.
+- Analytical tab exposed Pareto and Residual Diagnostics.
+- Matrix tab exposed Data Profile Matrix.
+- Panels tab exposed Panel by Time and Comparison Panels.
+- Custom tab clearly showed the infrastructure deferral reasons for Custom Chart, User-defined Role Mapping, and Saved Templates.
+- Preview Canvas, Chart data table, Generated Code, Saved Charts, Dataset Type filter, Scored Outputs guidance, Export Chart Data to Excel, and Save Chart as Insight were visible.
+- Authenticated save-chart-insight smoke returned HTTP 200.
+- Authenticated chart-data Excel export smoke returned HTTP 200 and an `.xlsx` payload.
+- Direct Python execution smoke returned `ok: true`, stdout, and return code 0.
+- R execution endpoint returned HTTP 200.
+- SAS-compatible execution endpoint returned HTTP 200.
+- Analytics Workbench route remains covered by `npm run test:analytics-workbench` and the clean build.
+
+### Remaining Coming Soon Items
+
+Only true infrastructure-dependent items remain Coming soon:
+
+- Custom Chart: deferred because custom renderer infrastructure is not implemented yet.
+- User-defined Role Mapping: deferred because custom visual encoding is not implemented yet.
+- Saved Templates: deferred because governed chart template infrastructure is not implemented yet.
+
+These items are displayed as planned infrastructure enhancements, not data-quality failures or broken charts.
+
+### Generated Code Execution Status
+
+- Python code execution uses the local-development Python execution endpoint.
+- SQL preview execution uses the authenticated Analytics Workbench preview SQL endpoint.
+- R execution uses the R endpoint when `Rscript` is available and otherwise returns honest validation/unavailable guidance.
+- SAS-compatible execution uses the ATLAS SAS-compatible endpoint and does not require a licensed SAS installation.
+- Generated code remains editable and can be reset to generated defaults.
+- Code snippets can be saved as analytics insights.
+
+### Scored Dataset Support Status
+
+Chart Studio includes a Dataset Type filter with Scored Outputs guidance. Scored-output support is available when scored datasets are registered into the Dataset Library. If no scored outputs are registered, the UI explains the required registration path instead of appearing empty or broken.
+
+### Tests Run
+
+Phase 9G verification suite:
+
+- `npx tsc -b` - passed
+- `npm run test:chart-studio` - passed
+- `npm run test:analytics-workbench` - passed
+- `npm run test:user-management` - passed
+- `npm run test:dataset-library` - passed
+- `npm run test:persistence` - passed
+- `npm run build:modeling` - passed
+- `npm run build` - passed
+- `npm run sync:atlas` - passed
+- Clean copy `npm run test:chart-studio` - passed
+- Clean copy `npm run build` - passed
+
+### Clean-Copy Sync Confirmation
+
+Verified source changes are synced from `C:\Users\james\ds-workflow-starter` to `C:\Users\james\Projects\ATLAS\atlas-app` using `npm run sync:atlas`. Runtime artifacts remain intentionally excluded by the sync script.
+
+### Known Limitations
+
+- Chart previews still use Dataset Library preview/sample rows.
+- Full warehouse-scale charting is not implemented yet.
+- Chart image export is not implemented yet.
+- Custom chart renderer is not implemented yet.
+- User-defined visual encoding is not implemented yet.
+- Governed saved chart templates are not implemented yet.
+- Full production forecast, survival modeling, and residual diagnostic image panels remain future enhancements.
+
+### Recommended Next Build
+
+Proceed to the next major ATLAS build after this checkpoint. Recommended next work is whichever area is highest priority for the platform roadmap: warehouse-scale chart execution, governed template infrastructure, or broader workbench/report integration.
+
+## Phase 10A Scored Output Integration Note
+
+Chart Studio now recognizes Dataset Library assets registered as scored outputs and provides a direct link to Model Diagnostics. Scored outputs remain chartable in Chart Studio, but ATLAS now recommends Model Diagnostics for lift/decile, residual diagnostics, calibration, score distribution, actual-vs-predicted, and segment performance review.
+
+Deferred Chart Studio items remain unchanged:
+
+- Custom Chart requires custom renderer infrastructure.
+- User-defined Role Mapping requires custom visual encoding infrastructure.
+- Saved Templates require governed template storage and approval workflow.

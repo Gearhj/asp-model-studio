@@ -30,7 +30,7 @@ export default function ProjectSaveStatus() {
 
   const isSaving = detail.status === "saving";
   const isError = detail.status === "save_failed";
-  const isPartial = detail.status === "partial_restore";
+  const isPartial = detail.status === "partial_restore" || detail.status === "registry_warning";
   const isSaved = detail.status === "saved" || detail.status === "restored";
   const Icon = isSaving ? Loader2 : isError || isPartial ? AlertTriangle : isSaved ? CheckCircle2 : Cloud;
   const label =
@@ -38,8 +38,10 @@ export default function ProjectSaveStatus() {
       ? "Saving"
       : detail.status === "save_failed"
         ? "Save failed"
-        : detail.status === "partial_restore"
-          ? "Partial restore"
+        : detail.status === "registry_warning"
+          ? "Project saved"
+          : detail.status === "partial_restore"
+            ? "Partial restore"
           : detail.status === "restored"
             ? "Restored"
             : detail.status === "saved"

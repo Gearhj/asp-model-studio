@@ -77,6 +77,7 @@ type WorkflowState = {
   setStepStatus: (id: StepId, s: StepStatus) => void;
   markComplete: (id: StepId) => void;
   markWorkflowStepComplete: (id: string) => void;
+  normalizeWorkflowOrder: (workflowId?: string) => void;
 
   // NEW: what your UI was calling
   markCompleteAndNext: (id: StepId) => string;
@@ -119,7 +120,7 @@ const workflowOrder: StepId[] = [
   "step08", // Evaluation
   "step09", // Model Interpretation
   "step10", // Final Scoring
-  "step11", // Model Development Document
+  "step11", // Documentation Review
   "step12", // Model Implementation
   "step13", // Model Monitoring
 ];
@@ -337,6 +338,28 @@ export const useWorkflowStore = create<WorkflowState>()(
             ),
           }));
           persistActiveProject(get());
+        },
+
+      normalizeWorkflowOrder: (workflowId) =>
+        {
+          let changed = false;
+          set((state) => {
+            const workflow = getWorkflowDefinition(workflowId || state.workflowId || getWorkflowForProjectType(state.projectType).id);
+            const workflowSteps = mergeWorkflowStepsWithDefinition(state.workflowSteps, workflow.id, state.steps);
+            const currentSignature = state.workflowSteps.map((step) => `${step.id}:${step.label}:${step.route}`).join("|");
+            const nextSignature = workflowSteps.map((step) => `${step.id}:${step.label}:${step.route}`).join("|");
+            changed = currentSignature !== nextSignature || state.workflowId !== workflow.id;
+            if (!changed) return state;
+            return {
+              workflowId: workflow.id,
+              projectType: workflow.projectType,
+              workflowSteps,
+              currentStepId: workflowSteps.some((step) => step.id === state.currentStepId)
+                ? state.currentStepId
+                : workflowSteps[0]?.id ?? state.currentStepId,
+            };
+          });
+          if (changed) persistActiveProject(get());
         },
 
       // Restores old expected behavior from your UI

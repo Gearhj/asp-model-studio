@@ -134,16 +134,16 @@ def save_selected_final_model(request: dict):
 
 
 @router.get("/model/export")
-def export_model(model: str = "final", format: str = "pkl"):
-    if format.lower() != "pkl":
+def export_model(model: str = "final", format: str = "json"):
+    if format.lower() not in {"json", "manifest"}:
         return {
             "ok": False,
-            "error": "Only pkl export is currently supported. Use ONNX, PMML, or a Java scoring wrapper for JVM production deployment.",
+            "error": "Only JSON model manifests are exported. Executable model objects must be deployed through a signed model registry or approved ONNX/skops pipeline.",
         }
     content, filename = EVAL.export_model_bundle(model_name=model)
     return Response(
         content=content,
-        media_type="application/octet-stream",
+        media_type="application/json",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
@@ -161,6 +161,26 @@ async def score_upload(
     df = pd.read_csv(io.BytesIO(content))
     result = EVAL.score_dataset(
         df=df,
+        dataset_type=dataset_type,
+        model_name=model,
+        correction_method=correction_method,
+        original_prior=original_prior,
+        model_prior=model_prior,
+    )
+    if result.get("ok"):
+        save_checkpoint()
+    return result
+
+
+@router.post("/score/development-split")
+def score_development_split(
+    dataset_type: str = "train",
+    model: str = "final",
+    correction_method: str = "none",
+    original_prior: float | None = None,
+    model_prior: float | None = None,
+):
+    result = EVAL.score_development_split(
         dataset_type=dataset_type,
         model_name=model,
         correction_method=correction_method,

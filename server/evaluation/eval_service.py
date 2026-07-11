@@ -1,6 +1,6 @@
 from typing import Any, Dict, List, Tuple
 from datetime import datetime
-import pickle
+import json
 import re
 
 import numpy as np
@@ -55,6 +55,32 @@ except Exception:  # pragma: no cover
     silhouette_score = None
     NearestNeighbors = None
     LabelEncoder = None
+
+
+def _normalized_feature_name(value: Any) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
+
+
+def _target_aliases() -> set[str]:
+    aliases = {
+        _normalized_feature_name(DATASTORE.target),
+        "bad_flag",
+        "riskperformance",
+    }
+    source = DATASTORE.meta.get("source") if isinstance(DATASTORE.meta, dict) else {}
+    if isinstance(source, dict):
+        for key in ("target", "targetColumn", "originalTargetLabelColumn", "originalTargetLabel", "labelColumn"):
+            aliases.add(_normalized_feature_name(source.get(key)))
+    return {alias for alias in aliases if alias}
+
+
+def _is_target_derived_feature(feature: Any) -> bool:
+    name = _normalized_feature_name(str(feature).replace("num__", "").replace("cat__", ""))
+    return any(name == alias or name.startswith(f"{alias}_") for alias in _target_aliases())
+
+
+def _filter_target_derived_rows(rows: List[Dict[str, Any]], feature_key: str = "feature") -> List[Dict[str, Any]]:
+    return [row for row in rows if not _is_target_derived_feature(row.get(feature_key, ""))]
 
 
 class EvaluationService:
@@ -312,6 +338,7 @@ class EvaluationService:
                 for feature, value in zip(X_test.columns, result.importances_mean)
             ]
 
+        rows = _filter_target_derived_rows(rows)
         rows.sort(key=lambda row: row["importance"], reverse=True)
         return {"ok": True, "rows": rows[:30]}
 
@@ -379,6 +406,7 @@ class EvaluationService:
                 }
                 for name, value in zip(names, coef)
             ]
+            rows = _filter_target_derived_rows(rows)
             rows.sort(key=lambda row: abs(row["coefficient"]), reverse=True)
             for rank, row in enumerate(rows, start=1):
                 row["absolute_rank"] = rank
@@ -831,12 +859,14 @@ class EvaluationService:
         return {"ok": True, "baseline": baseline, "rows": rows}
 
     def sensitivity_summary(self, model_name: str, top_n: int = 12) -> Dict[str, Any]:
+        excluded_sensitivity_features = {"riskperformance", "bad_flag", "atlas_split"}
         if model_name in ("final", "final_rfe"):
             model = RESULTS.get_final_model()
             final_metadata = RESULTS.get_final_model_metadata() or {}
             final_features = [
                 str(feature)
                 for feature in (final_metadata.get("features") or [])
+                if str(feature).lower() not in excluded_sensitivity_features
             ]
         else:
             model = self._artifact(model_name)
@@ -859,15 +889,24 @@ class EvaluationService:
         for feature in ordered:
             if feature not in X_test.columns:
                 continue
+            if str(feature).lower() in excluded_sensitivity_features:
+                continue
             series = X_test[feature]
             scenarios: List[Dict[str, Any]] = []
+            special_value_note = ""
             if pd.api.types.is_numeric_dtype(series):
                 numeric = pd.to_numeric(series, errors="coerce")
                 if numeric.dropna().empty:
                     continue
-                for pct in [-0.2, -0.1, 0.1, 0.2]:
+                special_mask = numeric.isin([-7, -8, -9])
+                if bool(special_mask.any()):
+                    special_value_note = (
+                        "Sensitivity analysis excludes special bureau values from percentage perturbation. "
+                        "Special values require separate bin-level or reason-code review."
+                    )
+                for pct in [-0.2, 0.2]:
                     x_mod = X_test.copy()
-                    x_mod[feature] = numeric * (1 + pct)
+                    x_mod[feature] = numeric.where(special_mask, numeric * (1 + pct))
                     pred = float(np.mean(self._predict_score(model, x_mod)))
                     scenarios.append({"scenario": f"{pct:+.0%}", "prediction": pred, "delta": pred - baseline})
             else:
@@ -879,14 +918,41 @@ class EvaluationService:
             if not scenarios:
                 continue
             max_row = max(scenarios, key=lambda row: abs(float(row["delta"])))
+            negative_row = next((row for row in scenarios if row["scenario"] == "-20%"), None)
+            positive_row = next((row for row in scenarios if row["scenario"] == "+20%"), None)
+            positive_delta = float(positive_row["delta"]) if positive_row else float(max_row["delta"])
+            if positive_delta > 0:
+                direction = "increases_bad_risk"
+                direction_explanation = "Increasing this feature increases predicted bad risk."
+            elif positive_delta < 0:
+                direction = "decreases_bad_risk"
+                direction_explanation = "Increasing this feature decreases predicted bad risk."
+            else:
+                direction = "neutral"
+                direction_explanation = "Increasing this feature has no material direction in the selected sensitivity scenarios."
+            largest_direction = (
+                "Largest impact occurs when this feature is decreased."
+                if max_row["scenario"] == "-20%"
+                else "Largest impact occurs when this feature is increased."
+                if max_row["scenario"] == "+20%"
+                else f"Largest impact occurs at scenario {max_row['scenario']}."
+            )
             rows.append(
                 {
                     "feature": feature,
                     "baseline": baseline,
+                    "baseline_prediction": baseline,
+                    "negative_scenario_prediction": negative_row["prediction"] if negative_row else None,
+                    "positive_scenario_prediction": positive_row["prediction"] if positive_row else None,
                     "max_abs_delta": abs(float(max_row["delta"])),
                     "worst_scenario": max_row["scenario"],
                     "worst_prediction": max_row["prediction"],
                     "worst_delta": max_row["delta"],
+                    "largest_scenario": max_row["scenario"],
+                    "delta": max_row["delta"],
+                    "direction": direction,
+                    "direction_explanation": f"{direction_explanation} {largest_direction}",
+                    "special_value_note": special_value_note,
                     "scenarios": scenarios,
                 }
             )
@@ -1028,6 +1094,7 @@ class EvaluationService:
                     "signed_effect": signed,
                 }
             )
+        rows = _filter_target_derived_rows(rows)
         rows.sort(key=lambda row: abs(row["importance"]), reverse=True)
         return {
             "ok": True,
@@ -1732,14 +1799,14 @@ class EvaluationService:
         return artifact, {"model_key": model_name, "name": model_name}
 
     def export_model_bundle(self, model_name: str = "final") -> Tuple[bytes, str]:
-        model, metadata = self._resolve_scoring_model(model_name)
+        _, metadata = self._resolve_scoring_model(model_name)
         summary = RESULTS.get_last_summary() or {}
         X_train, _, _, _ = DATASTORE.get_splits()
         ranked = summary.get("ranked") or []
         selected_key = metadata.get("model_key") or model_name
         selected_summary = next((row for row in ranked if row.get("key") == selected_key), {})
-        bundle = {
-            "model": model,
+        manifest = {
+            "schema": "atlas.model_manifest.v1",
             "metadata": {
                 **metadata,
                 "target": DATASTORE.target,
@@ -1747,13 +1814,17 @@ class EvaluationService:
                 "feature_columns": list(X_train.columns) if X_train is not None else metadata.get("features", []),
                 "selected_model_summary": selected_summary,
                 "exported_at": datetime.now().isoformat(),
-                "export_format": "pickle",
-                "scoring_note": "Load bundle['model'] and call predict or predict_proba through the fitted preprocessing pipeline.",
+                "export_format": "json_manifest",
             },
+            "deployment_status": "manifest_only",
+            "scoring_note": "ATLAS does not export executable model objects through this endpoint. Use the manifest for governed review and deploy through a signed model registry or approved ONNX/skops pipeline.",
+            "metrics": selected_summary.get("metrics") or {},
+            "hyperparameters": selected_summary.get("best_params") or {},
+            "ranked_models": ranked,
         }
         raw_name = str(metadata.get("name") or selected_key or "model")
         safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", raw_name).strip("_").lower() or "model"
-        return pickle.dumps(bundle), f"{safe_name}_bundle.pkl"
+        return json.dumps(manifest, indent=2, sort_keys=True, default=str).encode("utf-8"), f"{safe_name}_manifest.json"
 
     def score_dataset(
         self,
@@ -1769,6 +1840,7 @@ class EvaluationService:
         model, metadata = self._resolve_scoring_model(model_name)
         target = DATASTORE.target
         y_true = None
+        original_df = df.reset_index(drop=True).copy()
         X = df.copy()
         if target and target in X.columns:
             y_true = X[target].copy()
@@ -1800,6 +1872,16 @@ class EvaluationService:
             else self._prior_correct_scores(scores, correction_method, original_prior, model_prior)
         )
         labels = (adjusted_scores >= 0.5).astype(int) if task == "classification" else adjusted_scores
+        scored_df = build_full_scored_output_frame(
+            original_df=original_df,
+            target=str(target) if target else None,
+            y_true=y_true,
+            scores=np.asarray(scores),
+            adjusted_scores=np.asarray(adjusted_scores),
+            labels=np.asarray(labels),
+            task=task,
+            split=dataset_type,
+        )
         response: Dict[str, Any] = {
             "ok": True,
             "task": task,
@@ -1831,8 +1913,22 @@ class EvaluationService:
                 "default_model_prior": priors.get("model_prior"),
                 "split_config": priors.get("split_config"),
             },
+            "target_column": str(target) if target else None,
+            "scored_rows": dataframe_to_json_records(scored_df),
+            "scored_columns": [str(column) for column in scored_df.columns],
+            "scored_row_scope": "full_scored_output",
             "preview": [
-                {"row": int(i + 1), "score": float(score), "adjusted_score": float(adjusted), "prediction": float(label)}
+                {
+                    "row": int(i + 1),
+                    "score": float(score),
+                    "adjusted_score": float(adjusted),
+                    "prediction": float(label),
+                    **(
+                        {"actual": safe_numeric_preview_value(pd.Series(y_true).iloc[i]), str(target): safe_numeric_preview_value(pd.Series(y_true).iloc[i])}
+                        if y_true is not None and i < len(pd.Series(y_true))
+                        else {}
+                    ),
+                }
                 for i, (score, adjusted, label) in enumerate(zip(scores[:25], adjusted_scores[:25], labels[:25]))
             ],
         }
@@ -1913,6 +2009,35 @@ class EvaluationService:
                 response["vsi_scope"] = "model_features" if model_features else "all_common_features"
                 response["stability_reference"] = "uploaded_test" if reference_kind == "uploaded_test" else "development_split"
         return response
+
+    def score_development_split(
+        self,
+        dataset_type: str = "train",
+        model_name: str = "final",
+        correction_method: str = "none",
+        original_prior: float | None = None,
+        model_prior: float | None = None,
+    ) -> Dict[str, Any]:
+        X_train, X_test, y_train, y_test = DATASTORE.get_splits()
+        split_key = str(dataset_type or "train").lower()
+        if split_key == "test":
+            X, y = X_test, y_test
+        else:
+            X, y = X_train, y_train
+            split_key = "train"
+        if X is None or y is None:
+            return {"ok": False, "error": f"No {split_key.upper()} development split is available. Train models first."}
+        df = X.copy()
+        target = DATASTORE.target or getattr(y, "name", None) or "target"
+        df[str(target)] = pd.Series(y).reset_index(drop=True).values
+        return self.score_dataset(
+            df=df,
+            dataset_type=split_key,
+            model_name=model_name,
+            correction_method=correction_method,
+            original_prior=original_prior,
+            model_prior=model_prior,
+        )
 
     def decision_boundary(
         self,
@@ -2048,6 +2173,76 @@ class EvaluationService:
             "points": points,
             "numeric_features": numeric_cols,
         }
+
+def safe_numeric_preview_value(value: Any) -> Any:
+    try:
+        if pd.isna(value):
+            return None
+        if isinstance(value, (np.integer,)):
+            return int(value)
+        if isinstance(value, (np.floating,)):
+            return float(value)
+        if isinstance(value, (int, float, str, bool)):
+            return value
+        return float(value)
+    except Exception:
+        return str(value)
+
+
+def dataframe_to_json_records(df: pd.DataFrame) -> List[Dict[str, Any]]:
+    records: List[Dict[str, Any]] = []
+    if df is None or df.empty:
+        return records
+    for raw in df.to_dict(orient="records"):
+        records.append({str(key): safe_numeric_preview_value(value) for key, value in raw.items()})
+    return records
+
+
+def build_full_scored_output_frame(
+    original_df: pd.DataFrame,
+    target: str | None,
+    y_true: pd.Series | None,
+    scores: np.ndarray,
+    adjusted_scores: np.ndarray,
+    labels: np.ndarray,
+    task: str,
+    split: str,
+) -> pd.DataFrame:
+    scored = original_df.reset_index(drop=True).copy()
+    if "row" not in {str(column).lower() for column in scored.columns}:
+        scored.insert(0, "row", np.arange(1, len(scored) + 1))
+
+    if task == "regression":
+        predictions = pd.Series(adjusted_scores, index=scored.index, dtype="float64")
+        scored["predicted_value"] = predictions
+        scored["prediction"] = predictions
+        if y_true is not None:
+            actual = pd.to_numeric(pd.Series(y_true).reset_index(drop=True), errors="coerce")
+            if target:
+                scored[target] = pd.Series(y_true).reset_index(drop=True)
+            scored["actual"] = actual
+            residual = actual - predictions
+            scored["atlas_residual"] = residual
+            scored["atlas_abs_residual"] = residual.abs()
+            scored["atlas_squared_residual"] = residual * residual
+            scored["atlas_percent_error"] = residual.where(actual != 0) / actual.where(actual != 0)
+        else:
+            scored["actual"] = None
+            scored["atlas_residual"] = None
+            scored["atlas_abs_residual"] = None
+            scored["atlas_squared_residual"] = None
+            scored["atlas_percent_error"] = None
+    else:
+        scored["score"] = pd.Series(scores, index=scored.index, dtype="float64")
+        scored["adjusted_score"] = pd.Series(adjusted_scores, index=scored.index, dtype="float64")
+        scored["prediction"] = pd.Series(labels, index=scored.index)
+        if y_true is not None:
+            if target:
+                scored[target] = pd.Series(y_true).reset_index(drop=True)
+            scored["actual"] = pd.Series(y_true).reset_index(drop=True)
+
+    scored["split"] = str(split or "").upper()
+    return scored
 
 
 EVAL = EvaluationService()

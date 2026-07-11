@@ -51,6 +51,7 @@ type FeatureBuilderState = {
 type AnyRow = Record<string, any>;
 type LoadedDatasetContext = { columns: ColumnInfo[]; target: string | null; rows: AnyRow[] };
 const FEATURE_CONFIG_KEY = "modeling-tool-feature-builder";
+const VIF_EXCLUDED_FEATURES_KEY = "modeling-tool-vif-excluded-features";
 const transformGuidance = {
   poly: {
     None: "Definition: do not create polynomial terms. Use when relationships are mostly linear or model complexity should stay low.",
@@ -105,12 +106,139 @@ function filterRowsToHeaders(rows: AnyRow[], headers: string[]) {
   });
 }
 
+function solveLinearSystem(matrix: number[][], vector: number[]) {
+  const n = vector.length;
+  const a = matrix.map((row, i) => [...row, vector[i]]);
+  for (let i = 0; i < n; i += 1) {
+    let pivot = i;
+    for (let r = i + 1; r < n; r += 1) {
+      if (Math.abs(a[r][i]) > Math.abs(a[pivot][i])) pivot = r;
+    }
+    if (Math.abs(a[pivot][i]) < 1e-10) return null;
+    [a[i], a[pivot]] = [a[pivot], a[i]];
+    const divisor = a[i][i];
+    for (let c = i; c <= n; c += 1) a[i][c] /= divisor;
+    for (let r = 0; r < n; r += 1) {
+      if (r === i) continue;
+      const factor = a[r][i];
+      for (let c = i; c <= n; c += 1) a[r][c] -= factor * a[i][c];
+    }
+  }
+  return a.map((row) => row[n]);
+}
+
+const VIF_EXCLUDED_FIELD_PATTERN = /(^|_)(row|record|index|id|split|fold|target|actual|score|probability|prediction|predicted|residual|error|decile|diagnostic|output|rank)($|_)/i;
+const VIF_MISSINGNESS_THRESHOLD = 0.4;
+const VIF_AUTO_EXCLUDE_THRESHOLD = 10;
+
+function vifEligibilityReason(column: string, rows: AnyRow[]) {
+  if (VIF_EXCLUDED_FIELD_PATTERN.test(column)) return "Diagnostic/output field";
+  const numericValues = rows.map((row) => Number(row[column])).filter(Number.isFinite);
+  if (!rows.length) return "Not enough rows";
+  const missingRate = 1 - numericValues.length / rows.length;
+  if (missingRate > VIF_MISSINGNESS_THRESHOLD) return "Too many missing values";
+  if (numericValues.length < 3) return "Not enough rows";
+  const unique = new Set(numericValues.map((value) => value.toFixed(12)));
+  if (unique.size <= 1) return "Constant variable";
+  return null;
+}
+
+function previewVifDiagnostics(rows: AnyRow[], numericCols: string[]) {
+  const eligibility = numericCols.map((col) => ({ col, reason: vifEligibilityReason(col, rows) }));
+  const usableCols = eligibility.filter((item) => !item.reason).map((item) => item.col).slice(0, 25);
+  const rowsUsed = usableCols.length
+    ? rows.filter((row) => usableCols.every((col) => Number.isFinite(Number(row[col])))).length
+    : 0;
+  return {
+    rowsUsed,
+    predictorsEvaluated: usableCols.length,
+    predictorsExcluded: eligibility.length - usableCols.length,
+    missingnessThreshold: `${Math.round(VIF_MISSINGNESS_THRESHOLD * 100)}%`,
+  };
+}
+
+function previewVifRows(rows: AnyRow[], numericCols: string[]) {
+  const eligibility = numericCols.map((col) => ({ col, reason: vifEligibilityReason(col, rows) }));
+  const usableCols = eligibility.filter((item) => !item.reason).map((item) => item.col).slice(0, 25);
+  const excludedRows = eligibility
+    .filter((item) => item.reason)
+    .slice(0, 8)
+    .map((item) => vifResult(item.col, null, item.reason || "Non-numeric variable"));
+  if (usableCols.length < 2) {
+    return [
+      ...usableCols.map((feature) => vifResult(feature, null, "Not enough rows")),
+      ...excludedRows,
+    ];
+  }
+  if (rows.length < usableCols.length + 2) {
+    return usableCols.map((feature) => vifResult(feature, null, "Not enough rows")).concat(excludedRows);
+  }
+  const rowsWithVif = usableCols.map((feature) => {
+    const others = usableCols.filter((col) => col !== feature);
+    const clean = rows
+      .map((row) => ({
+        y: Number(row[feature]),
+        x: others.map((col) => Number(row[col])),
+      }))
+      .filter((row) => Number.isFinite(row.y) && row.x.every(Number.isFinite));
+    if (clean.length < others.length + 2) return vifResult(feature, null, "Not enough rows");
+    const design = clean.map((row) => [1, ...row.x]);
+    const xtx = design[0].map((_, c) => design[0].map((__, c2) => design.reduce((sum, row) => sum + row[c] * row[c2], 0)));
+    const xty = design[0].map((_, c) => design.reduce((sum, row, i) => sum + row[c] * clean[i].y, 0));
+    const beta = solveLinearSystem(xtx, xty);
+    if (!beta) return vifResult(feature, null, "Singular matrix");
+    const meanY = clean.reduce((sum, row) => sum + row.y, 0) / clean.length;
+    const sst = clean.reduce((sum, row) => sum + (row.y - meanY) ** 2, 0);
+    if (sst <= 1e-12) return vifResult(feature, null, "Constant variable");
+    const sse = clean.reduce((sum, row, i) => {
+      const fitted = design[i].reduce((acc, value, c) => acc + value * beta[c], 0);
+      return sum + (row.y - fitted) ** 2;
+    }, 0);
+    const r2 = Math.max(0, Math.min(0.999999, 1 - sse / sst));
+    if (1 - r2 < 1e-6) return vifResult(feature, r2, "Singular matrix");
+    return vifResult(feature, r2);
+  });
+  return rowsWithVif.concat(excludedRows);
+}
+
+function vifResult(variable: string, r2: number | null, reason?: string) {
+  const vif = r2 == null ? null : 1 / Math.max(1 - r2, 1e-9);
+  const tolerance = vif == null ? null : 1 / vif;
+  const status = vif == null || reason ? "Unavailable" : vif < 5 ? "Low concern" : vif < 10 ? "Moderate concern" : "High concern";
+  const recommendation = vif == null
+    ? reason || "Need more complete numeric modeling rows."
+    : reason === "Singular matrix"
+      ? "Predictor is linearly dependent on other predictors; review redundancy."
+    : vif < 5
+      ? "No immediate action."
+      : vif < 10
+        ? "Review redundant predictors before final modeling."
+        : "Consider removing, combining, or regularizing correlated predictors.";
+  return {
+    variable,
+    vif,
+    tolerance,
+    r2,
+    status,
+    reason,
+    recommendation,
+  };
+}
+
 // ---------------------- Component ----------------------
 export default function Step05_EncodingScaling() {
   // ---- columns (from server if available) ----
   const [columns, setColumns] = useState<ColumnInfo[]>([]);
   const [targetColumn, setTargetColumn] = useState<string | null>(null);
-  const featureColumns = useMemo(() => columns.filter((column) => column.name !== targetColumn), [columns, targetColumn]);
+  const [vifExcludedFeatures, setVifExcludedFeatures] = useState<string[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem(VIF_EXCLUDED_FEATURES_KEY) || "[]");
+    } catch {
+      return [];
+    }
+  });
+  const vifExcludedSet = useMemo(() => new Set(vifExcludedFeatures), [vifExcludedFeatures]);
+  const featureColumns = useMemo(() => columns.filter((column) => column.name !== targetColumn && !vifExcludedSet.has(column.name)), [columns, targetColumn, vifExcludedSet]);
   const featureColumnNames = useMemo(() => new Set(featureColumns.map((column) => column.name)), [featureColumns]);
   const numericCols = useMemo(
     () =>
@@ -132,6 +260,7 @@ export default function Step05_EncodingScaling() {
   // ---- sample data for preview ----
   const [sample, setSample] = useState<AnyRow[]>([]);
   const [usingLocalDataset, setUsingLocalDataset] = useState(false);
+  const [previewRowLimit, setPreviewRowLimit] = useState(10);
 
   // ---- store (defensive) ----
   const store = (useWorkflowStore as any)?.() || {};
@@ -301,7 +430,7 @@ export default function Step05_EncodingScaling() {
 
         if (!mounted) return;
         setTargetColumn(context.target);
-        if (rows.length) setSample(rows.slice(0, 10));
+        if (rows.length) setSample(rows.slice(0, 500));
         else setSample(syntheticFallback());
       } catch {
         if (!mounted) return;
@@ -538,6 +667,7 @@ export default function Step05_EncodingScaling() {
         : [],
     [preview, targetColumn]
   );
+  const displayedPreview = useMemo(() => preview.slice(0, previewRowLimit), [preview, previewRowLimit]);
   const createdFeatureRows = useMemo(() => {
     const rows: { name: string; type: string; formula: string; sources: string; leakage: string }[] = [];
     interactions.forEach((item) => rows.push({
@@ -563,6 +693,36 @@ export default function Step05_EncodingScaling() {
     }));
     return rows;
   }, [interactions, bins, rules, targetColumn]);
+  const vifRows = useMemo(() => previewVifRows(sample, numericCols), [sample, numericCols]);
+  const vifDiagnostics = useMemo(() => previewVifDiagnostics(sample, numericCols), [sample, numericCols]);
+
+  const excludeFeatureForVif = (variable: string) => {
+    setVifExcludedFeatures((current) => {
+      const next = uniq([...current, variable]);
+      localStorage.setItem(VIF_EXCLUDED_FEATURES_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const restoreFeatureFromVif = (variable: string) => {
+    setVifExcludedFeatures((current) => {
+      const next = current.filter((item) => item !== variable);
+      localStorage.setItem(VIF_EXCLUDED_FEATURES_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
+
+  const excludeHighVifFeatures = (threshold = VIF_AUTO_EXCLUDE_THRESHOLD) => {
+    const highVifVariables = vifRows
+      .filter((row) => typeof row.vif === "number" && row.vif >= threshold)
+      .map((row) => row.variable);
+    if (!highVifVariables.length) return;
+    setVifExcludedFeatures((current) => {
+      const next = uniq([...current, ...highVifVariables]);
+      localStorage.setItem(VIF_EXCLUDED_FEATURES_KEY, JSON.stringify(next));
+      return next;
+    });
+  };
 
   useEffect(() => {
     const payload: FeatureBuilderState = {
@@ -674,6 +834,112 @@ export default function Step05_EncodingScaling() {
           </table>
         </div>
       </section>
+      <details className="mb-6 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <summary className="cursor-pointer list-none">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">VIF / Multicollinearity Analysis</div>
+              <h3 className="mt-1 text-lg font-semibold text-slate-950">Predictor redundancy check</h3>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                Collapsed by default. Expand to review redundant predictors and uncheck variables with high multicollinearity.
+              </p>
+            </div>
+            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-600">
+              <div><span className="font-semibold text-emerald-700">VIF &lt; 5:</span> Low concern</div>
+              <div><span className="font-semibold text-amber-700">5 &lt;= VIF &lt; 10:</span> Moderate concern</div>
+              <div><span className="font-semibold text-rose-700">VIF &gt;= 10:</span> High concern</div>
+            </div>
+          </div>
+        </summary>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-blue-100 bg-blue-50 p-3">
+          <div>
+            <div className="text-sm font-semibold text-blue-950">Bulk redundancy action</div>
+            <p className="text-xs leading-5 text-blue-900">VIF_j = 1 / (1 - R_j^2). Use VIF &gt;= {VIF_AUTO_EXCLUDE_THRESHOLD} as the high-concern threshold for automatic unchecking.</p>
+          </div>
+          <button
+            type="button"
+            className="rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white shadow-sm transition hover:bg-blue-700"
+            onClick={() => excludeHighVifFeatures()}
+          >
+            Uncheck VIF &gt;= {VIF_AUTO_EXCLUDE_THRESHOLD}
+          </button>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          <SummaryPill label="Rows used for VIF" value={vifDiagnostics.rowsUsed.toLocaleString()} />
+          <SummaryPill label="Predictors evaluated" value={vifDiagnostics.predictorsEvaluated.toLocaleString()} />
+          <SummaryPill label="Predictors excluded" value={(vifDiagnostics.predictorsExcluded + vifExcludedFeatures.length).toLocaleString()} />
+          <SummaryPill label="Missingness threshold" value={vifDiagnostics.missingnessThreshold} />
+        </div>
+        {vifExcludedFeatures.length > 0 && (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">Excluded after VIF review</div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {vifExcludedFeatures.map((variable) => (
+                <button
+                  key={variable}
+                  type="button"
+                  className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900"
+                  onClick={() => restoreFeatureFromVif(variable)}
+                >
+                  Restore {variable}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        <div className="mt-4 overflow-hidden rounded-xl border border-slate-200">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
+              <tr>
+                <th className="px-3 py-2">Variable</th>
+                <th className="px-3 py-2 text-right">VIF</th>
+                <th className="px-3 py-2 text-right">Tolerance</th>
+                <th className="px-3 py-2 text-right">R-squared against other predictors</th>
+                <th className="px-3 py-2">Status</th>
+                <th className="px-3 py-2">Reason</th>
+                <th className="px-3 py-2">Recommendation</th>
+                <th className="px-3 py-2">Use</th>
+              </tr>
+            </thead>
+            <tbody>
+              {vifRows.length ? vifRows.map((row) => (
+                <tr key={row.variable} className="border-t">
+                  <td className="px-3 py-2 font-medium text-slate-900">{row.variable}</td>
+                  <td className="px-3 py-2 text-right">{row.vif == null ? "-" : row.vif.toFixed(3)}</td>
+                  <td className="px-3 py-2 text-right">{row.tolerance == null ? "-" : row.tolerance.toFixed(3)}</td>
+                  <td className="px-3 py-2 text-right">{row.r2 == null ? "-" : row.r2.toFixed(3)}</td>
+                  <td className={`px-3 py-2 font-semibold ${row.status === "Low concern" ? "text-emerald-700" : row.status === "Moderate concern" ? "text-amber-700" : row.status === "High concern" ? "text-rose-700" : "text-slate-500"}`}>{row.status}</td>
+                  <td className="px-3 py-2 text-slate-600">{row.reason ?? "-"}</td>
+                  <td className="px-3 py-2 text-slate-600">{row.recommendation}</td>
+                  <td className="px-3 py-2">
+                    <label className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700">
+                      <input
+                        type="checkbox"
+                        checked={!vifExcludedSet.has(row.variable)}
+                        disabled={row.status === "Unavailable"}
+                        onChange={(event) => {
+                          if (event.target.checked) {
+                            restoreFeatureFromVif(row.variable);
+                          } else {
+                            excludeFeatureForVif(row.variable);
+                          }
+                        }}
+                      />
+                      Use
+                    </label>
+                  </td>
+                </tr>
+              )) : (
+                <tr>
+                  <td className="px-3 py-4 text-sm text-slate-500" colSpan={8}>
+                    VIF requires at least two numeric predictors and enough complete rows in the current preview sample.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </details>
       {/* Top controls: Polynomials / Scaling / Encoding */}
       <div className="grid gap-4 md:grid-cols-3 mb-6">
         <div className="bg-white border rounded-lg p-4">
@@ -992,9 +1258,23 @@ export default function Step05_EncodingScaling() {
 
       {/* Preview */}
       <div className="bg-white border rounded-lg p-4">
-        <h3 className="font-semibold mb-3">Preview (first 10 rows)</h3>
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h3 className="font-semibold">Preview first {previewRowLimit} rows</h3>
+          <label className="flex items-center gap-2 text-xs font-semibold uppercase text-slate-500">
+            Rows
+            <select
+              className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm font-normal normal-case text-slate-900"
+              value={previewRowLimit}
+              onChange={(event) => setPreviewRowLimit(Number(event.target.value))}
+            >
+              {[10, 25, 50, 100].map((count) => (
+                <option key={count} value={count}>{count}</option>
+              ))}
+            </select>
+          </label>
+        </div>
         <div className="overflow-auto">
-          {preview.length === 0 ? (
+          {displayedPreview.length === 0 ? (
             <p className="text-sm text-gray-500">No preview rows available.</p>
           ) : (
             <table className="min-w-full text-sm">
@@ -1008,7 +1288,7 @@ export default function Step05_EncodingScaling() {
                 </tr>
               </thead>
               <tbody>
-                {preview.map((row, i) => (
+                {displayedPreview.map((row, i) => (
                   <tr key={i} className="odd:bg-gray-50">
                     {previewCols.map((c) => (
                       <td key={c} className="px-2 py-1 border-b">

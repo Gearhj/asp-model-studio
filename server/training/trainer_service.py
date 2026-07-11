@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Any, Dict, List, Tuple
+import re
 
 from ..core.dataset_store import DATASTORE
 from ..core.json_safety import json_safe
@@ -20,6 +21,40 @@ class TrainerService:
     MODEL_LABELS: Dict[str, str] = {
         key: spec.get("label", key) for key, spec in MODEL_CATALOG.items()
     }
+
+    def _normalized(self, value: Any) -> str:
+        return re.sub(r"[^a-z0-9]+", "_", str(value or "").strip().lower()).strip("_")
+
+    def _target_aliases(self, target: str = "") -> set[str]:
+        aliases = {
+            self._normalized(target),
+            self._normalized(DATASTORE.target),
+            "bad_flag",
+            "riskperformance",
+        }
+        source = DATASTORE.meta.get("source") if isinstance(DATASTORE.meta, dict) else {}
+        if isinstance(source, dict):
+            for key in ("target", "targetColumn", "originalTargetLabelColumn", "originalTargetLabel", "labelColumn"):
+                aliases.add(self._normalized(source.get(key)))
+        return {alias for alias in aliases if alias}
+
+    def _is_target_derived_feature(self, column: Any, target: str = "") -> bool:
+        name = self._normalized(column)
+        if not name:
+            return True
+        for alias in self._target_aliases(target):
+            if name == alias or name.startswith(f"{alias}_"):
+                return True
+        return False
+
+    def _sanitize_feature_frame(self, frame, target: str = ""):
+        if frame is None:
+            return frame, []
+        keep = [col for col in frame.columns if not self._is_target_derived_feature(col, target)]
+        dropped = [str(col) for col in frame.columns if col not in keep]
+        if not keep:
+            raise ValueError("No usable feature columns remain after excluding target-derived fields.")
+        return frame.loc[:, keep].copy(), dropped
 
     def _current_dataset_and_target(self):
         df = DATASTORE.get_active_df()
@@ -49,10 +84,16 @@ class TrainerService:
                 return str(col)
         return None
 
-    def _get_or_create_splits(self, k_folds: int) -> Tuple[Any, Any, Any, Any]:
+    def _get_or_create_splits(self, k_folds: int) -> Tuple[Any, Any, Any, Any, List[str]]:
         X_train, X_test, y_train, y_test = DATASTORE.get_splits()
         if X_train is not None and X_test is not None and y_train is not None and y_test is not None:
-            return X_train, X_test, y_train, y_test
+            active_target = str(DATASTORE.target or getattr(y_train, "name", "") or "")
+            X_train, dropped_train = self._sanitize_feature_frame(X_train, active_target)
+            X_test, dropped_test = self._sanitize_feature_frame(X_test, active_target)
+            dropped = sorted(set(dropped_train + dropped_test))
+            if dropped:
+                DATASTORE.set_splits(X_train, X_test, y_train, y_test)
+            return X_train, X_test, y_train, y_test, dropped
 
         df, target = self._current_dataset_and_target()
         X_train, X_test, y_train, y_test, _ = split_service.make_dev_split(
@@ -65,8 +106,11 @@ class TrainerService:
                 "balance_ratio": "80/20",
             },
         )
+        X_train, dropped_train = self._sanitize_feature_frame(X_train, target)
+        X_test, dropped_test = self._sanitize_feature_frame(X_test, target)
+        dropped = sorted(set(dropped_train + dropped_test))
         DATASTORE.set_splits(X_train, X_test, y_train, y_test)
-        return X_train, X_test, y_train, y_test
+        return X_train, X_test, y_train, y_test, dropped
 
     def get_availability(self) -> Dict[str, Any]:
         availability: Dict[str, bool] = {}
@@ -98,7 +142,7 @@ class TrainerService:
         target: str = "",
         problem_type: str = "",
     ) -> Dict[str, Any]:
-        X_train, X_test, y_train, y_test = self._get_or_create_splits(k_folds)
+        X_train, X_test, y_train, y_test, excluded_target_features = self._get_or_create_splits(k_folds)
 
         result = train_models(
             X_train=X_train,
@@ -138,6 +182,8 @@ class TrainerService:
                 "training_run_id": training_run_id,
                 "n_train": int(len(y_train)),
                 "n_test": int(len(y_test)),
+                "n_features": int(X_train.shape[1]),
+                "excluded_target_features": excluded_target_features,
                 "k_folds": int(k_folds),
                 "max_parallel": int(max_parallel),
                 "calibrate": bool(calibrate),

@@ -1,11 +1,9 @@
 // src/steps/Step06_Train.tsx
 
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { logDecision } from "../lib/decisionJournal";
 import { recordTrainingExperiments } from "../lib/experimentTracking";
 import { inferLocalProblemType, loadLocalDataset, localDatasetVersion } from "../lib/localDataset";
-import { saveActiveProjectBeforeNavigation } from "../lib/localProjects";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import StepPythonPanel from "../components/StepPythonPanel";
 
@@ -34,6 +32,8 @@ type TrainResponse = {
     problem_type?: ProblemType;
     ranked?: RankedRow[];
     failed?: { key: string; name?: string; error?: string }[];
+    n_features?: number;
+    excluded_target_features?: string[];
   };
   // backend may also persist a summary, but we read that via /train/last
 };
@@ -192,6 +192,29 @@ const gridSearchGuidance: Record<"quick" | "balanced" | "thorough", string> = {
 
 const ALL_MODEL_KEYS = MODEL_GROUPS.flatMap((group) => group.models.map((model) => model.key));
 const OPTIONAL_MODEL_KEYS = new Set<ModelKey>(["ebm", "xgb", "cat", "lgbm", "linsvm", "iso", "autoreg", "mlp", "xgb_reg", "lgbm_reg", "cat_reg"]);
+const TARGET_DERIVED_ALIASES = ["bad_flag", "riskperformance"];
+
+function normalizeFeatureName(value?: string | null) {
+  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function isTargetDerivedFeature(column: string, target?: string | null) {
+  const name = normalizeFeatureName(column);
+  const aliases = Array.from(new Set([normalizeFeatureName(target), ...TARGET_DERIVED_ALIASES].filter(Boolean)));
+  return aliases.some((alias) => name === alias || name.startsWith(`${alias}_`));
+}
+
+function trainingFeatureColumns(dataset: ReturnType<typeof loadLocalDataset>) {
+  if (!dataset) return { selected: [] as string[], excludedTargetDerived: [] as string[] };
+  const source = dataset.selected_columns?.length ? dataset.selected_columns : dataset.headers.filter((header) => header !== dataset.target);
+  const selected: string[] = [];
+  const excludedTargetDerived: string[] = [];
+  source.forEach((column) => {
+    if (isTargetDerivedFeature(column, dataset.target)) excludedTargetDerived.push(column);
+    else selected.push(column);
+  });
+  return { selected, excludedTargetDerived };
+}
 
 function readTrainingUiState(): TrainingUiState {
   if (typeof localStorage === "undefined") return {};
@@ -330,10 +353,27 @@ function Toggle({
 }
 
 function formatParams(params?: Record<string, unknown> | null) {
-  if (!params || !Object.keys(params).length) return "-";
+  if (!params || !Object.keys(params).length) return "Default parameters, not tuned.";
   return Object.entries(params)
     .map(([key, value]) => `${key}: ${String(value)}`)
     .join(", ");
+}
+
+function formatBestParams(row: RankedRow, useGridSearch: boolean) {
+  if (row.best_params && Object.keys(row.best_params).length) return formatParams(row.best_params);
+  if (row.task === "anomaly") return "No tunable parameters used.";
+  return useGridSearch ? "Tuning failed: no best parameter set returned." : "Default parameters, not tuned.";
+}
+
+function modelGuidance(model: ModelDef) {
+  const label = displayModelName(model.label);
+  if (/Linear Regression/i.test(label)) return { bestFor: "Transparent continuous-target baseline", strengths: "Coefficients, residual diagnostics, fast training", cautions: "Assumes linear additive effects and stable residuals" };
+  if (/Decision Tree/i.test(label)) return { bestFor: "Interpretable nonlinear rules", strengths: "Easy split logic and segment explanation", cautions: "Can overfit and underperform ensembles" };
+  if (/Random Forest/i.test(label)) return { bestFor: "Robust nonlinear challenger", strengths: "Handles interactions and nonlinear signal", cautions: "Less transparent; monitor feature importance stability" };
+  if (/XGBoost|LightGBM|CatBoost/i.test(label)) return { bestFor: "High-performance challenger", strengths: "Strong tabular predictive performance", cautions: "Requires tuning, validation, and governance explanation" };
+  if (/K-Nearest/i.test(label)) return { bestFor: "Local similarity benchmark", strengths: "Intuitive neighborhood behavior", cautions: "Sensitive to scaling and high-dimensional noise" };
+  if (/Logistic Regression/i.test(label)) return { bestFor: "Transparent binary classification baseline", strengths: "Stable, explainable, calibration-friendly", cautions: "May miss nonlinear interactions" };
+  return { bestFor: "Candidate model comparison", strengths: "Adds challenger evidence", cautions: "Confirm validation metrics and governance fit" };
 }
 
 function formatMetric(value?: number, digits = 4) {
@@ -365,8 +405,6 @@ function saveLocalTrainingSummary(summary: { ranked?: RankedRow[]; problem_type?
 // ---------------------------------------------------------------------------
 
 export default function Step06_Train() {
-  const navigate = useNavigate();
-  const markComplete = useWorkflowStore((state) => state.markComplete);
   const projectId = useWorkflowStore((state) => state.projectId);
   const initialProblemType = inferProblemTypeFromLocalDataset();
   const savedTrainingUiState = readTrainingUiState();
@@ -423,12 +461,6 @@ export default function Step06_Train() {
     });
     return keys;
   }, [visibleGroups]);
-  const canGoToEvaluation =
-    !isTraining &&
-    selectedModels.every((model) => status[model] !== "pending") &&
-    (Object.values(status).some((value) => value === "done") || (summary?.length ?? 0) > 0) &&
-    (summary?.length ?? 0) > 0;
-
   const isRegressionSummary =
     problemType === "regression" ||
     (!problemType &&
@@ -628,27 +660,38 @@ export default function Step06_Train() {
   // -------------------------------------------------------------------------
 
   async function ensureBackendDataset() {
+    const localDataset = loadLocalDataset();
+    if (!localDataset?.rows.length) return false;
+    const target = inferTarget(localDataset.headers, localDataset.target);
+    const { selected, excludedTargetDerived } = trainingFeatureColumns(localDataset);
+
     try {
       const columnsRes = await fetch(`${API_BASE}/columns`);
       if (columnsRes.ok) {
         const columnsJson = await columnsRes.json();
         if (Array.isArray(columnsJson?.columns) && columnsJson.columns.length > 0 && columnsJson?.target) {
-          return true;
+          const syncTargetRes = await fetch(`${API_BASE}/data/set_target`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ target, selected_columns: selected }),
+          });
+          if (syncTargetRes.ok) {
+            if (excludedTargetDerived.length) {
+              setMessage(`Training feature gate excluded target-derived fields: ${excludedTargetDerived.join(", ")}.`);
+            }
+            return true;
+          }
         }
       }
     } catch {
       // Fall through and try the browser cache.
     }
 
-    const localDataset = loadLocalDataset();
-    if (!localDataset?.rows.length) return false;
-
-    setMessage("Backend dataset was empty. Reloading the browser preview sample before training. For full rare-event training, return to Data Acquisition and re-send the full uploaded file.");
-    const target = inferTarget(localDataset.headers, localDataset.target);
+    setMessage("Backend dataset was empty or stale. Reloading the browser-selected preview sample before training. For full rare-event training, return to Data Acquisition and re-send the full uploaded file.");
     const syncRes = await fetch(`${API_BASE}/data/set_sample`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...localDataset, target }),
+      body: JSON.stringify({ ...localDataset, target, selected_columns: selected }),
     });
 
     if (!syncRes.ok) return false;
@@ -780,11 +823,15 @@ export default function Step06_Train() {
       saveLocalTrainingSummary(j.summary);
 
       const rowsInfo = j.rows ? ` on ${j.rows.toLocaleString()} rows` : "";
+      const featureInfo = typeof j.summary?.n_features === "number" ? ` using ${j.summary.n_features.toLocaleString()} features` : "";
+      const targetExclusionInfo = j.summary?.excluded_target_features?.length
+        ? ` Target-derived fields excluded: ${j.summary.excluded_target_features.join(", ")}.`
+        : "";
       const statusInfo = j.status ? ` (status: ${j.status})` : "";
       setMessage(
         failedRows.length
-          ? `Training completed${rowsInfo}${statusInfo}. ${trainedKeys.size} model(s) fit successfully; ${failedRows.length} model(s) failed. Metrics below are calculated from fitted backend models.`
-          : `Training completed${rowsInfo}${statusInfo}. Metrics below are calculated from fitted backend models.`
+          ? `Training completed${rowsInfo}${featureInfo}${statusInfo}. ${trainedKeys.size} model(s) fit successfully; ${failedRows.length} model(s) failed. Metrics below are calculated from fitted backend models.${targetExclusionInfo}`
+          : `Training completed${rowsInfo}${featureInfo}${statusInfo}. Metrics below are calculated from fitted backend models.${targetExclusionInfo}`
       );
 
       const fittedRanked = (j.summary?.ranked ?? []) as RankedRow[];
@@ -838,12 +885,13 @@ export default function Step06_Train() {
   // Render
   // -------------------------------------------------------------------------
   const readinessDataset = loadLocalDataset();
-  const readinessFeatureCount = readinessDataset?.selected_columns?.length ?? readinessDataset?.headers?.filter((header) => header !== readinessDataset.target).length ?? null;
+  const readinessFeatureGate = trainingFeatureColumns(readinessDataset);
+  const readinessFeatureCount = readinessFeatureGate.selected.length || null;
   const optimizationMetric = problemType === "regression" ? "RMSE primary, MAE/R-squared secondary" : "AUC/PR-AUC/F1 with lift and calibration";
 
   return (
     <div className="w-full space-y-6">
-      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+      <div className="hidden">
         <div className="font-semibold">
           Front-end: <span className="font-mono">Step06_Train.tsx</span>{" "}
           <span className="mx-1">·</span> Backend: <span className="font-mono">/api/model/train</span>{" "}
@@ -855,10 +903,26 @@ export default function Step06_Train() {
         </div>
       </div>
 
-      <h1 className="text-2xl font-semibold">Step 7: Model Training</h1>
+      <div className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950 p-5 text-white shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-emerald-200">Credit Risk Studio Workflow</div>
+            <h1 className="mt-1 text-2xl font-semibold text-white">Step 7: Model Training</h1>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-200">
+              Train selected champion and challenger models with the approved feature set, split policy, tuning depth, and calibration controls.
+            </p>
+          </div>
+          <div className="grid min-w-[280px] gap-2 sm:grid-cols-2">
+            <HeaderMetric label="Dataset" value={readinessDataset?.rows?.length ? "Loaded" : "Backend"} />
+            <HeaderMetric label="Features" value={readinessFeatureCount !== null ? readinessFeatureCount.toString() : "Backend"} />
+            <HeaderMetric label="Models" value={selectedModels.length.toString()} />
+            <HeaderMetric label="Status" value={selectedModels.length ? "Ready" : "Select models"} tone={selectedModels.length ? "green" : "amber"} />
+          </div>
+        </div>
+      </div>
 
       {/* Split configuration */}
-      <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+      <div className="rounded-2xl border border-blue-200 bg-blue-50/70 p-4 shadow-sm">
         <div className="flex items-center justify-between">
           <div>
             <div className="text-sm font-semibold text-gray-800">
@@ -873,18 +937,18 @@ export default function Step06_Train() {
           </div>
         </div>
 
-        <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <div className="mt-5 rounded-xl border border-blue-100 bg-white p-4 shadow-sm">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Validation Setup</div>
           <p className="mt-1 text-xs text-slate-600">
             Split strategy, folds, and holdout policy are inherited from Balance &amp; Split. Regression optimizes RMSE/MAE/R-squared; classification optimizes ranking and event-detection metrics.
           </p>
         </div>
 
-        <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-4">
+        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Training Readiness</div>
-              <p className="mt-1 text-xs leading-5 text-blue-900">
+              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Training Readiness</div>
+              <p className="mt-1 text-xs leading-5 text-emerald-900">
                 This summarizes the request ATLAS will send to the training backend.
               </p>
             </div>
@@ -900,12 +964,17 @@ export default function Step06_Train() {
             <ReadinessCard label="Optimization" value={optimizationMetric} />
             <ReadinessCard label="Grid Search" value={useGridSearch ? gridSearchLevel : "Off"} />
           </div>
+          {readinessFeatureGate.excludedTargetDerived.length > 0 && (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+              Target-derived fields excluded before training: {readinessFeatureGate.excludedTargetDerived.join(", ")}.
+            </div>
+          )}
         </div>
 
-        <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Execution Settings</div>
+        <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Configure Selected Models</div>
         <div className="mt-4 grid gap-4 md:grid-cols-3">
           <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700">Max parallel models</label>
+            <label className="block text-xs font-medium text-gray-700">Max parallel model jobs</label>
             <input
               type="number"
               min={1}
@@ -925,7 +994,7 @@ export default function Step06_Train() {
               className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             />
             <p className="text-[11px] text-gray-500">
-              Hint: set higher on beefy boxes; lower on laptops.
+              1 safest/slowest. 2 recommended for laptops. 4 is faster but needs CPU/RAM. 6+ is for powerful workstations or servers.
             </p>
           </div>
 
@@ -971,12 +1040,15 @@ export default function Step06_Train() {
               className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
             />
             <label htmlFor="usePCA" className="text-xs font-medium text-gray-700">
-              Use PCA (distance based)
+              Apply PCA preprocessing
             </label>
+            <span className="text-[11px] leading-4 text-gray-500">
+              Default is no PCA. Use mainly for distance-based or highly collinear numeric feature spaces; avoid when coefficient-level interpretability is required.
+            </span>
           </div>
         </div>
 
-        <div className="mt-5 text-xs font-semibold uppercase tracking-wide text-slate-500">Advanced Search</div>
+        <div className="mt-5 text-xs font-semibold uppercase tracking-wide text-slate-500">Advanced Options</div>
         <div className="mt-4 grid gap-4 border-t border-gray-100 pt-4 md:grid-cols-[minmax(220px,1fr)_220px_minmax(0,2fr)]">
           <div className="flex items-center space-x-2">
             <input
@@ -1067,7 +1139,7 @@ export default function Step06_Train() {
           </div>
         </div>
 
-        <div className="mt-4 flex items-center gap-2">
+        <div className="hidden">
           <button
             type="button"
             onClick={startTraining}
@@ -1087,13 +1159,18 @@ export default function Step06_Train() {
       </div>
 
       {/* Model groups */}
-      <div className="space-y-4">
+      <div className="space-y-4 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 shadow-sm">
+        <div className="rounded-xl border border-emerald-100 bg-white p-4">
+          <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Select Algorithms</div>
+          <h2 className="mt-1 text-lg font-semibold text-slate-950">{problemType === "regression" ? "Regression algorithms" : "Classification algorithms"}</h2>
+          <p className="mt-1 text-sm text-slate-600">Choose candidate models first. ATLAS trains only the selected cards below.</p>
+        </div>
         {visibleGroups.map((group) => (
           <div
             key={group.id}
-            className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm"
+            className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm"
           >
-            <div className="mb-2 text-sm font-semibold text-gray-800">{group.title}</div>
+            <div className="mb-3 inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-900">{group.title}</div>
             <div className="grid gap-3 md:grid-cols-2">
               {group.models.map((m) => {
                 const optionalUnavailable = availabilityLoaded && OPTIONAL_MODEL_KEYS.has(m.key) && availability[m.key] === false;
@@ -1104,20 +1181,33 @@ export default function Step06_Train() {
                 return (
                   <div
                     key={m.key}
-                    className="flex items-center justify-between rounded-lg border border-gray-100 bg-gray-50 px-3 py-2"
+                    className={`rounded-lg border px-3 py-3 ${isChecked ? "border-indigo-200 bg-indigo-50" : "border-gray-100 bg-gray-50"}`}
                   >
-                    <div className="flex flex-col">
-                      <div className="flex items-center text-sm font-medium text-gray-800">
-                        {label}
-                        <StatusPill status={status[m.key]} />
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex min-w-0 flex-col">
+                        <div className="flex items-center text-sm font-medium text-gray-800">
+                          {label}
+                          <StatusPill status={status[m.key]} />
+                        </div>
+                        <div className="text-[11px] leading-4 text-gray-500">{m.tooltip ?? "Select this candidate model when it aligns with the project objective and validation plan."}</div>
                       </div>
-                      <div className="text-[11px] leading-4 text-gray-500">{m.tooltip ?? "Select this candidate model when it aligns with the project objective and validation plan."}</div>
+                      <Toggle
+                        checked={isChecked}
+                        disabled={!enabled || isTraining}
+                        onChange={() => toggleModelSelection(m)}
+                      />
                     </div>
-                    <Toggle
-                      checked={isChecked}
-                      disabled={!enabled || isTraining}
-                      onChange={() => toggleModelSelection(m)}
-                    />
+                    {(() => {
+                      const guidance = modelGuidance(m);
+                      return (
+                        <div className="mt-3 grid gap-2 text-[11px] leading-4 text-slate-600 md:grid-cols-2">
+                          <div><span className="font-semibold text-slate-800">Best for: </span>{guidance.bestFor}</div>
+                          <div><span className="font-semibold text-slate-800">Strengths: </span>{guidance.strengths}</div>
+                          <div><span className="font-semibold text-slate-800">Cautions: </span>{guidance.cautions}</div>
+                          <div><span className="font-semibold text-slate-800">Tuning status: </span>{useGridSearch ? `${gridSearchLevel} grid search` : "Default parameters, not tuned."}</div>
+                        </div>
+                      );
+                    })()}
                     {optionalUnavailable && (
                       <span className="ml-2 text-[11px] font-medium text-amber-600" title="ATLAS will include this model in the request. If the backend package is unavailable, the model will be reported as failed without blocking other selected models.">
                         package warning
@@ -1131,11 +1221,30 @@ export default function Step06_Train() {
         ))}
       </div>
 
+      <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 shadow-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Train Selected Models</div>
+            <p className="mt-1 text-sm text-slate-600">
+              Fit {selectedModels.length || 0} selected model{selectedModels.length === 1 ? "" : "s"} with the validation, tuning, calibration, and PCA settings above.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={startTraining}
+            disabled={isTraining || selectedModels.length === 0}
+            className="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300"
+          >
+            {isTraining ? "Training..." : "Train Selected Models"}
+          </button>
+        </div>
+      </div>
+
       <StepPythonPanel />
 
       {/* Summary + metrics table */}
-      <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-        <div className="mb-2 text-sm font-semibold text-gray-800">Summary</div>
+      <div className="rounded-2xl border border-blue-200 bg-blue-50/70 p-4 shadow-sm">
+        <div className="mb-2 text-sm font-semibold text-gray-800">Training Results</div>
         <p className="text-xs text-gray-600">
           After training, this table shows basic performance metrics for each model from the latest
           run. Detailed diagnostics (lift, SHAP, PDP, stability) will appear in Step 8.
@@ -1208,9 +1317,9 @@ export default function Step06_Train() {
                     )}
                     <td
                       className="max-w-[280px] truncate py-1 pr-4 text-gray-600"
-                      title={formatParams(m.best_params)}
+                      title={formatBestParams(m, useGridSearch)}
                     >
-                      {formatParams(m.best_params)}
+                      {formatBestParams(m, useGridSearch)}
                     </td>
                   </tr>
                 ))}
@@ -1225,29 +1334,6 @@ export default function Step06_Train() {
           </div>
         )}
 
-        <div className="mt-6 flex justify-center">
-          <button
-            type="button"
-            disabled={!canGoToEvaluation}
-            onClick={() => {
-              if (!canGoToEvaluation) return;
-              try {
-                markComplete("step07");
-                const saveResult = saveActiveProjectBeforeNavigation(useWorkflowStore.getState());
-                if (!saveResult.ok) {
-                  setMessage(`${saveResult.message} ATLAS will continue to Evaluation; reopen may restore only workflow progress.`);
-                }
-                navigate("/step08");
-                window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: "auto" }));
-              } catch (error) {
-                setMessage(error instanceof Error ? error.message : "ATLAS could not save the training summary before evaluation.");
-              }
-            }}
-            className="inline-flex min-w-[260px] items-center justify-center rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-gray-300 disabled:text-gray-500 disabled:shadow-none"
-          >
-            Mark Complete &amp; Go to Evaluation
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -1258,6 +1344,21 @@ function ReadinessCard({ label, value }: { label: string; value: string }) {
     <div className="rounded-lg border border-blue-100 bg-white p-3">
       <div className="text-[10px] font-semibold uppercase text-blue-500">{label}</div>
       <div className="mt-1 truncate text-xs font-semibold text-slate-900" title={value}>{value}</div>
+    </div>
+  );
+}
+
+function HeaderMetric({ label, value, tone = "blue" }: { label: string; value: string; tone?: "blue" | "green" | "amber" }) {
+  const toneClass =
+    tone === "green"
+      ? "border-emerald-300/40 bg-emerald-400/10 text-emerald-50"
+      : tone === "amber"
+        ? "border-amber-300/40 bg-amber-300/10 text-amber-50"
+        : "border-blue-300/30 bg-white/10 text-slate-50";
+  return (
+    <div className={`rounded-lg border px-3 py-2 ${toneClass}`}>
+      <div className="text-[10px] font-semibold uppercase opacity-75">{label}</div>
+      <div className="mt-1 truncate text-sm font-semibold" title={value}>{value}</div>
     </div>
   );
 }

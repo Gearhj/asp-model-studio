@@ -40,6 +40,8 @@ DATASET_ACCESS_ROLES = {"owner", "editor", "viewer", "auditor"}
 PROJECT_ACCESS_ROLES = {"owner", "editor", "viewer", "approver", "auditor"}
 ADMIN_ROLES = {"admin"}
 AUDIT_ROLES = {"admin", "auditor", "model_manager"}
+DEFAULT_SESSION_SECRET = "atlas-local-dev-default-session-secret"
+DEFAULT_LOCAL_ADMIN_PASSWORD = "AtlasLocalDev123!"
 
 
 def now_iso() -> str:
@@ -58,7 +60,19 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
+def enforce_hosted_security_configuration() -> None:
+    if not ATLAS_HOSTED_MODE:
+        return
+    if not ATLAS_AUTH_ENABLED:
+        raise RuntimeError("ATLAS_AUTH_ENABLED must be true in hosted mode.")
+    if SESSION_SECRET == DEFAULT_SESSION_SECRET:
+        raise RuntimeError("ATLAS_SESSION_SECRET must be configured in hosted mode.")
+    if DEFAULT_ADMIN_PASSWORD == DEFAULT_LOCAL_ADMIN_PASSWORD:
+        raise RuntimeError("ATLAS_DEFAULT_ADMIN_PASSWORD must be changed in hosted mode.")
+
+
 def init_security_store() -> None:
+    enforce_hosted_security_configuration()
     SECURITY_ROOT.mkdir(parents=True, exist_ok=True)
     with connect() as conn:
         conn.executescript(
@@ -572,7 +586,7 @@ def security_diagnostics() -> Dict[str, Any]:
     checks.append({"id": "user_db", "label": "User database reachable", "status": "pass" if DB_PATH.exists() else "fail", "detail": str(DB_PATH)})
     checks.append({"id": "hashing", "label": "Password hashing configured", "status": "warning", "detail": f"{PASSWORD_ALGORITHM} with per-user random salt. Install argon2id/bcrypt for production-grade hosted deployment."})
     checks.append({"id": "admin_exists", "label": "Admin user exists", "status": "pass" if any(user.get("role") == "admin" for user in users) else "fail", "detail": f"{len(users)} user records."})
-    checks.append({"id": "session_secret", "label": "Security secret configured", "status": "warning" if SESSION_SECRET == "atlas-local-dev-default-session-secret" else "pass", "detail": "Default local secret is in use." if SESSION_SECRET == "atlas-local-dev-default-session-secret" else "Custom session secret configured."})
+    checks.append({"id": "session_secret", "label": "Security secret configured", "status": "warning" if SESSION_SECRET == DEFAULT_SESSION_SECRET else "pass", "detail": "Default local secret is in use." if SESSION_SECRET == DEFAULT_SESSION_SECRET else "Custom session secret configured."})
     checks.append({"id": "cookie_policy", "label": "Session cookie policy", "status": "pass" if ATLAS_LOCAL_DEV or ATLAS_HOSTED_MODE else "warning", "detail": "Secure cookies are required when not running local development."})
     checks.append({"id": "dataset_acl", "label": "Dataset ACL enforcement available", "status": "pass", "detail": "Dataset endpoints require authenticated user context and owner/grant/admin access."})
     checks.append({"id": "project_acl", "label": "Project ACL enforcement available", "status": "pass", "detail": "Project access grants and project-dataset link checks are available."})

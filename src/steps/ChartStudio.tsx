@@ -1,11 +1,15 @@
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
-import { BarChart3, Code2, Database, Download, FileSpreadsheet, GitBranch, Save, Sparkles } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
+import { BarChart3, Code2, Copy, Database, Download, FileSpreadsheet, GitBranch, Play, RotateCcw, Save, Sparkles } from "lucide-react";
 import BrandLogo from "../components/BrandLogo";
 import { getDataset, getDatasetPreview, getDatasetProfile, listDatasets, type DatasetPreview, type DatasetProfile, type DatasetSummary, type DatasetVersionSummary } from "../lib/datasetLibrary";
 import { exportChartDataExcel, listChartInsights, saveChartInsight, type ChartStudioRoleAssignments } from "../lib/chartStudio";
-import type { AtlasAnalyticsInsight } from "../lib/analyticsWorkbench";
+import { exportAnalyticsResultExcel, runAnalyticsPreviewSql, saveAnalyticsInsight, type AtlasAnalyticsInsight } from "../lib/analyticsWorkbench";
+import { runUserPython, runUserR, runUserSasCompatible, type CodeRunResult } from "../lib/codeExecution";
+import { CodeExecutionResult } from "../components/code/CodeExecutionResult";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { isScoredOutputDataset } from "../lib/modelDiagnostics";
 
 type DatasetDetail = DatasetSummary & { versions?: DatasetVersionSummary[] };
 type ChartRow = Record<string, unknown>;
@@ -52,6 +56,7 @@ type ChartTypeId =
 type GalleryTab = "Basic" | "Grouped" | "Analytical" | "Matrix" | "Panels" | "Custom";
 type BinningMethod = "quantile" | "equal_width";
 type BinningConfig = { enabled: boolean; bins: number; method: BinningMethod };
+type CodeTab = "Python" | "SQL" | "R" | "SAS-compatible";
 
 const BINNED_ROLE_PREFIX = "__atlas_binned__:";
 
@@ -64,57 +69,58 @@ const CHART_FAMILIES: Array<{
     charts: [
       { id: "scatter", label: "Scatter Plot", description: "Inspect numeric relationships and outliers.", bestFor: "relationships, clusters, outliers", implemented: true },
       { id: "line", label: "Line Plot", description: "Show a measure across ordered values or time.", bestFor: "trends and ordered measures", implemented: true },
-      { id: "step", label: "Step Plot", description: "Show discrete changes across ordered values.", bestFor: "threshold and staged changes", implemented: false },
+      { id: "step", label: "Step Plot", description: "Show discrete changes across ordered values.", bestFor: "threshold and staged changes", implemented: true },
       { id: "histogram", label: "Histogram", description: "Review distribution shape for a numeric variable.", bestFor: "distribution shape", implemented: true },
       { id: "box", label: "Box Plot", description: "Compare numeric distributions by group.", bestFor: "spread, outliers, group comparison", implemented: true },
       { id: "bar", label: "Bar Chart", description: "Compare an aggregated measure across categories.", bestFor: "category comparison", implemented: true },
-      { id: "horizontal_bar", label: "Horizontal Bar Chart", description: "Compare categories with long labels.", bestFor: "ranked category labels", implemented: false },
-      { id: "density", label: "Density Plot", description: "Estimate a smooth distribution curve.", bestFor: "distribution comparison", implemented: false },
+      { id: "horizontal_bar", label: "Horizontal Bar Chart", description: "Compare categories with long labels.", bestFor: "ranked category labels", implemented: true },
+      { id: "density", label: "Density Plot", description: "Estimate a smooth distribution curve.", bestFor: "distribution comparison", implemented: true },
     ],
   },
   {
     family: "Grouped",
     charts: [
-      { id: "grouped_bar", label: "Grouped Bar", description: "Compare grouped categories side by side.", bestFor: "category-by-segment comparison", implemented: false },
-      { id: "stacked_bar", label: "Stacked Bar", description: "Compare totals and composition.", bestFor: "composition and totals", implemented: false },
-      { id: "grouped_box", label: "Grouped Box Plot", description: "Compare distributions across grouped segments.", bestFor: "spread by segment", implemented: false },
-      { id: "grouped_scatter", label: "Grouped Scatter", description: "Inspect numeric relationships by group.", bestFor: "segmented relationships", implemented: false },
-      { id: "grouped_line", label: "Grouped Line", description: "Compare multiple trend lines.", bestFor: "multi-series trends", implemented: false },
+      { id: "grouped_bar", label: "Grouped Bar", description: "Compare grouped categories side by side.", bestFor: "category-by-segment comparison", implemented: true },
+      { id: "stacked_bar", label: "Stacked Bar", description: "Compare totals and composition.", bestFor: "composition and totals", implemented: true },
+      { id: "grouped_box", label: "Grouped Box Plot", description: "Compare distributions across grouped segments.", bestFor: "spread by segment", implemented: true },
+      { id: "grouped_scatter", label: "Grouped Scatter", description: "Inspect numeric relationships by group.", bestFor: "segmented relationships", implemented: true },
+      { id: "grouped_line", label: "Grouped Line", description: "Compare multiple trend lines.", bestFor: "multi-series trends", implemented: true },
     ],
   },
   {
     family: "Analytical",
     charts: [
       { id: "correlation_heatmap", label: "Correlation Heatmap", description: "Compare numeric pairwise relationships.", bestFor: "relationship screening", implemented: true },
+      { id: "heatmap", label: "Heatmap", description: "Show a measure across two categorical or binned axes.", bestFor: "matrix-style segment intensity", implemented: true },
       { id: "pareto", label: "Pareto", description: "Rank categories and cumulative contribution.", bestFor: "concentration and top drivers", implemented: true },
       { id: "waterfall", label: "Waterfall", description: "Show cumulative positive and negative changes.", bestFor: "bridge and variance analysis", implemented: true },
       { id: "control", label: "Control Chart", description: "Detect process shifts against control limits.", bestFor: "process stability", implemented: true },
       { id: "dual_axis", label: "Dual Axis", description: "Compare two measures over the same x axis.", bestFor: "related measures with different scales", implemented: true },
       { id: "sankey", label: "Sankey", description: "Summarize source-to-target flows.", bestFor: "flows and transitions", implemented: true },
-      { id: "residual_diagnostic", label: "Residual Diagnostics", description: "Inspect residual patterns for regression.", bestFor: "model error diagnostics", implemented: false },
-      { id: "lift_decile", label: "Lift / Decile", description: "Evaluate model lift by ranked groups.", bestFor: "model performance by rank", implemented: false },
-      { id: "forecast", label: "Forecast", description: "Show projected values with uncertainty.", bestFor: "time-aware prediction", implemented: false },
-      { id: "survival", label: "Survival", description: "Show survival or retention curves.", bestFor: "time-to-event analysis", implemented: false },
-      { id: "means", label: "Means Plot", description: "Compare means and uncertainty by group.", bestFor: "statistical group comparison", implemented: false },
-      { id: "data_profile", label: "Data Profile", description: "Summarize variable quality and distribution.", bestFor: "EDA overview", implemented: false },
+      { id: "residual_diagnostic", label: "Residual Diagnostics", description: "Inspect residual patterns for regression.", bestFor: "model error diagnostics", implemented: true },
+      { id: "lift_decile", label: "Lift / Decile", description: "Evaluate model lift by ranked groups.", bestFor: "model performance by rank", implemented: true },
+      { id: "forecast", label: "Forecast", description: "Show projected values with uncertainty.", bestFor: "time-aware prediction", implemented: true },
+      { id: "survival", label: "Survival", description: "Show survival or retention curves.", bestFor: "time-to-event analysis", implemented: true },
+      { id: "means", label: "Means Plot", description: "Compare means and uncertainty by group.", bestFor: "statistical group comparison", implemented: true },
+      { id: "data_profile", label: "Data Profile", description: "Summarize variable quality and distribution.", bestFor: "EDA overview", implemented: true },
     ],
   },
   {
     family: "Matrix",
     charts: [
-      { id: "scatter_matrix", label: "Scatter Matrix", description: "Compare multiple numeric relationships.", bestFor: "multi-variable screening", implemented: false },
-      { id: "correlation_matrix", label: "Correlation Matrix", description: "Show pairwise correlations as a matrix.", bestFor: "relationship screening", implemented: false },
-      { id: "pair_plot", label: "Pair Plot", description: "Inspect distributions and pairwise scatter.", bestFor: "EDA diagnostics", implemented: false },
-      { id: "data_profile_matrix", label: "Data Profile Matrix", description: "Review data quality across columns.", bestFor: "data profiling", implemented: false },
+      { id: "scatter_matrix", label: "Scatter Matrix", description: "Compare multiple numeric relationships.", bestFor: "multi-variable screening", implemented: true },
+      { id: "correlation_matrix", label: "Correlation Matrix", description: "Show pairwise correlations as a matrix.", bestFor: "relationship screening", implemented: true },
+      { id: "pair_plot", label: "Pair Plot", description: "Inspect distributions and pairwise scatter.", bestFor: "EDA diagnostics", implemented: true },
+      { id: "data_profile_matrix", label: "Data Profile Matrix", description: "Review data quality across columns.", bestFor: "data profiling", implemented: true },
     ],
   },
   {
     family: "Panels",
     charts: [
-      { id: "panel_category", label: "Panel by Category", description: "Repeat a chart by category.", bestFor: "small-multiple comparison", implemented: false },
-      { id: "panel_time", label: "Panel by Time", description: "Repeat a chart across time windows.", bestFor: "period comparison", implemented: false },
-      { id: "small_multiples", label: "Small Multiples", description: "Display many related charts together.", bestFor: "segment diagnostics", implemented: false },
-      { id: "comparison_panels", label: "Comparison Panels", description: "Compare chart variants side by side.", bestFor: "decision review", implemented: false },
+      { id: "panel_category", label: "Panel by Category", description: "Repeat a chart by category.", bestFor: "small-multiple comparison", implemented: true },
+      { id: "panel_time", label: "Panel by Time", description: "Repeat a chart across time windows.", bestFor: "period comparison", implemented: true },
+      { id: "small_multiples", label: "Small Multiples", description: "Display many related charts together.", bestFor: "segment diagnostics", implemented: true },
+      { id: "comparison_panels", label: "Comparison Panels", description: "Compare chart variants side by side.", bestFor: "decision review", implemented: true },
     ],
   },
   {
@@ -130,20 +136,22 @@ const CHART_FAMILIES: Array<{
 const WORKING_CHARTS = CHART_FAMILIES.flatMap((family) => family.charts).filter((chart) => chart.implemented);
 
 export default function ChartStudio() {
+  const [searchParams] = useSearchParams();
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
-  const [primaryDatasetId, setPrimaryDatasetId] = useState("");
+  const [primaryDatasetId, setPrimaryDatasetId] = useState(searchParams.get("datasetId") ?? "");
   const [primaryDataset, setPrimaryDataset] = useState<DatasetDetail | null>(null);
   const [primaryVersionId, setPrimaryVersionId] = useState("");
   const [secondaryDatasetId, setSecondaryDatasetId] = useState("");
   const [secondaryVersionId, setSecondaryVersionId] = useState("");
   const [joinKey, setJoinKey] = useState("");
+  const [datasetTypeFilter, setDatasetTypeFilter] = useState<"all" | "scored_outputs">("all");
   const [profile, setProfile] = useState<DatasetProfile | null>(null);
   const [preview, setPreview] = useState<DatasetPreview>({ columns: [], rows: [] });
   const [chartType, setChartType] = useState<ChartTypeId>("bar");
   const [galleryTab, setGalleryTab] = useState<GalleryTab>("Basic");
-  const [codeTab, setCodeTab] = useState<"Python" | "SQL" | "R" | "SAS-compatible">("Python");
+  const [codeTab, setCodeTab] = useState<CodeTab>("Python");
   const [showDataTable, setShowDataTable] = useState(true);
   const [binning, setBinning] = useState<BinningConfig>({ enabled: true, bins: 5, method: "quantile" });
   const [businessQuestion, setBusinessQuestion] = useState("What pattern should this chart help validate?");
@@ -162,6 +170,9 @@ export default function ChartStudio() {
     topN: 10,
   });
   const [savedCharts, setSavedCharts] = useState<AtlasAnalyticsInsight[]>([]);
+  const [userCode, setUserCode] = useState<Partial<Record<CodeTab, string>>>({});
+  const [codeResults, setCodeResults] = useState<Partial<Record<CodeTab, CodeRunResult>>>({});
+  const [runningCode, setRunningCode] = useState(false);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
 
@@ -224,6 +235,17 @@ export default function ChartStudio() {
   const selectedChart = CHART_FAMILIES.flatMap((family) => family.charts).find((chart) => chart.id === chartType);
   const primaryColumns = preview.columns;
   const activeGallery = CHART_FAMILIES.find((family) => family.family === galleryTab) ?? CHART_FAMILIES[0];
+  const displayedDatasets = useMemo(() => datasetTypeFilter === "scored_outputs" ? datasets.filter(isScoredDataset) : datasets, [datasets, datasetTypeFilter]);
+  const selectedDatasetIsScored = primaryDataset ? isScoredDataset(primaryDataset) : false;
+  const editableCode = userCode[codeTab] ?? codeForTab(generatedCode, codeTab);
+  const currentCodeResult = codeResults[codeTab] ?? null;
+
+  useEffect(() => {
+    if (displayedDatasets.length && !displayedDatasets.some((dataset) => dataset.datasetId === primaryDatasetId)) {
+      setPrimaryDatasetId(displayedDatasets[0].datasetId);
+      setPrimaryVersionId("");
+    }
+  }, [displayedDatasets, primaryDatasetId]);
 
   async function handleSaveInsight() {
     if (!primaryDatasetId || !primaryVersionId) {
@@ -291,17 +313,134 @@ export default function ChartStudio() {
     }
   }
 
+  function codeContext() {
+    return {
+      preview_rows: preview.rows.slice(0, 500),
+      previewRows: preview.rows.slice(0, 500),
+      chartData: chartData.slice(0, 300),
+      dataset_name: primaryDataset?.name || "selected_dataset",
+      datasetName: primaryDataset?.name || "selected_dataset",
+      version_id: primaryVersionId,
+      versionId: primaryVersionId,
+      chartType,
+      roles,
+      businessQuestion,
+    };
+  }
+
+  async function handleRunCode() {
+    setRunningCode(true);
+    setError("");
+    try {
+      const context = codeContext();
+      const code = editableCode;
+      const result = codeTab === "Python"
+        ? await runUserPython({
+            code: runnablePython(code),
+            projectId,
+            workflowStep: "chart_studio",
+            context,
+          })
+        : codeTab === "SQL"
+          ? await runAnalyticsPreviewSql({
+              sql: code,
+              datasetName: primaryDataset?.name || "primary_dataset",
+              versionId: primaryVersionId,
+              previewRows: preview.rows.slice(0, 500) as Array<Record<string, unknown>>,
+            })
+          : codeTab === "R"
+            ? await runUserR({ code, context })
+            : await runUserSasCompatible({ code, context });
+      setCodeResults((current) => ({ ...current, [codeTab]: result as CodeRunResult }));
+      setStatus(`${codeTab} code execution completed.`);
+    } catch (err) {
+      setCodeResults((current) => ({
+        ...current,
+        [codeTab]: {
+          ok: false,
+          status: "error",
+          stdout: "",
+          stderr: err instanceof Error ? err.message : `${codeTab} execution failed.`,
+          runtimeMs: 0,
+        } as CodeRunResult,
+      }));
+    } finally {
+      setRunningCode(false);
+    }
+  }
+
+  async function handleSaveCodeSnippet() {
+    setError("");
+    try {
+      const language = codeTab === "SAS-compatible" ? "sas" : codeTab.toLowerCase();
+      const insight = await saveAnalyticsInsight({
+        title: `${codeTab} code snippet: ${primaryDataset?.name || "Chart Studio"}`,
+        summary: `Chart Studio ${codeTab} code for ${selectedChart?.label || chartType}.`,
+        datasetId: primaryDatasetId,
+        versionId: primaryVersionId,
+        projectId,
+        businessQuestion,
+        analysisType: `${language}_code_snippet`,
+        evidence: {
+          chartType,
+          columnsUsed: Object.values(roles).filter((value): value is string => typeof value === "string" && Boolean(value)),
+          metrics: {
+            sourcePage: "chart_studio",
+            language: codeTab,
+            generatedCode: codeForTab(generatedCode, codeTab),
+            userEditedCode: editableCode,
+            datasetName: primaryDataset?.name || "",
+            roleAssignments: roles,
+            linkedProjectId: projectId,
+            createdAt: new Date().toISOString(),
+            createdBy: "local_user",
+          },
+        },
+      });
+      setSavedCharts((current) => [insight, ...current.filter((item) => item.insightId !== insight.insightId)]);
+      setStatus(`${codeTab} code snippet saved.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "ATLAS could not save this code snippet.");
+    }
+  }
+
+  async function handleExportCodeResult() {
+    if (!currentCodeResult) {
+      setError("Run code before exporting execution results.");
+      return;
+    }
+    setError("");
+    try {
+      const resultType = codeTab === "SQL" ? "sql_result" : codeTab === "SAS-compatible" ? "sas_compatible_result" : codeTab === "R" ? "r_result" : "python_result";
+      const exported = await exportAnalyticsResultExcel({
+        resultType,
+        exportTitle: `Chart Studio ${codeTab} Result`,
+        datasetName: primaryDataset?.name || "selected_dataset",
+        versionId: primaryVersionId,
+        businessQuestion,
+        resultPayload: currentCodeResult as Record<string, unknown>,
+        metadata: { chartType, roles, sourcePage: "chart_studio" },
+        createdAt: new Date().toISOString(),
+      });
+      downloadBlob(exported.blob, exported.filename);
+      setStatus(`${codeTab} execution result exported to Excel.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "ATLAS could not export this execution result.");
+    }
+  }
+
   return (
-    <div className="w-full space-y-5">
-      <section className="rounded-xl border border-slate-200/80 bg-white/90 p-5 shadow-sm">
+    <div className="atlas-page-shell atlas-theme-chart">
+      <section className="atlas-studio-hero">
+        <div className="atlas-studio-hero__band">
         <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-center 2xl:justify-between">
           <div>
-            <BrandLogo size="md" variant="light" showSubtitle className="mb-3" />
+            <BrandLogo size="md" variant="dark" showSubtitle className="mb-3" />
             <div className="flex items-center gap-2">
-              <BarChart3 size={22} className="text-blue-700" />
-              <h1 className="text-2xl font-semibold text-slate-950">ATLAS Chart Studio</h1>
+              <BarChart3 size={22} className="text-cyan-200" />
+              <h1 className="text-2xl font-semibold text-white">ATLAS Chart Studio</h1>
             </div>
-            <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">
+            <p className="mt-2 max-w-4xl text-sm leading-6 text-cyan-50/90">
               SAS ODS Graphics Designer-inspired workspace for building governed analytical charts from Dataset Library assets.
             </p>
           </div>
@@ -312,8 +451,14 @@ export default function ChartStudio() {
             <HeaderMetric label="Save status" value={status || "Ready"} />
           </div>
         </div>
-        <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900">
+        </div>
+        <div className="atlas-studio-hero__nav">
+          <div className="rounded-lg border border-cyan-200 bg-white px-3 py-2 text-xs leading-5 text-cyan-950">
           Chart Studio v1 uses Dataset Library preview/sample rows. Full dataset and warehouse-scale charting will be added later.
+          </div>
+          <Link to={`/notebook-studio?datasetId=${primaryDatasetId}&versionId=${primaryVersionId}`} className="atlas-studio-chip">
+            Send Chart Evidence to Notebook Studio
+          </Link>
         </div>
         {status && <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{status}</div>}
         {error && <div className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900">{error}</div>}
@@ -322,11 +467,32 @@ export default function ChartStudio() {
       <section className="grid gap-4 2xl:grid-cols-[340px_minmax(0,1fr)_320px]">
         <aside className="space-y-4">
           <DesignerPanel title="Dataset" icon={<Database size={17} />}>
-            <Field label="Primary dataset">
-              <select className="atlas-input" value={primaryDatasetId} onChange={(event) => { setPrimaryDatasetId(event.target.value); setPrimaryVersionId(""); }}>
-                {datasets.map((dataset) => <option key={dataset.datasetId} value={dataset.datasetId}>{dataset.name}</option>)}
+            <Field label="Dataset Type">
+              <select className="atlas-input" value={datasetTypeFilter} onChange={(event) => setDatasetTypeFilter(event.target.value as "all" | "scored_outputs")}>
+                <option value="all">All Dataset Library assets</option>
+                <option value="scored_outputs">Scored Outputs</option>
               </select>
             </Field>
+            <Field label="Primary dataset">
+              <select className="atlas-input" value={primaryDatasetId} onChange={(event) => { setPrimaryDatasetId(event.target.value); setPrimaryVersionId(""); }}>
+                {displayedDatasets.map((dataset) => <option key={dataset.datasetId} value={dataset.datasetId}>{dataset.name}{isScoredDataset(dataset) ? " - Scored Output" : ""}</option>)}
+              </select>
+            </Field>
+            {selectedDatasetIsScored ? (
+              <div className="mb-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-900">
+                Scored output detected. ATLAS recommends lift/decile, residual diagnostics, score distributions, calibration, and stability charts.
+                <Link to={`/model-diagnostics?datasetId=${primaryDatasetId}&versionId=${primaryVersionId}`} className="mt-2 block font-semibold underline">
+                  Open in Model Diagnostics
+                </Link>
+                <Link to="/model-document-studio" className="mt-2 block font-semibold underline">
+                  Add Chart to Model Documentation
+                </Link>
+              </div>
+            ) : (
+              <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900">
+                Scored outputs appear here when a scoring workflow registers actual scored rows to the Dataset Library.
+              </div>
+            )}
             <Field label="Dataset version">
               <select className="atlas-input" value={primaryVersionId} onChange={(event) => setPrimaryVersionId(event.target.value)}>
                 {(primaryDataset?.versions ?? []).map((version) => (
@@ -487,11 +653,26 @@ export default function ChartStudio() {
                     {tab}
                   </button>
                 ))}
-                <button type="button" className="atlas-secondary-button ml-1" onClick={() => navigator.clipboard?.writeText(codeForTab(generatedCode, codeTab))}>Copy Code</button>
               </div>
             </div>
-            <div className="p-4">
-              <CodeBlock label={codeTab} code={codeForTab(generatedCode, codeTab)} />
+            <div className="space-y-4 p-4">
+              <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-900">
+                Generated code is editable and executable against Dataset Library preview rows. Python runs locally through /api/python/run; SQL runs safely against the preview dataset; R and SAS-compatible use the shared code execution endpoints.
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white disabled:bg-slate-400" disabled={runningCode} onClick={handleRunCode}>
+                  <Play size={15} /> {runningCode ? "Running..." : runLabelForTab(codeTab)}
+                </button>
+                <button type="button" className="atlas-secondary-button" onClick={() => navigator.clipboard?.writeText(editableCode)}><Copy size={15} /> Copy Code</button>
+                <button type="button" className="atlas-secondary-button" onClick={() => setUserCode((current) => ({ ...current, [codeTab]: codeForTab(generatedCode, codeTab) }))}><RotateCcw size={15} /> Reset to Generated Code</button>
+                <button type="button" className="atlas-secondary-button" onClick={handleSaveCodeSnippet}><Save size={15} /> Save Code Snippet</button>
+                <button type="button" className="atlas-secondary-button" disabled={!currentCodeResult} onClick={handleExportCodeResult}><Download size={15} /> Export Result to Excel</button>
+              </div>
+              <div className="grid gap-4 xl:grid-cols-2">
+                <CodeBlock label={`Generated ${codeTab}`} code={codeForTab(generatedCode, codeTab)} />
+                <EditableCodeBlock label={`User-edited ${codeTab}`} code={editableCode} onChange={(value) => setUserCode((current) => ({ ...current, [codeTab]: value }))} />
+              </div>
+              <CodeExecutionResult result={currentCodeResult} />
             </div>
           </section>
         </main>
@@ -715,17 +896,41 @@ function codeForTab(code: { python: string; sql: string; r: string; sas: string 
 }
 
 function chartAvailability(chartType: ChartTypeId, implemented: boolean, roles: ChartStudioRoleAssignments, categoricalColumns: string[], numericColumns: string[], binning: BinningConfig) {
-  if (!implemented) return { status: "Coming soon", reason: "This chart renderer is not implemented yet." };
+  if (!implemented) return { status: "Coming soon", reason: comingSoonReason(chartType) };
   if (!categoricalColumns.length && !numericColumns.length) return { status: "Needs data", reason: "Select a dataset with preview columns before building this chart." };
-  if (["scatter", "histogram", "box", "correlation_heatmap", "control", "dual_axis"].includes(chartType) && numericColumns.length === 0) {
+  if (["scatter", "histogram", "density", "box", "correlation_heatmap", "correlation_matrix", "scatter_matrix", "pair_plot", "control", "dual_axis", "residual_diagnostic", "lift_decile", "forecast", "survival"].includes(chartType) && numericColumns.length === 0) {
     return { status: "Unsupported by current data", reason: "This chart requires numeric fields, but none were detected in the selected dataset." };
   }
   const hasCategoryPath = categoricalColumns.length > 0 || (binning.enabled && numericColumns.length > 0);
-  if (["bar", "pareto", "waterfall", "box"].includes(chartType) && !hasCategoryPath) {
+  if (["bar", "horizontal_bar", "stacked_bar", "grouped_bar", "grouped_box", "grouped_line", "heatmap", "pareto", "waterfall", "box", "means", "panel_category", "panel_time", "small_multiples", "comparison_panels"].includes(chartType) && !hasCategoryPath) {
     return { status: "Needs category", reason: "No categorical fields detected. Enable numeric binning or select a dataset with category fields." };
+  }
+  if (["correlation_matrix", "scatter_matrix", "pair_plot"].includes(chartType) && numericColumns.length < 2) {
+    return { status: "Unsupported by current data", reason: "This matrix chart requires at least two numeric fields." };
+  }
+  if (chartType === "heatmap" && (!roles.x || !roles.y || !roles.measure)) {
+    return { status: "Needs roles", reason: "Select X category, Y category, and a measure to create the heatmap matrix." };
+  }
+  if (chartType === "grouped_line" && (!roles.x || !roles.measure || !roles.color)) {
+    return { status: "Needs roles", reason: "Select an order field, a measure, and a group field for multiple trend lines." };
+  }
+  if (["panel_time", "comparison_panels"].includes(chartType) && (!roles.panel || !roles.x || !roles.measure)) {
+    return { status: "Needs roles", reason: "Select panel, x/order, and measure roles to build comparison panels." };
   }
   if (chartType === "sankey" && (!roles.source || !roles.target)) {
     return { status: "Needs source and target", reason: "Select source and target fields, or use a dataset with flow-style columns." };
+  }
+  if (chartType === "residual_diagnostic" && (!roles.actual || !roles.predicted)) {
+    return { status: "Needs roles", reason: "Select actual and predicted fields to preview residual diagnostics." };
+  }
+  if (chartType === "lift_decile" && (!roles.score || !roles.outcome)) {
+    return { status: "Needs roles", reason: "Select a score/probability field and binary actual outcome to calculate lift." };
+  }
+  if (chartType === "forecast" && (!roles.x || !roles.measure)) {
+    return { status: "Needs roles", reason: "Select a time/order field and measure to generate the simple forecast preview." };
+  }
+  if (chartType === "survival" && (!roles.duration || !roles.event)) {
+    return { status: "Needs roles", reason: "Select duration and event indicator fields to estimate a v1 survival curve." };
   }
   if (chartType === "control" && (!roles.x || !roles.measure)) {
     return { status: "Needs time/order", reason: "Select a time/order role and measure to enable this chart." };
@@ -734,6 +939,14 @@ function chartAvailability(chartType: ChartTypeId, implemented: boolean, roles: 
     return { status: "Needs roles", reason: "Select X and Y variables to preview this chart." };
   }
   return { status: "Working", reason: "This chart is implemented. Select or adjust roles to update the preview." };
+}
+
+function comingSoonReason(chartType: ChartTypeId) {
+  if (chartType === "custom") return "Coming soon: custom renderer infrastructure is not implemented yet.";
+  if (chartType === "custom_roles") return "Coming soon: user-defined visual encodings require a custom role-mapping engine.";
+  if (chartType === "saved_template") return "Coming soon: governed saved template infrastructure is not implemented yet.";
+  if (chartType === "network") return "Coming soon: this requires a network or edge-list renderer rather than a standard preview-row chart.";
+  return "Coming soon: this chart renderer is not implemented yet.";
 }
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
@@ -801,15 +1014,26 @@ function RoleEditor({ chartType, columns, numericColumns, categoricalColumns, ro
     </Field>
   );
   if (chartType === "scatter") return <>{select("x", "X numeric", numericColumns)}{select("y", "Y numeric", numericColumns)}{roleSelect("color", "Color group optional", "color")}{select("label", "Label optional", columns)}</>;
-  if (chartType === "histogram") return <>{select("numeric", "Numeric variable", numericColumns)}<NumberInput label="Bins" value={Number(roles.bins || 10)} onChange={(value) => update("bins", value)} /></>;
+  if (chartType === "histogram" || chartType === "density") return <>{select("numeric", "Numeric variable", numericColumns)}{roleSelect("color", "Group optional", "color")}<NumberInput label="Bins" value={Number(roles.bins || 10)} onChange={(value) => update("bins", value)} /></>;
   if (chartType === "box") return <>{select("measure", "Numeric measure", numericColumns)}{roleSelect("group", "Group variable", "category")}</>;
-  if (chartType === "correlation_heatmap") return <MultiSelect label="Numeric variables" values={(roles.numericVariables as string[]) || numericColumns.slice(0, 6)} options={numericColumns} onChange={(value) => update("numericVariables", value)} />;
+  if (chartType === "correlation_heatmap" || chartType === "correlation_matrix" || chartType === "scatter_matrix" || chartType === "pair_plot") return <>{<MultiSelect label="Numeric variables" values={(roles.numericVariables as string[]) || numericColumns.slice(0, 6)} options={numericColumns} onChange={(value) => update("numericVariables", value)} />}{roleSelect("color", "Color group optional", "color")}</>;
+  if (chartType === "residual_diagnostic") return <>{select("actual", "Actual value", numericColumns)}{select("predicted", "Predicted value", numericColumns)}{select("x", "Observation / order optional", columns)}{roleSelect("color", "Segment optional", "color")}</>;
+  if (chartType === "lift_decile") return <>{select("score", "Score / probability", numericColumns)}{select("outcome", "Actual outcome", columns)}<Field label="Positive class value"><input className="atlas-input" value={String(roles.positiveClass ?? "1")} onChange={(event) => update("positiveClass", event.target.value)} /></Field>{select("weight", "Weight optional", numericColumns)}<NumberInput label="Number of deciles" value={Number(roles.deciles || roles.bins || 10)} onChange={(value) => update("deciles", value)} /></>;
+  if (chartType === "forecast") return <>{select("x", "Time / order variable", columns)}{select("measure", "Measure", numericColumns)}{roleSelect("group", "Group optional", "color")}<NumberInput label="Forecast horizon" value={Number(roles.horizon || 6)} onChange={(value) => update("horizon", value)} /><AggregationSelect value={String(roles.aggregation || "mean")} onChange={(value) => update("aggregation", value)} /></>;
+  if (chartType === "survival") return <>{select("duration", "Duration / time-to-event", numericColumns)}{select("event", "Event indicator", columns)}{roleSelect("group", "Group optional", "color")}</>;
+  if (chartType === "data_profile" || chartType === "data_profile_matrix") return <>{<MultiSelect label="Numeric variables" values={(roles.numericVariables as string[]) || numericColumns.slice(0, 8)} options={numericColumns} onChange={(value) => update("numericVariables", value)} />}{select("target", "Target optional", columns)}{roleSelect("group", "Group optional", "color")}</>;
+  if (chartType === "grouped_bar" || chartType === "stacked_bar") return <>{roleSelect("category", "Category", "category")}{select("measure", "Measure", numericColumns)}{roleSelect("color", "Stack / group", "color")}<AggregationSelect value={String(roles.aggregation || "mean")} onChange={(value) => update("aggregation", value)} /></>;
+  if (chartType === "grouped_box") return <>{select("measure", "Numeric measure", numericColumns)}{roleSelect("group", "Group variable", "category")}{roleSelect("color", "Segment optional", "color")}</>;
+  if (chartType === "grouped_scatter") return <>{select("x", "X numeric", numericColumns)}{select("y", "Y numeric", numericColumns)}{roleSelect("color", "Group / color", "color")}</>;
+  if (chartType === "grouped_line") return <>{select("x", "X / order variable", columns)}{select("measure", "Y measure", numericColumns)}{roleSelect("color", "Group / line", "color")}<AggregationSelect value={String(roles.aggregation || "mean")} onChange={(value) => update("aggregation", value)} /></>;
+  if (chartType === "panel_category" || chartType === "small_multiples" || chartType === "panel_time" || chartType === "comparison_panels") return <>{roleSelect("panel", "Panel variable", "category")}{select("x", chartType === "panel_time" ? "Time / order variable" : "X / category", columns)}{select("measure", "Y / measure", numericColumns)}<AggregationSelect value={String(roles.aggregation || "mean")} onChange={(value) => update("aggregation", value)} /></>;
+  if (chartType === "heatmap") return <>{roleSelect("x", "X category or binned numeric", "category")}{roleSelect("y", "Y category or binned numeric", "category")}{select("measure", "Measure", numericColumns)}<AggregationSelect value={String(roles.aggregation || "mean")} onChange={(value) => update("aggregation", value)} /></>;
   if (chartType === "pareto") return <>{roleSelect("category", "Category", "category")}{select("measure", "Measure", numericColumns)}<AggregationSelect value={String(roles.aggregation || "sum")} onChange={(value) => update("aggregation", value)} /><NumberInput label="Top-N" value={Number(roles.topN || 10)} onChange={(value) => update("topN", value)} /></>;
   if (chartType === "waterfall") return <>{roleSelect("category", "Step / category", "category")}{select("measure", "Value / change amount", numericColumns)}</>;
   if (chartType === "control") return <>{select("x", "Time / order variable", columns)}{select("measure", "Measure", numericColumns)}</>;
   if (chartType === "dual_axis") return <>{select("x", "X axis", columns)}{select("leftY", "Left Y measure", numericColumns)}{select("rightY", "Right Y measure", numericColumns)}<AggregationSelect value={String(roles.aggregation || "mean")} onChange={(value) => update("aggregation", value)} /></>;
   if (chartType === "sankey") return <>{roleSelect("source", "Source", "category")}{roleSelect("target", "Target", "category")}{select("weight", "Weight", numericColumns)}</>;
-  return <>{roleSelect("category", "Category", "category")}{select("measure", "Measure", numericColumns)}<AggregationSelect value={String(roles.aggregation || "sum")} onChange={(value) => update("aggregation", value)} />{roleSelect("color", "Color group optional", "color")}<NumberInput label="Top-N" value={Number(roles.topN || 10)} onChange={(value) => update("topN", value)} /></>;
+  return <>{roleSelect("category", chartType === "horizontal_bar" ? "Ranked category" : "Category", "category")}{select("measure", "Measure", numericColumns)}<AggregationSelect value={String(roles.aggregation || (chartType === "means" ? "mean" : "sum"))} onChange={(value) => update("aggregation", value)} />{roleSelect("color", "Color group optional", "color")}<NumberInput label="Top-N" value={Number(roles.topN || 10)} onChange={(value) => update("topN", value)} /></>;
 }
 
 function AggregationSelect({ value, onChange }: { value: string; onChange: (value: string) => void }) {
@@ -845,10 +1069,20 @@ function MultiSelect({ label, values, options, onChange }: { label: string; valu
 
 function ChartPreview({ chartType, data, roles }: { chartType: ChartTypeId; data: ChartRow[]; roles: ChartStudioRoleAssignments }) {
   if (!data.length) return <EmptyChart message="Select roles to preview this chart." />;
+  if (chartType === "residual_diagnostic") return <ResidualDiagnosticsPreview data={data} />;
+  if (chartType === "lift_decile") return <LiftDecilePreview data={data} />;
+  if (chartType === "forecast") return <ForecastPreview data={data} />;
+  if (chartType === "survival") return <SurvivalPreview data={data} />;
+  if (chartType === "data_profile" || chartType === "data_profile_matrix") return <DataProfilePreview data={data} />;
+  if (chartType === "grouped_bar" || chartType === "stacked_bar") return <GroupedBarPreview data={data} />;
+  if (chartType === "grouped_scatter") return <ScatterSvg data={data} />;
+  if (chartType === "grouped_box") return <BoxSvg data={data} />;
+  if (chartType === "panel_category" || chartType === "small_multiples" || chartType === "panel_time" || chartType === "comparison_panels") return <PanelPreview data={data} />;
+  if (chartType === "scatter_matrix" || chartType === "pair_plot") return <PairMatrixPreview data={data} />;
   if (chartType === "scatter") return <ScatterSvg data={data} />;
-  if (chartType === "line" || chartType === "dual_axis" || chartType === "control") return <LineSvg data={data} chartType={chartType} />;
-  if (chartType === "histogram") return <BarSvg data={data} labelKey="bin" valueKey="count" />;
-  if (chartType === "correlation_heatmap") return <HeatmapSvg data={data} />;
+  if (chartType === "line" || chartType === "step" || chartType === "grouped_line" || chartType === "dual_axis" || chartType === "control") return <LineSvg data={data} chartType={chartType} />;
+  if (chartType === "histogram" || chartType === "density") return <BarSvg data={data} labelKey="bin" valueKey="count" />;
+  if (chartType === "correlation_heatmap" || chartType === "correlation_matrix" || chartType === "heatmap") return <HeatmapSvg data={data} />;
   if (chartType === "box") return <BoxSvg data={data} />;
   if (chartType === "sankey") return <SankeyPreview data={data} />;
   if (chartType === "waterfall") return <WaterfallSvg data={data} />;
@@ -857,6 +1091,105 @@ function ChartPreview({ chartType, data, roles }: { chartType: ChartTypeId; data
 
 function EmptyChart({ message }: { message: string }) {
   return <div className="grid min-h-[340px] place-items-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">{message}</div>;
+}
+
+function ResidualDiagnosticsPreview({ data }: { data: ChartRow[] }) {
+  const rows = data.filter((row) => row.kind === "residual_row");
+  const summary = data.find((row) => row.kind === "fit_summary") || {};
+  return (
+    <div className="grid min-h-[360px] gap-3 bg-slate-50 p-3 lg:grid-cols-2">
+      <ScatterSvg data={rows.map((row) => ({ x: row.predicted, y: row.residual }))} />
+      <ScatterSvg data={rows.map((row) => ({ x: row.predicted, y: row.actual }))} />
+      <BarSvg data={histogram(rows.map((row) => toNumber(row.residual)), 10)} labelKey="bin" valueKey="count" />
+      <div className="rounded-xl border border-slate-200 bg-white p-4">
+        <h3 className="text-sm font-semibold text-slate-950">Fit Summary</h3>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          {["n", "mae", "rmse", "mse", "rSquared", "meanResidual", "medianResidual", "residualStd"].map((key) => <Stat key={key} label={key} value={formatNumber(toNumber(summary[key]))} />)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function LiftDecilePreview({ data }: { data: ChartRow[] }) {
+  return (
+    <div className="grid min-h-[360px] gap-3 bg-slate-50 p-3 lg:grid-cols-[1fr_1.2fr]">
+      <BarSvg data={data} labelKey="decile" valueKey="lift" secondaryKey="captureRate" topN={12} />
+      <div className="overflow-auto rounded-xl border border-slate-200 bg-white">
+        <table className="min-w-full text-xs">
+          <thead className="bg-slate-100 text-slate-500"><tr>{["Decile", "Count", "Positives", "Response", "Capture", "Lift"].map((h) => <th key={h} className="px-3 py-2 text-left">{h}</th>)}</tr></thead>
+          <tbody>{data.map((row) => <tr key={String(row.decile)} className="border-t"><td className="px-3 py-2">{String(row.decile)}</td><td className="px-3 py-2">{String(row.count)}</td><td className="px-3 py-2">{String(row.positives)}</td><td className="px-3 py-2">{formatNumber(toNumber(row.responseRate))}%</td><td className="px-3 py-2">{formatNumber(toNumber(row.captureRate))}%</td><td className="px-3 py-2">{formatNumber(toNumber(row.lift))}</td></tr>)}</tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function ForecastPreview({ data }: { data: ChartRow[] }) {
+  return (
+    <div className="grid min-h-[360px] gap-3 bg-slate-50 p-3">
+      <LineSvg data={data.map((row) => ({ x: row.x, value: row.value ?? row.forecast }))} chartType="forecast" />
+      <div className="grid gap-2 md:grid-cols-3">
+        {data.slice(-6).map((row, index) => <div key={index} className="rounded-xl border border-slate-200 bg-white p-3 text-sm"><div className="font-semibold text-slate-900">{String(row.x)}</div><div className="text-slate-500">{String(row.type)}: {formatNumber(toNumber(row.value ?? row.forecast))}</div></div>)}
+      </div>
+    </div>
+  );
+}
+
+function SurvivalPreview({ data }: { data: ChartRow[] }) {
+  return (
+    <div className="grid min-h-[360px] gap-3 bg-slate-50 p-3 lg:grid-cols-[1.2fr_1fr]">
+      <LineSvg data={data.map((row) => ({ x: row.time, value: row.survival }))} chartType="survival" />
+      <ChartDataTable rows={data.slice(0, 20)} />
+    </div>
+  );
+}
+
+function DataProfilePreview({ data }: { data: ChartRow[] }) {
+  return (
+    <div className="min-h-[360px] overflow-auto rounded-xl border border-slate-200 bg-white">
+      <table className="min-w-full text-xs">
+        <thead className="sticky top-0 bg-slate-100 text-slate-500"><tr>{["Variable", "Missing %", "Distinct", "Mean", "Median", "Std", "Min", "Max", "Target Corr"].map((h) => <th key={h} className="px-3 py-2 text-left">{h}</th>)}</tr></thead>
+        <tbody>{data.map((row) => <tr key={String(row.variable)} className="border-t"><td className="px-3 py-2 font-semibold">{String(row.variable)}</td><td className="px-3 py-2">{formatNumber(toNumber(row.missingPct))}%</td><td className="px-3 py-2">{String(row.distinct)}</td><td className="px-3 py-2">{formatNumber(toNumber(row.mean))}</td><td className="px-3 py-2">{formatNumber(toNumber(row.median))}</td><td className="px-3 py-2">{formatNumber(toNumber(row.std))}</td><td className="px-3 py-2">{formatNumber(toNumber(row.min))}</td><td className="px-3 py-2">{formatNumber(toNumber(row.max))}</td><td className="px-3 py-2">{formatNumber(toNumber(row.targetCorrelation))}</td></tr>)}</tbody>
+      </table>
+    </div>
+  );
+}
+
+function GroupedBarPreview({ data }: { data: ChartRow[] }) {
+  return <BarSvg data={data.map((row) => ({ ...row, category: `${row.category} | ${row.group}` }))} labelKey="category" valueKey="value" topN={20} />;
+}
+
+function PanelPreview({ data }: { data: ChartRow[] }) {
+  const panels = Array.from(new Set(data.map((row) => String(row.panel)))).slice(0, 6);
+  return (
+    <div className="grid min-h-[360px] gap-3 bg-slate-50 p-3 md:grid-cols-2 xl:grid-cols-3">
+      {panels.map((panel) => <div key={panel} className="rounded-xl border border-slate-200 bg-white p-3"><div className="mb-2 text-sm font-semibold text-slate-900">{panel}</div><BarSvg data={data.filter((row) => String(row.panel) === panel).slice(0, 8)} labelKey="category" valueKey="value" topN={8} /></div>)}
+    </div>
+  );
+}
+
+function PairMatrixPreview({ data }: { data: ChartRow[] }) {
+  const labels = Array.from(new Set(data.flatMap((row) => [String(row.x), String(row.y)]))).slice(0, 6);
+  return (
+    <div className="min-h-[360px] rounded-xl bg-slate-50 p-4">
+      <div className="mb-3 text-sm font-semibold text-slate-900">Pairwise relationship matrix</div>
+      <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${Math.max(1, labels.length)}, minmax(72px, 1fr))` }}>
+        {labels.flatMap((y) => labels.map((x) => {
+          const row = data.find((item) => String(item.x) === x && String(item.y) === y);
+          const value = toNumber(row?.value);
+          const intensity = Math.min(1, Math.abs(value));
+          return (
+            <div key={`${x}-${y}`} className="rounded-lg border border-slate-200 bg-white p-2">
+              <div className="truncate text-[10px] font-semibold text-slate-500">{x === y ? x : `${x} / ${y}`}</div>
+              <div className="mt-2 h-12 rounded" style={{ background: x === y ? "#e2e8f0" : value >= 0 ? `rgba(37,99,235,${0.15 + intensity * 0.75})` : `rgba(225,29,72,${0.15 + intensity * 0.75})` }} />
+              <div className="mt-1 text-xs font-semibold text-slate-700">{x === y ? "distribution" : formatNumber(value)}</div>
+            </div>
+          );
+        }))}
+      </div>
+    </div>
+  );
 }
 
 function BarSvg({ data, labelKey, valueKey, secondaryKey, topN = 20 }: { data: ChartRow[]; labelKey: string; valueKey: string; secondaryKey?: string; topN?: number }) {
@@ -1020,6 +1353,43 @@ function CodeBlock({ label, code }: { label: string; code: string }) {
   );
 }
 
+function EditableCodeBlock({ label, code, onChange }: { label: string; code: string; onChange: (value: string) => void }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</span>
+      <textarea
+        className="min-h-[260px] w-full rounded-xl border border-slate-300 bg-white p-4 font-mono text-xs leading-5 text-slate-900 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100"
+        value={code}
+        onChange={(event) => onChange(event.target.value)}
+      />
+    </label>
+  );
+}
+
+function runLabelForTab(tab: CodeTab) {
+  if (tab === "SQL") return "Run SQL on Preview";
+  if (tab === "R") return "Run R / Validate R Template";
+  if (tab === "SAS-compatible") return "Run SAS-Compatible Code";
+  return "Run Python";
+}
+
+function runnablePython(code: string) {
+  return [
+    "# ATLAS Chart Studio local-development execution prelude.",
+    "try:",
+    "    import matplotlib",
+    "    matplotlib.use('Agg')",
+    "except BaseException:",
+    "    pass",
+    code,
+    "print('ATLAS Chart Studio Python execution completed.')",
+  ].join("\n");
+}
+
+function isScoredDataset(dataset: Pick<DatasetSummary, "name" | "description" | "sourceType">) {
+  return isScoredOutputDataset(dataset as DatasetSummary);
+}
+
 function binnedRoleValue(column: string) {
   return `${BINNED_ROLE_PREFIX}${column}`;
 }
@@ -1093,6 +1463,17 @@ function defaultsForChart(chartType: ChartTypeId, current: ChartStudioRoleAssign
   if (!next.weight) next.weight = firstNum;
   if (!next.leftY) next.leftY = firstNum;
   if (!next.rightY) next.rightY = secondNum;
+  if (!next.actual) next.actual = firstNum;
+  if (!next.predicted) next.predicted = secondNum;
+  if (!next.score) next.score = firstNum;
+  if (!next.outcome) next.outcome = columns[columns.length - 1] || firstCat;
+  if (!next.positiveClass) next.positiveClass = "1";
+  if (!next.deciles) next.deciles = 10;
+  if (!next.horizon) next.horizon = 6;
+  if (!next.duration) next.duration = firstNum;
+  if (!next.event) next.event = columns[columns.length - 1] || firstCat;
+  if (!next.target) next.target = columns[columns.length - 1] || firstNum;
+  if (!next.panel) next.panel = firstCat;
   if (!next.numericVariables) next.numericVariables = numeric.slice(0, 6);
   return next;
 }
@@ -1100,8 +1481,20 @@ function defaultsForChart(chartType: ChartTypeId, current: ChartStudioRoleAssign
 function computeChartData(chartType: ChartTypeId, rows: ChartRow[], roles: ChartStudioRoleAssignments, numericColumns: string[], binning: BinningConfig): ChartRow[] {
   if (!rows.length) return [];
   const prepared = prepareBinnedRows(rows, roles, binning);
+  if (chartType === "residual_diagnostic") return residualDiagnosticRows(prepared.rows, String(roles.actual), String(roles.predicted), String(roles.x || ""));
+  if (chartType === "lift_decile") return liftDecileRows(prepared.rows, String(roles.score), String(roles.outcome), String(roles.positiveClass ?? "1"), Number(roles.deciles || roles.bins || 10));
+  if (chartType === "forecast") return forecastRows(prepared.rows, String(roles.x), String(roles.measure), String(roles.aggregation || "mean"), Number(roles.horizon || 6));
+  if (chartType === "survival") return survivalRows(prepared.rows, String(roles.duration), String(roles.event));
+  if (chartType === "data_profile" || chartType === "data_profile_matrix") return dataProfileRows(prepared.rows, ((roles.numericVariables as string[]) || numericColumns).slice(0, 12), String(roles.target || ""));
+  if (chartType === "correlation_matrix" || chartType === "scatter_matrix" || chartType === "pair_plot") return correlationRows(rows, ((roles.numericVariables as string[]) || numericColumns).slice(0, 6));
+  if (chartType === "heatmap") return heatmapRows(prepared.rows, resolveRoleKey(String(roles.x), prepared.roleKeys), resolveRoleKey(String(roles.y), prepared.roleKeys), String(roles.measure), String(roles.aggregation || "mean"));
+  if (chartType === "grouped_bar" || chartType === "stacked_bar") return groupedSegmentRows(prepared.rows, resolveRoleKey(String(roles.category), prepared.roleKeys), resolveRoleKey(String(roles.color), prepared.roleKeys), String(roles.measure), String(roles.aggregation || "mean"));
+  if (chartType === "grouped_box") return boxPlot(prepared.rows, resolveRoleKey(String(roles.group), prepared.roleKeys), String(roles.measure));
+  if (chartType === "grouped_scatter") return prepared.rows.map((row) => ({ x: toNumber(row[String(roles.x)]), y: toNumber(row[String(roles.y)]), color: row[resolveRoleKey(String(roles.color || ""), prepared.roleKeys)] })).filter((row) => Number.isFinite(row.x) && Number.isFinite(row.y));
+  if (chartType === "grouped_line") return groupedLineRows(prepared.rows, String(roles.x), String(roles.measure), resolveRoleKey(String(roles.color), prepared.roleKeys), String(roles.aggregation || "mean"));
+  if (chartType === "panel_category" || chartType === "small_multiples" || chartType === "panel_time" || chartType === "comparison_panels") return panelRows(prepared.rows, resolveRoleKey(String(roles.panel), prepared.roleKeys), String(roles.x), String(roles.measure), String(roles.aggregation || "mean"));
   if (chartType === "scatter") return prepared.rows.map((row) => ({ x: toNumber(row[String(roles.x)]), y: toNumber(row[String(roles.y)]), color: row[resolveRoleKey(String(roles.color || ""), prepared.roleKeys)], label: row[String(roles.label || "")] })).filter((row) => Number.isFinite(row.x) && Number.isFinite(row.y));
-  if (chartType === "histogram") return histogram(rows.map((row) => toNumber(row[String(roles.numeric)])).filter(Number.isFinite), Number(roles.bins || 10));
+  if (chartType === "histogram" || chartType === "density") return histogram(rows.map((row) => toNumber(row[String(roles.numeric)])).filter(Number.isFinite), Number(roles.bins || 10)).map((row, index, all) => chartType === "density" ? { ...row, count: smoothedCount(all, index) } : row);
   if (chartType === "box") return boxPlot(prepared.rows, resolveRoleKey(String(roles.group), prepared.roleKeys), String(roles.measure));
   if (chartType === "correlation_heatmap") return correlationRows(rows, ((roles.numericVariables as string[]) || numericColumns).slice(0, 10));
   if (chartType === "waterfall") return groupedAggregate(prepared.rows, resolveRoleKey(String(roles.category), prepared.roleKeys), String(roles.measure), "sum", Number(roles.topN || 20)).map((row, index, all) => ({ ...row, change: row.value, cumulative: all.slice(0, index + 1).reduce((sum, item) => sum + toNumber(item.value), 0) }));
@@ -1119,7 +1512,127 @@ function computeChartData(chartType: ChartTypeId, rows: ChartRow[], roles: Chart
     });
   }
   if (chartType === "line") return grouped.map((row) => ({ x: row.category, value: row.value }));
+  if (chartType === "step") return grouped.map((row) => ({ x: row.category, value: row.value }));
+  if (chartType === "means") return groupedAggregate(prepared.rows, resolveRoleKey(String(roles.category), prepared.roleKeys), String(roles.measure), "mean", Number(roles.topN || 10), isBinnedRole(categoryRole));
   return grouped;
+}
+
+function residualDiagnosticRows(rows: ChartRow[], actualKey: string, predictedKey: string, orderKey: string): ChartRow[] {
+  const residualRows = rows.map((row, index) => {
+    const actual = toNumber(row[actualKey]);
+    const predicted = toNumber(row[predictedKey]);
+    const residual = actual - predicted;
+    return { kind: "residual_row", order: row[orderKey] ?? index + 1, actual, predicted, residual, absResidual: Math.abs(residual), squaredResidual: residual ** 2, percentError: actual ? residual / actual : 0 };
+  }).filter((row) => Number.isFinite(row.actual) && Number.isFinite(row.predicted)).slice(0, 600);
+  if (!residualRows.length) return [];
+  const actuals = residualRows.map((row) => row.actual);
+  const residuals = residualRows.map((row) => row.residual);
+  const squared = residualRows.map((row) => row.squaredResidual);
+  const meanActual = aggregate(actuals, "mean");
+  const sst = actuals.reduce((sum, value) => sum + (value - meanActual) ** 2, 0);
+  const sse = squared.reduce((sum, value) => sum + value, 0);
+  return [{ kind: "fit_summary", n: residualRows.length, mae: aggregate(residualRows.map((row) => row.absResidual), "mean"), mse: aggregate(squared, "mean"), rmse: Math.sqrt(aggregate(squared, "mean")), rSquared: sst ? 1 - sse / sst : 0, meanResidual: aggregate(residuals, "mean"), medianResidual: aggregate(residuals, "median"), residualStd: standardDeviation(residuals) }, ...residualRows];
+}
+
+function liftDecileRows(rows: ChartRow[], scoreKey: string, outcomeKey: string, positiveClass: string, deciles: number): ChartRow[] {
+  const scored = rows.map((row) => ({ score: toNumber(row[scoreKey]), positive: String(row[outcomeKey]) === positiveClass || toNumber(row[outcomeKey]) === toNumber(positiveClass) ? 1 : 0 })).filter((row) => Number.isFinite(row.score)).sort((a, b) => b.score - a.score);
+  if (!scored.length) return [];
+  const bins = Math.max(2, Math.min(20, Math.floor(deciles || 10)));
+  const totalPositives = scored.reduce((sum, row) => sum + row.positive, 0) || 1;
+  const baseline = totalPositives / scored.length || 1;
+  let cumulative = 0;
+  return Array.from({ length: bins }, (_, index) => {
+    const start = Math.floor((index * scored.length) / bins);
+    const end = Math.floor(((index + 1) * scored.length) / bins);
+    const slice = scored.slice(start, end);
+    const positives = slice.reduce((sum, row) => sum + row.positive, 0);
+    cumulative += positives;
+    const responseRate = slice.length ? positives / slice.length : 0;
+    return { decile: index + 1, count: slice.length, positives, responseRate: responseRate * 100, cumulativePositives: cumulative, captureRate: (cumulative / totalPositives) * 100, lift: baseline ? responseRate / baseline : 0 };
+  });
+}
+
+function forecastRows(rows: ChartRow[], xKey: string, measureKey: string, aggregation: string, horizon: number): ChartRow[] {
+  const historical = groupedAggregate(rows, xKey, measureKey, aggregation, 120, true).map((row, index) => ({ type: "Historical", x: row.category, value: row.value, index }));
+  if (historical.length < 2) return historical;
+  const values = historical.map((row) => toNumber(row.value));
+  const slope = (values[values.length - 1] - values[0]) / Math.max(1, values.length - 1);
+  const forecast = Array.from({ length: Math.max(1, Math.min(24, horizon)) }, (_, i) => ({ type: "Forecast", x: `F+${i + 1}`, forecast: values[values.length - 1] + slope * (i + 1), index: historical.length + i }));
+  return [...historical, ...forecast];
+}
+
+function survivalRows(rows: ChartRow[], durationKey: string, eventKey: string): ChartRow[] {
+  const ordered = rows.map((row) => ({ duration: toNumber(row[durationKey]), event: toNumber(row[eventKey]) > 0 ? 1 : 0 })).filter((row) => Number.isFinite(row.duration)).sort((a, b) => a.duration - b.duration);
+  let atRisk = ordered.length;
+  let survival = 1;
+  const byTime = new Map<number, { events: number; censored: number }>();
+  ordered.forEach((row) => {
+    const current = byTime.get(row.duration) || { events: 0, censored: 0 };
+    if (row.event) current.events += 1;
+    else current.censored += 1;
+    byTime.set(row.duration, current);
+  });
+  return Array.from(byTime.entries()).map(([time, counts]) => {
+    if (atRisk > 0) survival *= 1 - counts.events / atRisk;
+    const output = { time, atRisk, events: counts.events, censored: counts.censored, survival: survival * 100 };
+    atRisk -= counts.events + counts.censored;
+    return output;
+  }).slice(0, 120);
+}
+
+function dataProfileRows(rows: ChartRow[], columns: string[], targetKey: string): ChartRow[] {
+  return columns.map((column) => {
+    const values = rows.map((row) => toNumber(row[column])).filter(Number.isFinite).sort((a, b) => a - b);
+    const missing = rows.length - values.length;
+    return { variable: column, missingPct: rows.length ? (missing / rows.length) * 100 : 0, distinct: new Set(rows.map((row) => row[column])).size, mean: aggregate(values, "mean"), median: aggregate(values, "median"), std: standardDeviation(values), min: values[0] ?? 0, max: values[values.length - 1] ?? 0, targetCorrelation: targetKey ? correlation(rows.map((row) => toNumber(row[column])), rows.map((row) => toNumber(row[targetKey]))) : 0 };
+  });
+}
+
+function groupedSegmentRows(rows: ChartRow[], categoryKey: string, groupKey: string, measureKey: string, aggregation: string): ChartRow[] {
+  const groups = new Map<string, number[]>();
+  rows.forEach((row) => {
+    const category = String(row[categoryKey] ?? "Missing");
+    const group = String(row[groupKey] ?? "All");
+    const value = aggregation === "count" ? 1 : toNumber(row[measureKey]);
+    if (!Number.isFinite(value)) return;
+    const key = `${category}|||${group}`;
+    groups.set(key, [...(groups.get(key) || []), value]);
+  });
+  return Array.from(groups.entries()).map(([key, values]) => {
+    const [category, group] = key.split("|||");
+    return { category, group, value: aggregate(values, aggregation), count: values.length };
+  }).sort((a, b) => Math.abs(toNumber(b.value)) - Math.abs(toNumber(a.value))).slice(0, 30);
+}
+
+function groupedLineRows(rows: ChartRow[], xKey: string, measureKey: string, groupKey: string, aggregation: string): ChartRow[] {
+  const groups = Array.from(new Set(rows.map((row) => String(row[groupKey] ?? "All")))).slice(0, 4);
+  return groups.flatMap((group) => groupedAggregate(rows.filter((row) => String(row[groupKey] ?? "All") === group), xKey, measureKey, aggregation, 24, true).map((row) => ({ x: row.category, value: row.value, group })));
+}
+
+function heatmapRows(rows: ChartRow[], xKey: string, yKey: string, measureKey: string, aggregation: string): ChartRow[] {
+  const groups = new Map<string, number[]>();
+  rows.forEach((row) => {
+    const x = String(row[xKey] ?? "Missing");
+    const y = String(row[yKey] ?? "Missing");
+    const value = aggregation === "count" ? 1 : toNumber(row[measureKey]);
+    if (!Number.isFinite(value)) return;
+    const key = `${x}|||${y}`;
+    groups.set(key, [...(groups.get(key) || []), value]);
+  });
+  return Array.from(groups.entries()).slice(0, 144).map(([key, values]) => {
+    const [x, y] = key.split("|||");
+    return { x, y, value: aggregate(values, aggregation), count: values.length };
+  });
+}
+
+function smoothedCount(rows: ChartRow[], index: number): number {
+  const values = [index - 1, index, index + 1].filter((i) => i >= 0 && i < rows.length).map((i) => toNumber(rows[i].count));
+  return aggregate(values, "mean");
+}
+
+function panelRows(rows: ChartRow[], panelKey: string, xKey: string, measureKey: string, aggregation: string): ChartRow[] {
+  const panels = Array.from(new Set(rows.map((row) => String(row[panelKey] ?? "Missing")))).slice(0, 6);
+  return panels.flatMap((panel) => groupedAggregate(rows.filter((row) => String(row[panelKey] ?? "Missing") === panel), xKey, measureKey, aggregation, 8).map((row) => ({ ...row, panel })));
 }
 
 function groupedAggregate(rows: ChartRow[], categoryKey: string, measureKey: string, aggregation: string, topN: number, preserveOrder = false): ChartRow[] {
@@ -1216,6 +1729,13 @@ function interpretChart(chartType: ChartTypeId, data: ChartRow[], roles: ChartSt
     const top = data[0];
     return `The largest flow is from ${top?.source} to ${top?.target}. Review whether small flows should be grouped into Other for readability. ${caution}`;
   }
+  if (chartType === "residual_diagnostic") return `Residuals should be centered around zero without obvious pattern. Curvature, funnel shape, or large outliers may indicate model bias, heteroskedasticity, or missing nonlinear effects. ${caution}`;
+  if (chartType === "lift_decile") return `A useful scoring model should concentrate positive outcomes in the highest score deciles. Review whether lift declines monotonically across deciles. ${caution}`;
+  if (chartType === "forecast") return `The forecast is a simple preview trend, not a production forecasting model. Use it to inspect directionality, seasonality hints, and possible breaks before deeper time-series modeling. ${caution}`;
+  if (chartType === "survival") return `The survival curve estimates the share of records not yet experiencing the event over time. Compare curves by group to identify earlier or later event timing. ${caution}`;
+  if (chartType === "data_profile" || chartType === "data_profile_matrix") return `Data profile summarizes variable distributions, missingness, and relationships to the selected target. Use it to identify skew, outliers, sparse variables, or possible leakage before modeling. ${caution}`;
+  if (chartType === "grouped_bar" || chartType === "grouped_box" || chartType === "grouped_scatter") return `Grouped charts compare patterns across segments. Look for segments with meaningfully different levels, slopes, or distributions. ${caution}`;
+  if (chartType === "panel_category" || chartType === "small_multiples") return `Panel charts repeat the same analytical view across segments so pattern differences are easier to compare. ${caution}`;
   if (chartType === "scatter") return `The scatter plot compares ${roles.x} and ${roles.y}. Look for nonlinear shape, outliers, and segmented behavior before using the relationship in a governed decision. ${caution}`;
   return `The chart summarizes ${String(roles.measure || roles.numeric || roles.y || "the selected measure")} by ${String(roles.category || roles.x || roles.group || "the selected role")}. Review ranking, concentration, and outliers before sharing the chart as governed evidence. ${caution}`;
 }
@@ -1235,6 +1755,7 @@ function generateChartCode(chartType: ChartTypeId, datasetName: string, versionI
   const sqlBinning = isBinnedRole(categoryRole)
     ? `-- ATLAS binned ${sourceCategory} into ${binning.method === "quantile" ? "quantile" : "equal-width"} bands for the preview chart.\n-- Exact ${binning.method === "quantile" ? "quantile" : "equal-width"} syntax depends on the production SQL engine.\n`
     : "";
+  const sqlCategoryExpr = isBinnedRole(categoryRole) ? `"${sourceCategory}"` : `"${category}"`;
   const rBinning = isBinnedRole(categoryRole)
     ? `df$${category} <- dplyr::ntile(df$${sourceCategory}, ${binning.bins})\n`
     : "";
@@ -1242,9 +1763,56 @@ function generateChartCode(chartType: ChartTypeId, datasetName: string, versionI
     ? `proc rank data=work.${table} groups=${binning.bins} out=work.${table}_binned;\n    var ${sourceCategory};\n    ranks ${category};\nrun;\n\n`
     : "";
   const sasTable = isBinnedRole(categoryRole) ? `work.${table}_binned` : `work.${table}`;
+  if (chartType === "residual_diagnostic") {
+    const actual = String(roles.actual || "actual");
+    const predicted = String(roles.predicted || "predicted");
+    return {
+      python: `# ATLAS Residual Diagnostics\nimport pandas as pd\nimport numpy as np\n\ndf["residual"] = df["${actual}"] - df["${predicted}"]\ndf["abs_residual"] = df["residual"].abs()\ndf["squared_residual"] = df["residual"] ** 2\nfit_summary = {\n    "n": len(df),\n    "mae": df["abs_residual"].mean(),\n    "rmse": np.sqrt(df["squared_residual"].mean()),\n    "mse": df["squared_residual"].mean(),\n    "mean_residual": df["residual"].mean(),\n    "median_residual": df["residual"].median(),\n    "residual_std": df["residual"].std()\n}\nprint(fit_summary)\n`,
+      sql: `-- ATLAS Residual Diagnostics\nSELECT *,\n  "${actual}" - "${predicted}" AS residual,\n  ABS("${actual}" - "${predicted}") AS abs_residual,\n  POWER("${actual}" - "${predicted}", 2) AS squared_residual\nFROM ${dataRef};`,
+      r: `# ATLAS Residual Diagnostics\ndf$residual <- df$${actual} - df$${predicted}\ndf$abs_residual <- abs(df$residual)\ndf$squared_residual <- df$residual ^ 2\nsummary(df[, c("residual", "abs_residual", "squared_residual")])\n`,
+      sas: `/* ATLAS Residual Diagnostics */\ndata work.diagnostics;\n    set work.${table};\n    residual = ${actual} - ${predicted};\n    abs_residual = abs(residual);\n    squared_residual = residual * residual;\nrun;\n\nproc means data=work.diagnostics n mean median std min max;\n    var residual abs_residual squared_residual;\nrun;\n\nproc corr data=work.diagnostics;\n    var ${actual} ${predicted} residual;\nrun;\n`,
+    };
+  }
+  if (chartType === "lift_decile") {
+    const score = String(roles.score || "score");
+    const outcome = String(roles.outcome || "actual");
+    const positive = String(roles.positiveClass ?? "1");
+    const deciles = Number(roles.deciles || 10);
+    return {
+      python: `# ATLAS Lift / Decile\nimport pandas as pd\n\ndf = df.sort_values("${score}", ascending=False).copy()\ndf["score_decile"] = pd.qcut(df["${score}"].rank(method="first", ascending=False), q=${deciles}, labels=False, duplicates="drop") + 1\ndf["positive"] = (df["${outcome}"].astype(str) == "${positive}").astype(int)\nchart_data = df.groupby("score_decile")["positive"].agg(["count", "sum", "mean"]).reset_index()\nchart_data["lift"] = chart_data["mean"] / df["positive"].mean()\nprint(chart_data)\n`,
+      sql: `-- ATLAS Lift / Decile\nWITH ranked AS (\n  SELECT *, NTILE(${deciles}) OVER (ORDER BY "${score}" DESC) AS score_decile\n  FROM ${dataRef}\n)\nSELECT score_decile, COUNT(*) AS count,\n  SUM(CASE WHEN CAST("${outcome}" AS VARCHAR) = '${positive}' THEN 1 ELSE 0 END) AS positives\nFROM ranked\nGROUP BY score_decile\nORDER BY score_decile;`,
+      r: `# ATLAS Lift / Decile\ndf <- df[order(-df$${score}), ]\ndf$score_decile <- dplyr::ntile(-df$${score}, ${deciles})\ndf$positive <- as.integer(as.character(df$${outcome}) == "${positive}")\naggregate(positive ~ score_decile, data = df, FUN = mean)\n`,
+      sas: `/* ATLAS Lift / Decile */\nproc rank data=work.${table} groups=${deciles} out=work.deciles descending;\n    var ${score};\n    ranks score_decile;\nrun;\n\nproc means data=work.deciles n mean sum;\n    class score_decile;\n    var ${outcome};\nrun;\n`,
+    };
+  }
+  if (chartType === "forecast") {
+    return {
+      python: `# ATLAS Simple Forecast Preview\nchart_data = df.groupby("${String(roles.x || "time")}")["${measure}"].${pandasAgg}().reset_index()\nchart_data["moving_average"] = chart_data["${measure}"].rolling(3, min_periods=1).mean()\n# ATLAS renders a simple linear-trend forecast preview for ${Number(roles.horizon || 6)} periods.\n`,
+      sql: `-- ATLAS Simple Forecast data prep\nSELECT "${String(roles.x || "time")}" AS time_order, ${aggregation.toUpperCase()}(CAST("${measure}" AS DOUBLE)) AS value\nFROM ${dataRef}\nGROUP BY "${String(roles.x || "time")}"\nORDER BY time_order;`,
+      r: `# ATLAS Simple Forecast Preview\nchart_data <- aggregate(${measure} ~ ${String(roles.x || "time")}, data = df, FUN = ${aggregation})\nchart_data$moving_average <- stats::filter(chart_data$${measure}, rep(1/3, 3), sides = 1)\n`,
+      sas: `/* ATLAS Simple Forecast data prep. Chart rendering is handled by ATLAS. */\nproc means data=work.${table} n mean sum median;\n    class ${String(roles.x || "time")};\n    var ${measure};\nrun;\n`,
+    };
+  }
+  if (chartType === "survival") {
+    return {
+      python: `# ATLAS Basic Kaplan-Meier style survival preview\n# duration=${String(roles.duration || "duration")}; event=${String(roles.event || "event")}\n# Sort by duration, update survival *= (1 - events / at_risk) at each event time.\n`,
+      sql: `-- ATLAS survival data prep\nSELECT "${String(roles.duration || "duration")}" AS duration, "${String(roles.event || "event")}" AS event_indicator, COUNT(*) AS records\nFROM ${dataRef}\nGROUP BY "${String(roles.duration || "duration")}", "${String(roles.event || "event")}"\nORDER BY duration;`,
+      r: `# ATLAS Basic survival preview\n# For production survival analysis, use survival::survfit(Surv(${String(roles.duration || "duration")}, ${String(roles.event || "event")}) ~ 1, data=df)\n`,
+      sas: `/* ATLAS survival data prep. Full survival modeling can use PROC LIFETEST in licensed SAS. */\nproc freq data=work.${table};\n    tables ${String(roles.duration || "duration")} * ${String(roles.event || "event")};\nrun;\n`,
+    };
+  }
+  if (chartType === "data_profile" || chartType === "data_profile_matrix") {
+    const vars = ((roles.numericVariables as string[]) || []).join(" ") || measure;
+    return {
+      python: `# ATLAS Data Profile\nprofile = df[[${((roles.numericVariables as string[]) || [measure]).map((v) => `"${v}"`).join(", ")}]].describe().T\nprofile["missing_pct"] = df[[${((roles.numericVariables as string[]) || [measure]).map((v) => `"${v}"`).join(", ")}]].isna().mean() * 100\nprint(profile)\n`,
+      sql: `-- ATLAS Data Profile: use engine-specific summary statistics for selected variables.\nSELECT COUNT(*) AS rows FROM ${dataRef};`,
+      r: `# ATLAS Data Profile\nsummary(df[, c(${((roles.numericVariables as string[]) || [measure]).map((v) => `"${v}"`).join(", ")})])\n`,
+      sas: `/* ATLAS Data Profile */\nproc means data=work.${table} n nmiss mean median std min max;\n    var ${vars};\nrun;\n`,
+    };
+  }
   return {
     python: `# ATLAS Chart Studio - ${chartType}\n# Dataset: ${datasetName}\n# Version: ${versionId}\nimport pandas as pd\nimport matplotlib.pyplot as plt\n\n# df = pd.read_csv(\"${table}.csv\")\n${pythonBinning}chart_data = (\n    df.groupby(\"${category}\")[\"${measure}\"]\n      .${pandasAgg}()\n      .reset_index(name=\"${aggregation}_${measure}\")\n)\nchart_data = chart_data.sort_values(\"${aggregation}_${measure}\", ascending=False).head(${Number(roles.topN || 10)})\nax = chart_data.plot(kind=\"bar\", x=\"${category}\", y=\"${aggregation}_${measure}\", figsize=(10, 5), legend=False)\nax.set_title(\"${chartType.replace(/_/g, " ")} - ${datasetName}\")\nplt.tight_layout()\nplt.show()\n`,
-    sql: `-- ATLAS Chart Studio data-prep query\n-- Dataset: ${datasetName}\n-- Version: ${versionId}\n${sqlBinning}SELECT\n  "${category}" AS category,\n  ${aggregation === "count" ? "COUNT(*)" : `${aggregation.toUpperCase()}(CAST("${measure}" AS DOUBLE))`} AS value,\n  COUNT(*) AS row_count\nFROM ${dataRef}\nGROUP BY "${category}"\nORDER BY value DESC\nLIMIT ${Number(roles.topN || 10)};`,
+    sql: `-- ATLAS Chart Studio data-prep query\n-- Dataset: ${datasetName}\n-- Version: ${versionId}\n${sqlBinning}SELECT\n  ${sqlCategoryExpr} AS category,\n  ${aggregation === "count" ? "COUNT(*)" : `${aggregation.toUpperCase()}(CAST("${measure}" AS DOUBLE))`} AS value,\n  COUNT(*) AS row_count\nFROM ${dataRef}\nGROUP BY ${sqlCategoryExpr}\nORDER BY value DESC\nLIMIT ${Number(roles.topN || 10)};`,
     r: `# ATLAS Chart Studio - ${chartType}\n# Dataset: ${datasetName}; Version: ${versionId}\n# If ggplot2 is available, uncomment the plotting lines.\n${rBinning}chart_data <- aggregate(${measure} ~ ${category}, data = df, FUN = ${aggregation === "count" ? "length" : aggregation})\nchart_data <- chart_data[order(-chart_data$${measure}), ]\n# library(ggplot2)\n# ggplot(head(chart_data, ${Number(roles.topN || 10)}), aes(x = reorder(${category}, ${measure}), y = ${measure})) +\n#   geom_col(fill = \"#2563eb\") + coord_flip() + theme_minimal()\n`,
     sas: `/* ATLAS Chart Studio SAS-compatible summary code */\n/* Dataset: ${datasetName}; Version: ${versionId} */\n/* Chart rendering is handled by ATLAS. This SAS-compatible code generates the chart data. */\n${sasBinning}proc means data=${sasTable} n sum mean median std min max;\n    class ${category};\n    var ${measure};\nrun;\n\nproc freq data=${sasTable};\n    tables ${category};\nrun;\n`,
   };

@@ -1,0 +1,40 @@
+{
+  "projectId": "recovered-classification-shell",
+  "projectName": "Recovered Classification Predictive Model",
+  "evidenceType": "dataset",
+  "title": "Dataset: Recovered Classification Predictive Model - TRAIN Scored Output",
+  "summary": "ATLAS scored output for TRAIN scoring. Contains predictions, scores, and diagnostics-ready columns.",
+  "sourcePage": "Dataset Library",
+  "sourceRoute": "/datasets/ds_recovered-classification-predictive-model---train-scored-output_84f8db0a",
+  "artifactType": "dataset",
+  "artifactId": "ds_recovered-classification-predictive-model---train-scored-output_84f8db0a",
+  "datasetIds": [
+    "ds_recovered-classification-predictive-model---train-scored-output_84f8db0a"
+  ],
+  "tags": [
+    "model_risk",
+    "model outputs"
+  ],
+  "lineage": {
+    "registry": "datasets/registry.json"
+  },
+  "governance": {
+    "retention": "Reference only; raw dataset is not duplicated in Evidence Graph."
+  },
+  "evidenceId": "ev-dataset-recovered-classification-predictiv-345b85e868fab24f",
+  "status": "ready",
+  "importance": "medium",
+  "supportsSections": [
+    "Data Sources",
+    "Data Quality",
+    "Population Definition"
+  ],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "payload": {},
+  "createdAt": "2026-07-08T21:08:42.245062+00:00",
+  "updatedAt": "2026-07-08T21:08:42.245062+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 100
+}

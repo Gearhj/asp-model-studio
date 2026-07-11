@@ -76,7 +76,7 @@ assert(codeWorkspacePanel.includes("activeLanguage") && codeWorkspacePanel.inclu
 assert(workbench.includes("Run User Python") && codeExecutionLib.includes("/python/run"), "Workbench Python integration is missing.");
 assert(workbench.includes("context:") && workbench.includes("preview_rows") && workbench.includes("primary_preview_rows"), "Workbench does not pass dataset preview rows into Python execution context.");
 assert(workbench.includes("ATLAS Analytics Workbench Python smoke test passed."), "Workbench Python smoke test text is missing.");
-assert(pythonExecution.includes("env=os.environ.copy()") && pythonExecution.includes("pd.DataFrame(preview_rows)"), "Python execution must inherit environment and create df from preview_rows.");
+assert(pythonExecution.includes("ATLAS_CODE_SANDBOX_COMMAND") && pythonExecution.includes("execution_env()") && pythonExecution.includes("pd.DataFrame(preview_rows)"), "Python execution must require a sandbox and create df from preview_rows.");
 assert(pythonExecution.includes('@router.get("/python/diagnostics")') && codeExecutionLib.includes("/python/diagnostics"), "Python diagnostics endpoint/client is missing.");
 assert(pythonExecution.includes("rscriptDetected") && pythonExecution.includes("saspyInstalled"), "R/SAS execution diagnostics are missing.");
 assert(pythonExecution.includes('@router.post("/code/r/run")') && codeExecutionLib.includes("/code/r/run"), "R execution endpoint/client is missing.");

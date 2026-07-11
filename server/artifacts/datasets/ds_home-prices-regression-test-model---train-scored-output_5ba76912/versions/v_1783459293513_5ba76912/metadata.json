@@ -1,0 +1,72 @@
+{
+  "datasetId": "ds_home-prices-regression-test-model---train-scored-output_5ba76912",
+  "datasetRole": "scored_output",
+  "originalFilename": "home-prices-regression-test-model---train-scored-output.csv",
+  "sourceInfo": {
+    "absResidualColumn": "atlas_abs_residual",
+    "actualColumn": "MedHouseVal",
+    "columnRoles": {
+      "actual": "actual",
+      "prediction": "predicted_value",
+      "residual": "atlas_residual",
+      "score": null
+    },
+    "datasetRole": "scored_output",
+    "datasetType": "train",
+    "diagnosticsAvailable": [
+      "Residual Diagnostics",
+      "Actual vs Predicted",
+      "Prediction Distribution",
+      "Segment Performance"
+    ],
+    "limitation": "Registered from full scored rows returned by the ATLAS scoring response. Original feature columns, target values when present, predictions, residuals, and split metadata are preserved.",
+    "metrics": {
+      "adjusted_r2": 0.4020075972581658,
+      "mae": 0.4427427842524463,
+      "mean_abs_residual": 0.4427427842524463,
+      "mean_residual": 2.072745035173806e-16,
+      "mse": 0.41871559641099904,
+      "r2": 0.4024905307552318,
+      "rmse": 0.6470823721992425
+    },
+    "modelName": "Final Parsimonious RFE Regression Model",
+    "predictionColumn": "predicted_value",
+    "projectId": "atlas-mr6r2puh",
+    "projectName": "Home Prices Regression Test Model",
+    "registeredRows": 9907,
+    "residualColumn": "atlas_residual",
+    "rowScope": "full_scored_output",
+    "scoreSummary": {
+      "max": 4.151463283658489,
+      "mean": 1.5606270142323606,
+      "min": -8.110479719705443
+    },
+    "scoredColumns": [
+      "row",
+      "MedInc",
+      "HouseAge",
+      "AveRooms",
+      "AveBedrms",
+      "Population",
+      "AveOccup",
+      "Latitude",
+      "Longitude",
+      "MedHouseVal",
+      "predicted_value",
+      "prediction",
+      "actual",
+      "atlas_residual",
+      "atlas_abs_residual",
+      "atlas_squared_residual",
+      "atlas_percent_error",
+      "split"
+    ],
+    "sourceRows": 9907,
+    "split": "TRAIN",
+    "squaredResidualColumn": "atlas_squared_residual",
+    "stability": {},
+    "targetColumn": "MedHouseVal",
+    "task": "regression"
+  },
+  "versionId": "v_1783459293513_5ba76912"
+}

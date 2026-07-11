@@ -1,0 +1,65 @@
+{
+  "cells": [
+    {
+      "cellId": "cell_eaf2a0b341c95_1783541840242",
+      "cellType": "markdown",
+      "createdAt": "2026-07-08T20:17:43.416477+00:00",
+      "lastRunAt": "",
+      "output": {
+        "status": "idle",
+        "warnings": []
+      },
+      "source": "## Notebook Introduction\n\n- Analysis objective:\n- Dataset:\n- Evidence to produce:\n- Governance use:",
+      "updatedAt": "2026-07-08T20:17:43.416477+00:00"
+    },
+    {
+      "cellId": "cell_29e96eaa50e118_1783541840242",
+      "cellType": "python",
+      "createdAt": "2026-07-08T20:17:43.416477+00:00",
+      "lastRunAt": "",
+      "output": {
+        "status": "idle",
+        "warnings": []
+      },
+      "source": "import pandas as pd\n\ndf = pd.DataFrame(preview_rows)\nprint(\"Rows, columns:\", df.shape)\natlas_display(df.head(), title=\"Preview rows\")",
+      "updatedAt": "2026-07-08T20:17:43.416477+00:00"
+    }
+  ],
+  "createdAt": "2026-07-08T20:17:43.416477+00:00",
+  "createdBy": "ATLAS local user",
+  "description": "Governed ATLAS notebook artifact.",
+  "governance": {
+    "localExecutionOnly": true,
+    "previewRowsOnly": true,
+    "warnings": [
+      "Local development execution only.",
+      "Dataset-backed execution uses preview/sample rows unless full artifact execution is explicitly enabled.",
+      "Attach notebook outputs to documentation before final model approval."
+    ]
+  },
+  "lineage": {
+    "datasets": [
+      {
+        "datasetId": "ds_reg_train_309ce82d",
+        "role": "primary",
+        "versionId": "v_1783361298379_309ce82d"
+      }
+    ],
+    "sourcePages": [
+      "Notebook Studio"
+    ]
+  },
+  "name": "Hotfix Experimental Save Reopen 20260703 Notebook",
+  "notebookId": "nb_f6581bd9f1544e84",
+  "primaryDatasetId": "ds_reg_train_309ce82d",
+  "primaryVersionId": "v_1783361298379_309ce82d",
+  "projectId": "atlas-mr5bp6oy",
+  "projectName": "Hotfix Experimental Save Reopen 20260703",
+  "secondaryDatasetId": "",
+  "secondaryVersionId": "",
+  "tags": [
+    "atlas",
+    "governed-notebook"
+  ],
+  "updatedAt": "2026-07-08T20:17:43.416477+00:00"
+}

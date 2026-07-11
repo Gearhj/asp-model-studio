@@ -198,5 +198,39 @@ class DatasetStore:
         return self.X_train, self.X_test, self.y_train, self.y_test
 
 
-# Singleton instance used across the backend
-DATASTORE = DatasetStore()
+_DATASTORES: Dict[str, DatasetStore] = {}
+
+
+def _scope_key() -> str:
+    try:
+        from ..security.security_store import active_user
+
+        user = active_user() or {}
+        return str(user.get("userId") or "anonymous")
+    except Exception:
+        return "anonymous"
+
+
+def get_scoped_dataset_store(scope: Optional[str] = None) -> DatasetStore:
+    key = scope or _scope_key()
+    if key not in _DATASTORES:
+        _DATASTORES[key] = DatasetStore()
+    return _DATASTORES[key]
+
+
+class DatasetStoreProxy:
+    def current(self) -> DatasetStore:
+        return get_scoped_dataset_store()
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self.current(), name)
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        if name == "_ignored":
+            super().__setattr__(name, value)
+            return
+        setattr(self.current(), name, value)
+
+
+# Context-aware singleton facade used across the backend.
+DATASTORE = DatasetStoreProxy()

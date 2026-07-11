@@ -1,29 +1,51 @@
 import { Link, useNavigate } from "react-router-dom";
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
-import { Calendar, Copy, Database, Download, FileArchive, FileInput, FolderOpen, FolderPlus, Pencil, Plus, RefreshCw, Save, Settings2, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, Calendar, Copy, Database, Download, FileArchive, FileInput, FolderOpen, FolderPlus, HardDrive, List, Pencil, Plus, RefreshCw, Save, Search, Settings2, Table2, Trash2 } from "lucide-react";
 import BrandLogo from "../components/BrandLogo";
 import {
+  compactBrowserProjectStorage,
   currentWorkflowStage,
   deleteLocalProject,
   duplicateLocalProject,
   formatProjectDate,
   getLocalProjectsRegistryStatus,
+  getProjectStorageDiagnostics,
   getProjectPersistenceDebug,
   importLocalProject,
   loadLocalProjects,
   migrateLegacyLocalProjects,
   projectProgress,
+  recoverCurrentProjectToRegistry,
   repairLocalProjectsRegistry,
   renameLocalProject,
   saveProjectSnapshotFromState,
   type LocalProjectRecord,
   type LocalProjectsRegistryStatus,
+  upsertProjectSnapshot,
   upsertProjectFromState,
   workflowLabel,
 } from "../lib/localProjects";
 import { validateProjectImport } from "../lib/projectImportValidation";
+import {
+  buildRecoveryReport,
+  deepRecoveryScan,
+  snapshotFromRecoveryCandidate,
+  type ProjectRecoveryCandidate,
+} from "../lib/projectRecovery";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+
+const OPEN_PROJECT_VIEW_MODE_KEY = "atlas-open-project-view-mode";
+
+type ViewMode = "card" | "detail";
+type ProjectSortKey = "projectName" | "projectType" | "task" | "target" | "progress" | "lastModified" | "created" | "recoveryStatus";
+type SortDirection = "asc" | "desc";
+
+function readSavedViewMode(key: string, fallback: ViewMode = "detail"): ViewMode {
+  if (typeof localStorage === "undefined") return fallback;
+  const saved = localStorage.getItem(key);
+  return saved === "card" || saved === "detail" ? saved : fallback;
+}
 
 export function OpenProject() {
   const navigate = useNavigate();
@@ -38,9 +60,43 @@ export function OpenProject() {
     validProjects: [],
   }));
   const loadProjectSnapshot = useWorkflowStore((state) => state.loadProjectSnapshot);
-  const activeProjectId = useWorkflowStore((state) => state.projectId);
+  const workflowState = useWorkflowStore((state) => ({
+    hasDataset: state.hasDataset,
+    projectId: state.projectId,
+    modelId: state.modelId,
+    projectName: state.projectName,
+    projectType: state.projectType,
+    workflowId: state.workflowId,
+    workflowSteps: state.workflowSteps,
+    currentStepId: state.currentStepId,
+    projectTools: state.projectTools,
+  }));
+  const activeProjectId = workflowState.projectId;
   const setProjectName = useWorkflowStore((state) => state.setProjectName);
   const resetProject = useWorkflowStore((state) => state.reset);
+  const [diagnostics, setDiagnostics] = useState(() => getProjectStorageDiagnostics(workflowState.projectId, workflowState.workflowSteps));
+  const [viewMode, setViewMode] = useState<ViewMode>(() => readSavedViewMode(OPEN_PROJECT_VIEW_MODE_KEY, "detail"));
+  const [projectFilter, setProjectFilter] = useState("all");
+  const [projectQuery, setProjectQuery] = useState("");
+  const [projectSort, setProjectSort] = useState<{ key: ProjectSortKey; direction: SortDirection }>({ key: "lastModified", direction: "desc" });
+  const [recoveryCandidates, setRecoveryCandidates] = useState<ProjectRecoveryCandidate[]>([]);
+  const [selectedRecoveryIds, setSelectedRecoveryIds] = useState<Set<string>>(() => new Set());
+  const [recoveryScanning, setRecoveryScanning] = useState(false);
+  const [recoveryActions, setRecoveryActions] = useState<string[]>([]);
+
+  const refreshProjectLauncher = () => {
+    const status = getLocalProjectsRegistryStatus();
+    const nextProjects = loadLocalProjects();
+    setRegistryStatus(status);
+    setProjects(nextProjects);
+    setViewMode((current) => (nextProjects.length > 6 ? "detail" : current));
+    setDiagnostics(getProjectStorageDiagnostics(workflowState.projectId, workflowState.workflowSteps));
+  };
+
+  const setProjectViewMode = (mode: ViewMode) => {
+    setViewMode(mode);
+    if (typeof localStorage !== "undefined") localStorage.setItem(OPEN_PROJECT_VIEW_MODE_KEY, mode);
+  };
 
   useEffect(() => {
     const status = getLocalProjectsRegistryStatus();
@@ -52,9 +108,7 @@ export function OpenProject() {
     }
     try {
       const migration = migrateLegacyLocalProjects();
-      const nextStatus = getLocalProjectsRegistryStatus();
-      setRegistryStatus(nextStatus);
-      setProjects(loadLocalProjects());
+      refreshProjectLauncher();
       if (migration.migrated > 0) {
         setImportMessage(`Recovered ${migration.migrated} browser-saved project${migration.migrated === 1 ? "" : "s"} from legacy ATLAS storage.`);
       }
@@ -66,6 +120,56 @@ export function OpenProject() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const displayProjects = useMemo(() => {
+    const needle = projectQuery.trim().toLowerCase();
+    const filteredProjects = projects.filter((project) => {
+      const progress = projectProgress(project.snapshot.workflowSteps);
+      const currentStage = currentWorkflowStage(project.snapshot.workflowSteps, project.snapshot.currentStepId);
+      const linkedDatasets = inferLinkedDatasets(project);
+      const storageLocation = inferProjectStorageLocation(project);
+      const recoveryStatus = inferProjectRecoveryStatus(project);
+      const text = [
+        project.projectName,
+        project.modelId,
+        project.projectType,
+        project.workflowId,
+        workflowLabel(project.projectType, project.workflowId),
+        inferProjectTask(project),
+        inferProjectTarget(project),
+        linkedDatasets,
+        storageLocation,
+        recoveryStatus,
+        project.restoreStatus,
+        currentStage?.label,
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      const matchesSearch = !needle || text.includes(needle);
+      const task = inferProjectTask(project);
+      const filterMatches =
+        projectFilter === "all" ||
+        (projectFilter === "predictive" && project.projectType === "predictive-modeling") ||
+        (projectFilter === "experimental" && project.projectType === "experimental-design") ||
+        (projectFilter === "regression" && task === "regression") ||
+        (projectFilter === "classification" && task === "classification") ||
+        (projectFilter === "recovered" && /recover|shell|partial/i.test(`${project.restoreStatus ?? ""} ${project.snapshot?.restoreWarnings?.join(" ") ?? ""}`)) ||
+        (projectFilter === "incomplete" && progress.complete < progress.total);
+      return matchesSearch && filterMatches;
+    });
+    return [...filteredProjects].sort((a, b) => {
+      const compare = compareProjectRows(a, b, projectSort.key);
+      return projectSort.direction === "asc" ? compare : -compare;
+    });
+  }, [projectFilter, projectQuery, projectSort, projects]);
+
+  const toggleProjectSort = (key: ProjectSortKey) => {
+    setProjectSort((current) => ({
+      key,
+      direction: current.key === key && current.direction === "asc" ? "desc" : "asc",
+    }));
+  };
+
   const openProject = (project: LocalProjectRecord) => {
     loadProjectSnapshot(project.snapshot);
     const route = currentWorkflowStage(project.snapshot.workflowSteps, project.snapshot.currentStepId)?.route || "/project-overview";
@@ -76,13 +180,125 @@ export function OpenProject() {
   const repairRegistry = () => {
     try {
       const result = repairLocalProjectsRegistry();
-      const status = getLocalProjectsRegistryStatus();
-      setRegistryStatus(status);
-      setProjects(result.projects);
+      refreshProjectLauncher();
       setImportMessage(result.message);
     } catch (error) {
       setImportMessage(error instanceof Error ? `Recent Projects repair failed: ${error.message}` : "Recent Projects repair failed.");
     }
+  };
+
+  const recoverActiveProject = () => {
+    try {
+      const result = recoverCurrentProjectToRegistry(useWorkflowStore.getState());
+      refreshProjectLauncher();
+      setImportMessage(result.message);
+    } catch (error) {
+      setImportMessage(error instanceof Error ? `Current project recovery failed: ${error.message}` : "Current project recovery failed.");
+    }
+  };
+
+  const rebuildRecentProjectsIndex = () => {
+    try {
+      const repaired = repairLocalProjectsRegistry();
+      const recovered = recoverCurrentProjectToRegistry(useWorkflowStore.getState());
+      refreshProjectLauncher();
+      setImportMessage(`${repaired.message} ${recovered.message}`);
+    } catch (error) {
+      setImportMessage(error instanceof Error ? `Recent Projects rebuild failed: ${error.message}` : "Recent Projects rebuild failed.");
+    }
+  };
+
+  const compactProjectStorage = () => {
+    const result = compactBrowserProjectStorage(workflowState.projectId);
+    refreshProjectLauncher();
+    setImportMessage(result.message);
+  };
+
+  const exportCurrentProjectBackup = () => {
+    const snapshot = useWorkflowStore.getState();
+    const backup = {
+      exportedAt: new Date().toISOString(),
+      exportType: "atlas-current-project-backup",
+      snapshot,
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${(workflowState.projectName || "atlas-project").replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || "atlas-project"}-backup.atlas`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setImportMessage("Current project backup exported from active workflow state.");
+  };
+
+  const exportProjectBackup = (project: LocalProjectRecord) => {
+    const blob = new Blob([JSON.stringify(project, null, 2)], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `${project.projectName.replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").toLowerCase() || "atlas-project"}.atlas`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setImportMessage(`Exported backup for "${project.projectName}".`);
+  };
+
+  const runDeepRecoveryScan = async () => {
+    setRecoveryScanning(true);
+    setImportMessage("");
+    try {
+      const result = await deepRecoveryScan(loadLocalProjects());
+      setRecoveryCandidates(result.candidates);
+      setRecoveryActions((actions) => [...actions, `Deep recovery scan found ${result.candidates.length} candidate project${result.candidates.length === 1 ? "" : "s"}.`]);
+      setImportMessage(
+        `Deep Recovery Scan found ${result.candidates.length} project candidate${result.candidates.length === 1 ? "" : "s"}. ${
+          result.errors.length ? `Warnings: ${result.errors.join(" ")}` : "Review and select projects to recover."
+        }`
+      );
+    } catch (error) {
+      setImportMessage(error instanceof Error ? `Deep Recovery Scan failed: ${error.message}` : "Deep Recovery Scan failed.");
+    } finally {
+      setRecoveryScanning(false);
+    }
+  };
+
+  const toggleRecoveryCandidate = (candidateId: string) => {
+    setSelectedRecoveryIds((current) => {
+      const next = new Set(current);
+      if (next.has(candidateId)) next.delete(candidateId);
+      else next.add(candidateId);
+      return next;
+    });
+  };
+
+  const recoverSelectedProjects = () => {
+    const selected = recoveryCandidates.filter((candidate) => selectedRecoveryIds.has(candidate.candidateId));
+    if (!selected.length) {
+      setImportMessage("Select one or more recovery candidates first.");
+      return;
+    }
+    const actions: string[] = [];
+    for (const candidate of selected) {
+      const snapshot = candidate.snapshot ?? snapshotFromRecoveryCandidate(candidate);
+      const record = upsertProjectSnapshot(snapshot, "browser");
+      if (record) actions.push(`Recovered ${candidate.name} as Recent Project ${record.projectId}.`);
+      else actions.push(`Skipped ${candidate.name}; it did not contain enough project metadata to recover.`);
+    }
+    setRecoveryActions((previous) => [...previous, ...actions]);
+    setSelectedRecoveryIds(new Set());
+    refreshProjectLauncher();
+    setImportMessage(actions.join(" "));
+  };
+
+  const exportRecoveryReport = () => {
+    const report = buildRecoveryReport(recoveryCandidates, recoveryActions);
+    const blob = new Blob([report], { type: "text/markdown;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = "PROJECT_RECOVERY_SCAN_REPORT.md";
+    anchor.click();
+    URL.revokeObjectURL(url);
+    setImportMessage("Project recovery scan report exported.");
   };
 
   const duplicateProject = (event: React.MouseEvent, project: LocalProjectRecord) => {
@@ -133,6 +349,92 @@ export function OpenProject() {
       setImportMessage("Could not import that file. Select a valid ATLAS project JSON export.");
     }
   };
+
+  const shouldAutoExpandRecoveryTools =
+    projects.length === 0 ||
+    registryStatus.volatileFallback ||
+    Boolean(diagnostics.lastRegistryWriteError) ||
+    registryStatus.corrupted ||
+    recoveryCandidates.length > 0;
+
+  const projectListSection = projects.length === 0 ? (
+    <EmptyProjects />
+  ) : (
+    <section className="space-y-3">
+      <div className="flex flex-col gap-3 rounded-xl border border-slate-200/80 bg-white/90 p-4 shadow-sm lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Browser Projects</h2>
+          <p className="mt-1 text-sm text-slate-600">These projects are stored in this browser and do not require a manual export to reopen.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex min-w-[260px] items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <Search size={15} className="text-slate-500" />
+            <input
+              className="w-full bg-transparent text-sm outline-none"
+              placeholder="Search project, target, dataset, or type"
+              value={projectQuery}
+              onChange={(event) => setProjectQuery(event.target.value)}
+            />
+          </label>
+          <select
+            value={projectFilter}
+            onChange={(event) => setProjectFilter(event.target.value)}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm"
+          >
+            <option value="all">All</option>
+            <option value="predictive">Predictive Modeling</option>
+            <option value="experimental">Experimental Design</option>
+            <option value="regression">Regression</option>
+            <option value="classification">Classification</option>
+            <option value="recovered">Recovered</option>
+            <option value="incomplete">Incomplete</option>
+          </select>
+          <div className="inline-flex rounded-lg border border-slate-300 bg-white p-1 shadow-sm">
+            <button type="button" onClick={() => setProjectViewMode("card")} className={`inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-semibold ${viewMode === "card" ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
+              <List size={13} />
+              Card View
+            </button>
+            <button type="button" onClick={() => setProjectViewMode("detail")} className={`inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-semibold ${viewMode === "detail" ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
+              <Table2 size={13} />
+              Detailed View
+            </button>
+          </div>
+        </div>
+      </div>
+      {viewMode === "detail" ? (
+        <EnterpriseProjectTable
+          projects={displayProjects}
+          activeProjectId={activeProjectId}
+          onOpen={openProject}
+          onDuplicate={duplicateProject}
+          onRename={renameProject}
+          onDelete={removeProject}
+          onExport={exportProjectBackup}
+          sort={projectSort}
+          onSort={toggleProjectSort}
+        />
+      ) : (
+        <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
+          {displayProjects.map((project) => (
+            <ProjectCard
+              key={project.projectId}
+              project={project}
+              isActive={project.projectId === activeProjectId}
+              onOpen={openProject}
+              onDuplicate={duplicateProject}
+              onRename={renameProject}
+              onDelete={removeProject}
+            />
+          ))}
+        </div>
+      )}
+      {displayProjects.length === 0 && (
+        <div className="rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-600">
+          No projects match the current search and filters.
+        </div>
+      )}
+    </section>
+  );
 
   return (
     <div className="w-full space-y-5">
@@ -189,19 +491,237 @@ export function OpenProject() {
             </button>
           </div>
         )}
+        {false && (projects.length === 0 || registryStatus.volatileFallback || diagnostics.lastRegistryWriteError) && (
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+            <div className="flex items-start gap-3">
+              <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold">Project Recovery</div>
+                <p className="mt-1 leading-6">
+                  {projects.length === 0
+                    ? `No Recent Projects cards are registered, but the active workflow is "${workflowState.projectName || "Untitled ATLAS Project"}". Recover it before closing the browser.`
+                    : "Recent Projects is available, but browser storage reported a registry warning. Export a backup or compact storage if saves continue to warn."}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button type="button" onClick={recoverActiveProject} className="inline-flex items-center gap-2 rounded-lg bg-amber-900 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-800">
+                    <RefreshCw size={15} />
+                    Recover Current Project
+                  </button>
+                  <button type="button" onClick={exportCurrentProjectBackup} className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-950 shadow-sm hover:bg-amber-100">
+                    <Download size={15} />
+                    Export Current Project Backup
+                  </button>
+                  <button type="button" onClick={rebuildRecentProjectsIndex} className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-950 shadow-sm hover:bg-amber-100">
+                    <RefreshCw size={15} />
+                    Rebuild Recent Projects Index
+                  </button>
+                  <button type="button" onClick={compactProjectStorage} className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-950 shadow-sm hover:bg-amber-100">
+                    <HardDrive size={15} />
+                    Compact Browser Project Storage
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         {importMessage && <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">{importMessage}</div>}
       </section>
 
-      {projects.length === 0 ? (
+      {projectListSection}
+
+      <details open={shouldAutoExpandRecoveryTools} className="rounded-xl border border-slate-200/80 bg-white/90 p-5 shadow-sm">
+        <summary className="cursor-pointer list-none">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <RefreshCw size={18} className="text-blue-700" />
+                <h2 className="text-base font-semibold text-slate-950">Advanced Recovery Tools</h2>
+              </div>
+              <p className="mt-1 text-sm leading-6 text-slate-600">
+                Recovery and storage diagnostics stay collapsed during normal use. Open this section only to repair Recent Projects, scan orphaned projects, or troubleshoot browser storage.
+              </p>
+            </div>
+            <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
+              {shouldAutoExpandRecoveryTools ? "Attention needed" : "Collapsed by default"}
+            </span>
+          </div>
+        </summary>
+        <div className="mt-5 space-y-5">
+        {(projects.length === 0 || registryStatus.volatileFallback || diagnostics.lastRegistryWriteError) && (
+          <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+            <div className="flex items-start gap-3">
+              <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold">Project Recovery</div>
+                <p className="mt-1 leading-6">
+                  {projects.length === 0
+                    ? `No Recent Projects cards are registered, but the active workflow is "${workflowState.projectName || "Untitled ATLAS Project"}". Recover it before closing the browser.`
+                    : "Recent Projects is available, but browser storage reported a registry warning. Export a backup or compact storage if saves continue to warn."}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button type="button" onClick={recoverActiveProject} className="inline-flex items-center gap-2 rounded-lg bg-amber-900 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-amber-800">
+                    <RefreshCw size={15} />
+                    Recover Current Project
+                  </button>
+                  <button type="button" onClick={exportCurrentProjectBackup} className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-950 shadow-sm hover:bg-amber-100">
+                    <Download size={15} />
+                    Export Current Project Backup
+                  </button>
+                  <button type="button" onClick={rebuildRecentProjectsIndex} className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-950 shadow-sm hover:bg-amber-100">
+                    <RefreshCw size={15} />
+                    Rebuild Recent Projects Index
+                  </button>
+                  <button type="button" onClick={compactProjectStorage} className="inline-flex items-center gap-2 rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-950 shadow-sm hover:bg-amber-100">
+                    <HardDrive size={15} />
+                    Compact Browser Project Storage
+                  </button>
+                </div>
+              </div>
+            </div>
+          </section>
+        )}
+      <section className="rounded-xl border border-slate-200/80 bg-white/90 p-5 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <Database size={18} className="text-blue-700" />
+              <h2 className="text-base font-semibold text-slate-950">Project Storage Diagnostics</h2>
+            </div>
+            <p className="mt-1 text-sm leading-6 text-slate-600">
+              This checks whether Recent Projects is using durable browser storage or a temporary recovery index after a quota warning.
+            </p>
+          </div>
+          <button type="button" onClick={refreshProjectLauncher} className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
+            <RefreshCw size={15} />
+            Refresh Diagnostics
+          </button>
+        </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <MetaCard label="Registry status" value={diagnostics.registryOk ? "OK" : "Needs attention"} />
+          <MetaCard label="Registry size" value={`${Math.round(diagnostics.registryBytes / 1024).toLocaleString()} KB`} />
+          <MetaCard label="Storage usage" value={`${Math.round(diagnostics.storageUsageBytes / 1024).toLocaleString()} KB`} />
+          <MetaCard label="Recovery fallback" value={diagnostics.volatileFallback ? "Active this session" : "Not active"} />
+        </div>
+        {diagnostics.lastRegistryWriteError && (
+          <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-950">
+            {diagnostics.lastRegistryWriteError}
+          </div>
+        )}
+        <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">Largest Browser Storage Keys</h3>
+          <div className="mt-2 grid gap-2 text-xs text-slate-700">
+            {diagnostics.largestKeys.length ? (
+              diagnostics.largestKeys.map((item) => (
+                <div key={item.key} className="flex items-center justify-between gap-4 rounded-md bg-white px-2 py-1.5">
+                  <span className="min-w-0 truncate font-mono" title={item.key}>{item.key}</span>
+                  <span className="shrink-0 font-semibold">{Math.round(item.bytes / 1024).toLocaleString()} KB</span>
+                </div>
+              ))
+            ) : (
+              <div className="rounded-md bg-white px-2 py-1.5 text-slate-500">No browser storage keys detected.</div>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-slate-200/80 bg-white/90 p-5 shadow-sm">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <div className="flex items-center gap-2">
+              <RefreshCw size={18} className="text-blue-700" />
+              <h2 className="text-base font-semibold text-slate-950">Deep Recovery Scan</h2>
+            </div>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
+              Scan browser storage, backend project registry artifacts, Dataset Library links, and server artifacts for unregistered projects. Select candidates before recovery.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" onClick={runDeepRecoveryScan} className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800">
+              <Search size={15} />
+              Scan Browser Storage
+            </button>
+            <button type="button" onClick={runDeepRecoveryScan} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
+              <HardDrive size={15} />
+              Scan Server Artifacts
+            </button>
+            <button type="button" onClick={runDeepRecoveryScan} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
+              <Database size={15} />
+              Scan Dataset Links
+            </button>
+            <button type="button" onClick={recoverSelectedProjects} className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700">
+              <RefreshCw size={15} />
+              Recover Selected Projects
+            </button>
+            <button type="button" onClick={exportRecoveryReport} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
+              <Download size={15} />
+              Export Recovery Report
+            </button>
+          </div>
+        </div>
+        {recoveryScanning && <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">Scanning storage sources...</div>}
+        {recoveryCandidates.length > 0 && <RecoveryCandidateTable candidates={recoveryCandidates} selectedIds={selectedRecoveryIds} onToggle={toggleRecoveryCandidate} />}
+      </section>
+
+        </div>
+      </details>
+
+      {false && (projects.length === 0 ? (
         <EmptyProjects />
       ) : (
         <section className="space-y-3">
-          <div>
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Browser Projects</h2>
-            <p className="mt-1 text-sm text-slate-600">These projects are stored in this browser and do not require a manual export to reopen.</p>
+          <div className="flex flex-col gap-3 rounded-xl border border-slate-200/80 bg-white/90 p-4 shadow-sm lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Browser Projects</h2>
+              <p className="mt-1 text-sm text-slate-600">These projects are stored in this browser and do not require a manual export to reopen.</p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex min-w-[260px] items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                <Search size={15} className="text-slate-500" />
+                <input
+                  className="w-full bg-transparent text-sm outline-none"
+                  placeholder="Search project, target, dataset, or type"
+                  value={projectQuery}
+                  onChange={(event) => setProjectQuery(event.target.value)}
+                />
+              </label>
+              <select
+                value={projectFilter}
+                onChange={(event) => setProjectFilter(event.target.value)}
+                className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm"
+              >
+                <option value="all">All</option>
+                <option value="predictive">Predictive Modeling</option>
+                <option value="experimental">Experimental Design</option>
+                <option value="regression">Regression</option>
+                <option value="classification">Classification</option>
+                <option value="recovered">Recovered</option>
+                <option value="incomplete">Incomplete</option>
+              </select>
+              <div className="inline-flex rounded-lg border border-slate-300 bg-white p-1 shadow-sm">
+                <button type="button" onClick={() => setViewMode("card")} className={`inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-semibold ${viewMode === "card" ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
+                  <List size={13} />
+                  Card View
+                </button>
+                <button type="button" onClick={() => setViewMode("detail")} className={`inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-semibold ${viewMode === "detail" ? "bg-slate-950 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
+                  <Table2 size={13} />
+                  Detailed View
+                </button>
+              </div>
+            </div>
           </div>
+          {viewMode === "detail" ? (
+            <ProjectDetailTable
+              projects={displayProjects}
+              activeProjectId={activeProjectId}
+              onOpen={openProject}
+              onDuplicate={duplicateProject}
+              onRename={renameProject}
+              onDelete={removeProject}
+              onExport={exportProjectBackup}
+            />
+          ) : (
           <div className="grid gap-4 xl:grid-cols-2 2xl:grid-cols-3">
-            {projects.map((project) => (
+            {displayProjects.map((project) => (
               <ProjectCard
                 key={project.projectId}
                 project={project}
@@ -213,8 +733,14 @@ export function OpenProject() {
               />
             ))}
           </div>
+          )}
+          {displayProjects.length === 0 && (
+            <div className="rounded-xl border border-dashed border-slate-300 bg-white p-6 text-center text-sm text-slate-600">
+              No projects match the current search and filters.
+            </div>
+          )}
         </section>
-      )}
+      ))}
     </div>
   );
 }
@@ -309,6 +835,308 @@ function ProjectCard({
       </div>
     </article>
   );
+}
+
+function EnterpriseProjectTable({
+  projects,
+  activeProjectId,
+  onOpen,
+  onDuplicate,
+  onRename,
+  onDelete,
+  onExport,
+  sort,
+  onSort,
+}: {
+  projects: LocalProjectRecord[];
+  activeProjectId: string;
+  onOpen: (project: LocalProjectRecord) => void;
+  onDuplicate: (event: React.MouseEvent, project: LocalProjectRecord) => void;
+  onRename: (event: React.MouseEvent, project: LocalProjectRecord) => void;
+  onDelete: (event: React.MouseEvent, project: LocalProjectRecord) => void;
+  onExport: (project: LocalProjectRecord) => void;
+  sort: { key: ProjectSortKey; direction: SortDirection };
+  onSort: (key: ProjectSortKey) => void;
+}) {
+  return (
+    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+      <table className="min-w-[1480px] w-full text-left text-sm">
+        <thead className="sticky top-0 z-10 bg-slate-100 text-[11px] uppercase tracking-wide text-slate-500">
+          <tr>
+            <SortableProjectHeader label="Project Name" sortKey="projectName" activeSort={sort} onSort={onSort} />
+            <SortableProjectHeader label="Project Type" sortKey="projectType" activeSort={sort} onSort={onSort} />
+            <SortableProjectHeader label="Task" sortKey="task" activeSort={sort} onSort={onSort} />
+            <SortableProjectHeader label="Target" sortKey="target" activeSort={sort} onSort={onSort} />
+            <th className="px-3 py-3">Current Stage</th>
+            <SortableProjectHeader label="Progress" sortKey="progress" activeSort={sort} onSort={onSort} />
+            <th className="px-3 py-3">Linked Datasets</th>
+            <SortableProjectHeader label="Last Modified" sortKey="lastModified" activeSort={sort} onSort={onSort} />
+            <SortableProjectHeader label="Created" sortKey="created" activeSort={sort} onSort={onSort} />
+            <th className="px-3 py-3">Storage Location</th>
+            <SortableProjectHeader label="Recovery Status" sortKey="recoveryStatus" activeSort={sort} onSort={onSort} />
+            <th className="px-3 py-3">Actions</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {projects.map((project) => {
+            const progress = projectProgress(project.snapshot.workflowSteps);
+            const currentStage = currentWorkflowStage(project.snapshot.workflowSteps, project.snapshot.currentStepId);
+            const percent = progress.total ? Math.round((progress.complete / progress.total) * 100) : 0;
+            const linkedDatasets = inferLinkedDatasets(project);
+            return (
+              <tr key={project.projectId} className={project.projectId === activeProjectId ? "bg-blue-50/70" : "odd:bg-white even:bg-slate-50/60"}>
+                <td className="max-w-[260px] px-3 py-2">
+                  <div className="truncate font-semibold text-slate-950" title={project.projectName}>{project.projectName}</div>
+                  <div className="text-xs text-slate-500">{project.modelId ? `Model ID ${project.modelId}` : project.projectId}</div>
+                </td>
+                <td className="px-3 py-2 capitalize text-slate-700">{workflowLabel(project.projectType, project.workflowId)}</td>
+                <td className="px-3 py-2 capitalize text-slate-700">{inferProjectTask(project) || "-"}</td>
+                <td className="px-3 py-2 text-slate-700">{inferProjectTarget(project) || "-"}</td>
+                <td className="px-3 py-2 text-slate-700">{currentStage?.label ?? "Not started"}</td>
+                <td className="px-3 py-2">
+                  <div className="text-xs font-semibold text-slate-700">{progress.complete} / {progress.total} steps</div>
+                  <div className="mt-1 h-1.5 w-24 overflow-hidden rounded-full bg-slate-200">
+                    <div className="h-full rounded-full bg-blue-600" style={{ width: `${percent}%` }} />
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-slate-500">{percent}%</div>
+                </td>
+                <td className="max-w-[240px] px-3 py-2 text-slate-700">
+                  <span className="line-clamp-2" title={linkedDatasets}>{linkedDatasets}</span>
+                </td>
+                <td className="px-3 py-2 text-slate-700">{formatProjectDate(project.lastModified)}</td>
+                <td className="px-3 py-2 text-slate-700">{formatProjectDate(project.createdAt)}</td>
+                <td className="px-3 py-2 capitalize text-slate-700">{inferProjectStorageLocation(project)}</td>
+                <td className="px-3 py-2">
+                  <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">
+                    {inferProjectRecoveryStatus(project)}
+                  </span>
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex flex-nowrap gap-1.5">
+                    <button type="button" onClick={() => onOpen(project)} className="rounded-md bg-slate-950 px-2 py-1 text-xs font-semibold text-white">Open</button>
+                    <button type="button" onClick={(event) => onDuplicate(event, project)} className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700">Duplicate</button>
+                    <button type="button" onClick={(event) => onRename(event, project)} className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700">Rename</button>
+                    <button type="button" onClick={() => onExport(project)} className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700">Export Backup</button>
+                    <button type="button" onClick={(event) => onDelete(event, project)} className="rounded-md border border-red-200 bg-white px-2 py-1 text-xs font-semibold text-red-700">Delete</button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SortableProjectHeader({
+  label,
+  sortKey,
+  activeSort,
+  onSort,
+}: {
+  label: string;
+  sortKey: ProjectSortKey;
+  activeSort: { key: ProjectSortKey; direction: SortDirection };
+  onSort: (key: ProjectSortKey) => void;
+}) {
+  const active = activeSort.key === sortKey;
+  return (
+    <th className="px-3 py-3">
+      <button type="button" onClick={() => onSort(sortKey)} className="inline-flex items-center gap-1 font-semibold hover:text-slate-900">
+        {label}
+        <span className="text-[10px]">{active ? (activeSort.direction === "asc" ? "▲" : "▼") : "↕"}</span>
+      </button>
+    </th>
+  );
+}
+
+function ProjectDetailTable({
+  projects,
+  activeProjectId,
+  onOpen,
+  onDuplicate,
+  onRename,
+  onDelete,
+  onExport,
+}: {
+  projects: LocalProjectRecord[];
+  activeProjectId: string;
+  onOpen: (project: LocalProjectRecord) => void;
+  onDuplicate: (event: React.MouseEvent, project: LocalProjectRecord) => void;
+  onRename: (event: React.MouseEvent, project: LocalProjectRecord) => void;
+  onDelete: (event: React.MouseEvent, project: LocalProjectRecord) => void;
+  onExport: (project: LocalProjectRecord) => void;
+}) {
+  return (
+    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+      <table className="min-w-[1180px] w-full text-left text-sm">
+        <thead className="sticky top-0 bg-slate-100 text-[11px] uppercase tracking-wide text-slate-500">
+          <tr>
+            <th className="px-3 py-3">Project Name</th>
+            <th className="px-3 py-3">Type</th>
+            <th className="px-3 py-3">Task</th>
+            <th className="px-3 py-3">Target</th>
+            <th className="px-3 py-3">Linked Datasets</th>
+            <th className="px-3 py-3">Last Modified</th>
+            <th className="px-3 py-3">Created</th>
+            <th className="px-3 py-3">Storage Location</th>
+            <th className="px-3 py-3">Recovery Status</th>
+            <th className="px-3 py-3">Actions</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {projects.map((project) => {
+            const progress = projectProgress(project.snapshot.workflowSteps);
+            const currentStage = currentWorkflowStage(project.snapshot.workflowSteps, project.snapshot.currentStepId);
+            return (
+              <tr key={project.projectId} className={project.projectId === activeProjectId ? "bg-blue-50/70" : "odd:bg-white even:bg-slate-50/60"}>
+                <td className="px-3 py-3">
+                  <div className="font-semibold text-slate-950">{project.projectName}</div>
+                  <div className="text-xs text-slate-500">
+                    {project.modelId ? `Model ID ${project.modelId} · ` : ""}
+                    {progress.complete} of {progress.total} steps · {currentStage?.label ?? "Not started"}
+                  </div>
+                </td>
+                <td className="px-3 py-3 capitalize text-slate-700">{workflowLabel(project.projectType, project.workflowId)}</td>
+                <td className="px-3 py-3 capitalize text-slate-700">{inferProjectTask(project) || "-"}</td>
+                <td className="px-3 py-3 text-slate-700">{inferProjectTarget(project) || "-"}</td>
+                <td className="px-3 py-3 text-slate-700">{inferLinkedDatasets(project)}</td>
+                <td className="px-3 py-3 text-slate-700">{formatProjectDate(project.lastModified)}</td>
+                <td className="px-3 py-3 text-slate-700">{formatProjectDate(project.createdAt)}</td>
+                <td className="px-3 py-3 capitalize text-slate-700">{project.source ?? "browser"}</td>
+                <td className="px-3 py-3">
+                  <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">
+                    {project.restoreStatus || (project.snapshot?.restoreWarnings?.length ? "Recovered / review needed" : "Registered")}
+                  </span>
+                </td>
+                <td className="px-3 py-3">
+                  <div className="flex flex-wrap gap-1.5">
+                    <button type="button" onClick={() => onOpen(project)} className="rounded-md bg-slate-950 px-2 py-1 text-xs font-semibold text-white">Open</button>
+                    <button type="button" onClick={(event) => onDuplicate(event, project)} className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700">Duplicate</button>
+                    <button type="button" onClick={(event) => onRename(event, project)} className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700">Rename</button>
+                    <button type="button" onClick={() => onExport(project)} className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700">Export Backup</button>
+                    <button type="button" onClick={(event) => onDelete(event, project)} className="rounded-md border border-red-200 bg-white px-2 py-1 text-xs font-semibold text-red-700">Delete</button>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function RecoveryCandidateTable({
+  candidates,
+  selectedIds,
+  onToggle,
+}: {
+  candidates: ProjectRecoveryCandidate[];
+  selectedIds: Set<string>;
+  onToggle: (candidateId: string) => void;
+}) {
+  return (
+    <div className="mt-4 overflow-x-auto rounded-xl border border-slate-200">
+      <table className="min-w-[980px] w-full text-left text-sm">
+        <thead className="bg-slate-100 text-[11px] uppercase tracking-wide text-slate-500">
+          <tr>
+            <th className="px-3 py-3">Recover</th>
+            <th className="px-3 py-3">Project</th>
+            <th className="px-3 py-3">Type</th>
+            <th className="px-3 py-3">Task</th>
+            <th className="px-3 py-3">Target</th>
+            <th className="px-3 py-3">Linked Datasets</th>
+            <th className="px-3 py-3">Completeness</th>
+            <th className="px-3 py-3">Source</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-slate-100">
+          {candidates.map((candidate) => (
+            <tr key={candidate.candidateId} className="odd:bg-white even:bg-slate-50/60">
+              <td className="px-3 py-3">
+                <input type="checkbox" checked={selectedIds.has(candidate.candidateId)} onChange={() => onToggle(candidate.candidateId)} />
+              </td>
+              <td className="px-3 py-3">
+                <div className="font-semibold text-slate-950">{candidate.name}</div>
+                <div className="text-xs text-slate-500">{candidate.projectId}</div>
+              </td>
+              <td className="px-3 py-3 capitalize text-slate-700">{candidate.projectType.replace(/-/g, " ")}</td>
+              <td className="px-3 py-3 capitalize text-slate-700">{candidate.taskType || "-"}</td>
+              <td className="px-3 py-3 text-slate-700">{candidate.target || "-"}</td>
+              <td className="px-3 py-3 text-slate-700">{candidate.linkedDatasets.map((dataset) => dataset.name || dataset.datasetId).filter(Boolean).join(", ") || "-"}</td>
+              <td className="px-3 py-3">
+                <span className="rounded-full bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-800">{candidate.completeness}</span>
+              </td>
+              <td className="px-3 py-3 text-xs text-slate-600">{candidate.sourceLocation}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function inferProjectTask(project: LocalProjectRecord) {
+  const text = `${project.projectName} ${project.workflowId} ${project.projectType} ${project.snapshot?.restoreWarnings?.join(" ") ?? ""}`.toLowerCase();
+  if (project.projectType === "experimental-design") return "experimental design";
+  if (text.includes("regression") || text.includes("home prices") || text.includes("medhouse")) return "regression";
+  if (text.includes("classification") || text.includes("fraud") || text.includes("class")) return "classification";
+  return project.projectType === "predictive-modeling" ? "predictive" : "";
+}
+
+function inferProjectTarget(project: LocalProjectRecord) {
+  const text = `${project.projectName} ${project.snapshot?.restoreWarnings?.join(" ") ?? ""}`.toLowerCase();
+  if (text.includes("medhouse")) return "MedHouseVal";
+  if (text.includes("class") || text.includes("fraud")) return "Class";
+  return "";
+}
+
+function inferLinkedDatasets(project: LocalProjectRecord) {
+  const text = `${project.projectName} ${project.snapshot?.restoreWarnings?.join(" ") ?? ""}`.toLowerCase();
+  if (text.includes("regression") || text.includes("home prices") || text.includes("medhouse")) return "REG_TRAIN, REG_TEST, REG_OOT";
+  if (text.includes("classification") || text.includes("fraud") || text.includes("class")) return "CLASS_TRAIN, CLASS_TEST, CLASS_OOT";
+  return project.snapshot?.hasDataset ? "Linked dataset" : "-";
+}
+
+function inferProjectStorageLocation(project: LocalProjectRecord) {
+  const restoreText = `${project.restoreStatus ?? ""} ${project.snapshot?.restoreWarnings?.join(" ") ?? ""}`.toLowerCase();
+  if (restoreText.includes("server artifact")) return "Server Artifact";
+  if (restoreText.includes("backend")) return "Backend Registry";
+  if (restoreText.includes("recover")) return "Recovered";
+  if (project.source === "imported") return "Imported";
+  return "Browser";
+}
+
+function inferProjectRecoveryStatus(project: LocalProjectRecord) {
+  const restoreText = `${project.restoreStatus ?? ""} ${project.snapshot?.restoreWarnings?.join(" ") ?? ""}`.toLowerCase();
+  if (restoreText.includes("dataset-linked shell")) return "Dataset-linked shell";
+  if (restoreText.includes("partial")) return "Partial";
+  if (restoreText.includes("recover")) return "Recovered";
+  if (project.snapshot?.restoreWarnings?.length) return "Needs review";
+  return project.restoreStatus || "Complete";
+}
+
+function compareProjectRows(a: LocalProjectRecord, b: LocalProjectRecord, key: ProjectSortKey) {
+  const progressA = projectProgress(a.snapshot.workflowSteps);
+  const progressB = projectProgress(b.snapshot.workflowSteps);
+  const values: Record<ProjectSortKey, [string | number, string | number]> = {
+    projectName: [a.projectName, b.projectName],
+    projectType: [workflowLabel(a.projectType, a.workflowId), workflowLabel(b.projectType, b.workflowId)],
+    task: [inferProjectTask(a), inferProjectTask(b)],
+    target: [inferProjectTarget(a), inferProjectTarget(b)],
+    progress: [
+      progressA.total ? progressA.complete / progressA.total : 0,
+      progressB.total ? progressB.complete / progressB.total : 0,
+    ],
+    lastModified: [Date.parse(a.lastModified || "") || 0, Date.parse(b.lastModified || "") || 0],
+    created: [Date.parse(a.createdAt || "") || 0, Date.parse(b.createdAt || "") || 0],
+    recoveryStatus: [inferProjectRecoveryStatus(a), inferProjectRecoveryStatus(b)],
+  };
+  const [left, right] = values[key];
+  if (typeof left === "number" && typeof right === "number") return left - right;
+  return String(left).localeCompare(String(right), undefined, { sensitivity: "base", numeric: true });
 }
 
 function Meta({ label, value }: { label: string; value: string }) {

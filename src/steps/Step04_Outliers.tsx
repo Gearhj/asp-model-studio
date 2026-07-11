@@ -14,14 +14,17 @@ import { inferLocalColumns, loadLocalDataset } from "../lib/localDataset";
  */
 
 type MethodKey =
+  | "NONE"
   | "IQR_1_5"
   | "IQR_3_0"
   | "ZSCORE_3"
   | "ZSCORE_4"
   | "PCT_01_99"
   | "PCT_05_95";
+type FeatureMethodKey = MethodKey | "USE_GLOBAL";
 
 const METHOD_OPTIONS: { key: MethodKey; label: string }[] = [
+  { key: "NONE", label: "None - no treatment" },
   { key: "IQR_1_5", label: "1.5 IQR Method" },
   { key: "IQR_3_0", label: "3.0 IQR Method" },
   { key: "ZSCORE_3", label: "Z-Score Method (3σ)" },
@@ -29,14 +32,23 @@ const METHOD_OPTIONS: { key: MethodKey; label: string }[] = [
   { key: "PCT_01_99", label: "Winsorize 0.5%/99.5%" },
   { key: "PCT_05_95", label: "Winsorize 5%/95%" },
 ];
+const FEATURE_METHOD_OPTIONS: { key: FeatureMethodKey; label: string }[] = [
+  { key: "USE_GLOBAL", label: "Use global method" },
+  ...METHOD_OPTIONS,
+];
 
 const METHOD_GUIDANCE: Record<MethodKey, string> = {
+  NONE: "Definition: no outlier treatment is applied. Use when values are valid business observations, geographic coordinates, or meaningful signal.",
   IQR_1_5: "Definition: flags values beyond 1.5x the interquartile range. Use when you need a standard, moderately sensitive outlier screen.",
   IQR_3_0: "Definition: flags values beyond 3x the interquartile range. Use when extreme values may be meaningful and capping should be conservative.",
   ZSCORE_3: "Definition: flags values more than 3 standard deviations from the mean. Use for roughly normal numeric fields.",
   ZSCORE_4: "Definition: flags values more than 4 standard deviations from the mean. Use when you want a less aggressive normal-based rule.",
   PCT_01_99: "Definition: caps the most extreme 0.5% tails. Use when you want minimal winsorization while preserving most signal.",
   PCT_05_95: "Definition: caps the outer 5% tails. Use only when outliers are likely data quality issues or unstable leverage points.",
+};
+const FEATURE_METHOD_GUIDANCE: Record<FeatureMethodKey, string> = {
+  USE_GLOBAL: "Definition: inherit the current global method. Use when the variable should follow the default outlier policy.",
+  ...METHOD_GUIDANCE,
 };
 
 const BASE =
@@ -116,6 +128,9 @@ function quantile(sorted: number[], p: number) {
 
 function outlierThresholds(values: number[], method: MethodKey) {
   if (!values.length) return { lo: 0, hi: 0 };
+  if (method === "NONE") {
+    return { lo: Math.min(...values), hi: Math.max(...values) };
+  }
   const s = [...values].sort((a, b) => a - b);
   const mean = s.reduce((acc, v) => acc + v, 0) / (s.length || 1);
   const sd = Math.sqrt(
@@ -138,10 +153,16 @@ function capValues(values: number[], lo: number, hi: number) {
   return values.map((v) => (v < lo ? lo : v > hi ? hi : v));
 }
 
-function countOutliers(values: number[], lo: number, hi: number) {
+function countOutliers(values: number[], lo: number, hi: number, method?: MethodKey) {
+  if (method === "NONE") return 0;
   let c = 0;
   for (const v of values) if (v < lo || v > hi) c++;
   return c;
+}
+
+function effectiveMethod(configured: FeatureMethodKey | undefined, globalMethod: MethodKey): MethodKey {
+  if (!configured || configured === "USE_GLOBAL") return globalMethod;
+  return configured;
 }
 
 function buildOutlierData(allCols: ColumnInfo[], rows: Array<Record<string, any>>, headers: string[], targetName: string) {
@@ -398,7 +419,8 @@ function FeaturePreview({
     [feature, series]
   );
   const thr = useMemo(() => outlierThresholds(values, method), [values, method]);
-  const outCount = useMemo(() => countOutliers(values, thr.lo, thr.hi), [values, thr]);
+  const outCount = useMemo(() => countOutliers(values, thr.lo, thr.hi, method), [values, thr, method]);
+  const noTreatment = method === "NONE";
 
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-4">
@@ -406,8 +428,8 @@ function FeaturePreview({
         {feature.toUpperCase()}
       </div>
       <div className="grid grid-cols-2 gap-3">
-        <MiniHist title="Before Treatment" values={values} thresholds={thr} />
-        <MiniHist title="After Capping" values={values} thresholds={thr} afterCap />
+        <MiniHist title="Before Treatment" values={values} thresholds={noTreatment ? undefined : thr} />
+        <MiniHist title={noTreatment ? "No Treatment Applied" : "After Capping"} values={values} thresholds={noTreatment ? undefined : thr} afterCap={!noTreatment} />
       </div>
       <div className="text-[11px] text-gray-600 mt-2">
         <span className="font-medium text-gray-800">Outliers flagged:</span>{" "}
@@ -429,7 +451,7 @@ export default function Step04_Outliers() {
   const [loading, setLoading] = useState(true);
   const [numericFeatures, setNumericFeatures] = useState<string[]>([]);
   const [seriesMap, setSeriesMap] = useState<Record<string, number[]>>({});
-  const [methodByFeature, setMethodByFeature] = useState<Record<string, MethodKey>>({});
+  const [methodByFeature, setMethodByFeature] = useState<Record<string, FeatureMethodKey>>({});
   const [globalMethod, setGlobalMethod] = useState<MethodKey>("IQR_1_5");
   const [featureIv, setFeatureIv] = useState<Record<string, number>>({});
   const [problemType, setProblemType] = useState<"classification" | "regression">("classification");
@@ -440,7 +462,7 @@ export default function Step04_Outliers() {
     try {
       const raw = localStorage.getItem(OUTLIER_CONFIG_KEY);
       if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, MethodKey>;
+      const parsed = JSON.parse(raw) as Record<string, FeatureMethodKey>;
       if (parsed && typeof parsed === "object") {
         setMethodByFeature(parsed);
       }
@@ -534,8 +556,8 @@ export default function Step04_Outliers() {
         setProblemType(scopedProblemType);
         setFeaturePage(0);
         setMethodByFeature((prev) => {
-          const next: Record<string, MethodKey> = { ...prev };
-          for (const f of final) if (!next[f]) next[f] = "IQR_1_5";
+          const next: Record<string, FeatureMethodKey> = { ...prev };
+          for (const f of final) if (!next[f]) next[f] = "USE_GLOBAL";
           for (const k of Object.keys(next)) if (!final.includes(k)) delete next[k];
           return next;
         });
@@ -566,8 +588,8 @@ export default function Step04_Outliers() {
             setProblemType(localDataset.problem_type === "regression" ? "regression" : "classification");
             setFeaturePage(0);
             setMethodByFeature((prev) => {
-              const next: Record<string, MethodKey> = { ...prev };
-              for (const f of final) if (!next[f]) next[f] = "IQR_1_5";
+              const next: Record<string, FeatureMethodKey> = { ...prev };
+              for (const f of final) if (!next[f]) next[f] = "USE_GLOBAL";
               for (const k of Object.keys(next)) if (!final.includes(k)) delete next[k];
               return next;
             });
@@ -592,11 +614,13 @@ export default function Step04_Outliers() {
     return numericFeatures.map((f) => {
       const s = seriesMap[f] ?? [];
       const values = s.length ? s : synthSeries(f, 1500);
-      const thr = outlierThresholds(values, methodByFeature[f] || "IQR_1_5");
-      const n = countOutliers(values, thr.lo, thr.hi);
-      return { feature: f, outliers: n, method: methodByFeature[f] || "IQR_1_5", iv: featureIv[f] ?? 0 };
+      const configured = methodByFeature[f] || "USE_GLOBAL";
+      const resolved = effectiveMethod(configured, globalMethod);
+      const thr = outlierThresholds(values, resolved);
+      const n = countOutliers(values, thr.lo, thr.hi, resolved);
+      return { feature: f, outliers: n, method: configured, effectiveMethod: resolved, iv: featureIv[f] ?? 0 };
     });
-  }, [numericFeatures, seriesMap, methodByFeature, featureIv]);
+  }, [numericFeatures, seriesMap, methodByFeature, featureIv, globalMethod]);
 
   const pageSize = 20;
   const pageCount = Math.max(1, Math.ceil(tableData.length / pageSize));
@@ -608,7 +632,7 @@ export default function Step04_Outliers() {
   const featuresWithOutliers = tableData.filter((row) => row.outliers > 0).length;
   const highestOutlierFeature = [...tableData].sort((a, b) => b.outliers - a.outliers)[0];
 
-  const handleChange = useCallback((feature: string, key: MethodKey) => {
+  const handleChange = useCallback((feature: string, key: FeatureMethodKey) => {
     logDecision({
       workflowStep: "Outlier Analysis",
       actionType: "outlier_method_selected",
@@ -628,9 +652,9 @@ export default function Step04_Outliers() {
       newValue: globalMethod,
     });
     setMethodByFeature((prev) => {
-      const next: Record<string, MethodKey> = { ...prev };
+      const next: Record<string, FeatureMethodKey> = { ...prev };
       numericFeatures.forEach((feature) => {
-        next[feature] = globalMethod;
+        next[feature] = "USE_GLOBAL";
       });
       return next;
     });
@@ -667,13 +691,13 @@ export default function Step04_Outliers() {
         </h3>
 
         {numericFeatures.length > 0 && (
-          <div className="mb-5 flex flex-wrap items-end gap-3 rounded-lg border border-gray-200 bg-gray-50 p-3">
+          <div className="mb-5 grid gap-3 rounded-lg border border-gray-200 bg-gray-50 p-4 lg:grid-cols-[minmax(260px,360px)_minmax(0,1fr)_auto] lg:items-end">
             <label className="grid gap-1">
               <span className="text-xs font-medium text-gray-600">Global method</span>
               <select
                 value={globalMethod}
                 onChange={(e) => setGlobalMethod(e.target.value as MethodKey)}
-                className="w-64 rounded-lg border border-gray-300 bg-white p-2 text-sm"
+                className="w-full rounded-lg border border-gray-300 bg-white p-2 text-sm"
                 title={METHOD_GUIDANCE[globalMethod]}
               >
                 {METHOD_OPTIONS.map((opt) => (
@@ -682,8 +706,11 @@ export default function Step04_Outliers() {
                   </option>
                 ))}
               </select>
-              <span className="max-w-lg text-[11px] font-normal leading-4 text-gray-500">{METHOD_GUIDANCE[globalMethod]}</span>
+              <span className="text-[11px] font-normal leading-4 text-gray-500">{METHOD_GUIDANCE[globalMethod]}</span>
             </label>
+            <div className="text-xs leading-5 text-gray-500">
+              Use this as the default policy, then override individual features below. The selected feature chart appears below the table so the method controls remain fully visible.
+            </div>
             <button
               type="button"
               onClick={applyGlobalMethod}
@@ -691,9 +718,6 @@ export default function Step04_Outliers() {
             >
               Apply to All Features
             </button>
-            <div className="text-xs text-gray-500">
-              Use this for a default policy, then override individual features below.
-            </div>
           </div>
         )}
 
@@ -709,7 +733,7 @@ export default function Step04_Outliers() {
             </p>
           </div>
         ) : (
-          <div className="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.9fr)]">
+          <div className="grid gap-5">
             <div className="overflow-x-auto rounded-xl border border-slate-200">
               <table className="min-w-full text-sm">
                 <thead className="bg-slate-50">
@@ -735,11 +759,11 @@ export default function Step04_Outliers() {
                       <td className="py-2 px-3" onClick={(event) => event.stopPropagation()}>
                         <select
                           value={methodByFeature[row.feature]}
-                          onChange={(e) => handleChange(row.feature, e.target.value as MethodKey)}
-                          className="w-56 p-2 border border-gray-300 rounded-lg"
-                          title={METHOD_GUIDANCE[methodByFeature[row.feature] || "IQR_1_5"]}
+                          onChange={(e) => handleChange(row.feature, e.target.value as FeatureMethodKey)}
+                          className="w-full min-w-48 p-2 border border-gray-300 rounded-lg"
+                          title={FEATURE_METHOD_GUIDANCE[methodByFeature[row.feature] || "USE_GLOBAL"]}
                         >
-                          {METHOD_OPTIONS.map((opt) => (
+                          {FEATURE_METHOD_OPTIONS.map((opt) => (
                             <option key={opt.key} value={opt.key}>
                               {opt.label}
                             </option>
@@ -755,7 +779,8 @@ export default function Step04_Outliers() {
               <SelectedOutlierPanel
                 row={selectedRow}
                 values={seriesMap[selectedRow.feature] ?? []}
-                method={methodByFeature[selectedRow.feature] || "IQR_1_5"}
+                method={methodByFeature[selectedRow.feature] || "USE_GLOBAL"}
+                effectiveMethod={selectedRow.effectiveMethod}
                 problemType={problemType}
                 onMethodChange={(method) => handleChange(selectedRow.feature, method)}
               />
@@ -798,7 +823,7 @@ export default function Step04_Outliers() {
             <FeaturePreview
               key={f}
               feature={f}
-              method={methodByFeature[f] || "IQR_1_5"}
+              method={effectiveMethod(methodByFeature[f], globalMethod)}
               series={seriesMap[f] || []}
             />
           ))}
@@ -830,19 +855,22 @@ function SelectedOutlierPanel({
   row,
   values,
   method,
+  effectiveMethod,
   problemType,
   onMethodChange,
 }: {
-  row: { feature: string; outliers: number; iv: number };
+  row: { feature: string; outliers: number; iv: number; effectiveMethod: MethodKey };
   values: number[];
-  method: MethodKey;
+  method: FeatureMethodKey;
+  effectiveMethod: MethodKey;
   problemType: "classification" | "regression";
-  onMethodChange: (method: MethodKey) => void;
+  onMethodChange: (method: FeatureMethodKey) => void;
 }) {
   const safeValues = values.length ? values : synthSeries(row.feature, 1200);
   const sorted = [...safeValues].sort((a, b) => a - b);
-  const thresholds = outlierThresholds(safeValues, method);
+  const thresholds = outlierThresholds(safeValues, effectiveMethod);
   const pct = safeValues.length ? (row.outliers / safeValues.length) * 100 : 0;
+  const noTreatment = effectiveMethod === "NONE";
   return (
     <aside className="rounded-xl border border-slate-200 bg-slate-50 p-4">
       <div className="flex items-start justify-between gap-3">
@@ -854,11 +882,11 @@ function SelectedOutlierPanel({
           {pct.toFixed(1)}% flagged
         </span>
       </div>
-      <div className="mt-4 grid gap-3">
-        <MiniHist title="Before Treatment" values={safeValues} thresholds={thresholds} />
-        <MiniHist title="After Capping" values={safeValues} thresholds={thresholds} afterCap />
+      <div className="mt-4 grid gap-3 lg:grid-cols-2">
+        <MiniHist title="Before Treatment" values={safeValues} thresholds={noTreatment ? undefined : thresholds} />
+        <MiniHist title={noTreatment ? "No Treatment Applied" : "After Capping"} values={safeValues} thresholds={noTreatment ? undefined : thresholds} afterCap={!noTreatment} />
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-2 text-xs">
+      <div className="mt-4 grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
         <Metric label="P1" value={quantile(sorted, 0.01).toFixed(4)} />
         <Metric label="P5" value={quantile(sorted, 0.05).toFixed(4)} />
         <Metric label="P25" value={quantile(sorted, 0.25).toFixed(4)} />
@@ -872,19 +900,27 @@ function SelectedOutlierPanel({
         Treatment method
         <select
           value={method}
-          onChange={(event) => onMethodChange(event.target.value as MethodKey)}
+          onChange={(event) => onMethodChange(event.target.value as FeatureMethodKey)}
           className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2 text-sm normal-case text-slate-900"
-          title={METHOD_GUIDANCE[method]}
+          title={FEATURE_METHOD_GUIDANCE[method]}
         >
-          {METHOD_OPTIONS.map((opt) => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
+          {FEATURE_METHOD_OPTIONS.map((opt) => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
         </select>
       </label>
       <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs leading-5 text-emerald-900">
         <div className="font-semibold">ATLAS readout</div>
-        <p className="mt-1">
-          The before/after charts use comparable scales. Values beyond {thresholds.lo.toFixed(3)} and {thresholds.hi.toFixed(3)} are pulled back under capping, reducing leverage while preserving record count.
-        </p>
-        <p className="mt-1">Recommendation: use conservative capping unless this field is known to contain invalid values. Review target relationship before changing high-signal tails.</p>
+        {noTreatment ? (
+          <p className="mt-1">
+            {row.feature}: no outlier treatment applied. Use this for valid coordinates, geographic fields, and business values where extremes may carry signal.
+          </p>
+        ) : (
+          <>
+            <p className="mt-1">
+              The before/after charts use comparable scales. Values beyond {thresholds.lo.toFixed(3)} and {thresholds.hi.toFixed(3)} are pulled back under capping, reducing leverage while preserving record count.
+            </p>
+            <p className="mt-1">Recommendation: use conservative capping unless this field is known to contain invalid values. Review target relationship before changing high-signal tails.</p>
+          </>
+        )}
       </div>
     </aside>
   );
