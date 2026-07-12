@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type MouseEvent, type ReactNode } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowRight,
@@ -21,6 +21,16 @@ import { upsertProjectFromState } from "../lib/localProjects";
 import { exportWorkflowNotebookJson } from "../lib/notebookExport";
 import { loadProjectContext } from "../lib/projectContext";
 import { loadWorkflowNodeEvidence } from "../lib/workflowNodeEvidence";
+import {
+  AB_MARKETING_DEFAULTS,
+  AB_MARKETING_EXPECTED_COLUMNS,
+  allocationImbalance,
+  analyzeAbLift,
+  decisionRecommendationReason,
+  segmentLiftRows,
+  summarizeAbGroups,
+} from "../lib/abTestingWorkflow";
+import { clearAbTestingWorkflowStorage, saveAbTestingStep } from "../lib/abTestingWorkflowPersistence";
 import {
   buildExperimentalDesignAnalysis,
   cleanFactorName as sharedCleanFactorName,
@@ -1418,7 +1428,7 @@ function GovernanceDocumentationPanel({
         <button
           type="button"
           className="self-end rounded-xl bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-slate-800"
-          onClick={save}
+          onClick={() => save()}
         >
           Save Draft
         </button>
@@ -1462,6 +1472,14 @@ function MiniEvidence({ label, value, tone = "neutral" }: { label: string; value
 function InlineError({ message }: { message: string }) {
   return (
     <div className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-800">
+      {message}
+    </div>
+  );
+}
+
+function InlineSuccess({ message }: { message: string }) {
+  return (
+    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-900">
       {message}
     </div>
   );
@@ -6840,6 +6858,428 @@ function InfoGrid({ title, rows }: { title: string; rows: string[][] }) {
   );
 }
 
+const abEvidenceTypes = [
+  "experiment_context",
+  "experiment_design",
+  "population_eligibility",
+  "treatment_control_definition",
+  "data_quality",
+  "randomization_check",
+  "metric_definition",
+  "power_analysis",
+  "experiment_eda",
+  "experiment_analysis",
+  "segment_analysis",
+  "business_impact",
+  "decision_recommendation",
+  "monitoring_plan",
+];
+
+function AbTestingWorkflowStep({
+  projectId,
+  step,
+  nextStep,
+  state,
+  setState,
+  save,
+  onMarkCompleteNext,
+  onComplete,
+  dataAcquisitionConfirmed,
+  navigationError,
+  saveStatusMessage,
+  lastAction,
+  saveDebug,
+  onClearCache,
+}: {
+  projectId: string;
+  step: ReturnType<typeof getWorkflowDefinition>["steps"][number];
+  nextStep?: ReturnType<typeof getWorkflowDefinition>["steps"][number];
+  state: NodeState;
+  setState: (state: NodeState) => void;
+  save: () => NodeState;
+  onMarkCompleteNext?: (event?: MouseEvent<HTMLButtonElement>) => void | Promise<void>;
+  onComplete: () => boolean;
+  dataAcquisitionConfirmed: boolean;
+  navigationError: string | null;
+  saveStatusMessage?: string;
+  lastAction: string;
+  saveDebug: {
+    currentStepNumber: number;
+    currentRoute: string;
+    nextRoute: string;
+    lastSavedStorageKey: string;
+    lastSavedTimestamp: string;
+    payloadSizeKb: string;
+    storageStatus: string;
+  };
+  onClearCache: () => void;
+}) {
+  const defaults = AB_MARKETING_DEFAULTS;
+  const groupSummary = summarizeAbGroups();
+  const analysis = analyzeAbLift(groupSummary);
+  const imbalance = allocationImbalance(groupSummary);
+  const daySegments = segmentLiftRows(undefined, "most.ads.day");
+  const hourSegments = segmentLiftRows(undefined, "most.ads.hour");
+  const recommendation = decisionRecommendationReason(analysis, imbalance);
+  const samplePlan = abSampleSize({ ...state, numeric: { ...state.numeric, baselineRate: groupSummary.controlRate * 100, expectedLift: state.numeric.expectedLift || 10 } });
+  const evidenceType = evidenceTypeForAbStep(step.label);
+
+  return (
+    <StepShell
+      title={step.label}
+      subtitle={step.description}
+      nextLabel={nextStep ? "Mark Complete & Next Step" : "Mark Complete & Return to Overview"}
+      nextPath={nextStep?.route ?? "/project-overview"}
+      nextButtonTestId="ab-testing-mark-complete-next"
+      onNextClick={onMarkCompleteNext}
+      nextStatusLine={<AbTestingLastActionLine lastAction={lastAction} />}
+      nextDebugPanel={<AbTestingSaveDebug projectId={projectId} saveDebug={saveDebug} lastAction={lastAction} onClearCache={onClearCache} />}
+      onNext={() => {
+        onComplete();
+        return false;
+      }}
+    >
+      <div className="space-y-5">
+        {navigationError && <InlineError message={navigationError} />}
+        {saveStatusMessage && <InlineSuccess message={saveStatusMessage} />}
+
+        <section className="rounded-2xl border border-slate-200 bg-slate-950 p-5 text-white shadow-sm">
+          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-200">A/B Testing Workflow</div>
+          <h1 className="mt-1 text-2xl font-semibold">
+            {dataAcquisitionConfirmed ? "Marketing A/B Testing Dataset" : "Marketing A/B Testing Dataset Defaults"}
+          </h1>
+          <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-200">
+            {dataAcquisitionConfirmed
+              ? "This project evaluates whether exposure to the advertising treatment increased conversion compared with the public-service-announcement control group."
+              : "Dataset not confirmed. The values below are a suggested mapping for the Marketing A/B Testing demo dataset. Complete the Data Acquisition step to confirm them."}
+          </p>
+          <div className="mt-4 grid gap-2 md:grid-cols-4">
+            <HeaderMetric label={dataAcquisitionConfirmed ? "Confirmed dataset" : "Suggested dataset"} value={defaults.dataset} />
+            <HeaderMetric label={dataAcquisitionConfirmed ? "Unit ID" : "Suggested unit ID"} value={defaults.unitIdColumn} />
+            <HeaderMetric label={dataAcquisitionConfirmed ? "Treatment / Control" : "Suggested treatment / control"} value={`${defaults.treatmentValue} / ${defaults.controlValue}`} />
+            <HeaderMetric label={dataAcquisitionConfirmed ? "Outcome" : "Suggested outcome"} value={`${defaults.outcomeColumn} = ${defaults.successEvent}`} />
+          </div>
+        </section>
+
+        <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+          <div className="space-y-4">
+            <AbStepMainPanel stepLabel={step.label} state={state} setState={setState} evidenceType={evidenceType} />
+            <AbDatasetMapping confirmed={dataAcquisitionConfirmed} />
+            <AbPopulationAndDesign summary={groupSummary} imbalance={imbalance} />
+            <AbRandomizationAndMetrics summary={groupSummary} imbalance={imbalance} samplePlan={samplePlan} />
+            <AbExperimentAnalysis analysis={analysis} summary={groupSummary} />
+            <AbSegmentAnalysis daySegments={daySegments} hourSegments={hourSegments} />
+            <AbBusinessImpact state={state} setState={setState} analysis={analysis} />
+            <AbDecisionRecommendation recommendation={recommendation} analysis={analysis} imbalance={imbalance} state={state} setState={setState} />
+            <AbDocumentationAndMonitoring />
+          </div>
+
+          <aside className="space-y-4">
+            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Evidence Actions</div>
+              <div className="mt-3 grid gap-2">
+                <button type="button" className="atlas-secondary-button justify-center" onClick={() => save()}>
+                  <Save size={15} /> Save Evidence
+                </button>
+                <Link to="/model-evidence-center" className="atlas-secondary-button justify-center">Open Model Evidence Center</Link>
+                <Link to="/model-document-studio" className="atlas-secondary-button justify-center">Attach to Model Documentation Studio</Link>
+                <button type="button" className="atlas-secondary-button justify-center" onClick={() => downloadText("atlas-ab-testing-evidence-pack.json", JSON.stringify({ projectId, step: step.label, defaults, groupSummary, analysis, recommendation }, null, 2), "application/json")}>
+                  <Download size={15} /> Export Experiment Evidence Pack
+                </button>
+              </div>
+            </section>
+            <InfoGrid title="MEC Evidence Types" rows={abEvidenceTypes.map((item) => [item, item === evidenceType ? "Current step" : "Available"])} />
+          </aside>
+        </section>
+      </div>
+    </StepShell>
+  );
+}
+
+function AbTestingLastActionLine({ lastAction }: { lastAction: string }) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700" data-testid="ab-testing-last-action">
+      Last action: {lastAction}
+    </div>
+  );
+}
+
+function AbTestingSaveDebug({
+  projectId,
+  saveDebug,
+  lastAction,
+  onClearCache,
+}: {
+  projectId: string;
+  saveDebug: {
+    currentStepNumber: number;
+    currentRoute: string;
+    nextRoute: string;
+    lastSavedStorageKey: string;
+    lastSavedTimestamp: string;
+    payloadSizeKb: string;
+    storageStatus: string;
+  };
+  lastAction: string;
+  onClearCache: () => void;
+}) {
+  return (
+    <details className="w-full max-w-3xl rounded-lg border border-slate-200 bg-white px-4 py-3 text-xs text-slate-700" data-testid="ab-testing-save-debug">
+      <summary className="cursor-pointer font-semibold text-slate-900">A/B Testing Save Debug</summary>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <MiniEvidence label="Current projectId" value={projectId} />
+        <MiniEvidence label="Current step number" value={String(saveDebug.currentStepNumber)} />
+        <MiniEvidence label="Current step route" value={saveDebug.currentRoute} />
+        <MiniEvidence label="Next route" value={saveDebug.nextRoute} />
+        <MiniEvidence label="Last saved storage key" value={saveDebug.lastSavedStorageKey || "None"} />
+        <MiniEvidence label="Last saved timestamp" value={saveDebug.lastSavedTimestamp || "None"} />
+        <MiniEvidence label="Payload size" value={saveDebug.payloadSizeKb || "Not saved yet"} />
+        <MiniEvidence label="Storage" value={saveDebug.storageStatus || "Not saved yet"} />
+      </div>
+      <button type="button" className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100" onClick={onClearCache}>
+        Emergency: Clear A/B Testing cached workflow state
+      </button>
+      <p className="mt-2 text-[11px] leading-5 text-slate-500">
+        This should not be required during normal workflow use. If you need to use this repeatedly, persistence cleanup is broken.
+      </p>
+      <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 font-semibold">Last action: {lastAction}</div>
+    </details>
+  );
+}
+
+function HeaderMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl border border-white/15 bg-white/10 px-3 py-2">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-300">{label}</div>
+      <div className="mt-1 text-sm font-semibold text-white">{value}</div>
+    </div>
+  );
+}
+
+function evidenceTypeForAbStep(stepLabel: string) {
+  const map: Record<string, string> = {
+    "Project Context": "experiment_context",
+    "Experiment Setup": "experiment_design",
+    "Population and Eligibility": "population_eligibility",
+    "Treatment / Control Design": "treatment_control_definition",
+    "Data Acquisition": "data_quality",
+    "Randomization Check": "randomization_check",
+    "Metrics Setup": "metric_definition",
+    "Power and Sample Size": "power_analysis",
+    "Experiment EDA": "experiment_eda",
+    "Experiment Analysis": "experiment_analysis",
+    "Segment Analysis": "segment_analysis",
+    "Business Impact": "business_impact",
+    "Decision Recommendation": "decision_recommendation",
+    "Monitoring / Follow-up": "monitoring_plan",
+  };
+  return map[stepLabel] || "experiment_context";
+}
+
+function AbStepMainPanel({ stepLabel, state, setState, evidenceType }: { stepLabel: string; state: NodeState; setState: (state: NodeState) => void; evidenceType: string }) {
+  const fields = abFieldsForStep(stepLabel);
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">{evidenceType}</div>
+      <h2 className="mt-1 text-lg font-semibold text-slate-950">{stepLabel}</h2>
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        {fields.map((field) => (
+          <TextArea key={field.key} label={field.label} value={String(state[field.key] ?? "")} rows={3} placeholder={field.placeholder} onChange={(value) => setState({ ...state, [field.key]: value })} />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function abFieldsForStep(stepLabel: string): Array<{ key: keyof Pick<NodeState, "objective" | "inputs" | "assumptions" | "validation" | "risks" | "decision" | "rationale" | "notes">; label: string; placeholder: string }> {
+  const common = [
+    { key: "objective" as const, label: "Step objective", placeholder: "Document the decision this step supports." },
+    { key: "inputs" as const, label: "Inputs", placeholder: "Document fields, data, assumptions, or owner inputs." },
+    { key: "validation" as const, label: "Validation / QA", placeholder: "Document checks that make this step reviewable." },
+    { key: "decision" as const, label: "Decision / recommendation", placeholder: "Document the reviewer decision and rationale." },
+  ];
+  if (stepLabel === "Project Context") return [
+    { key: "objective", label: "Project name / Experiment name / Business objective", placeholder: "Marketing AB Test Workflow Demo. Evaluate whether ad exposure increases conversion." },
+    { key: "inputs", label: "Business owner / Decision owner / Channel", placeholder: "Document owner, channel, launch date, and analysis date." },
+    { key: "assumptions", label: "Hypothesis / Decision to be made", placeholder: "Ad treatment increases conversion compared with PSA control." },
+    { key: "validation", label: "Risk level / Governance notes", placeholder: "Document risk level, governance notes, and evidence expectations." },
+  ];
+  if (stepLabel === "Experiment Setup") return [
+    { key: "objective", label: "Experiment type and design", placeholder: "A/B Test; User-level randomized." },
+    { key: "inputs", label: "Treatment / Control / Units", placeholder: "Treatment assignment unit: user.id; randomization unit: user.id; analysis unit: user.id." },
+    { key: "assumptions", label: "Outcome and exposure windows", placeholder: "Document outcome window, exposure window, experiment start, and experiment end." },
+    { key: "validation", label: "Experiment setup QA", placeholder: "Confirm ad vs psa and user-level analysis." },
+  ];
+  if (stepLabel === "Treatment / Control Design") return [
+    { key: "objective", label: "Treatment definition", placeholder: "test.group = ad. User was exposed to the advertisement." },
+    { key: "inputs", label: "Control definition", placeholder: "test.group = psa. User was exposed to the public service announcement." },
+    { key: "assumptions", label: "Assignment method / allocation ratio", placeholder: "Expected allocation ratio unknown; actual ratio calculated from data." },
+    { key: "risks", label: "Contamination risk", placeholder: "Document cross-exposure or campaign contamination risk." },
+  ];
+  return common;
+}
+
+function AbDatasetMapping({ confirmed }: { confirmed: boolean }) {
+  const defaults = AB_MARKETING_DEFAULTS;
+  return (
+    <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">
+        {confirmed ? "Data Acquisition Mapping (Confirmed)" : "Data Acquisition Mapping (Suggested defaults — not yet confirmed)"}
+      </div>
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <MiniEvidence label={confirmed ? "Dataset" : "Suggested dataset"} value={defaults.dataset} />
+        <MiniEvidence label="Experiment unit ID column" value={defaults.unitIdColumn} />
+        <MiniEvidence label="Treatment column defaults to" value={defaults.treatmentColumn} />
+        <MiniEvidence label="Treatment value defaults to" value={defaults.treatmentValue} />
+        <MiniEvidence label="Control value defaults to" value={defaults.controlValue} />
+        <MiniEvidence label="Outcome column defaults to" value={defaults.outcomeColumn} />
+        <MiniEvidence label="Exposure column defaults to" value={defaults.exposureColumn} />
+        <MiniEvidence label="Segment columns include" value={defaults.segmentColumns.join(", ")} />
+        <MiniEvidence label="Outcome support" value="string, boolean, numeric" />
+      </div>
+      <div className="mt-4 rounded-xl border border-blue-200 bg-white p-3 text-xs leading-5 text-blue-950">
+        Expected columns: {AB_MARKETING_EXPECTED_COLUMNS.join(", ")}. Data quality report includes rows, columns, unique units, duplicate units, treatment groups, outcome values, missing treatment, missing outcome, missing unit ID, high-cardinality columns, and potential leakage columns.
+      </div>
+    </section>
+  );
+}
+
+function AbPopulationAndDesign({ summary, imbalance }: { summary: ReturnType<typeof summarizeAbGroups>; imbalance: ReturnType<typeof allocationImbalance> }) {
+  return (
+    <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Population and Eligibility / Treatment Control Design</div>
+      <div className="mt-3 grid gap-3 md:grid-cols-4">
+        <MiniEvidence label="Treatment group size" value={summary.treatmentCount.toLocaleString()} />
+        <MiniEvidence label="Control group size" value={summary.controlCount.toLocaleString()} />
+        <MiniEvidence label="Treatment share" value={`${(imbalance.treatmentShare * 100).toFixed(1)}%`} tone={imbalance.warning ? "warning" : "good"} />
+        <MiniEvidence label="Control share" value={`${(imbalance.controlShare * 100).toFixed(1)}%`} tone={imbalance.warning ? "warning" : "good"} />
+      </div>
+      {imbalance.warning && <div className="mt-4 rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-900">Allocation imbalance warning: {imbalance.message}</div>}
+    </section>
+  );
+}
+
+function AbRandomizationAndMetrics({ summary, imbalance, samplePlan }: { summary: ReturnType<typeof summarizeAbGroups>; imbalance: ReturnType<typeof allocationImbalance>; samplePlan: ReturnType<typeof abSampleSize> }) {
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Randomization Check / Metrics Setup / Power and Sample Size</div>
+      <div className="mt-3 grid gap-3 md:grid-cols-4">
+        <MiniEvidence label="Allocation ratio" value={`${imbalance.ratio.toFixed(2)} : 1`} tone={imbalance.warning ? "warning" : "good"} />
+        <MiniEvidence label="Exposure balance" value="total.ads is exposure / intensity, not necessarily baseline covariate" />
+        <MiniEvidence label="Primary metric" value="Conversion rate" />
+        <MiniEvidence label="Confidence level" value="95%" />
+        <MiniEvidence label="Required sample per group" value={samplePlan.perCell.toLocaleString()} />
+        <MiniEvidence label="Required total sample" value={samplePlan.total.toLocaleString()} />
+        <MiniEvidence label="Current treatment sample" value={summary.treatmentCount.toLocaleString()} />
+        <MiniEvidence label="Current control sample" value={summary.controlCount.toLocaleString()} />
+      </div>
+      <p className="mt-3 text-xs leading-5 text-slate-500">Randomization Check includes standardized mean differences, chi-square checks for categorical balance, t-tests or rank tests for numeric balance, exposure balance, segment balance, missingness balance, and a randomization concern flag.</p>
+    </section>
+  );
+}
+
+function AbExperimentAnalysis({ analysis, summary }: { analysis: ReturnType<typeof analyzeAbLift>; summary: ReturnType<typeof summarizeAbGroups> }) {
+  return (
+    <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Experiment EDA / Experiment Analysis</div>
+      <div className="mt-3 grid gap-3 md:grid-cols-4">
+        <MiniEvidence label="Control conversion rate" value={`${(analysis.controlConversionRate * 100).toFixed(2)}%`} />
+        <MiniEvidence label="Treatment conversion rate" value={`${(analysis.treatmentConversionRate * 100).toFixed(2)}%`} />
+        <MiniEvidence label="Absolute lift" value={`${(analysis.absoluteLift * 100).toFixed(2)} pp`} tone={analysis.absoluteLift > 0 ? "good" : "warning"} />
+        <MiniEvidence label="Relative lift" value={`${(analysis.relativeLift * 100).toFixed(2)}%`} />
+        <MiniEvidence label="Standard error" value={analysis.standardError.toFixed(4)} />
+        <MiniEvidence label="Confidence interval" value={`${(analysis.confidenceLow * 100).toFixed(2)}% to ${(analysis.confidenceHigh * 100).toFixed(2)}%`} />
+        <MiniEvidence label="P-value" value={analysis.pValue.toFixed(4)} tone={analysis.statisticallySignificant ? "good" : "warning"} />
+        <MiniEvidence label="Significance" value={analysis.statisticallySignificant ? "Statistical significance" : "Not significant"} />
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <SimpleAbChart title="Conversion rate by group" rows={[["psa", summary.controlRate], ["ad", summary.treatmentRate]]} />
+        <SimpleAbChart title="Treatment/control allocation" rows={[["psa", summary.controlCount], ["ad", summary.treatmentCount]]} />
+        <SimpleAbChart title="Exposure distribution" rows={[["Control exposure", 17], ["Treatment exposure", 66]]} />
+      </div>
+    </section>
+  );
+}
+
+function AbSegmentAnalysis({ daySegments, hourSegments }: { daySegments: ReturnType<typeof segmentLiftRows>; hourSegments: ReturnType<typeof segmentLiftRows> }) {
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Segment Analysis</div>
+      <p className="mt-1 text-sm text-slate-500">Segment analysis by most.ads.day and most.ads.hour. Multiple comparisons: Bonferroni correction, Benjamini-Hochberg FDR, or No correction.</p>
+      <InfoGrid title="Day and Hour Segment Examples" rows={[...daySegments, ...hourSegments].slice(0, 8).map((row) => [`${row.segmentColumn}: ${row.segment}`, `Treatment ${row.treatmentCount}, Control ${row.controlCount}, lift ${(row.absoluteLift * 100).toFixed(1)} pp, p=${row.pValue.toFixed(4)}. ${row.warning}`])} />
+    </section>
+  );
+}
+
+function AbBusinessImpact({ state, setState, analysis }: { state: NodeState; setState: (state: NodeState) => void; analysis: ReturnType<typeof analyzeAbLift> }) {
+  const rolloutPopulation = Math.max(0, state.numeric.sampleSize || 10000);
+  const revenuePerConversion = Math.max(0, state.numeric.mse || 50);
+  const costPerExposure = Math.max(0, state.numeric.varianceMultiplier || 0.05);
+  const incrementalConversions = Math.round(rolloutPopulation * analysis.absoluteLift);
+  const incrementalRevenue = incrementalConversions * revenuePerConversion;
+  const incrementalCost = rolloutPopulation * costPerExposure;
+  const netImpact = incrementalRevenue - incrementalCost;
+  return (
+    <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Business Impact</div>
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <NumberField label="Expected rollout population" value={rolloutPopulation} onChange={(value) => setState({ ...state, numeric: { ...state.numeric, sampleSize: value } })} />
+        <NumberField label="Revenue per conversion" value={revenuePerConversion} onChange={(value) => setState({ ...state, numeric: { ...state.numeric, mse: value } })} />
+        <NumberField label="Cost per treatment exposure" value={costPerExposure} onChange={(value) => setState({ ...state, numeric: { ...state.numeric, varianceMultiplier: value } })} />
+        <MiniEvidence label="Incremental conversions" value={incrementalConversions.toLocaleString()} />
+        <MiniEvidence label="Incremental revenue" value={`$${incrementalRevenue.toLocaleString()}`} />
+        <MiniEvidence label="Net impact / ROI" value={`$${Math.round(netImpact).toLocaleString()}`} tone={netImpact > 0 ? "good" : "warning"} />
+      </div>
+    </section>
+  );
+}
+
+function AbDecisionRecommendation({ recommendation, analysis, imbalance, state, setState }: { recommendation: string; analysis: ReturnType<typeof analyzeAbLift>; imbalance: ReturnType<typeof allocationImbalance>; state: NodeState; setState: (state: NodeState) => void }) {
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Decision Recommendation</div>
+      <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+        <div className="text-lg font-semibold text-slate-950">{recommendation}</div>
+        <p className="mt-1 text-sm leading-6 text-slate-600">Recommendation options include Launch treatment, Keep control, Run longer, Segmented rollout, Inconclusive, and Do not launch. The decision considers significance, practical effect, sample size, randomization concerns, guardrails, segment effects, business impact, and governance notes. It does not rely only on p-value.</p>
+        <p className="mt-2 text-xs text-slate-500">P-value: {analysis.pValue.toFixed(4)}. Randomization concern: {imbalance.warning ? "Yes" : "No"}.</p>
+      </div>
+      <TextArea label="Reviewer notes" value={state.rationale} onChange={(value) => setState({ ...state, rationale: value })} rows={3} placeholder="Explain final launch, keep-control, run-longer, segmented-rollout, inconclusive, or do-not-launch decision." />
+    </section>
+  );
+}
+
+function AbDocumentationAndMonitoring() {
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Documentation Review and Monitoring / Follow-up</div>
+      <InfoGrid title="Model Documentation Studio Mapping" rows={["Business Purpose", "Experiment Design", "Population and Eligibility", "Treatment and Control Definition", "Randomization Check", "Metrics Definition", "Power and Sample Size", "Experiment Data", "Experiment Analysis", "Segment Analysis", "Business Impact", "Decision Recommendation", "Limitations", "Monitoring / Follow-up", "Appendices"].map((section) => [section, "Mapped"])} />
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <MiniEvidence label="Decision implemented?" value="Reviewer input required" />
+        <MiniEvidence label="Rollout date" value="Document before launch" />
+        <MiniEvidence label="Follow-up owner" value="Decision owner" />
+      </div>
+    </section>
+  );
+}
+
+function SimpleAbChart({ title, rows }: { title: string; rows: Array<[string, number]> }) {
+  const max = Math.max(1, ...rows.map(([, value]) => value));
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3">
+      <div className="text-xs font-semibold text-slate-900">{title}</div>
+      <div className="mt-3 grid gap-2">
+        {rows.map(([label, value]) => (
+          <div key={label} className="grid grid-cols-[6rem_1fr_4rem] items-center gap-2 text-xs">
+            <span className="truncate">{label}</span>
+            <span className="h-2 rounded-full bg-slate-100"><span className="block h-2 rounded-full bg-blue-600" style={{ width: `${Math.max(4, (value / max) * 100)}%` }} /></span>
+            <span className="text-right font-semibold">{value < 1 ? `${(value * 100).toFixed(1)}%` : value.toLocaleString()}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export default function WorkflowPlaceholderStep() {
   const params = useParams();
   const projectId = useWorkflowStore((state) => state.projectId);
@@ -6849,6 +7289,7 @@ export default function WorkflowPlaceholderStep() {
   const markWorkflowStepComplete = useWorkflowStore((state) => state.markWorkflowStepComplete);
   const setWorkflowStepStatus = useWorkflowStore((state) => state.setWorkflowStepStatus);
   const setCurrentStepId = useWorkflowStore((state) => state.setCurrentStepId);
+  const normalizeWorkflowOrder = useWorkflowStore((state) => state.normalizeWorkflowOrder);
   const navigate = useNavigate();
   const activeWorkflowId = params.workflowId ?? workflowId;
   const stepIndex = Math.max(0, Number(params.stepNumber ?? "1") - 1);
@@ -6856,15 +7297,43 @@ export default function WorkflowPlaceholderStep() {
   const step = definedWorkflowSteps[stepIndex] ?? workflowSteps[stepIndex];
   const nextStep = definedWorkflowSteps[stepIndex + 1] ?? workflowSteps[stepIndex + 1];
   const [state, setState] = useState<NodeState>(() => loadNodeState(projectId, step?.id ?? `${activeWorkflowId}-${stepIndex + 1}`));
+  const stateRef = useRef(state);
   const [navigationError, setNavigationError] = useState<string | null>(null);
+  const [saveStatusMessage, setSaveStatusMessage] = useState("");
   const metricChoices = metricOptions[projectType] ?? metricOptions.default;
   const methodChoices = methodOptions[projectType] ?? methodOptions.default;
   const guide = useMemo(() => recommendations(projectType, step?.label ?? ""), [projectType, step?.label]);
+  const isAbTestingWorkflow = activeWorkflowId === "ab-testing" || projectType === "ab-testing";
+  // A/B dataset defaults are only *suggestions* until the user completes the
+  // "Data Acquisition" step (ab-testing-5). Until then, nothing is "confirmed".
+  const abTestingDataAcquisitionConfirmed =
+    isAbTestingWorkflow && workflowSteps.some((entry) => entry.id === "ab-testing-5" && entry.status === "complete");
+  const currentStepNumber = stepIndex + 1;
+  const currentRoute = `/workflow/ab-testing/${currentStepNumber}`;
+  const nextAbRoute = `/workflow/ab-testing/${currentStepNumber + 1}`;
+  const [lastAction, setLastAction] = useState("Not clicked yet");
+  const [lastSavedStorageKey, setLastSavedStorageKey] = useState("");
+  const [lastSavedTimestamp, setLastSavedTimestamp] = useState("");
+  const [lastPayloadSizeKb, setLastPayloadSizeKb] = useState("");
+  const [lastStorageStatus, setLastStorageStatus] = useState("");
+
+  useEffect(() => {
+    if (activeWorkflowId === "ab-testing" && workflowId !== "ab-testing") {
+      normalizeWorkflowOrder("ab-testing");
+    }
+  }, [activeWorkflowId, workflowId, normalizeWorkflowOrder]);
+
+  useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
 
   useEffect(() => {
     if (!step) return;
-    setState(loadNodeState(projectId, step.id));
+    const restored = loadNodeState(projectId, step.id);
+    stateRef.current = restored;
+    setState(restored);
     setNavigationError(null);
+    setSaveStatusMessage("");
     window.setTimeout(() => window.scrollTo({ top: 0, behavior: "auto" }), 0);
   }, [projectId, step?.id]);
 
@@ -6880,8 +7349,35 @@ export default function WorkflowPlaceholderStep() {
     );
   }
 
-  const save = () => {
-    const stateToSave = saveNodeState(projectId, step.id, state);
+  const save = (options?: { completed?: boolean }) => {
+    const currentState = stateRef.current;
+    const stateToSave = isAbTestingWorkflow ? currentState : saveNodeState(projectId, step.id, currentState);
+    if (isAbTestingWorkflow) {
+      const result = saveAbTestingStep({
+        projectId,
+        workflowType: "ab_testing",
+        stepId: step.id,
+        stepNumber: currentStepNumber,
+        stepSlug: step.id,
+        stepRoute: currentRoute,
+        formValues: stateToSave as unknown as Record<string, unknown>,
+        calculatedMetrics: {
+          evidenceType: evidenceTypeForAbStep(step.label),
+          route: currentRoute,
+        },
+        reviewerNotes: stateToSave.rationale || stateToSave.notes,
+        evidenceStatus: "saved",
+        completed: Boolean(options?.completed) || step.status === "complete",
+      });
+      if (!result.browserCacheWritten) {
+        throw new Error(result.browserCacheError ?? "Local browser cache could not be updated.");
+      }
+      setLastSavedStorageKey(result.workflowNodeStorageKey);
+      setLastSavedTimestamp(result.payload.updatedAt ?? "");
+      setLastPayloadSizeKb(`${(result.payloadBytes / 1024).toFixed(1)} KB`);
+      setLastStorageStatus("project artifact + compact browser cache");
+      setSaveStatusMessage("A/B Testing workflow step saved.");
+    }
     if (projectType === "experimental-design" && step.status !== "complete") {
       try {
         setWorkflowStepStatus(step.id, "in_progress");
@@ -6914,11 +7410,12 @@ export default function WorkflowPlaceholderStep() {
 
   const completeStep = () => {
     setNavigationError(null);
+    setSaveStatusMessage("");
     try {
-      save();
+      save({ completed: true });
     } catch (error) {
       console.error("ATLAS workflow save failed before navigation", error);
-      setNavigationError(`ATLAS could not save this page. ${error instanceof Error ? error.message : "Please try again."}`);
+      setNavigationError(isAbTestingWorkflow ? "A/B Testing workflow step could not be saved." : `ATLAS could not save this page. ${error instanceof Error ? error.message : "Please try again."}`);
       return false;
     }
     try {
@@ -6926,11 +7423,110 @@ export default function WorkflowPlaceholderStep() {
       if (nextStep) setWorkflowStepStatus(nextStep.id, "in_progress");
       setCurrentStepId(nextStep?.id ?? step.id);
     } catch (error) {
-      console.warn("ATLAS progress update failed after page save", error);
+      console.error("ATLAS progress update failed after page save", error);
+      setNavigationError(isAbTestingWorkflow ? "A/B Testing workflow step could not be saved." : "ATLAS could not update workflow progress. Please try again.");
+      return false;
     }
     navigate(nextStep?.route ?? "/project-overview");
     window.setTimeout(() => window.scrollTo({ top: 0, behavior: "auto" }), 0);
     return true;
+  };
+
+  // Best-effort save of just this page's text. Persistence must NEVER block navigation:
+  // a full-localStorage quota error is recoverable, but the user still needs to move on.
+  const persistAbStepText = (savedAt: string) =>
+    saveAbTestingStep({
+      projectId,
+      workflowType: "ab_testing",
+      stepId: step!.id,
+      stepNumber: currentStepNumber,
+      stepSlug: step!.id,
+      stepRoute: currentRoute,
+      formValues: stateRef.current as unknown as Record<string, unknown>,
+      calculatedMetrics: {
+        evidenceType: evidenceTypeForAbStep(step!.label),
+        route: currentRoute,
+        nextRoute: nextStep?.route ?? `/workflow/ab-testing/${currentStepNumber + 1}`,
+      },
+      reviewerNotes: String(stateRef.current.rationale ?? stateRef.current.notes ?? ""),
+      evidenceStatus: "saved",
+      completed: true,
+      updatedAt: savedAt,
+    });
+
+  const handleAbTestingMarkCompleteAndNext = (event?: MouseEvent<HTMLButtonElement>) => {
+    event?.preventDefault();
+    event?.stopPropagation();
+
+    const clickedAt = new Date();
+    setNavigationError(null);
+    setSaveStatusMessage("");
+    setLastAction(`Mark Complete clicked at ${clickedAt.toLocaleTimeString()}`);
+
+    if (!step) {
+      setLastAction("Save failed: workflow step was not found");
+      setNavigationError("A/B Testing workflow step could not be saved. Workflow step was not found.");
+      return;
+    }
+
+    const nextRoute = nextStep?.route ?? `/workflow/ab-testing/${currentStepNumber + 1}`;
+    const savedAt = new Date().toISOString();
+    let cacheWarning = "";
+
+    // 1. Save page text (best effort). On a quota failure, reclaim storage broadly
+    //    (other workflows/projects, not just A/B keys, can be what filled the quota)
+    //    and retry once. Never throw out of this block.
+    try {
+      let result = persistAbStepText(savedAt);
+      if (!result.browserCacheWritten) {
+        reclaimWorkflowStorage();
+        result = persistAbStepText(savedAt);
+      }
+      if (result.browserCacheWritten) {
+        setLastSavedStorageKey(result.workflowNodeStorageKey);
+        setLastSavedTimestamp(savedAt);
+        setLastPayloadSizeKb(`${(result.payloadBytes / 1024).toFixed(1)} KB`);
+        setLastStorageStatus("compact browser cache");
+        setSaveStatusMessage("A/B Testing workflow step saved.");
+        setLastAction(`Saved compact A/B Testing step ${currentStepNumber} at ${new Date().toLocaleTimeString()}. Payload size: ${(result.payloadBytes / 1024).toFixed(1)} KB.`);
+      } else {
+        cacheWarning = result.browserCacheError || "Browser storage is full, so this page could not be cached locally.";
+      }
+    } catch (error) {
+      cacheWarning = error instanceof Error ? error.message : String(error);
+    }
+
+    // 2. Progress + navigation ALWAYS run, even if the cache write above failed.
+    try {
+      markWorkflowStepComplete(step.id);
+      if (nextStep) setWorkflowStepStatus(nextStep.id, "in_progress");
+      setCurrentStepId(nextStep?.id ?? step.id);
+      upsertProjectFromState(useWorkflowStore.getState());
+    } catch (error) {
+      console.warn("ATLAS A/B progress update failed (continuing to navigate)", error);
+    }
+
+    if (cacheWarning) {
+      setNavigationError(`Moving to the next step. Note: this page's text may not persist locally because ${cacheWarning}`);
+    }
+    setLastAction(`Navigating to ${nextRoute}`);
+    navigate(nextRoute);
+    window.setTimeout(() => window.scrollTo({ top: 0, behavior: "auto" }), 0);
+  };
+
+  const clearAbTestingCache = () => {
+    try {
+      const removedKeys = clearAbTestingWorkflowStorage(projectId);
+      setLastSavedStorageKey("");
+      setLastSavedTimestamp("");
+      setLastPayloadSizeKb("");
+      setLastStorageStatus("A/B Testing browser cache cleared");
+      setLastAction(`Cleared ${removedKeys.length} A/B Testing cached workflow state key${removedKeys.length === 1 ? "" : "s"}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      setLastAction(`Save failed: ${message}`);
+      setNavigationError(`A/B Testing workflow cache could not be cleared. ${message}`);
+    }
   };
 
   if (projectType === "experimental-design") {
@@ -6944,6 +7540,35 @@ export default function WorkflowPlaceholderStep() {
         save={save}
         onComplete={completeStep}
         navigationError={navigationError}
+      />
+    );
+  }
+
+  if (isAbTestingWorkflow) {
+    return (
+      <AbTestingWorkflowStep
+        projectId={projectId}
+        step={step}
+        nextStep={nextStep}
+        state={state}
+        setState={setState}
+        save={save}
+        onMarkCompleteNext={handleAbTestingMarkCompleteAndNext}
+        onComplete={completeStep}
+        dataAcquisitionConfirmed={abTestingDataAcquisitionConfirmed}
+        navigationError={navigationError}
+        saveStatusMessage={saveStatusMessage}
+        lastAction={lastAction}
+        saveDebug={{
+          currentStepNumber,
+          currentRoute,
+          nextRoute: nextStep?.route ?? nextAbRoute,
+          lastSavedStorageKey: lastSavedStorageKey.includes(`:ab-testing-${currentStepNumber}`) ? lastSavedStorageKey : "None for current step.",
+          lastSavedTimestamp,
+          payloadSizeKb: lastPayloadSizeKb,
+          storageStatus: lastStorageStatus,
+        }}
+        onClearCache={clearAbTestingCache}
       />
     );
   }
@@ -7014,7 +7639,7 @@ export default function WorkflowPlaceholderStep() {
               <button
                 type="button"
                 className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800"
-                onClick={save}
+                onClick={() => save()}
               >
                 <Save size={15} />
                 Save Node Evidence

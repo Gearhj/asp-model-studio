@@ -31,13 +31,16 @@ export default function NewProject() {
     if (projectType === "custom-workflow") return createCustomWorkflow(customWorkflowName, customSteps);
     return getWorkflowForProjectType(projectType);
   }, [customSteps, customWorkflowName, projectType]);
+  const requiresModelId = projectType === "predictive-modeling";
+  const canStartProject = Boolean(projectName.trim()) && (!requiresModelId || Boolean(modelId.trim()));
 
   const startProject = async () => {
-    if (!modelId.trim()) return;
+    if (!canStartProject) return;
+    const projectIdentifier = modelId.trim() || `${selectedWorkflow.id}-${Date.now()}`;
     const workflowSteps: WorkflowStep[] | undefined = projectType === "custom-workflow" ? selectedWorkflow.steps : undefined;
     const modelType = projectType === "forecasting" || projectType === "optimization" ? "regression" : "generic classification";
     startProjectFromWorkflow({
-      modelId,
+      modelId: projectIdentifier,
       projectName,
       projectType,
       workflowId: selectedWorkflow.id,
@@ -53,7 +56,7 @@ export default function NewProject() {
     }
     saveProjectContext({
       ...loadProjectContext(),
-      modelId: modelId.trim(),
+      modelId: projectIdentifier,
       projectName,
       modelType,
       monitoringMetrics: defaultMonitoringMetricsForModelType(modelType),
@@ -63,7 +66,7 @@ export default function NewProject() {
       actionType: "workflow_setting_changed",
       subject: "Project type",
       previousValue: "-",
-      newValue: `${modelId.trim()} ${projectName} (${projectType})`,
+      newValue: `${projectIdentifier} ${projectName} (${projectType})`,
       systemRecommendation: "Choose the project type that best matches the analytical objective and governance deliverable.",
       followStatus: "not_applicable",
     });
@@ -94,9 +97,11 @@ export default function NewProject() {
               value={modelId}
               onChange={(event) => setModelId(event.target.value)}
               placeholder="15211"
-              aria-required="true"
+              aria-required={requiresModelId ? "true" : "false"}
             />
-            <span className="text-xs text-slate-500">Required. Example: 15211 Portfolio Attrition Model.</span>
+            <span className="text-xs text-slate-500">
+              {requiresModelId ? "Required. Example: 15211 Portfolio Attrition Model." : `Optional for ${selectedWorkflow.label}. ATLAS will create a project identifier if left blank.`}
+            </span>
           </label>
 
           <div className="mt-4 grid gap-2">
@@ -126,10 +131,10 @@ export default function NewProject() {
             <button
               type="button"
               onClick={startProject}
-              disabled={!modelId.trim()}
-              title={!modelId.trim() ? "Model ID # is required" : "Start Project"}
+              disabled={!canStartProject}
+              title={!canStartProject ? (requiresModelId ? "Model ID # is required" : "Project name is required") : "Start Project"}
               className={`rounded-lg px-3 py-2 text-sm font-semibold text-white shadow-sm ${
-                modelId.trim() ? "bg-slate-950 hover:bg-slate-800" : "cursor-not-allowed bg-slate-400"
+                canStartProject ? "bg-slate-950 hover:bg-slate-800" : "cursor-not-allowed bg-slate-400"
               }`}
             >
               Start Project

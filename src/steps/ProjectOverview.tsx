@@ -10,6 +10,7 @@ import { listAnalyticsInsights, type AtlasAnalyticsInsight } from "../lib/analyt
 import { autoCaptureEvidence, getEvidenceCoverage, type EvidenceCoverage } from "../lib/evidenceGraph";
 import { loadExperiments } from "../lib/experimentTracking";
 import { loadProjectContext } from "../lib/projectContext";
+import { AB_MARKETING_DEFAULTS, allocationImbalance, analyzeAbLift, decisionRecommendationReason, summarizeAbGroups } from "../lib/abTestingWorkflow";
 import { getCreditRiskProfileForProject, getLatestCreditRiskMlModelForProject, getLatestScorecardForProject, getLatestWoeIvAnalysisForProject, type CreditRiskMlModel, type CreditRiskProfile, type ScorecardModel, type WoeIvAnalysis } from "../lib/creditRiskStudio";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
@@ -39,6 +40,10 @@ export default function ProjectOverview() {
   const [woeIvAnalysis, setWoeIvAnalysis] = useState<WoeIvAnalysis | null>(null);
   const [scorecardModel, setScorecardModel] = useState<ScorecardModel | null>(null);
   const [creditRiskMlModel, setCreditRiskMlModel] = useState<CreditRiskMlModel | null>(null);
+  const abSummary = projectType === "ab-testing" ? summarizeAbGroups() : null;
+  const abAnalysis = abSummary ? analyzeAbLift(abSummary) : null;
+  const abImbalance = abSummary ? allocationImbalance(abSummary) : null;
+  const abDecisionRecommendation = abAnalysis && abImbalance ? decisionRecommendationReason(abAnalysis, abImbalance) : "";
 
   useEffect(() => {
     let alive = true;
@@ -143,6 +148,41 @@ export default function ProjectOverview() {
         </div>
 
         <div className="grid gap-5">
+          {abSummary && abAnalysis && abImbalance && (
+            <Panel icon={<FlaskConical size={18} />} title="A/B Testing Summary">
+              <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Marketing experiment workflow</div>
+                <p className="mt-1 text-xs leading-5 text-blue-900">
+                  {AB_MARKETING_DEFAULTS.dataset} is mapped with {AB_MARKETING_DEFAULTS.unitIdColumn} as the unit, {AB_MARKETING_DEFAULTS.treatmentColumn} as treatment, and {AB_MARKETING_DEFAULTS.outcomeColumn} as the primary outcome.
+                </p>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <SmallStat label="Experiment Name" value={projectName || context.projectName || "Marketing AB Test Workflow Demo"} />
+                <SmallStat label="Treatment" value={AB_MARKETING_DEFAULTS.treatmentValue} />
+                <SmallStat label="Control" value={AB_MARKETING_DEFAULTS.controlValue} />
+                <SmallStat label="Primary Metric" value="Conversion rate" />
+                <SmallStat label="Treatment Sample Size" value={abSummary.treatmentCount.toLocaleString()} />
+                <SmallStat label="Control Sample Size" value={abSummary.controlCount.toLocaleString()} />
+                <SmallStat label="Treatment Conversion Rate" value={`${(abAnalysis.treatmentConversionRate * 100).toFixed(2)}%`} />
+                <SmallStat label="Control Conversion Rate" value={`${(abAnalysis.controlConversionRate * 100).toFixed(2)}%`} />
+                <SmallStat label="Absolute Lift" value={`${(abAnalysis.absoluteLift * 100).toFixed(2)} pp`} />
+                <SmallStat label="Relative Lift" value={`${(abAnalysis.relativeLift * 100).toFixed(2)}%`} />
+                <SmallStat label="P-value" value={abAnalysis.pValue.toFixed(4)} />
+                <SmallStat label="Evidence Readiness" value={`${evidenceCoverage?.coverageScore ?? 0}%`} />
+              </div>
+              <div className={`rounded-lg border px-3 py-2 text-xs leading-5 ${abImbalance.warning ? "border-amber-200 bg-amber-50 text-amber-900" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>
+                <div className="font-semibold">Decision recommendation</div>
+                <div>{abDecisionRecommendation}</div>
+                <div className="mt-1">Allocation review: {abImbalance.message}</div>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3">
+                <Link to="/workflow/ab-testing/1" className="atlas-secondary-button justify-center">Open A/B Workflow</Link>
+                <Link to="/model-evidence-center" className="atlas-secondary-button justify-center">Open Model Evidence Center</Link>
+                <Link to={`/model-document-studio?projectId=${projectId}`} className="atlas-secondary-button justify-center">Open Documentation Studio</Link>
+              </div>
+            </Panel>
+          )}
+
           <Panel icon={<FileClock size={18} />} title="Recent Decisions">
             {decisions.length ? (
               decisions.map((entry, index) => (

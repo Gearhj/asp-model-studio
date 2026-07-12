@@ -38,6 +38,11 @@ type Props = {
   nextLabel?: string;
   /** Optional pre-navigation task (persist/validate). Throw to block navigation. */
   onNext?: () => void | boolean | Promise<void | boolean>;
+  /** Optional direct click handler for workflows that need to own the visible button behavior. */
+  onNextClick?: React.MouseEventHandler<HTMLButtonElement>;
+  nextButtonTestId?: string;
+  nextStatusLine?: React.ReactNode;
+  nextDebugPanel?: React.ReactNode;
   /** Where to navigate on click, e.g. "/step05" */
   nextPath?: string;
 };
@@ -50,6 +55,10 @@ export default function StepShell({
   nextDisabledReason,
   nextLabel = "Mark Complete & Next Step",
   onNext,
+  onNextClick,
+  nextButtonTestId,
+  nextStatusLine,
+  nextDebugPanel,
   nextPath,
 }: Props) {
   const navigate = useNavigate();
@@ -122,7 +131,10 @@ export default function StepShell({
               {nextDisabledReason}
             </div>
           )}
+          {nextStatusLine}
           <button
+            type="button"
+            data-testid={nextButtonTestId}
             data-step-next-button="true"
             className={
               nextDisabled
@@ -130,11 +142,12 @@ export default function StepShell({
                 : "min-w-64 rounded-xl bg-indigo-600 px-7 py-3 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-md"
             }
             disabled={!!nextDisabled}
-            onClick={handleNext}
+            onClick={onNextClick ?? handleNext}
             title={nextDisabled ? nextDisabledReason || "Complete required actions first" : nextLabel}
           >
             {nextLabel}
           </button>
+          {nextDebugPanel}
         </div>
       )}
     </div>

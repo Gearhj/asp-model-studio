@@ -118,5 +118,7 @@ test("workflow pages contain remount-safe state rehydration hooks", async () => 
   assert.match(train, /hasSavedSelectionForProblem/);
   assert.match(missing, /localStorage\.getItem\(MISSING_CONFIG_KEY\)/);
   assert.match(featureEngineering, /FEATURE_CONFIG_KEY/);
-  assert.match(workflowPlaceholder, /setState\(loadNodeState\(projectId, step\.id\)\)/);
+  // On navigation to a new step, the placeholder reloads that step's saved node state.
+  assert.match(workflowPlaceholder, /const restored = loadNodeState\(projectId, step\.id\);/);
+  assert.match(workflowPlaceholder, /setState\(restored\);/);
 });
