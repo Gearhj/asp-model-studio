@@ -11,8 +11,13 @@ export type AtlasUser = {
   createdAt?: string;
   updatedAt?: string;
   lastLoginAt?: string;
+  lastActiveAt?: string;
   failedLoginCount?: number;
   lockedUntil?: string | null;
+  projectCount?: number;
+  evidenceCount?: number;
+  validationCount?: number;
+  exportCount?: number;
 };
 
 export type DatasetVersionSummary = {
@@ -148,6 +153,13 @@ export async function getDatasetProfile(datasetId: string, versionId?: string) {
 export async function getDatasetPreview(datasetId: string, versionId: string) {
   const payload = await jsonFetch<{ ok: true; preview: DatasetPreview }>(`/datasets/${datasetId}/versions/${versionId}/preview`);
   return payload.preview;
+}
+
+export async function activateDatasetVersion(datasetId: string, versionId: string) {
+  return jsonFetch<{ ok: true; datasetId: string; versionId: string; row_count: number; column_count: number; headers: string[]; selected_columns: string[] }>(
+    `/datasets/${datasetId}/versions/${versionId}/activate`,
+    { method: "POST" },
+  );
 }
 
 export async function linkDatasetToProject(projectId: string, datasetId: string, versionId: string, datasetRole = "modeling") {

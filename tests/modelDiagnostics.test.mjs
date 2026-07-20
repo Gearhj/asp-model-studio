@@ -17,6 +17,7 @@ const diagnosticsLib = read("src/lib/modelDiagnostics.ts");
 const scoringRouter = read("server/scoring/scoring_router.py");
 const evalRouter = read("server/evaluation/eval_router.py");
 const evalService = read("server/evaluation/eval_service.py");
+const edaWorkspaceService = read("server/eda/workspace_service.py");
 const diagRouter = read("server/model_diagnostics/diagnostics_router.py");
 const diagStore = read("server/model_diagnostics/diagnostics_store.py");
 const main = read("server/main.py");
@@ -145,24 +146,25 @@ for (const completenessTerm of ["Feature columns present", "Target column presen
 assert.match(chartStudio, /Open in Model Diagnostics/);
 assert.match(workbench, /Scored output context detected/);
 
-for (const vifTerm of ["VIF / Multicollinearity Analysis", "VIF_j = 1 / (1 - R_j^2)", "Variable", "VIF", "Tolerance", "R-squared against other predictors", "Low concern", "Moderate concern", "High concern"]) {
+for (const vifTerm of ["Predictor Redundancy Check", "VIF", "Use in model", "VIF_AUTO_EXCLUDE_THRESHOLD = 10", "Uncheck VIF", "Excluded after VIF review", "saveFeatureManifest"]) {
   assert.match(featureEngineering, new RegExp(vifTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Feature Engineering VIF card missing ${vifTerm}.`);
 }
-for (const vifTerm of ["VIF_EXCLUDED_FIELD_PATTERN", "VIF_MISSINGNESS_THRESHOLD", "Rows used for VIF", "Predictors evaluated", "Predictors excluded", "Missingness threshold", "Diagnostic/output field", "Too many missing values", "Constant variable", "Singular matrix", "Not enough rows", "Reason"]) {
-  assert.match(featureEngineering, new RegExp(vifTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Feature Engineering VIF eligibility missing ${vifTerm}.`);
+for (const vifTerm of ["def _vif", "len(work) > 20000", "random_state=42", "1 / max(1 - r_squared", '"high" if vif >= 10', '"review" if vif >= 5']) {
+  assert.match(edaWorkspaceService, new RegExp(vifTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Backend Feature Engineering VIF analysis missing ${vifTerm}.`);
 }
 for (const vifTerm of ["VIF_EXCLUDED_FIELD_RE", "Diagnostic/output field", "Non-numeric variable", "Too many missing values", "Constant variable", "Singular matrix", "Not enough rows", "Tolerance = 1 / VIF"]) {
   assert.match(diagStore, new RegExp(vifTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Backend VIF analysis missing ${vifTerm}.`);
 }
 
-for (const term of ["K-Fold Cross-Validation visualization", "Estimated rows per fold", "Validation fold", "training folds only", "totalRows"]) {
-  assert.match(balancingSplit, new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Balance & Split K-fold visualization missing ${term}.`);
+for (const term of ["Validation Split", "Holdout policy", "Reserved for final, untouched validation", "Full-data split", "CV set in training", "full backend dataset"]) {
+  assert.match(balancingSplit, new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Balance & Split validation design missing ${term}.`);
 }
+assert.doesNotMatch(balancingSplit, /Additional validation designs|Planned future validation designs/);
 
-for (const term of ["Training Readiness", "Select Algorithms", "Configure Selected Models", "Advanced Options", "Train Selected Models", "Max parallel model jobs", "1 safest/slowest", "2 recommended for laptops", "4 is faster", "6+ is for powerful", "Apply PCA preprocessing", "Default parameters, not tuned.", "No tunable parameters used.", "Tuning failed"]) {
+for (const term of ["Training Readiness", "Algorithm Selection", "Execution Policy", "Train Selected Models", "Parallel model workers", "Actual concurrency is capped by preflight", "Probability calibration", "Hyperparameter search", "Governed defaults", "Cancel Training", "Live Training", "Candidate Leaderboard"]) {
   assert.match(modelTraining, new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Model Training UX missing ${term}.`);
 }
-for (const term of ["Best for:", "Strengths:", "Cautions:", "Tuning status:"]) {
+for (const term of ["Best use:", "Interpretability:", "Scaling:", "Categorical:", "Probability:", "Tuning:"]) {
   assert.match(modelTraining, new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Model Training algorithm card missing ${term}.`);
 }
 
@@ -179,10 +181,10 @@ assert.match(diagRouter, /positiveClass: Optional\[str\]/, "Diagnostics export e
 assert.match(diagnostics, /export created from the current field mapping and diagnostic results/, "Diagnostics export success message should confirm current mapping/result export.");
 
 assert.match(outliers, /NONE/, "Outliers must support a None method.");
-assert.match(outliers, /None - no treatment/, "Outliers global method list must expose None.");
+assert.match(outliers, /None - preserve observed values/, "Outliers global method list must expose None.");
 assert.match(outliers, /USE_GLOBAL/, "Outliers individual method list must expose Use global method.");
-assert.match(outliers, /no outlier treatment applied/i, "Outlier None readout should document no treatment.");
-assert.match(outliers, /countOutliers\(values, thr\.lo, thr\.hi, resolved\)/, "Variable-level None must affect outlier counts.");
-assert.match(outliers, /localStorage\.setItem\(OUTLIER_CONFIG_KEY/, "Outlier method selections must persist.");
+assert.match(outliers, /effectiveMethod\(config\[row\.feature\], globalMethod\)/, "Variable-level None must affect full-data outlier counts.");
+assert.match(outliers, /localStorage\.setItem\(CONFIG_KEY/, "Outlier method selections must persist.");
+assert.match(outliers, /\/outliers\/apply/, "Outlier treatments must be materialized through the backend.");
 
 console.log("Model Diagnostics Phase 10G checks passed.");

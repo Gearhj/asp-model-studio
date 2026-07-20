@@ -15,6 +15,8 @@ export type ProjectType =
   | "experimental-design"
   | "ab-testing"
   | "optimization"
+  | "time_series_forecasting"
+  | "llm_generative_ai"
   | "forecasting"
   | "segmentation"
   | "reinforcement-learning"
@@ -63,7 +65,7 @@ const predictiveModelingSteps: WorkflowStep[] = [
     label: "Project Context",
     shortLabel: "Context",
     route: "/step00",
-    description: "Define the objective, target, population, windows, costs, governance constraints, and deployment plan.",
+    description: "Define the modeling mission, intended use, business target, eligible population, and outcome windows before selecting data.",
     required: true,
   },
   {
@@ -73,13 +75,6 @@ const predictiveModelingSteps: WorkflowStep[] = [
     route: "/step01",
     description: "Connect to governed data, upload files, select the target, inspect columns, and persist the sample.",
     required: true,
-  },
-  {
-    id: "step01b",
-    label: "Credit Bureau Data Review",
-    shortLabel: "Bureau",
-    route: "/step01b",
-    description: "Identify bureau special values, attach metadata, choose treatments, and document rationale.",
   },
   {
     id: "step02",
@@ -176,7 +171,7 @@ const predictiveModelingSteps: WorkflowStep[] = [
   },
 ];
 
-const creditRiskStudioSteps: WorkflowStep[] = predictiveModelingSteps.filter((step) => step.id !== "step01b");
+const creditRiskStudioSteps: WorkflowStep[] = predictiveModelingSteps;
 
 function placeholderSteps(workflowId: string, labels: Array<[string, string]>) {
   return labels.map(([label, description], index) => ({
@@ -188,6 +183,36 @@ function placeholderSteps(workflowId: string, labels: Array<[string, string]>) {
     required: index === 0 || index === labels.length - 1,
   }));
 }
+
+const timeSeriesForecastingSteps: WorkflowStep[] = placeholderSteps("time_series_forecasting", [
+  ["Project Context", "Define the time-dependent business problem, forecast horizon, monitored outcome, operating cadence, and governance boundary."],
+  ["Data Acquisition", "Load or register time-indexed data and map the date field, target field, entity grain, and optional exogenous drivers."],
+  ["Time Series Profile", "Review target behavior, trend, seasonality, volatility, outliers, autocorrelation, and structural breaks before modeling."],
+  ["Feature & Calendar Design", "Create lags, rolling statistics, calendar flags, trend terms, event flags, and future-known feature controls."],
+  ["Backtest Design", "Define temporal splits, rolling or expanding windows, forecast horizon, gap period, folds, and evaluation metrics."],
+  ["Model Configuration", "Select baseline, statistical, machine-learning, and anomaly-detection candidates with reproducible settings."],
+  ["Train & Backtest", "Run time-aware training and backtesting, compare fold results, export run configuration, and capture warnings."],
+  ["Forecast Results", "Review champion forecasts, prediction intervals, entity-level forecasts, and business implications."],
+  ["Diagnostics & Stability", "Validate residual behavior, error by horizon, drift, interval coverage, anomalies, and segment stability."],
+  ["Scenario & Stress Testing", "Stress forecasts under demand shocks, seasonality changes, downturns, fraud spikes, outages, and custom future drivers."],
+  ["Recommendation & Monitoring Plan", "Translate forecast evidence into a recommendation, monitoring thresholds, reforecast triggers, and escalation plan."],
+  ["Documentation", "Generate an audit-ready Time Series & Forecasting package with evidence inventory, Python, and SAS-compatible code."],
+]);
+
+const llmGenerativeAiSteps: WorkflowStep[] = placeholderSteps("llm_generative_ai", [
+  ["Use Case & Risk Context", "Define the LLM use case, users, allowed behavior, customer impact, sensitive data, human review, and governance boundary."],
+  ["Data & Knowledge Sources", "Register source documents, text datasets, policies, procedures, transcripts, cases, or knowledge bases."],
+  ["Task Design & Output Schema", "Define the exact LLM task, output contract, citations, fallback behavior, review criteria, labels, or extraction fields."],
+  ["Prompt & Instruction Design", "Design system instructions, developer guidance, user prompt templates, examples, guardrails, and response format."],
+  ["Retrieval / RAG Configuration", "Configure chunking, embeddings, retrieval, reranking, metadata filters, citations, and no-source fallback behavior."],
+  ["Evaluation Dataset", "Create or upload golden test cases, expected answers, labels, source references, adversarial prompts, and edge cases."],
+  ["LLM Evaluation", "Score correctness, groundedness, citations, safety, refusal behavior, extraction quality, classification metrics, and reviewer agreement."],
+  ["Safety, Compliance & Red-Team Review", "Review prompt injection, leakage, hallucination, unsupported answer risk, privacy, UDAAP, fair lending, and escalation controls."],
+  ["Human Review & Quality Control", "Define reviewer workflow, sampling strategy, override capture, escalation handling, and quality thresholds."],
+  ["Deployment & Monitoring Plan", "Define deployment boundaries, version controls, monitoring metrics, incident escalation, and re-evaluation triggers."],
+  ["Recommendation & Approval", "Translate evaluation, safety, retrieval, and human-review evidence into a business recommendation and approval record."],
+  ["Documentation", "Generate an audit-ready LLM / Generative AI package with prompt registry, source registry, evidence, Python, and SQL/SAS templates."],
+]);
 
 export const experimentalDesignJourney: ExperimentalDesignJourneyStep[] = [
   {
@@ -300,7 +325,7 @@ export const experimentalDesignJourney: ExperimentalDesignJourneyStep[] = [
     transition: "Because the sample plan is defined, ATLAS will now simulate expected power and decision risk.",
     output: "A design validation simulation.",
     nextLabel: "Experiment Run Plan",
-    nextQuestion: "What happened?",
+    nextQuestion: "How will we execute and monitor the experiment?",
   },
   {
     id: "experimental-design-9",
@@ -309,7 +334,7 @@ export const experimentalDesignJourney: ExperimentalDesignJourneyStep[] = [
     shortLabel: "Run Plan",
     stepNumber: 9,
     totalSteps: 12,
-    question: "What happened?",
+    question: "How will we execute and monitor the experiment?",
     purpose: "Execute and monitor the experiment while preserving treatment integrity.",
     transition: "Because launch risk is simulated, ATLAS will now document execution controls and monitoring checks.",
     output: "A controlled run plan.",
@@ -389,10 +414,10 @@ export const workflowDefinitions: WorkflowDefinition[] = [
     projectType: "ab-testing",
     steps: placeholderSteps("ab-testing", [
       ["Project Context", "Define experiment name, objective, owners, hypothesis, decision context, dates, risk, and governance notes."],
+      ["Data Acquisition and Experiment Mapping", "Select or upload the experiment dataset, map unit, treatment, control, outcome, exposure, segment, and date/time fields, then validate the mapping."],
       ["Experiment Setup", "Define experiment type, design, treatment, control, assignment unit, randomization unit, analysis unit, and windows."],
       ["Population and Eligibility", "Document eligible population, inclusion and exclusion criteria, missingness handling, duplicates, spillover, and representativeness."],
       ["Treatment / Control Design", "Define treatment and control columns, values, descriptions, assignment method, allocation ratio, randomization notes, and contamination risk."],
-      ["Data Acquisition", "Map dataset, unit ID, treatment, outcome, exposure, segment, and date/time columns for experiment analysis."],
       ["Randomization Check", "Check sample ratio, treatment/control sizes, exposure balance, segment balance, missingness balance, and randomization concerns."],
       ["Metrics Setup", "Define primary, secondary, guardrail, segment metrics, success event, confidence level, and multiple-testing policy."],
       ["Power and Sample Size", "Calculate binary proportion sample size, current power status, and detectable effect with current sample."],
@@ -402,7 +427,7 @@ export const workflowDefinitions: WorkflowDefinition[] = [
       ["Business Impact", "Translate lift into incremental conversions, revenue, cost, net impact, ROI, and break-even lift."],
       ["Decision Recommendation", "Document launch, keep control, run longer, segmented rollout, inconclusive, or do-not-launch decision with reviewer notes."],
       ["Documentation Review", "Map experiment evidence to Model Documentation Studio sections and appendices."],
-      ["Monitoring / Follow-up", "Track implementation, rollout date, monitoring period, post-launch metrics, owner, unexpected impact, and follow-up notes."],
+      ["Post-Decision Plan", "Define the post-decision strategy for run-longer tests, holdout continuation, slow rollouts, segmented rollouts, keep-control decisions, or full treatment launches."],
     ]),
   },
   {
@@ -415,41 +440,38 @@ export const workflowDefinitions: WorkflowDefinition[] = [
   {
     id: "optimization",
     label: "Optimization",
-    description: "Define objectives, constraints, scenarios, and implementation plans for business optimization.",
+    description: "Build governed, data-backed optimization studies from source data through a validated decision and implementation plan.",
     projectType: "optimization",
     steps: placeholderSteps("optimization", [
-      ["Project Context", "Define the optimization decision, business owner, scope, and constraints."],
-      ["Objective Function", "Specify the objective to maximize or minimize."],
-      ["Decision Variables", "Define controllable variables and valid domains."],
-      ["Constraints", "Capture operational, policy, financial, and regulatory constraints."],
-      ["Business Rules", "Document non-negotiable decision rules and exceptions."],
-      ["Solver Configuration", "Choose solver approach, tolerances, and runtime limits."],
-      ["Scenario Analysis", "Compare alternative assumptions and constraints."],
-      ["Sensitivity Analysis", "Inspect how solution changes under key parameter shifts."],
-      ["Optimal Solution", "Summarize recommended solution and tradeoffs."],
-      ["Validation", "Validate feasibility, stability, and stakeholder acceptance."],
-      ["Implementation Plan", "Define deployment path, monitoring, and fallback actions."],
-      ["Documentation", "Generate the optimization study documentation."],
+      ["Project Context", "Define the business decision, accountable owner, population, decision cadence, value measure, risk appetite, and governance boundary."],
+      ["Data Acquisition", "Choose a generic single-table optimizer, the transportation and logistics template, or manual formulation, then register every required governed full-dataset input."],
+      ["Formulation Readiness", "Validate full-artifact scope, schema mapping, normalized decision grain, coefficient coverage, bounds, generated constraints, and whether the formulation is ready to solve."],
+      ["Objective Function", "Choose maximize or minimize, define the unit of value, baseline, optimization horizon, and transparent mathematical objective."],
+      ["Decision Variables", "Review or create controllable variables, lower and upper bounds, integer requirements, groups, and objective or risk coefficients."],
+      ["Constraints & Business Rules", "Encode capacity, budget, policy, regulatory, concentration, service, and minimum-performance requirements."],
+      ["Solver Configuration", "Select LP, MILP, or risk-adjusted nonlinear optimization with tolerances, runtime limits, and reproducibility controls."],
+      ["Baseline & Scenarios", "Define the current-state baseline and alternative demand, capacity, risk, cost, and stress assumptions."],
+      ["Optimize", "Run the governed solver and review objective improvement, decision values, feasibility, binding constraints, runtime, and optimality evidence."],
+      ["Sensitivity & Tradeoffs", "Stress objective coefficients, bounds, and constraints to identify unstable decisions, shadow tradeoffs, and robust operating ranges."],
+      ["Validation", "Validate mathematical feasibility, business-rule conformance, stability, independent replication, and out-of-sample or backtest evidence."],
+      ["Decision Recommendation", "Translate the optimized solution into an accountable recommendation with alternatives, limitations, approvals, and residual risks."],
+      ["Implementation & Monitoring", "Define rollout, system integration, human overrides, fallback actions, KPI and constraint monitoring, drift triggers, and re-optimization cadence."],
+      ["Documentation", "Generate an audit-ready optimization package containing data lineage, formulation, solver evidence, results, sensitivity, validation, decision, and monitoring artifacts."],
     ]),
   },
   {
-    id: "forecasting",
-    label: "Forecasting",
-    description: "Build time-aware forecasts with seasonality review, backtesting, intervals, and monitoring.",
-    projectType: "forecasting",
-    steps: placeholderSteps("forecasting", [
-      ["Project Context", "Define the forecast use, horizon, cadence, and decision owner."],
-      ["Historical Data", "Load and validate historical time series data."],
-      ["Seasonality Review", "Review trend, seasonality, holidays, and structural breaks."],
-      ["Feature Engineering", "Create lag, rolling, calendar, and external-driver features."],
-      ["Train/Test Split", "Define time-based validation windows."],
-      ["Model Selection", "Compare forecast model candidates."],
-      ["Backtesting", "Evaluate performance across historical cutoffs."],
-      ["Forecast Generation", "Generate forecasts for the required horizon."],
-      ["Prediction Intervals", "Review uncertainty bands and risk scenarios."],
-      ["Monitoring Plan", "Define drift, error, and recalibration monitoring."],
-      ["Documentation", "Generate forecasting documentation."],
-    ]),
+    id: "time_series_forecasting",
+    label: "Time Series & Forecasting",
+    description: "Forecast, monitor, diagnose, and document time-dependent outcomes with temporal splits, backtesting, intervals, anomaly review, and monitoring evidence.",
+    projectType: "time_series_forecasting",
+    steps: timeSeriesForecastingSteps,
+  },
+  {
+    id: "llm_generative_ai",
+    label: "LLM / Generative AI",
+    description: "Build, evaluate, govern, and document language-model workflows including RAG, prompt design, extraction, summarization, classification, and human review.",
+    projectType: "llm_generative_ai",
+    steps: llmGenerativeAiSteps,
   },
   {
     id: "reinforcement-learning",
@@ -468,60 +490,6 @@ export const workflowDefinitions: WorkflowDefinition[] = [
       ["Policy Evaluation", "Assess off-policy metrics, safety, and robustness."],
       ["Deployment Plan", "Define controlled rollout, monitoring, and fallback."],
       ["Documentation", "Generate RL documentation."],
-    ]),
-  },
-  {
-    id: "segmentation",
-    label: "Segmentation",
-    description: "Profile, cluster, validate, and document population segmentation studies.",
-    projectType: "segmentation",
-    steps: placeholderSteps("segmentation", [
-      ["Project Context", "Define the segmentation purpose, population, business actions, and governance use."],
-      ["Population Definition", "Define eligible records, exclusions, observation period, and sampling frame."],
-      ["Variable Selection", "Choose behavioral, demographic, risk, value, or engagement attributes for profiling."],
-      ["Preprocessing", "Define missing value handling, scaling, encoding, and outlier treatment for clustering."],
-      ["Cluster Candidate Design", "Compare candidate cluster counts, algorithms, and distance metrics."],
-      ["Cluster Validation", "Review silhouette, separation, stability, size balance, and business interpretability."],
-      ["Segment Profiles", "Name and describe segments with defining characteristics and risk/value indicators."],
-      ["Business Activation", "Map segments to treatments, offers, service strategies, or monitoring actions."],
-      ["Monitoring Plan", "Define segment drift, migration, size, and performance monitoring."],
-      ["Segmentation Documentation", "Generate segmentation study documentation."],
-    ]),
-  },
-  {
-    id: "time-series",
-    label: "Time Series",
-    description: "Analyze temporal structure, stationarity, anomalies, and time-series diagnostics.",
-    projectType: "time-series",
-    steps: placeholderSteps("time-series", [
-      ["Project Context", "Define the series purpose, grain, horizon, and downstream decision use."],
-      ["Series Inventory", "Document series keys, date fields, cadence, gaps, and coverage."],
-      ["Data Quality", "Review missing periods, duplicates, outliers, calendar issues, and regime changes."],
-      ["Trend and Seasonality", "Inspect trend, seasonal cycles, holidays, and structural breaks."],
-      ["Stationarity Review", "Assess transformations, differencing needs, and autocorrelation behavior."],
-      ["Feature and Lag Design", "Define lags, rolling windows, exogenous drivers, and calendar features."],
-      ["Diagnostic Tests", "Capture ACF/PACF, residual diagnostics, anomaly flags, and validation checks."],
-      ["Scenario Review", "Document stress periods, policy changes, and what-if assumptions."],
-      ["Monitoring Plan", "Define freshness, drift, anomaly, and error monitoring cadence."],
-      ["Time Series Documentation", "Generate time-series analysis documentation."],
-    ]),
-  },
-  {
-    id: "nlp",
-    label: "NLP",
-    description: "Develop governed text analytics workflows for classification, extraction, summarization, or search.",
-    projectType: "nlp",
-    steps: placeholderSteps("nlp", [
-      ["Project Context", "Define the text use case, user population, risk level, and intended output."],
-      ["Corpus Definition", "Document text sources, language, volume, retention, labeling, and consent constraints."],
-      ["Text Quality Review", "Assess duplicates, empty text, encoding, language mix, PII, and toxicity/safety concerns."],
-      ["Labeling Strategy", "Define annotation schema, label quality, adjudication, and inter-rater agreement."],
-      ["Preprocessing", "Choose tokenization, normalization, redaction, stopword, chunking, and embedding strategy."],
-      ["Model or Method Selection", "Compare rules, classical NLP, embeddings, transformers, retrieval, or LLM-assisted methods."],
-      ["Evaluation", "Review task metrics such as precision, recall, F1, exact match, BLEU/ROUGE, or human review scores."],
-      ["Bias and Safety Review", "Document protected-class proxy risk, hallucination risk, leakage, toxicity, and moderation controls."],
-      ["Deployment and Monitoring", "Define latency, feedback capture, drift, prompt/version, and human-in-the-loop monitoring."],
-      ["NLP Documentation", "Generate NLP model or study documentation."],
     ]),
   },
   {
@@ -564,16 +532,13 @@ export const workflowDefinitions: WorkflowDefinition[] = [
 
 export const projectTypeOptions: Array<{ value: ProjectType; label: string; description: string }> = [
   { value: "predictive-modeling", label: "Predictive Modeling", description: "Classification or regression model development." },
-  { value: "experimental-design", label: "Experimental Design", description: "Designed experiments with factors and levels." },
-  { value: "ab-testing", label: "A/B Testing", description: "Digital or business treatment experiments." },
+  { value: "ab-testing", label: "Experimentation", description: "Design, run, analyze, and document controlled experiments, including A/B tests and experimental designs." },
   { value: "optimization", label: "Optimization", description: "Objective, constraints, and solver-driven decisions." },
-  { value: "forecasting", label: "Forecasting", description: "Time-aware prediction and monitoring." },
-  { value: "segmentation", label: "Segmentation", description: "Cluster, profile, and describe populations." },
-  { value: "reinforcement-learning", label: "Reinforcement Learning", description: "Policy learning and decision optimization." },
-  { value: "time-series", label: "Time Series", description: "Time-series analysis and diagnostics." },
-  { value: "nlp", label: "NLP", description: "Text analytics and language modeling workflows." },
+  { value: "time_series_forecasting", label: "Time Series & Forecasting", description: "Forecast, monitor, and diagnose time-dependent outcomes with trend, seasonality, lag, anomaly, stability, and backtesting controls." },
+  { value: "llm_generative_ai", label: "LLM / Generative AI", description: "Build, evaluate, govern, and document language-model workflows including RAG, prompt design, extraction, summarization, classification, and human review." },
+  { value: "graph-analytics", label: "Graph Analytics", description: "Network, entity, relationship, and graph-based analytical workflows." },
   { value: "computer-vision", label: "Computer Vision", description: "Image and video model workflows." },
-  { value: "graph-analytics", label: "Graph Analytics", description: "Network, entity, and relationship analytics." },
+  { value: "reinforcement-learning", label: "Reinforcement Learning", description: "Policy learning and decision optimization." },
   { value: "custom-workflow", label: "Custom Workflow", description: "User-defined workflow steps." },
 ];
 
@@ -633,12 +598,12 @@ export const workflowTemplates: WorkflowTemplate[] = [
     governanceIntensity: "medium",
   },
   {
-    id: "forecasting",
-    workflowId: "forecasting",
-    label: "Forecasting",
-    description: "Forecast workflow with time-based validation and monitoring.",
-    projectType: "forecasting",
-    commonUseCases: ["Volume forecast", "Loss forecast", "Demand planning"],
+    id: "time_series_forecasting",
+    workflowId: "time_series_forecasting",
+    label: "Time Series & Forecasting",
+    description: "Forecast, backtest, monitor, diagnose, and document time-dependent financial-services outcomes.",
+    projectType: "time_series_forecasting",
+    commonUseCases: ["Transaction volume", "Fraud spikes", "Loss forecasting", "Liquidity trends", "Call center demand"],
     governanceIntensity: "medium",
   },
   {
@@ -651,30 +616,12 @@ export const workflowTemplates: WorkflowTemplate[] = [
     governanceIntensity: "high",
   },
   {
-    id: "segmentation",
-    workflowId: "segmentation",
-    label: "Segmentation",
-    description: "Population clustering and segment profiling workflow.",
-    projectType: "segmentation",
-    commonUseCases: ["Customer segments", "Risk profiles", "Treatment groups"],
-    governanceIntensity: "medium",
-  },
-  {
-    id: "time-series",
-    workflowId: "time-series",
-    label: "Time Series",
-    description: "Temporal diagnostics and governed time-series analysis.",
-    projectType: "time-series",
-    commonUseCases: ["Trend diagnostics", "Anomaly review", "Operational monitoring"],
-    governanceIntensity: "medium",
-  },
-  {
-    id: "nlp",
-    workflowId: "nlp",
-    label: "NLP",
-    description: "Governed text analytics and language model workflow.",
-    projectType: "nlp",
-    commonUseCases: ["Text classification", "Extraction", "Search", "Summarization"],
+    id: "llm_generative_ai",
+    workflowId: "llm_generative_ai",
+    label: "LLM / Generative AI",
+    description: "Governed language-model workflow for RAG, prompt design, classification, extraction, summarization, and human review.",
+    projectType: "llm_generative_ai",
+    commonUseCases: ["Policy Q&A", "Complaint classification", "Narrative extraction", "Case summarization", "Analyst copilots"],
     governanceIntensity: "high",
   },
   {

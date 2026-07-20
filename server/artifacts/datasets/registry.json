@@ -7,7 +7,7 @@
           "userId": "local-user"
         }
       ],
-      "archived": false,
+      "archived": true,
       "createdAt": "2026-07-06T18:08:18.597382+00:00",
       "datasetId": "ds_reg_train_309ce82d",
       "description": "",
@@ -23,7 +23,7 @@
       "ownerDisplayName": "Local ATLAS User",
       "ownerUserId": "local-user",
       "sourceType": "upload",
-      "updatedAt": "2026-07-06T18:13:40.664322+00:00",
+      "updatedAt": "2026-07-17T15:31:55.231064+00:00",
       "versions": [
         {
           "columnCount": 9,
@@ -47,7 +47,7 @@
           "userId": "local-user"
         }
       ],
-      "archived": false,
+      "archived": true,
       "createdAt": "2026-07-06T18:08:33.259525+00:00",
       "datasetId": "ds_reg_test_c17dc872",
       "description": "",
@@ -57,7 +57,7 @@
       "ownerDisplayName": "Local ATLAS User",
       "ownerUserId": "local-user",
       "sourceType": "upload",
-      "updatedAt": "2026-07-06T18:08:33.259525+00:00",
+      "updatedAt": "2026-07-17T15:31:59.776467+00:00",
       "versions": [
         {
           "columnCount": 9,
@@ -81,7 +81,7 @@
           "userId": "local-user"
         }
       ],
-      "archived": false,
+      "archived": true,
       "createdAt": "2026-07-06T18:08:38.553895+00:00",
       "datasetId": "ds_reg_oot_12124cc2",
       "description": "",
@@ -91,7 +91,7 @@
       "ownerDisplayName": "Local ATLAS User",
       "ownerUserId": "local-user",
       "sourceType": "upload",
-      "updatedAt": "2026-07-06T18:08:38.553895+00:00",
+      "updatedAt": "2026-07-17T15:31:57.730661+00:00",
       "versions": [
         {
           "columnCount": 9,
@@ -115,7 +115,7 @@
           "userId": "local-user"
         }
       ],
-      "archived": false,
+      "archived": true,
       "createdAt": "2026-07-06T20:00:39.366224+00:00",
       "datasetId": "ds_class_train_982c7a7d",
       "description": "",
@@ -125,7 +125,7 @@
       "ownerDisplayName": "Local ATLAS User",
       "ownerUserId": "local-user",
       "sourceType": "upload",
-      "updatedAt": "2026-07-06T20:00:39.366224+00:00",
+      "updatedAt": "2026-07-17T15:31:52.945068+00:00",
       "versions": [
         {
           "columnCount": 31,
@@ -221,7 +221,7 @@
           "userId": "local-user"
         }
       ],
-      "archived": false,
+      "archived": true,
       "createdAt": "2026-07-06T20:01:49.073995+00:00",
       "datasetId": "ds_class_test_9b264260",
       "description": "",
@@ -231,7 +231,7 @@
       "ownerDisplayName": "Local ATLAS User",
       "ownerUserId": "local-user",
       "sourceType": "upload",
-      "updatedAt": "2026-07-06T20:01:49.073995+00:00",
+      "updatedAt": "2026-07-17T15:31:50.968296+00:00",
       "versions": [
         {
           "columnCount": 31,
@@ -257,7 +257,7 @@
           "userId": "local-user"
         }
       ],
-      "archived": false,
+      "archived": true,
       "createdAt": "2026-07-06T20:11:56.491737+00:00",
       "datasetId": "ds_class_oot_04af8914_14122",
       "description": "",
@@ -267,7 +267,7 @@
       "ownerDisplayName": "Local ATLAS User",
       "ownerUserId": "local-user",
       "sourceType": "upload",
-      "updatedAt": "2026-07-06T20:11:56.491737+00:00",
+      "updatedAt": "2026-07-17T15:31:48.526017+00:00",
       "versions": [
         {
           "columnCount": 31,
@@ -462,7 +462,7 @@
           "userId": "local-user"
         }
       ],
-      "archived": false,
+      "archived": true,
       "createdAt": "2026-07-07T21:21:33.821508+00:00",
       "datasetId": "ds_home-prices-regression-test-model---train-scored-output_5ba76912",
       "datasetRole": "scored_output",
@@ -545,7 +545,7 @@
         "task": "regression"
       },
       "sourceType": "scored_output",
-      "updatedAt": "2026-07-07T21:21:33.861883+00:00",
+      "updatedAt": "2026-07-17T15:31:46.212950+00:00",
       "versions": [
         {
           "columnCount": 18,
@@ -569,7 +569,7 @@
           "userId": "local-user"
         }
       ],
-      "archived": false,
+      "archived": true,
       "createdAt": "2026-07-07T21:21:36.777625+00:00",
       "datasetId": "ds_home-prices-regression-test-model---test-scored-output_0a0f576a",
       "datasetRole": "scored_output",
@@ -652,7 +652,7 @@
         "task": "regression"
       },
       "sourceType": "scored_output",
-      "updatedAt": "2026-07-07T21:21:36.830137+00:00",
+      "updatedAt": "2026-07-17T15:31:43.953808+00:00",
       "versions": [
         {
           "columnCount": 18,
@@ -676,7 +676,7 @@
           "userId": "local-user"
         }
       ],
-      "archived": false,
+      "archived": true,
       "createdAt": "2026-07-07T21:21:38.113639+00:00",
       "datasetId": "ds_home-prices-regression-test-model---oot-scored-output_d6b52d8f",
       "datasetRole": "scored_output",
@@ -766,7 +766,7 @@
         "task": "regression"
       },
       "sourceType": "scored_output",
-      "updatedAt": "2026-07-07T21:21:38.174286+00:00",
+      "updatedAt": "2026-07-17T15:31:41.730003+00:00",
       "versions": [
         {
           "columnCount": 18,
@@ -790,7 +790,7 @@
           "userId": "local-user"
         }
       ],
-      "archived": false,
+      "archived": true,
       "createdAt": "2026-07-07T23:10:48.758630+00:00",
       "datasetId": "ds_recovered-classification-predictive-model---train-scored-output_84f8db0a",
       "datasetRole": "scored_output",
@@ -896,7 +896,7 @@
         "task": "classification"
       },
       "sourceType": "scored_output",
-      "updatedAt": "2026-07-07T23:10:49.173758+00:00",
+      "updatedAt": "2026-07-17T15:31:39.629230+00:00",
       "versions": [
         {
           "columnCount": 41,
@@ -922,7 +922,7 @@
           "userId": "local-user"
         }
       ],
-      "archived": false,
+      "archived": true,
       "createdAt": "2026-07-07T23:11:31.154460+00:00",
       "datasetId": "ds_recovered-classification-predictive-model---test-scored-output_0b477260",
       "datasetRole": "scored_output",
@@ -1029,7 +1029,7 @@
         "task": "classification"
       },
       "sourceType": "scored_output",
-      "updatedAt": "2026-07-07T23:11:31.555594+00:00",
+      "updatedAt": "2026-07-17T15:31:37.287470+00:00",
       "versions": [
         {
           "columnCount": 42,
@@ -1055,7 +1055,7 @@
           "userId": "local-user"
         }
       ],
-      "archived": false,
+      "archived": true,
       "createdAt": "2026-07-07T23:11:31.915375+00:00",
       "datasetId": "ds_recovered-classification-predictive-model---oot-scored-output_84e442cf",
       "datasetRole": "scored_output",
@@ -1169,7 +1169,7 @@
         "task": "classification"
       },
       "sourceType": "scored_output",
-      "updatedAt": "2026-07-07T23:11:32.021249+00:00",
+      "updatedAt": "2026-07-17T15:31:35.221732+00:00",
       "versions": [
         {
           "columnCount": 42,
@@ -1195,17 +1195,23 @@
           "userId": "local-user"
         }
       ],
-      "archived": false,
+      "archived": true,
       "createdAt": "2026-07-09T16:38:25.499560+00:00",
       "datasetId": "ds_heloc_train_6bdb184b",
       "description": "",
       "domain": "General",
-      "linkedProjects": [],
+      "linkedProjects": [
+        {
+          "datasetRole": "modeling",
+          "projectId": "atlas-mrik5piw",
+          "versionId": "v_1783615105236_6bdb184b"
+        }
+      ],
       "name": "HELOC_TRAIN",
       "ownerDisplayName": "Local ATLAS User",
       "ownerUserId": "local-user",
       "sourceType": "upload",
-      "updatedAt": "2026-07-09T16:38:25.499560+00:00",
+      "updatedAt": "2026-07-17T15:31:27.679789+00:00",
       "versions": [
         {
           "columnCount": 26,
@@ -1231,7 +1237,7 @@
           "userId": "local-user"
         }
       ],
-      "archived": false,
+      "archived": true,
       "createdAt": "2026-07-09T16:38:34.874093+00:00",
       "datasetId": "ds_heloc_test_435f0cc2",
       "description": "",
@@ -1241,7 +1247,7 @@
       "ownerDisplayName": "Local ATLAS User",
       "ownerUserId": "local-user",
       "sourceType": "upload",
-      "updatedAt": "2026-07-09T16:38:34.874093+00:00",
+      "updatedAt": "2026-07-17T15:31:32.654015+00:00",
       "versions": [
         {
           "columnCount": 26,
@@ -1267,7 +1273,7 @@
           "userId": "local-user"
         }
       ],
-      "archived": false,
+      "archived": true,
       "createdAt": "2026-07-09T16:38:41.611298+00:00",
       "datasetId": "ds_heloc_oot_4cc0ab19",
       "description": "",
@@ -1277,7 +1283,7 @@
       "ownerDisplayName": "Local ATLAS User",
       "ownerUserId": "local-user",
       "sourceType": "upload",
-      "updatedAt": "2026-07-09T16:38:41.611298+00:00",
+      "updatedAt": "2026-07-17T15:31:30.206758+00:00",
       "versions": [
         {
           "columnCount": 26,
@@ -1292,6 +1298,493 @@
           "versionId": "v_1783615121481_4cc0ab19",
           "warnings": [
             "118 duplicate rows detected in the profiled sample."
+          ]
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "local-user"
+        }
+      ],
+      "archived": true,
+      "createdAt": "2026-07-14T23:44:50.271943+00:00",
+      "datasetId": "ds_date_transportation_cost_0e1b9b64",
+      "description": "",
+      "domain": "Optimization",
+      "linkedProjects": [
+        {
+          "datasetRole": "optimization_input",
+          "projectId": "atlas-mrl6mm9i",
+          "versionId": "v_1784072690173_0e1b9b64"
+        }
+      ],
+      "name": "date_transportation_cost",
+      "ownerDisplayName": "Local ATLAS User",
+      "ownerUserId": "local-user",
+      "sourceType": "File upload",
+      "updatedAt": "2026-07-17T15:31:25.188711+00:00",
+      "versions": [
+        {
+          "columnCount": 6,
+          "createdAt": "2026-07-14T23:44:50.270942+00:00",
+          "createdBy": "local-user",
+          "fullDataPath": "ds_date_transportation_cost_0e1b9b64\\versions\\v_1784072690173_0e1b9b64\\data_full.csv",
+          "hash": "0e1b9b6441522ff45fcbefc3ba7e06397a23ea4872f434e8b8e850719c72d51e",
+          "originalFilename": "date_transportation_cost.csv",
+          "previewPath": "ds_date_transportation_cost_0e1b9b64\\versions\\v_1784072690173_0e1b9b64\\preview.json",
+          "profilePath": "ds_date_transportation_cost_0e1b9b64\\versions\\v_1784072690173_0e1b9b64\\profile.json",
+          "rowCount": 6,
+          "samplePath": "ds_date_transportation_cost_0e1b9b64\\versions\\v_1784072690173_0e1b9b64\\data_sample.csv",
+          "versionId": "v_1784072690173_0e1b9b64",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "local-user"
+        }
+      ],
+      "archived": true,
+      "createdAt": "2026-07-15T02:30:34.427764+00:00",
+      "datasetId": "ds_date_transportation_cost_0e1b9b64_34375",
+      "description": "",
+      "domain": "Optimization",
+      "linkedProjects": [],
+      "name": "date_transportation_cost",
+      "ownerDisplayName": "Local ATLAS User",
+      "ownerUserId": "local-user",
+      "sourceType": "File upload",
+      "updatedAt": "2026-07-17T15:31:23.039760+00:00",
+      "versions": [
+        {
+          "columnCount": 6,
+          "createdAt": "2026-07-15T02:30:34.426764+00:00",
+          "createdBy": "local-user",
+          "fullDataPath": "ds_date_transportation_cost_0e1b9b64_34375\\versions\\v_1784082634375_0e1b9b64\\data_full.csv",
+          "hash": "0e1b9b6441522ff45fcbefc3ba7e06397a23ea4872f434e8b8e850719c72d51e",
+          "originalFilename": "date_transportation_cost.csv",
+          "previewPath": "ds_date_transportation_cost_0e1b9b64_34375\\versions\\v_1784082634375_0e1b9b64\\preview.json",
+          "profilePath": "ds_date_transportation_cost_0e1b9b64_34375\\versions\\v_1784082634375_0e1b9b64\\profile.json",
+          "rowCount": 6,
+          "samplePath": "ds_date_transportation_cost_0e1b9b64_34375\\versions\\v_1784082634375_0e1b9b64\\data_sample.csv",
+          "versionId": "v_1784082634375_0e1b9b64",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "local-user"
+        }
+      ],
+      "archived": true,
+      "createdAt": "2026-07-15T02:30:34.714071+00:00",
+      "datasetId": "ds_date_demand_787e523d",
+      "description": "",
+      "domain": "Optimization",
+      "linkedProjects": [],
+      "name": "date_demand",
+      "ownerDisplayName": "Local ATLAS User",
+      "ownerUserId": "local-user",
+      "sourceType": "File upload",
+      "updatedAt": "2026-07-17T15:31:20.477951+00:00",
+      "versions": [
+        {
+          "columnCount": 2,
+          "createdAt": "2026-07-15T02:30:34.713071+00:00",
+          "createdBy": "local-user",
+          "fullDataPath": "ds_date_demand_787e523d\\versions\\v_1784082634659_787e523d\\data_full.csv",
+          "hash": "787e523d56f529266e99c36cd43612dddf492946cc4f2047cefa4d52b0c3eec6",
+          "originalFilename": "date_demand.csv",
+          "previewPath": "ds_date_demand_787e523d\\versions\\v_1784082634659_787e523d\\preview.json",
+          "profilePath": "ds_date_demand_787e523d\\versions\\v_1784082634659_787e523d\\profile.json",
+          "rowCount": 6,
+          "samplePath": "ds_date_demand_787e523d\\versions\\v_1784082634659_787e523d\\data_sample.csv",
+          "versionId": "v_1784082634659_787e523d",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "local-user"
+        }
+      ],
+      "archived": true,
+      "createdAt": "2026-07-15T02:30:34.918338+00:00",
+      "datasetId": "ds_date_supply_max_7e4d8975",
+      "description": "",
+      "domain": "Optimization",
+      "linkedProjects": [],
+      "name": "date_supply_max",
+      "ownerDisplayName": "Local ATLAS User",
+      "ownerUserId": "local-user",
+      "sourceType": "File upload",
+      "updatedAt": "2026-07-17T15:31:18.082039+00:00",
+      "versions": [
+        {
+          "columnCount": 2,
+          "createdAt": "2026-07-15T02:30:34.917116+00:00",
+          "createdBy": "local-user",
+          "fullDataPath": "ds_date_supply_max_7e4d8975\\versions\\v_1784082634855_7e4d8975\\data_full.csv",
+          "hash": "7e4d89752609c814c57b6a4b51dbe3f7a466e8c253041eaf8b9db77097c2e7b4",
+          "originalFilename": "date_supply_max.csv",
+          "previewPath": "ds_date_supply_max_7e4d8975\\versions\\v_1784082634855_7e4d8975\\preview.json",
+          "profilePath": "ds_date_supply_max_7e4d8975\\versions\\v_1784082634855_7e4d8975\\profile.json",
+          "rowCount": 5,
+          "samplePath": "ds_date_supply_max_7e4d8975\\versions\\v_1784082634855_7e4d8975\\data_sample.csv",
+          "versionId": "v_1784082634855_7e4d8975",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "local-user"
+        }
+      ],
+      "archived": true,
+      "createdAt": "2026-07-15T02:30:35.112076+00:00",
+      "datasetId": "ds_date_transport_capacity_56ed23df",
+      "description": "",
+      "domain": "Optimization",
+      "linkedProjects": [],
+      "name": "date_transport_capacity",
+      "ownerDisplayName": "Local ATLAS User",
+      "ownerUserId": "local-user",
+      "sourceType": "File upload",
+      "updatedAt": "2026-07-17T15:31:12.803201+00:00",
+      "versions": [
+        {
+          "columnCount": 2,
+          "createdAt": "2026-07-15T02:30:35.111077+00:00",
+          "createdBy": "local-user",
+          "fullDataPath": "ds_date_transport_capacity_56ed23df\\versions\\v_1784082635076_56ed23df\\data_full.csv",
+          "hash": "56ed23dfe27edfee40c6f529d3a479c5c647c6576be929254091a2d133b78233",
+          "originalFilename": "date_transport_capacity.csv",
+          "previewPath": "ds_date_transport_capacity_56ed23df\\versions\\v_1784082635076_56ed23df\\preview.json",
+          "profilePath": "ds_date_transport_capacity_56ed23df\\versions\\v_1784082635076_56ed23df\\profile.json",
+          "rowCount": 5,
+          "samplePath": "ds_date_transport_capacity_56ed23df\\versions\\v_1784082635076_56ed23df\\data_sample.csv",
+          "versionId": "v_1784082635076_56ed23df",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "local-user"
+        }
+      ],
+      "archived": true,
+      "createdAt": "2026-07-15T02:30:35.359831+00:00",
+      "datasetId": "ds_date_inventory_cost_b9333777",
+      "description": "",
+      "domain": "Optimization",
+      "linkedProjects": [],
+      "name": "date_inventory_cost",
+      "ownerDisplayName": "Local ATLAS User",
+      "ownerUserId": "local-user",
+      "sourceType": "File upload",
+      "updatedAt": "2026-07-17T15:31:10.491135+00:00",
+      "versions": [
+        {
+          "columnCount": 2,
+          "createdAt": "2026-07-15T02:30:35.359831+00:00",
+          "createdBy": "local-user",
+          "fullDataPath": "ds_date_inventory_cost_b9333777\\versions\\v_1784082635326_b9333777\\data_full.csv",
+          "hash": "b9333777f1a36a7d1398b3e72282190670d22fa4b4b750906c274756abb49712",
+          "originalFilename": "date_inventory_cost.csv",
+          "previewPath": "ds_date_inventory_cost_b9333777\\versions\\v_1784082635326_b9333777\\preview.json",
+          "profilePath": "ds_date_inventory_cost_b9333777\\versions\\v_1784082635326_b9333777\\profile.json",
+          "rowCount": 5,
+          "samplePath": "ds_date_inventory_cost_b9333777\\versions\\v_1784082635326_b9333777\\data_sample.csv",
+          "versionId": "v_1784082635326_b9333777",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "local-user"
+        }
+      ],
+      "archived": true,
+      "createdAt": "2026-07-15T20:13:09.056231+00:00",
+      "datasetId": "ds_ab_marketing_de6ce8de",
+      "description": "Experimental Design source data",
+      "domain": "Experimental Design",
+      "linkedProjects": [
+        {
+          "datasetRole": "experimental_source",
+          "projectId": "atlas-mr3s21ol",
+          "versionId": "v_1784146385006_de6ce8de"
+        }
+      ],
+      "name": "AB_MARKETING",
+      "ownerDisplayName": "Local ATLAS User",
+      "ownerUserId": "local-user",
+      "sourceType": "upload",
+      "updatedAt": "2026-07-17T15:31:06.440522+00:00",
+      "versions": [
+        {
+          "columnCount": 7,
+          "createdAt": "2026-07-15T20:13:09.055232+00:00",
+          "createdBy": "local-user",
+          "fullDataPath": "ds_ab_marketing_de6ce8de\\versions\\v_1784146385006_de6ce8de\\data_full.csv",
+          "hash": "de6ce8def1a6559e9e5ab364fce07cfe2e84f02dd407c3586eea55743c7e17f2",
+          "originalFilename": "AB_MARKETING.csv",
+          "previewPath": "ds_ab_marketing_de6ce8de\\versions\\v_1784146385006_de6ce8de\\preview.json",
+          "profilePath": "ds_ab_marketing_de6ce8de\\versions\\v_1784146385006_de6ce8de\\profile.json",
+          "rowCount": 588101,
+          "samplePath": "ds_ab_marketing_de6ce8de\\versions\\v_1784146385006_de6ce8de\\data_sample.csv",
+          "versionId": "v_1784146385006_de6ce8de",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "local-user"
+        }
+      ],
+      "archived": true,
+      "createdAt": "2026-07-16T20:03:05.089810+00:00",
+      "datasetId": "ds_forecast_test_16eb2eec",
+      "description": "",
+      "domain": "General",
+      "linkedProjects": [],
+      "name": "forecast_test",
+      "ownerDisplayName": "Local ATLAS User",
+      "ownerUserId": "local-user",
+      "sourceType": "upload",
+      "updatedAt": "2026-07-17T15:31:03.969701+00:00",
+      "versions": [
+        {
+          "columnCount": 4,
+          "createdAt": "2026-07-16T20:03:05.088811+00:00",
+          "createdBy": "local-user",
+          "fullDataPath": "ds_forecast_test_16eb2eec\\versions\\v_1784232184423_16eb2eec\\data_full.csv",
+          "hash": "16eb2eec677628c8ed62312a9d6749ebf46f59196dd2fece6fd1e5c147a918fb",
+          "originalFilename": "forecast_test.csv",
+          "previewPath": "ds_forecast_test_16eb2eec\\versions\\v_1784232184423_16eb2eec\\preview.json",
+          "profilePath": "ds_forecast_test_16eb2eec\\versions\\v_1784232184423_16eb2eec\\profile.json",
+          "rowCount": 45000,
+          "samplePath": "ds_forecast_test_16eb2eec\\versions\\v_1784232184423_16eb2eec\\data_sample.csv",
+          "versionId": "v_1784232184423_16eb2eec",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "local-user"
+        }
+      ],
+      "archived": true,
+      "createdAt": "2026-07-16T20:03:14.591124+00:00",
+      "datasetId": "ds_forecast_train_038f2569",
+      "description": "",
+      "domain": "General",
+      "linkedProjects": [],
+      "name": "forecast_train",
+      "ownerDisplayName": "Local ATLAS User",
+      "ownerUserId": "local-user",
+      "sourceType": "upload",
+      "updatedAt": "2026-07-17T15:31:01.652471+00:00",
+      "versions": [
+        {
+          "columnCount": 4,
+          "createdAt": "2026-07-16T20:03:14.589844+00:00",
+          "createdBy": "local-user",
+          "fullDataPath": "ds_forecast_train_038f2569\\versions\\v_1784232191399_038f2569\\data_full.csv",
+          "hash": "038f25690a65149c94f86ddd3deceda20c037a5cfd754cafdfc539a72992f2ed",
+          "originalFilename": "forecast_train.csv",
+          "previewPath": "ds_forecast_train_038f2569\\versions\\v_1784232191399_038f2569\\preview.json",
+          "profilePath": "ds_forecast_train_038f2569\\versions\\v_1784232191399_038f2569\\profile.json",
+          "rowCount": 913000,
+          "samplePath": "ds_forecast_train_038f2569\\versions\\v_1784232191399_038f2569\\data_sample.csv",
+          "versionId": "v_1784232191399_038f2569",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "local-user"
+        }
+      ],
+      "archived": true,
+      "createdAt": "2026-07-16T20:21:36.373665+00:00",
+      "datasetId": "ds_forecast_train_038f2569_92501",
+      "description": "Time Series & Forecasting source dataset uploaded from Data Acquisition.",
+      "domain": "Time Series & Forecasting",
+      "linkedProjects": [],
+      "name": "forecast_train",
+      "ownerDisplayName": "Local ATLAS User",
+      "ownerUserId": "local-user",
+      "sourceType": "Upload and Register",
+      "updatedAt": "2026-07-17T15:30:59.216129+00:00",
+      "versions": [
+        {
+          "columnCount": 4,
+          "createdAt": "2026-07-16T20:21:36.373665+00:00",
+          "createdBy": "local-user",
+          "fullDataPath": "ds_forecast_train_038f2569_92501\\versions\\v_1784233292501_038f2569\\data_full.csv",
+          "hash": "038f25690a65149c94f86ddd3deceda20c037a5cfd754cafdfc539a72992f2ed",
+          "originalFilename": "forecast_train.csv",
+          "previewPath": "ds_forecast_train_038f2569_92501\\versions\\v_1784233292501_038f2569\\preview.json",
+          "profilePath": "ds_forecast_train_038f2569_92501\\versions\\v_1784233292501_038f2569\\profile.json",
+          "rowCount": 913000,
+          "samplePath": "ds_forecast_train_038f2569_92501\\versions\\v_1784233292501_038f2569\\data_sample.csv",
+          "versionId": "v_1784233292501_038f2569",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "local-user"
+        }
+      ],
+      "archived": true,
+      "createdAt": "2026-07-16T20:24:04.440194+00:00",
+      "datasetId": "ds_forecast_train_038f2569_41043",
+      "description": "Time Series & Forecasting source dataset uploaded from Data Acquisition.",
+      "domain": "Time Series & Forecasting",
+      "linkedProjects": [
+        {
+          "datasetRole": "time_series_source",
+          "projectId": "atlas-mrnskhg9",
+          "versionId": "v_1784233441043_038f2569"
+        }
+      ],
+      "name": "forecast_train",
+      "ownerDisplayName": "Local ATLAS User",
+      "ownerUserId": "local-user",
+      "sourceType": "Upload and Register",
+      "updatedAt": "2026-07-17T15:30:54.697321+00:00",
+      "versions": [
+        {
+          "columnCount": 4,
+          "createdAt": "2026-07-16T20:24:04.440194+00:00",
+          "createdBy": "local-user",
+          "fullDataPath": "ds_forecast_train_038f2569_41043\\versions\\v_1784233441043_038f2569\\data_full.csv",
+          "hash": "038f25690a65149c94f86ddd3deceda20c037a5cfd754cafdfc539a72992f2ed",
+          "originalFilename": "forecast_train.csv",
+          "previewPath": "ds_forecast_train_038f2569_41043\\versions\\v_1784233441043_038f2569\\preview.json",
+          "profilePath": "ds_forecast_train_038f2569_41043\\versions\\v_1784233441043_038f2569\\profile.json",
+          "rowCount": 913000,
+          "samplePath": "ds_forecast_train_038f2569_41043\\versions\\v_1784233441043_038f2569\\data_sample.csv",
+          "versionId": "v_1784233441043_038f2569",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "local-user"
+        }
+      ],
+      "archived": true,
+      "createdAt": "2026-07-16T20:51:41.851220+00:00",
+      "datasetId": "ds_forecast_train_038f2569_98609",
+      "description": "Time Series & Forecasting source dataset uploaded from Data Acquisition.",
+      "domain": "Time Series & Forecasting",
+      "linkedProjects": [
+        {
+          "datasetRole": "time_series_source",
+          "projectId": "atlas-mrnskhg9",
+          "versionId": "v_1784235098609_038f2569"
+        }
+      ],
+      "name": "forecast_train",
+      "ownerDisplayName": "Local ATLAS User",
+      "ownerUserId": "local-user",
+      "sourceType": "Upload and Register",
+      "updatedAt": "2026-07-17T15:30:52.373300+00:00",
+      "versions": [
+        {
+          "columnCount": 4,
+          "createdAt": "2026-07-16T20:51:41.850221+00:00",
+          "createdBy": "local-user",
+          "fullDataPath": "ds_forecast_train_038f2569_98609\\versions\\v_1784235098609_038f2569\\data_full.csv",
+          "hash": "038f25690a65149c94f86ddd3deceda20c037a5cfd754cafdfc539a72992f2ed",
+          "originalFilename": "forecast_train.csv",
+          "previewPath": "ds_forecast_train_038f2569_98609\\versions\\v_1784235098609_038f2569\\preview.json",
+          "profilePath": "ds_forecast_train_038f2569_98609\\versions\\v_1784235098609_038f2569\\profile.json",
+          "rowCount": 913000,
+          "samplePath": "ds_forecast_train_038f2569_98609\\versions\\v_1784235098609_038f2569\\data_sample.csv",
+          "versionId": "v_1784235098609_038f2569",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "local-user"
+        }
+      ],
+      "archived": false,
+      "createdAt": "2026-07-18T00:58:39.023647+00:00",
+      "datasetId": "ds_class_train_982c7a7d_98716",
+      "description": "",
+      "domain": "General",
+      "linkedProjects": [
+        {
+          "datasetRole": "modeling",
+          "projectId": "atlas-mrp3y4tx",
+          "versionId": "v_1784336298716_982c7a7d"
+        }
+      ],
+      "name": "CLASS_TRAIN",
+      "ownerDisplayName": "Local ATLAS User",
+      "ownerUserId": "local-user",
+      "sourceType": "upload",
+      "updatedAt": "2026-07-20T20:48:31.859063+00:00",
+      "versions": [
+        {
+          "columnCount": 31,
+          "createdAt": "2026-07-18T00:58:39.023647+00:00",
+          "createdBy": "local-user",
+          "fullDataPath": "ds_class_train_982c7a7d_98716\\versions\\v_1784336298716_982c7a7d\\data_full.csv",
+          "hash": "982c7a7d79677dbc2497c7191182f5bd9a4fae89ffd18238ed1202e96999193c",
+          "originalFilename": "CLASS_TRAIN.csv",
+          "previewPath": "ds_class_train_982c7a7d_98716\\versions\\v_1784336298716_982c7a7d\\preview.json",
+          "profilePath": "ds_class_train_982c7a7d_98716\\versions\\v_1784336298716_982c7a7d\\profile.json",
+          "rowCount": 170884,
+          "samplePath": "ds_class_train_982c7a7d_98716\\versions\\v_1784336298716_982c7a7d\\data_sample.csv",
+          "versionId": "v_1784336298716_982c7a7d",
+          "warnings": [
+            "35 duplicate rows detected in the profiled sample."
           ]
         }
       ]

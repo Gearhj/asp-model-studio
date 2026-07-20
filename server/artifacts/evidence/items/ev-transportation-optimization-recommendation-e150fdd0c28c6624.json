@@ -1,0 +1,69 @@
+{
+  "projectId": "atlas-mrl6mm9i",
+  "projectName": "00009",
+  "evidenceType": "optimization_recommendation",
+  "title": "Transportation Optimization: Recommendation",
+  "summary": "Minimize total supplier-to-customer cash distribution cost while satisfying all customer demand and respecting supplier supply and transportation-capacity limits.. Recommendation evidence captured from the governed transportation workflow.",
+  "sourcePage": "Optimization Step 12",
+  "sourceRoute": "/workflow/optimization/12",
+  "workflowStep": "12. Recommendation",
+  "sourceRunReference": "run-6a557f4ba8a24965",
+  "artifactType": "optimization_recommendation",
+  "artifactId": "solution-700b21215d674816:recommendation",
+  "datasetIds": [
+    "ds_date_transportation_cost_0e1b9b64",
+    "ds_date_demand_787e523d",
+    "ds_date_supply_max_7e4d8975",
+    "ds_date_transport_capacity_56ed23df",
+    "ds_date_inventory_cost_b9333777"
+  ],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Recommendation"
+  ],
+  "tags": [
+    "optimization",
+    "transportation",
+    "recommendation",
+    "captured"
+  ],
+  "status": "ready",
+  "importance": "critical",
+  "capturedAt": "2026-07-15T20:09:11.373Z",
+  "lineage": {
+    "projectId": "atlas-mrl6mm9i",
+    "formulationId": "transport-b5a97c5609bbfcc8",
+    "normalizationHash": "b5a97c5609bbfcc8112ea7bace12a9cd5d929ea2a742d7be493f71331c91fd96",
+    "solutionId": "solution-700b21215d674816",
+    "runId": "run-6a557f4ba8a24965"
+  },
+  "payload": {
+    "stage": "recommendation",
+    "capturedAt": "2026-07-15T20:09:11.373Z",
+    "formulationId": "transport-b5a97c5609bbfcc8",
+    "formulationVersion": "1.0",
+    "normalizationHash": "b5a97c5609bbfcc8112ea7bace12a9cd5d929ea2a742d7be493f71331c91fd96",
+    "solutionId": "solution-700b21215d674816",
+    "runId": "run-6a557f4ba8a24965",
+    "status": "Recommended",
+    "owner": "Operations planning owner",
+    "recommendedAction": "Approve the optimized transportation allocation for the current planning period. The solution fulfills all 480 demand units with no unmet demand, uses 8 of 30 available supplier-customer routes, respects supplier supply and transport-capacity limits, and produces a total logistics cost of 818.75. Operations should implement the recommended route-level allocation and monitor actual shipment quantity, route cost, supplier utilization, transport-capacity usage, and exceptions against the optimized plan.",
+    "alternativesConsidered": "Alternatives considered included the current manual allocation process, a simple lowest-cost route heuristic, and conservative capacity-stress scenarios. The optimized allocation is preferred because it satisfies all demand, respects all supply and transport-capacity constraints, and provides a reproducible route-level plan with documented solver evidence, scenario results, and sensitivity diagnostics.",
+    "residualRisksAndLimitations": "Residual risks include changes in demand, transportation capacity, route availability, and supplier handling costs after the optimization run. Severe disruption testing showed that the network may become infeasible under combined higher demand and sharply reduced capacity. Before production use, operations should confirm route availability, supplier throughput assumptions, exception handling, and monitoring ownership. Re-optimization should occur if demand, capacity, or route costs materially change."
+  },
+  "governance": {
+    "accountableOwner": "Operations planning owner",
+    "reviewer": "Operations planning owner",
+    "approvalDate": "2026-07-15",
+    "businessValidityStatus": "valid"
+  },
+  "evidenceId": "ev-transportation-optimization-recommendation-e150fdd0c28c6624",
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-15T20:08:53.662702+00:00",
+  "updatedAt": "2026-07-15T20:09:11.407246+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 100
+}

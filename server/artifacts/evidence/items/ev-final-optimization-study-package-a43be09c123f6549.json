@@ -1,0 +1,80 @@
+{
+  "projectId": "atlas-mrl6mm9i",
+  "evidenceType": "optimization_code_reproducibility",
+  "title": "Final Optimization Study Package",
+  "summary": "Minimize total supplier-to-customer cash distribution cost while satisfying all customer demand and respecting supplier supply and transportation-capacity limits. Documentation finalized with a business-valid solution, accepted validation, owned recommendation, and implementation plan.",
+  "sourcePage": "Optimization Documentation",
+  "sourceRoute": "/workflow/optimization/14",
+  "artifactType": "optimization_final_package",
+  "artifactId": "solution-171d0910422b4526",
+  "datasetIds": [
+    "ds_date_transportation_cost_0e1b9b64",
+    "ds_date_demand_787e523d",
+    "ds_date_supply_max_7e4d8975",
+    "ds_date_transport_capacity_56ed23df",
+    "ds_date_inventory_cost_b9333777"
+  ],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Executive Summary",
+    "Business Decision",
+    "Data Inputs",
+    "Formulation Readiness",
+    "Objective Function",
+    "Decision Variables",
+    "Constraints",
+    "Solver Configuration",
+    "Baseline and Scenarios",
+    "Optimization Results",
+    "Sensitivity and Tradeoffs",
+    "Validation",
+    "Recommendation",
+    "Implementation Plan",
+    "Monitoring Plan",
+    "Limitations",
+    "Approvals",
+    "Reproducibility Appendix",
+    "Python Code",
+    "SAS-Compatible Code"
+  ],
+  "tags": [
+    "optimization",
+    "transportation",
+    "final_package",
+    "audit_ready"
+  ],
+  "status": "ready",
+  "importance": "critical",
+  "lineage": {
+    "formulationId": "transport-b5a97c5609bbfcc8",
+    "normalizationHash": "b5a97c5609bbfcc8112ea7bace12a9cd5d929ea2a742d7be493f71331c91fd96",
+    "solutionId": "solution-171d0910422b4526"
+  },
+  "payload": {
+    "completedBy": "Operations planning owner",
+    "completedAt": "2026-07-15T17:06:10.504Z",
+    "reviewer": "Operations planning owner",
+    "approvalDate": "2026-07-15",
+    "documentationReadiness": "20 of 20",
+    "evidencePackageReference": "ev-optimization-code-reproducibility-1329f78c5909c55d",
+    "recommendationStatus": "Recommended",
+    "validationScore": 100,
+    "projectStatus": "Complete",
+    "auditPackageStatus": "Audit package ready",
+    "documentationStatus": "Documentation finalized"
+  },
+  "governance": {
+    "accountableOwner": "Operations planning owner",
+    "reviewer": "Operations planning owner",
+    "approvalDate": "2026-07-15"
+  },
+  "evidenceId": "ev-final-optimization-study-package-a43be09c123f6549",
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-15T17:06:10.527364+00:00",
+  "updatedAt": "2026-07-15T17:06:10.527364+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 100
+}

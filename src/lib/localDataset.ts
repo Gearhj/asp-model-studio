@@ -4,6 +4,15 @@ export type LocalDataset = {
   target: string | null;
   selected_columns: string[];
   problem_type?: "classification" | "regression";
+  registered_row_count?: number;
+  browser_data_complete?: boolean;
+  dataset_version?: string;
+  event_value?: unknown;
+  non_event_value?: unknown;
+  original_target_label?: string;
+  split_columns?: string[];
+  system_columns?: string[];
+  prohibited_columns?: string[];
   dataset_library?: {
     datasetId: string;
     versionId: string;
@@ -59,6 +68,15 @@ function normalizeSelectedDataset(dataset: Partial<LocalDataset>): LocalDataset 
       dataset.problem_type === "classification" || dataset.problem_type === "regression"
         ? dataset.problem_type
         : undefined,
+    registered_row_count: Number.isFinite(Number(dataset.registered_row_count)) ? Number(dataset.registered_row_count) : dataset.rows.length,
+    browser_data_complete: dataset.browser_data_complete === true,
+    dataset_version: typeof dataset.dataset_version === "string" ? dataset.dataset_version : undefined,
+    event_value: dataset.event_value,
+    non_event_value: dataset.non_event_value,
+    original_target_label: typeof dataset.original_target_label === "string" ? dataset.original_target_label : undefined,
+    split_columns: uniqueStrings(dataset.split_columns ?? []),
+    system_columns: uniqueStrings(dataset.system_columns ?? []),
+    prohibited_columns: uniqueStrings(dataset.prohibited_columns ?? []),
     dataset_library: dataset.dataset_library,
     data_access: dataset.data_access,
     data_quality: dataset.data_quality,
@@ -70,6 +88,10 @@ export function saveLocalDataset(dataset: LocalDataset) {
   const compactDataset = {
     ...normalizedDataset,
     rows: normalizedDataset.rows.slice(0, MAX_LOCAL_ROWS),
+    browser_data_complete:
+      normalizedDataset.browser_data_complete === true &&
+      normalizedDataset.rows.length <= MAX_LOCAL_ROWS &&
+      normalizedDataset.rows.length === (normalizedDataset.registered_row_count ?? normalizedDataset.rows.length),
   };
 
   try {

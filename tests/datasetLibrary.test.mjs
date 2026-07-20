@@ -67,7 +67,6 @@ const datasetLibraryPage = read("src/steps/DatasetLibrary.tsx");
   "Rows",
   "Columns",
   "Owner",
-  "Created",
   "Updated",
   "Linked Projects",
   "Status",
@@ -83,14 +82,22 @@ const datasetLibraryPage = read("src/steps/DatasetLibrary.tsx");
   "Open in Analytics",
   "Open in Chart Studio",
   "Open in Model Diagnostics",
-  "Link to Project",
+  "Link to current project",
   "Delete",
-  "Export Metadata",
+  "ShareResourceDialog",
+  "Archive dataset",
+  "min-w-[980px]",
+  "sticky right-0",
+  "Export metadata",
   "setDatasetViewMode",
   "formatDatasetType",
   "formatSourceType",
 ].forEach((text) => {
   assert(datasetLibraryPage.includes(text), `Dataset Library detailed view is missing: ${text}`);
 });
+
+const projectOverview = read("src/steps/ProjectOverview.tsx");
+assert(projectOverview.includes("Share Project"), "Project Overview must expose project sharing.");
+assert(projectOverview.includes('resourceType="project"'), "Project sharing must use the governed sharing dialog.");
 
 console.log("Dataset Library v1 static checks passed.");

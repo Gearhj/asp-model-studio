@@ -4,8 +4,8 @@ import { PROJECT_SAVE_STATUS_EVENT, type ProjectSaveStatusDetail } from "../lib/
 
 function defaultStatus(): ProjectSaveStatusDetail {
   return {
-    status: "unsaved",
-    message: "No project snapshot saved in this session yet.",
+    status: "local_only",
+    message: "Browser persistence is active. Save the project to synchronize it with the ATLAS database.",
   };
 }
 
@@ -29,24 +29,27 @@ export default function ProjectSaveStatus() {
   }, []);
 
   const isSaving = detail.status === "saving";
-  const isError = detail.status === "save_failed";
-  const isPartial = detail.status === "partial_restore" || detail.status === "registry_warning";
-  const isSaved = detail.status === "saved" || detail.status === "restored";
+  const isError = detail.status === "save_failed" || detail.status === "database_save_failed";
+  const isUnavailable = detail.status === "backend_unavailable";
+  const isPartial = detail.status === "partial_restore" || detail.status === "registry_warning" || isUnavailable;
+  const isSaved = detail.status === "database_saved";
   const Icon = isSaving ? Loader2 : isError || isPartial ? AlertTriangle : isSaved ? CheckCircle2 : Cloud;
   const label =
     detail.status === "saving"
       ? "Saving"
-      : detail.status === "save_failed"
+      : detail.status === "save_failed" || detail.status === "database_save_failed"
         ? "Save failed"
+        : detail.status === "backend_unavailable"
+          ? "Backend unavailable"
+        : detail.status === "database_saved"
+          ? "Saved to ATLAS database"
+        : detail.status === "local_only" || detail.status === "saved" || detail.status === "restored"
+          ? "Local only"
         : detail.status === "registry_warning"
-          ? "Project saved"
+          ? "Local only"
           : detail.status === "partial_restore"
             ? "Partial restore"
-          : detail.status === "restored"
-            ? "Restored"
-            : detail.status === "saved"
-              ? "Saved"
-              : "Unsaved";
+            : "Local only";
 
   return (
     <div

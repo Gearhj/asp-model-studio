@@ -41,6 +41,7 @@ class SaveSectionRequest(BaseModel):
     status: str = "draft"
     attachedEvidence: list[Dict[str, Any]] = Field(default_factory=list)
     includeInExport: bool = True
+    notApplicableRationale: str = ""
 
 
 class AttachEvidenceRequest(BaseModel):
@@ -83,6 +84,8 @@ def get_document(document_id: str) -> Dict[str, Any]:
 def post_save_section(document_id: str, payload: SaveSectionRequest) -> Dict[str, Any]:
     try:
         document = save_section(document_id, payload.model_dump())
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Model documentation record not found.") from exc
     audit_event(
@@ -93,6 +96,27 @@ def post_save_section(document_id: str, payload: SaveSectionRequest) -> Dict[str
         metadata={"sectionId": payload.sectionId, "status": payload.status},
     )
     return {"ok": True, "document": document}
+
+
+@router.post("/model-documentation/{document_id}/generate-version-control-summary")
+def generate_version_control_summary(document_id: str) -> Dict[str, Any]:
+    document = load_document(document_id)
+    changes = document.get("sectionChangeRecords") or []
+    sections = [{"sectionId": item.get("section_id"), "sectionNumber": item.get("section_number"), "sectionTitle": item.get("section_title")} for item in changes]
+    document.setdefault("versionControlEntries", []).append({"version": document.get("documentVersion", "0.1"), "summary": f"Draft summary generated from {len(sections)} section-level change record(s).", "sections": sections, "status": "working_draft", "createdAt": document.get("updatedAt")})
+    return {"ok": True, "document": save_document(document), "undisclosedChanges": []}
+
+
+@router.post("/model-documentation/{document_id}/request-management-approval")
+def request_management_approval(document_id: str) -> Dict[str, Any]:
+    document = load_document(document_id)
+    changed = {item.get("section_id") for item in document.get("sectionChangeRecords") or []}
+    disclosed = {item.get("sectionId") for entry in document.get("versionControlEntries") or [] for item in entry.get("sections") or []}
+    missing = sorted(changed - disclosed)
+    if missing:
+        raise HTTPException(status_code=422, detail="Document changes exist that are not included in the version-control summary.")
+    document["documentStatus"] = "management_review"
+    return {"ok": True, "document": save_document(document)}
 
 
 @router.post("/model-documentation/{document_id}/attach-evidence")
@@ -171,4 +195,3 @@ def stream_document_export(document_id: str, label: str, extension: str, media_t
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
-

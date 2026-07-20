@@ -15,9 +15,11 @@ npm install
 Start the FastAPI backend:
 
 ```powershell
-.\.venv\Scripts\Activate.ps1
-uvicorn server.main:app --reload --port 8001
+Set-Location "C:\Users\james\ds-workflow-starter"
+.\.venv\Scripts\python.exe -m uvicorn server.main:app --host 127.0.0.1 --port 8000 --reload
 ```
+
+Run this command from the repository root. Do not run `uvicorn main:app` from inside `server`; `server.main` uses package-relative imports.
 
 Start ATLAS:
 

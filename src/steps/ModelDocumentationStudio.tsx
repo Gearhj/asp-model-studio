@@ -17,9 +17,11 @@ import {
   Presentation,
   RefreshCw,
   Save,
+  Share2,
   Sparkles,
 } from "lucide-react";
 import BrandLogo from "../components/BrandLogo";
+import ShareResourceDialog from "../components/sharing/ShareResourceDialog";
 import { DATASET_API_BASE } from "../lib/datasetLibrary";
 import { listEvidence, type EvidenceItem } from "../lib/evidenceGraph";
 import {
@@ -40,6 +42,8 @@ import {
 } from "../lib/modelDocumentation";
 import { loadLocalProjects, projectProgress, type LocalProjectRecord } from "../lib/localProjects";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { getProjectPersistenceBundle } from "../lib/serverPersistence";
+import { summarizePersistedEvidence } from "../lib/persistedEvidenceStatus";
 
 type ProjectOption = {
   projectId: string;
@@ -61,6 +65,8 @@ type EvidenceCoverage = {
   governance: number;
   generatedCode: number;
   missingRequired: number;
+  persistedScore: number;
+  persistedStatus: string;
 };
 
 const AVAILABLE_TEMPLATE = "model_development_document";
@@ -86,6 +92,8 @@ export default function ModelDocumentationStudio() {
   const [evidenceFilter, setEvidenceFilter] = useState("recommended");
   const [evidenceSearch, setEvidenceSearch] = useState("");
   const [previewMode, setPreviewMode] = useState<"section" | "summary">("section");
+  const [persistedEvidence, setPersistedEvidence] = useState<Array<Record<string, unknown>>>([]);
+  const [shareDocumentationOpen, setShareDocumentationOpen] = useState(false);
 
   useEffect(() => {
     refreshProjects();
@@ -126,7 +134,11 @@ export default function ModelDocumentationStudio() {
     setLoading(true);
     setError("");
     try {
-      const payload = await getDocumentationProjectContext(nextProjectId);
+      const [payload, persistenceBundle] = await Promise.all([
+        getDocumentationProjectContext(nextProjectId),
+        getProjectPersistenceBundle(nextProjectId).catch(() => null),
+      ]);
+      setPersistedEvidence(persistenceBundle?.evidence ?? []);
       setContext(payload.context);
       const existingDocumentId = params.get("documentId") || String(payload.documents?.[0]?.documentId || "");
       if (existingDocumentId) {
@@ -294,7 +306,7 @@ export default function ModelDocumentationStudio() {
     setExporting(format);
     setError("");
     try {
-      const exported = await exportModelDocumentation(document.documentId, format);
+      const exported = await exportModelDocumentation(document.documentId, format, document.projectId);
       downloadBlob(exported.blob, exported.filename);
       setMessage(`${exportLabel(format)} export created.`);
     } catch (err) {
@@ -311,7 +323,7 @@ export default function ModelDocumentationStudio() {
     [document, selectedSectionId]
   );
   const quality = document?.quality;
-  const coverage = useMemo(() => evidenceCoverage(context, document, evidenceItems), [context, document, evidenceItems]);
+  const coverage = useMemo(() => evidenceCoverage(context, document, evidenceItems, persistedEvidence), [context, document, evidenceItems, persistedEvidence]);
   const readiness = readinessStatus(quality);
   const selectedRecommendations = selectedSection ? evidenceRecommendations(selectedSection.sectionId) : [];
   const recommendedMatches = selectedSection ? recommendedEvidenceForSection(selectedSection, evidenceItems) : [];
@@ -382,6 +394,20 @@ export default function ModelDocumentationStudio() {
         {message && <div className="mx-5 mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{message}</div>}
         {error && <div className="mx-5 mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">{error}</div>}
       </section>
+
+      {document && (
+        <section className="rounded-xl border border-blue-200 bg-blue-50 p-4 shadow-sm">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Governed documentation access</div>
+              <div className="mt-1 text-sm font-semibold text-blue-950">Share the current documentation package with reviewers, validators, managers, or business owners.</div>
+            </div>
+            <button type="button" onClick={() => setShareDocumentationOpen(true)} className="atlas-secondary-button bg-white">
+              <Share2 size={15} /> Share Documentation
+            </button>
+          </div>
+        </section>
+      )}
 
       <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="grid gap-3 xl:grid-cols-[1fr_1fr]">
@@ -486,6 +512,13 @@ export default function ModelDocumentationStudio() {
           </div>
         </aside>
       </section>
+      <ShareResourceDialog
+        open={shareDocumentationOpen}
+        onClose={() => setShareDocumentationOpen(false)}
+        resourceType="documentation_package"
+        resourceId={document?.documentId || ""}
+        resourceName={document?.projectName ? `${document.projectName} Documentation` : "Documentation Package"}
+      />
     </div>
   );
 }
@@ -579,6 +612,8 @@ function EvidenceCoveragePanel({ coverage }: { coverage: EvidenceCoverage }) {
         <Metric label="Notebook outputs" value={String(coverage.notebooks)} />
         <Metric label="Governance notes" value={String(coverage.governance)} />
         <Metric label="Generated code artifacts" value={String(coverage.generatedCode)} />
+        <Metric label="Persisted readiness" value={`${coverage.persistedScore}%`} />
+        <Metric label="Registry status" value={coverage.persistedStatus} />
       </div>
       <div className={`mt-3 rounded-lg border px-3 py-2 text-sm ${coverage.missingRequired ? "border-amber-200 bg-amber-50 text-amber-950" : "border-emerald-200 bg-emerald-50 text-emerald-950"}`}>
         Missing required evidence: <strong>{coverage.missingRequired}</strong>
@@ -948,10 +983,11 @@ function replaceSection(document: ModelDocumentationDocument, section: Documenta
   };
 }
 
-function evidenceCoverage(context: DocumentationProjectContext | null, document: ModelDocumentationDocument | null, items: DocumentationEvidence[]): EvidenceCoverage {
+function evidenceCoverage(context: DocumentationProjectContext | null, document: ModelDocumentationDocument | null, items: DocumentationEvidence[], persisted: Array<Record<string, unknown>>): EvidenceCoverage {
   const allAttached = document?.sections.flatMap((section) => section.attachedEvidence) ?? [];
   const combined = [...items, ...allAttached];
   const count = (matcher: (item: DocumentationEvidence) => boolean) => combined.filter(matcher).length;
+  const persistedSummary = summarizePersistedEvidence(persisted);
   return {
     datasets: count((item) => item.source === "Dataset Library"),
     diagnostics: count((item) => item.source === "Model Diagnostics"),
@@ -961,6 +997,8 @@ function evidenceCoverage(context: DocumentationProjectContext | null, document:
     governance: count((item) => item.source === "ATLAS Guide") + (context?.recoveredShell ? 1 : 0),
     generatedCode: count((item) => /code/i.test(`${item.type} ${item.title}`)),
     missingRequired: document?.quality?.missingEvidenceCount ?? 0,
+    persistedScore: persisted.length ? persistedSummary.coverageScore : 0,
+    persistedStatus: persistedSummary.statusLabel,
   };
 }
 

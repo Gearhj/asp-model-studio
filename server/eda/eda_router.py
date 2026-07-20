@@ -5,14 +5,68 @@
 
 from __future__ import annotations
 
+import logging
+import os
 from typing import Dict, Any
 
 from fastapi import APIRouter, HTTPException, Query, Body
 
 from ..core.dataset_store import DATASTORE
 from .eda_service import eda_service
+from .workspace_service import eda_workspace_service
+from .workspace_types import EDAWorkspaceRequest
 
 router = APIRouter()
+logger = logging.getLogger("atlas.eda")
+DEV_LOGGING = os.getenv("ATLAS_ENV", "development").lower() in {"dev", "development", "local"}
+
+
+@router.post("/workspace/{section}")
+def eda_workspace_section(section: str, request: EDAWorkspaceRequest):
+    try:
+        result = eda_workspace_service.section(section, request)
+        if DEV_LOGGING:
+            logger.info(
+                "EDA request received section=%s dataset=%s found=true rows=%s cols=%s target=%s status=200",
+                section,
+                result.get("dataset_version"),
+                result.get("row_count"),
+                result.get("column_count"),
+                result.get("target"),
+            )
+        return result
+    except ValueError as exc:
+        detail = str(exc)
+        status = 409 if "dataset" in detail.lower() or "target" in detail.lower() else 400
+        if DEV_LOGGING:
+            logger.info(
+                "EDA request received section=%s dataset=unavailable found=false rows=0 cols=0 target=%s status=%s detail=%s",
+                section,
+                request.target,
+                status,
+                detail,
+            )
+        raise HTTPException(
+            status_code=status,
+            detail={
+                "ok": False,
+                "code": "backend_dataset_missing" if status == 409 else "eda_request_invalid",
+                "message": detail,
+                "recovery": "Return to Data Acquisition and re-register the dataset, or retry after confirming the backend is running.",
+            },
+        ) from exc
+
+
+@router.post("/profile")
+def eda_profile(request: EDAWorkspaceRequest):
+    """Compatibility route for frontend builds that expect a single profile endpoint."""
+    return eda_workspace_section("overview", request)
+
+
+@router.post("/analyze")
+def eda_analyze(request: EDAWorkspaceRequest):
+    """Compatibility route for prior EDA endpoint naming."""
+    return eda_workspace_section("overview", request)
 
 
 def _require_df():
@@ -44,7 +98,7 @@ def missing_summary():
 
 
 @router.get("/histogram/{column}")
-def histogram(column: str, bins: int = 40):
+def histogram(column: str, bins: int = Query(default=40, ge=5, le=60)):
     df = _require_df()
     return eda_service.histogram(df, column, bins=bins)
 

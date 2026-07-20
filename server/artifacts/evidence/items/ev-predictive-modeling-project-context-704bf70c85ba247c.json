@@ -1,0 +1,46 @@
+{
+  "projectId": "atlas-mrp3y4tx",
+  "projectName": "Credit Card Fraud TEST",
+  "evidenceType": "governance",
+  "title": "Predictive Modeling Project Context",
+  "summary": "This project will develop a generic binary classification model for the following business objective: Develop a binary classification model that predicts the likelihood that a transaction is fraudulent before downstream financial loss occurs. The model output is intended to support this use: The model will generate a fraud risk score for each transaction. The model will predict Predict whether an individual transaction will ultimately be confirmed as fraudulent based on the organization's established fraud investigation an.. for All eligible payment transactions included within the development datasets that satisfy the defined business inclusion criteria. The observation window is defined as Transactions occurring during the defined model development period used to construct the TRAIN, TEST, and Out-of-Time (OOT) validation datasets; the performance window is Fraud outcomes are evaluated after a sufficient investigation and resolution period has elapsed so that each transaction can be assigned a finalize... The current deployment mode is Development. Dataset binding, target-column selection, validation design, and model selection will be established in later workflow stages.",
+  "sourcePage": "Project Context",
+  "sourceRoute": "/step00",
+  "status": "needs_review",
+  "importance": "high",
+  "modelIds": [
+    "00001"
+  ],
+  "supportsSections": [
+    "1",
+    "3"
+  ],
+  "tags": [
+    "predictive_modeling",
+    "project_context",
+    "modeling_mission"
+  ],
+  "payload": {
+    "businessObjective": "Develop a binary classification model that predicts the likelihood that a transaction is fraudulent before downstream financial loss occurs. The objective is to improve fraud detection performance while reducing unnecessary manual reviews, minimizing customer friction, and lowering fraud losses through more accurate risk prioritization.",
+    "intendedModelUse": "The model will generate a fraud risk score for each transaction. The score will be used by fraud operations to prioritize transactions for review, support automated fraud decision rules, and improve investigative efficiency. During development the model is intended solely for analytical evaluation and is not approved for production decision making.",
+    "targetDefinition": "Predict whether an individual transaction will ultimately be confirmed as fraudulent based on the organization's established fraud investigation and case resolution process.",
+    "populationDefinition": "All eligible payment transactions included within the development datasets that satisfy the defined business inclusion criteria. The model is intended to generalize to future production transactions processed through the same fraud detection workflow.\n\nObservation Window\n\nTransactions occurring during the defined model development period used to construct the TRAIN, TEST, and Out-of-Time (OOT) validation datasets.\n\nPerformance Window\n\nFraud outcomes are evaluated after a sufficient investigation and resolution period has elapsed so that each transaction can be assigned a finalized fraud outcome for model development and validation.\n\nValidation Plan\n\nSeparate TRAIN / TEST / OOT\n\nI have one suggestion before we move to Data Acquisition.\n\nFor the Business Objective and Intended Model Use, I would eventually add an AI Assist button that generates text like this from a few bullet points. Most data scientists dislike writing documentation, and this is exactly the kind of repetitive narrative that an LLM can draft well while still allowing the user to edit it. That would make the workflow feel much more polished.",
+    "observationWindow": "Transactions occurring during the defined model development period used to construct the TRAIN, TEST, and Out-of-Time (OOT) validation datasets.",
+    "performanceWindow": "Fraud outcomes are evaluated after a sufficient investigation and resolution period has elapsed so that each transaction can be assigned a finalized fraud outcome for model development and validation.",
+    "deploymentMode": "Development",
+    "modelType": "Generic Binary Classification",
+    "modelingMissionSummary": "This project will develop a generic binary classification model for the following business objective: Develop a binary classification model that predicts the likelihood that a transaction is fraudulent before downstream financial loss occurs. The model output is intended to support this use: The model will generate a fraud risk score for each transaction. The model will predict Predict whether an individual transaction will ultimately be confirmed as fraudulent based on the organization's established fraud investigation an.. for All eligible payment transactions included within the development datasets that satisfy the defined business inclusion criteria. The observation window is defined as Transactions occurring during the defined model development period used to construct the TRAIN, TEST, and Out-of-Time (OOT) validation datasets; the performance window is Fraud outcomes are evaluated after a sufficient investigation and resolution period has elapsed so that each transaction can be assigned a finalize... The current deployment mode is Development. Dataset binding, target-column selection, validation design, and model selection will be established in later workflow stages."
+  },
+  "evidenceId": "ev-predictive-modeling-project-context-704bf70c85ba247c",
+  "datasetIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "lineage": {},
+  "governance": {},
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-17T16:53:27.045962+00:00",
+  "updatedAt": "2026-07-18T17:24:05.939676+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 57
+}

@@ -34,6 +34,10 @@ const SNAPSHOT_SESSION_KEYS = [DATASET_KEY, TRAINING_SUMMARY_KEY];
 export type ProjectSaveStatus =
   | "saving"
   | "saved"
+  | "local_only"
+  | "database_saved"
+  | "backend_unavailable"
+  | "database_save_failed"
   | "unsaved"
   | "save_failed"
   | "restored"
@@ -262,7 +266,9 @@ export function buildPersistedProjectState(projectId: string): PersistedProjectL
   const snapshot = {
     schemaVersion: 1 as const,
     savedAt: new Date().toISOString(),
-    localStorage: {},
+    // Project Context is concise, structured governance metadata. It is deliberately
+    // retained while dataset previews and other potentially regulated artifacts remain excluded.
+    localStorage: readStorageKeys(localStorage, ["modeling-tool-project-context"]),
     sessionStorage: {},
     workflowNodeStates: {},
     datasetPreview: undefined,
@@ -314,9 +320,12 @@ export function restoreProjectSnapshotArtifacts(snapshot: WorkflowProjectSnapsho
   try {
     restoreStorageValues(typeof localStorage === "undefined" ? undefined : localStorage, SNAPSHOT_LOCAL_KEYS, {});
     restoreStorageValues(typeof sessionStorage === "undefined" ? undefined : sessionStorage, SNAPSHOT_SESSION_KEYS, {});
-    deleteCurrentWorkflowNodeStates(snapshot.projectId);
+    const workflowNodeStates = persisted.workflowNodeStates ?? {};
+    if (Object.keys(workflowNodeStates).length > 0) {
+      deleteCurrentWorkflowNodeStates(snapshot.projectId);
+    }
     if (typeof localStorage !== "undefined") {
-      Object.entries(persisted.workflowNodeStates ?? {}).forEach(([stepId, value]) => {
+      Object.entries(workflowNodeStates).forEach(([stepId, value]) => {
         localStorage.setItem(`${WORKFLOW_NODE_PREFIX}${snapshot.projectId}:${stepId}`, stringify(compactWorkflowNodeState(value)));
       });
     }

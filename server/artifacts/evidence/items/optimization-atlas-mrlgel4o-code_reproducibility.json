@@ -1,0 +1,80 @@
+{
+  "evidenceId": "optimization-atlas-mrlgel4o-code_reproducibility",
+  "projectId": "atlas-mrlgel4o",
+  "projectName": "Cash Logistics Transportation QA",
+  "evidenceType": "optimization_reproducibility_code",
+  "title": "Transportation Optimization: Reproducibility code",
+  "summary": "Minimize total supplier-to-customer cash distribution cost while satisfying all customer demand and respecting supplier supply and transportation-capacity limits.. Reproducibility code evidence captured from the governed transportation workflow.",
+  "sourcePage": "Optimization Step 14",
+  "sourceRoute": "/workflow/optimization/14",
+  "workflowStep": "14. Reproducibility code",
+  "sourceRunReference": "run-1e1990c8e40b4a53",
+  "artifactType": "optimization_reproducibility_code",
+  "artifactId": "solution-e541f79955964a71:code_reproducibility",
+  "datasetIds": [
+    "ds_date_transportation_cost_0e1b9b64",
+    "ds_date_demand_787e523d",
+    "ds_date_supply_max_7e4d8975",
+    "ds_date_transport_capacity_56ed23df",
+    "ds_date_inventory_cost_b9333777"
+  ],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Reproducibility Appendix",
+    "Python Code",
+    "SAS-Compatible Code"
+  ],
+  "tags": [
+    "optimization",
+    "transportation",
+    "code_reproducibility",
+    "captured"
+  ],
+  "status": "ready",
+  "importance": "high",
+  "capturedAt": "2026-07-15T23:39:19.826Z",
+  "lineage": {
+    "projectId": "atlas-mrlgel4o",
+    "formulationId": "transport-b5a97c5609bbfcc8",
+    "normalizationHash": "b5a97c5609bbfcc8112ea7bace12a9cd5d929ea2a742d7be493f71331c91fd96",
+    "solutionId": "solution-e541f79955964a71",
+    "runId": "run-1e1990c8e40b4a53"
+  },
+  "payload": {
+    "stage": "code_reproducibility",
+    "capturedAt": "2026-07-15T23:39:19.826Z",
+    "formulationId": "transport-b5a97c5609bbfcc8",
+    "formulationVersion": "1.0",
+    "normalizationHash": "b5a97c5609bbfcc8112ea7bace12a9cd5d929ea2a742d7be493f71331c91fd96",
+    "solutionId": "solution-e541f79955964a71",
+    "runId": "run-1e1990c8e40b4a53",
+    "pythonCodeReference": "optimization-atlas-mrlgel4o-export-python_code",
+    "sasCompatibleCodeReference": "optimization-atlas-mrlgel4o-export-sas_code",
+    "formulationHash": "transport-b5a97c5609bbfcc8",
+    "solverMethod": "Linear programming (LP)",
+    "solverParameters": {
+      "tolerance": 1e-07,
+      "timeLimitSeconds": 30
+    },
+    "routeVariableCount": 30,
+    "constraintCount": 16,
+    "scenarioRunCount": 5,
+    "sensitivityRunReference": "run-3abb86f6af1f48e1",
+    "pythonRuntimeStatus": "Executable",
+    "sasRuntimeStatus": "Template-only"
+  },
+  "governance": {
+    "accountableOwner": "Operations planning owner",
+    "reviewer": "Independent Model Validation",
+    "approvalDate": "2026-08-01",
+    "businessValidityStatus": "valid"
+  },
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-15T23:21:42.367911+00:00",
+  "updatedAt": "2026-07-15T23:39:19.869913+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 100
+}

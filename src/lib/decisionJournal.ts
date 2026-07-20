@@ -1,6 +1,8 @@
 import { loadLocalDataset } from "./localDataset";
 import { loadProjectContext } from "./projectContext";
 import { BRAND } from "../config/brand";
+import { saveDecisionToDatabase } from "./serverPersistence";
+import { useWorkflowStore } from "../state/useWorkflowStore";
 
 export type DecisionActionType =
   | "project_context_updated"
@@ -13,9 +15,12 @@ export type DecisionActionType =
   | "model_selected"
   | "hyperparameter_search_changed"
   | "champion_model_selected"
+  | "evaluation_candidate_selected"
+  | "evaluation_candidate_removed"
   | "challenge_response_recorded"
   | "final_model_saved"
   | "custom_python_code_edited"
+  | "custom_sas_code_edited"
   | "workflow_setting_changed";
 
 export type DecisionFollowStatus = "followed" | "overrode" | "not_applicable" | "unknown";
@@ -46,6 +51,7 @@ type LogDecisionInput = {
   systemRecommendation?: string;
   followStatus?: DecisionFollowStatus;
   userReason?: string;
+  owner?: string;
 };
 
 function truncateText(value: string, maxChars = MAX_DECISION_FIELD_CHARS) {
@@ -140,6 +146,12 @@ function inferRecommendation(actionType: DecisionActionType, subject: string, ne
   if (actionType === "champion_model_selected") {
     return `Champion selection should prioritize ${projectContext.primarySuccessMetric || "the declared primary success metric"} while checking stability, interpretability, and operational fit.`;
   }
+  if (actionType === "evaluation_candidate_selected") {
+    return "Send only trained supervised candidates with relevant evaluation evidence to Interpretation for explainability review and final-model selection.";
+  }
+  if (actionType === "evaluation_candidate_removed") {
+    return "Keep the Interpretation candidate set limited to models that remain relevant after evaluation review.";
+  }
   if (actionType === "challenge_response_recorded") {
     return "Resolve Atlas Guide challenges by accepting the recommendation or documenting a defensible override rationale.";
   }
@@ -197,6 +209,18 @@ export function logDecision(input: LogDecisionInput) {
   };
   const entries = safeReadEntries();
   persistDecisionEntries([entry, ...entries]);
+  const projectId = useWorkflowStore.getState().projectId;
+  void saveDecisionToDatabase(projectId, {
+    decisionId: entry.id,
+    decisionType: entry.actionType,
+    title: entry.subject,
+    summary: `${entry.previousValue} -> ${entry.newValue}`,
+    status: entry.followStatus === "overrode" ? "needs_review" : "recorded",
+    owner: input.owner,
+    createdAt: entry.timestamp,
+    updatedAt: entry.timestamp,
+    payload: entry,
+  });
   return entry;
 }
 
@@ -218,6 +242,8 @@ const materialDecisionTypes = new Set<DecisionActionType>([
   "split_strategy_selected",
   "model_selected",
   "champion_model_selected",
+  "evaluation_candidate_selected",
+  "evaluation_candidate_removed",
   "challenge_response_recorded",
   "final_model_saved",
 ]);

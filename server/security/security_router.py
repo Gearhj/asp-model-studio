@@ -132,7 +132,25 @@ def reset_password() -> Dict[str, Any]:
 @router.get("/admin/users")
 def admin_users(user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     require_role(user, {"admin"})
-    return {"ok": True, "users": list_users()}
+    users = list_users()
+    try:
+        from ..persistence.service import get_persistence_service
+
+        service = get_persistence_service()
+        enriched = []
+        for item in users:
+            persisted = service.sync_user(item) or {}
+            enriched.append(
+                {
+                    **item,
+                    "lastActiveAt": persisted.get("last_active_at") or item.get("lastLoginAt"),
+                    **service.users.activity_summary(item["userId"]),
+                }
+            )
+        users = enriched
+    except Exception:
+        pass
+    return {"ok": True, "users": users}
 
 
 @router.get("/admin/users/{user_id}")
@@ -160,7 +178,7 @@ def admin_update_user(user_id: str, payload: UpdateUserRequest, user: Dict[str, 
 @router.post("/admin/users/{user_id}/disable")
 def admin_disable_user(user_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     require_role(user, {"admin"})
-    result = set_user_status(user_id, "disabled")
+    result = set_user_status(user_id, "inactive")
     return {"ok": True, "user": {key: value for key, value in result.items() if key != "auditAction"}}
 
 
@@ -210,11 +228,12 @@ def audit_events(
     resourceType: Optional[str] = None,
     outcome: Optional[str] = None,
     action: Optional[str] = None,
+    projectId: Optional[str] = None,
     limit: int = 250,
     user: Dict[str, Any] = Depends(require_user),
 ) -> Dict[str, Any]:
     require_role(user, AUDIT_ROLES)
-    return {"ok": True, "events": list_audit_events(limit=limit, user_id=userId, resource_type=resourceType, outcome=outcome, action=action)}
+    return {"ok": True, "events": list_audit_events(limit=limit, user_id=userId, resource_type=resourceType, outcome=outcome, action=action, project_id=projectId)}
 
 
 @router.get("/audit/events/resource/{resource_type}/{resource_id}")

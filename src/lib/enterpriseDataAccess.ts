@@ -35,6 +35,14 @@ export type DataAccessMetadata = {
 };
 
 export type DataQualitySummary = {
+  profileScope?: "full_dataset" | "complete_browser_dataset" | "preview_profile" | "not_generated";
+  profiledRowCount?: number;
+  registeredRowCount?: number;
+  generatedAt?: string;
+  datasetVersion?: string;
+  datasetHash?: string;
+  warnings?: string[];
+  readinessStatus?: "ready" | "needs_review" | "not_generated";
   rowCount: number;
   columnCount: number;
   duplicateRows: number;
@@ -158,7 +166,10 @@ function toNumber(value: unknown) {
 
 function isDateLike(value: unknown) {
   if (isMissing(value)) return false;
-  const parsed = Date.parse(String(value));
+  if (typeof value === "number" || /^-?\d+(?:\.\d+)?$/.test(String(value).trim())) return false;
+  const text = String(value).trim();
+  if (!/^(?:\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}[-/]\d{1,2}[-/]\d{2,4})(?:[ T].*)?$/.test(text)) return false;
+  const parsed = Date.parse(text);
   return Number.isFinite(parsed);
 }
 
@@ -205,8 +216,9 @@ export function inferDataQuality(dataset: Pick<LocalDataset, "headers" | "rows" 
       const percent = outliers / numericValues.length;
       if (percent >= 0.01) outlierPrevalence.push({ column, percent });
     }
-    const dateValues = values.filter(isDateLike).map((value) => new Date(String(value)).toISOString().slice(0, 10));
-    if (dateValues.length >= Math.max(5, values.length * 0.7)) {
+    const hasDateName = /(^|_)(date|datetime|timestamp|time|dt)($|_)/i.test(column);
+    const dateValues = hasDateName ? values.filter(isDateLike).map((value) => new Date(String(value)).toISOString().slice(0, 10)) : [];
+    if (dateValues.length >= Math.max(5, values.length * 0.8)) {
       dateRanges.push({ column, min: dateValues.sort()[0], max: dateValues.sort()[dateValues.length - 1] });
     }
   }
@@ -229,6 +241,12 @@ export function inferDataQuality(dataset: Pick<LocalDataset, "headers" | "rows" 
   }
 
   return {
+    profileScope: "complete_browser_dataset",
+    profiledRowCount: rows.length,
+    registeredRowCount: rows.length,
+    generatedAt: new Date().toISOString(),
+    warnings: [],
+    readinessStatus: "ready",
     rowCount: rows.length,
     columnCount: headers.length,
     duplicateRows,
@@ -243,6 +261,59 @@ export function inferDataQuality(dataset: Pick<LocalDataset, "headers" | "rows" 
     dateRanges,
     missing: missing.sort((a, b) => b.percent - a.percent),
     memoryEstimateMb: rows.length * Math.max(1, headers.length) * 16 / 1024 / 1024,
+  };
+}
+
+export async function fetchFullDataQualityProfile(input: {
+  target?: string | null;
+  eventValue?: unknown;
+  nonEventValue?: unknown;
+  selectedColumns?: string[];
+}): Promise<DataQualitySummary> {
+  const apiBase =
+    (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
+    "http://127.0.0.1:8001/api";
+  const response = await fetch(`${apiBase}/data/quality-profile`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      target: input.target,
+      event_value: input.eventValue,
+      non_event_value: input.nonEventValue,
+      selected_columns: input.selectedColumns ?? [],
+    }),
+  });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.ok) throw new Error(payload?.detail ?? "Full-dataset quality profiling is unavailable.");
+  return {
+    profileScope: payload.profileScope,
+    profiledRowCount: payload.profiledRowCount,
+    registeredRowCount: payload.registeredRowCount,
+    generatedAt: payload.generatedAt,
+    datasetVersion: payload.datasetVersion,
+    datasetHash: payload.datasetHash,
+    rowCount: payload.registeredRowCount,
+    columnCount: payload.columnCount,
+    duplicateRows: payload.duplicateRows,
+    duplicateIdCandidates: payload.duplicateIdCandidates ?? [],
+    constantColumns: payload.constantColumns ?? [],
+    nearZeroVarianceColumns: payload.nearZeroVarianceColumns ?? [],
+    highCardinalityCategoricals: payload.highCardinalityCategoricalColumns ?? [],
+    unexpectedDatatypeColumns: payload.unexpectedDatatypeColumns ?? [],
+    potentialLeakageColumns: payload.potentialLeakageCandidates ?? [],
+    outlierPrevalence: payload.outlierPrevalence ?? [],
+    classBalance: payload.targetHealth?.kind === "classification" ? {
+      eventRate: payload.targetHealth.eventRate ?? null,
+      majorityClassPercent: Array.isArray(payload.targetHealth.classDistribution)
+        ? Math.max(...payload.targetHealth.classDistribution.map((row: { percent?: number }) => Number(row.percent) || 0), 0)
+        : null,
+    } : undefined,
+    dateRanges: payload.dateRanges ?? [],
+    missing: (payload.missingness ?? []).map((row: { column: string; percent: number }) => ({ column: row.column, percent: row.percent })),
+    memoryEstimateMb: payload.memoryEstimateMb ?? 0,
+    warnings: payload.warnings ?? [],
+    readinessStatus: payload.readinessStatus ?? "needs_review",
   };
 }
 

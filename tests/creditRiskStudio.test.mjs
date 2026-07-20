@@ -383,19 +383,16 @@ test("Credit Risk Studio includes Phase 15I layout, state, and population target
   ].forEach((label) => assert.match(page, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
 
   [
-    "Training Dataset",
-    "Validation Dataset",
-    "OOT Dataset",
-    "OOT Type",
+    "Current Dataset Summary",
+    "Registered rows",
+    "Selected predictors",
     "Target Column",
-    "Event / Bad Value",
-    "Original Target Label Column",
-    "Split Column",
-    "Dataset Source Type",
-    "Uploaded CSV datasets registered in Dataset Library",
-    "Dataset Purpose",
-    "Credit-risk scorecard test run",
+    "Event / Positive Value",
+    "Non-event / Negative Value",
+    "Data Quality & Modeling Readiness",
+    "Preview & Profiling Settings",
   ].forEach((label) => assert.match(dataAcquisition, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
+  assert.doesNotMatch(dataAcquisition, /HELOC_TRAIN|HELOC_TEST|HELOC_OOT|RiskPerformance|atlas_split|bad_flag/);
 
   assert.match(page, /<details className="mx-4 my-3 rounded-lg/);
   assert.match(page, /<summary[^>]*>Show readiness details<\/summary>/);
@@ -447,17 +444,14 @@ test("Credit Risk Studio includes Phase 15J UX correction", () => {
   assert.doesNotMatch(page, /Variable distribution table/);
 
   [
-    "Training Dataset",
-    "Validation Dataset",
-    "OOT Dataset",
-    "OOT Type",
-    "Dataset Source Type",
-    "Dataset Purpose",
+    "Current Dataset Summary",
     "Data Lineage",
     "Target Column",
-    "Event / Bad Value",
-    "Original Target Label Column",
-    "Split Column",
+    "Event / Positive Value",
+    "Non-event / Negative Value",
+    "Data Quality & Modeling Readiness",
+    "Complete Browser Dataset",
+    "Preview Profile",
   ].forEach((label) => assert.match(dataAcquisition, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
 
   assert.match(page, /<details className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">/);
@@ -466,9 +460,7 @@ test("Credit Risk Studio includes Phase 15J UX correction", () => {
   assert.match(page, /activeWorkflowStep\.name === "Missing Values"/);
   assert.match(page, /activeWorkflowStep\.name === "Balance & Split"/);
   assert.match(page, /isCreditRiskPredictorCandidate\(row\.name, profile\)/);
-  assert.match(dataAcquisition, /RiskPerformance is the original target label/);
-  assert.match(dataAcquisition, /bad_flag is the numeric target/);
-  assert.match(dataAcquisition, /atlas_split is split metadata/);
+  assert.doesNotMatch(dataAcquisition, /RiskPerformance|bad_flag|atlas_split/);
 });
 
 test("Credit Risk Studio includes Phase 15K workflow routing and step mapping fixes", () => {
@@ -674,22 +666,18 @@ test("Credit Risk Studio includes Phase 15M QA fixes", () => {
   ].forEach((label) => assert.match(page, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
 
   [
-    "Sampling Method",
-    "Sample Detail",
-    "Sampling controls affect browser preview and profiling ergonomics.",
+    "Preview method",
+    "Preview row limit",
+    "Profile row limit",
+    "Preview and profiling settings do not change the registered modeling dataset.",
     "Target Setup",
     "Variable Summary / Feature Selection",
-    "Data Quality Report",
+    "Data Quality & Modeling Readiness",
     "Data Lineage",
-    "Python Synchronization",
-    "creditRiskLeakageRole",
-    "Original Target Label / Excluded",
-    "Target / Excluded",
-    "Split Indicator / Excluded",
   ].forEach((label) => assert.match(dataAcquisition, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
-
-  assert.match(dataAcquisition, /row\.column === target \? "Target \/ Excluded" : creditRiskLeakageRole\(row\.column\)/);
-  assert.match(dataAcquisition, /selectedColumns: headers\.filter\(\(header\) => header !== target && !creditRiskLeakageRole\(header\)/);
+  assert.match(dataAcquisition, /predictorEligibility/);
+  assert.match(dataAcquisition, /fetchFullFeatureProfile/);
+  assert.doesNotMatch(dataAcquisition, /Python Synchronization|creditRiskLeakageRole/);
   assert.match(page, /localStorage\.setItem\(BUREAU_SPECIAL_TREATMENT_KEY/);
   assert.match(page, /specialValueFilter !== "All"/);
   assert.match(page, /selectedTreatment/);
@@ -713,12 +701,12 @@ test("Credit Risk Studio Phase 15O keeps Data Acquisition ordered and non-duplic
   [
     "Source Selection, File Upload, and Target Setup",
     "<TargetSetup",
-    "<CurrentProjectSummary",
-    "<DatasetRoleAssignment",
-    "<SamplingProfilingControls",
-    "Full Data Quality Report",
+    "<CurrentDatasetSummary",
+    "<DataPreview",
+    "Data Quality & Modeling Readiness",
     "Variable Summary / Feature Selection",
-    "Data Lineage and Python Sync",
+    "Data Lineage",
+    "<PreviewProfilingSettings",
   ].reduce((previousIndex, label) => {
     const index = dataAcquisition.indexOf(label);
     assert.ok(index > previousIndex, `${label} is not in the expected Data Acquisition order.`);
@@ -727,44 +715,21 @@ test("Credit Risk Studio Phase 15O keeps Data Acquisition ordered and non-duplic
 
   assert.ok(dataAcquisition.indexOf("<UploadPanel") > dataAcquisition.indexOf("Source Selection, File Upload, and Target Setup"));
   assert.ok(dataAcquisition.indexOf("<TargetSetup") > dataAcquisition.indexOf("<UploadPanel"));
-  assert.ok(dataAcquisition.indexOf("<UploadPanel") < dataAcquisition.indexOf("Dataset Role Assignment"));
-  assert.ok(dataAcquisition.indexOf("<TargetSetup") < dataAcquisition.indexOf("<CurrentProjectSummary"));
+  assert.ok(dataAcquisition.indexOf("<UploadPanel") < dataAcquisition.indexOf("<CurrentDatasetSummary"));
+  assert.ok(dataAcquisition.indexOf("<TargetSetup") < dataAcquisition.indexOf("<CurrentDatasetSummary"));
+  assert.doesNotMatch(dataAcquisition, /HELOC Risk Model TEST|HELOC_TRAIN|HELOC_TEST|HELOC_OOT|RiskPerformance|bad_flag|atlas_split/);
+  ["Target Column", "Event / Positive Value", "Non-event / Negative Value"].forEach((label) => {
+    assert.equal(countOccurrences(dataAcquisition, `label="${label}"`), 1, `${label} should appear as one canonical control.`);
+  });
 
   [
-    "project: \"HELOC Risk Model TEST\"",
-    "trainingDataset: \"HELOC_TRAIN\"",
-    "validationDataset: \"HELOC_TEST\"",
-    "ootDataset: \"HELOC_OOT\"",
-    "target: \"bad_flag = 1\"",
-    "modelPurpose: \"Application Underwriting\"",
-    "productType: \"Credit Card\"",
-  ].forEach((label) => assert.match(dataAcquisition, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
-
-  [
-    "Training Dataset",
-    "Validation Dataset",
-    "OOT Dataset",
-    "OOT Type",
-    "Dataset Source Type",
-    "Dataset Purpose",
-    "Target Column",
-    "Event / Bad Value",
-    "Non-event / Good Value",
-    "Original Target Label Column",
-    "Split Column",
-  ].forEach((label) => assert.equal(countOccurrences(dataAcquisition, `label="${label}"`), 1, `${label} should appear as one canonical control.`));
-
-  [
-    "Potential Leakage",
-    "Constant Columns",
-    "Near-Zero Variance",
-    "High-Cardinality Categoricals",
-    "Date Ranges",
-    "RiskPerformance",
-    "bad_flag",
-    "atlas_split",
+    "Potential leakage candidates",
+    "Constant columns",
+    "Near-zero variance",
+    "High-cardinality categoricals",
+    "Legitimate date ranges",
     "disabled checked={false}",
-    "Eligible bureau feature; can be selected or deselected.",
+    "Eligible predictor.",
   ].forEach((label) => assert.match(dataAcquisition, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
 
   [
@@ -820,8 +785,11 @@ test("Credit Risk Studio outliers direct load has embedded fallback and HELOC tr
   assert.doesNotMatch(page, /Open in full Predictive Modeling/);
   assert.doesNotMatch(page, /Credit-risk outlier treatment overlay|Outlier treatment controls/);
   assert.match(outliers, /Outlier Analysis/);
-  assert.match(outliers, /methodByFeature/);
-  assert.match(outliers, /applyGlobal/);
+  assert.match(outliers, /globalMethod/);
+  assert.match(outliers, /normalizedConfig/);
+  assert.match(outliers, /applyGlobalSelection/);
+  assert.match(outliers, /\/outliers\/apply/);
+  assert.match(outliers, /Full-data flagged/);
   assert.match(page, /Save Outlier Evidence/);
   assert.match(page, /Confirm Outliers and Continue/);
   assert.match(outliers, /nextPath="\/step04"/);
@@ -860,15 +828,15 @@ test("Credit Risk Studio supports weak-signal and VIF-based feature exclusion", 
   ].forEach((label) => assert.match(dataAcquisition, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
 
   [
-    "VIF_EXCLUDED_FEATURES_KEY",
     "VIF_AUTO_EXCLUDE_THRESHOLD = 10",
-    "vifExcludedFeatures",
+    "vifCandidateNames",
+    "persistVifSelection",
     "excludeHighVifFeatures",
     "Uncheck VIF",
     'type="checkbox"',
     "Excluded after VIF review",
-    "restoreFeatureFromVif",
-    "columns.filter((column) => column.name !== targetColumn && !vifExcludedSet.has(column.name))",
+    "selectedByFeature",
+    "saveFeatureManifest(featureUpdates",
   ].forEach((label) => assert.match(featureEngineering, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
 });
 
@@ -915,15 +883,17 @@ test("Credit Risk Studio Balance & Split has final IV feature gate before Model 
   assert.match(page, /runWoeIvAnalysis\(request\)\s*\.then\(saveWoeIvAnalysis\)/);
   assert.match(page, /disabled=\{!hasIvValues\}/);
   [
-    "TARGET_DERIVED_ALIASES",
-    "isTargetDerivedFeature",
-    "trainingFeatureColumns",
-    "Target-derived fields excluded before training",
-    "/data/set_target",
+    "getFeatureManifest",
+    "selectedFeatures",
+    "selected_original_features",
+    "selected_engineered_features",
+    "feature_manifest_version",
+    "trained_feature_names",
   ].forEach((label) => assert.match(training, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
   assert.match(trainerService, /_sanitize_feature_frame/);
   assert.match(trainerService, /excluded_target_features/);
-  assert.match(trainerService, /riskperformance/);
+  assert.match(trainerService, /trained_feature_names/);
+  assert.doesNotMatch(trainerService, /riskperformance|bad_flag/);
   assert.match(evalService, /_filter_target_derived_rows/);
   assert.match(evalService, /_is_target_derived_feature/);
   assert.match(metadataRouter, /DATASTORE\.reset_splits\(\)/);
@@ -932,10 +902,10 @@ test("Credit Risk Studio Balance & Split has final IV feature gate before Model 
 test("Credit Risk Studio feature preview defaults to 10 rows with matching label", () => {
   const featureEngineering = read("src/steps/Step05_EncodingScaling.tsx");
   assert.match(featureEngineering, /previewRowLimit, setPreviewRowLimit\] = useState\(10\)/);
-  assert.match(featureEngineering, /displayedPreview = useMemo\(\(\) => preview\.slice\(0, previewRowLimit\)/);
+  assert.match(featureEngineering, /previewFeaturePlan\(drafts, previewRowLimit, controller\.signal\)/);
   assert.match(featureEngineering, /Preview first \{previewRowLimit\} rows/);
   assert.match(featureEngineering, /\[10, 25, 50, 100\]/);
-  assert.match(featureEngineering, /displayedPreview\.map/);
+  assert.match(featureEngineering, /preview\.rows\.map/);
 });
 
 test("Credit Risk Studio overlays remain inside real Feature Engineering, Training, Evaluation, and Interpretation steps", () => {
@@ -953,13 +923,14 @@ test("Credit Risk Studio overlays remain inside real Feature Engineering, Traini
     "Real ATLAS Evaluation Workflow",
     "Real ATLAS Interpretation Workflow",
   ].forEach((label) => assert.match(page, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
-  ["Feature Engineering", "Predictor redundancy check"].forEach((label) => assert.match(featureEngineering, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
-  ["Transparent Models", "Ensemble Models", "Logistic Regression"].forEach((label) => assert.match(training, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
+  ["Feature Engineering", "Predictor Redundancy Check"].forEach((label) => assert.match(featureEngineering, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
+  ["Transparent Models", "Tree and Ensemble Models", "Logistic Regression"].forEach((label) => assert.match(training, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
   assert.doesNotMatch(training, /Mark Complete &amp; Go to Evaluation|Mark Complete & Go to Evaluation/);
   ["AUC", "PR-AUC", "Decile Lift", "RMSE"].forEach((label) => assert.match(evaluation, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
   assert.doesNotMatch(evaluation, /Mark Complete &amp; Interpret Model|Mark Complete & Interpret Model/);
   ["Feature Importance", "RFE", "Final Model Sensitivity Analysis"].forEach((label) => assert.match(interpretation, new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))));
-  assert.match(interpretation, /navigate\("\/step10"\)/);
+  assert.match(interpretation, /getNextStepPath\("step09"\)/);
+  assert.match(interpretation, /nextPath=\{getNextStepPath\("step09"\)\}/);
   assert.match(scoring, /<div className="grid gap-5">\s*<DevelopmentSplitCard[\s\S]*title="TRAIN Scored Output"[\s\S]*title="External Validation Dataset \/ TEST Scored Output"[\s\S]*title="Out-of-Time Dataset \/ OOT Scored Output"/);
   assert.doesNotMatch(scoring, /Mark Complete &amp; Build Document|Mark Complete & Build Document|navigate\("\/step11"\)/);
   assert.match(page, /Interpretation \/ RFE Final Model/);
@@ -981,7 +952,8 @@ test("Credit Risk Studio overlays remain inside real Feature Engineering, Traini
   assert.ok(workflowConfig.indexOf('label: "Evaluation"') < workflowConfig.indexOf('label: "Interpretation"'), "Predictive workflow config must run Evaluation before RFE final-model selection.");
   assert.ok(workflowConfig.indexOf('label: "Interpretation"') < workflowConfig.indexOf('label: "Scoring"'), "Predictive workflow config must run RFE before Scoring.");
   assert.match(workflowConfig, /id: "credit-risk-studio"[\s\S]*steps: creditRiskStudioSteps/);
-  assert.match(workflowConfig, /const creditRiskStudioSteps: WorkflowStep\[\] = predictiveModelingSteps\.filter\(\(step\) => step\.id !== "step01b"\)/);
+  assert.match(workflowConfig, /const creditRiskStudioSteps: WorkflowStep\[\] = predictiveModelingSteps;/);
+  assert.doesNotMatch(workflowConfig, /id: "step01b"/);
   assert.match(workflowStore, /normalizeWorkflowOrder/);
   assert.ok(workflowStore.indexOf('"step08", // Evaluation') < workflowStore.indexOf('"step09", // Model Interpretation'), "Workflow store order must run Evaluation before RFE final-model selection.");
   assert.ok(workflowStore.indexOf('"step09", // Model Interpretation') < workflowStore.indexOf('"step10", // Final Scoring'), "Workflow store order must run RFE before Scoring.");

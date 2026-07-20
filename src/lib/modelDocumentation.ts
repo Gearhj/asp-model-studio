@@ -1,4 +1,5 @@
 import { DATASET_API_BASE } from "./datasetLibrary";
+import { saveDocumentationToDatabase, saveExportToDatabase } from "./serverPersistence";
 
 export type DocumentationTemplate = {
   templateType: string;
@@ -123,6 +124,7 @@ export async function createModelDocumentation(projectId: string, templateType =
     method: "POST",
     body: JSON.stringify({ projectId, templateType }),
   });
+  void saveDocumentationToDatabase(projectId, payload.document as unknown as Record<string, unknown>);
   return payload.document;
 }
 
@@ -140,6 +142,7 @@ export async function saveDocumentationSection(documentId: string, section: Docu
       }),
     }
   );
+  void saveDocumentationToDatabase(payload.document.projectId, payload.document as unknown as Record<string, unknown>);
   return payload.document;
 }
 
@@ -151,6 +154,7 @@ export async function attachDocumentationEvidence(documentId: string, sectionId:
       body: JSON.stringify({ sectionId, evidence }),
     }
   );
+  void saveDocumentationToDatabase(payload.document.projectId, payload.document as unknown as Record<string, unknown>);
   return payload.document;
 }
 
@@ -159,6 +163,7 @@ export async function runDocumentationQualityCheck(documentId: string) {
     `/model-documentation/${encodeURIComponent(documentId)}/quality-check`,
     { method: "POST" }
   );
+  void saveDocumentationToDatabase(payload.document.projectId, payload.document as unknown as Record<string, unknown>);
   return payload.document;
 }
 
@@ -171,7 +176,7 @@ export async function getDocumentationEvidenceLibrary(documentId: string, projec
 
 export type DocumentationExportFormat = "word" | "powerpoint" | "evidence-excel";
 
-export async function exportModelDocumentation(documentId: string, format: DocumentationExportFormat) {
+export async function exportModelDocumentation(documentId: string, format: DocumentationExportFormat, projectId?: string) {
   const response = await fetch(`${DATASET_API_BASE}/model-documentation/${encodeURIComponent(documentId)}/export/${format}`, {
     method: "POST",
     credentials: "include",
@@ -185,7 +190,13 @@ export async function exportModelDocumentation(documentId: string, format: Docum
   }
   const disposition = response.headers.get("Content-Disposition") ?? "";
   const blob = await response.blob();
-  return { blob, filename: filenameFromDisposition(disposition) ?? defaultExportName(format) };
+  const filename = filenameFromDisposition(disposition) ?? defaultExportName(format);
+  void saveExportToDatabase(projectId, {
+    exportType: `model_documentation_${format}`,
+    fileName: filename,
+    metadata: { documentId, sizeBytes: blob.size, mimeType: blob.type },
+  });
+  return { blob, filename };
 }
 
 function filenameFromDisposition(disposition: string) {

@@ -1,0 +1,171 @@
+{
+  "projectId": "atlas-mrl6mm9i",
+  "projectName": "00009",
+  "evidenceType": "optimization_validation",
+  "title": "Transportation Optimization: Validation",
+  "summary": "Minimize total supplier-to-customer cash distribution cost while satisfying all customer demand and respecting supplier supply and transportation-capacity limits.. Validation evidence captured from the governed transportation workflow.",
+  "sourcePage": "Optimization Step 11",
+  "sourceRoute": "/workflow/optimization/11",
+  "workflowStep": "11. Validation",
+  "sourceRunReference": "run-6a557f4ba8a24965",
+  "artifactType": "optimization_validation",
+  "artifactId": "solution-700b21215d674816:validation",
+  "datasetIds": [
+    "ds_date_transportation_cost_0e1b9b64",
+    "ds_date_demand_787e523d",
+    "ds_date_supply_max_7e4d8975",
+    "ds_date_transport_capacity_56ed23df",
+    "ds_date_inventory_cost_b9333777"
+  ],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Validation"
+  ],
+  "tags": [
+    "optimization",
+    "transportation",
+    "validation",
+    "captured"
+  ],
+  "status": "ready",
+  "importance": "critical",
+  "capturedAt": "2026-07-15T20:09:11.299Z",
+  "lineage": {
+    "projectId": "atlas-mrl6mm9i",
+    "formulationId": "transport-b5a97c5609bbfcc8",
+    "normalizationHash": "b5a97c5609bbfcc8112ea7bace12a9cd5d929ea2a742d7be493f71331c91fd96",
+    "solutionId": "solution-700b21215d674816",
+    "runId": "run-6a557f4ba8a24965"
+  },
+  "payload": {
+    "stage": "validation",
+    "capturedAt": "2026-07-15T20:09:11.299Z",
+    "formulationId": "transport-b5a97c5609bbfcc8",
+    "formulationVersion": "1.0",
+    "normalizationHash": "b5a97c5609bbfcc8112ea7bace12a9cd5d929ea2a742d7be493f71331c91fd96",
+    "solutionId": "solution-700b21215d674816",
+    "runId": "run-6a557f4ba8a24965",
+    "validation": {
+      "checks": [
+        {
+          "id": "formulation_validity",
+          "label": "Formulation validity",
+          "passed": true,
+          "status": "pass",
+          "evidence": "Formulation transport-b5a97c5609bbfcc8.",
+          "requiresConfirmation": false
+        },
+        {
+          "id": "solver_feasibility",
+          "label": "Solver feasibility",
+          "passed": true,
+          "status": "pass",
+          "evidence": "Optimization terminated successfully. (HiGHS Status 7: Optimal)",
+          "requiresConfirmation": false
+        },
+        {
+          "id": "business_feasibility",
+          "label": "Business feasibility",
+          "passed": true,
+          "status": "pass",
+          "evidence": "Business validity is valid.",
+          "requiresConfirmation": false
+        },
+        {
+          "id": "demand_fulfillment",
+          "label": "Demand fulfillment",
+          "passed": true,
+          "status": "pass",
+          "evidence": "Fulfilled 480 of 480.",
+          "requiresConfirmation": false
+        },
+        {
+          "id": "supply_compliance",
+          "label": "Supply compliance",
+          "passed": true,
+          "status": "pass",
+          "evidence": "All generated supplier limits were evaluated.",
+          "requiresConfirmation": false
+        },
+        {
+          "id": "transport_compliance",
+          "label": "Transport capacity compliance",
+          "passed": true,
+          "status": "pass",
+          "evidence": "All generated transport limits were evaluated.",
+          "requiresConfirmation": false
+        },
+        {
+          "id": "scenario_coverage",
+          "label": "Scenario coverage",
+          "passed": true,
+          "status": "pass",
+          "evidence": "5 transportation scenarios evaluated with feasible and infeasible outcomes reported as returned by the solver.",
+          "requiresConfirmation": false
+        },
+        {
+          "id": "sensitivity_coverage",
+          "label": "Sensitivity coverage",
+          "passed": true,
+          "status": "pass",
+          "evidence": "10 perturbations evaluated.",
+          "requiresConfirmation": false
+        },
+        {
+          "id": "evidence_completeness",
+          "label": "Evidence completeness",
+          "passed": true,
+          "status": "pass",
+          "evidence": "Validator confirmation is required.",
+          "requiresConfirmation": true
+        },
+        {
+          "id": "implementation_readiness",
+          "label": "Implementation readiness",
+          "passed": true,
+          "status": "pass",
+          "evidence": "Operations readiness confirmation is required.",
+          "requiresConfirmation": true
+        },
+        {
+          "id": "independent_review",
+          "label": "Independent review",
+          "passed": true,
+          "status": "pass",
+          "evidence": "Independent reviewer confirmation is required.",
+          "requiresConfirmation": true
+        }
+      ],
+      "score": 100,
+      "passedCount": 11,
+      "totalCount": 11,
+      "mathematicalSuccess": true,
+      "governanceAcceptance": true,
+      "recommendationAllowed": true,
+      "status": "approved",
+      "blockers": [],
+      "warnings": []
+    },
+    "confirmations": {
+      "evidenceCompleteness": true,
+      "implementationReadiness": true,
+      "independentReview": true
+    },
+    "notes": "Validation completed for walkthrough or review purposes. The formulation uses the Transportation / Logistics template, 30 route-level decision variables, demand fulfillment constraints, supplier supply constraints, transport-capacity constraints, and non-negativity bounds. The solver produced a business-valid allocation with all demand fulfilled and no unmet demand. Scenario and sensitivity outputs were reviewed. Remaining implementation readiness should be confirmed by the accountable operations owner before production use."
+  },
+  "governance": {
+    "accountableOwner": "Operations planning owner",
+    "reviewer": "Operations planning owner",
+    "approvalDate": "2026-07-15",
+    "businessValidityStatus": "valid"
+  },
+  "evidenceId": "ev-transportation-optimization-validation-28986287d5f3fc02",
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-15T20:08:53.595296+00:00",
+  "updatedAt": "2026-07-15T20:09:11.335229+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 100
+}

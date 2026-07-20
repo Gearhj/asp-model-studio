@@ -9,10 +9,10 @@ const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
 
 const expectedAbSteps = [
   "Project Context",
+  "Data Acquisition and Experiment Mapping",
   "Experiment Setup",
   "Population and Eligibility",
   "Treatment / Control Design",
-  "Data Acquisition",
   "Randomization Check",
   "Metrics Setup",
   "Power and Sample Size",
@@ -22,7 +22,7 @@ const expectedAbSteps = [
   "Business Impact",
   "Decision Recommendation",
   "Documentation Review",
-  "Monitoring / Follow-up",
+  "Post-Decision Plan",
 ];
 
 assert.equal(packageJson.scripts["test:project-types"], "node tests/projectTypes.test.mjs");
@@ -48,6 +48,7 @@ assert.match(placeholderStep, /projectType === "ab-testing"/);
 assert.match(placeholderStep, /<AbTestingWorkflowStep/);
 assert.match(placeholderStep, /A\/B Testing Workflow/);
 assert.match(overview, /A\/B Testing Summary/);
-assert.match(overview, /AB_MARKETING_DEFAULTS/);
+assert.match(overview, /AB_WORKFLOW_DEFAULTS/);
+assert.match(workflows, /Data Acquisition and Experiment Mapping/);
 
 console.log("project type workflow checks passed");

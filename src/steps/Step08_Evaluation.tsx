@@ -1,94 +1,142 @@
-import React, { useEffect, useMemo, useState } from "react";
-import StepPythonPanel from "../components/StepPythonPanel";
+import { type PointerEvent, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import {
+  Activity,
+  ArrowRight,
+  BarChart3,
+  BrainCircuit,
+  Check,
+  GitCompareArrows,
+  LineChart,
+  RefreshCw,
+  Scale,
+  ShieldCheck,
+  Target,
+  Trash2,
+  TrendingUp,
+} from "lucide-react";
+import StepShell from "../components/StepShell";
+import { type AtlasWorkflowMetric } from "../components/ui/AtlasWorkflow";
 import { logDecision } from "../lib/decisionJournal";
-import { buildExecutiveSummary, type ExecutiveSummary } from "../lib/executiveSummary";
 import { inferLocalProblemType, loadLocalDataset } from "../lib/localDataset";
+import {
+  loadInterpretationCandidates,
+  saveInterpretationCandidates,
+  type InterpretationCandidate,
+} from "../lib/interpretationCandidates";
+import { useWorkflowStore } from "../state/useWorkflowStore";
 
+const QUERY_API_BASE =
+  typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("apiBase")?.replace(/\/$/, "") : undefined;
 const API_BASE =
+  QUERY_API_BASE ||
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
   "http://127.0.0.1:8001/api";
-
 const LOCAL_TRAINING_SUMMARY_KEY = "modeling-tool-training-summary";
+const LOCAL_SELECTED_INTERPRETATION_MODEL_KEY = "modeling-tool-selected-interpretation-model";
 
-async function fetchJson<T>(url: string): Promise<T> {
-  const response = await fetch(url);
-  const text = await response.text();
-  let data: any = null;
-  try {
-    data = text ? JSON.parse(text) : null;
-  } catch {
-    data = { ok: false, error: text || `Request failed (${response.status})` };
-  }
-  if (!response.ok) {
-    return {
-      ok: false,
-      error: data?.error || data?.detail || text || `Request failed (${response.status})`,
-    } as T;
-  }
-  return data as T;
-}
-
-type Ranked = {
+type Task = "classification" | "regression" | "anomaly";
+type RankedRow = {
   key: string;
   name: string;
-  task?: "classification" | "regression" | "anomaly";
+  task?: Task;
+  kind?: string;
+  champion_eligible?: boolean;
   auc?: number;
   pr_auc?: number;
   accuracy?: number;
+  precision?: number;
+  recall?: number;
   f1?: number;
+  ks?: number;
+  gini?: number;
   mae?: number;
   mse?: number;
   rmse?: number;
   r2?: number;
   adjusted_r2?: number;
-}[];
+  runtime_ms?: number;
+  search_runtime_ms?: number;
+  calibration_applied?: boolean;
+  calibration_method?: string;
+  best_score?: number;
+  best_params?: Record<string, unknown>;
+};
 
 type Curves = {
   ok: boolean;
   task?: "classification" | "regression";
-  // Optional future PNGs – only used if backend supplies them
-  roc_b64?: string;
-  pr_b64?: string;
-  cm_b64?: string;
-  // Scalar metrics from backend
-  metrics?: {
-    precision?: number;
-    recall?: number;
-    f1?: number;
-    auc?: number;
-    pr_auc?: number;
-    mae?: number;
-    mse?: number;
-    rmse?: number;
-    r2?: number;
-    adjusted_r2?: number;
-  };
+  error?: string;
+  metrics?: Record<string, number | null | undefined>;
   roc?: { fpr: number[]; tpr: number[] };
   pr?: { precision: number[]; recall: number[] };
-  // Confusion matrix [ [TN, FP], [FN, TP] ]
   confusion?: number[][];
-  residuals?: {
-    points: { actual: number; predicted: number; residual: number }[];
-    summary: {
-      mean_residual: number;
-      median_residual: number;
-      std_residual: number;
-      mean_abs_residual: number;
-      p95_abs_residual: number;
-    };
-  };
-  residual_histogram?: { counts: number[]; edges: number[] };
-  error?: string;
+  residuals?: { points?: Array<{ actual: number; predicted: number; residual: number }> };
+};
+
+type ThresholdMetrics = {
+  threshold: number;
+  predicted_positives: number;
+  review_volume: number;
+  precision: number;
+  recall: number;
+  false_positives: number;
+  false_negatives: number;
+  true_positives: number;
+  true_negatives: number;
+  fraud_capture: number;
+  false_positive_rate: number;
+  f1: number;
+  expected_alert_rate: number;
+  confusion: number[][];
 };
 
 type DecileRow = {
   decile: number;
   n: number;
   positives: number;
-  event_rate?: number;
-  rate?: number;
+  event_rate: number;
   lift: number;
+  cumulative_positives: number;
+  capture_rate: number;
+  population_rate: number;
+  min_score: number;
+  max_score: number;
+  mean_score: number;
 };
+
+type CommandCenter = {
+  ok: boolean;
+  error?: string;
+  evaluation_role?: string;
+  test_status?: string;
+  oot_status?: string;
+  observation_count?: number;
+  event_count?: number;
+  event_rate?: number;
+  threshold?: ThresholdMetrics;
+  presets?: Record<string, number>;
+  lift?: {
+    base_rate: number;
+    deciles: DecileRow[];
+    top_capture: Record<string, { rows: number; events: number; capture_rate: number; lift: number }>;
+  };
+  calibration?: {
+    rows: Array<{ predicted: number; observed: number; n: number }>;
+    brier_score: number;
+    slope: number | null;
+    intercept: number | null;
+    method: string;
+    prevalence_correction: string;
+  };
+  stability?: {
+    internal_validation_status: string;
+    internal_validation_score?: number | null;
+    test_metrics?: Record<string, number | null | undefined>;
+    oot_metrics?: Record<string, number | null | undefined> | null;
+  };
+};
+
 type TreeNode = {
   id: number;
   depth: number;
@@ -100,1430 +148,762 @@ type TreeNode = {
   positive_rate: number;
   prediction: string;
 };
-type TreeEdge = { source: number; target: number; label: string };
-type TreeResponse = { ok: boolean; nodes?: TreeNode[]; edges?: TreeEdge[]; error?: string };
-type KnnPoint = { id: number; x: number; y: number; class: number; prediction: number; score: number };
-type KnnEdge = { source: number; target: number; same_prediction: boolean; same_class: boolean; distance: number };
-type KnnGridCell = { x: number; y: number; score: number; prediction: number; region?: number };
-type KnnDiagnostic = { k: number; inertia?: number | null; silhouette?: number | null };
+type TreeResponse = { ok: boolean; nodes?: TreeNode[]; edges?: Array<{ source: number; target: number; label: string }>; error?: string };
 type KnnResponse = {
   ok: boolean;
-  points?: KnnPoint[];
-  grid?: KnnGridCell[];
-  neighbor_edges?: KnnEdge[];
+  error?: string;
+  points?: Array<{ x: number; y: number; class: number; prediction: number }>;
+  grid?: Array<{ x: number; y: number; prediction: number; region?: number }>;
   x_domain?: [number, number];
   y_domain?: [number, number];
   neighbor_count?: number;
-  display_neighbors?: number;
-  grid_resolution?: number;
-  cluster_count?: number;
-  cluster_method?: string;
-  cluster_diagnostics?: KnnDiagnostic[];
   sample_size?: number;
-  error?: string;
 };
+type ImportanceResponse = {
+  ok: boolean;
+  error?: string;
+  method?: string;
+  sample_count?: number;
+  rows?: Array<{ feature: string; importance: number; direction?: number; source?: string }>;
+};
+type DetailResponse = {
+  ok: boolean;
+  error?: string;
+  kind?: string;
+  intercept?: number;
+  coefficients?: Array<{ feature: string; coefficient: number; odds_ratio?: number | null }>;
+  message?: string;
+};
+type HyperparameterResponse = { ok: boolean; rows?: Array<{ parameter: string; value: string }>; best_score?: number | null };
 
-function loadLocalRanked(): Ranked {
-  const raw = sessionStorage.getItem(LOCAL_TRAINING_SUMMARY_KEY);
-  if (!raw) return [];
+async function getJson<T>(url: string): Promise<T> {
+  const response = await fetch(url, { credentials: "include" });
+  const text = await response.text();
+  let payload: any = null;
   try {
-    const parsed = JSON.parse(raw) as { ranked?: Ranked };
+    payload = text ? JSON.parse(text) : null;
+  } catch {
+    payload = { ok: false, error: text || `Request failed (${response.status})` };
+  }
+  if (!response.ok) throw new Error(payload?.error || payload?.detail || `Request failed (${response.status})`);
+  return payload as T;
+}
+
+function loadLocalRanked(): RankedRow[] {
+  try {
+    const parsed = JSON.parse(sessionStorage.getItem(LOCAL_TRAINING_SUMMARY_KEY) || "{}") as { ranked?: RankedRow[] };
     return Array.isArray(parsed.ranked) ? parsed.ranked : [];
   } catch {
     return [];
   }
 }
 
-function localCurvesFor(modelKey: string, ranked: Ranked | null): Curves {
-  const row = ranked?.find((item) => item.key === modelKey);
-  if (!row) return { ok: false, error: "No local evaluation metrics are available for this model." };
-
-  const auc = row.auc ?? 0.7;
-  const prAuc = row.pr_auc ?? Math.max(0.5, auc - 0.05);
-  const f1 = row.f1 ?? Math.max(0.5, auc - 0.04);
-  const precision = Math.max(0.5, Math.min(0.95, f1 + 0.02));
-  const recall = Math.max(0.5, Math.min(0.95, f1 - 0.01));
-  const tp = Math.round(240 * recall);
-  const fn = 240 - tp;
-  const fp = Math.round(760 * (1 - precision) * 0.45);
-  const tn = 760 - fp;
-
-  return {
-    ok: true,
-    metrics: {
-      precision,
-      recall,
-      f1,
-      auc,
-      pr_auc: prAuc,
-    },
-    confusion: [
-      [tn, fp],
-      [fn, tp],
-    ],
-  };
+function formatMetric(value?: number | null, digits = 4) {
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "Not available";
 }
 
-function displayModelName(name: string) {
+function formatPercent(value?: number | null) {
+  return typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(1)}%` : "Not available";
+}
+
+function cleanModelName(name: string) {
   return name.replace(/\s*\(k\s*=\s*\d+\)/i, "");
 }
 
-export default function Step08_Evaluation() {
-  const [ranked, setRanked] = useState<Ranked | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+function isAnomaly(model: RankedRow) {
+  return model.task === "anomaly" || model.kind === "anomaly" || model.champion_eligible === false;
+}
+
+function modelFamily(model: RankedRow | null) {
+  const value = `${model?.key ?? ""} ${model?.name ?? ""}`.toLowerCase();
+  if (/decision.?tree/.test(value)) return "Decision Tree";
+  if (/random.?forest|extra.?trees/.test(value)) return "Tree Ensemble";
+  if (/xgboost|lightgbm|catboost|histogram.?gradient|boosting/.test(value)) return "Gradient Boosting";
+  if (/knn|nearest/.test(value)) return "K-Nearest Neighbors";
+  if (/svm|support.?vector/.test(value)) return "Support Vector Machine";
+  if (/naive.?bayes|gaussian.?nb/.test(value)) return "Gaussian Naive Bayes";
+  if (/neural|mlp/.test(value)) return "Neural Network";
+  if (/logistic|sgd/.test(value)) return "Linear Classifier";
+  if (/anomaly|isolation|outlier|covariance|one.?class/.test(value)) return "Anomaly Diagnostic";
+  return "Supervised Estimator";
+}
+
+function interpretability(model: RankedRow) {
+  const family = modelFamily(model);
+  if (["Decision Tree", "Linear Classifier", "Gaussian Naive Bayes"].includes(family)) return "High";
+  if (["K-Nearest Neighbors", "Support Vector Machine", "Tree Ensemble"].includes(family)) return "Medium";
+  return "Low";
+}
+
+function governingValue(model: RankedRow, problemType: "classification" | "regression") {
+  return problemType === "regression" ? -(model.rmse ?? Number.POSITIVE_INFINITY) : model.pr_auc ?? Number.NEGATIVE_INFINITY;
+}
+
+function statusPill(label: string, tone: "good" | "warn" | "neutral" = "neutral") {
+  const style = tone === "good" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : tone === "warn" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-600";
+  return <span className={`inline-flex rounded-full border px-2 py-0.5 text-[11px] font-semibold ${style}`}>{label}</span>;
+}
+
+export default function Step08Evaluation() {
+  const navigate = useNavigate();
+  const projectId = useWorkflowStore((state) => state.projectId);
+  const projectName = useWorkflowStore((state) => state.projectName);
+  const [models, setModels] = useState<RankedRow[] | null>(null);
+  const [selectedKey, setSelectedKey] = useState("");
   const [curves, setCurves] = useState<Curves | null>(null);
+  const [command, setCommand] = useState<CommandCenter | null>(null);
+  const [details, setDetails] = useState<DetailResponse | null>(null);
+  const [importance, setImportance] = useState<ImportanceResponse | null>(null);
+  const [hyperparameters, setHyperparameters] = useState<HyperparameterResponse | null>(null);
   const [tree, setTree] = useState<TreeResponse | null>(null);
   const [knn, setKnn] = useState<KnnResponse | null>(null);
-  const [sortKey, setSortKey] = useState<"auc" | "pr_auc" | "rmse" | "mae" | "r2" | "adjusted_r2">("auc");
-  const [summaryProblemType, setSummaryProblemType] = useState<"classification" | "regression" | null>(
-    () => inferLocalProblemType(loadLocalDataset())
+  const [threshold, setThreshold] = useState(0.5);
+  const [reviewCapacity, setReviewCapacity] = useState(10);
+  const [comparison, setComparison] = useState<InterpretationCandidate[]>(() => loadInterpretationCandidates(projectId));
+  const [message, setMessage] = useState("");
+  const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
+
+  const problemType = inferLocalProblemType(loadLocalDataset()) ?? "classification";
+  const supervised = useMemo(() => (models ?? []).filter((model) => !isAnomaly(model)), [models]);
+  const anomalyModels = useMemo(() => (models ?? []).filter(isAnomaly), [models]);
+  const ordered = useMemo(
+    () => supervised.slice().sort((a, b) => governingValue(b, problemType) - governingValue(a, problemType)),
+    [problemType, supervised]
   );
+  const topCandidates = ordered.slice(0, 3);
+  const selectedModel = supervised.find((model) => model.key === selectedKey) ?? supervised[0] ?? null;
+  const comparisonKeys = useMemo(() => new Set(comparison.map((candidate) => candidate.key)), [comparison]);
 
-  // Load summary of last training run (leaderboard)
   useEffect(() => {
-    fetch(`${API_BASE}/train/last`)
-      .then((r) => r.json())
-      .then((j) => {
-        if (j?.ok && j.summary?.ranked?.length) {
-          // Backend already returns objects with { key, name, auc, pr_auc }
-          setRanked(j.summary.ranked as Ranked);
-          setSelected(j.summary.ranked[0].key as string);
-          const localProblemType = inferLocalProblemType(loadLocalDataset());
-          const backendProblemType =
-            j.summary.problem_type === "classification" || j.summary.problem_type === "regression"
-              ? j.summary.problem_type
-              : null;
-          setSummaryProblemType(localProblemType ?? backendProblemType);
-        } else {
-          const localRanked = loadLocalRanked();
-          setRanked(localRanked);
-          setSelected(localRanked[0]?.key ?? null);
-          setSummaryProblemType(inferLocalProblemType(loadLocalDataset()));
-        }
+    setComparison(loadInterpretationCandidates(projectId));
+    getJson<{ ok: boolean; summary?: { ranked?: RankedRow[] } }>(`${API_BASE}/train/last`)
+      .then((response) => {
+        const rows = response.summary?.ranked ?? [];
+        const actual = rows.length ? rows : loadLocalRanked();
+        setModels(actual);
+        const saved = sessionStorage.getItem(`atlas-evaluation-review:${projectId}`) || "";
+        setSelectedKey(actual.some((model) => model.key === saved && !isAnomaly(model)) ? saved : actual.find((model) => !isAnomaly(model))?.key ?? "");
       })
-      .catch(() => {
-        const localRanked = loadLocalRanked();
-        setRanked(localRanked);
-        setSelected(localRanked[0]?.key ?? null);
-        setSummaryProblemType(inferLocalProblemType(loadLocalDataset()));
+      .catch((error) => {
+        const local = loadLocalRanked();
+        setModels(local);
+        setSelectedKey(local.find((model) => !isAnomaly(model))?.key ?? "");
+        setMessage(local.length ? "Backend Evaluation service is unavailable. Showing persisted training metrics; detailed diagnostics remain unavailable." : String(error?.message ?? error));
       });
-  }, []);
+  }, [projectId]);
 
-  // When model selection changes, load ROC/PR + metrics
   useEffect(() => {
-    if (!selected) return;
+    if (!selectedKey) return;
+    sessionStorage.setItem(`atlas-evaluation-review:${projectId}`, selectedKey);
+    setLoadingDiagnostics(true);
     setCurves(null);
-    fetch(`${API_BASE}/eval/curves?model=${encodeURIComponent(selected)}`)
-      .then((r) => r.json())
-      .then((j) => {
-        const next = j as Curves;
-        const currentProblemType = inferLocalProblemType(loadLocalDataset()) ?? summaryProblemType;
-        if (currentProblemType === "classification" && next?.task === "regression") {
-          setCurves(localCurvesFor(selected, ranked));
-          return;
-        }
-        setCurves(next?.ok ? next : localCurvesFor(selected, ranked));
-      })
-      .catch(() => {
-        setCurves(localCurvesFor(selected, ranked));
-      });
-  }, [selected, ranked, summaryProblemType]);
-
-  const selectedModel = ranked?.find((model) => model.key === selected) ?? null;
-  const problemType: "classification" | "regression" =
-    summaryProblemType ??
-    (selectedModel?.task === "regression" || ranked?.some((model) => model.task === "regression" || model.rmse !== undefined)
-      ? "regression"
-      : "classification");
-  const isRegression = problemType === "regression";
-  const selectedIsTree = Boolean(
-    selectedModel && (/tree/i.test(selectedModel.name) || /tree|dtree/i.test(selectedModel.key))
-  );
-  const selectedIsKnn = Boolean(
-    selectedModel && (/knn|nearest/i.test(selectedModel.name) || /knn/i.test(selectedModel.key))
-  );
-
-  useEffect(() => {
-    if (!selected || !selectedIsTree) {
-      setTree(null);
-      return;
-    }
+    setDetails(null);
+    setImportance(null);
+    setHyperparameters(null);
     setTree(null);
-    fetchJson<TreeResponse>(`${API_BASE}/eval/tree?model=${encodeURIComponent(selected)}&max_depth=4`)
-      .then((data) => setTree(data))
-      .catch((err) => setTree({ ok: false, error: String(err?.message ?? err) }));
-  }, [selected, selectedIsTree]);
+    setKnn(null);
+    const family = modelFamily(selectedModel);
+    const common = Promise.allSettled([
+      getJson<Curves>(`${API_BASE}/eval/curves?model=${encodeURIComponent(selectedKey)}`),
+      getJson<DetailResponse>(`${API_BASE}/interpretation/details?model=${encodeURIComponent(selectedKey)}`),
+      getJson<ImportanceResponse>(`${API_BASE}/interpretation/importance?model=${encodeURIComponent(selectedKey)}`),
+      getJson<HyperparameterResponse>(`${API_BASE}/interpretation/hyperparameters?model=${encodeURIComponent(selectedKey)}`),
+    ]).then(([curveResult, detailResult, importanceResult, parameterResult]) => {
+      setCurves(curveResult.status === "fulfilled" ? curveResult.value : { ok: false, error: String(curveResult.reason?.message ?? curveResult.reason) });
+      setDetails(detailResult.status === "fulfilled" ? detailResult.value : { ok: false, error: String(detailResult.reason?.message ?? detailResult.reason) });
+      setImportance(importanceResult.status === "fulfilled" ? importanceResult.value : { ok: false, error: String(importanceResult.reason?.message ?? importanceResult.reason) });
+      setHyperparameters(parameterResult.status === "fulfilled" ? parameterResult.value : { ok: false, rows: [] });
+    });
+    const specific = family === "Decision Tree"
+      ? getJson<TreeResponse>(`${API_BASE}/eval/tree?model=${encodeURIComponent(selectedKey)}&max_depth=4`).then(setTree).catch((error) => setTree({ ok: false, error: String(error?.message ?? error) }))
+      : family === "K-Nearest Neighbors"
+        ? getJson<KnnResponse>(`${API_BASE}/eval/knn_clusters?model=${encodeURIComponent(selectedKey)}&max_points=900`).then(setKnn).catch((error) => setKnn({ ok: false, error: String(error?.message ?? error) }))
+        : Promise.resolve();
+    Promise.allSettled([common, specific]).finally(() => setLoadingDiagnostics(false));
+  }, [projectId, selectedKey]);
 
   useEffect(() => {
-    if (!selected || !selectedIsKnn) {
-      setKnn(null);
+    if (!selectedKey || problemType !== "classification") {
+      setCommand(null);
       return;
     }
-    setKnn(null);
-    fetchJson<KnnResponse>(`${API_BASE}/eval/knn_clusters?model=${encodeURIComponent(selected)}&max_points=900`)
-      .then((data) => setKnn(data))
-      .catch((err) => setKnn({ ok: false, error: String(err?.message ?? err) }));
-  }, [selected, selectedIsKnn]);
+    const timer = window.setTimeout(() => {
+      getJson<CommandCenter>(`${API_BASE}/eval/command_center?model=${encodeURIComponent(selectedKey)}&threshold=${threshold}&review_capacity=${reviewCapacity / 100}`)
+        .then(setCommand)
+        .catch((error) => setCommand({ ok: false, error: String(error?.message ?? error) }));
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [problemType, reviewCapacity, selectedKey, threshold]);
 
-  const sorted = useMemo(() => {
-    if (!ranked) return [];
-    const copy = ranked.slice();
-    copy.sort((a, b) => {
-      if (sortKey === "rmse" || sortKey === "mae") {
-        return (a[sortKey] ?? Number.POSITIVE_INFINITY) - (b[sortKey] ?? Number.POSITIVE_INFINITY);
-      }
-      return (b[sortKey] ?? Number.NEGATIVE_INFINITY) - (a[sortKey] ?? Number.NEGATIVE_INFINITY);
+  function selectForReview(model: RankedRow) {
+    setSelectedKey(model.key);
+    logDecision({
+      workflowStep: "Evaluation",
+      actionType: "workflow_setting_changed",
+      subject: "Model under review",
+      previousValue: selectedKey,
+      newValue: model.key,
+      systemRecommendation: "Review comparative performance, operating policy, model-specific evidence, and stability before final selection.",
     });
-    return copy;
-  }, [ranked, sortKey]);
-
-  if (ranked === null) {
-    return (
-      <div className="w-full">
-        <h1 className="text-2xl font-semibold">Step 8: Evaluation</h1>
-        <div className="rounded-2xl border border-gray-200 bg-white p-4 mt-4">
-          Loading…
-        </div>
-      </div>
-    );
+    window.requestAnimationFrame(() => document.getElementById("interactive-model-explorer")?.scrollIntoView({ behavior: "smooth", block: "start" }));
   }
 
-  if (ranked.length === 0) {
-    return (
-      <div className="w-full space-y-4">
-        <h1 className="text-2xl font-semibold">Step 8: Evaluation</h1>
-        <div className="rounded-2xl border border-gray-200 bg-white p-4">
-          <div className="text-sm font-semibold">No training runs yet</div>
-          <p className="text-xs text-gray-500 mt-1">
-            Run training in Step 6 and then return here to review model performance diagnostics.
-          </p>
-        </div>
-      </div>
-    );
+  function setComparisonState(next: InterpretationCandidate[]) {
+    const limited = next.slice(0, 4);
+    saveInterpretationCandidates(projectId, limited);
+    setComparison(limited);
   }
 
-  const fp = curves?.confusion && curves.confusion.length === 2 ? curves.confusion[0][1] : null;
-  const tn = curves?.confusion && curves.confusion.length === 2 ? curves.confusion[0][0] : null;
-  const fpr = fp !== null && tn !== null && fp + tn > 0 ? fp / (fp + tn) : null;
-  const executiveSummary = buildExecutiveSummary(selectedModel, curves);
-
-  return (
-    <div className="w-full space-y-6">
-      <h1 className="text-2xl font-semibold">Step 8: Evaluation</h1>
-      <p className="text-gray-600 -mt-2">
-        {isRegression
-          ? "Review regression fit, residual behavior, and prediction error for the champion."
-          : "Review ROC/PR, confusion matrix, and decile lift for the champion."}
-      </p>
-
-      {/* Leaderboard */}
-      <div className="rounded-2xl border border-gray-200 bg-white p-4">
-        <div className="flex items-center justify-between">
-          <div className="text-sm font-semibold">Leaderboard</div>
-          <div className="text-sm">
-            Sort by:&nbsp;
-            <select
-              className="border rounded-md px-2 py-1"
-              value={sortKey}
-              onChange={(e) => setSortKey(e.target.value as "auc" | "pr_auc" | "rmse" | "mae" | "r2" | "adjusted_r2")}
-            >
-              {isRegression ? (
-                <>
-                  <option value="r2">R-squared</option>
-                  <option value="adjusted_r2">Adjusted R-squared</option>
-                  <option value="rmse">RMSE</option>
-                  <option value="mae">MAE</option>
-                </>
-              ) : (
-                <>
-                  <option value="auc">AUC</option>
-                  <option value="pr_auc">PR-AUC</option>
-                </>
-              )}
-            </select>
-          </div>
-        </div>
-        <table className="w-full text-sm mt-2">
-          <thead>
-            <tr className="text-left text-xs text-gray-500 border-b">
-              <th className="py-1 pr-4">Model</th>
-              {isRegression ? (
-                <>
-                  <th className="py-1 pr-4">RMSE</th>
-                  <th className="py-1 pr-4">MAE</th>
-                  <th className="py-1 pr-4">R-squared</th>
-                  <th className="py-1 pr-4">Adj. R-squared</th>
-                </>
-              ) : (
-                <>
-                  <th className="py-1 pr-4">AUC</th>
-                  <th className="py-1 pr-4">PR-AUC</th>
-                </>
-              )}
-              <th className="py-1">Champion</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((m, idx) => (
-              <tr
-                key={m.key}
-                className={`border-t cursor-pointer ${
-                  selected === m.key ? "bg-indigo-50" : ""
-                }`}
-                onClick={() => {
-                  logDecision({
-                    workflowStep: "Evaluation",
-                    actionType: "champion_model_selected",
-                    subject: "Reviewed model",
-                    previousValue: selected,
-                    newValue: m.key,
-                    followStatus: idx === 0 ? "followed" : "overrode",
-                    systemRecommendation:
-                      idx === 0
-                        ? "The selected row is the current leaderboard champion under the active sort metric."
-                        : "The selected row is not the current leaderboard champion under the active sort metric; document why it is being reviewed or preferred.",
-                  });
-                  setSelected(m.key);
-                }}
-              >
-                <td className="py-1 pr-4">{displayModelName(m.name)}</td>
-                {isRegression ? (
-                  <>
-                    <td className="py-1 pr-4">{m.rmse != null ? m.rmse.toFixed(4) : "-"}</td>
-                    <td className="py-1 pr-4">{m.mae != null ? m.mae.toFixed(4) : "-"}</td>
-                    <td className="py-1 pr-4">{m.r2 != null ? m.r2.toFixed(4) : "-"}</td>
-                    <td className="py-1 pr-4">{m.adjusted_r2 != null ? m.adjusted_r2.toFixed(4) : "-"}</td>
-                  </>
-                ) : (
-                  <>
-                <td className="py-1 pr-4">
-                  {m.auc != null ? m.auc.toFixed(4) : "—"}
-                </td>
-                <td className="py-1 pr-4">
-                  {m.pr_auc != null ? m.pr_auc.toFixed(4) : "—"}
-                </td>
-                  </>
-                )}
-                <td className="py-1">
-                  {idx === 0 && (
-                    <span className="inline-flex items-center rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                      Champion
-                    </span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <ExecutiveSummaryPanel summary={executiveSummary} />
-
-      {/* Curves + metrics */}
-      <div className="rounded-2xl border border-gray-200 bg-white p-4">
-        <div className="flex items-center justify-between mb-2">
-          <div className="text-sm font-semibold">
-            {isRegression ? "Regression Fit & Residual Diagnostics" : "ROC / PR Curves & Metrics"}
-          </div>
-          {selected && (
-            <div className="text-xs text-gray-500">
-              Model: <span className="font-mono">{selected}</span>
-            </div>
-          )}
-        </div>
-
-        {curves === null && (
-          <div className="text-xs text-gray-500">Loading curves…</div>
-        )}
-
-        {curves && !curves.ok && (
-          <div className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
-            {curves.error ?? "Failed to load evaluation data."}
-          </div>
-        )}
-
-        {curves && curves.ok && (
-          isRegression ? (
-            <RegressionDiagnostics curves={curves} />
-          ) : (
-          <>
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              <div className="rounded-xl border border-gray-200 bg-white p-3">
-                <div className="mb-2 text-xs font-semibold text-gray-700">ROC Curve</div>
-                {curves.roc?.fpr?.length && curves.roc?.tpr?.length ? (
-                  <RocChart fpr={curves.roc.fpr} tpr={curves.roc.tpr} />
-                ) : (
-                  <div className="flex h-[260px] items-center justify-center text-xs text-gray-500">
-                    ROC curve data is not available for this model.
-                  </div>
-                )}
-              </div>
-
-              <div className="rounded-xl border border-gray-200 bg-white p-3">
-                <div className="mb-2 text-xs font-semibold text-gray-700">Confusion Matrix</div>
-                {curves.confusion && curves.confusion.length === 2 ? (
-                  <ConfusionMatrix matrix={curves.confusion} />
-                ) : (
-                  <div className="flex h-[260px] items-center justify-center text-xs text-gray-500">
-                    Confusion matrix data is not available for this model.
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {curves.metrics && (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mt-4 text-sm">
-                <Stat label="AUC" v={curves.metrics.auc} />
-                <Stat label="PR-AUC" v={curves.metrics.pr_auc} />
-                <Stat label="Precision" v={curves.metrics.precision} />
-                <Stat label="Recall" v={curves.metrics.recall} />
-                <Stat label="F1" v={curves.metrics.f1} />
-                {fpr !== null && <Stat label="FPR" v={fpr} />}
-              </div>
-            )}
-          </>
-          )
-        )}
-      </div>
-
-      {selectedIsTree && <DecisionTreePanel tree={tree} />}
-      {selectedIsKnn && <KnnClusterPanel knn={knn} />}
-
-      {!isRegression && selected && <Deciles model={selected} ranked={ranked} />}
-
-      <StepPythonPanel />
-    </div>
-  );
-}
-
-function Stat({ label, v }: { label: string; v?: number | null }) {
-  return (
-    <div className="rounded-xl border p-3">
-      <div className="text-xs text-gray-500">{label}</div>
-      <div className="text-base font-semibold">{typeof v === "number" && Number.isFinite(v) ? v.toFixed(4) : "-"}</div>
-    </div>
-  );
-}
-
-function ExecutiveSummaryPanel({ summary }: { summary: ExecutiveSummary }) {
-  const readinessClass =
-    summary.productionReadiness === "Validation candidate"
-      ? "border-blue-200 bg-blue-50 text-blue-900"
-      : summary.productionReadiness === "Production candidate"
-        ? "border-emerald-200 bg-emerald-50 text-emerald-900"
-        : "border-amber-200 bg-amber-50 text-amber-900";
-
-  return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div>
-          <div className="text-sm font-semibold uppercase tracking-wide text-slate-500">Executive Summary</div>
-          <h2 className="mt-1 text-xl font-semibold text-slate-950">{summary.headline}</h2>
-          <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-700">{summary.overview}</p>
-        </div>
-        <div className={`shrink-0 rounded-xl border px-4 py-3 text-sm font-semibold ${readinessClass}`}>
-          {summary.productionReadiness}
-        </div>
-      </div>
-
-      <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-        {summary.stats.map((stat) => (
-          <div key={stat.label} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{stat.label}</div>
-            <div className="mt-1 truncate text-sm font-semibold text-slate-950" title={stat.value}>
-              {stat.value}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-5 grid gap-4 xl:grid-cols-3">
-        <SummaryList title="Strongest Predictors" items={summary.strongestPredictors} />
-        <SummaryList title="Key Risks" items={summary.keyRisks} />
-        <SummaryList title="Recommended Next Steps" items={summary.recommendedNextSteps} />
-      </div>
-    </section>
-  );
-}
-
-function SummaryList({ title, items }: { title: string; items: string[] }) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <h3 className="text-sm font-semibold text-slate-950">{title}</h3>
-      <ul className="mt-3 space-y-2 text-sm leading-5 text-slate-700">
-        {items.map((item) => (
-          <li key={item} className="flex gap-2">
-            <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-400" />
-            <span>{item}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function RegressionDiagnostics({ curves }: { curves: Curves }) {
-  const points = curves.residuals?.points ?? [];
-  const summary = curves.residuals?.summary;
-  return (
-    <>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-        <Stat label="RMSE" v={curves.metrics?.rmse} />
-        <Stat label="MAE" v={curves.metrics?.mae} />
-        <Stat label="R-squared" v={curves.metrics?.r2} />
-        <Stat label="Adj. R-squared" v={curves.metrics?.adjusted_r2} />
-        <Stat label="Mean Residual" v={summary?.mean_residual} />
-      </div>
-      {summary && (
-        <div className="mt-3 grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-          <Stat label="Median Residual" v={summary.median_residual} />
-          <Stat label="Residual Std Dev" v={summary.std_residual} />
-          <Stat label="Mean Abs Residual" v={summary.mean_abs_residual} />
-          <Stat label="P95 Abs Residual" v={summary.p95_abs_residual} />
-        </div>
-      )}
-      {summary && (
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          <InterpretationCard
-            title="Bias Check"
-            tone={Math.abs(summary.mean_residual ?? 0) < Math.max(0.01, (summary.mean_abs_residual ?? 0) * 0.15) ? "pass" : "warn"}
-            text={Math.abs(summary.mean_residual ?? 0) < Math.max(0.01, (summary.mean_abs_residual ?? 0) * 0.15)
-              ? "Average residual is close to zero, so broad prediction bias appears controlled."
-              : "Mean residual is material relative to absolute error. Review systematic over/under prediction."}
-          />
-          <InterpretationCard
-            title="Error Concentration"
-            tone={(summary.p95_abs_residual ?? 0) > (summary.mean_abs_residual ?? 0) * 3 ? "warn" : "pass"}
-            text={(summary.p95_abs_residual ?? 0) > (summary.mean_abs_residual ?? 0) * 3
-              ? "Tail errors are much larger than average error. Review outlier segments and high-value observations."
-              : "Tail error is proportionate to average error."}
-          />
-          <InterpretationCard
-            title="Model Fit"
-            tone={(curves.metrics?.r2 ?? 0) >= 0.5 ? "pass" : "warn"}
-            text={(curves.metrics?.r2 ?? 0) >= 0.5
-              ? "R-squared indicates meaningful explanatory fit for a tabular regression model."
-              : "R-squared is modest. Confirm whether features capture the drivers of the target."}
-          />
-        </div>
-      )}
-      <div className="mt-4 rounded-xl border border-gray-200 bg-white p-3">
-        <div className="mb-2 text-xs font-semibold text-gray-700">Model Error Comparison</div>
-        <RegressionMetricBar label="Champion RMSE" value={curves.metrics?.rmse} benchmark={curves.metrics?.mae} benchmarkLabel="MAE reference" />
-      </div>
-      <div className="mt-4 grid grid-cols-1 xl:grid-cols-3 gap-4">
-        <div className="rounded-xl border border-gray-200 bg-white p-3">
-          <div className="mb-2 text-xs font-semibold text-gray-700">Actual vs Predicted</div>
-          {points.length ? (
-            <>
-              <ActualVsPredictedChart points={points} />
-              <ChartReadout
-                what="Compares predicted values to actual target values."
-                good="Good points cluster around the 45-degree identity line."
-                sees={actualPredictedReadout(points)}
-              />
-            </>
-          ) : (
-            <div className="flex h-[280px] items-center justify-center text-xs text-gray-500">
-              Actual/predicted data is not available for this model.
-            </div>
-          )}
-        </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-3">
-          <div className="mb-2 text-xs font-semibold text-gray-700">Residuals vs Predicted</div>
-          {points.length ? (
-            <>
-              <ResidualScatterChart points={points} />
-              <ChartReadout
-                what="Shows prediction error across the prediction range."
-                good="Good residuals are centered around zero with roughly constant spread."
-                sees={residualSpreadReadout(points)}
-              />
-            </>
-          ) : (
-            <div className="flex h-[280px] items-center justify-center text-xs text-gray-500">
-              Residual data is not available for this model.
-            </div>
-          )}
-        </div>
-        <div className="rounded-xl border border-gray-200 bg-white p-3">
-          <div className="mb-2 text-xs font-semibold text-gray-700">Q-Q Plot</div>
-          {points.length ? (
-            <>
-              <QQPlot points={points} />
-              <ChartReadout
-                what="Compares residual quantiles to a normal-reference line."
-                good="Good residuals stay near the diagonal, especially in the middle quantiles."
-                sees={qqReadout(points)}
-              />
-            </>
-          ) : (
-            <div className="flex h-[280px] items-center justify-center text-xs text-gray-500">
-              Residual quantile data is not available for this model.
-            </div>
-          )}
-        </div>
-      </div>
-      <div className="mt-4 rounded-xl border border-gray-200 bg-white p-3">
-        <div className="mb-2 text-xs font-semibold text-gray-700">Residual Distribution</div>
-        {curves.residual_histogram?.counts?.length ? (
-          <>
-            <ResidualHistogram histogram={curves.residual_histogram} />
-            <ChartReadout
-              what="Shows the frequency distribution of residual errors."
-              good="Good residuals are centered near zero without extreme one-sided tails."
-              sees="Use this with the bias cards and Q-Q plot to review skew, tail risk, and systematic prediction error."
-            />
-          </>
-        ) : (
-          <div className="flex h-[240px] items-center justify-center text-xs text-gray-500">
-            Residual distribution is not available for this model.
-          </div>
-        )}
-      </div>
-      {points.length > 0 && (
-        <div className="mt-4 rounded-xl border border-gray-200 bg-white p-3">
-          <div className="mb-2 text-xs font-semibold text-gray-700">Residual Diagnostics by Predicted Decile</div>
-          <ResidualDecileTable points={points} />
-        </div>
-      )}
-    </>
-  );
-}
-
-function InterpretationCard({ title, text, tone }: { title: string; text: string; tone: "pass" | "warn" }) {
-  return (
-    <div className={`rounded-xl border p-4 ${tone === "pass" ? "border-emerald-200 bg-emerald-50 text-emerald-950" : "border-amber-200 bg-amber-50 text-amber-950"}`}>
-      <div className="text-sm font-semibold">{title}</div>
-      <p className="mt-1 text-xs leading-5">{text}</p>
-    </div>
-  );
-}
-
-function ChartReadout({ what, good, sees }: { what: string; good: string; sees: string }) {
-  const clean = (value: string) => value.replace(/^(shows|good looks like|good|atlas found|atlas):\s*/i, "");
-  return (
-    <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
-      <div><span className="font-semibold text-slate-800">Shows: </span>{clean(what)}</div>
-      <div><span className="font-semibold text-slate-800">Good: </span>{clean(good)}</div>
-      <div><span className="font-semibold text-slate-800">ATLAS: </span>{clean(sees)}</div>
-    </div>
-  );
-}
-
-function RegressionMetricBar({ label, value, benchmark, benchmarkLabel }: { label: string; value?: number; benchmark?: number; benchmarkLabel: string }) {
-  const main = typeof value === "number" && Number.isFinite(value) ? value : 0;
-  const ref = typeof benchmark === "number" && Number.isFinite(benchmark) ? benchmark : main;
-  const max = Math.max(main, ref, 1e-6);
-  return (
-    <div className="space-y-3">
-      <div className="grid grid-cols-[150px_minmax(0,1fr)_90px] items-center gap-3 text-sm">
-        <div className="font-medium text-slate-700">{label}</div>
-        <div className="h-3 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-indigo-500" style={{ width: `${(main / max) * 100}%` }} /></div>
-        <div className="text-right font-semibold">{formatMetric(main)}</div>
-      </div>
-      <div className="grid grid-cols-[150px_minmax(0,1fr)_90px] items-center gap-3 text-sm">
-        <div className="font-medium text-slate-700">{benchmarkLabel}</div>
-        <div className="h-3 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-teal-500" style={{ width: `${(ref / max) * 100}%` }} /></div>
-        <div className="text-right font-semibold">{formatMetric(ref)}</div>
-      </div>
-    </div>
-  );
-}
-
-function formatMetric(value: number) {
-  return Number.isFinite(value) ? value.toFixed(4) : "-";
-}
-
-function QQPlot({ points }: { points: { actual: number; predicted: number; residual: number }[] }) {
-  const width = 520;
-  const height = 300;
-  const pad = 42;
-  const residuals = points.map((point) => point.residual).filter(Number.isFinite).sort((a, b) => a - b);
-  const n = residuals.length;
-  const meanResidual = residuals.reduce((sum, value) => sum + value, 0) / Math.max(n, 1);
-  const sdResidual = Math.sqrt(residuals.reduce((sum, value) => sum + (value - meanResidual) ** 2, 0) / Math.max(n - 1, 1)) || 1;
-  const theoretical = residuals.map((_, index) => meanResidual + sdResidual * approxNormalQuantile((index + 0.5) / n));
-  const [minValue, maxValue] = chartDomain([...residuals, ...theoretical]);
-  const x = (value: number) => pad + ((value - minValue) / (maxValue - minValue || 1)) * (width - pad * 1.35);
-  const y = (value: number) => height - pad - ((value - minValue) / (maxValue - minValue || 1)) * (height - pad * 1.35);
-  const ticks = chartTicks(minValue, maxValue, 5);
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-[280px] w-full rounded-xl bg-slate-50">
-      {ticks.map((tick) => (
-        <g key={`qq-y-${tick}`}>
-          <line x1={pad} y1={y(tick)} x2={width - pad / 2} y2={y(tick)} stroke="#e2e8f0" />
-          <text x={pad - 8} y={y(tick) + 4} textAnchor="end" className="fill-slate-500 text-[10px]">{tick.toFixed(2)}</text>
-        </g>
-      ))}
-      <line x1={pad} y1={height - pad} x2={width - pad / 2} y2={height - pad} stroke="#cbd5e1" />
-      <line x1={pad} y1={pad / 2} x2={pad} y2={height - pad} stroke="#cbd5e1" />
-      <line x1={x(minValue)} y1={y(minValue)} x2={x(maxValue)} y2={y(maxValue)} stroke="#0f766e" strokeWidth={2} strokeDasharray="5 5" />
-      {residuals.map((value, index) => (
-        <circle key={index} cx={x(theoretical[index])} cy={y(value)} r={2.2} fill="#7c3aed" opacity={0.45} />
-      ))}
-      {ticks.map((tick) => (
-        <g key={`qq-x-${tick}`}>
-          <line x1={x(tick)} x2={x(tick)} y1={height - pad} y2={height - pad + 5} stroke="#94a3b8" />
-          <text x={x(tick)} y={height - pad + 18} textAnchor="middle" className="fill-slate-500 text-[10px]">{tick.toFixed(2)}</text>
-        </g>
-      ))}
-      <text x={width / 2} y={height - 8} textAnchor="middle" className="fill-slate-600 text-[11px]">Theoretical quantile</text>
-      <text x={14} y={height / 2} textAnchor="middle" transform={`rotate(-90 14 ${height / 2})`} className="fill-slate-600 text-[11px]">Residual quantile</text>
-    </svg>
-  );
-}
-
-function approxNormalQuantile(p: number) {
-  const a1 = -39.6968302866538;
-  const a2 = 220.946098424521;
-  const a3 = -275.928510446969;
-  const a4 = 138.357751867269;
-  const a5 = -30.6647980661472;
-  const a6 = 2.50662827745924;
-  const b1 = -54.4760987982241;
-  const b2 = 161.585836858041;
-  const b3 = -155.698979859887;
-  const b4 = 66.8013118877197;
-  const b5 = -13.2806815528857;
-  const c1 = -0.00778489400243029;
-  const c2 = -0.322396458041136;
-  const c3 = -2.40075827716184;
-  const c4 = -2.54973253934373;
-  const c5 = 4.37466414146497;
-  const c6 = 2.93816398269878;
-  const d1 = 0.00778469570904146;
-  const d2 = 0.32246712907004;
-  const d3 = 2.445134137143;
-  const d4 = 3.75440866190742;
-  const pLow = 0.02425;
-  const pHigh = 1 - pLow;
-  let q: number;
-  if (p < pLow) {
-    q = Math.sqrt(-2 * Math.log(p));
-    return (((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1);
-  }
-  if (p <= pHigh) {
-    q = p - 0.5;
-    const r = q * q;
-    return (((((a1 * r + a2) * r + a3) * r + a4) * r + a5) * r + a6) * q / (((((b1 * r + b2) * r + b3) * r + b4) * r + b5) * r + 1);
-  }
-  q = Math.sqrt(-2 * Math.log(1 - p));
-  return -(((((c1 * q + c2) * q + c3) * q + c4) * q + c5) * q + c6) / ((((d1 * q + d2) * q + d3) * q + d4) * q + 1);
-}
-
-function ResidualDecileTable({ points }: { points: { actual: number; predicted: number; residual: number }[] }) {
-  const sorted = [...points].sort((a, b) => a.predicted - b.predicted);
-  const rows = Array.from({ length: 10 }).map((_, index) => {
-    const start = Math.floor((index / 10) * sorted.length);
-    const end = Math.floor(((index + 1) / 10) * sorted.length);
-    const bucket = sorted.slice(start, Math.max(start + 1, end));
-    const meanPredicted = bucket.reduce((sum, point) => sum + point.predicted, 0) / Math.max(bucket.length, 1);
-    const meanActual = bucket.reduce((sum, point) => sum + point.actual, 0) / Math.max(bucket.length, 1);
-    const meanResidual = bucket.reduce((sum, point) => sum + point.residual, 0) / Math.max(bucket.length, 1);
-    const meanAbsError = bucket.reduce((sum, point) => sum + Math.abs(point.residual), 0) / Math.max(bucket.length, 1);
-    return { decile: index + 1, n: bucket.length, meanPredicted, meanActual, meanResidual, meanAbsError };
-  });
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500">
-          <tr>
-            <th className="px-3 py-2">Predicted Decile</th>
-            <th className="px-3 py-2">N</th>
-            <th className="px-3 py-2">Mean Predicted</th>
-            <th className="px-3 py-2">Mean Actual</th>
-            <th className="px-3 py-2">Mean Residual</th>
-            <th className="px-3 py-2">Mean Abs Error</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <tr key={row.decile} className="border-t">
-              <td className="px-3 py-2 font-medium">{row.decile}</td>
-              <td className="px-3 py-2">{row.n.toLocaleString()}</td>
-              <td className="px-3 py-2">{row.meanPredicted.toFixed(4)}</td>
-              <td className="px-3 py-2">{row.meanActual.toFixed(4)}</td>
-              <td className={`px-3 py-2 ${row.meanResidual >= 0 ? "text-indigo-700" : "text-rose-700"}`}>{row.meanResidual.toFixed(4)}</td>
-              <td className="px-3 py-2">{row.meanAbsError.toFixed(4)}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function chartDomain(values: number[]) {
-  const finite = values.filter(Number.isFinite);
-  const min = finite.length ? Math.min(...finite) : 0;
-  const max = finite.length ? Math.max(...finite) : 1;
-  const pad = Math.max((max - min) * 0.06, 1e-6);
-  return [min - pad, max + pad] as [number, number];
-}
-
-function chartTicks(min: number, max: number, count = 5) {
-  if (!Number.isFinite(min) || !Number.isFinite(max) || min === max) return [min || 0];
-  return Array.from({ length: count }, (_, index) => min + ((max - min) * index) / (count - 1));
-}
-
-function actualPredictedReadout(points: { actual: number; predicted: number; residual: number }[]) {
-  const sorted = [...points].sort((a, b) => a.actual - b.actual);
-  const upper = sorted.slice(Math.floor(sorted.length * 0.8));
-  const upperMeanResidual = upper.reduce((sum, point) => sum + point.residual, 0) / Math.max(upper.length, 1);
-  if (Math.abs(upperMeanResidual) < 0.05) return "High-value predictions appear broadly centered around actuals. Recommended action: keep reviewing segment-level residuals before production use.";
-  return upperMeanResidual > 0 ? "High actual values tend to exceed predictions, suggesting underprediction in the upper range. Recommended action: review nonlinear terms, interactions, high-value segments, and target transformation." : "Predictions tend to exceed high actual values, suggesting overprediction in the upper range. Recommended action: inspect high-score drivers and cap/transform unstable predictors only if justified.";
-}
-
-function residualSpreadReadout(points: { actual: number; predicted: number; residual: number }[]) {
-  const sorted = [...points].sort((a, b) => a.predicted - b.predicted);
-  const low = sorted.slice(0, Math.max(1, Math.floor(sorted.length * 0.25)));
-  const high = sorted.slice(Math.floor(sorted.length * 0.75));
-  const lowMae = low.reduce((sum, point) => sum + Math.abs(point.residual), 0) / Math.max(low.length, 1);
-  const highMae = high.reduce((sum, point) => sum + Math.abs(point.residual), 0) / Math.max(high.length, 1);
-  return highMae > lowMae * 1.5 ? "Residual spread increases at higher predictions. Recommended action: review heteroscedasticity, consider log/Box-Cox target transformations, segment models, or robust loss functions." : "Residual spread is not materially larger in the high-prediction range. Recommended action: confirm this pattern holds by business segment and OOT sample.";
-}
-
-function qqReadout(points: { actual: number; predicted: number; residual: number }[]) {
-  const residuals = points.map((point) => point.residual).filter(Number.isFinite).sort((a, b) => a - b);
-  const q05 = residuals[Math.floor(residuals.length * 0.05)] ?? 0;
-  const q95 = residuals[Math.floor(residuals.length * 0.95)] ?? 0;
-  const median = residuals[Math.floor(residuals.length * 0.5)] ?? 0;
-  return Math.abs(q95 + q05 - 2 * median) > Math.max(0.1, Math.abs(q95 - q05) * 0.25)
-    ? "Residual quantiles deviate from the normal-reference pattern, especially in the tails. This means confidence intervals and inference may be less reliable for extreme observations. Recommended actions: inspect outlier segments, consider target transformation, add nonlinear terms/interactions, test robust regression, and validate OOT residual behavior before approval."
-    : "Residual quantiles are reasonably aligned with the normal-reference line. Recommended actions: confirm the middle quantiles and tails remain stable in OOT data, then review residual deciles for localized bias.";
-}
-
-function ActualVsPredictedChart({ points }: { points: { actual: number; predicted: number; residual: number }[] }) {
-  const width = 520;
-  const height = 300;
-  const pad = 42;
-  const [minValue, maxValue] = chartDomain(points.flatMap((point) => [point.actual, point.predicted]));
-  const x = (value: number) => pad + ((value - minValue) / (maxValue - minValue || 1)) * (width - pad * 1.35);
-  const y = (value: number) => height - pad - ((value - minValue) / (maxValue - minValue || 1)) * (height - pad * 1.35);
-  const ticks = chartTicks(minValue, maxValue, 5);
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-[280px] w-full rounded-xl bg-slate-50">
-      {ticks.map((tick) => (
-        <g key={`avp-y-${tick}`}>
-          <line x1={pad} y1={y(tick)} x2={width - pad / 2} y2={y(tick)} stroke="#e2e8f0" />
-          <text x={pad - 8} y={y(tick) + 4} textAnchor="end" className="fill-slate-500 text-[10px]">{tick.toFixed(2)}</text>
-        </g>
-      ))}
-      <line x1={pad} y1={height - pad} x2={width - pad / 2} y2={height - pad} stroke="#cbd5e1" />
-      <line x1={pad} y1={pad / 2} x2={pad} y2={height - pad} stroke="#cbd5e1" />
-      <line x1={x(minValue)} y1={y(minValue)} x2={x(maxValue)} y2={y(maxValue)} stroke="#0f766e" strokeWidth={2} strokeDasharray="5 5" />
-      {points.map((point, index) => (
-        <circle key={index} cx={x(point.predicted)} cy={y(point.actual)} r={2.4} fill="#4f46e5" opacity={0.45} />
-      ))}
-      {ticks.map((tick) => (
-        <g key={`avp-x-${tick}`}>
-          <line x1={x(tick)} x2={x(tick)} y1={height - pad} y2={height - pad + 5} stroke="#94a3b8" />
-          <text x={x(tick)} y={height - pad + 18} textAnchor="middle" className="fill-slate-500 text-[10px]">{tick.toFixed(2)}</text>
-        </g>
-      ))}
-      <text x={x(maxValue) - 6} y={y(maxValue) + 12} textAnchor="end" className="fill-emerald-700 text-[10px]">45-degree identity</text>
-      <text x={width / 2} y={height - 8} textAnchor="middle" className="fill-slate-600 text-[11px]">Predicted</text>
-      <text x={14} y={height / 2} textAnchor="middle" transform={`rotate(-90 14 ${height / 2})`} className="fill-slate-600 text-[11px]">Actual</text>
-    </svg>
-  );
-}
-
-function ResidualScatterChart({ points }: { points: { actual: number; predicted: number; residual: number }[] }) {
-  const width = 520;
-  const height = 300;
-  const pad = 42;
-  const [xMin, xMax] = chartDomain(points.map((point) => point.predicted));
-  const [yMin, yMax] = chartDomain(points.map((point) => point.residual));
-  const x = (value: number) => pad + ((value - xMin) / (xMax - xMin || 1)) * (width - pad * 1.35);
-  const y = (value: number) => height - pad - ((value - yMin) / (yMax - yMin || 1)) * (height - pad * 1.35);
-  const xTicks = chartTicks(xMin, xMax, 5);
-  const yTicks = chartTicks(yMin, yMax, 5);
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-[280px] w-full rounded-xl bg-slate-50">
-      {yTicks.map((tick) => (
-        <g key={`res-y-${tick}`}>
-          <line x1={pad} y1={y(tick)} x2={width - pad / 2} y2={y(tick)} stroke="#e2e8f0" />
-          <text x={pad - 8} y={y(tick) + 4} textAnchor="end" className="fill-slate-500 text-[10px]">{tick.toFixed(2)}</text>
-        </g>
-      ))}
-      <line x1={pad} y1={height - pad} x2={width - pad / 2} y2={height - pad} stroke="#cbd5e1" />
-      <line x1={pad} y1={pad / 2} x2={pad} y2={height - pad} stroke="#cbd5e1" />
-      <line x1={pad} y1={y(0)} x2={width - pad / 2} y2={y(0)} stroke="#0f766e" strokeWidth={2} strokeDasharray="5 5" />
-      {points.map((point, index) => (
-        <circle key={index} cx={x(point.predicted)} cy={y(point.residual)} r={2.4} fill={point.residual >= 0 ? "#4f46e5" : "#dc2626"} opacity={0.45} />
-      ))}
-      {xTicks.map((tick) => (
-        <g key={`res-x-${tick}`}>
-          <line x1={x(tick)} x2={x(tick)} y1={height - pad} y2={height - pad + 5} stroke="#94a3b8" />
-          <text x={x(tick)} y={height - pad + 18} textAnchor="middle" className="fill-slate-500 text-[10px]">{tick.toFixed(2)}</text>
-        </g>
-      ))}
-      <text x={width - pad / 2 - 6} y={y(0) - 5} textAnchor="end" className="fill-emerald-700 text-[10px]">zero residual</text>
-      <text x={width / 2} y={height - 8} textAnchor="middle" className="fill-slate-600 text-[11px]">Predicted</text>
-      <text x={14} y={height / 2} textAnchor="middle" transform={`rotate(-90 14 ${height / 2})`} className="fill-slate-600 text-[11px]">Residual</text>
-    </svg>
-  );
-}
-
-function ResidualHistogram({ histogram }: { histogram: { counts: number[]; edges: number[] } }) {
-  const width = 760;
-  const height = 240;
-  const pad = 42;
-  const counts = histogram.counts ?? [];
-  const edges = histogram.edges ?? [];
-  const maxCount = Math.max(1, ...counts);
-  const plotWidth = width - pad * 1.35;
-  const barWidth = plotWidth / Math.max(counts.length, 1);
-  const y = (value: number) => height - pad - (value / maxCount) * (height - pad * 1.45);
-  const minEdge = edges[0] ?? 0;
-  const maxEdge = edges[edges.length - 1] ?? 1;
-  const x = (value: number) => pad + ((value - minEdge) / (maxEdge - minEdge || 1)) * plotWidth;
-  const xTicks = chartTicks(minEdge, maxEdge, 5);
-  const yTicks = chartTicks(0, maxCount, 4);
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-[240px] w-full rounded-xl bg-slate-50">
-      {yTicks.map((tick) => (
-        <g key={`hist-y-${tick}`}>
-          <line x1={pad} y1={y(tick)} x2={width - pad / 2} y2={y(tick)} stroke="#e2e8f0" />
-          <text x={pad - 8} y={y(tick) + 4} textAnchor="end" className="fill-slate-500 text-[10px]">{Math.round(tick)}</text>
-        </g>
-      ))}
-      <line x1={pad} y1={height - pad} x2={width - pad / 2} y2={height - pad} stroke="#cbd5e1" />
-      <line x1={pad} y1={pad / 2} x2={pad} y2={height - pad} stroke="#cbd5e1" />
-      {counts.map((count, index) => {
-        const x = pad + index * barWidth;
-        const barY = y(count);
-        return <rect key={index} x={x + 2} y={barY} width={Math.max(2, barWidth - 4)} height={height - pad - barY} rx={3} fill="#0f766e" opacity={0.82} />;
-      })}
-      <line x1={x(0)} x2={x(0)} y1={pad / 2} y2={height - pad} stroke="#dc2626" strokeWidth={2} strokeDasharray="5 5" />
-      {xTicks.map((tick) => (
-        <g key={`hist-x-${tick}`}>
-          <line x1={x(tick)} x2={x(tick)} y1={height - pad} y2={height - pad + 5} stroke="#94a3b8" />
-          <text x={x(tick)} y={height - pad + 18} textAnchor="middle" className="fill-slate-500 text-[10px]">{tick.toFixed(2)}</text>
-        </g>
-      ))}
-      <text x={width / 2} y={height - 8} textAnchor="middle" className="fill-slate-600 text-[11px]">Residual</text>
-    </svg>
-  );
-}
-
-function DecisionTreePanel({ tree }: { tree: TreeResponse | null }) {
-  return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4">
-      <div className="text-sm font-semibold">Decision Tree Visualization</div>
-      <p className="mt-1 text-xs text-gray-500">
-        Top splits from the selected decision tree. Node color reflects positive-class rate.
-      </p>
-      {!tree && <div className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-gray-500">Loading tree...</div>}
-      {tree && !tree.ok && (
-        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          {tree.error ?? "Decision tree structure is unavailable."}
-        </div>
-      )}
-      {tree?.ok && tree.nodes?.length ? <DecisionTreeSvg nodes={tree.nodes} edges={tree.edges ?? []} /> : null}
-    </div>
-  );
-}
-
-function DecisionTreeSvg({ nodes, edges }: { nodes: TreeNode[]; edges: TreeEdge[] }) {
-  const nodeW = 150;
-  const nodeH = 66;
-  const xGap = 34;
-  const yGap = 112;
-  const topPad = 58;
-  const sidePad = 36;
-  const maxDepth = Math.max(...nodes.map((node) => node.depth), 1);
-  const childMap = new Map<number, number[]>();
-  edges.forEach((edge) => childMap.set(edge.source, [...(childMap.get(edge.source) ?? []), edge.target]));
-  const nodeById = new Map(nodes.map((node) => [node.id, node]));
-  const subtreeWidth = new Map<number, number>();
-
-  function measure(nodeId: number): number {
-    const children = childMap.get(nodeId) ?? [];
-    if (!children.length) {
-      subtreeWidth.set(nodeId, nodeW);
-      return nodeW;
+  function toggleComparison(model: RankedRow) {
+    if (isAnomaly(model)) return;
+    const exists = comparisonKeys.has(model.key);
+    if (!exists && comparison.length >= 4) {
+      setMessage("The comparison tray supports up to four supervised candidates. Remove a model before adding another.");
+      return;
     }
-    const width = Math.max(nodeW, children.reduce((sum, childId) => sum + measure(childId), 0) + xGap * (children.length - 1));
-    subtreeWidth.set(nodeId, width);
-    return width;
-  }
-
-  const root = nodes.find((node) => node.depth === 0) ?? nodes[0];
-  const treeWidth = measure(root.id);
-  const width = Math.max(980, sidePad * 2 + treeWidth);
-  const height = topPad * 2 + (maxDepth + 1) * nodeH + maxDepth * (yGap - nodeH);
-  const positions = new Map<number, { x: number; y: number }>();
-
-  function place(nodeId: number, left: number): void {
-    const node = nodeById.get(nodeId);
-    if (!node) return;
-    const currentWidth = subtreeWidth.get(nodeId) ?? nodeW;
-    positions.set(nodeId, {
-      x: left + currentWidth / 2,
-      y: topPad + node.depth * yGap + nodeH / 2,
-    });
-    let childLeft = left;
-    (childMap.get(nodeId) ?? []).forEach((childId) => {
-      place(childId, childLeft);
-      childLeft += (subtreeWidth.get(childId) ?? nodeW) + xGap;
+    const next = exists
+      ? comparison.filter((candidate) => candidate.key !== model.key)
+      : [...comparison, { key: model.key, name: model.name, task: model.task, selectedAt: new Date().toISOString() }];
+    setComparisonState(next);
+    logDecision({
+      workflowStep: "Evaluation",
+      actionType: exists ? "evaluation_candidate_removed" : "evaluation_candidate_selected",
+      subject: model.name,
+      previousValue: exists ? "in comparison" : "not in comparison",
+      newValue: exists ? "not in comparison" : "in comparison",
     });
   }
 
-  place(root.id, (width - treeWidth) / 2);
-  const fillForRate = (rate: number) => {
-    if (rate < 0.2) return "#dbeafe";
-    if (rate < 0.4) return "#bfdbfe";
-    if (rate < 0.6) return "#fde68a";
-    if (rate < 0.8) return "#fdba74";
-    return "#fecaca";
-  };
+  function openInterpretation(model: RankedRow, candidates = comparison) {
+    const existing = candidates.some((candidate) => candidate.key === model.key);
+    const next = existing ? candidates : [...candidates, { key: model.key, name: model.name, task: model.task, selectedAt: new Date().toISOString() }].slice(-4);
+    setComparisonState(next);
+    sessionStorage.setItem(LOCAL_SELECTED_INTERPRETATION_MODEL_KEY, model.key);
+    navigate(`/step09?model=${encodeURIComponent(model.key)}&compare=${encodeURIComponent(next.map((candidate) => candidate.key).join(","))}`);
+  }
+
+  function openComparison() {
+    const first = supervised.find((model) => model.key === comparison[0]?.key);
+    if (!first) return;
+    openInterpretation(first, comparison);
+  }
+
+  function applyPreset(key: string) {
+    const value = command?.presets?.[key];
+    if (typeof value === "number" && Number.isFinite(value)) setThreshold(value);
+  }
+
+  function saveProposedPolicy() {
+    if (!command?.threshold) return;
+    localStorage.setItem(`atlas-proposed-operating-policy:${projectId}`, JSON.stringify({
+      modelKey: selectedKey,
+      threshold: command.threshold.threshold,
+      reviewCapacity: reviewCapacity / 100,
+      metrics: command.threshold,
+      savedAt: new Date().toISOString(),
+      status: "proposed",
+    }));
+    setMessage(`Proposed operating policy saved at threshold ${command.threshold.threshold.toFixed(3)}. It has not been approved or applied.`);
+  }
+
+  const heroMetrics: AtlasWorkflowMetric[] = [
+    { label: "Project", value: projectName || "Current project" },
+    { label: "Supervised Candidates", value: String(supervised.length) },
+    { label: "Governing Metric", value: problemType === "regression" ? "RMSE" : "PR-AUC" },
+    { label: "TEST", value: command?.test_status ?? "Pending diagnostics", tone: command?.ok ? "success" : "warning" },
+    { label: "OOT", value: command?.oot_status ?? "Not loaded", tone: "warning" },
+    { label: "Comparison Tray", value: `${comparison.length}/4` },
+  ];
+
+  if (models === null) {
+    return <StepShell title="Step 8: Evaluation Command Center" subtitle="Loading persisted model evidence." variant="modeling" heroMetrics={heroMetrics} nextDisabled><LoadingPanel text="Loading trained-model artifacts..." /></StepShell>;
+  }
+
+  if (!models.length || !supervised.length) {
+    return (
+      <StepShell title="Step 8: Evaluation Command Center" subtitle="A completed supervised training run is required." variant="modeling" heroMetrics={heroMetrics} nextDisabled nextDisabledReason="Train at least one supervised model before Evaluation.">
+        <Unavailable title="No supervised evaluation artifacts" text="Return to Model Training, fit at least one champion-eligible supervised candidate, and then reopen Evaluation." />
+      </StepShell>
+    );
+  }
+
+  const leader = ordered[0];
+  const active = selectedModel ?? leader;
+  const metricLabel = problemType === "regression" ? "RMSE" : "PR-AUC";
+  const metricValue = problemType === "regression" ? active.rmse : active.pr_auc;
 
   return (
-    <div className="mt-4 overflow-auto rounded-xl bg-slate-50 p-3">
-      <svg viewBox={`0 0 ${width} ${height}`} className="rounded-xl bg-white" style={{ minWidth: width }}>
-        {edges.map((edge) => {
-          const source = nodeById.get(edge.source);
-          const target = nodeById.get(edge.target);
-          const sourcePos = positions.get(edge.source);
-          const targetPos = positions.get(edge.target);
-          if (!source || !target || !sourcePos || !targetPos) return null;
-          const sx = sourcePos.x;
-          const sy = sourcePos.y + nodeH / 2;
-          const tx = targetPos.x;
-          const ty = targetPos.y - nodeH / 2;
-          return (
-            <g key={`${edge.source}-${edge.target}`}>
-              <path d={`M ${sx} ${sy} C ${sx} ${(sy + ty) / 2}, ${tx} ${(sy + ty) / 2}, ${tx} ${ty}`} fill="none" stroke="#94a3b8" strokeWidth={1.5} />
-              <text x={(sx + tx) / 2} y={(sy + ty) / 2 - 4} textAnchor="middle" className="fill-slate-500 text-[10px]">
-                {edge.label}
-              </text>
-            </g>
-          );
-        })}
-        {nodes.map((node) => {
-          const position = positions.get(node.id);
-          if (!position) return null;
-          const nx = position.x - nodeW / 2;
-          const ny = position.y - nodeH / 2;
-          return (
-            <g key={node.id}>
-              <rect x={nx} y={ny} width={nodeW} height={nodeH} rx={8} fill={fillForRate(node.positive_rate)} stroke="#64748b" />
-              <text x={nx + 10} y={ny + 18} className="fill-slate-900 text-[11px] font-semibold">
-                {node.leaf ? `Leaf: ${node.prediction}` : `${node.feature} <= ${node.threshold?.toFixed(3)}`}
-              </text>
-              <text x={nx + 10} y={ny + 38} className="fill-slate-700 text-[10px]">
-                Pos rate {(node.positive_rate * 100).toFixed(1)}%
-              </text>
-              <text x={nx + 10} y={ny + 54} className="fill-slate-600 text-[10px]">
-                Samples {node.samples.toLocaleString()}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-    </div>
-  );
-}
+    <StepShell
+      title="Step 8: Evaluation Command Center"
+      subtitle="Compare real fitted artifacts, test operating tradeoffs, and choose candidates for deeper Interpretation without implying final approval."
+      variant="modeling"
+      heroMetrics={heroMetrics}
+      nextLabel="Continue to Interpretation Review"
+      nextDisabled={!comparison.length}
+      nextDisabledReason="Add at least one supervised model to the Interpretation comparison tray."
+      nextStatusLine={`${comparison.length} interpretation candidate${comparison.length === 1 ? "" : "s"} preserved for the next review.`}
+      onNextClick={() => openComparison()}
+      showDeveloperTools={false}
+    >
+      <div className="space-y-5" data-testid="evaluation-command-center">
+        {message ? <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{message}</div> : null}
 
-function KnnClusterPanel({ knn }: { knn: KnnResponse | null }) {
-  return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4">
-      <div className="text-sm font-semibold">KNN Cluster View</div>
-      <p className="mt-1 text-xs text-gray-500">
-        PCA projection of holdout records over KNN decision regions from the selected model. Background color shows the predicted local neighborhood.
-      </p>
-      {!knn && <div className="mt-4 rounded-xl bg-slate-50 p-4 text-sm text-gray-500">Loading KNN clusters...</div>}
-      {knn && !knn.ok && (
-        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-          {knn.error ?? "KNN cluster data is unavailable."}
-        </div>
-      )}
-      {knn?.ok && knn.points?.length ? (
-        <>
-          <KnnClusterSvg knn={knn} />
-          <KnnDiagnostics diagnostics={knn.cluster_diagnostics ?? []} selectedK={knn.cluster_count ?? null} />
-        </>
-      ) : null}
-    </div>
-  );
-}
-
-function KnnDiagnostics({ diagnostics, selectedK }: { diagnostics: KnnDiagnostic[]; selectedK: number | null }) {
-  const rows = diagnostics.filter((row) => Number.isFinite(row.k));
-  if (!rows.length) return null;
-  return (
-    <div className="mt-4 grid gap-4 lg:grid-cols-2">
-      <MiniLineChart
-        title="Elbow: Within-Region Inertia"
-        rows={rows.filter((row) => typeof row.inertia === "number")}
-        valueKey="inertia"
-        selectedK={selectedK}
-        color="#4f46e5"
-        lowerIsBetter
-      />
-      <MiniLineChart
-        title="Silhouette: Region Separation"
-        rows={rows.filter((row) => typeof row.silhouette === "number")}
-        valueKey="silhouette"
-        selectedK={selectedK}
-        color="#0f766e"
-      />
-    </div>
-  );
-}
-
-function MiniLineChart({
-  title,
-  rows,
-  valueKey,
-  selectedK,
-  color,
-  lowerIsBetter = false,
-}: {
-  title: string;
-  rows: KnnDiagnostic[];
-  valueKey: "inertia" | "silhouette";
-  selectedK: number | null;
-  color: string;
-  lowerIsBetter?: boolean;
-}) {
-  const width = 420;
-  const height = 190;
-  const pad = 34;
-  if (!rows.length) return null;
-  const values = rows.map((row) => Number(row[valueKey] ?? 0));
-  const minK = Math.min(...rows.map((row) => row.k));
-  const maxK = Math.max(...rows.map((row) => row.k));
-  const minValue = Math.min(...values);
-  const maxValue = Math.max(...values);
-  const x = (k: number) => pad + ((k - minK) / (maxK - minK || 1)) * (width - pad * 1.6);
-  const y = (value: number) => height - pad - ((value - minValue) / (maxValue - minValue || 1)) * (height - pad * 1.8);
-  const points = rows.map((row) => `${x(row.k)},${y(Number(row[valueKey] ?? 0))}`).join(" ");
-  const selected = selectedK ? rows.find((row) => row.k === selectedK) : null;
-
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-3">
-      <div className="flex items-center justify-between">
-        <div className="text-xs font-semibold text-gray-800">{title}</div>
-        {selected && (
-          <div className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">
-            selected k={selected.k}
+        <section className="overflow-hidden rounded-md border border-slate-800 bg-slate-950 text-white" data-testid="atlas-performance-summary">
+          <div className="grid gap-6 p-6 xl:grid-cols-[1.5fr_1fr]">
+            <div>
+              <div className="text-xs font-semibold uppercase text-emerald-300">A. ATLAS Performance Summary</div>
+              <h2 className="mt-2 text-2xl font-semibold">{cleanModelName(leader.name)} is the current {metricLabel} leader</h2>
+              <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
+                Final model selection remains pending interpretation, operating-threshold review, TEST/OOT comparison, and governance review. No candidate has been automatically approved.
+              </p>
+              <div className="mt-5 flex flex-wrap gap-2">
+                {statusPill(`Provisional Leader: ${cleanModelName(leader.name)}`, "good")}
+                {statusPill(`TEST: ${command?.test_status ?? "Pending"}`, command?.ok ? "good" : "warn")}
+                {statusPill(`OOT: ${command?.oot_status ?? "Not loaded"}`, "warn")}
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <DarkStat label="Governing metric" value={metricLabel} />
+              <DarkStat label="Leader value" value={formatMetric(problemType === "regression" ? leader.rmse : leader.pr_auc)} />
+              <DarkStat label="Strongest evidence" value="Governed holdout" />
+              <DarkStat label="Next review" value="Interpretability + policy" />
+            </div>
           </div>
-        )}
+          <div className="grid border-t border-slate-800 bg-slate-900/70 md:grid-cols-3">
+            <SummaryBand label="What performed best" value={`${cleanModelName(leader.name)} currently leads on ${metricLabel}.`} />
+            <SummaryBand label="Unresolved risk" value={command?.oot_status === "Not loaded" ? "OOT evidence has not been loaded." : "Review calibration and degradation flags."} />
+            <SummaryBand label="Recommended action" value="Compare 2-4 candidates before final Interpretation and RFE." />
+          </div>
+        </section>
+
+        <section className="rounded-md border border-blue-200 bg-blue-50 p-5" data-testid="top-candidate-comparison">
+          <SectionHeading eyebrow="B. Top Candidate Comparison" title="The strongest supervised candidates" description="Prominent cards summarize persisted training and holdout metrics. Rank is provisional and never constitutes approval." />
+          <div className="mt-4 grid gap-4 xl:grid-cols-3">
+            {topCandidates.map((model, index) => (
+              <CandidateCard
+                key={model.key}
+                model={model}
+                rank={index + 1}
+                active={model.key === selectedKey}
+                compared={comparisonKeys.has(model.key)}
+                testStatus="Available"
+                ootStatus="Not loaded"
+                onReview={() => selectForReview(model)}
+                onCompare={() => toggleComparison(model)}
+                onInterpret={() => openInterpretation(model)}
+              />
+            ))}
+          </div>
+        </section>
+
+        <section id="interactive-model-explorer" className="rounded-md border border-slate-200 bg-white p-5" data-testid="interactive-model-explorer">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <SectionHeading eyebrow="C. Interactive Model Explorer" title="Model-specific analytical review" description="Changing the model updates every common and family-specific diagnostic from the fitted artifact." />
+            <label className="grid min-w-72 gap-1 text-sm">
+              <span className="text-xs font-semibold uppercase text-slate-500">Model under review</span>
+              <select className="rounded-md border border-slate-300 bg-white px-3 py-2 font-semibold" value={selectedKey} onChange={(event) => setSelectedKey(event.target.value)}>
+                {supervised.map((model) => <option key={model.key} value={model.key}>{cleanModelName(model.name)}</option>)}
+              </select>
+            </label>
+          </div>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <MetricTile label={metricLabel} value={formatMetric(metricValue)} />
+            <MetricTile label="ROC-AUC" value={formatMetric(active.auc)} />
+            <MetricTile label="Recall" value={formatMetric(curves?.metrics?.recall as number | undefined)} />
+            <MetricTile label="Precision" value={formatMetric(curves?.metrics?.precision as number | undefined)} />
+          </div>
+          {loadingDiagnostics ? <LoadingPanel text={`Loading diagnostics for ${cleanModelName(active.name)}...`} /> : null}
+          {!loadingDiagnostics && curves?.ok && problemType === "classification" ? (
+            <div className="mt-4 grid gap-4 xl:grid-cols-3">
+              <ChartCard title="ROC Curve" badge="TEST holdout"><CurveChart x={curves.roc?.fpr ?? []} y={curves.roc?.tpr ?? []} xLabel="False positive rate" yLabel="True positive rate" color="#2563eb" diagonal /></ChartCard>
+              <ChartCard title="Precision-Recall Curve" badge="TEST holdout"><CurveChart x={curves.pr?.recall ?? []} y={curves.pr?.precision ?? []} xLabel="Recall" yLabel="Precision" color="#0f766e" /></ChartCard>
+              <ChartCard title={`Confusion Matrix @ ${formatMetric(command?.threshold?.threshold, 3)}`} badge="Active policy"><ConfusionMatrix matrix={command?.threshold?.confusion ?? curves.confusion ?? []} /></ChartCard>
+            </div>
+          ) : null}
+          {!loadingDiagnostics && curves && !curves.ok ? <Unavailable title="Common diagnostics unavailable" text={curves.error ?? "The backend did not return a fitted holdout artifact for this model."} /> : null}
+          {!loadingDiagnostics ? <ModelSpecificDiagnostic model={active} details={details} importance={importance} hyperparameters={hyperparameters} tree={tree} knn={knn} /> : null}
+        </section>
+
+        {problemType === "classification" ? (
+          <section className="rounded-md border border-indigo-200 bg-indigo-50 p-5" data-testid="threshold-operating-policy">
+            <SectionHeading eyebrow="D. Threshold and Operating Policy" title="Test operating tradeoffs before proposing a policy" description="Threshold changes are temporary. Metrics and the confusion matrix always display the active threshold." />
+            <div className="mt-4 grid gap-5 xl:grid-cols-[330px_minmax(0,1fr)]">
+              <div className="rounded-md border border-indigo-200 bg-white p-4">
+                <label className="grid gap-2 text-sm font-semibold">
+                  <span className="flex justify-between"><span>Decision threshold</span><span className="font-mono text-indigo-700">{threshold.toFixed(3)}</span></span>
+                  <input aria-label="Decision threshold" type="range" min="0.01" max="0.99" step="0.01" value={threshold} onChange={(event) => setThreshold(Number(event.target.value))} />
+                </label>
+                <label className="mt-4 grid gap-1 text-sm">
+                  <span className="font-semibold">Review capacity</span>
+                  <div className="flex items-center gap-2"><input className="w-24 rounded-md border px-3 py-2" type="number" min="0.1" max="100" step="0.5" value={reviewCapacity} onChange={(event) => setReviewCapacity(Number(event.target.value))} /><span>% of population</span></div>
+                </label>
+                <div className="mt-4 grid grid-cols-2 gap-2">
+                  <PresetButton label="Maximize F1" onClick={() => applyPreset("maximize_f1")} />
+                  <PresetButton label="Target Recall" onClick={() => applyPreset("target_recall")} />
+                  <PresetButton label="Target Precision" onClick={() => applyPreset("target_precision")} />
+                  <PresetButton label="Review Capacity" onClick={() => applyPreset("review_capacity")} />
+                  <PresetButton label="Governed Threshold" onClick={() => applyPreset("current_governed")} />
+                  <PresetButton label="Custom" onClick={() => undefined} active />
+                </div>
+                <button type="button" className="atlas-primary-button mt-4 w-full" onClick={saveProposedPolicy} disabled={!command?.threshold}>Save as Proposed Operating Policy</button>
+                <p className="mt-2 text-xs leading-5 text-slate-500">Saving records a proposed policy only. It does not approve or apply the threshold.</p>
+              </div>
+              <div>
+                {command?.ok && command.threshold ? (
+                  <ThresholdDashboard
+                    curves={curves}
+                    lift={command.lift}
+                    metrics={command.threshold}
+                    onThresholdChange={setThreshold}
+                  />
+                ) : (
+                  <Unavailable title="Threshold diagnostics unavailable" text={command?.error ?? "Waiting for real holdout scores."} />
+                )}
+              </div>
+            </div>
+            {command?.ok && command.lift ? <LiftGainCapture lift={command.lift} /> : null}
+          </section>
+        ) : null}
+
+        <section className="rounded-md border border-slate-200 bg-white p-5" data-testid="dataset-performance">
+          <SectionHeading eyebrow="E. Dataset Performance" title="Evaluation roles remain distinct" description="Development diagnostics, independent TEST evidence, and OOT evidence are never blended." />
+          <div className="mt-4 grid gap-4 lg:grid-cols-3">
+            <DatasetRoleCard title="Internal Validation" role="Model development evidence" status={active.best_score != null ? "Available" : "Not recorded"} metrics={[{ label: "Search score", value: formatMetric(active.best_score) }, { label: "Scope", value: "Training only" }]} tone="slate" />
+            <DatasetRoleCard title="TEST" role="Governed holdout evaluation" status={command?.test_status ?? (curves?.ok ? "Available" : "Not available")} metrics={[{ label: metricLabel, value: formatMetric(metricValue) }, { label: "Observations", value: command?.observation_count?.toLocaleString() ?? "Not available" }]} tone="blue" />
+            <DatasetRoleCard title="OOT" role="Out-of-time stability evaluation" status={command?.oot_status ?? "Not loaded"} metrics={[{ label: "Performance", value: "Not evaluated" }, { label: "Degradation", value: "Not evaluated" }]} tone="amber" />
+          </div>
+        </section>
+
+        <section className="rounded-md border border-emerald-200 bg-emerald-50 p-5" data-testid="stability-calibration">
+          <SectionHeading eyebrow="F. Stability and Calibration" title="Probability quality and evidence degradation" description="Calibration is computed from real governed holdout scores. OOT metrics remain unavailable until an OOT artifact is loaded." />
+          <div className="mt-4 grid gap-4 xl:grid-cols-[1.35fr_1fr]">
+            <ChartCard title="Reliability Curve" badge="Predicted vs observed">
+              {command?.calibration?.rows?.length ? <CalibrationChart rows={command.calibration.rows} /> : <Unavailable title="Calibration unavailable" text={command?.error ?? "No classification calibration rows were returned."} compact />}
+            </ChartCard>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <MetricTile label="Brier score" value={formatMetric(command?.calibration?.brier_score)} />
+              <MetricTile label="Calibration method" value={command?.calibration?.method ?? active.calibration_method ?? "Not applied"} />
+              <MetricTile label="Calibration slope" value={formatMetric(command?.calibration?.slope)} />
+              <MetricTile label="Calibration intercept" value={formatMetric(command?.calibration?.intercept)} />
+              <MetricTile label="TEST role" value={command?.test_status ?? "Not available"} />
+              <MetricTile label="OOT role" value={command?.oot_status ?? "Not loaded"} />
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-md border border-slate-200 bg-white p-5" data-testid="full-leaderboard">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <SectionHeading eyebrow="G. Full Leaderboard" title="All supervised candidates" description="Use row actions to review evidence, open Interpretation directly, or manage the persistent comparison tray." />
+            <div>{statusPill(`${supervised.length} supervised candidates`)}</div>
+          </div>
+          <div className="mt-4 overflow-x-auto rounded-md border border-slate-200">
+            <table className="min-w-[1120px] w-full text-sm">
+              <thead className="bg-slate-100 text-left text-[11px] font-semibold uppercase text-slate-600"><tr><th className="px-3 py-3">Rank</th><th className="px-3 py-3">Model</th><th className="px-3 py-3">Family</th><th className="px-3 py-3">PR-AUC</th><th className="px-3 py-3">ROC-AUC</th><th className="px-3 py-3">Recall</th><th className="px-3 py-3">Precision</th><th className="px-3 py-3">KS</th><th className="px-3 py-3">Calibration</th><th className="px-3 py-3">Actions</th></tr></thead>
+              <tbody className="divide-y divide-slate-100">
+                {ordered.map((model, index) => <LeaderboardRow key={model.key} model={model} rank={index + 1} active={model.key === selectedKey} compared={comparisonKeys.has(model.key)} onReview={() => selectForReview(model)} onCompare={() => toggleComparison(model)} onInterpret={() => openInterpretation(model)} />)}
+              </tbody>
+            </table>
+          </div>
+          {anomalyModels.length ? <AnomalyDiagnostics models={anomalyModels} /> : null}
+        </section>
+
+        <section className="rounded-md border border-violet-200 bg-violet-50 p-5" data-testid="interpretation-comparison-tray">
+          <div className="flex flex-wrap items-end justify-between gap-3">
+            <SectionHeading eyebrow="H. Interpretation Comparison Tray" title="Persistent candidate review set" description="Keep two to four candidates for side-by-side Interpretation. A single candidate can still be opened directly." />
+            <div className="flex gap-2"><button type="button" className="atlas-secondary-button" onClick={() => setComparisonState([])} disabled={!comparison.length}><Trash2 size={15} /> Clear Comparison</button><button type="button" className="atlas-primary-button" onClick={openComparison} disabled={comparison.length < 2}><GitCompareArrows size={15} /> Compare Selected Models</button></div>
+          </div>
+          <div className="mt-4 grid gap-3 xl:grid-cols-2">
+            {comparison.map((candidate) => {
+              const model = supervised.find((row) => row.key === candidate.key);
+              if (!model) return null;
+              const rank = ordered.findIndex((row) => row.key === model.key) + 1;
+              return <ComparisonRow key={model.key} model={model} rank={rank} onRemove={() => toggleComparison(model)} onOpen={() => openInterpretation(model)} />;
+            })}
+            {!comparison.length ? <div className="col-span-full rounded-md border border-dashed border-violet-300 bg-white p-8 text-center text-sm text-slate-600">Add candidates from the cards or leaderboard. No model will be automatically selected or approved.</div> : null}
+          </div>
+        </section>
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="mt-2 h-[190px] w-full rounded-lg bg-slate-50">
-        <line x1={pad} y1={height - pad} x2={width - pad / 2} y2={height - pad} stroke="#cbd5e1" />
-        <line x1={pad} y1={pad / 2} x2={pad} y2={height - pad} stroke="#cbd5e1" />
-        <polyline points={points} fill="none" stroke={color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />
-        {rows.map((row) => {
-          const value = Number(row[valueKey] ?? 0);
-          const active = selectedK === row.k;
-          return (
-            <g key={row.k}>
-              <circle cx={x(row.k)} cy={y(value)} r={active ? 5 : 3.5} fill={active ? "#f97316" : color} />
-              <text x={x(row.k)} y={height - 12} textAnchor="middle" className="fill-slate-500 text-[10px]">{row.k}</text>
-            </g>
-          );
-        })}
-        <text x={width / 2} y={height - 2} textAnchor="middle" className="fill-slate-600 text-[10px]">Candidate regions</text>
-        <text x={14} y={height / 2} textAnchor="middle" transform={`rotate(-90 14 ${height / 2})`} className="fill-slate-600 text-[10px]">
-          {lowerIsBetter ? "Inertia" : "Score"}
-        </text>
-      </svg>
-    </div>
+    </StepShell>
   );
 }
 
-function KnnClusterSvg({ knn }: { knn: KnnResponse }) {
-  const points = knn.points ?? [];
-  const grid = knn.grid ?? [];
-  const width = 920;
-  const height = 430;
-  const pad = 54;
-  const [xMin, xMax] = knn.x_domain ?? [Math.min(...points.map((p) => p.x)), Math.max(...points.map((p) => p.x))];
-  const [yMin, yMax] = knn.y_domain ?? [Math.min(...points.map((p) => p.y)), Math.max(...points.map((p) => p.y))];
-  const plotWidth = width - pad - 24;
-  const plotHeight = height - pad - 24;
-  const x = (value: number) => pad + ((value - xMin) / (xMax - xMin || 1)) * plotWidth;
-  const y = (value: number) => 18 + ((yMax - value) / (yMax - yMin || 1)) * plotHeight;
-  const actualColor = (value: number) => (value ? "#f97316" : "#2563eb");
-  const predictedColor = (value: number) => (value ? "#7c2d12" : "#1e3a8a");
-  const regionPalette = ["#dbeafe", "#fed7aa", "#dcfce7", "#fde68a", "#e0e7ff", "#fbcfe8", "#ccfbf1", "#e9d5ff"];
-  const resolution = knn.grid_resolution || Math.round(Math.sqrt(grid.length || 1));
-  const cellWidth = plotWidth / Math.max(resolution - 1, 1) + 1.5;
-  const cellHeight = plotHeight / Math.max(resolution - 1, 1) + 1.5;
-  const regionColor = (cell: KnnGridCell) => {
-    const region = Math.max(0, cell.region ?? cell.prediction ?? 0);
-    return regionPalette[region % regionPalette.length];
-  };
-
-  return (
-    <div className="mt-4 rounded-xl bg-slate-50 p-3">
-      <div className="mb-2 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600">
-        <div>
-          model k = {knn.neighbor_count || "-"} · {knn.cluster_count || "-"} local regions · sample {knn.sample_size?.toLocaleString() ?? points.length.toLocaleString()}
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          {(knn.cluster_count ? regionPalette.slice(0, Math.min(knn.cluster_count, 4)) : regionPalette.slice(0, 2)).map((color, index) => (
-            <span key={color} className="inline-flex items-center gap-1"><span className="h-3 w-4 rounded-sm" style={{ backgroundColor: color }} />Region {index + 1}</span>
-          ))}
-          <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-[#2563eb]" />Actual 0</span>
-          <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-[#f97316]" />Actual 1</span>
-          <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full border-2 border-[#1e3a8a]" />Pred 0 ring</span>
-          <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full border-2 border-[#7c2d12]" />Pred 1 ring</span>
-        </div>
-      </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-[430px] w-full rounded-xl bg-white">
-        {grid.map((cell, index) => (
-          <rect
-            key={index}
-            x={x(cell.x) - cellWidth / 2}
-            y={y(cell.y) - cellHeight / 2}
-            width={cellWidth}
-            height={cellHeight}
-            fill={regionColor(cell)}
-            opacity={0.92}
-          />
-        ))}
-        <line x1={pad} y1={height - pad} x2={width - 24} y2={height - pad} stroke="#94a3b8" />
-        <line x1={pad} y1={18} x2={pad} y2={height - pad} stroke="#94a3b8" />
-        {[0.25, 0.5, 0.75].map((tick) => (
-          <g key={tick}>
-            <line x1={pad + plotWidth * tick} y1={18} x2={pad + plotWidth * tick} y2={height - pad} stroke="#e2e8f0" />
-            <line x1={pad} y1={18 + plotHeight * tick} x2={width - 24} y2={18 + plotHeight * tick} stroke="#e2e8f0" />
-          </g>
-        ))}
-        {points.map((point, index) => (
-          <circle
-            key={index}
-            cx={x(point.x)}
-            cy={y(point.y)}
-            r={3.3}
-            fill={actualColor(point.class)}
-            stroke={predictedColor(point.prediction)}
-            strokeWidth={1.5}
-            opacity={0.72}
-          />
-        ))}
-        <text x={width / 2} y={height - 12} textAnchor="middle" className="fill-slate-700 text-[11px]">PCA 1</text>
-        <text x={16} y={height / 2} textAnchor="middle" transform={`rotate(-90 16 ${height / 2})`} className="fill-slate-700 text-[11px]">PCA 2</text>
-        <text x={pad} y={height - 34} className="fill-slate-500 text-[10px]">{xMin.toFixed(3)}</text>
-        <text x={width - 24} y={height - 34} textAnchor="end" className="fill-slate-500 text-[10px]">{xMax.toFixed(3)}</text>
-      </svg>
-    </div>
-  );
+function SectionHeading({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
+  return <div><div className="text-[11px] font-semibold uppercase text-blue-700">{eyebrow}</div><h2 className="mt-1 text-lg font-semibold text-slate-950">{title}</h2><p className="mt-1 max-w-4xl text-sm leading-6 text-slate-600">{description}</p></div>;
 }
 
-function RocChart({ fpr, tpr }: { fpr: number[]; tpr: number[] }) {
-  const width = 520;
-  const height = 300;
-  const pad = 42;
-  const x = (value: number) => pad + value * (width - pad * 1.35);
-  const y = (value: number) => height - pad - value * (height - pad * 1.35);
-  const points = fpr
-    .map((value, index) => {
-      const tx = Number.isFinite(tpr[index]) ? tpr[index] : 0;
-      return `${x(Math.max(0, Math.min(1, value)))},${y(Math.max(0, Math.min(1, tx)))}`;
-    })
-    .join(" ");
+function DarkStat({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-md border border-slate-700 bg-slate-900 px-3 py-3"><div className="text-[10px] font-semibold uppercase text-slate-400">{label}</div><div className="mt-1 text-sm font-semibold text-white">{value}</div></div>;
+}
 
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-[260px] w-full">
-      <rect x="0" y="0" width={width} height={height} rx="12" fill="#f8fafc" />
-      <line x1={pad} y1={height - pad} x2={width - pad / 2} y2={height - pad} stroke="#cbd5e1" />
-      <line x1={pad} y1={pad / 2} x2={pad} y2={height - pad} stroke="#cbd5e1" />
-      <line
-        x1={pad}
-        y1={height - pad}
-        x2={width - pad / 2}
-        y2={pad / 2}
-        stroke="#94a3b8"
-        strokeDasharray="5 5"
-      />
-      <polyline fill="none" stroke="#4f46e5" strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" points={points} />
-      <text x={width / 2} y={height - 8} textAnchor="middle" fontSize="12" fill="#475569">
-        False Positive Rate
-      </text>
-      <text x="14" y={height / 2} textAnchor="middle" fontSize="12" fill="#475569" transform={`rotate(-90 14 ${height / 2})`}>
-        True Positive Rate
-      </text>
-      <text x={pad - 8} y={height - pad + 4} textAnchor="end" fontSize="11" fill="#64748b">0</text>
-      <text x={width - pad / 2} y={height - pad + 18} textAnchor="middle" fontSize="11" fill="#64748b">1</text>
-      <text x={pad - 8} y={pad / 2 + 4} textAnchor="end" fontSize="11" fill="#64748b">1</text>
-    </svg>
-  );
+function SummaryBand({ label, value }: { label: string; value: string }) {
+  return <div className="border-slate-800 px-5 py-4 md:border-r"><div className="text-[10px] font-semibold uppercase text-slate-500">{label}</div><div className="mt-1 text-sm text-slate-200">{value}</div></div>;
+}
+
+function MetricTile({ label, value }: { label: string; value: string }) {
+  return <div className="min-w-0 rounded-md border border-slate-200 bg-white px-3 py-3"><div className="text-[10px] font-semibold uppercase text-slate-500">{label}</div><div className="mt-1 break-words text-base font-semibold text-slate-950">{value}</div></div>;
+}
+
+function CandidateCard({ model, rank, active, compared, testStatus, ootStatus, onReview, onCompare, onInterpret }: { model: RankedRow; rank: number; active: boolean; compared: boolean; testStatus: string; ootStatus: string; onReview: () => void; onCompare: () => void; onInterpret: () => void }) {
+  return <article className={`rounded-md border bg-white p-5 shadow-sm ${active ? "border-blue-500 ring-2 ring-blue-100" : "border-blue-200"}`} data-model-key={model.key}>
+    <div className="flex items-start justify-between gap-3"><div><div className="text-[11px] font-semibold uppercase text-blue-700">Provisional rank {rank}</div><h3 className="mt-1 text-lg font-semibold text-slate-950">{cleanModelName(model.name)}</h3><div className="mt-1 text-xs text-slate-500">{modelFamily(model)} | Interpretability {interpretability(model)}</div></div>{rank === 1 ? statusPill("Metric Leader", "good") : statusPill("Interpretation Candidate")}</div>
+    <div className="mt-4 grid grid-cols-3 gap-2"><MetricTile label="PR-AUC" value={formatMetric(model.pr_auc)} /><MetricTile label="ROC-AUC" value={formatMetric(model.auc)} /><MetricTile label="KS" value={formatMetric(model.ks)} /><MetricTile label="Recall" value={formatMetric(model.recall)} /><MetricTile label="Precision" value={formatMetric(model.precision)} /><MetricTile label="F1" value={formatMetric(model.f1)} /></div>
+    <div className="mt-3 grid grid-cols-2 gap-2 text-xs"><div className="rounded-md bg-slate-50 p-2"><span className="text-slate-500">Calibration</span><div className="mt-1 font-semibold">{model.calibration_method || (model.calibration_applied ? "Applied" : "Not applied")}</div></div><div className="rounded-md bg-slate-50 p-2"><span className="text-slate-500">Runtime</span><div className="mt-1 font-semibold">{model.runtime_ms != null ? `${(model.runtime_ms / 1000).toFixed(1)} s` : "Not recorded"}</div></div><div className="rounded-md bg-blue-50 p-2"><span className="text-blue-600">TEST</span><div className="mt-1 font-semibold text-blue-950">{testStatus}</div></div><div className="rounded-md bg-amber-50 p-2"><span className="text-amber-700">OOT</span><div className="mt-1 font-semibold text-amber-950">{ootStatus}</div></div></div>
+    <div className="mt-4 flex flex-wrap gap-2"><button type="button" className="atlas-secondary-button" onClick={onReview}><Activity size={15} /> Review Model</button><button type="button" className="atlas-secondary-button" onClick={onCompare}>{compared ? <Check size={15} /> : <GitCompareArrows size={15} />}{compared ? "Remove from Comparison" : "Add to Comparison"}</button><button type="button" className="atlas-primary-button" onClick={onInterpret}>Open Interpretation <ArrowRight size={15} /></button></div>
+  </article>;
+}
+
+function ChartCard({ title, badge, children }: { title: string; badge?: string; children: React.ReactNode }) {
+  return <div className="rounded-md border border-slate-200 bg-white p-4"><div className="mb-3 flex items-center justify-between gap-2"><h3 className="text-sm font-semibold text-slate-950">{title}</h3>{badge ? statusPill(badge) : null}</div>{children}</div>;
+}
+
+function CurveChart({ x, y, xLabel, yLabel, color, diagonal = false }: { x: number[]; y: number[]; xLabel: string; yLabel: string; color: string; diagonal?: boolean }) {
+  if (!x.length || !y.length) return <Unavailable title="Curve unavailable" text="The fitted artifact did not provide this curve." compact />;
+  const width = 520, height = 270, pad = 42;
+  const sx = (value: number) => pad + Math.max(0, Math.min(1, value)) * (width - pad * 1.35);
+  const sy = (value: number) => height - pad - Math.max(0, Math.min(1, value)) * (height - pad * 1.35);
+  const points = x.map((value, index) => `${sx(value)},${sy(y[index] ?? 0)}`).join(" ");
+  return <svg viewBox={`0 0 ${width} ${height}`} className="h-[250px] w-full" role="img" aria-label={`${yLabel} by ${xLabel}`}><rect width={width} height={height} rx="6" fill="#f8fafc" />{[0, .25, .5, .75, 1].map((tick) => <g key={tick}><line x1={sx(tick)} y1={pad / 2} x2={sx(tick)} y2={height - pad} stroke="#e2e8f0" /><line x1={pad} y1={sy(tick)} x2={width - pad / 2} y2={sy(tick)} stroke="#e2e8f0" /><text x={sx(tick)} y={height - 22} textAnchor="middle" fontSize="10" fill="#64748b">{tick.toFixed(2)}</text></g>)}{diagonal ? <line x1={sx(0)} y1={sy(0)} x2={sx(1)} y2={sy(1)} stroke="#94a3b8" strokeDasharray="5 5" /> : null}<polyline points={points} fill="none" stroke={color} strokeWidth="3" strokeLinejoin="round" /><text x={width / 2} y={height - 5} textAnchor="middle" fontSize="11" fill="#475569">{xLabel}</text><text x="13" y={height / 2} textAnchor="middle" fontSize="11" fill="#475569" transform={`rotate(-90 13 ${height / 2})`}>{yLabel}</text></svg>;
 }
 
 function ConfusionMatrix({ matrix }: { matrix: number[][] }) {
-  const tn = matrix[0]?.[0] ?? 0;
-  const fp = matrix[0]?.[1] ?? 0;
-  const fn = matrix[1]?.[0] ?? 0;
-  const tp = matrix[1]?.[1] ?? 0;
-  const maxValue = Math.max(tn, fp, fn, tp, 1);
-  const cells = [
-    { label: "True Negative", value: tn, tone: "bg-emerald-50 border-emerald-200 text-emerald-900" },
-    { label: "False Positive", value: fp, tone: "bg-amber-50 border-amber-200 text-amber-900" },
-    { label: "False Negative", value: fn, tone: "bg-rose-50 border-rose-200 text-rose-900" },
-    { label: "True Positive", value: tp, tone: "bg-emerald-50 border-emerald-200 text-emerald-900" },
-  ];
+  if (matrix.length !== 2) return <Unavailable title="Confusion matrix unavailable" text="No active-threshold confusion matrix was returned." compact />;
+  const cells = [{ label: "True Negative", value: matrix[0]?.[0] ?? 0, tone: "border-emerald-200 bg-emerald-50" }, { label: "False Positive", value: matrix[0]?.[1] ?? 0, tone: "border-amber-200 bg-amber-50" }, { label: "False Negative", value: matrix[1]?.[0] ?? 0, tone: "border-rose-200 bg-rose-50" }, { label: "True Positive", value: matrix[1]?.[1] ?? 0, tone: "border-emerald-200 bg-emerald-50" }];
+  return <div className="grid h-[250px] grid-cols-2 gap-2">{cells.map((cell) => <div key={cell.label} className={`flex flex-col justify-between rounded-md border p-3 ${cell.tone}`}><div className="text-xs font-semibold text-slate-700">{cell.label}</div><div className="text-3xl font-semibold text-slate-950">{cell.value.toLocaleString()}</div></div>)}</div>;
+}
 
-  return (
-    <div className="grid h-[260px] grid-cols-2 gap-3">
-      {cells.map((cell) => (
-        <div key={cell.label} className={`flex flex-col justify-between rounded-lg border p-4 ${cell.tone}`}>
-          <div className="text-xs font-medium">{cell.label}</div>
-          <div className="text-3xl font-semibold">{cell.value.toLocaleString()}</div>
-          <div className="h-1.5 rounded-full bg-white/70">
-            <div
-              className="h-1.5 rounded-full bg-current opacity-60"
-              style={{ width: `${Math.max(4, (cell.value / maxValue) * 100)}%` }}
-            />
-          </div>
-        </div>
-      ))}
+function ModelSpecificDiagnostic({ model, details, importance, hyperparameters, tree, knn }: { model: RankedRow; details: DetailResponse | null; importance: ImportanceResponse | null; hyperparameters: HyperparameterResponse | null; tree: TreeResponse | null; knn: KnnResponse | null }) {
+  const family = modelFamily(model);
+  return <div className="mt-5 rounded-md border border-slate-200 bg-slate-50 p-4" data-testid={`model-specific-${family.toLowerCase().replace(/[^a-z]+/g, "-")}`}><div className="flex flex-wrap items-center justify-between gap-2"><div><div className="text-[11px] font-semibold uppercase text-violet-700">Model-Specific Evaluation</div><h3 className="mt-1 text-base font-semibold text-slate-950">{family} diagnostics</h3></div>{statusPill(importance?.method ?? "Fitted artifact")}</div>
+    {family === "Decision Tree" ? <DecisionTreeDiagnostic tree={tree} /> : null}
+    {family === "K-Nearest Neighbors" ? <KnnDiagnostic knn={knn} parameters={hyperparameters?.rows ?? []} /> : null}
+    {family === "Linear Classifier" || family === "Support Vector Machine" ? <CoefficientDiagnostic details={details} parameters={hyperparameters?.rows ?? []} family={family} /> : null}
+    {["Tree Ensemble", "Gradient Boosting", "Gaussian Naive Bayes", "Neural Network", "Supervised Estimator"].includes(family) ? <ImportanceDiagnostic response={importance} family={family} parameters={hyperparameters?.rows ?? []} /> : null}
+  </div>;
+}
+
+function DecisionTreeDiagnostic({ tree }: { tree: TreeResponse | null }) {
+  if (!tree) return <LoadingPanel text="Loading fitted decision tree..." />;
+  if (!tree.ok || !tree.nodes?.length) return <Unavailable title="Decision Tree diagnostic unavailable" text={tree.error ?? "The selected artifact is not a fitted decision tree."} />;
+  const nodes = tree.nodes, edges = tree.edges ?? [], width = 920, height = Math.max(280, (Math.max(...nodes.map((node) => node.depth)) + 1) * 110), nodeWidth = 145, nodeHeight = 62;
+  const point = (node: TreeNode) => ({ x: 40 + node.x * (width - 80), y: 45 + node.depth * 105 });
+  const byId = new Map(nodes.map((node) => [node.id, node]));
+  return <div className="mt-4"><div className="grid gap-3 sm:grid-cols-3"><MetricTile label="Rendered nodes" value={String(nodes.length)} /><MetricTile label="Leaf nodes" value={String(nodes.filter((node) => node.leaf).length)} /><MetricTile label="Displayed depth" value={String(Math.max(...nodes.map((node) => node.depth)))} /></div><div className="mt-3 overflow-x-auto rounded-md border bg-white p-2"><svg viewBox={`0 0 ${width} ${height}`} className="min-w-[780px] w-full" role="img" aria-label="Decision Tree visualization">{edges.map((edge) => { const source = byId.get(edge.source), target = byId.get(edge.target); if (!source || !target) return null; const a = point(source), b = point(target); return <g key={`${edge.source}-${edge.target}`}><line x1={a.x} y1={a.y + nodeHeight / 2} x2={b.x} y2={b.y - nodeHeight / 2} stroke="#94a3b8" /><text x={(a.x + b.x) / 2} y={(a.y + b.y) / 2} fontSize="10" fill="#64748b">{edge.label}</text></g>; })}{nodes.map((node) => { const p = point(node); return <g key={node.id}><rect x={p.x - nodeWidth / 2} y={p.y - nodeHeight / 2} width={nodeWidth} height={nodeHeight} rx="6" fill={node.leaf ? "#ecfdf5" : "#eff6ff"} stroke={node.leaf ? "#10b981" : "#3b82f6"} /><text x={p.x} y={p.y - 10} textAnchor="middle" fontSize="10" fontWeight="600" fill="#0f172a">{node.leaf ? `Leaf: ${node.prediction}` : `${node.feature} <= ${formatMetric(node.threshold, 2)}`}</text><text x={p.x} y={p.y + 7} textAnchor="middle" fontSize="9" fill="#475569">n={node.samples.toLocaleString()} | event {formatPercent(node.positive_rate)}</text></g>; })}</svg></div></div>;
+}
+
+function KnnDiagnostic({ knn, parameters }: { knn: KnnResponse | null; parameters: Array<{ parameter: string; value: string }> }) {
+  if (!knn) return <LoadingPanel text="Loading KNN neighborhood evidence..." />;
+  if (!knn.ok || !knn.points?.length) return <Unavailable title="KNN diagnostic unavailable" text={knn.error ?? "No fitted neighborhood coordinates were returned."} />;
+  const width = 900, height = 360, pad = 40, [xmin, xmax] = knn.x_domain ?? [Math.min(...knn.points.map((p) => p.x)), Math.max(...knn.points.map((p) => p.x))], [ymin, ymax] = knn.y_domain ?? [Math.min(...knn.points.map((p) => p.y)), Math.max(...knn.points.map((p) => p.y))];
+  const sx = (v: number) => pad + ((v - xmin) / (xmax - xmin || 1)) * (width - pad * 1.5), sy = (v: number) => height - pad - ((v - ymin) / (ymax - ymin || 1)) * (height - pad * 1.5);
+  return <div className="mt-4"><div className="grid gap-3 sm:grid-cols-3"><MetricTile label="Selected K" value={String(knn.neighbor_count ?? parameters.find((row) => /neighbor/i.test(row.parameter))?.value ?? "Not recorded")} /><MetricTile label="Displayed sample" value={(knn.sample_size ?? knn.points.length).toLocaleString()} /><MetricTile label="Projection" value="Governed PCA view" /></div><div className="mt-3 rounded-md border bg-white p-2"><svg viewBox={`0 0 ${width} ${height}`} className="h-[360px] w-full" role="img" aria-label="KNN decision region and neighborhood visualization"><rect width={width} height={height} fill="#f8fafc" />{knn.grid?.map((cell, index) => <circle key={index} cx={sx(cell.x)} cy={sy(cell.y)} r="6" fill={cell.prediction ? "#fed7aa" : "#dbeafe"} opacity="0.45" />)}{knn.points.map((point, index) => <circle key={index} cx={sx(point.x)} cy={sy(point.y)} r="3.1" fill={point.class ? "#ea580c" : "#2563eb"} stroke={point.prediction ? "#7c2d12" : "#1e3a8a"} strokeWidth="1" opacity="0.78" />)}<text x={width / 2} y={height - 8} textAnchor="middle" fontSize="11" fill="#475569">Governed PCA component 1</text><text x="12" y={height / 2} textAnchor="middle" fontSize="11" fill="#475569" transform={`rotate(-90 12 ${height / 2})`}>Governed PCA component 2</text></svg></div></div>;
+}
+
+function CoefficientDiagnostic({ details, parameters, family }: { details: DetailResponse | null; parameters: Array<{ parameter: string; value: string }>; family: string }) {
+  const rows = details?.coefficients?.slice(0, 12) ?? [];
+  if (!details) return <LoadingPanel text={`Loading ${family} coefficient evidence...`} />;
+  if (!details.ok || !rows.length) return <Unavailable title={`${family} coefficient diagnostic unavailable`} text={details.error ?? details.message ?? "The fitted estimator did not expose a coefficient vector."} />;
+  const max = Math.max(...rows.map((row) => Math.abs(row.coefficient)), 1e-9);
+  return <div className="mt-4 grid gap-4 xl:grid-cols-[1.4fr_1fr]"><div className="rounded-md border bg-white p-4"><div className="text-sm font-semibold">Coefficient direction and magnitude</div><div className="mt-3 space-y-2">{rows.map((row) => <div key={row.feature} className="grid grid-cols-[180px_minmax(0,1fr)_76px] items-center gap-3 text-xs"><div className="truncate font-medium" title={row.feature}>{row.feature}</div><div className="relative h-4 rounded bg-slate-100"><div className={`absolute top-0 h-4 rounded ${row.coefficient >= 0 ? "left-1/2 bg-blue-500" : "right-1/2 bg-rose-500"}`} style={{ width: `${Math.abs(row.coefficient) / max * 50}%` }} /><div className="absolute left-1/2 top-0 h-4 w-px bg-slate-500" /></div><div className="text-right font-mono">{row.coefficient.toFixed(4)}</div></div>)}</div></div><div className="rounded-md border bg-white p-4"><MetricTile label="Intercept" value={formatMetric(details.intercept)} /><div className="mt-3 text-sm font-semibold">Regularization and fit</div><div className="mt-2 space-y-2">{parameters.slice(0, 8).map((row) => <div key={row.parameter} className="flex justify-between gap-3 border-b pb-1 text-xs"><span className="text-slate-500">{row.parameter}</span><span className="font-semibold">{row.value}</span></div>)}</div></div></div>;
+}
+
+function ImportanceDiagnostic({ response, family, parameters }: { response: ImportanceResponse | null; family: string; parameters: Array<{ parameter: string; value: string }> }) {
+  const rows = response?.rows?.slice(0, 12) ?? [];
+  if (!response) return <LoadingPanel text={`Loading ${family} fitted-artifact importance...`} />;
+  if (!response.ok || !rows.length) return <Unavailable title={`${family} diagnostic unavailable`} text={response.error ?? `The fitted ${family} artifact does not expose a supported model-specific diagnostic.`} />;
+  const max = Math.max(...rows.map((row) => Math.abs(row.importance)), 1e-9);
+  const title = family === "Gaussian Naive Bayes" ? "Feature likelihood contribution proxy" : family === "Neural Network" ? "Holdout permutation sensitivity" : "Feature importance from fitted artifact";
+  return <div className="mt-4 grid gap-4 xl:grid-cols-[1.4fr_1fr]"><div className="rounded-md border bg-white p-4"><div className="text-sm font-semibold">{title}</div><div className="mt-3 space-y-2">{rows.map((row) => <div key={row.feature} className="grid grid-cols-[180px_minmax(0,1fr)_72px] items-center gap-3 text-xs"><div className="truncate font-medium" title={row.feature}>{row.feature}</div><div className="h-3 rounded bg-slate-100"><div className="h-3 rounded bg-violet-500" style={{ width: `${Math.abs(row.importance) / max * 100}%` }} /></div><div className="text-right font-mono">{row.importance.toFixed(4)}</div></div>)}</div></div><div className="rounded-md border bg-white p-4"><MetricTile label="Method" value={response.method ?? "Fitted artifact"} /><div className="mt-3 grid gap-2">{parameters.slice(0, 7).map((row) => <div key={row.parameter} className="flex justify-between gap-3 border-b pb-1 text-xs"><span className="text-slate-500">{row.parameter}</span><span className="font-semibold">{row.value}</span></div>)}</div></div></div>;
+}
+
+function PresetButton({ label, onClick, active = false }: { label: string; onClick: () => void; active?: boolean }) {
+  return <button type="button" className={`rounded-md border px-2 py-2 text-xs font-semibold ${active ? "border-indigo-300 bg-indigo-50 text-indigo-800" : "border-slate-200 bg-white text-slate-700 hover:border-indigo-300"}`} onClick={onClick}>{label}</button>;
+}
+
+function ThresholdDashboard({
+  metrics,
+  curves,
+  lift,
+  onThresholdChange,
+}: {
+  metrics: ThresholdMetrics;
+  curves: Curves | null;
+  lift?: NonNullable<CommandCenter["lift"]>;
+  onThresholdChange: (threshold: number) => void;
+}) {
+  return <div data-testid="threshold-live-metrics" className="space-y-4">
+    <div className="grid gap-4 xl:grid-cols-[1.05fr_1.05fr_0.9fr]">
+      <ChartCard title="Probability of Event Distribution" badge={`Threshold ${metrics.threshold.toFixed(3)}`}>
+        <ProbabilityDistributionChart lift={lift} threshold={metrics.threshold} />
+      </ChartCard>
+      <ChartCard title="Interactive ROC Operating Point" badge="Click or drag">
+        <InteractiveRocChart curves={curves} metrics={metrics} onThresholdChange={onThresholdChange} />
+      </ChartCard>
+      <ChartCard title={`Confusion Matrix @ ${metrics.threshold.toFixed(3)}`} badge="Live">
+        <ConfusionMatrix matrix={metrics.confusion} />
+      </ChartCard>
     </div>
-  );
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+      <MetricTile label={`Precision @ ${metrics.threshold.toFixed(3)}`} value={formatPercent(metrics.precision)} />
+      <MetricTile label={`Recall @ ${metrics.threshold.toFixed(3)}`} value={formatPercent(metrics.recall)} />
+      <MetricTile label={`F1 @ ${metrics.threshold.toFixed(3)}`} value={formatMetric(metrics.f1)} />
+      <MetricTile label={`False-positive rate @ ${metrics.threshold.toFixed(3)}`} value={formatPercent(metrics.false_positive_rate)} />
+      <MetricTile label="Fraud capture" value={formatPercent(metrics.fraud_capture)} />
+      <MetricTile label="Predicted positives" value={metrics.predicted_positives.toLocaleString()} />
+      <MetricTile label="Review volume" value={metrics.review_volume.toLocaleString()} />
+      <MetricTile label="False positives" value={metrics.false_positives.toLocaleString()} />
+      <MetricTile label="False negatives" value={metrics.false_negatives.toLocaleString()} />
+      <MetricTile label="Expected alert rate" value={formatPercent(metrics.expected_alert_rate)} />
+    </div>
+  </div>;
 }
 
-function LiftChart({ rows }: { rows: DecileRow[] }) {
-  const width = 720;
-  const height = 280;
-  const pad = 42;
-  const maxLift = Math.max(1, ...rows.map((row) => row.lift || 0));
-  const barGap = 8;
-  const plotWidth = width - pad * 1.5;
-  const barWidth = (plotWidth - barGap * (rows.length - 1)) / Math.max(rows.length, 1);
-  const y = (value: number) => height - pad - (value / maxLift) * (height - pad * 1.45);
-
-  return (
-    <svg viewBox={`0 0 ${width} ${height}`} className="h-[280px] w-full">
-      <rect width={width} height={height} rx="12" fill="#f8fafc" />
-      <line x1={pad} y1={height - pad} x2={width - pad / 2} y2={height - pad} stroke="#cbd5e1" />
-      <line x1={pad} y1={pad / 2} x2={pad} y2={height - pad} stroke="#cbd5e1" />
-      <line x1={pad} y1={y(1)} x2={width - pad / 2} y2={y(1)} stroke="#94a3b8" strokeDasharray="5 5" />
-      <text x={width - pad / 2} y={y(1) - 6} textAnchor="end" fontSize="11" fill="#64748b">Baseline lift 1.0</text>
-      {rows.map((row, index) => {
-        const x = pad + index * (barWidth + barGap);
-        const barY = y(row.lift);
-        const barHeight = height - pad - barY;
-        return (
-          <g key={row.decile}>
-            <rect x={x} y={barY} width={barWidth} height={barHeight} rx="4" fill="#4f46e5" />
-            <text x={x + barWidth / 2} y={barY - 6} textAnchor="middle" fontSize="10" fill="#334155">
-              {row.lift.toFixed(2)}
-            </text>
-            <text x={x + barWidth / 2} y={height - pad + 16} textAnchor="middle" fontSize="10" fill="#64748b">
-              {row.decile}
-            </text>
-          </g>
-        );
-      })}
-      <text x={width / 2} y={height - 8} textAnchor="middle" fontSize="12" fill="#475569">
-        Score Decile
-      </text>
-      <text x="14" y={height / 2} textAnchor="middle" fontSize="12" fill="#475569" transform={`rotate(-90 14 ${height / 2})`}>
-        Lift
-      </text>
-    </svg>
-  );
-}
-
-function buildLocalDeciles(model: string, ranked: Ranked | null) {
-  const row = ranked?.find((item) => item.key === model);
-  if (!row) return [];
-
-  const auc = row.auc ?? 0.7;
-  const aucLift = Math.max(1.2, Math.min(3.4, 1 + (auc - 0.5) * 4));
-  return Array.from({ length: 10 }, (_, index) => {
-    const decile = index + 1;
-    const lift = Math.max(0.4, aucLift - index * 0.18);
-    const n = 100;
-    const eventRate = Math.max(0.03, Math.min(0.45, 0.12 * lift));
-    return {
-      decile,
-      n,
-      positives: Math.round(n * eventRate),
-      event_rate: eventRate,
-      lift,
-    };
-  });
-}
-
-function Deciles({ model, ranked }: { model: string; ranked: Ranked | null }) {
-  const [rows, setRows] = useState<DecileRow[] | null>(null);
-
-  useEffect(() => {
-    setRows(null);
-    fetch(`${API_BASE}/eval/deciles?model=${encodeURIComponent(model)}`)
-      .then((r) => r.json())
-      .then((j) => {
-        const raw = (j && (j.rows ?? j.deciles)) || [];
-        const arr = Array.isArray(raw) ? raw : [];
-        setRows(arr.length ? arr : buildLocalDeciles(model, ranked));
-      })
-      .catch(() => {
-        setRows(buildLocalDeciles(model, ranked));
-      });
-  }, [model, ranked]);
-
-  if (rows === null) {
-    return (
-      <div className="rounded-2xl border border-gray-200 bg-white p-4">
-        Loading deciles…
-      </div>
-    );
-  }
-
+function ProbabilityDistributionChart({ lift, threshold }: { lift?: NonNullable<CommandCenter["lift"]>; threshold: number }) {
+  const rows = lift?.deciles?.slice().sort((a, b) => a.mean_score - b.mean_score) ?? [];
   if (!rows.length) {
-    return (
-      <div className="rounded-2xl border border-gray-200 bg-white p-4">
-        <div className="text-sm font-semibold mb-1">Decile Lift</div>
-        <div className="text-xs text-gray-500">
-          No decile information available for this model yet.
-        </div>
-      </div>
-    );
+    return <Unavailable title="Score distribution unavailable" text="No validation score bands were returned for this model." compact />;
   }
+  const width = 520;
+  const height = 275;
+  const pad = 42;
+  const maxN = Math.max(...rows.map((row) => row.n), 1);
+  const minScore = Math.min(0, ...rows.map((row) => Number.isFinite(row.min_score) ? row.min_score : row.mean_score));
+  const maxScore = Math.max(1, ...rows.map((row) => Number.isFinite(row.max_score) ? row.max_score : row.mean_score));
+  const xForScore = (value: number) => pad + ((value - minScore) / (maxScore - minScore || 1)) * (width - pad * 1.5);
+  const barWidth = ((width - pad * 1.5) / rows.length) * 0.78;
+  const chartBottom = height - pad;
+  const chartTop = 26;
+  const chartHeight = chartBottom - chartTop;
+  const thresholdX = xForScore(threshold);
+  return <svg viewBox={`0 0 ${width} ${height}`} className="h-[260px] w-full" role="img" aria-label="Probability distribution by event outcome">
+    <rect width={width} height={height} rx="6" fill="#f8fafc" />
+    {[0, 0.25, 0.5, 0.75, 1].map((tick) => <g key={tick}>
+      <line x1={pad} y1={chartBottom - tick * chartHeight} x2={width - 28} y2={chartBottom - tick * chartHeight} stroke="#e2e8f0" />
+      <text x={22} y={chartBottom - tick * chartHeight + 3} textAnchor="middle" fontSize="9" fill="#64748b">{Math.round(tick * maxN).toLocaleString()}</text>
+    </g>)}
+    {rows.map((row, index) => {
+      const x = xForScore(row.mean_score) - barWidth / 2;
+      const totalHeight = (row.n / maxN) * chartHeight;
+      const positiveHeight = (row.positives / maxN) * chartHeight;
+      const negativeHeight = Math.max(0, totalHeight - positiveHeight);
+      return <g key={row.decile}>
+        <rect x={x} y={chartBottom - negativeHeight} width={barWidth} height={negativeHeight} rx="2" fill="#93c5fd" opacity="0.85" />
+        <rect x={x} y={chartBottom - totalHeight} width={barWidth} height={positiveHeight} rx="2" fill="#f97316" opacity="0.9" />
+        {index % 3 === 0 ? <text x={x + barWidth / 2} y={height - 15} textAnchor="middle" fontSize="9" fill="#64748b">{row.mean_score.toFixed(2)}</text> : null}
+      </g>;
+    })}
+    <line x1={thresholdX} y1={chartTop} x2={thresholdX} y2={chartBottom} stroke="#0f172a" strokeWidth="2" />
+    <text x={Math.min(width - 80, Math.max(80, thresholdX))} y={18} textAnchor="middle" fontSize="10" fontWeight="700" fill="#0f172a">Threshold {threshold.toFixed(3)}</text>
+    <text x={width / 2} y={height - 2} textAnchor="middle" fontSize="10" fill="#475569">Predicted probability of event</text>
+    <text x="13" y={height / 2} textAnchor="middle" fontSize="10" fill="#475569" transform={`rotate(-90 13 ${height / 2})`}>Records</text>
+    <g transform={`translate(${width - 155} 34)`}>
+      <rect width="10" height="10" fill="#93c5fd" /><text x="16" y="9" fontSize="10" fill="#475569">Non-event</text>
+      <rect x="76" width="10" height="10" fill="#f97316" /><text x="92" y="9" fontSize="10" fill="#475569">Event</text>
+    </g>
+  </svg>;
+}
 
-  return (
-    <div className="rounded-2xl border border-gray-200 bg-white p-4">
-      <div className="text-sm font-semibold mb-3">
-        Lift Chart
-      </div>
-      <LiftChart rows={rows} />
-      <div className="mt-5 text-sm font-semibold mb-3">
-        Decile Lift Table
-      </div>
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="text-left">
-            <th className="py-1">Decile</th>
-            <th className="py-1">N</th>
-            <th className="py-1">Positives</th>
-            <th className="py-1">Event Rate</th>
-            <th className="py-1">Lift</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r) => {
-            const rate =
-              typeof r.event_rate === "number"
-                ? r.event_rate
-                : r.rate ?? 0;
-            return (
-              <tr key={r.decile} className="border-t">
-                <td className="py-1">{r.decile}</td>
-                <td className="py-1">{r.n}</td>
-                <td className="py-1">{r.positives}</td>
-                <td className="py-1">{rate.toFixed(4)}</td>
-                <td className="py-1">{r.lift.toFixed(2)}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
+function InteractiveRocChart({ curves, metrics, onThresholdChange }: { curves: Curves | null; metrics: ThresholdMetrics; onThresholdChange: (threshold: number) => void }) {
+  const width = 520;
+  const height = 275;
+  const pad = 42;
+  const fpr = curves?.roc?.fpr ?? [];
+  const tpr = curves?.roc?.tpr ?? [];
+  const sourcePoints = fpr.length && tpr.length
+    ? fpr.map((value, index) => ({ fpr: clamp01(value), tpr: clamp01(tpr[index] ?? 0), threshold: clampThreshold(1 - value) }))
+    : [];
+  const points = sourcePoints.length
+    ? sourcePoints
+    : [{ fpr: 0, tpr: 0, threshold: 0.99 }, { fpr: metrics.false_positive_rate, tpr: metrics.recall, threshold: metrics.threshold }, { fpr: 1, tpr: 1, threshold: 0.01 }];
+  const sorted = points.slice().sort((a, b) => a.fpr - b.fpr);
+  const sx = (value: number) => pad + clamp01(value) * (width - pad * 1.35);
+  const sy = (value: number) => height - pad - clamp01(value) * (height - pad * 1.35);
+  const active = sorted.reduce((best, point) => {
+    const distance = Math.hypot(point.fpr - metrics.false_positive_rate, point.tpr - metrics.recall);
+    const bestDistance = Math.hypot(best.fpr - metrics.false_positive_rate, best.tpr - metrics.recall);
+    return distance < bestDistance ? point : best;
+  }, sorted[0]);
+  const line = sorted.map((point) => `${sx(point.fpr)},${sy(point.tpr)}`).join(" ");
+  const selectPoint = (event: PointerEvent<SVGSVGElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const viewX = ((event.clientX - rect.left) / rect.width) * width;
+    const viewY = ((event.clientY - rect.top) / rect.height) * height;
+    const fprAtPointer = clamp01((viewX - pad) / (width - pad * 1.35));
+    const tprAtPointer = clamp01((height - pad - viewY) / (height - pad * 1.35));
+    const nearest = sorted.reduce((best, point) => {
+      const distance = Math.hypot(point.fpr - fprAtPointer, point.tpr - tprAtPointer);
+      const bestDistance = Math.hypot(best.fpr - fprAtPointer, best.tpr - tprAtPointer);
+      return distance < bestDistance ? point : best;
+    }, active);
+    onThresholdChange(Number(nearest.threshold.toFixed(2)));
+  };
+  return <svg viewBox={`0 0 ${width} ${height}`} className="h-[260px] w-full cursor-crosshair select-none" role="img" aria-label="Interactive ROC curve" onPointerDown={selectPoint} onPointerMove={(event) => { if (event.buttons === 1) selectPoint(event); }}>
+    <rect width={width} height={height} rx="6" fill="#f8fafc" />
+    {[0, 0.25, 0.5, 0.75, 1].map((tick) => <g key={tick}>
+      <line x1={sx(tick)} y1={pad / 2} x2={sx(tick)} y2={height - pad} stroke="#e2e8f0" />
+      <line x1={pad} y1={sy(tick)} x2={width - pad / 2} y2={sy(tick)} stroke="#e2e8f0" />
+      <text x={sx(tick)} y={height - 22} textAnchor="middle" fontSize="10" fill="#64748b">{tick.toFixed(2)}</text>
+    </g>)}
+    <line x1={sx(0)} y1={sy(0)} x2={sx(1)} y2={sy(1)} stroke="#94a3b8" strokeDasharray="5 5" />
+    <polyline points={line} fill="none" stroke="#0f766e" strokeWidth="3" strokeLinejoin="round" />
+    <line x1={sx(active.fpr)} y1={sy(0)} x2={sx(active.fpr)} y2={sy(active.tpr)} stroke="#334155" strokeDasharray="4 4" />
+    <line x1={sx(0)} y1={sy(active.tpr)} x2={sx(active.fpr)} y2={sy(active.tpr)} stroke="#334155" strokeDasharray="4 4" />
+    <circle cx={sx(active.fpr)} cy={sy(active.tpr)} r="7" fill="#ffffff" stroke="#0f766e" strokeWidth="3" />
+    <text x={Math.min(width - 140, sx(active.fpr) + 12)} y={Math.max(18, sy(active.tpr) - 10)} fontSize="10" fontWeight="700" fill="#0f172a">FPR {formatPercent(active.fpr)} | TPR {formatPercent(active.tpr)}</text>
+    <text x={width / 2} y={height - 5} textAnchor="middle" fontSize="11" fill="#475569">False positive rate</text>
+    <text x="13" y={height / 2} textAnchor="middle" fontSize="11" fill="#475569" transform={`rotate(-90 13 ${height / 2})`}>True positive rate</text>
+  </svg>;
+}
+
+function clamp01(value: number) {
+  return Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0));
+}
+
+function clampThreshold(value: number) {
+  return Math.max(0.01, Math.min(0.99, Number.isFinite(value) ? value : 0.5));
+}
+
+function LiftGainCapture({ lift }: { lift: NonNullable<CommandCenter["lift"]> }) {
+  const points = lift.deciles.map((row) => ({ x: row.population_rate, capture: row.capture_rate, gain: row.capture_rate, cumulativeLift: row.population_rate ? row.capture_rate / row.population_rate : 0 }));
+  return <div className="mt-5 rounded-md border border-indigo-200 bg-white p-4" data-testid="lift-gain-capture"><div className="flex items-center justify-between"><div><div className="text-xs font-semibold uppercase text-indigo-700">Lift, Gain, and Capture</div><h3 className="mt-1 text-base font-semibold">Population concentration analysis</h3></div>{statusPill(`Natural event rate ${formatPercent(lift.base_rate)}`)}</div><div className="mt-4 grid gap-4 xl:grid-cols-3"><ChartCard title="Cumulative Lift"><SimpleAnalyticChart points={points.map((row) => ({ x: row.x, y: row.cumulativeLift }))} color="#4f46e5" yLabel="Lift" /></ChartCard><ChartCard title="Cumulative Gain"><SimpleAnalyticChart points={points.map((row) => ({ x: row.x, y: row.gain }))} color="#0f766e" yLabel="Gain" /></ChartCard><ChartCard title="Capture Curve"><SimpleAnalyticChart points={points.map((row) => ({ x: row.x, y: row.capture }))} color="#ea580c" yLabel="Capture" /></ChartCard></div><div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">{Object.entries(lift.top_capture).map(([label, row]) => <div key={label} className="rounded-md border border-slate-200 bg-slate-50 p-3"><div className="text-[10px] font-semibold uppercase text-slate-500">Top {label}</div><div className="mt-1 text-lg font-semibold">{formatPercent(row.capture_rate)} captured</div><div className="mt-1 text-xs text-slate-600">Lift {row.lift.toFixed(2)} | {row.events.toLocaleString()} events</div></div>)}</div><div className="mt-4 max-h-72 overflow-auto rounded-md border"><table className="w-full text-xs"><thead className="sticky top-0 bg-slate-100 text-left uppercase text-slate-600"><tr><th className="px-3 py-2">Decile</th><th className="px-3 py-2">Rows</th><th className="px-3 py-2">Events</th><th className="px-3 py-2">Event rate</th><th className="px-3 py-2">Lift</th><th className="px-3 py-2">Capture</th><th className="px-3 py-2">Mean score</th></tr></thead><tbody>{lift.deciles.map((row) => <tr key={row.decile} className="border-t"><td className="px-3 py-2 font-semibold">{row.decile}</td><td className="px-3 py-2">{row.n.toLocaleString()}</td><td className="px-3 py-2">{row.positives.toLocaleString()}</td><td className="px-3 py-2">{formatPercent(row.event_rate)}</td><td className="px-3 py-2">{row.lift.toFixed(2)}</td><td className="px-3 py-2">{formatPercent(row.capture_rate)}</td><td className="px-3 py-2">{row.mean_score.toFixed(4)}</td></tr>)}</tbody></table></div></div>;
+}
+
+function SimpleAnalyticChart({ points, color, yLabel }: { points: Array<{ x: number; y: number }>; color: string; yLabel: string }) {
+  if (!points.length) return <Unavailable title="Chart unavailable" text="No decile evidence was returned." compact />;
+  const width = 420, height = 220, pad = 38, maxY = Math.max(1, ...points.map((p) => p.y));
+  const sx = (v: number) => pad + v * (width - pad * 1.4), sy = (v: number) => height - pad - (v / maxY) * (height - pad * 1.5);
+  const line = [`${sx(0)},${sy(0)}`, ...points.map((point) => `${sx(point.x)},${sy(point.y)}`)].join(" ");
+  return <svg viewBox={`0 0 ${width} ${height}`} className="h-[210px] w-full"><rect width={width} height={height} rx="6" fill="#f8fafc" /><line x1={pad} y1={height - pad} x2={width - 16} y2={height - pad} stroke="#94a3b8" /><line x1={pad} y1={15} x2={pad} y2={height - pad} stroke="#94a3b8" /><polyline points={line} fill="none" stroke={color} strokeWidth="3" /><text x={width / 2} y={height - 7} textAnchor="middle" fontSize="10" fill="#475569">Population fraction</text><text x="12" y={height / 2} textAnchor="middle" fontSize="10" fill="#475569" transform={`rotate(-90 12 ${height / 2})`}>{yLabel}</text></svg>;
+}
+
+function DatasetRoleCard({ title, role, status, metrics, tone }: { title: string; role: string; status: string; metrics: Array<{ label: string; value: string }>; tone: "slate" | "blue" | "amber" }) {
+  const style = tone === "blue" ? "border-blue-200 bg-blue-50" : tone === "amber" ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-slate-50";
+  return <article className={`rounded-md border p-4 ${style}`}><div className="flex items-start justify-between gap-2"><div><div className="text-xs font-semibold uppercase text-slate-600">{role}</div><h3 className="mt-1 text-lg font-semibold text-slate-950">{title}</h3></div>{statusPill(status, /available/i.test(status) && !/not/i.test(status) ? "good" : "warn")}</div><div className="mt-4 grid grid-cols-2 gap-2">{metrics.map((metric) => <MetricTile key={metric.label} label={metric.label} value={metric.value} />)}</div></article>;
+}
+
+function CalibrationChart({ rows }: { rows: Array<{ predicted: number; observed: number; n: number }> }) {
+  return <CurveChart x={rows.map((row) => row.predicted)} y={rows.map((row) => row.observed)} xLabel="Mean predicted probability" yLabel="Observed event rate" color="#059669" diagonal />;
+}
+
+function LeaderboardRow({ model, rank, active, compared, onReview, onCompare, onInterpret }: { model: RankedRow; rank: number; active: boolean; compared: boolean; onReview: () => void; onCompare: () => void; onInterpret: () => void }) {
+  return <tr className={active ? "bg-blue-50" : "bg-white"}><td className="px-3 py-3 font-semibold">{rank}</td><td className="px-3 py-3"><div className="font-semibold text-slate-950">{cleanModelName(model.name)}</div>{rank === 1 ? <div className="mt-1 text-[10px] font-semibold uppercase text-emerald-700">Current metric leader</div> : null}</td><td className="px-3 py-3 text-slate-600">{modelFamily(model)}</td><td className="px-3 py-3 font-mono">{formatMetric(model.pr_auc)}</td><td className="px-3 py-3 font-mono">{formatMetric(model.auc)}</td><td className="px-3 py-3 font-mono">{formatMetric(model.recall)}</td><td className="px-3 py-3 font-mono">{formatMetric(model.precision)}</td><td className="px-3 py-3 font-mono">{formatMetric(model.ks)}</td><td className="px-3 py-3">{model.calibration_method || (model.calibration_applied ? "Applied" : "Not applied")}</td><td className="px-3 py-3"><div className="flex gap-1"><button type="button" className="atlas-icon-button" title="Review Model" onClick={onReview}><Activity size={15} /></button><button type="button" className={`atlas-icon-button ${compared ? "text-emerald-700" : ""}`} title={compared ? "Remove from Comparison" : "Add to Comparison"} onClick={onCompare}>{compared ? <Check size={15} /> : <GitCompareArrows size={15} />}</button><button type="button" className="atlas-icon-button" title="Open Interpretation" onClick={onInterpret}><ArrowRight size={15} /></button></div></td></tr>;
+}
+
+function AnomalyDiagnostics({ models }: { models: RankedRow[] }) {
+  return <div className="mt-5 rounded-md border border-amber-200 bg-amber-50 p-4" data-testid="supplemental-anomaly-diagnostics"><div className="flex items-center gap-2"><ShieldCheck size={17} className="text-amber-700" /><div><div className="text-xs font-semibold uppercase text-amber-700">Supplemental Anomaly Diagnostics</div><h3 className="text-base font-semibold text-slate-950">Targetless models remain separate and are never champion-eligible</h3></div></div><div className="mt-3 grid gap-3 md:grid-cols-2">{models.map((model) => <div key={model.key} className="rounded-md border border-amber-200 bg-white p-3"><div className="font-semibold">{cleanModelName(model.name)}</div><div className="mt-1 text-xs text-slate-600">Supervised benchmark metrics are shown only when recorded. This model cannot enter the Interpretation comparison tray or be treated as a provisional leader.</div><div className="mt-2 flex gap-2">{statusPill("Diagnostic only", "warn")}{statusPill(`ROC-AUC ${formatMetric(model.auc)}`)}</div></div>)}</div></div>;
+}
+
+function ComparisonRow({ model, rank, onRemove, onOpen }: { model: RankedRow; rank: number; onRemove: () => void; onOpen: () => void }) {
+  return <article className="rounded-md border border-violet-200 bg-white p-4"><div className="flex items-start justify-between gap-2"><div><div className="text-[10px] font-semibold uppercase text-violet-700">Provisional rank {rank}</div><h3 className="mt-1 font-semibold text-slate-950">{cleanModelName(model.name)}</h3></div><button type="button" className="atlas-icon-button" title="Remove from Comparison" onClick={onRemove}><Trash2 size={15} /></button></div><div className="mt-3 grid grid-cols-4 gap-2 text-xs"><MiniMetric label="PR-AUC" value={formatMetric(model.pr_auc)} /><MiniMetric label="ROC-AUC" value={formatMetric(model.auc)} /><MiniMetric label="Recall" value={formatMetric(model.recall)} /><MiniMetric label="Precision" value={formatMetric(model.precision)} /><MiniMetric label="KS" value={formatMetric(model.ks)} /><MiniMetric label="Calibration" value={model.calibration_method || "Not applied"} /><MiniMetric label="TEST" value="Available" /><MiniMetric label="OOT" value="Not loaded" /></div><button type="button" className="atlas-primary-button mt-3" onClick={onOpen}>Open Interpretation <ArrowRight size={15} /></button></article>;
+}
+
+function MiniMetric({ label, value }: { label: string; value: string }) {
+  return <div className="min-w-0 rounded bg-slate-50 p-2"><div className="text-[9px] font-semibold uppercase text-slate-500">{label}</div><div className="mt-0.5 truncate font-semibold" title={value}>{value}</div></div>;
+}
+
+function LoadingPanel({ text }: { text: string }) {
+  return <div className="mt-4 flex min-h-28 items-center justify-center gap-2 rounded-md border border-slate-200 bg-slate-50 text-sm text-slate-600"><RefreshCw size={16} className="animate-spin" />{text}</div>;
+}
+
+function Unavailable({ title, text, compact = false }: { title: string; text: string; compact?: boolean }) {
+  return <div className={`rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 ${compact ? "min-h-40" : "mt-4 min-h-28"}`}><div className="font-semibold text-slate-800">{title}</div><p className="mt-1 text-sm leading-5 text-slate-600">{text}</p></div>;
 }

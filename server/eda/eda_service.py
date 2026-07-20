@@ -97,14 +97,19 @@ class EDAService:
     def histogram(self, df: pd.DataFrame, column: str, bins: int = 40) -> Dict[str, Any]:
         if df is None or df.empty or column not in df.columns:
             return {"ok": False, "error": "Column not found."}
-        s = pd.to_numeric(df[column], errors="coerce").dropna()
+        s = pd.to_numeric(df[column], errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
         if s.empty:
             return {"ok": False, "error": "No data for column."}
-        counts, edges = np.histogram(s.values, bins=bins)
+        requested_bins = min(max(5, int(bins)), 60)
+        counts, edges = np.histogram(s.values, bins=requested_bins)
         return {
             "ok": True,
             "edges": edges.astype(float).tolist(),
             "counts": counts.astype(float).tolist(),
+            "column": str(column),
+            "requested_bins": requested_bins,
+            "returned_bins": int(len(counts)),
+            "row_count": int(len(s)),
         }
 
     def boxplot_stats(self, df: pd.DataFrame, column: str) -> Dict[str, Any]:

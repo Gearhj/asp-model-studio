@@ -54,6 +54,7 @@ globalThis.window = {
   },
   scrollTo() {},
 };
+globalThis.fetch = async () => ({ ok: true, json: async () => ({ ok: true }) });
 
 async function transpileSource(sourcePath, outputPath) {
   const source = await readFile(new URL(sourcePath, ROOT), "utf8");
@@ -77,6 +78,9 @@ async function compileTestModules() {
   await transpileSource("src/config/workflows.ts", path.join(TMP_DIR, "src/config/workflows.js"));
   await transpileSource("src/lib/projectImportValidation.ts", path.join(TMP_DIR, "src/lib/projectImportValidation.js"));
   await transpileSource("src/lib/projectPersistence.ts", path.join(TMP_DIR, "src/lib/projectPersistence.js"));
+  await transpileSource("src/lib/api.ts", path.join(TMP_DIR, "src/lib/api.js"));
+  await transpileSource("src/config/optimizationTemplates.ts", path.join(TMP_DIR, "src/config/optimizationTemplates.js"));
+  await transpileSource("src/lib/serverPersistence.ts", path.join(TMP_DIR, "src/lib/serverPersistence.js"));
   await transpileSource("src/lib/localProjects.ts", path.join(TMP_DIR, "src/lib/localProjects.js"));
   return {
     localProjects: await import(pathToFileURL(path.join(TMP_DIR, "src/lib/localProjects.js")).href),
@@ -248,7 +252,7 @@ test("Model Training source allows more than three selectable models and unlocke
   assert.doesNotMatch(source, /key === "logreg"[\s\S]{0,120}disabled/);
   assert.doesNotMatch(source, /key === "rf"[\s\S]{0,120}disabled/);
   assert.match(source, /Select at least one model before training/);
-  assert.match(source, /models,\s*k_folds/s);
+  assert.match(source, /models:\s*selectedModels,\s*k_folds:\s*kFolds/s);
 });
 
 test("Model Training keeps Studio-routed continuation and no direct Evaluation button", async () => {
@@ -261,9 +265,11 @@ test("Model Training keeps Studio-routed continuation and no direct Evaluation b
 
 test("Feature Engineering respects selected columns from Data Acquisition", async () => {
   const source = await readFile(new URL("../src/steps/Step05_EncodingScaling.tsx", import.meta.url), "utf8");
-  assert.match(source, /filterRowsToHeaders/);
-  assert.match(source, /localDataset\?\.headers\.length/);
-  assert.match(source, /allowedHeaders\.has\(column\.name\)/);
+  const featureService = await readFile(new URL("../server/features/feature_service.py", import.meta.url), "utf8");
+  assert.match(source, /getFeatureManifest\(\)/);
+  assert.match(featureService, /DATASTORE\.get_selected_columns\(\)/);
+  assert.match(featureService, /"eligibility_status": "eligible" if eligible else "excluded"/);
+  assert.match(featureService, /row\.get\("selected"\) and row\.get\("eligibility_status"\) == "eligible"/);
 });
 
 test("Model Training includes Decision Tree Regressor baseline and regression grid search", async () => {
@@ -272,26 +278,29 @@ test("Model Training includes Decision Tree Regressor baseline and regression gr
 
   assert.match(frontend, /dt_reg/);
   assert.match(frontend, /Decision Tree Regressor/);
-  assert.match(frontend, /DEFAULT_REGRESSION_SELECTION[\s\S]*dt_reg:\s*true/);
+  assert.match(frontend, /problemType === "regression" \? \["linreg", "dt_reg", "rf_reg"\]/);
   assert.match(backend, /DecisionTreeRegressor/);
   assert.match(backend, /"dt_reg"/);
   assert.match(backend, /neg_root_mean_squared_error/);
 });
 
-test("Predictive workflow uses regression-safe labels and metrics", async () => {
+test("Predictive workflow keeps Project Context concise and downstream regression-safe", async () => {
   const projectContext = await readFile(new URL("../src/steps/Step00_ProjectContext.tsx", import.meta.url), "utf8");
   const dataAcquisition = await readFile(new URL("../src/steps/Step01_DataAcquisition.tsx", import.meta.url), "utf8");
   const balancing = await readFile(new URL("../src/steps/Step06_BalancingSplit.tsx", import.meta.url), "utf8");
   const scoring = await readFile(new URL("../src/steps/Step10_Scoring.tsx", import.meta.url), "utf8");
   const modelDocument = await readFile(new URL("../src/lib/modelDevelopmentDocument.ts", import.meta.url), "utf8");
 
-  assert.match(projectContext, /Overprediction cost/);
-  assert.match(projectContext, /Underprediction cost/);
+  assert.match(projectContext, /predictiveModelTypeOptions/);
+  assert.match(projectContext, /Pending Data Review/);
+  assert.match(projectContext, /Pending Data Acquisition/);
+  assert.doesNotMatch(projectContext, /Overprediction cost|Underprediction cost/, "Project Context must not restore the removed cost questionnaire.");
   assert.match(dataAcquisition, /Corr\(Target\)/);
   assert.match(dataAcquisition, /Target Mean/);
   assert.match(dataAcquisition, /props\.targetInfo\.kind === "continuous"/);
-  assert.match(balancing, /Regression Split Validation/);
-  assert.match(balancing, /Balancing, SMOTE, class weights, and event-rate controls are not applicable/);
+  assert.match(balancing, /problemType === "classification"/);
+  assert.match(balancing, /Class balancing is not applicable to regression/);
+  assert.match(balancing, /Training and holdout retain their observed target distributions/);
   assert.match(scoring, /External Validation Dataset/);
   assert.match(scoring, /Out-of-Time Dataset/);
   assert.doesNotMatch(scoring, /Mark Complete &amp; Build Document|Mark Complete & Build Document|navigate\("\/step11"\)/);
@@ -344,22 +353,21 @@ test("EDA and Interpretation handle classification-specific predictive workflow 
   const interpretationPage = await readFile(new URL("../src/steps/Step09_Interpretation.tsx", import.meta.url), "utf8");
 
   for (const term of [
-    "ClassificationTargetAnalysis",
-    "Class Distribution",
-    "Event Rate",
-    "Non-event Count",
-    "Event Count",
-    "Class Balance",
-    "Rare-event workflow recommended",
-    "Target Missingness",
-    "Feature Investigation Controls",
-    "Feature Relationship / Correlation to Target",
+    "target_profile",
+    "Target Profile",
+    "Event rate",
+    "Non-event count",
+    "Event count",
+    "Rare-event target detected",
+    "Missing target",
+    "Target by segment",
+    "Accuracy is not an appropriate primary metric",
   ]) {
     assert.match(edaPage, new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `EDA missing classification target term ${term}.`);
   }
   assert.ok(
-    edaPage.indexOf("TargetVariableAnalysis") < edaPage.indexOf("Feature Investigation Controls"),
-    "Feature controls should appear after Target Variable Analysis."
+    edaPage.indexOf('activeTab === "target"') < edaPage.indexOf('activeTab === "predictors"'),
+    "Target analysis should precede predictor analysis in the tab sequence."
   );
 
   for (const term of [
@@ -385,15 +393,17 @@ test("Linear Regression interpretation path is scoped to current project and rej
   const evalPage = await readFile(new URL("../src/steps/Step08_Evaluation.tsx", import.meta.url), "utf8");
   const interpretationPage = await readFile(new URL("../src/steps/Step09_Interpretation.tsx", import.meta.url), "utf8");
   const trainerService = await readFile(new URL("../server/training/trainer_service.py", import.meta.url), "utf8");
+  const trainingJobService = await readFile(new URL("../server/training/training_job_service.py", import.meta.url), "utf8");
+  const trainingPreflight = await readFile(new URL("../server/training/training_preflight_service.py", import.meta.url), "utf8");
   const trainerRouter = await readFile(new URL("../server/training/trainer_router.py", import.meta.url), "utf8");
   const evalRouter = await readFile(new URL("../server/evaluation/eval_router.py", import.meta.url), "utf8");
   const evalService = await readFile(new URL("../server/evaluation/eval_service.py", import.meta.url), "utf8");
   const resultStore = await readFile(new URL("../server/core/result_store.py", import.meta.url), "utf8");
 
   assert.match(trainPage, /project_id:\s*projectId/);
-  assert.match(trainPage, /dataset_version:\s*localDatasetVersion\(currentDataset\)/);
-  assert.match(trainPage, /target:\s*currentDataset\?\.target/);
-  assert.match(trainPage, /problem_type:\s*trainingProblemType/);
+  assert.match(trainPage, /dataset_version:\s*manifest\?\.dataset_version \?\? dataset\?\.dataset_version/);
+  assert.match(trainPage, /target:\s*dataset\?\.target/);
+  assert.match(trainPage, /problem_type:\s*problemType/);
   assert.doesNotMatch(evalPage, /Mark Complete &amp; Interpret Model|Mark Complete & Interpret Model/);
   assert.match(interpretationPage, /interpretationContextQuery/);
   assert.match(interpretationPage, /project_id/);
@@ -403,17 +413,22 @@ test("Linear Regression interpretation path is scoped to current project and rej
   assert.match(trainerRouter, /project_id = str\(request\.get\("project_id"\)/);
   assert.match(trainerService, /artifact_metadata/);
   assert.match(trainerService, /training_run_id/);
+  assert.match(trainingJobService, /"training_run_id": job\["job_id"\]/);
+  assert.match(trainingJobService, /"project_id": request\.project_id/);
+  assert.match(trainingJobService, /"dataset_version": job\["dataset_version"\]/);
   assert.match(resultStore, /model_artifact_metadata/);
   assert.match(resultStore, /get_model_artifact_metadata/);
   assert.match(evalRouter, /\/interpretation\/debug/);
   assert.match(evalService, /_artifact_context_mismatch/);
   assert.match(evalService, /The selected model artifact does not match the current/);
   assert.match(evalService, /Please retrain/);
-  assert.match(trainPage, /trainingFeatureColumns/);
-  assert.match(trainPage, /Target-derived fields excluded before training/);
+  assert.match(trainingPreflight, /manifest_selected/);
+  assert.match(trainingPreflight, /unexpected_features/);
+  assert.match(trainingPreflight, /training split contains predictors outside the approved manifest/);
   assert.match(trainerService, /_sanitize_feature_frame/);
   assert.match(trainerService, /excluded_target_features/);
-  assert.match(trainerService, /riskperformance/);
+  assert.match(trainerService, /trained_feature_names/);
+  assert.doesNotMatch(trainerService, /riskperformance|bad_flag/);
   assert.match(evalService, /_filter_target_derived_rows/);
   assert.match(evalService, /_is_target_derived_feature/);
 });

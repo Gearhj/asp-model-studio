@@ -1,0 +1,1 @@
+"""ATLAS resource sharing API."""

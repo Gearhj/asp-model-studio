@@ -10,6 +10,7 @@ import {
   thinProjectForStorage,
 } from "./projectPersistence";
 import { validateProjectImport } from "./projectImportValidation";
+import { queueProjectDatabaseSave } from "./serverPersistence";
 
 export const LOCAL_PROJECTS_KEY = "atlas-local-projects";
 export const PROJECT_SNAPSHOT_KEY_PREFIX = "atlas-project-snapshot:";
@@ -42,7 +43,8 @@ export type LocalProjectRecord = {
   workflowId: string;
   createdAt: string;
   lastModified: string;
-  source?: "browser" | "imported";
+  source?: "browser" | "imported" | "database";
+  backendMetadata?: Record<string, unknown>;
   snapshotStorageKey?: string;
   restoreStatus?: string;
   snapshot: WorkflowProjectSnapshot;
@@ -633,14 +635,15 @@ export function upsertProjectSnapshot(snapshot: WorkflowProjectSnapshot, source:
     saveLocalProjects([record, ...existing.filter((project) => project.projectId !== record.projectId)]);
     const registryWarning = lastRegistryWriteError;
     emitProjectSaveStatus({
-      status: registryWarning ? "registry_warning" : "saved",
+      status: registryWarning ? "registry_warning" : "local_only",
       projectId: record.projectId,
       savedAt: record.lastModified,
       snapshotBytes: estimateBytes(record.snapshot),
       message: registryWarning
         ? `Project snapshot preserved for this session, but the Recent Projects index could not be written: ${registryWarning}`
-        : "ATLAS project saved.",
+        : "Project saved to the local compatibility store. ATLAS database sync is pending.",
     });
+    queueProjectDatabaseSave(record.snapshot);
     return record;
   } catch (error) {
     emitProjectSaveStatus({
@@ -685,7 +688,7 @@ export function saveActiveProjectBeforeNavigation(state: CurrentWorkflowState) {
       saveLocalProjects([record, ...existing.filter((project) => project.projectId !== record.projectId)]);
       const registryWarning = lastRegistryWriteError;
       emitProjectSaveStatus({
-        status: registryWarning ? "registry_warning" : "saved",
+        status: registryWarning ? "registry_warning" : "local_only",
         projectId: record.projectId,
         savedAt: record.lastModified,
         snapshotBytes: estimateBytes(snapshot),
@@ -693,6 +696,7 @@ export function saveActiveProjectBeforeNavigation(state: CurrentWorkflowState) {
           ? `Thin project snapshot preserved for this session, but the Recent Projects index could not be written: ${registryWarning}`
           : "ATLAS saved a thin project snapshot before navigation.",
       });
+      queueProjectDatabaseSave(record.snapshot);
       return { ok: true, message: registryWarning || "Project saved as a thin snapshot before navigation.", registryWarning };
     } catch (fallbackError) {
       emitProjectSaveStatus({
@@ -727,6 +731,8 @@ export function renameLocalProject(projectId: string, projectName: string) {
       : project
   );
   saveLocalProjects(projects);
+  const renamed = projects.find((project) => project.projectId === projectId);
+  if (renamed) queueProjectDatabaseSave(renamed.snapshot);
   return projects;
 }
 
@@ -759,6 +765,7 @@ export function duplicateLocalProject(projectId: string) {
   const next = [duplicate, ...projects];
   saveLocalProjects(next);
   copyProjectScopedStorage(source.projectId, duplicatedId);
+  queueProjectDatabaseSave(duplicate.snapshot);
   return { projects: next, duplicate };
 }
 
@@ -780,6 +787,7 @@ export function importLocalProject(candidate: unknown) {
     snapshotStorageKey: projectSnapshotKey(projectId),
   };
   saveLocalProjects([record, ...loadLocalProjects().filter((item) => item.projectId !== projectId)]);
+  queueProjectDatabaseSave(record.snapshot);
   return record;
 }
 

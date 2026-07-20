@@ -30,12 +30,11 @@ const chartStudio = read("src/steps/ChartStudio.tsx");
 const modelDocs = read("src/steps/ModelDocumentationStudio.tsx");
 
 assert(packageJson.scripts["test:notebook-studio"] === "node tests/notebookStudio.test.mjs", "package script exists");
-assert(app.includes("import NotebookStudio") && app.includes('path="/notebook-studio"'), "Notebook Studio route is registered");
+assert((app.includes("import NotebookStudio") || app.includes("const NotebookStudio = lazy")) && app.includes('path="/notebook-studio"'), "Notebook Studio route is registered");
 assert(app.includes('"/notebook-studio"') && app.includes("isFullWidthStudioRoute"), "Notebook Studio uses full-width studio shell");
 assert(sidebar.includes("Notebook Studio") && sidebar.includes('to="/notebook-studio"'), "sidebar contains Notebook Studio");
 
 for (const text of [
-  "Phase 13D",
   "Default Code Language",
   "New Code cells use",
   "Assistant output language",

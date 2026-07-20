@@ -5,12 +5,51 @@ from typing import Dict, Any
 from fastapi import APIRouter, HTTPException
 
 from .trainer_service import TRAINER
+from .training_job_service import TRAINING_JOBS
+from .training_job_types import TrainingJobRequest
 from ..core.json_safety import json_safe
 from ..core.result_store import RESULTS
 from ..core.session_checkpoint import save_checkpoint
 
 
 router = APIRouter()
+
+
+@router.post("/model/train/jobs")
+def create_training_job(request: TrainingJobRequest) -> Dict[str, Any]:
+    try:
+        return json_safe({"ok": True, **TRAINING_JOBS.create(request)})
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/model/train/preflight")
+def run_training_preflight(request: TrainingJobRequest) -> Dict[str, Any]:
+    try:
+        return json_safe(TRAINING_JOBS.preflight(request))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/model/train/jobs/active")
+def get_active_training_jobs() -> Dict[str, Any]:
+    return json_safe({"ok": True, "jobs": TRAINING_JOBS.active()})
+
+
+@router.get("/model/train/jobs/{job_id}")
+def get_training_job(job_id: str) -> Dict[str, Any]:
+    job = TRAINING_JOBS.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Training job was not found or is no longer available.")
+    return json_safe({"ok": True, **job})
+
+
+@router.post("/model/train/jobs/{job_id}/cancel")
+def cancel_training_job(job_id: str) -> Dict[str, Any]:
+    job = TRAINING_JOBS.cancel(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Training job was not found or is no longer available.")
+    return json_safe({"ok": True, **job})
 
 
 @router.get("/models/availability")
@@ -94,6 +133,27 @@ def train_models(request: Dict[str, Any]) -> Dict[str, Any]:
         target = str(request.get("target") or "")
         problem_type = str(request.get("problem_type") or "")
 
+        typed_request = TrainingJobRequest(
+            models=models,
+            k_folds=k_folds,
+            max_parallel=max_parallel,
+            calibrate=calibrate,
+            use_pca=use_pca,
+            grid_search=grid_search,
+            grid_search_level=grid_search_level,
+            model_params=model_params,
+            project_id=project_id,
+            dataset_version=dataset_version,
+            target=target,
+            problem_type=problem_type,
+            event_value=request.get("event_value"),
+            feature_manifest_version=str(request.get("feature_manifest_version") or ""),
+            split_id=str(request.get("split_id") or ""),
+        )
+        preflight = TRAINING_JOBS.preflight(typed_request)
+        if not preflight["ready"]:
+            raise ValueError("Training preflight blocked execution: " + " | ".join(preflight["blocking_errors"]))
+
         summary = TRAINER.train(
             models=models,
             k_folds=k_folds,
@@ -126,7 +186,12 @@ def train_models(request: Dict[str, Any]) -> Dict[str, Any]:
 
 
 @router.get("/train/last")
-def get_last_train() -> Dict[str, Any]:
+def get_last_train(
+    project_id: str = "",
+    dataset_version: str = "",
+    target: str = "",
+    problem_type: str = "",
+) -> Dict[str, Any]:
     """
     Used by:
       • Step06_Train.tsx (to render the summary table after training)
@@ -135,4 +200,26 @@ def get_last_train() -> Dict[str, Any]:
     Returns whatever the last successful /model/train call stored in RESULTStore.
     """
     last = RESULTS.get_last_summary()
+    if last:
+        expected = {
+            "project_id": project_id,
+            "dataset_version": dataset_version,
+            "target": target,
+            "problem_type": problem_type,
+        }
+        labels = {
+            "project_id": "project",
+            "dataset_version": "dataset version",
+            "target": "target",
+            "problem_type": "problem type",
+        }
+        for key, label in labels.items():
+            expected_value = str(expected.get(key) or "").strip()
+            actual_value = str(last.get(key) or "").strip()
+            if expected_value and expected_value != actual_value:
+                return json_safe({
+                    "ok": True,
+                    "summary": None,
+                    "context_error": f"The last training run does not match the current {label}. Train models for this project before continuing.",
+                })
     return json_safe({"ok": True, "summary": last})

@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type React from "react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useLocation } from "react-router-dom";
 import {
   BookOpenCheck,
   Boxes,
@@ -18,11 +18,18 @@ import {
   Plus,
   Settings2,
   Activity,
+  Bell,
   BarChart3,
   LineChart,
   Landmark,
+  LayoutDashboard,
   Network,
+  FolderKanban,
   ShieldCheck,
+  Share2,
+  ClipboardCheck,
+  PanelLeftClose,
+  PanelLeftOpen,
   UserCircle,
   Users,
   Workflow,
@@ -30,12 +37,15 @@ import {
 import BrandLogo from "./BrandLogo";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { saveActiveProjectBeforeNavigation } from "../lib/localProjects";
+import { loadTransportationOptimizationSnapshot, optimizationWorkflowStepStatus, type OptimizationWorkflowStatus } from "../lib/transportationOptimizationEvidence";
 
 function linkClass(isActive: boolean, nested = false) {
   return [
-    "flex min-h-9 items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition",
+    "relative flex min-h-9 items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-300",
     nested ? "pl-8" : "",
-    isActive ? "bg-blue-600 text-white shadow-sm" : "text-slate-200 hover:bg-white/10 hover:text-white",
+    isActive
+      ? "bg-blue-500/[0.15] text-white shadow-sm before:absolute before:left-0 before:top-2 before:h-[calc(100%-1rem)] before:w-1 before:rounded-full before:bg-sky-300"
+      : "text-slate-300 hover:bg-white/10 hover:text-white",
   ].join(" ");
 }
 
@@ -46,22 +56,56 @@ function statusClass(status?: string) {
   return "bg-white/25";
 }
 
+function optimizationStatusClass(status: OptimizationWorkflowStatus) {
+  if (status === "Current") return "bg-blue-400/20 text-blue-100";
+  if (status === "Evidence") return "bg-emerald-400/20 text-emerald-100";
+  if (status === "Complete") return "bg-teal-400/20 text-teal-100";
+  if (status === "Blocked") return "bg-amber-400/20 text-amber-100";
+  return "bg-white/10 text-slate-300";
+}
+
 export default function Sidebar() {
   const [workflowOpen, setWorkflowOpen] = useState(true);
+  const [compact, setCompact] = useState(() => localStorage.getItem("atlas-sidebar-mode") === "compact");
+  const [optimizationVersion, setOptimizationVersion] = useState(0);
+  const location = useLocation();
   const workflowSteps = useWorkflowStore((state) => state.workflowSteps);
   const projectName = useWorkflowStore((state) => state.projectName);
-  const workflowId = useWorkflowStore((state) => state.workflowId);
+  const projectId = useWorkflowStore((state) => state.projectId);
+  const projectType = useWorkflowStore((state) => state.projectType);
+  const optimizationState = useMemo(() => projectType === "optimization" ? loadTransportationOptimizationSnapshot(projectId) : null, [optimizationVersion, projectId, projectType]);
+
+  useEffect(() => {
+    const refresh = () => setOptimizationVersion((value) => value + 1);
+    window.addEventListener("atlas-workflow-node-updated", refresh);
+    window.addEventListener("storage", refresh);
+    return () => {
+      window.removeEventListener("atlas-workflow-node-updated", refresh);
+      window.removeEventListener("storage", refresh);
+    };
+  }, []);
   const saveBeforeOpenProject = () => {
     saveActiveProjectBeforeNavigation(useWorkflowStore.getState());
   };
 
+  const toggleCompact = () => {
+    setCompact((current) => {
+      const next = !current;
+      localStorage.setItem("atlas-sidebar-mode", next ? "compact" : "expanded");
+      return next;
+    });
+  };
+
   return (
-    <aside className="hidden w-64 shrink-0 border-r border-slate-900 bg-[#071526] shadow-[1px_0_0_rgba(15,23,42,0.2)] lg:block">
-      <div className="border-b border-white/10 px-4 py-4">
-        <BrandLogo size="sm" variant="dark" showSubtitle />
+    <aside className={`hidden h-screen shrink-0 border-r border-slate-900 bg-[#071526] shadow-[1px_0_0_rgba(15,23,42,0.2)] transition-[width] duration-200 lg:sticky lg:top-0 lg:block ${compact ? "w-20 [&_span]:hidden [&_section>div]:hidden [&_a]:justify-center [&_a]:gap-0 [&_a]:px-2 [&_button]:justify-center [&_button]:gap-0 [&_button]:px-2" : "w-64"}`}>
+      <div className={`flex items-center border-b border-white/10 py-4 ${compact ? "justify-center px-2" : "justify-between px-4"}`}>
+        <BrandLogo size="sm" variant="dark" showSubtitle={!compact} />
+        <button type="button" onClick={toggleCompact} className="rounded-lg p-2 text-slate-300 hover:bg-white/10 hover:text-white" title={compact ? "Expand navigation" : "Collapse navigation"}>
+          {compact ? <PanelLeftOpen size={17} /> : <PanelLeftClose size={17} />}
+        </button>
       </div>
 
-      <nav className="flex flex-col gap-5 px-3 py-4">
+      <nav className={`flex h-[calc(100vh-73px)] flex-col gap-5 overflow-y-auto py-4 ${compact ? "px-2" : "px-3"}`}>
         <NavGroup label="Home">
           <NavLink to="/dashboard" className={({ isActive }) => linkClass(isActive)}>
             <Home size={17} className="shrink-0" />
@@ -82,6 +126,44 @@ export default function Sidebar() {
             <Boxes size={17} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">Templates</span>
           </NavLink>
+        </NavGroup>
+
+        <NavGroup label="Management">
+          <NavLink to="/management-dashboard" className={({ isActive }) => linkClass(isActive)}>
+            <LayoutDashboard size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Management Dashboard</span>
+          </NavLink>
+          <NavLink to="/registry" className={({ isActive }) => linkClass(isActive)}>
+            <FolderKanban size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Model / Decision Registry</span>
+          </NavLink>
+          <NavLink to="/validation" className={({ isActive }) => linkClass(isActive)}>
+            <ClipboardCheck size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Validation Queue</span>
+          </NavLink>
+          <NavLink to="/monitoring" className={({ isActive }) => linkClass(isActive)}>
+            <Activity size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Monitoring Center</span>
+          </NavLink>
+          <NavLink to="/model-evidence-center" className={({ isActive }) => linkClass(isActive)}>
+            <Network size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Model Evidence Center</span>
+          </NavLink>
+          <NavLink to="/audit" className={({ isActive }) => linkClass(isActive)}>
+            <ShieldCheck size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Audit Log</span>
+          </NavLink>
+          <NavLink to="/sharing" className={({ isActive }) => linkClass(isActive)}>
+            <Share2 size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Shared with Me</span>
+          </NavLink>
+          <NavLink to="/notifications" className={({ isActive }) => linkClass(isActive)}>
+            <Bell size={17} className="shrink-0" />
+            <span className="min-w-0 flex-1 truncate">Notifications</span>
+          </NavLink>
+        </NavGroup>
+
+        <NavGroup label="Data and Analysis">
           <NavLink to="/datasets" className={({ isActive }) => linkClass(isActive)}>
             <Database size={17} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">Dataset Library</span>
@@ -102,6 +184,9 @@ export default function Sidebar() {
             <NotebookTabs size={17} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">Notebook Studio</span>
           </NavLink>
+        </NavGroup>
+
+        <NavGroup label="Model Lifecycle">
           <NavLink to="/model-diagnostics" className={({ isActive }) => linkClass(isActive)}>
             <LineChart size={17} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">Model Diagnostics</span>
@@ -109,10 +194,6 @@ export default function Sidebar() {
           <NavLink to="/model-document-studio" className={({ isActive }) => linkClass(isActive)}>
             <BookOpenCheck size={17} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">Model Documentation Studio</span>
-          </NavLink>
-          <NavLink to="/model-evidence-center" className={({ isActive }) => linkClass(isActive)}>
-            <Network size={17} className="shrink-0" />
-            <span className="min-w-0 flex-1 truncate">Model Evidence Center</span>
           </NavLink>
           <NavLink to="/credit-risk-studio" className={({ isActive }) => linkClass(isActive)}>
             <Landmark size={17} className="shrink-0" />
@@ -138,14 +219,17 @@ export default function Sidebar() {
 
           {workflowOpen && (
             <div className="grid gap-1">
-              {workflowSteps.map((step) => (
-                <NavLink key={step.id} to={step.route} className={({ isActive }) => linkClass(isActive, true)}>
-                  <span className={`h-2 w-2 shrink-0 rounded-full ${statusClass(step.status)}`} />
-                  <span className="min-w-0 flex-1 truncate" title={step.label}>
-                    {step.label}
-                  </span>
-                </NavLink>
-              ))}
+              {workflowSteps.map((step, index) => {
+                const active = location.pathname === step.route;
+                const optimizationStatus = projectType === "optimization"
+                  ? optimizationWorkflowStepStatus(optimizationState, index + 1, { current: active, storeComplete: step.status === "complete" })
+                  : null;
+                return <NavLink key={step.id} to={step.route} className={({ isActive }) => linkClass(isActive, true)}>
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${optimizationStatus === "Evidence" ? "bg-emerald-400 ring-2 ring-emerald-400/20" : optimizationStatus === "Complete" ? "bg-teal-400 ring-2 ring-teal-400/20" : optimizationStatus === "Current" ? "bg-blue-400 ring-2 ring-blue-400/20" : optimizationStatus === "Blocked" ? "bg-amber-400 ring-2 ring-amber-400/20" : statusClass(step.status)}`} />
+                  <span className="min-w-0 flex-1 truncate" title={step.label}>{step.label}</span>
+                  {optimizationStatus && <span className={`shrink-0 rounded px-1.5 py-0.5 text-[8px] font-semibold uppercase ${optimizationStatusClass(optimizationStatus)}`}>{optimizationStatus}</span>}
+                </NavLink>;
+              })}
             </div>
           )}
 
@@ -171,7 +255,7 @@ export default function Sidebar() {
           </NavLink>
         </NavGroup>
 
-        <NavGroup label="Settings">
+        <NavGroup label="Administration">
           <NavLink to="/account" className={({ isActive }) => linkClass(isActive)}>
             <UserCircle size={17} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">Account</span>
@@ -180,9 +264,9 @@ export default function Sidebar() {
             <Users size={17} className="shrink-0" />
             <span className="min-w-0 flex-1 truncate">User Administration</span>
           </NavLink>
-          <NavLink to="/audit" className={({ isActive }) => linkClass(isActive)}>
+          <NavLink to="/admin" className={({ isActive }) => linkClass(isActive)}>
             <ShieldCheck size={17} className="shrink-0" />
-            <span className="min-w-0 flex-1 truncate">Audit Log</span>
+            <span className="min-w-0 flex-1 truncate">Admin Console</span>
           </NavLink>
           <NavLink to="/settings" className={({ isActive }) => linkClass(isActive)}>
             <Settings2 size={17} className="shrink-0" />

@@ -1,0 +1,28 @@
+{
+  "columns": [
+    "Suppliers",
+    "Transport_Capacity"
+  ],
+  "rows": [
+    {
+      "Suppliers": "Supplier1",
+      "Transport_Capacity": 120
+    },
+    {
+      "Suppliers": "Supplier2",
+      "Transport_Capacity": 110
+    },
+    {
+      "Suppliers": "Supplier3",
+      "Transport_Capacity": 115
+    },
+    {
+      "Suppliers": "Supplier4",
+      "Transport_Capacity": 105
+    },
+    {
+      "Suppliers": "Supplier5",
+      "Transport_Capacity": 120
+    }
+  ]
+}

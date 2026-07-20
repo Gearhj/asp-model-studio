@@ -1,0 +1,59 @@
+{
+  "projectId": "atlas-mrl6mm9i",
+  "projectName": "00009",
+  "evidenceType": "export",
+  "title": "Transportation Optimization Export: atlas-transportation-allocation-atlas-mrl6mm9i.csv",
+  "summary": "atlas-transportation-allocation-atlas-mrl6mm9i.csv was generated from the current governed transportation formulation and solver state.",
+  "sourcePage": "Optimization Documentation",
+  "sourceRoute": "/workflow/optimization/14",
+  "workflowStep": "14. Documentation",
+  "sourceRunReference": "run-6a557f4ba8a24965",
+  "artifactType": "optimization_export_allocation_csv",
+  "artifactId": "atlas-mrl6mm9i:allocation_csv",
+  "datasetIds": [
+    "ds_date_transportation_cost_0e1b9b64",
+    "ds_date_demand_787e523d",
+    "ds_date_supply_max_7e4d8975",
+    "ds_date_transport_capacity_56ed23df",
+    "ds_date_inventory_cost_b9333777"
+  ],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Optimization Results",
+    "Implementation Plan"
+  ],
+  "tags": [
+    "optimization",
+    "transportation",
+    "export",
+    "allocation_csv"
+  ],
+  "status": "ready",
+  "importance": "high",
+  "capturedAt": "2026-07-15T20:08:58.778Z",
+  "lineage": {
+    "formulationId": "transport-b5a97c5609bbfcc8",
+    "normalizationHash": "b5a97c5609bbfcc8112ea7bace12a9cd5d929ea2a742d7be493f71331c91fd96",
+    "solutionId": "solution-700b21215d674816"
+  },
+  "payload": {
+    "fileName": "atlas-transportation-allocation-atlas-mrl6mm9i.csv",
+    "mimeType": "text/csv",
+    "byteCount": 2865,
+    "generatedAt": "2026-07-15T20:08:58.778Z",
+    "kind": "allocation_csv"
+  },
+  "governance": {
+    "accountableOwner": "Operations planning owner",
+    "reviewer": "Operations planning owner"
+  },
+  "evidenceId": "ev-transportation-optimization-export-atlas-t-f3c718500ae8d907",
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-15T20:08:58.793731+00:00",
+  "updatedAt": "2026-07-15T20:08:58.793731+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 100
+}

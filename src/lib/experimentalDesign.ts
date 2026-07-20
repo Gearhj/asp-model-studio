@@ -353,11 +353,7 @@ export function experimentalSampleSizePlan(state: ExperimentalDesignNodeState | 
 }
 
 function analysisFactors(nodeStates: Record<string, ExperimentalDesignNodeState>) {
-  const levels = parseFactorHierarchy(nodeStates.Levels?.objective ?? "");
-  if (levels.length) return levels;
-  const suggested = deriveSuggestedFactors(nodeStates.Factors?.objective ?? "");
-  if (suggested.length) return suggested.map(({ factorName, levels }) => ({ factorName, levels }));
-  return [];
+  return parseFactorHierarchy(nodeStates.Levels?.objective ?? "");
 }
 
 function designLabel(factors: ExperimentalFactor[]) {
@@ -422,15 +418,21 @@ export function buildExperimentalDesignAnalysis(input: {
   const nodeStates = { ...(input.nodeStates ?? {}), [input.stepLabel]: input.currentState ?? input.nodeStates?.[input.stepLabel] ?? {} };
   const current = input.currentState ?? nodeStates[input.stepLabel] ?? {};
   const factors = analysisFactors(nodeStates);
-  const cells = factors.length ? treatmentCellCount(factors) : Math.max(1, Math.round(numberValue(current, "averageLevels", 2) ** numberValue(current, "factorCount", 2)));
-  const samplePlan = experimentalSampleSizePlan(nodeStates["Sample Size"] ?? current, cells);
-  const simulation = nodeStates["Monte Carlo Simulation"]?.simulationResults ?? current.simulationResults;
+  const hasConfirmedDesign = factors.length > 0;
+  const cells = hasConfirmedDesign ? treatmentCellCount(factors) : 0;
+  const sampleState = nodeStates["Sample Size"];
+  const hasConfirmedSamplePlan = Number(sampleState?.numeric?.samplePlanConfirmed ?? 0) === 1;
+  const samplePlan = experimentalSampleSizePlan(sampleState ?? current, Math.max(1, cells));
+  const simulation = hasConfirmedDesign && hasConfirmedSamplePlan ? nodeStates["Monte Carlo Simulation"]?.simulationResults ?? current.simulationResults : undefined;
   const anovaTerms = factors.length ? generateFullFactorialTerms(factors) : [];
   const evidenceFields = [current.objective, current.inputs, current.assumptions, current.validation, current.decision, current.rationale].filter((value) => String(value ?? "").trim()).length;
   const warnings: string[] = [];
 
-  if (!factors.length && ["Factors", "Levels", "Sample Size", "ANOVA", "Monte Carlo Simulation"].includes(input.stepLabel)) {
-    warnings.push("Factors and levels are not fully defined, so treatment cells and ANOVA terms are using fallback assumptions.");
+  if (!hasConfirmedDesign && ["Factors", "Levels", "Blocking", "Randomization", "Sample Size", "ANOVA", "Monte Carlo Simulation", "Experiment Run Plan", "Optimization"].includes(input.stepLabel)) {
+    warnings.push("Confirmed factors and levels are required before ATLAS can calculate treatment cells, power, randomization, simulation, or analysis terms.");
+  }
+  if (hasConfirmedDesign && !hasConfirmedSamplePlan && ["Sample Size", "Monte Carlo Simulation", "Experiment Run Plan", "ANOVA", "Optimization"].includes(input.stepLabel)) {
+    warnings.push("The sample-size assumptions have not been confirmed. Power, simulation, and downstream analysis remain unavailable until they are reviewed.");
   }
   if (input.stepLabel === "Sample Size" && !samplePlan.adequatelyPowered && samplePlan.available > 0) {
     warnings.push("Available population is below the estimated total sample required for target power.");
@@ -440,11 +442,11 @@ export function buildExperimentalDesignAnalysis(input: {
   }
 
   const kpis: ExperimentalDesignKpi[] = [
-    { label: "Factors", value: factors.length ? String(factors.length) : "-", status: factors.length ? "good" : "warning", confidence: factors.length ? 0.9 : 0.45 },
-    { label: "Treatment Cells", value: cells.toLocaleString(), status: cells <= 16 ? "good" : cells <= 64 ? "warning" : "risk", confidence: factors.length ? 0.88 : 0.5 },
-    { label: "Sample Per Cell", value: samplePlan.plannedPerCell.toLocaleString(), status: samplePlan.plannedPerCell >= samplePlan.perCell ? "good" : "risk", confidence: samplePlan.available ? 0.86 : 0.62 },
-    { label: "Total Sample", value: samplePlan.plannedTotal.toLocaleString(), status: samplePlan.adequatelyPowered ? "good" : samplePlan.available ? "risk" : "warning", confidence: samplePlan.available ? 0.82 : 0.62 },
-    { label: "Power", value: percent(samplePlan.expectedPower), status: samplePlan.expectedPower >= 0.8 ? "good" : "warning", confidence: 0.75 },
+    { label: "Factors", value: hasConfirmedDesign ? String(factors.length) : "TBD", status: hasConfirmedDesign ? "good" : "warning", confidence: hasConfirmedDesign ? 0.9 : 0 },
+    { label: "Treatment Cells", value: hasConfirmedDesign ? cells.toLocaleString() : "TBD", status: !hasConfirmedDesign ? "warning" : cells <= 16 ? "good" : cells <= 64 ? "warning" : "risk", confidence: hasConfirmedDesign ? 0.88 : 0 },
+    { label: "Sample Per Cell", value: hasConfirmedDesign && hasConfirmedSamplePlan ? samplePlan.plannedPerCell.toLocaleString() : "TBD", status: !hasConfirmedDesign || !hasConfirmedSamplePlan ? "warning" : samplePlan.plannedPerCell >= samplePlan.perCell ? "good" : "risk", confidence: hasConfirmedDesign && hasConfirmedSamplePlan && samplePlan.available ? 0.86 : 0 },
+    { label: "Total Sample", value: hasConfirmedDesign && hasConfirmedSamplePlan ? samplePlan.plannedTotal.toLocaleString() : "TBD", status: !hasConfirmedDesign || !hasConfirmedSamplePlan ? "warning" : samplePlan.adequatelyPowered ? "good" : samplePlan.available ? "risk" : "warning", confidence: hasConfirmedDesign && hasConfirmedSamplePlan && samplePlan.available ? 0.82 : 0 },
+    { label: "Power", value: hasConfirmedDesign && hasConfirmedSamplePlan ? percent(samplePlan.expectedPower) : "TBD", status: !hasConfirmedDesign || !hasConfirmedSamplePlan ? "warning" : samplePlan.expectedPower >= 0.8 ? "good" : "warning", confidence: hasConfirmedDesign && hasConfirmedSamplePlan ? 0.75 : 0 },
     { label: "Evidence", value: `${evidenceFields}/6`, status: evidenceFields >= 4 ? "good" : "warning", confidence: 0.7 },
   ];
 
@@ -470,12 +472,16 @@ export function buildExperimentalDesignAnalysis(input: {
     Blocking: current.objective
       ? `Potential nuisance variables have been documented for blocking review. ATLAS recommends using blocking only when the expected variance reduction is worth the operational complexity.`
       : "No nuisance variables are entered. Simple randomization remains appropriate unless a known response driver should be controlled.",
-    Randomization: `Randomization should preserve treatment balance across ${cells.toLocaleString()} treatment cell${cells === 1 ? "" : "s"} and produce an auditable assignment file before launch.`,
-    "Sample Size": `The current design allocates ${samplePlan.plannedPerCell.toLocaleString()} observations per treatment cell from ${samplePlan.plannedTotal.toLocaleString()} total observations. The estimated minimum requirement is ${samplePlan.perCell.toLocaleString()} per cell and ${samplePlan.total.toLocaleString()} total. ${samplePlan.adequatelyPowered ? "The available population appears sufficient." : "The available population or minimum detectable effect should be reviewed."}`,
-    "Monte Carlo Simulation": simulation
+    Randomization: hasConfirmedDesign ? `Randomization should preserve treatment balance across ${cells.toLocaleString()} treatment cell${cells === 1 ? "" : "s"} and produce an auditable assignment file before launch.` : "Randomization is blocked until confirmed factors and levels define the treatment cells.",
+    "Sample Size": !hasConfirmedDesign ? "Sample-size planning is blocked until confirmed factors and levels define the treatment cells." : !hasConfirmedSamplePlan ? "Review the proposed alpha, power, baseline response, detectable lift, and available population, then confirm the assumptions before ATLAS publishes power evidence." : `The current design allocates ${samplePlan.plannedPerCell.toLocaleString()} observations per treatment cell from ${samplePlan.plannedTotal.toLocaleString()} total observations. The estimated minimum requirement is ${samplePlan.perCell.toLocaleString()} per cell and ${samplePlan.total.toLocaleString()} total. ${samplePlan.adequatelyPowered ? "The available population appears sufficient." : "The available population or minimum detectable effect should be reviewed."}`,
+    "Monte Carlo Simulation": !hasConfirmedDesign
+      ? "Monte Carlo simulation is blocked until confirmed factors, levels, and a sample-size plan are available."
+      : simulation
       ? `Monte Carlo validation is ${simulation.recommendedAction ?? "not classified"} with mean power ${percent(Number(simulation.meanPower ?? 0))} and wrong-winner risk ${percent(Number(simulation.wrongWinnerRate ?? 0))}.`
       : "Monte Carlo simulation has not been run from the current assumptions. Run the simulation to quantify power distribution, wrong-winner risk, and launch readiness.",
-    "Experiment Run Plan": simulation
+    "Experiment Run Plan": !hasConfirmedDesign
+      ? "Execution planning is blocked until confirmed factors and levels define the experiment structure."
+      : simulation
       ? `The launch plan is anchored to Monte Carlo evidence: readiness ${simulation.recommendedAction ?? "not classified"}, mean power ${percent(Number(simulation.meanPower ?? 0))}, and wrong-winner risk ${percent(Number(simulation.wrongWinnerRate ?? 0))}. Execution controls should address any remaining simulation risk before launch.`
       : "Run Monte Carlo before finalizing the execution plan. The run plan should convert simulation evidence into operational sequence, QA checks, assignment controls, monitoring cadence, and stopping rules.",
     ANOVA: anovaTerms.length
@@ -512,7 +518,7 @@ export function buildExperimentalDesignAnalysis(input: {
       rows: matrix.map((row) => ["cell", ...factors.map((factor) => factor.factorName)].map((key) => row[key] ?? "-")),
     });
   }
-  if (input.stepLabel === "Sample Size") {
+  if (input.stepLabel === "Sample Size" && hasConfirmedDesign && hasConfirmedSamplePlan) {
     evidenceTables.push({
       title: "Power Planning Summary",
       headers: ["Measure", "Value"],

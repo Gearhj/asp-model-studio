@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Tuple
 from datetime import datetime
+import hashlib
 import json
 import re
 
@@ -17,6 +18,8 @@ except Exception:  # pragma: no cover
 try:
     from sklearn.metrics import (
         accuracy_score,
+        average_precision_score,
+        brier_score_loss,
         confusion_matrix,
         f1_score,
         mean_absolute_error,
@@ -29,6 +32,8 @@ try:
         roc_curve,
     )
     from sklearn.inspection import permutation_importance
+    from sklearn.base import clone
+    from sklearn.calibration import CalibratedClassifierCV
     from sklearn.linear_model import LinearRegression, LogisticRegression
     from sklearn.decomposition import PCA
     from sklearn.cluster import KMeans
@@ -37,6 +42,8 @@ try:
     from sklearn.preprocessing import LabelEncoder
 except Exception:  # pragma: no cover
     accuracy_score = None
+    average_precision_score = None
+    brier_score_loss = None
     confusion_matrix = None
     f1_score = None
     mean_absolute_error = None
@@ -48,6 +55,8 @@ except Exception:  # pragma: no cover
     roc_auc_score = None
     roc_curve = None
     permutation_importance = None
+    clone = None
+    CalibratedClassifierCV = None
     LinearRegression = None
     LogisticRegression = None
     PCA = None
@@ -240,6 +249,179 @@ class EvaluationService:
 
         return {"ok": True, "deciles": rows}
 
+    def get_evaluation_command_center(
+        self,
+        model_name: str,
+        threshold: float = 0.5,
+        review_capacity: float = 0.1,
+    ) -> Dict[str, Any]:
+        """Build classifier diagnostics only from the fitted holdout artifact."""
+        result = self._model_result(model_name)
+        if not result:
+            return {"ok": False, "error": "No fitted results found for this model."}
+        if str(result.get("task") or "classification") != "classification":
+            return {"ok": False, "error": "Threshold diagnostics apply only to supervised classification models."}
+
+        y_true = np.asarray(result.get("y_true") or [], dtype=float)
+        y_score = np.asarray(result.get("y_score") or [], dtype=float)
+        if not len(y_true) or not len(y_score) or len(y_true) != len(y_score):
+            return {"ok": False, "error": "Persisted holdout labels and scores are unavailable for this model."}
+
+        y_true = (y_true > 0.5).astype(int)
+        y_score = np.clip(y_score.astype(float), 0.0, 1.0)
+        active_threshold = float(np.clip(threshold, 0.0, 1.0))
+        capacity = float(np.clip(review_capacity, 0.001, 1.0))
+
+        def threshold_row(value: float) -> Dict[str, Any]:
+            predicted = (y_score >= value).astype(int)
+            tn = int(np.sum((y_true == 0) & (predicted == 0)))
+            fp = int(np.sum((y_true == 0) & (predicted == 1)))
+            fn = int(np.sum((y_true == 1) & (predicted == 0)))
+            tp = int(np.sum((y_true == 1) & (predicted == 1)))
+            predicted_positives = tp + fp
+            positives = tp + fn
+            precision = float(tp / predicted_positives) if predicted_positives else 0.0
+            recall = float(tp / positives) if positives else 0.0
+            fpr = float(fp / (fp + tn)) if fp + tn else 0.0
+            f1 = float(2 * precision * recall / (precision + recall)) if precision + recall else 0.0
+            alert_rate = float(predicted_positives / len(y_true)) if len(y_true) else 0.0
+            return {
+                "threshold": float(value),
+                "predicted_positives": predicted_positives,
+                "review_volume": predicted_positives,
+                "precision": precision,
+                "recall": recall,
+                "false_positives": fp,
+                "false_negatives": fn,
+                "true_positives": tp,
+                "true_negatives": tn,
+                "fraud_capture": recall,
+                "false_positive_rate": fpr,
+                "f1": f1,
+                "expected_alert_rate": alert_rate,
+                "confusion": [[tn, fp], [fn, tp]],
+            }
+
+        unique_scores = np.unique(y_score)
+        if len(unique_scores) > 201:
+            candidate_thresholds = np.quantile(unique_scores, np.linspace(0.0, 1.0, 201))
+        else:
+            candidate_thresholds = unique_scores
+        candidates = [threshold_row(float(value)) for value in candidate_thresholds]
+        max_f1 = max(candidates, key=lambda row: row["f1"])
+        recall_candidates = [row for row in candidates if row["recall"] >= 0.8]
+        precision_candidates = [row for row in candidates if row["precision"] >= 0.8]
+        target_recall = max(recall_candidates, key=lambda row: (row["precision"], row["threshold"])) if recall_candidates else max(candidates, key=lambda row: row["recall"])
+        target_precision = max(precision_candidates, key=lambda row: (row["recall"], -row["threshold"])) if precision_candidates else max(candidates, key=lambda row: row["precision"])
+        capacity_threshold = float(np.quantile(y_score, max(0.0, 1.0 - capacity)))
+
+        order = np.argsort(-y_score)
+        sorted_true = y_true[order]
+        sorted_score = y_score[order]
+        positives = int(np.sum(sorted_true))
+        base_rate = float(np.mean(sorted_true)) if len(sorted_true) else 0.0
+        deciles: List[Dict[str, Any]] = []
+        cumulative_positives = 0
+        for index, positions in enumerate(np.array_split(np.arange(len(sorted_true)), 10), start=1):
+            if not len(positions):
+                continue
+            bucket = sorted_true[positions]
+            bucket_scores = sorted_score[positions]
+            bucket_positives = int(np.sum(bucket))
+            cumulative_positives += bucket_positives
+            event_rate = float(np.mean(bucket))
+            deciles.append({
+                "decile": index,
+                "n": int(len(bucket)),
+                "positives": bucket_positives,
+                "event_rate": event_rate,
+                "lift": float(event_rate / base_rate) if base_rate else 0.0,
+                "cumulative_positives": cumulative_positives,
+                "capture_rate": float(cumulative_positives / positives) if positives else 0.0,
+                "population_rate": float(np.max(positions) + 1) / len(sorted_true),
+                "min_score": float(np.min(bucket_scores)),
+                "max_score": float(np.max(bucket_scores)),
+                "mean_score": float(np.mean(bucket_scores)),
+            })
+
+        top_capture: Dict[str, Dict[str, Any]] = {}
+        for pct in (0.01, 0.03, 0.05, 0.10):
+            count = max(1, int(np.ceil(len(sorted_true) * pct)))
+            top_events = int(np.sum(sorted_true[:count]))
+            top_rate = float(np.mean(sorted_true[:count])) if count else 0.0
+            top_capture[f"{int(pct * 100)}%"] = {
+                "rows": count,
+                "events": top_events,
+                "capture_rate": float(top_events / positives) if positives else 0.0,
+                "lift": float(top_rate / base_rate) if base_rate else 0.0,
+            }
+
+        calibration_rows: List[Dict[str, Any]] = []
+        for bucket in np.array_split(np.argsort(y_score), 10):
+            if not len(bucket):
+                continue
+            calibration_rows.append({
+                "predicted": float(np.mean(y_score[bucket])),
+                "observed": float(np.mean(y_true[bucket])),
+                "n": int(len(bucket)),
+            })
+        if len(calibration_rows) >= 2:
+            predicted_means = np.asarray([row["predicted"] for row in calibration_rows], dtype=float)
+            observed_means = np.asarray([row["observed"] for row in calibration_rows], dtype=float)
+            slope, intercept = np.polyfit(predicted_means, observed_means, 1)
+            calibration_slope = float(slope)
+            calibration_intercept = float(intercept)
+        else:
+            calibration_slope = None
+            calibration_intercept = None
+
+        metrics = result.get("metrics") or {}
+        ranked = (RESULTS.get_last_summary() or {}).get("ranked") or []
+        ranked_row = next((row for row in ranked if row.get("key") == model_name), {})
+        return {
+            "ok": True,
+            "model": model_name,
+            "evaluation_role": "TEST",
+            "test_status": "Available - governed holdout",
+            "oot_status": "Not loaded",
+            "observation_count": int(len(y_true)),
+            "event_count": positives,
+            "event_rate": base_rate,
+            "threshold": threshold_row(active_threshold),
+            "presets": {
+                "maximize_f1": float(max_f1["threshold"]),
+                "target_recall": float(target_recall["threshold"]),
+                "target_precision": float(target_precision["threshold"]),
+                "review_capacity": capacity_threshold,
+                "current_governed": 0.5,
+            },
+            "lift": {
+                "base_rate": base_rate,
+                "deciles": deciles,
+                "top_capture": top_capture,
+            },
+            "calibration": {
+                "rows": calibration_rows,
+                "brier_score": float(np.mean((y_score - y_true) ** 2)),
+                "slope": calibration_slope,
+                "intercept": calibration_intercept,
+                "method": ranked_row.get("calibration_method") or ("Applied" if ranked_row.get("calibration_applied") else "Not applied"),
+                "prevalence_correction": "Not applied during Evaluation",
+            },
+            "stability": {
+                "internal_validation_status": "Available" if ranked_row.get("best_score") is not None else "Not recorded",
+                "internal_validation_score": ranked_row.get("best_score"),
+                "test_metrics": {
+                    "roc_auc": metrics.get("auc"),
+                    "pr_auc": metrics.get("pr_auc"),
+                    "precision": metrics.get("precision"),
+                    "recall": metrics.get("recall"),
+                    "f1": metrics.get("f1"),
+                },
+                "oot_metrics": None,
+            },
+        }
+
     def _artifact(self, model_name: str, expected: Dict[str, Any] | None = None):
         mismatch = self._artifact_context_mismatch(model_name, expected)
         if mismatch:
@@ -285,10 +467,10 @@ class EvaluationService:
         return prepared[features], matched, missing
 
     def _predict_score(self, model: Any, X: pd.DataFrame) -> np.ndarray:
-        if isinstance(model, dict) and model.get("kind") == "rfe_logistic":
+        if isinstance(model, dict) and model.get("kind") in {"rfe_logistic", "rfe_classifier"}:
             prepared, _, _ = self._prepare_final_feature_frame(model, X)
             return np.asarray(model["model"].predict_proba(prepared)[:, 1], dtype=float)
-        if isinstance(model, dict) and model.get("kind") == "rfe_regression":
+        if isinstance(model, dict) and model.get("kind") in {"rfe_regression", "rfe_regressor"}:
             prepared, _, _ = self._prepare_final_feature_frame(model, X)
             return np.asarray(model["model"].predict(prepared), dtype=float)
         if hasattr(model, "predict_proba"):
@@ -310,37 +492,75 @@ class EvaluationService:
         if model is None:
             return {"ok": False, "error": "No fitted model artifact found."}
         _, X_test, _, y_test = self._test_data()
+        if X_test is None or X_test.empty:
+            return {"ok": False, "error": "No governed holdout data is available for feature importance."}
+
+        sample = X_test.sample(n=5_000, random_state=42) if len(X_test) > 5_000 else X_test
+        y_series = pd.Series(np.asarray(y_test), index=X_test.index)
+        y_sample = y_series.loc[sample.index]
+        estimator = getattr(model, "named_steps", {}).get("model") if hasattr(model, "named_steps") else model
+        preprocess = model.named_steps.get("preprocess") if hasattr(model, "named_steps") else None
+        transformed_names = (
+            list(preprocess.get_feature_names_out())
+            if preprocess is not None and hasattr(preprocess, "get_feature_names_out")
+            else list(X_test.columns)
+        )
+        raw_columns = [str(column) for column in X_test.columns]
+
+        def original_feature(name: Any) -> str:
+            cleaned = str(name).replace("num__", "").replace("cat__", "")
+            if cleaned in raw_columns:
+                return cleaned
+            matches = [column for column in raw_columns if cleaned.startswith(f"{column}_")]
+            return max(matches, key=len) if matches else cleaned
+
+        def aggregate(values: Any, source: str) -> List[Dict[str, Any]]:
+            grouped: Dict[str, Dict[str, Any]] = {}
+            for name, value in zip(transformed_names, np.asarray(values).ravel()):
+                feature = original_feature(name)
+                row = grouped.setdefault(feature, {"feature": feature, "importance": 0.0, "direction": 0.0, "source": source})
+                row["importance"] += abs(float(value))
+                row["direction"] += float(value)
+            return list(grouped.values())
 
         rows: List[Dict[str, Any]] = []
-        estimator = getattr(model, "named_steps", {}).get("model") if hasattr(model, "named_steps") else model
+        method = "unavailable"
+        coefficients = getattr(estimator, "coef_", None)
         native = getattr(estimator, "feature_importances_", None)
-        if native is not None:
-            preprocess = model.named_steps.get("preprocess") if hasattr(model, "named_steps") else None
-            names = preprocess.get_feature_names_out() if preprocess is not None and hasattr(preprocess, "get_feature_names_out") else X_test.columns
-            rows = [
-                {
-                    "feature": str(name).replace("num__", "").replace("cat__", ""),
-                    "importance": abs(float(value)),
-                    "direction": float(value),
-                    "source": "native",
-                }
-                for name, value in zip(names, native)
-            ]
+        if coefficients is not None:
+            coef = np.asarray(coefficients, dtype=float)
+            if coef.ndim > 1:
+                coef = np.mean(coef, axis=0)
+            rows = aggregate(coef, "coefficient magnitude")
+            method = "coefficient magnitude"
+        elif native is not None:
+            rows = aggregate(native, "native feature importance")
+            method = "native feature importance"
         elif permutation_importance is not None:
-            result = permutation_importance(model, X_test, y_test, n_repeats=5, random_state=42, n_jobs=1)
+            scoring = "neg_root_mean_squared_error" if self._is_regression_problem() else "roc_auc"
+            result = permutation_importance(
+                model,
+                sample,
+                y_sample,
+                n_repeats=3,
+                random_state=42,
+                n_jobs=1,
+                scoring=scoring,
+            )
             rows = [
                 {
                     "feature": str(feature),
                     "importance": abs(float(value)),
                     "direction": float(value),
-                    "source": "permutation",
+                    "source": "holdout permutation importance",
                 }
-                for feature, value in zip(X_test.columns, result.importances_mean)
+                for feature, value in zip(sample.columns, result.importances_mean)
             ]
+            method = "holdout permutation importance"
 
         rows = _filter_target_derived_rows(rows)
         rows.sort(key=lambda row: row["importance"], reverse=True)
-        return {"ok": True, "rows": rows[:30]}
+        return {"ok": True, "rows": rows[:30], "method": method, "sample_count": int(len(sample))}
 
     def hyperparameters(self, model_name: str, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
         mismatch = self._artifact_context_mismatch(model_name, context)
@@ -550,8 +770,11 @@ class EvaluationService:
         except Exception:
             return {"ok": False, "message": "Statistical inference unavailable because the fitted pipeline could not be evaluated for OLS inference."}
 
-    def decision_tree(self, model_name: str, max_depth: int = 4) -> Dict[str, Any]:
-        model = self._artifact(model_name)
+    def decision_tree(self, model_name: str, max_depth: int = 4, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        mismatch = self._artifact_context_mismatch(model_name, context)
+        if mismatch:
+            return {"ok": False, "error": mismatch, "debug": self._artifact_debug(model_name, context)}
+        model = self._artifact(model_name, context)
         if model is None:
             return {"ok": False, "error": "No fitted model artifact found."}
         estimator = getattr(model, "named_steps", {}).get("model") if hasattr(model, "named_steps") else model
@@ -802,15 +1025,18 @@ class EvaluationService:
         except Exception as exc:
             return {"ok": False, "error": f"KNN cluster visualization failed: {exc}"}
 
-    def pdp(self, model_name: str, feature: str) -> Dict[str, Any]:
-        model = self._artifact(model_name)
+    def pdp(self, model_name: str, feature: str, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        mismatch = self._artifact_context_mismatch(model_name, context)
+        if mismatch:
+            return {"ok": False, "error": mismatch, "debug": self._artifact_debug(model_name, context)}
+        model = self._artifact(model_name, context)
         if model is None:
             return {"ok": False, "error": "No fitted model artifact found."}
         _, X_test, _, _ = self._test_data()
         if feature not in X_test.columns:
             return {"ok": False, "error": f"Feature '{feature}' was not found."}
 
-        x = X_test.copy()
+        x = X_test.sample(n=2_500, random_state=42).copy() if len(X_test) > 2_500 else X_test.copy()
         s = x[feature]
         if pd.api.types.is_numeric_dtype(s):
             grid = np.quantile(pd.to_numeric(s, errors="coerce").dropna(), np.linspace(0.05, 0.95, 20))
@@ -832,31 +1058,36 @@ class EvaluationService:
             "ok": True,
             "feature": feature,
             "kind": "numeric" if pd.api.types.is_numeric_dtype(s) else "categorical",
+            "sample_count": int(len(x)),
             "rows": rows,
         }
 
-    def sensitivity(self, model_name: str, feature: str) -> Dict[str, Any]:
-        model = self._artifact(model_name)
+    def sensitivity(self, model_name: str, feature: str, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        mismatch = self._artifact_context_mismatch(model_name, context)
+        if mismatch:
+            return {"ok": False, "error": mismatch, "debug": self._artifact_debug(model_name, context)}
+        model = self._artifact(model_name, context)
         if model is None:
             return {"ok": False, "error": "No fitted model artifact found."}
         _, X_test, _, _ = self._test_data()
         if feature not in X_test.columns:
             return {"ok": False, "error": f"Feature '{feature}' was not found."}
-        baseline = float(np.mean(self._predict_score(model, X_test)))
+        sample = X_test.sample(n=2_500, random_state=42).copy() if len(X_test) > 2_500 else X_test.copy()
+        baseline = float(np.mean(self._predict_score(model, sample)))
         rows = []
-        if pd.api.types.is_numeric_dtype(X_test[feature]):
+        if pd.api.types.is_numeric_dtype(sample[feature]):
             for pct in [-0.2, -0.1, 0.0, 0.1, 0.2]:
-                x_mod = X_test.copy()
+                x_mod = sample.copy()
                 x_mod[feature] = pd.to_numeric(x_mod[feature], errors="coerce") * (1 + pct)
                 pred = float(np.mean(self._predict_score(model, x_mod)))
                 rows.append({"scenario": f"{pct:+.0%}", "prediction": pred, "delta": pred - baseline})
         else:
-            for value in X_test[feature].astype(str).value_counts().head(8).index:
-                x_mod = X_test.copy()
+            for value in sample[feature].astype(str).value_counts().head(8).index:
+                x_mod = sample.copy()
                 x_mod[feature] = value
                 pred = float(np.mean(self._predict_score(model, x_mod)))
                 rows.append({"scenario": str(value), "prediction": pred, "delta": pred - baseline})
-        return {"ok": True, "baseline": baseline, "rows": rows}
+        return {"ok": True, "baseline": baseline, "sample_count": int(len(sample)), "rows": rows}
 
     def sensitivity_summary(self, model_name: str, top_n: int = 12) -> Dict[str, Any]:
         excluded_sensitivity_features = {"riskperformance", "bad_flag", "atlas_split"}
@@ -1061,8 +1292,11 @@ class EvaluationService:
         rows.sort(key=lambda row: row["value"], reverse=True)
         return {"ok": True, "reference": "development_train", "comparison": "development_holdout", "rows": rows}
 
-    def shap_summary(self, model_name: str) -> Dict[str, Any]:
-        model = self._artifact(model_name)
+    def shap_summary(self, model_name: str, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        mismatch = self._artifact_context_mismatch(model_name, context)
+        if mismatch:
+            return {"ok": False, "error": mismatch, "debug": self._artifact_debug(model_name, context)}
+        model = self._artifact(model_name, context)
         if model is None:
             return {"ok": False, "error": "No fitted model artifact found."}
         _, X_test, _, _ = self._test_data()
@@ -1099,6 +1333,7 @@ class EvaluationService:
         return {
             "ok": True,
             "method": "Holdout replacement impact",
+            "sample_count": int(len(sample)),
             "rows": rows[:30],
         }
 
@@ -1162,26 +1397,91 @@ class EvaluationService:
             raise ValueError("This analysis requires a binary target.")
         return encoder.transform(pd.Series(y_train).astype(str)), encoder.transform(pd.Series(y_test).astype(str))
 
-    def rfe(self, model_name: str = "", keep: int = 10) -> Dict[str, Any]:
+    def _source_estimator_for_refit(self, model_name: str, task: str) -> Tuple[Any, Dict[str, Any]]:
+        artifact = self._artifact(model_name)
+        fallback = LogisticRegression(max_iter=3000, n_jobs=1, class_weight="balanced") if task == "classification" else LinearRegression()
+        metadata: Dict[str, Any] = {
+            "source_model": model_name,
+            "feature_selection_method": "bounded backward elimination with a logistic surrogate" if task == "classification" else "bounded backward elimination with a linear surrogate",
+            "source_estimator_class": "",
+            "final_estimator_class": fallback.__class__.__name__,
+            "calibration_preserved": False,
+            "refit_fallback": False,
+        }
+        if artifact is None or clone is None:
+            metadata["refit_fallback"] = True
+            metadata["refit_fallback_reason"] = "The selected fitted estimator could not be cloned; ATLAS used the governed transparent fallback."
+            return fallback, metadata
+
+        candidate = artifact.get("model") if isinstance(artifact, dict) else artifact
+        outer_calibrated = candidate.__class__.__name__ == "CalibratedClassifierCV"
+        if outer_calibrated:
+            base = getattr(candidate, "estimator", None) or getattr(candidate, "base_estimator", None)
+            if base is not None:
+                candidate = base
+        if hasattr(candidate, "named_steps"):
+            candidate = candidate.named_steps.get("model", candidate)
+
+        metadata["source_estimator_class"] = candidate.__class__.__name__
+        try:
+            estimator = clone(candidate)
+            if outer_calibrated and task == "classification" and CalibratedClassifierCV is not None:
+                estimator = CalibratedClassifierCV(
+                    estimator,
+                    method=str(getattr(artifact, "method", "sigmoid") or "sigmoid"),
+                    cv=3,
+                )
+                metadata["calibration_preserved"] = True
+            metadata["final_estimator_class"] = estimator.__class__.__name__
+            return estimator, metadata
+        except Exception as exc:
+            metadata["refit_fallback"] = True
+            metadata["refit_fallback_reason"] = f"The selected estimator could not be cloned ({exc}); ATLAS used the governed transparent fallback."
+            return fallback, metadata
+
+    def _source_model_label(self, model_name: str) -> str:
+        summary = RESULTS.get_last_summary() or {}
+        row = next((item for item in (summary.get("ranked") or []) if item.get("key") == model_name), {})
+        return str(row.get("name") or model_name or "Selected Estimator")
+
+    def rfe(self, model_name: str = "", keep: int = 10, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        mismatch = self._artifact_context_mismatch(model_name, context) if model_name else None
+        if mismatch:
+            return {"ok": False, "error": mismatch, "debug": self._artifact_debug(model_name, context)}
         X_train, X_test, y_train, y_test = DATASTORE.get_splits()
         if X_train is None or X_test is None or y_train is None or y_test is None:
             return {"ok": False, "error": "No training split is available. Train models first."}
+        full_train_rows = int(len(X_train))
+        full_test_rows = int(len(X_test))
+        full_train_index = X_train.index
+        full_test_index = X_test.index
+        if len(X_train) > 15_000:
+            X_train = X_train.sample(n=15_000, random_state=42)
+            y_train = pd.Series(np.asarray(y_train), index=full_train_index).loc[X_train.index]
+        if len(X_test) > 8_000:
+            X_test = X_test.sample(n=8_000, random_state=42)
+            y_test = pd.Series(np.asarray(y_test), index=full_test_index).loc[X_test.index]
         prepared_train_all, prepared_test_all, feature_cols = self._prepare_rfe_design(X_train, X_test)
         if len(feature_cols) < 2:
             return {"ok": False, "error": "RFE requires at least two usable features after encoding. Confirm feature selection and preprocessing."}
         if self._is_regression_problem():
-            return self._rfe_regression(
+            result = self._rfe_regression(
                 model_name=model_name,
                 keep=keep,
                 numeric_cols=feature_cols,
                 prepared_train=prepared_train_all,
                 prepared_test=prepared_test_all,
+                y_train=y_train,
+                y_test=y_test,
             )
+            result.update({"full_train_rows": full_train_rows, "full_test_rows": full_test_rows, "analysis_train_rows": int(len(X_train)), "analysis_test_rows": int(len(X_test))})
+            return result
         if LogisticRegression is None or LabelEncoder is None or roc_auc_score is None:
             return {"ok": False, "error": "scikit-learn logistic regression metrics are unavailable."}
 
         numeric_cols = list(feature_cols)
-        if len(numeric_cols) > 20:
+        screened_feature_count = len(numeric_cols)
+        if len(numeric_cols) > 14:
             single_feature_scores: List[Dict[str, Any]] = []
             for feature in numeric_cols:
                 try:
@@ -1196,7 +1496,7 @@ class EvaluationService:
                     single_feature_scores.append({"feature": feature, "auc": 0.5})
             numeric_cols = [
                 row["feature"]
-                for row in sorted(single_feature_scores, key=lambda row: row["auc"], reverse=True)[:20]
+                for row in sorted(single_feature_scores, key=lambda row: row["auc"], reverse=True)[:14]
             ]
 
         prepared_train = prepared_train_all[numeric_cols].copy()
@@ -1317,6 +1617,12 @@ class EvaluationService:
             "best_auc": best_auc,
             "auc_tolerance": auc_tolerance,
             "selected_count": requested_keep,
+            "screened_feature_count": screened_feature_count,
+            "rfe_candidate_limit": 14,
+            "full_train_rows": full_train_rows,
+            "full_test_rows": full_test_rows,
+            "analysis_train_rows": int(len(X_train)),
+            "analysis_test_rows": int(len(X_test)),
             "rows": ranked_rows,
             "curve": curve_rows,
         }
@@ -1328,8 +1634,12 @@ class EvaluationService:
         numeric_cols: List[str],
         prepared_train: pd.DataFrame | None = None,
         prepared_test: pd.DataFrame | None = None,
+        y_train: pd.Series | None = None,
+        y_test: pd.Series | None = None,
     ) -> Dict[str, Any]:
-        X_train, X_test, y_train, y_test = DATASTORE.get_splits()
+        X_train, X_test, stored_y_train, stored_y_test = DATASTORE.get_splits()
+        y_train = y_train if y_train is not None else stored_y_train
+        y_test = y_test if y_test is not None else stored_y_test
         if LinearRegression is None:
             return {"ok": False, "error": "scikit-learn LinearRegression is unavailable."}
         if prepared_train is None or prepared_test is None:
@@ -1337,7 +1647,8 @@ class EvaluationService:
 
         y_train_arr = pd.to_numeric(pd.Series(y_train), errors="coerce").to_numpy(dtype=float)
         y_test_arr = pd.to_numeric(pd.Series(y_test), errors="coerce").to_numpy(dtype=float)
-        if len(numeric_cols) > 24:
+        screened_feature_count = len(numeric_cols)
+        if len(numeric_cols) > 16:
             single_feature_scores: List[Dict[str, Any]] = []
             for feature in numeric_cols:
                 try:
@@ -1351,7 +1662,7 @@ class EvaluationService:
                     single_feature_scores.append({"feature": feature, "rmse": float("inf")})
             numeric_cols = [
                 row["feature"]
-                for row in sorted(single_feature_scores, key=lambda row: row["rmse"])[:24]
+                for row in sorted(single_feature_scores, key=lambda row: row["rmse"])[:16]
             ]
 
         prepared_train = prepared_train[numeric_cols].copy()
@@ -1462,20 +1773,25 @@ class EvaluationService:
             "best_rmse": best_rmse,
             "rmse_tolerance": rmse_tolerance,
             "selected_count": requested_keep,
+            "screened_feature_count": screened_feature_count,
+            "rfe_candidate_limit": 16,
             "rows": ranked_rows,
             "curve": curve_rows,
         }
 
-    def save_rfe_model(self, model_name: str = "", keep: int = 10) -> Dict[str, Any]:
+    def save_rfe_model(self, model_name: str = "", keep: int = 10, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        mismatch = self._artifact_context_mismatch(model_name, context) if model_name else None
+        if mismatch:
+            return {"ok": False, "error": mismatch, "debug": self._artifact_debug(model_name, context)}
         X_train, X_test, y_train, y_test = DATASTORE.get_splits()
         if X_train is None or X_test is None or y_train is None or y_test is None:
             return {"ok": False, "error": "No training split is available. Train models first."}
         if self._is_regression_problem():
-            return self._save_rfe_regression_model(model_name=model_name, keep=keep)
+            return self._save_rfe_regression_model(model_name=model_name, keep=keep, context=context)
         if LogisticRegression is None:
             return {"ok": False, "error": "scikit-learn LogisticRegression is unavailable."}
 
-        rfe_result = self.rfe(model_name=model_name, keep=keep)
+        rfe_result = self.rfe(model_name=model_name, keep=keep, context=context)
         if not rfe_result.get("ok"):
             return rfe_result
         selected_features = [
@@ -1505,13 +1821,13 @@ class EvaluationService:
         train_scaled = (train - means) / stds
         test_scaled = (test - means) / stds
 
-        final_estimator = LogisticRegression(max_iter=3000, n_jobs=1, class_weight="balanced")
+        final_estimator, refit_metadata = self._source_estimator_for_refit(model_name, "classification")
         final_estimator.fit(train_scaled[selected_features], y_train_arr)
-        scores = final_estimator.predict_proba(test_scaled[selected_features])[:, 1]
+        scores = self._predict_score(final_estimator, test_scaled[selected_features])
         auc = float(roc_auc_score(y_test_arr, scores)) if roc_auc_score is not None else None
 
         artifact = {
-            "kind": "rfe_logistic",
+            "kind": "rfe_classifier",
             "model": final_estimator,
             "features": selected_features,
             "dummy_columns": dummy_columns,
@@ -1522,20 +1838,25 @@ class EvaluationService:
         metadata = {
             "source_model": model_name,
             "model_key": "final_rfe",
-            "name": "Final Parsimonious RFE Logistic Model",
+            "name": f"Final RFE {self._source_model_label(model_name)}",
+            "project_id": str((context or {}).get("project_id") or ""),
+            "dataset_version": str(DATASTORE.meta.get("dataset_version") or DATASTORE.meta.get("version_id") or "in-memory"),
+            "target": str(DATASTORE.target or ""),
+            "problem_type": "classification",
             "feature_count": len(selected_features),
             "features": selected_features,
             "holdout_auc": auc,
+            **refit_metadata,
         }
         RESULTS.set_final_model(artifact, metadata)
         return {"ok": True, "metadata": metadata}
 
-    def _save_rfe_regression_model(self, model_name: str = "", keep: int = 10) -> Dict[str, Any]:
+    def _save_rfe_regression_model(self, model_name: str = "", keep: int = 10, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
         X_train, X_test, y_train, y_test = DATASTORE.get_splits()
         if LinearRegression is None:
             return {"ok": False, "error": "scikit-learn LinearRegression is unavailable."}
 
-        rfe_result = self.rfe(model_name=model_name, keep=keep)
+        rfe_result = self.rfe(model_name=model_name, keep=keep, context=context)
         if not rfe_result.get("ok"):
             return rfe_result
         selected_features = [
@@ -1562,13 +1883,13 @@ class EvaluationService:
 
         y_train_arr = pd.to_numeric(pd.Series(y_train), errors="coerce").to_numpy(dtype=float)
         y_test_arr = pd.to_numeric(pd.Series(y_test), errors="coerce").to_numpy(dtype=float)
-        final_estimator = LinearRegression()
+        final_estimator, refit_metadata = self._source_estimator_for_refit(model_name, "regression")
         final_estimator.fit(train_scaled[selected_features], y_train_arr)
         preds = final_estimator.predict(test_scaled[selected_features])
         metrics = self._regression_metrics(pd.Series(y_test_arr), preds, n_features=len(selected_features))
 
         artifact = {
-            "kind": "rfe_regression",
+            "kind": "rfe_regressor",
             "model": final_estimator,
             "features": selected_features,
             "dummy_columns": dummy_columns,
@@ -1579,7 +1900,10 @@ class EvaluationService:
         metadata = {
             "source_model": model_name,
             "model_key": "final_rfe_regression",
-            "name": "Final Parsimonious RFE Regression Model",
+            "name": f"Final RFE {self._source_model_label(model_name)}",
+            "project_id": str((context or {}).get("project_id") or ""),
+            "dataset_version": str(DATASTORE.meta.get("dataset_version") or DATASTORE.meta.get("version_id") or "in-memory"),
+            "target": str(DATASTORE.target or ""),
             "problem_type": "regression",
             "feature_count": len(selected_features),
             "features": selected_features,
@@ -1587,9 +1911,43 @@ class EvaluationService:
             "holdout_rmse": metrics.get("rmse"),
             "holdout_r2": metrics.get("r2"),
             "holdout_adjusted_r2": metrics.get("adjusted_r2"),
+            **refit_metadata,
         }
         RESULTS.set_final_model(artifact, metadata)
         return {"ok": True, "metadata": metadata}
+
+    def final_model_status(self) -> Dict[str, Any]:
+        artifact = RESULTS.get_final_model()
+        metadata = RESULTS.get_final_model_metadata() or {}
+        if artifact is not None:
+            summary = RESULTS.get_last_summary() or {}
+            ranked = summary.get("ranked") or []
+            source = next((row for row in ranked if row.get("key") == metadata.get("source_model")), {})
+            X_train, _, y_train, _ = DATASTORE.get_splits()
+            enriched = dict(metadata)
+            enriched.setdefault("final_model_version", "final-model-v1")
+            enriched.setdefault("feature_selection_method", "Recursive Feature Elimination")
+            enriched.setdefault("preprocessing_pipeline", "Governed encoding, median imputation, and standardization")
+            enriched.setdefault("calibration_method", source.get("calibration_method") or ("Applied" if source.get("calibration_applied") else "Not applied"))
+            if y_train is not None:
+                y_numeric = pd.to_numeric(pd.Series(y_train), errors="coerce").dropna()
+                if len(y_numeric) and set(np.unique(y_numeric)).issubset({0, 1}):
+                    enriched.setdefault("modeled_event_rate", float(np.mean(y_numeric)))
+            source_meta = DATASTORE.meta.get("source") if isinstance(DATASTORE.meta, dict) else {}
+            if isinstance(source_meta, dict):
+                for key in ("natural_event_rate", "original_event_rate", "population_event_rate"):
+                    value = source_meta.get(key)
+                    if isinstance(value, (int, float)):
+                        enriched.setdefault("natural_event_rate", float(value))
+                        break
+            hash_payload = json.dumps(enriched, sort_keys=True, default=str).encode("utf-8")
+            enriched["artifact_hash"] = hashlib.sha256(hash_payload).hexdigest()
+            metadata = enriched
+        return {
+            "ok": True,
+            "ready": artifact is not None,
+            "metadata": metadata if artifact is not None else {},
+        }
 
     def save_selected_model_as_final(self, model_name: str = "") -> Dict[str, Any]:
         summary = RESULTS.get_last_summary() or {}
@@ -1605,6 +1963,8 @@ class EvaluationService:
             "source_model": model_name,
             "model_key": model_name,
             "name": row.get("name") or model_name,
+            "source_estimator_class": artifact.__class__.__name__,
+            "final_estimator_class": artifact.__class__.__name__,
             "problem_type": summary.get("problem_type"),
             "feature_count": int(len(X_train.columns)) if X_train is not None else None,
             "features": list(X_train.columns) if X_train is not None else [],
@@ -1850,7 +2210,7 @@ class EvaluationService:
         model_features = [str(feature) for feature in (metadata.get("features") or [])]
         matched_features: List[str] = []
         missing_features: List[str] = []
-        if isinstance(model, dict) and model.get("kind") in ("rfe_logistic", "rfe_regression"):
+        if isinstance(model, dict) and model.get("kind") in ("rfe_logistic", "rfe_regression", "rfe_classifier", "rfe_regressor"):
             _, matched_features, missing_features = self._prepare_final_feature_frame(model, X)
             model_features = [str(feature) for feature in model.get("features", model_features)]
         else:
@@ -1957,34 +2317,31 @@ class EvaluationService:
                 if len(encoder.classes_) == 2:
                     response["metrics"] = {
                         "auc": float(roc_auc_score(y_arr, adjusted_scores)) if roc_auc_score is not None else None,
+                        "pr_auc": float(average_precision_score(y_arr, adjusted_scores)) if average_precision_score is not None else None,
                         "accuracy": float(accuracy_score(y_arr, labels)) if accuracy_score is not None else None,
                         "precision": float(precision_score(y_arr, labels, zero_division=0)) if precision_score is not None else None,
                         "recall": float(recall_score(y_arr, labels, zero_division=0)) if recall_score is not None else None,
                         "f1": float(f1_score(y_arr, labels, zero_division=0)) if f1_score is not None else None,
+                        "brier_score": float(brier_score_loss(y_arr, adjusted_scores)) if brier_score_loss is not None else None,
+                        "event_rate": float(np.mean(y_arr)) if len(y_arr) else None,
                         "confusion": confusion_matrix(y_arr, labels).tolist() if confusion_matrix is not None else None,
                     }
+                    if roc_curve is not None:
+                        fpr, tpr, _ = roc_curve(y_arr, adjusted_scores)
+                        response["metrics"]["ks"] = float(np.max(tpr - fpr)) if len(fpr) else None
                     response["lift"] = self._lift_table(y_true, adjusted_scores)
             except Exception as exc:
                 response["metrics_error"] = str(exc)
 
-        if dataset_type.lower() == "oot":
+        if dataset_type.lower() in {"test", "oot"}:
             X_train, X_test, _, _ = DATASTORE.get_splits()
-            scoring_reference = RESULTS.get_scoring_reference() or {}
-            reference = scoring_reference.get("X")
-            reference_scores = scoring_reference.get("scores")
-            reference_kind = scoring_reference.get("kind")
-            if reference is None:
-                reference = X_train if X_train is not None else X_test
+            reference = X_train if X_train is not None else X_test
             if reference is not None:
-                ref_scores = (
-                    np.asarray(reference_scores, dtype=float)
-                    if reference_scores is not None
-                    else self._prior_correct_scores(
-                        self._predict_score(model, reference),
-                        correction_method,
-                        original_prior,
-                        model_prior,
-                    )
+                ref_scores = self._prior_correct_scores(
+                    self._predict_score(model, reference),
+                    correction_method,
+                    original_prior,
+                    model_prior,
                 )
                 response["psi"] = {
                     "name": "score",
@@ -2007,7 +2364,7 @@ class EvaluationService:
                 vsi_rows.sort(key=lambda row: row["value"], reverse=True)
                 response["vsi"] = vsi_rows[:50]
                 response["vsi_scope"] = "model_features" if model_features else "all_common_features"
-                response["stability_reference"] = "uploaded_test" if reference_kind == "uploaded_test" else "development_split"
+                response["stability_reference"] = "development_train"
         return response
 
     def score_development_split(
@@ -2030,7 +2387,7 @@ class EvaluationService:
         df = X.copy()
         target = DATASTORE.target or getattr(y, "name", None) or "target"
         df[str(target)] = pd.Series(y).reset_index(drop=True).values
-        return self.score_dataset(
+        result = self.score_dataset(
             df=df,
             dataset_type=split_key,
             model_name=model_name,
@@ -2038,6 +2395,10 @@ class EvaluationService:
             original_prior=original_prior,
             model_prior=model_prior,
         )
+        if result.get("ok"):
+            result["dataset_identity"] = f"Governed development {split_key.upper()} split"
+            result["dataset_version"] = DATASTORE.meta.get("dataset_version") or "Not recorded"
+        return result
 
     def decision_boundary(
         self,
@@ -2045,8 +2406,12 @@ class EvaluationService:
         x_feature: str = "",
         y_feature: str = "",
         resolution: int = 60,
+        context: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
-        model = self._artifact(model_name)
+        mismatch = self._artifact_context_mismatch(model_name, context)
+        if mismatch:
+            return {"ok": False, "error": mismatch, "debug": self._artifact_debug(model_name, context)}
+        model = self._artifact(model_name, context)
         if model is None:
             return {"ok": False, "error": "No fitted model artifact found."}
         _, X_test, _, y_test = self._test_data()

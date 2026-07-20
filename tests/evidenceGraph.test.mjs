@@ -21,15 +21,24 @@ const notebook = read("src/steps/NotebookStudio.tsx");
 const sqlStudio = read("src/steps/SqlDataStudio.tsx");
 const docs = read("src/steps/ModelDocumentationStudio.tsx");
 const diagnostics = read("src/steps/ModelDiagnostics.tsx");
+const persistedEvidenceStatus = read("src/lib/persistedEvidenceStatus.ts");
 
 assert.equal(pkg.scripts["test:evidence-graph"], "node tests/evidenceGraph.test.mjs", "package script must run Evidence Graph tests.");
 
-assert.match(app, /import EvidenceGraph/, "Evidence Graph route component must be imported.");
+assert.match(
+  app,
+  /(?:import EvidenceGraph|const EvidenceGraph = lazy\(\(\) => import\("\.\.\/steps\/EvidenceGraph"\)\))/,
+  "Evidence Graph route component must be imported directly or through React lazy loading.",
+);
 assert.match(app, /path="\/model-evidence-center"/, "Model Evidence Center route must be registered.");
 assert.match(app, /path="\/evidence-graph" element={<Navigate to="\/model-evidence-center" replace/, "Old Evidence Graph route must redirect to Model Evidence Center.");
 assert.match(sidebar, /Model Evidence Center/, "Sidebar must expose Model Evidence Center.");
 assert.doesNotMatch(sidebar, />Evidence Graph</, "Sidebar must not show Evidence Graph as the primary label.");
 assert.match(sidebar, /Network/, "Sidebar should use a graph/network icon.");
+assert.match(page, /summarizePersistedEvidence/, "Evidence Center must use the shared persisted evidence status helper.");
+for (const status of ["generated", "captured", "ready", "approved", "stale", "rejected"]) {
+  assert(persistedEvidenceStatus.includes(status), `Shared evidence status helper must support ${status}.`);
+}
 
 for (const label of ["Model Evidence Center", "Collects the proof behind your model", "Why this matters", "What counts as evidence?"]) {
   assert(page.includes(label), `Model Evidence Center page must include ${label}.`);

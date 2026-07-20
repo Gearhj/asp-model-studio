@@ -1,0 +1,69 @@
+{
+  "projectId": "atlas-mrlgel4o",
+  "projectName": "Cash Logistics Transportation QA",
+  "evidenceType": "optimization_solver_configuration",
+  "title": "Transportation Optimization: Solver configuration",
+  "summary": "Minimize total supplier-to-customer cash distribution cost while satisfying all customer demand and respecting supplier supply and transportation-capacity limits.. Solver configuration evidence captured from the governed transportation workflow.",
+  "sourcePage": "Optimization Step 7",
+  "sourceRoute": "/workflow/optimization/7",
+  "workflowStep": "7. Solver configuration",
+  "sourceRunReference": "run-fb3c39a3700f4cb7",
+  "artifactType": "optimization_solver_configuration",
+  "artifactId": "solution-55a6ee5eaf004afa:solver_configuration",
+  "datasetIds": [
+    "ds_date_transportation_cost_0e1b9b64",
+    "ds_date_demand_787e523d",
+    "ds_date_supply_max_7e4d8975",
+    "ds_date_transport_capacity_56ed23df",
+    "ds_date_inventory_cost_b9333777"
+  ],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Solver Configuration"
+  ],
+  "tags": [
+    "optimization",
+    "transportation",
+    "solver_configuration",
+    "captured"
+  ],
+  "status": "ready",
+  "importance": "high",
+  "capturedAt": "2026-07-15T19:48:52.045Z",
+  "lineage": {
+    "projectId": "atlas-mrlgel4o",
+    "formulationId": "transport-b5a97c5609bbfcc8",
+    "normalizationHash": "b5a97c5609bbfcc8112ea7bace12a9cd5d929ea2a742d7be493f71331c91fd96",
+    "solutionId": "solution-55a6ee5eaf004afa",
+    "runId": "run-fb3c39a3700f4cb7"
+  },
+  "payload": {
+    "stage": "solver_configuration",
+    "capturedAt": "2026-07-15T19:48:52.045Z",
+    "formulationId": "transport-b5a97c5609bbfcc8",
+    "formulationVersion": "1.0",
+    "normalizationHash": "b5a97c5609bbfcc8112ea7bace12a9cd5d929ea2a742d7be493f71331c91fd96",
+    "solutionId": "solution-55a6ee5eaf004afa",
+    "runId": "run-fb3c39a3700f4cb7",
+    "method": "Linear programming (LP)",
+    "tolerance": 1e-07,
+    "timeLimitSeconds": 30,
+    "variableCount": 30,
+    "constraintCount": 16
+  },
+  "governance": {
+    "accountableOwner": "Operations planning owner",
+    "reviewer": "Independent Model Validation",
+    "approvalDate": "2026-08-01",
+    "businessValidityStatus": "valid"
+  },
+  "evidenceId": "ev-transportation-optimization-solver-configu-30c4a96e5a33e719",
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-15T18:55:42.529249+00:00",
+  "updatedAt": "2026-07-15T19:48:52.082843+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 100
+}

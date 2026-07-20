@@ -1,936 +1,406 @@
-// src/steps/Step04_Outliers.tsx
-import React, { useMemo, useState, useCallback, useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { CheckCircle2, Filter, LoaderCircle, Play, Search, SlidersHorizontal } from "lucide-react";
 import StepShell from "../components/StepShell";
-import { useNavigate } from "react-router-dom";
+import {
+  AtlasAttentionPanel,
+  AtlasDataScopeBadge,
+  AtlasExecutionStatus,
+  AtlasStatusStrip,
+  AtlasWorkflowSection,
+  type AtlasWorkflowMetric,
+} from "../components/ui/AtlasWorkflow";
 import { logDecision } from "../lib/decisionJournal";
-import { inferLocalColumns, loadLocalDataset } from "../lib/localDataset";
+import { createEvidence } from "../lib/evidenceGraph";
+import { loadLocalDataset } from "../lib/localDataset";
+import { useWorkflowStore } from "../state/useWorkflowStore";
+import { safeArray, safeObject } from "../lib/workflowSafety";
 
-/**
- * Step 3: Outlier Analysis
- * - Robustly detects numeric features (dtype/type OR sample-based heuristic)
- * - Fetches sample from /api/data/get_sample
- * - Renders per-feature method selectors and before/after mini-histograms
- * - Bottom button -> /step04 (Missing Values)
- */
-
-type MethodKey =
-  | "NONE"
-  | "IQR_1_5"
-  | "IQR_3_0"
-  | "ZSCORE_3"
-  | "ZSCORE_4"
-  | "PCT_01_99"
-  | "PCT_05_95";
+type MethodKey = "NONE" | "IQR_1_5" | "IQR_3_0" | "ZSCORE_3" | "ZSCORE_4" | "PCT_01_99" | "PCT_05_95";
 type FeatureMethodKey = MethodKey | "USE_GLOBAL";
 
-const METHOD_OPTIONS: { key: MethodKey; label: string }[] = [
-  { key: "NONE", label: "None - no treatment" },
-  { key: "IQR_1_5", label: "1.5 IQR Method" },
-  { key: "IQR_3_0", label: "3.0 IQR Method" },
-  { key: "ZSCORE_3", label: "Z-Score Method (3σ)" },
-  { key: "ZSCORE_4", label: "Z-Score Method (4σ)" },
-  { key: "PCT_01_99", label: "Winsorize 0.5%/99.5%" },
-  { key: "PCT_05_95", label: "Winsorize 5%/95%" },
-];
-const FEATURE_METHOD_OPTIONS: { key: FeatureMethodKey; label: string }[] = [
-  { key: "USE_GLOBAL", label: "Use global method" },
-  ...METHOD_OPTIONS,
-];
-
-const METHOD_GUIDANCE: Record<MethodKey, string> = {
-  NONE: "Definition: no outlier treatment is applied. Use when values are valid business observations, geographic coordinates, or meaningful signal.",
-  IQR_1_5: "Definition: flags values beyond 1.5x the interquartile range. Use when you need a standard, moderately sensitive outlier screen.",
-  IQR_3_0: "Definition: flags values beyond 3x the interquartile range. Use when extreme values may be meaningful and capping should be conservative.",
-  ZSCORE_3: "Definition: flags values more than 3 standard deviations from the mean. Use for roughly normal numeric fields.",
-  ZSCORE_4: "Definition: flags values more than 4 standard deviations from the mean. Use when you want a less aggressive normal-based rule.",
-  PCT_01_99: "Definition: caps the most extreme 0.5% tails. Use when you want minimal winsorization while preserving most signal.",
-  PCT_05_95: "Definition: caps the outer 5% tails. Use only when outliers are likely data quality issues or unstable leverage points.",
-};
-const FEATURE_METHOD_GUIDANCE: Record<FeatureMethodKey, string> = {
-  USE_GLOBAL: "Definition: inherit the current global method. Use when the variable should follow the default outlier policy.",
-  ...METHOD_GUIDANCE,
+type MethodResult = {
+  method: MethodKey;
+  lower_threshold: number;
+  upper_threshold: number;
+  outlier_count: number;
+  outlier_rate: number;
 };
 
-const BASE =
-  (import.meta.env?.VITE_API_BASE?.replace(/\/$/, "") as string) ||
-  "http://127.0.0.1:8001/api";
-const OUTLIER_CONFIG_KEY = "modeling-tool-outlier-methods";
-
-// Colors
-const COLOR_BEFORE = "#9CA3AF";
-const COLOR_OUTLIER = "#EF4444";
-const COLOR_AFTER = "#10B981";
-
-/** ------------------------- Utils ------------------------- **/
-
-type ColumnInfo = {
-  name: string;
-  dtype?: string;              // e.g., "float64", "int64", "object"
-  role?: "feature" | "target";
-  type?: string;               // sometimes "numeric", "categorical"
+type OutlierFeature = {
+  feature: string;
+  datatype: string;
+  nonmissing_count: number;
+  missing_count: number;
+  signal_metric: number | null;
+  association_status: string;
+  methods: Record<MethodKey, MethodResult>;
+  rendered_sample: number[];
+  rendered_sample_count: number;
+  quantiles: Record<string, number | null>;
 };
 
-type SampleResp = {
+type OutlierApplication = {
+  applied_at: string;
+  dataset_version: string;
+  row_count: number;
+  global_method: MethodKey;
+  config: Record<string, FeatureMethodKey>;
+  treatments: Array<{
+    feature: string;
+    configured_method: FeatureMethodKey;
+    applied_method: MethodKey;
+    changed_values: number;
+    lower_threshold: number;
+    upper_threshold: number;
+  }>;
+  changed_values: number;
+};
+
+type OutlierSummary = {
   ok: boolean;
-  headers: string[];
-  rows: Array<Record<string, any>>;
-  target?: string | null;
-  selected_columns?: string[] | null;
+  scope: "full_dataset";
+  row_count: number;
+  dataset_version: string;
+  target: string | null;
+  problem_type: "classification" | "regression";
+  event_value: unknown;
+  event_rate: number | null;
+  rare_event: boolean;
+  features: OutlierFeature[];
+  application?: OutlierApplication | null;
 };
 
-function seeded(seed: string) {
-  let s = 0;
-  for (let i = 0; i < seed.length; i++) s = (s * 31 + seed.charCodeAt(i)) >>> 0;
-  return () => {
-    s ^= s << 13;
-    s ^= s >>> 17;
-    s ^= s << 5;
-    return (s >>> 0) / 4294967295;
-  };
-}
+const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") || "http://127.0.0.1:8001/api";
+const CONFIG_KEY = "modeling-tool-outlier-methods";
+const GLOBAL_KEY = "modeling-tool-outlier-global-method";
+const PAGE_SIZE = 20;
 
-function synthSeries(name: string, n = 1000): number[] {
-  const rnd = seeded(name);
-  const cfg: Record<string, { mu: number; sd: number; lo: number; hi: number }> = {
-    transaction_amount: { mu: 350, sd: 120, lo: 0, hi: 1000 },
-    account_age_days: { mu: 200, sd: 70, lo: 0, hi: 365 },
-    num_previous_transactions: { mu: 16, sd: 6, lo: 0, hi: 50 },
-    avg_transaction_amount: { mu: 220, sd: 90, lo: 0, hi: 600 },
-    transaction_hour: { mu: 13, sd: 4, lo: 0, hi: 23 },
-    days_since_last_transaction: { mu: 8, sd: 3, lo: 0, hi: 30 },
-  };
-  const c = cfg[name] ?? { mu: 0, sd: 1, lo: 0, hi: 1 };
-  const boxMuller = () => {
-    const u = Math.max(rnd(), 1e-12);
-    const v = Math.max(rnd(), 1e-12);
-    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
-  };
-  const arr: number[] = [];
-  for (let i = 0; i < n; i++) {
-    const z = boxMuller();
-    const val = Math.min(c.hi, Math.max(c.lo, c.mu + c.sd * z));
-    arr.push(val);
-  }
-  for (let k = 0; k < Math.max(6, Math.floor(n * 0.01)); k++) {
-    arr[Math.floor(rnd() * n)] = c.hi + (c.hi - c.lo) * 0.25 * rnd();
-  }
-  return arr;
-}
+const METHOD_OPTIONS: Array<{ key: MethodKey; label: string; guidance: string }> = [
+  { key: "NONE", label: "None - preserve observed values", guidance: "Use when tail values are plausible business observations or may carry predictive signal." },
+  { key: "IQR_1_5", label: "1.5 IQR", guidance: "A standard robust screen for moderately unusual values." },
+  { key: "IQR_3_0", label: "3.0 IQR", guidance: "A conservative robust screen when extreme values may be meaningful." },
+  { key: "ZSCORE_3", label: "3 standard deviations", guidance: "Use for approximately symmetric numeric variables." },
+  { key: "ZSCORE_4", label: "4 standard deviations", guidance: "A less aggressive normal-based cap." },
+  { key: "PCT_01_99", label: "Winsorize 0.5% and 99.5%", guidance: "Caps only the most extreme tails while preserving most observations." },
+  { key: "PCT_05_95", label: "Winsorize 5% and 95%", guidance: "Use only when tail values are known quality or stability concerns." },
+];
 
-function quantile(sorted: number[], p: number) {
-  if (!sorted.length) return 0;
-  const idx = (sorted.length - 1) * p;
-  const lo = Math.floor(idx);
-  const hi = Math.ceil(idx);
-  const h = idx - lo;
-  return (1 - h) * sorted[lo] + h * sorted[hi];
-}
-
-function outlierThresholds(values: number[], method: MethodKey) {
-  if (!values.length) return { lo: 0, hi: 0 };
-  if (method === "NONE") {
-    return { lo: Math.min(...values), hi: Math.max(...values) };
-  }
-  const s = [...values].sort((a, b) => a - b);
-  const mean = s.reduce((acc, v) => acc + v, 0) / (s.length || 1);
-  const sd = Math.sqrt(
-    s.reduce((acc, v) => acc + (v - mean) * (v - mean), 0) / Math.max(1, s.length - 1)
-  );
-
-  if (method === "ZSCORE_3") return { lo: mean - 3 * sd, hi: mean + 3 * sd };
-  if (method === "ZSCORE_4") return { lo: mean - 4 * sd, hi: mean + 4 * sd };
-  if (method === "PCT_05_95") return { lo: quantile(s, 0.05), hi: quantile(s, 0.95) };
-  if (method === "PCT_01_99") return { lo: quantile(s, 0.005), hi: quantile(s, 0.995) };
-
-  const q1 = quantile(s, 0.25);
-  const q3 = quantile(s, 0.75);
-  const iqr = q3 - q1;
-  const k = method === "IQR_3_0" ? 3.0 : 1.5;
-  return { lo: q1 - k * iqr, hi: q3 + k * iqr };
-}
-
-function capValues(values: number[], lo: number, hi: number) {
-  return values.map((v) => (v < lo ? lo : v > hi ? hi : v));
-}
-
-function countOutliers(values: number[], lo: number, hi: number, method?: MethodKey) {
-  if (method === "NONE") return 0;
-  let c = 0;
-  for (const v of values) if (v < lo || v > hi) c++;
-  return c;
+function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  return fetch(`${API_BASE}${path}`, {
+    credentials: "include",
+    ...init,
+    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+  }).then(async (response) => {
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || payload?.ok === false) throw new Error(payload?.detail ?? payload?.error ?? `ATLAS request failed with HTTP ${response.status}.`);
+    return payload as T;
+  });
 }
 
 function effectiveMethod(configured: FeatureMethodKey | undefined, globalMethod: MethodKey): MethodKey {
-  if (!configured || configured === "USE_GLOBAL") return globalMethod;
-  return configured;
+  return !configured || configured === "USE_GLOBAL" ? globalMethod : configured;
 }
 
-function buildOutlierData(allCols: ColumnInfo[], rows: Array<Record<string, any>>, headers: string[], targetName: string) {
-  const fromMeta = new Set(
-    allCols
-      .filter((c) => {
-        if (!c?.name) return false;
-        if (c.name === targetName) return false;
-        const d = `${c.dtype ?? ""}`.toLowerCase();
-        const t = `${c.type ?? ""}`.toLowerCase();
-        return /int|float|double|decimal|number|numeric/.test(d) || /numeric/.test(t);
-      })
-      .map((c) => c.name)
-  );
-
-  const heuristic = new Set<string>();
-  if (headers.length && rows.length) {
-    const N = Math.min(rows.length, 2000);
-    for (const h of headers) {
-      if (!h || h === targetName) continue;
-      let numericCount = 0;
-      let seen = 0;
-      for (let i = 0; i < N; i++) {
-        const v = rows[i]?.[h];
-        if (v === null || v === undefined || v === "") continue;
-        seen++;
-        const num = typeof v === "number" ? v : typeof v === "string" ? Number(v) : NaN;
-        if (Number.isFinite(num)) numericCount++;
-      }
-      if (seen > 0 && numericCount / seen >= 0.8) {
-        heuristic.add(h);
-      }
-    }
-  }
-
-  const final = Array.from(new Set([...fromMeta, ...heuristic]));
-  const series: Record<string, number[]> = {};
-  for (const f of final) {
-    const vals: number[] = [];
-    for (const r of rows) {
-      const v = r?.[f];
-      const num = typeof v === "number" ? v : v == null ? NaN : Number(v);
-      if (Number.isFinite(num)) vals.push(num);
-    }
-    series[f] = vals;
-  }
-
-  return { final, series };
+function normalizedConfig(features: OutlierFeature[], config: Record<string, FeatureMethodKey>) {
+  return Object.fromEntries(safeArray<OutlierFeature>(features).map((row) => [row.feature, config[row.feature] ?? "USE_GLOBAL"]));
 }
 
-function informationValue(values: number[], rows: Array<Record<string, any>>, feature: string, targetName: string) {
-  if (!targetName || !rows.length || !values.length) return 0;
-  const targetValues = rows
-    .map((row) => row?.[targetName])
-    .filter((value) => value !== null && value !== undefined && value !== "");
-  const uniqueTargets = Array.from(new Set(targetValues.map((value) => String(value))));
-  if (uniqueTargets.length !== 2) return 0;
-  const eventValue = uniqueTargets.sort()[uniqueTargets.length - 1];
-  const paired = rows
-    .map((row) => ({ x: Number(row?.[feature]), y: String(row?.[targetName]) === eventValue ? 1 : 0 }))
-    .filter((row) => Number.isFinite(row.x));
-  if (paired.length < 10) return 0;
-
-  const sortedValues = paired.map((row) => row.x).sort((a, b) => a - b);
-  const edges = Array.from(new Set([0, 0.2, 0.4, 0.6, 0.8, 1].map((p) => quantile(sortedValues, p))));
-  if (edges.length < 3) return 0;
-  const totalEvents = paired.reduce((sum, row) => sum + row.y, 0);
-  const totalNonEvents = paired.length - totalEvents;
-  if (!totalEvents || !totalNonEvents) return 0;
-
-  let iv = 0;
-  for (let i = 0; i < edges.length - 1; i++) {
-    const lo = edges[i];
-    const hi = edges[i + 1];
-    const bucket = paired.filter((row) => (i === edges.length - 2 ? row.x >= lo && row.x <= hi : row.x >= lo && row.x < hi));
-    const events = bucket.reduce((sum, row) => sum + row.y, 0);
-    const nonEvents = bucket.length - events;
-    const eventRate = Math.max(events / totalEvents, 1e-6);
-    const nonEventRate = Math.max(nonEvents / totalNonEvents, 1e-6);
-    iv += (eventRate - nonEventRate) * Math.log(eventRate / nonEventRate);
-  }
-  return Number.isFinite(iv) ? iv : 0;
+function configMatchesApplication(summary: OutlierSummary | null, config: Record<string, FeatureMethodKey>, globalMethod: MethodKey) {
+  const application = summary?.application;
+  if (!summary || !application || application.global_method !== globalMethod) return false;
+  return JSON.stringify(normalizedConfig(summary.features, config)) === JSON.stringify(normalizedConfig(summary.features, application.config));
 }
 
-function correlationWithTarget(rows: Array<Record<string, any>>, feature: string, targetName: string) {
-  if (!targetName || feature === targetName || !rows.length) return 0;
-  const pairs = rows
-    .map((row) => ({ x: Number(row?.[feature]), y: Number(row?.[targetName]) }))
-    .filter((row) => Number.isFinite(row.x) && Number.isFinite(row.y));
-  if (pairs.length < 3) return 0;
-  const meanX = pairs.reduce((sum, row) => sum + row.x, 0) / pairs.length;
-  const meanY = pairs.reduce((sum, row) => sum + row.y, 0) / pairs.length;
-  const numerator = pairs.reduce((sum, row) => sum + (row.x - meanX) * (row.y - meanY), 0);
-  const denomX = Math.sqrt(pairs.reduce((sum, row) => sum + (row.x - meanX) ** 2, 0));
-  const denomY = Math.sqrt(pairs.reduce((sum, row) => sum + (row.y - meanY) ** 2, 0));
-  const corr = numerator / ((denomX || 0) * (denomY || 0));
-  return Number.isFinite(corr) ? corr : 0;
+function fmt(value: number | null | undefined, digits = 4) {
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "Not evaluated";
 }
 
-type HistBin = { x0: number; x1: number; n: number; isOutlier?: boolean };
-
-function makeBins(values: number[], nbins = 24, lo?: number, hi?: number): HistBin[] {
-  if (!values.length) return [];
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const a = Math.min(min, lo ?? min);
-  const b = Math.max(max, hi ?? max);
-  const w = (b - a) / (nbins || 1);
-  const bins: HistBin[] = new Array(Math.max(1, nbins)).fill(0).map((_, i) => ({
-    x0: a + i * w,
-    x1: a + (i + 1) * w,
-    n: 0,
-  }));
-  for (const v of values) {
-    const idx = Math.max(0, Math.min(bins.length - 1, Math.floor((v - a) / (w || 1))));
-    bins[idx].n += 1;
-  }
-  if (lo !== undefined && hi !== undefined) {
-    for (const bin of bins) {
-      if (bin.x1 < lo || bin.x0 > hi) bin.isOutlier = true;
-    }
-  }
-  return bins;
+function pct(value: number | null | undefined, digits = 2) {
+  return typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(digits)}%` : "Not available";
 }
 
-/** ------------------------- UI bits ------------------------- **/
-
-function MiniHist({
-  title,
-  values,
-  thresholds,
-  afterCap = false,
-}: {
-  title: string;
-  values: number[];
-  thresholds?: { lo: number; hi: number };
-  afterCap?: boolean;
-}) {
-  const W = 520;
-  const H = 210;
-  const PL = 52,
-    PR = 18,
-    PT = 24,
-    PB = 42;
-  const w = W - PL - PR;
-  const h = H - PT - PB;
-
+function Histogram({ values, method, after }: { values: number[]; method: MethodResult | null; after?: boolean }) {
+  const safeMethod = method ?? { method: "NONE" as MethodKey, lower_threshold: 0, upper_threshold: 0, outlier_count: 0, outlier_rate: 0 };
+  const safeValues = safeArray<number>(values);
   const bins = useMemo(() => {
-    if (!values?.length) return [];
-    if (afterCap && thresholds) {
-      return makeBins(capValues(values, thresholds.lo, thresholds.hi), 24);
-    }
-    return makeBins(values, 24, thresholds?.lo, thresholds?.hi);
-  }, [values, thresholds, afterCap]);
-
-  const maxN = useMemo(() => Math.max(1, ...bins.map((b) => b.n)), [bins]);
-
-  if (!bins.length) {
-    return (
-      <div className="rounded-md bg-white border border-gray-200 p-2">
-        <div className="text-[10px] font-semibold text-gray-700 mb-1">{title}</div>
-        <div className="text-[11px] text-gray-500">No data available</div>
+    if (!safeValues.length) return [];
+    const rendered = after && safeMethod.method !== "NONE"
+      ? safeValues.map((value) => Math.max(safeMethod.lower_threshold, Math.min(safeMethod.upper_threshold, value)))
+      : safeValues;
+    const minimum = Math.min(...rendered, safeMethod.lower_threshold);
+    const maximum = Math.max(...rendered, safeMethod.upper_threshold);
+    const width = (maximum - minimum) / 18 || 1;
+    const counts = Array.from({ length: 18 }, () => 0);
+    rendered.forEach((value) => {
+      const index = Math.min(17, Math.max(0, Math.floor((value - minimum) / width)));
+      counts[index] += 1;
+    });
+    return counts;
+  }, [after, safeMethod, safeValues]);
+  const maximum = Math.max(1, ...bins);
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-3">
+      <div className="text-xs font-semibold text-slate-800">{after ? "After selected treatment" : "Before treatment"}</div>
+      <div className="mt-3 flex h-32 items-end gap-1" aria-label={after ? "Rendered post-treatment histogram" : "Rendered pre-treatment histogram"}>
+        {bins.length ? bins.map((count, index) => (
+          <div key={index} className={`min-w-0 flex-1 ${after ? "bg-blue-500" : "bg-slate-400"}`} style={{ height: `${Math.max(3, (count / maximum) * 100)}%` }} />
+        )) : <div className="self-center text-xs text-slate-500">No rendered values are available.</div>}
       </div>
-    );
+      <div className="mt-2 flex justify-between gap-3 text-[11px] text-slate-500">
+        <span>Low {fmt(safeMethod.lower_threshold, 3)}</span>
+        <span>High {fmt(safeMethod.upper_threshold, 3)}</span>
+      </div>
+    </div>
+  );
+}
+
+export default function Step04Outliers() {
+  const localDataset = loadLocalDataset();
+  const projectId = useWorkflowStore((state) => state.projectId);
+  const projectName = useWorkflowStore((state) => state.projectName);
+  const [summary, setSummary] = useState<OutlierSummary | null>(null);
+  const [config, setConfig] = useState<Record<string, FeatureMethodKey>>({});
+  const [globalMethod, setGlobalMethod] = useState<MethodKey>(() => (localStorage.getItem(GLOBAL_KEY) as MethodKey) || "IQR_1_5");
+  const [selectedFeature, setSelectedFeature] = useState("");
+  const [search, setSearch] = useState("");
+  const [sortBy, setSortBy] = useState<"signal" | "outliers" | "name">("signal");
+  const [page, setPage] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [applying, setApplying] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+
+  async function loadSummary() {
+    setLoading(true);
+    setError("");
+    try {
+      const payload = await requestJson<OutlierSummary>("/outliers/summary", {
+        method: "POST",
+        body: JSON.stringify({
+          target: localDataset?.target,
+          event_value: localDataset?.event_value,
+          problem_type: localDataset?.problem_type,
+        }),
+      });
+      const features = safeArray<OutlierFeature>(payload.features).map((feature) => ({
+        ...feature,
+        methods: safeObject(feature.methods) as Record<MethodKey, MethodResult>,
+        rendered_sample: safeArray<number>(feature.rendered_sample),
+        quantiles: safeObject(feature.quantiles) as Record<string, number | null>,
+      }));
+      const safePayload = { ...payload, features };
+      let stored: Record<string, FeatureMethodKey> = {};
+      try { stored = JSON.parse(localStorage.getItem(CONFIG_KEY) || "{}"); } catch { stored = {}; }
+      const source = Object.keys(stored).length ? stored : safePayload.application?.config ?? {};
+      const next = normalizedConfig(safePayload.features, source);
+      setSummary(safePayload);
+      setConfig(next);
+      if (!localStorage.getItem(GLOBAL_KEY) && safePayload.application?.global_method) setGlobalMethod(safePayload.application.global_method);
+      setSelectedFeature((current) => current && safePayload.features.some((row) => row.feature === current) ? current : safePayload.features[0]?.feature ?? "");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Full-data outlier analysis is unavailable.");
+    } finally {
+      setLoading(false);
+    }
   }
 
-  const a = bins[0].x0;
-  const b = bins[bins.length - 1].x1;
-  const toX = (v: number) => PL + ((v - a) / (b - a || 1)) * w;
-  const toY = (n: number) => PT + h - (n / (maxN || 1)) * h;
-  const xTicks = [a, a + (b - a) * 0.25, a + (b - a) * 0.5, a + (b - a) * 0.75, b];
-  const yTicks = [0, maxN * 0.5, maxN];
-
-  return (
-    <div className="rounded-xl bg-white border border-gray-200 p-3">
-      <div className="text-xs font-semibold text-gray-800">{title}</div>
-      <p className="mt-1 text-[11px] text-gray-500">{afterCap ? "Distribution after applying the selected cap thresholds." : "Raw distribution with treatment thresholds marked."}</p>
-      <svg viewBox={`0 0 ${W} ${H}`} className="mt-2 w-full">
-        <rect x="0" y="0" width={W} height={H} fill="#F9FAFB" />
-        {yTicks.map((tick) => (
-          <g key={`y-${tick}`}>
-            <line x1={PL} y1={toY(tick)} x2={PL + w} y2={toY(tick)} stroke="#E5E7EB" />
-            <text x={PL - 8} y={toY(tick) + 4} textAnchor="end" fontSize="10" fill="#64748B">{Math.round(tick)}</text>
-          </g>
-        ))}
-        <line x1={PL} y1={PT + h} x2={PL + w} y2={PT + h} stroke="#D1D5DB" strokeWidth="1" />
-        <line x1={PL} y1={PT} x2={PL} y2={PT + h} stroke="#D1D5DB" strokeWidth="1" />
-        {bins.map((b, i) => {
-          const x0 = toX(b.x0) + 0.7;
-          const x1 = toX(b.x1) - 0.7;
-          const barW = Math.max(1, x1 - x0);
-          const y = toY(b.n);
-          const color = afterCap ? COLOR_AFTER : b.isOutlier ? COLOR_OUTLIER : COLOR_BEFORE;
-          return (
-            <rect
-              key={i}
-              x={x0}
-              y={y}
-              width={barW}
-              height={PT + h - y}
-              fill={color}
-              opacity={afterCap ? 0.9 : b.isOutlier ? 0.85 : 0.9}
-            />
-          );
-        })}
-        {thresholds && !afterCap && (
-          <>
-            <line
-              x1={toX(thresholds.lo)}
-              x2={toX(thresholds.lo)}
-              y1={PT}
-              y2={PT + h}
-              stroke={COLOR_OUTLIER}
-              strokeDasharray="3 3"
-              strokeWidth="1"
-            />
-            <text x={toX(thresholds.lo) + 3} y={PT + 12} fontSize="10" fill={COLOR_OUTLIER}>Low cap</text>
-            <line
-              x1={toX(thresholds.hi)}
-              x2={toX(thresholds.hi)}
-              y1={PT}
-              y2={PT + h}
-              stroke={COLOR_OUTLIER}
-              strokeDasharray="3 3"
-              strokeWidth="1"
-            />
-            <text x={toX(thresholds.hi) - 3} y={PT + 26} textAnchor="end" fontSize="10" fill={COLOR_OUTLIER}>High cap</text>
-          </>
-        )}
-        {xTicks.map((tick) => (
-          <g key={`x-${tick}`}>
-            <line x1={toX(tick)} x2={toX(tick)} y1={PT + h} y2={PT + h + 5} stroke="#94A3B8" />
-            <text x={toX(tick)} y={PT + h + 18} textAnchor="middle" fontSize="10" fill="#64748B">{tick.toFixed(2)}</text>
-          </g>
-        ))}
-        <text x={PL + w / 2} y={H - 6} textAnchor="middle" fontSize="11" fill="#475569">Feature value</text>
-        <text x="14" y={PT + h / 2} textAnchor="middle" transform={`rotate(-90 14 ${PT + h / 2})`} fontSize="11" fill="#475569">Records</text>
-      </svg>
-    </div>
-  );
-}
-
-function FeaturePreview({
-  feature,
-  method,
-  series,
-}: {
-  feature: string;
-  method: MethodKey;
-  series: number[];
-}) {
-  const values = useMemo(
-    () => (series?.length ? series : synthSeries(feature, 1200)),
-    [feature, series]
-  );
-  const thr = useMemo(() => outlierThresholds(values, method), [values, method]);
-  const outCount = useMemo(() => countOutliers(values, thr.lo, thr.hi, method), [values, thr, method]);
-  const noTreatment = method === "NONE";
-
-  return (
-    <div className="bg-white border border-gray-200 rounded-xl p-4">
-      <div className="text-xs font-semibold uppercase text-gray-700 mb-2">
-        {feature.toUpperCase()}
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        <MiniHist title="Before Treatment" values={values} thresholds={noTreatment ? undefined : thr} />
-        <MiniHist title={noTreatment ? "No Treatment Applied" : "After Capping"} values={values} thresholds={noTreatment ? undefined : thr} afterCap={!noTreatment} />
-      </div>
-      <div className="text-[11px] text-gray-600 mt-2">
-        <span className="font-medium text-gray-800">Outliers flagged:</span>{" "}
-        <span className="text-red-600 font-semibold">{outCount}</span>{" "}
-        with{" "}
-        <span className="font-medium">
-          {METHOD_OPTIONS.find((o) => o.key === method)?.label}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-/** ------------------------- Page ------------------------- **/
-
-export default function Step04_Outliers() {
-  const navigate = useNavigate();
-
-  const [loading, setLoading] = useState(true);
-  const [numericFeatures, setNumericFeatures] = useState<string[]>([]);
-  const [seriesMap, setSeriesMap] = useState<Record<string, number[]>>({});
-  const [methodByFeature, setMethodByFeature] = useState<Record<string, FeatureMethodKey>>({});
-  const [globalMethod, setGlobalMethod] = useState<MethodKey>("IQR_1_5");
-  const [featureIv, setFeatureIv] = useState<Record<string, number>>({});
-  const [problemType, setProblemType] = useState<"classification" | "regression">("classification");
-  const [featurePage, setFeaturePage] = useState(0);
-  const [selectedFeature, setSelectedFeature] = useState<string>("");
-
+  useEffect(() => { void loadSummary(); }, []);
   useEffect(() => {
     try {
-      const raw = localStorage.getItem(OUTLIER_CONFIG_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw) as Record<string, FeatureMethodKey>;
-      if (parsed && typeof parsed === "object") {
-        setMethodByFeature(parsed);
-      }
+      localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+      localStorage.setItem(GLOBAL_KEY, globalMethod);
     } catch {
-      // Ignore bad local state.
+      setMessage("Selections are retained for this session, but browser persistence is unavailable.");
     }
-  }, []);
+  }, [config, globalMethod]);
 
-  useEffect(() => {
-    localStorage.setItem(OUTLIER_CONFIG_KEY, JSON.stringify(methodByFeature));
-  }, [methodByFeature]);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    let mounted = true;
-
-    async function load() {
-      try {
-        setLoading(true);
-
-        // 1) Fetch columns. Treat backend metadata as optional so the page
-        // can still render from the browser-cached dataset.
-        const colsRes = await fetch(`${BASE}/columns`, { signal: controller.signal });
-        const colsJson = colsRes.ok
-          ? ((await colsRes.json()) as { ok?: boolean; columns?: ColumnInfo[]; target?: string | null })
-          : { columns: [] };
-        const allCols: ColumnInfo[] = Array.isArray(colsJson?.columns) ? colsJson.columns : [];
-
-        // 2) Fetch sample
-        const sampleRes = await fetch(`${BASE}/data/get_sample`, { signal: controller.signal });
-        const sampleJson = sampleRes.ok
-          ? ((await sampleRes.json()) as SampleResp)
-          : ({ ok: false, headers: [], rows: [] } as SampleResp);
-
-        const rows = Array.isArray(sampleJson?.rows) ? sampleJson.rows : [];
-        const headers = Array.isArray(sampleJson?.headers) ? sampleJson.headers : [];
-        const targetName = (sampleJson?.target || colsJson?.target || allCols.find(c => c.role === "target")?.name || "") as string;
-
-        const localDatasetForFilter = loadLocalDataset();
-        const scopedHeaders = localDatasetForFilter?.headers.length ? localDatasetForFilter.headers : headers;
-        const scopedHeaderSet = new Set(scopedHeaders);
-        const scopedRows = localDatasetForFilter?.headers.length
-          ? rows.map((row) => {
-              const filtered: Record<string, any> = {};
-              scopedHeaders.forEach((header) => {
-                filtered[header] = row?.[header];
-              });
-              return filtered;
-            })
-          : rows;
-        const scopedColumns = localDatasetForFilter?.headers.length
-          ? allCols.filter((column) => scopedHeaderSet.has(column.name))
-          : allCols;
-        const scopedTarget = localDatasetForFilter?.target ?? targetName;
-        const scopedProblemType = localDatasetForFilter?.problem_type === "regression" ? "regression" : "classification";
-
-        let { final, series } = buildOutlierData(scopedColumns, scopedRows, scopedHeaders, scopedTarget);
-        let ivMap: Record<string, number> = {};
-        final.forEach((feature) => {
-          ivMap[feature] = scopedProblemType === "regression"
-            ? correlationWithTarget(scopedRows, feature, scopedTarget)
-            : informationValue(series[feature] ?? [], scopedRows, feature, scopedTarget);
-        });
-        if (!final.length) {
-          const localDataset = loadLocalDataset();
-          if (localDataset?.headers.length) {
-            const localColumns = inferLocalColumns(localDataset);
-            const local = buildOutlierData(
-              localColumns,
-              localDataset.rows,
-              localDataset.headers,
-              localDataset.target ?? ""
-            );
-            final = local.final;
-            series = local.series;
-            ivMap = {};
-            final.forEach((feature) => {
-              ivMap[feature] = localDataset.problem_type === "regression"
-                ? correlationWithTarget(localDataset.rows, feature, localDataset.target ?? "")
-                : informationValue(local.series[feature] ?? [], localDataset.rows, feature, localDataset.target ?? "");
-            });
-          }
-        }
-
-        if (!mounted) return;
-        const ordered = [...final].sort((a, b) => Math.abs(ivMap[b] ?? 0) - Math.abs(ivMap[a] ?? 0));
-        setNumericFeatures(ordered);
-        setSelectedFeature((current) => current && ordered.includes(current) ? current : ordered[0] ?? "");
-        setSeriesMap(series);
-        setFeatureIv(ivMap);
-        setProblemType(scopedProblemType);
-        setFeaturePage(0);
-        setMethodByFeature((prev) => {
-          const next: Record<string, FeatureMethodKey> = { ...prev };
-          for (const f of final) if (!next[f]) next[f] = "USE_GLOBAL";
-          for (const k of Object.keys(next)) if (!final.includes(k)) delete next[k];
-          return next;
-        });
-      } catch (e) {
-        if (!(e instanceof DOMException && e.name === "AbortError")) {
-          console.error("Outliers load error:", e);
-          const localDataset = loadLocalDataset();
-          if (localDataset?.headers.length) {
-            const localColumns = inferLocalColumns(localDataset);
-            const { final, series } = buildOutlierData(
-              localColumns,
-              localDataset.rows,
-              localDataset.headers,
-              localDataset.target ?? ""
-            );
-            if (!mounted) return;
-            const ivMap: Record<string, number> = {};
-            final.forEach((feature) => {
-              ivMap[feature] = localDataset.problem_type === "regression"
-                ? correlationWithTarget(localDataset.rows, feature, localDataset.target ?? "")
-                : informationValue(series[feature] ?? [], localDataset.rows, feature, localDataset.target ?? "");
-            });
-            const ordered = [...final].sort((a, b) => Math.abs(ivMap[b] ?? 0) - Math.abs(ivMap[a] ?? 0));
-            setNumericFeatures(ordered);
-            setSelectedFeature((current) => current && ordered.includes(current) ? current : ordered[0] ?? "");
-            setSeriesMap(series);
-            setFeatureIv(ivMap);
-            setProblemType(localDataset.problem_type === "regression" ? "regression" : "classification");
-            setFeaturePage(0);
-            setMethodByFeature((prev) => {
-              const next: Record<string, FeatureMethodKey> = { ...prev };
-              for (const f of final) if (!next[f]) next[f] = "USE_GLOBAL";
-              for (const k of Object.keys(next)) if (!final.includes(k)) delete next[k];
-              return next;
-            });
-          } else {
-            setNumericFeatures([]);
-            setSeriesMap({});
-          }
-        }
-      } finally {
-        if (mounted) setLoading(false);
+  const rows = useMemo(() => {
+    const filtered = safeArray<OutlierFeature>(summary?.features).filter((row) => row.feature.toLowerCase().includes(search.trim().toLowerCase()));
+    return [...filtered].sort((a, b) => {
+      if (sortBy === "name") return a.feature.localeCompare(b.feature);
+      if (sortBy === "outliers") {
+        const aMethod = a.methods?.[effectiveMethod(config[a.feature], globalMethod)];
+        const bMethod = b.methods?.[effectiveMethod(config[b.feature], globalMethod)];
+        return (bMethod?.outlier_count ?? 0) - (aMethod?.outlier_count ?? 0);
       }
-    }
-
-    load();
-    return () => {
-      mounted = false;
-      controller.abort();
-    };
-  }, []);
-
-  const tableData = useMemo(() => {
-    return numericFeatures.map((f) => {
-      const s = seriesMap[f] ?? [];
-      const values = s.length ? s : synthSeries(f, 1500);
-      const configured = methodByFeature[f] || "USE_GLOBAL";
-      const resolved = effectiveMethod(configured, globalMethod);
-      const thr = outlierThresholds(values, resolved);
-      const n = countOutliers(values, thr.lo, thr.hi, resolved);
-      return { feature: f, outliers: n, method: configured, effectiveMethod: resolved, iv: featureIv[f] ?? 0 };
+      return Math.abs(b.signal_metric ?? 0) - Math.abs(a.signal_metric ?? 0);
     });
-  }, [numericFeatures, seriesMap, methodByFeature, featureIv, globalMethod]);
+  }, [config, globalMethod, search, sortBy, summary]);
+  const pageCount = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const pagedRows = rows.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const selected = safeArray<OutlierFeature>(summary?.features).find((row) => row.feature === selectedFeature) ?? safeArray<OutlierFeature>(summary?.features)[0];
+  const selectedMethod = selected ? selected.methods?.[effectiveMethod(config[selected.feature], globalMethod)] : null;
+  const applied = configMatchesApplication(summary, config, globalMethod);
+  const changedValues = safeArray<OutlierFeature>(summary?.features).reduce((sum, row) => sum + (row.methods?.[effectiveMethod(config[row.feature], globalMethod)]?.outlier_count ?? 0), 0);
 
-  const pageSize = 20;
-  const pageCount = Math.max(1, Math.ceil(tableData.length / pageSize));
-  const currentPage = Math.min(featurePage, pageCount - 1);
-  const pagedTableData = tableData.slice(currentPage * pageSize, currentPage * pageSize + pageSize);
-  const pagedFeatures = numericFeatures.slice(currentPage * pageSize, currentPage * pageSize + pageSize);
-  const selectedRow = tableData.find((row) => row.feature === selectedFeature) ?? tableData[0];
-  const totalOutliers = tableData.reduce((sum, row) => sum + row.outliers, 0);
-  const featuresWithOutliers = tableData.filter((row) => row.outliers > 0).length;
-  const highestOutlierFeature = [...tableData].sort((a, b) => b.outliers - a.outliers)[0];
-
-  const handleChange = useCallback((feature: string, key: FeatureMethodKey) => {
+  function changeFeature(feature: string, method: FeatureMethodKey) {
     logDecision({
       workflowStep: "Outlier Analysis",
       actionType: "outlier_method_selected",
       subject: feature,
-      previousValue: methodByFeature[feature],
-      newValue: key,
+      previousValue: config[feature] ?? "USE_GLOBAL",
+      newValue: method,
     });
-    setMethodByFeature((prev) => ({ ...prev, [feature]: key }));
-  }, [methodByFeature]);
+    setConfig((current) => ({ ...current, [feature]: method }));
+    setMessage("Treatment selections changed. Apply them before continuing.");
+  }
 
-  const applyGlobalMethod = useCallback(() => {
-    logDecision({
-      workflowStep: "Outlier Analysis",
-      actionType: "outlier_method_selected",
-      subject: "All numeric features",
-      previousValue: methodByFeature,
-      newValue: globalMethod,
-    });
-    setMethodByFeature((prev) => {
-      const next: Record<string, FeatureMethodKey> = { ...prev };
-      numericFeatures.forEach((feature) => {
-        next[feature] = "USE_GLOBAL";
+  function applyGlobalSelection() {
+    setConfig((current) => Object.fromEntries(Object.keys(current).map((feature) => [feature, "USE_GLOBAL"])));
+    setMessage("All features now inherit the selected global method. Apply treatments to materialize the change.");
+  }
+
+  async function applyTreatments() {
+    if (!summary) throw new Error("Full-data outlier analysis must load before treatments can be applied.");
+    setApplying(true);
+    setError("");
+    try {
+      const payload = await requestJson<{ ok: true; scope: "full_dataset"; application: OutlierApplication }>("/outliers/apply", {
+        method: "POST",
+        body: JSON.stringify({
+          config: normalizedConfig(safeArray<OutlierFeature>(summary.features), config),
+          global_method: globalMethod,
+          target: summary.target,
+          event_value: summary.event_value,
+          problem_type: summary.problem_type,
+        }),
       });
-      return next;
+      setSummary((current) => current ? { ...current, application: payload.application } : current);
+      setMessage(`${payload.application.changed_values.toLocaleString()} full-data values were treated across ${payload.application.treatments.length.toLocaleString()} numeric predictors.`);
+      return payload.application;
+    } catch (cause) {
+      const detail = cause instanceof Error ? cause.message : "Outlier treatments could not be applied.";
+      setError(detail);
+      throw new Error(detail);
+    } finally {
+      setApplying(false);
+    }
+  }
+
+  async function completeStep() {
+    const application = applied && summary?.application ? summary.application : await applyTreatments();
+    await createEvidence({
+      projectId,
+      projectName,
+      evidenceType: "outliers",
+      title: "Full-Data Outlier Treatment",
+      summary: `${application.changed_values.toLocaleString()} values were treated across ${application.treatments.length.toLocaleString()} numeric predictors using the governed full dataset.`,
+      sourcePage: "Outlier Analysis",
+      sourceRoute: "/step03",
+      datasetIds: [application.dataset_version],
+      modelIds: [], documentIds: [], notebookIds: [],
+      supportsSections: ["Outlier Treatment", "Data Quality", "Feature Engineering"],
+      tags: ["predictive_modeling", "outliers", "full_dataset"],
+      status: "ready",
+      importance: "high",
+      lineage: { datasetVersion: application.dataset_version, rowCount: application.row_count, scope: "full_dataset" },
+      payload: application,
     });
-  }, [globalMethod, numericFeatures, methodByFeature]);
+    return true;
+  }
+
+  const heroMetrics: AtlasWorkflowMetric[] = [
+    { label: "Data Scope", value: summary ? "Full Dataset" : "Unavailable", tone: summary ? "info" : "warning" },
+    { label: "Rows Analyzed", value: summary?.row_count.toLocaleString() ?? "Loading" },
+    { label: "Numeric Predictors", value: safeArray<OutlierFeature>(summary?.features).length.toLocaleString() },
+    { label: summary?.problem_type === "regression" ? "Signal Metric" : "Signal Metric", value: summary?.problem_type === "regression" ? "Correlation" : "Information Value" },
+    { label: "Values Flagged", value: changedValues.toLocaleString() },
+    { label: "Treatment State", value: applied ? "Applied" : "Selected only", tone: applied ? "success" : "warning" },
+  ];
 
   return (
     <StepShell
       title="Step 3: Outlier Analysis"
-      subtitle="Identify and handle outliers in numeric features before missing-value treatment."
-      nextPath="/step04"   // navigate to Missing Values
+      subtitle="Review numeric tails on the full registered modeling population, choose governed treatments, and materialize those treatments before missing-value handling."
+      variant="analysis"
+      heroMetrics={heroMetrics}
+      nextPath="/step04"
+      onNext={completeStep}
+      nextDisabled={loading || !summary || !!error || !safeArray<OutlierFeature>(summary.features).length || applying}
+      nextDisabledReason={error || "Load the full-data outlier profile before continuing."}
+      nextStatusLine={applied ? "The current full-data treatment configuration is applied and ready for Missing Values." : "The selected treatments will be applied to the full dataset before navigation."}
     >
-      <section className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950 shadow-sm">
-        <div className="font-semibold">{problemType === "regression" ? "Regression tail and leverage guidance" : "Fraud, anomaly, and transaction-tail guidance"}</div>
-        <p className="mt-1">
-          {problemType === "regression"
-            ? "Extreme predictor values can create high leverage in continuous-target models. Review whether tails are valid business behavior before capping, and compare correlation with the target before changing treatment."
-            : "For fraud or anomaly problems, extreme values may be meaningful signal rather than bad data. Review amount, balance, income, payment, and transaction-count tails before removing or capping them. Prefer conservative winsorization when values are operationally plausible."}
-        </p>
-      </section>
+      {loading ? <div className="atlas-workflow-section flex min-h-56 items-center justify-center"><LoaderCircle className="animate-spin text-blue-600" size={28} /></div> : null}
+      {error ? <AtlasAttentionPanel title="Outlier analysis is unavailable because the feature profile could not be loaded" tone="danger"><div className="space-y-3"><p>{error}</p><div className="flex flex-wrap gap-2"><button type="button" className="atlas-primary-button" onClick={() => void loadSummary()}>Retry</button><a className="atlas-secondary-button" href="/step01">Go to Data Acquisition</a><a className="atlas-secondary-button" href="/step02">Go to EDA</a></div><details className="rounded-lg border border-red-200 bg-white p-3"><summary className="cursor-pointer text-sm font-semibold text-red-950">Technical details</summary><pre className="mt-2 whitespace-pre-wrap text-xs text-slate-700">{error}</pre></details></div></AtlasAttentionPanel> : null}
+      {summary ? (
+        <div className="space-y-5">
+          <AtlasStatusStrip items={[
+            { label: "Registered population", state: "complete", detail: `${summary.row_count.toLocaleString()} rows` },
+            { label: "Treatment selection", state: "complete", detail: `${safeArray<OutlierFeature>(summary.features).length.toLocaleString()} numeric predictors` },
+            { label: "Backend materialization", state: applied ? "complete" : "warning", detail: applied ? "Current" : "Selected, not applied" },
+          ]} />
 
-      {numericFeatures.length > 0 && (
-        <section className="mb-6 grid gap-3 md:grid-cols-4">
-          <SummaryCard label="Total Outliers" value={totalOutliers.toLocaleString()} helper="Across numeric predictors" />
-          <SummaryCard label="Features With Outliers" value={featuresWithOutliers.toLocaleString()} helper={`${numericFeatures.length} numeric features reviewed`} />
-          <SummaryCard label="Highest Outlier Feature" value={highestOutlierFeature?.feature ?? "-"} helper={highestOutlierFeature ? `${highestOutlierFeature.outliers.toLocaleString()} flagged values` : "No outliers detected"} />
-          <SummaryCard label="Global Method" value={METHOD_OPTIONS.find((item) => item.key === globalMethod)?.label ?? globalMethod} helper="Default policy before overrides" />
-        </section>
-      )}
+          {summary.rare_event ? (
+            <AtlasAttentionPanel title="Rare-event treatment review" tone="warning">
+              The governed event rate is {pct(summary.event_rate)}. Extreme values may carry disproportionate signal in rare-event models. Preserve operationally plausible tails unless there is a documented quality or stability reason to cap them.
+            </AtlasAttentionPanel>
+          ) : null}
 
-      {/* Methods table */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">
-          Outlier Detection Methods
-        </h3>
-
-        {numericFeatures.length > 0 && (
-          <div className="mb-5 grid gap-3 rounded-lg border border-gray-200 bg-gray-50 p-4 lg:grid-cols-[minmax(260px,360px)_minmax(0,1fr)_auto] lg:items-end">
-            <label className="grid gap-1">
-              <span className="text-xs font-medium text-gray-600">Global method</span>
-              <select
-                value={globalMethod}
-                onChange={(e) => setGlobalMethod(e.target.value as MethodKey)}
-                className="w-full rounded-lg border border-gray-300 bg-white p-2 text-sm"
-                title={METHOD_GUIDANCE[globalMethod]}
-              >
-                {METHOD_OPTIONS.map((opt) => (
-                  <option key={opt.key} value={opt.key}>
-                    {opt.label}
-                  </option>
-                ))}
-              </select>
-              <span className="text-[11px] font-normal leading-4 text-gray-500">{METHOD_GUIDANCE[globalMethod]}</span>
-            </label>
-            <div className="text-xs leading-5 text-gray-500">
-              Use this as the default policy, then override individual features below. The selected feature chart appears below the table so the method controls remain fully visible.
+          <AtlasWorkflowSection
+            eyebrow="Treatment Policy"
+            title="Global method and feature overrides"
+            description="Selections remain recommendations until ATLAS applies them to the full backend dataset."
+            tone="info"
+            action={<AtlasDataScopeBadge scope="full_dataset" rows={summary.row_count} />}
+          >
+            <div className="grid gap-4 lg:grid-cols-[minmax(260px,380px)_minmax(0,1fr)_auto] lg:items-end">
+              <label className="grid gap-1 text-sm font-medium text-slate-700">
+                Global method
+                <select className="atlas-input" value={globalMethod} onChange={(event) => { setGlobalMethod(event.target.value as MethodKey); setMessage("Global method changed. Apply treatments to materialize the change."); }}>
+                  {METHOD_OPTIONS.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}
+                </select>
+                <span className="text-xs font-normal leading-5 text-slate-500">{METHOD_OPTIONS.find((option) => option.key === globalMethod)?.guidance}</span>
+              </label>
+              <div className="text-sm leading-6 text-slate-600">Use the global policy as a controlled default, then override only variables whose business meaning or tail behavior requires a different decision.</div>
+              <button type="button" className="atlas-secondary-button" onClick={applyGlobalSelection}><SlidersHorizontal size={16} /> Use global for all</button>
             </div>
-            <button
-              type="button"
-              onClick={applyGlobalMethod}
-              className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700"
-            >
-              Apply to All Features
-            </button>
-          </div>
-        )}
+            <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-slate-200 pt-4">
+              <AtlasExecutionStatus state={applying ? "running" : applied ? "complete" : "idle"} label={applying ? "Applying full-data treatments" : applied ? "Current configuration applied" : "Selections not yet applied"} detail={summary.application?.applied_at ? `Last applied ${new Date(summary.application.applied_at).toLocaleString()}` : "Apply explicitly or continue to materialize treatments."} />
+              <button type="button" className="atlas-primary-button" onClick={() => void applyTreatments()} disabled={applying}><Play size={16} /> Apply treatments</button>
+            </div>
+          </AtlasWorkflowSection>
 
-        {loading ? (
-          <div className="text-sm text-gray-600">Loading features…</div>
-        ) : numericFeatures.length === 0 ? (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-            <div className="font-semibold">Outlier analysis has no numeric feature data yet.</div>
-            <p className="mt-1">
-              Load a dataset with numeric predictors, confirm the target variable, and return here. ATLAS will then
-              profile extreme values, estimate outlier counts, and let you choose conservative capping methods before
-              missing-value treatment.
-            </p>
-          </div>
-        ) : (
-          <div className="grid gap-5">
-            <div className="overflow-x-auto rounded-xl border border-slate-200">
-              <table className="min-w-full text-sm">
-                <thead className="bg-slate-50">
-                  <tr className="text-left text-gray-600">
-                    <th className="py-2 px-3">Feature</th>
-                    <th className="py-2 px-3">Outliers Detected</th>
-                    <th className="py-2 px-3">{problemType === "regression" ? "Corr(Target)" : "IV"}</th>
-                    <th className="py-2 px-3">Method</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pagedTableData.map((row) => (
-                    <tr
-                      key={row.feature}
-                      className={`cursor-pointer border-t border-gray-100 transition hover:bg-blue-50 ${selectedFeature === row.feature ? "bg-blue-50" : ""}`}
-                      onClick={() => setSelectedFeature(row.feature)}
-                    >
-                      <td className="py-2 px-3 font-medium text-gray-800">{row.feature}</td>
-                      <td className="py-2 px-3">
-                        <span className="text-red-600 font-semibold">{row.outliers}</span>
-                      </td>
-                      <td className="py-2 px-3 text-gray-700">{row.iv.toFixed(4)}</td>
-                      <td className="py-2 px-3" onClick={(event) => event.stopPropagation()}>
-                        <select
-                          value={methodByFeature[row.feature]}
-                          onChange={(e) => handleChange(row.feature, e.target.value as FeatureMethodKey)}
-                          className="w-full min-w-48 p-2 border border-gray-300 rounded-lg"
-                          title={FEATURE_METHOD_GUIDANCE[methodByFeature[row.feature] || "USE_GLOBAL"]}
-                        >
-                          {FEATURE_METHOD_OPTIONS.map((opt) => (
-                            <option key={opt.key} value={opt.key}>
-                              {opt.label}
-                            </option>
-                          ))}
-                        </select>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
+          {message ? <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-900">{message}</div> : null}
+
+          <AtlasWorkflowSection eyebrow="Feature Review" title="Numeric predictor treatments" description="Counts and signal metrics use the full dataset. Histograms use a bounded rendered sample and do not define treatment counts.">
+            <div className="mb-4 flex flex-wrap items-center gap-3">
+              <label className="relative min-w-64 flex-1">
+                <Search size={16} className="pointer-events-none absolute left-3 top-2.5 text-slate-400" />
+                <input className="atlas-input pl-9" value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} placeholder="Search predictors" aria-label="Search predictors" />
+              </label>
+              <label className="flex items-center gap-2 text-sm text-slate-600"><Filter size={16} /><select className="atlas-input min-w-48" value={sortBy} onChange={(event) => { setSortBy(event.target.value as typeof sortBy); setPage(0); }}><option value="signal">Signal strength</option><option value="outliers">Flagged values</option><option value="name">Feature name</option></select></label>
+            </div>
+            <div className="overflow-x-auto rounded-lg border border-slate-200">
+              <table className="min-w-[860px] w-full text-sm">
+                <thead className="bg-slate-50 text-left text-xs uppercase text-slate-500"><tr><th className="px-3 py-2">Feature</th><th className="px-3 py-2">Full-data flagged</th><th className="px-3 py-2">Rate</th><th className="px-3 py-2">{summary.problem_type === "regression" ? "Correlation" : "IV"}</th><th className="px-3 py-2">Selected treatment</th></tr></thead>
+                <tbody>{pagedRows.map((row) => {
+                  const method = row.methods?.[effectiveMethod(config[row.feature], globalMethod)] ?? { method: "NONE" as MethodKey, lower_threshold: 0, upper_threshold: 0, outlier_count: 0, outlier_rate: 0 };
+                  return <tr key={row.feature} className={`border-t border-slate-100 hover:bg-blue-50 ${selected?.feature === row.feature ? "bg-blue-50" : ""}`} onClick={() => setSelectedFeature(row.feature)}>
+                    <td className="cursor-pointer px-3 py-2 font-medium text-slate-900">{row.feature}</td>
+                    <td className="px-3 py-2 tabular-nums">{method.outlier_count.toLocaleString()}</td>
+                    <td className="px-3 py-2 tabular-nums">{pct(method.outlier_rate)}</td>
+                    <td className="px-3 py-2 tabular-nums">{fmt(row.signal_metric)}</td>
+                    <td className="px-3 py-2" onClick={(event) => event.stopPropagation()}><select className="atlas-input min-w-56" value={config[row.feature] ?? "USE_GLOBAL"} onChange={(event) => changeFeature(row.feature, event.target.value as FeatureMethodKey)}><option value="USE_GLOBAL">Use global method</option>{METHOD_OPTIONS.map((option) => <option key={option.key} value={option.key}>{option.label}</option>)}</select></td>
+                  </tr>;
+                })}</tbody>
               </table>
             </div>
-            {selectedRow && (
-              <SelectedOutlierPanel
-                row={selectedRow}
-                values={seriesMap[selectedRow.feature] ?? []}
-                method={methodByFeature[selectedRow.feature] || "USE_GLOBAL"}
-                effectiveMethod={selectedRow.effectiveMethod}
-                problemType={problemType}
-                onMethodChange={(method) => handleChange(selectedRow.feature, method)}
-              />
-            )}
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-xs text-gray-600">
-              <div>
-                Showing {currentPage * pageSize + 1}-{Math.min((currentPage + 1) * pageSize, tableData.length)} of {tableData.length} features, sorted by {problemType === "regression" ? "absolute Corr(Target)" : "IV"}.
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={currentPage === 0}
-                  onClick={() => setFeaturePage((page) => Math.max(0, page - 1))}
-                  className="rounded-md border px-3 py-1 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Previous 20
-                </button>
-                <span>Page {currentPage + 1} of {pageCount}</span>
-                <button
-                  type="button"
-                  disabled={currentPage >= pageCount - 1}
-                  onClick={() => setFeaturePage((page) => Math.min(pageCount - 1, page + 1))}
-                  className="rounded-md border px-3 py-1 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Next 20
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500"><span>Showing {rows.length ? page * PAGE_SIZE + 1 : 0}-{Math.min((page + 1) * PAGE_SIZE, rows.length)} of {rows.length.toLocaleString()}</span><div className="flex items-center gap-2"><button className="atlas-secondary-button" type="button" disabled={page === 0} onClick={() => setPage((current) => Math.max(0, current - 1))}>Previous</button><span>Page {page + 1} of {pageCount}</span><button className="atlas-secondary-button" type="button" disabled={page >= pageCount - 1} onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}>Next</button></div></div>
+          </AtlasWorkflowSection>
 
-      {/* Per-feature previews */}
-      <details className="rounded-xl border border-slate-200 bg-white p-4">
-        <summary className="cursor-pointer text-sm font-semibold text-slate-800">
-          Show all feature histogram cards for this page
-        </summary>
-        <div className="mt-4 grid xl:grid-cols-3 md:grid-cols-2 gap-6">
-          {pagedFeatures.map((f) => (
-            <FeaturePreview
-              key={f}
-              feature={f}
-              method={effectiveMethod(methodByFeature[f], globalMethod)}
-              series={seriesMap[f] || []}
-            />
-          ))}
+          {selected && selectedMethod ? (
+            <AtlasWorkflowSection eyebrow="Selected Predictor" title={selected.feature} description={`${selected.rendered_sample_count.toLocaleString()} values are rendered from ${selected.nonmissing_count.toLocaleString()} nonmissing full-data values.`} tone="neutral" action={<AtlasDataScopeBadge scope="rendered_sample" rows={selected.rendered_sample_count} />}>
+              <div className="grid gap-4 lg:grid-cols-2"><Histogram values={safeArray<number>(selected.rendered_sample)} method={selectedMethod} /><Histogram values={safeArray<number>(selected.rendered_sample)} method={selectedMethod} after /></div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs uppercase text-slate-500">Full-data flagged</div><div className="mt-1 text-lg font-semibold">{selectedMethod.outlier_count.toLocaleString()}</div></div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs uppercase text-slate-500">Applied method</div><div className="mt-1 font-semibold">{METHOD_OPTIONS.find((option) => option.key === selectedMethod.method)?.label}</div></div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs uppercase text-slate-500">Median</div><div className="mt-1 text-lg font-semibold">{fmt(selected.quantiles.median, 3)}</div></div>
+                <div className="rounded-lg border border-slate-200 bg-slate-50 p-3"><div className="text-xs uppercase text-slate-500">Selection state</div><div className={`mt-1 flex items-center gap-2 font-semibold ${applied ? "text-emerald-700" : "text-amber-700"}`}>{applied ? <CheckCircle2 size={16} /> : null}{applied ? "Applied" : "Selected only"}</div></div>
+              </div>
+            </AtlasWorkflowSection>
+          ) : null}
         </div>
-      </details>
-
-      <div className="mt-6 text-xs text-gray-500">
-        <p className="mb-1">
-          <span className="font-semibold">Note:</span> Each dropdown controls only its feature.
-          If you later call a backend service to apply capping, pass the chosen method for each
-          feature so the server uses the correct thresholds.
-        </p>
-      </div>
+      ) : null}
     </StepShell>
-  );
-}
-
-function SummaryCard({ label, value, helper }: { label: string; value: string; helper: string }) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <div className="text-[11px] font-semibold uppercase text-slate-500">{label}</div>
-      <div className="mt-1 truncate text-lg font-semibold text-slate-950" title={value}>{value}</div>
-      <div className="mt-1 text-xs text-slate-500">{helper}</div>
-    </div>
-  );
-}
-
-function SelectedOutlierPanel({
-  row,
-  values,
-  method,
-  effectiveMethod,
-  problemType,
-  onMethodChange,
-}: {
-  row: { feature: string; outliers: number; iv: number; effectiveMethod: MethodKey };
-  values: number[];
-  method: FeatureMethodKey;
-  effectiveMethod: MethodKey;
-  problemType: "classification" | "regression";
-  onMethodChange: (method: FeatureMethodKey) => void;
-}) {
-  const safeValues = values.length ? values : synthSeries(row.feature, 1200);
-  const sorted = [...safeValues].sort((a, b) => a - b);
-  const thresholds = outlierThresholds(safeValues, effectiveMethod);
-  const pct = safeValues.length ? (row.outliers / safeValues.length) * 100 : 0;
-  const noTreatment = effectiveMethod === "NONE";
-  return (
-    <aside className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <div className="text-[11px] font-semibold uppercase text-slate-500">Selected Feature</div>
-          <h4 className="mt-1 text-lg font-semibold text-slate-950">{row.feature}</h4>
-        </div>
-        <span className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-700">
-          {pct.toFixed(1)}% flagged
-        </span>
-      </div>
-      <div className="mt-4 grid gap-3 lg:grid-cols-2">
-        <MiniHist title="Before Treatment" values={safeValues} thresholds={noTreatment ? undefined : thresholds} />
-        <MiniHist title={noTreatment ? "No Treatment Applied" : "After Capping"} values={safeValues} thresholds={noTreatment ? undefined : thresholds} afterCap={!noTreatment} />
-      </div>
-      <div className="mt-4 grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
-        <Metric label="P1" value={quantile(sorted, 0.01).toFixed(4)} />
-        <Metric label="P5" value={quantile(sorted, 0.05).toFixed(4)} />
-        <Metric label="P25" value={quantile(sorted, 0.25).toFixed(4)} />
-        <Metric label="Median" value={quantile(sorted, 0.5).toFixed(4)} />
-        <Metric label="P75" value={quantile(sorted, 0.75).toFixed(4)} />
-        <Metric label="P95" value={quantile(sorted, 0.95).toFixed(4)} />
-        <Metric label="P99" value={quantile(sorted, 0.99).toFixed(4)} />
-        <Metric label={problemType === "regression" ? "Corr(Target)" : "IV"} value={row.iv.toFixed(4)} />
-      </div>
-      <label className="mt-4 block text-xs font-semibold uppercase text-slate-500">
-        Treatment method
-        <select
-          value={method}
-          onChange={(event) => onMethodChange(event.target.value as FeatureMethodKey)}
-          className="mt-1 w-full rounded-lg border border-slate-300 bg-white p-2 text-sm normal-case text-slate-900"
-          title={FEATURE_METHOD_GUIDANCE[method]}
-        >
-          {FEATURE_METHOD_OPTIONS.map((opt) => <option key={opt.key} value={opt.key}>{opt.label}</option>)}
-        </select>
-      </label>
-      <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs leading-5 text-emerald-900">
-        <div className="font-semibold">ATLAS readout</div>
-        {noTreatment ? (
-          <p className="mt-1">
-            {row.feature}: no outlier treatment applied. Use this for valid coordinates, geographic fields, and business values where extremes may carry signal.
-          </p>
-        ) : (
-          <>
-            <p className="mt-1">
-              The before/after charts use comparable scales. Values beyond {thresholds.lo.toFixed(3)} and {thresholds.hi.toFixed(3)} are pulled back under capping, reducing leverage while preserving record count.
-            </p>
-            <p className="mt-1">Recommendation: use conservative capping unless this field is known to contain invalid values. Review target relationship before changing high-signal tails.</p>
-          </>
-        )}
-      </div>
-    </aside>
-  );
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white p-2">
-      <div className="text-[10px] font-semibold uppercase text-slate-500">{label}</div>
-      <div className="mt-1 font-semibold text-slate-900">{value}</div>
-    </div>
   );
 }

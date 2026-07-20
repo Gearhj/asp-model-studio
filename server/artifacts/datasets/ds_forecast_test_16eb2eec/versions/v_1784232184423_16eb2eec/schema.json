@@ -1,0 +1,44 @@
+{
+  "columns": [
+    {
+      "distinctSample": 45000,
+      "dtype": "numeric",
+      "max": 44999.0,
+      "mean": 22499.5,
+      "min": 0.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "id",
+      "std": 12990.52539353201
+    },
+    {
+      "distinctSample": 90,
+      "dtype": "datetime",
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "date"
+    },
+    {
+      "distinctSample": 10,
+      "dtype": "numeric",
+      "max": 10.0,
+      "mean": 5.5,
+      "min": 1.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "store",
+      "std": 2.872313238037853
+    },
+    {
+      "distinctSample": 50,
+      "dtype": "numeric",
+      "max": 50.0,
+      "mean": 25.5,
+      "min": 1.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "item",
+      "std": 14.431030035330798
+    }
+  ]
+}

@@ -95,8 +95,11 @@ def compact_item(item: Dict[str, Any]) -> Dict[str, Any]:
         "importance": item.get("importance", "medium"),
         "qualityScore": item.get("qualityScore", quality_score(item)),
         "createdAt": item.get("createdAt", now_iso()),
+        "capturedAt": item.get("capturedAt", ""),
         "updatedAt": item.get("updatedAt", item.get("createdAt", now_iso())),
         "createdBy": item.get("createdBy", "ATLAS"),
+        "workflowStep": item.get("workflowStep", ""),
+        "sourceRunReference": item.get("sourceRunReference", ""),
     }
 
 
@@ -120,6 +123,8 @@ def normalize_item(payload: Dict[str, Any], existing: Dict[str, Any] | None = No
     if item.get("financialTechnique") and not payload.get("supportsSections"):
         item["supportsSections"] = CREDIT_RISK_DOCUMENTATION_MAPPING.get(str(item.get("financialTechnique")), item["supportsSections"])
     item["createdAt"] = item.get("createdAt") or now_iso()
+    if item["status"] in {"ready", "accepted"}:
+        item["capturedAt"] = item.get("capturedAt") or now_iso()
     item["updatedAt"] = now_iso()
     item["createdBy"] = item.get("createdBy") or "ATLAS"
     item["qualityScore"] = quality_score(item)
@@ -334,6 +339,8 @@ def _graph_node_type(row: Dict[str, Any]) -> str:
     if row.get("financialDomain") == "credit_risk" or "credit_risk" in row.get("tags", []):
         return "Credit Risk Evidence"
     evidence_type = row.get("evidenceType", "")
+    if str(evidence_type).startswith("optimization_"):
+        return "Optimization Evidence"
     return {
         "dataset": "Dataset",
         "sql_query": "SQL Query",
@@ -354,6 +361,60 @@ def _graph_node_type(row: Dict[str, Any]) -> str:
 
 def coverage(project_id: str) -> Dict[str, Any]:
     rows = list_evidence({"projectId": project_id})
+    optimization_rows = [row for row in rows if str(row.get("evidenceType", "")).startswith("optimization_")]
+    if optimization_rows:
+        optimization_types = [
+            "optimization_decision_charter",
+            "optimization_input_bundle",
+            "optimization_formulation_readiness",
+            "optimization_objective",
+            "optimization_decision_variables",
+            "optimization_constraints",
+            "optimization_solver_configuration",
+            "optimization_scenarios",
+            "optimization_solution",
+            "optimization_sensitivity",
+            "optimization_validation",
+            "optimization_recommendation",
+            "optimization_implementation_plan",
+            "optimization_monitoring_plan",
+            "optimization_documentation_package",
+            "optimization_reproducibility_code",
+        ]
+        categories = []
+        for evidence_type in optimization_types:
+            aliases = {evidence_type}
+            if evidence_type == "optimization_reproducibility_code":
+                aliases.add("optimization_code_reproducibility")
+            matches = [row for row in optimization_rows if row.get("evidenceType") in aliases]
+            ready = [row for row in matches if row.get("status") in {"ready", "accepted"}]
+            categories.append(
+                {
+                    "category": evidence_type,
+                    "count": len(matches),
+                    "ready": len(ready),
+                    "status": "ready" if ready else "missing" if not matches else "needs_review",
+                }
+            )
+        ready_categories = sum(1 for item in categories if item["status"] == "ready")
+        missing = [item["category"] for item in categories if item["status"] == "missing"]
+        warnings = [] if not missing else [f"{len(missing)} optimization evidence artifact(s) remain uncaptured or unsupported by the documentation package."]
+        return {
+            "projectId": project_id,
+            "workflowType": "optimization",
+            "totalEvidence": len(optimization_rows),
+            "readyEvidence": sum(1 for row in optimization_rows if row.get("status") in {"ready", "accepted"}),
+            "needsReviewEvidence": sum(1 for row in optimization_rows if row.get("status") == "needs_review"),
+            "coverageScore": round(ready_categories / len(categories) * 100),
+            "categories": categories,
+            "warnings": warnings,
+            "missingRecommended": missing,
+            "financialServices": {
+                "suggestedDomain": infer_financial_domain(target=project_id),
+                "creditRisk": credit_risk_checklist(rows, project_id),
+                "placeholders": {},
+            },
+        }
     category_map = {
         "dataset": {"dataset", "sql_result"},
         "target": {"dataset", "decision"},
@@ -463,19 +524,22 @@ def export_excel(project_id: str | None = None) -> bytes:
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Evidence Registry"
-    headers = ["Title", "Type", "Financial Domain", "Technique", "Source", "Project", "Datasets", "Status", "Importance", "Quality", "Sections"]
+    headers = ["Title", "Type", "Reference ID", "Status", "Project", "Workflow Step", "Created", "Captured", "Datasets", "Source Run", "Source", "Importance", "Quality", "Sections"]
     sheet.append(headers)
     for row in rows:
         sheet.append(
             [
                 row.get("title", ""),
                 row.get("evidenceType", ""),
-                row.get("financialDomain", ""),
-                row.get("financialTechnique", ""),
-                row.get("sourcePage", ""),
-                row.get("projectName", "") or row.get("projectId", ""),
-                ", ".join(row.get("datasetIds", [])),
+                row.get("evidenceId", ""),
                 row.get("status", ""),
+                row.get("projectName", "") or row.get("projectId", ""),
+                row.get("workflowStep", ""),
+                row.get("createdAt", ""),
+                row.get("capturedAt", ""),
+                ", ".join(row.get("datasetIds", [])),
+                row.get("sourceRunReference", ""),
+                row.get("sourcePage", ""),
                 row.get("importance", ""),
                 row.get("qualityScore", ""),
                 ", ".join(row.get("supportsSections", [])),

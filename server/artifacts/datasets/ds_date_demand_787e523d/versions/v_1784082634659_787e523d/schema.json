@@ -1,0 +1,22 @@
+{
+  "columns": [
+    {
+      "distinctSample": 6,
+      "dtype": "categorical",
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "Customers"
+    },
+    {
+      "distinctSample": 5,
+      "dtype": "numeric",
+      "max": 90.0,
+      "mean": 80.0,
+      "min": 70.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "Demand",
+      "std": 7.0710678118654755
+    }
+  ]
+}

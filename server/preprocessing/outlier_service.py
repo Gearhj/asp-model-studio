@@ -1,111 +1,210 @@
-# server/preprocessing/outlier_service.py
-# =============================================================================
-# Outlier Service for DS Workflow (Modular Backend)
-# =============================================================================
-# Contains all logic for outlier detection and summary statistics used by
-# Step03 Outliers. Mirrors the behavior of the original monolithic backend:
-#
-#   POST /api/outliers/summary
-#
-# using:
-#   • IQR-based outlier detection
-#   • Z-score-based outlier detection
-# =============================================================================
-
 from __future__ import annotations
-from typing import Dict, Any, List
+
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
-
-def is_numeric_series(s: pd.Series) -> bool:
-    """Return True if the pandas Series is numeric."""
-    return pd.api.types.is_numeric_dtype(s)
+from .feature_profile_service import information_value
 
 
-def outlier_iqr_mask(s: pd.Series, k: float = 1.5) -> pd.Series:
-    """Return boolean mask of IQR-based outliers."""
-    q1 = s.quantile(0.25)
-    q3 = s.quantile(0.75)
-    iqr = q3 - q1
-    lo = q1 - k * iqr
-    hi = q3 + k * iqr
-    return (s < lo) | (s > hi)
+OUTLIER_METHODS = (
+    "NONE",
+    "IQR_1_5",
+    "IQR_3_0",
+    "ZSCORE_3",
+    "ZSCORE_4",
+    "PCT_01_99",
+    "PCT_05_95",
+)
 
 
-def outlier_zscore_mask(s: pd.Series, thresh: float = 3.0) -> pd.Series:
-    """Return boolean mask of z-score-based outliers."""
-    mu = s.mean()
-    sd = s.std(ddof=0)
-    if sd == 0 or np.isnan(sd):
-        return pd.Series(False, index=s.index)
-    return (np.abs((s - mu) / sd) > thresh)
+def _numeric(series: pd.Series) -> pd.Series | None:
+    values = pd.to_numeric(series, errors="coerce")
+    nonmissing = int(series.notna().sum())
+    if pd.api.types.is_numeric_dtype(series) or (nonmissing and int(values.notna().sum()) / nonmissing >= 0.8):
+        return values
+    return None
+
+
+def _thresholds(values: pd.Series, method: str) -> tuple[float, float]:
+    clean = values.dropna().astype(float)
+    if clean.empty:
+        return 0.0, 0.0
+    if method == "NONE":
+        return float(clean.min()), float(clean.max())
+    if method == "ZSCORE_3" or method == "ZSCORE_4":
+        width = 3.0 if method == "ZSCORE_3" else 4.0
+        mean = float(clean.mean())
+        standard_deviation = float(clean.std(ddof=0))
+        return mean - width * standard_deviation, mean + width * standard_deviation
+    if method == "PCT_01_99":
+        return float(clean.quantile(0.005)), float(clean.quantile(0.995))
+    if method == "PCT_05_95":
+        return float(clean.quantile(0.05)), float(clean.quantile(0.95))
+    first_quartile = float(clean.quantile(0.25))
+    third_quartile = float(clean.quantile(0.75))
+    multiplier = 3.0 if method == "IQR_3_0" else 1.5
+    spread = third_quartile - first_quartile
+    return first_quartile - multiplier * spread, third_quartile + multiplier * spread
+
+
+def _method_result(values: pd.Series, method: str) -> dict[str, Any]:
+    low, high = _thresholds(values, method)
+    clean = values.dropna().astype(float)
+    count = 0 if method == "NONE" else int(((clean < low) | (clean > high)).sum())
+    return {
+        "method": method,
+        "lower_threshold": low,
+        "upper_threshold": high,
+        "outlier_count": count,
+        "outlier_rate": count / max(int(len(clean)), 1),
+    }
+
+
+def _rendered_sample(values: pd.Series, limit: int = 600) -> list[float]:
+    clean = values.dropna().astype(float)
+    if len(clean) <= limit:
+        return [float(value) for value in clean.tolist()]
+    indexes = np.linspace(0, len(clean) - 1, limit, dtype=int)
+    return [float(value) for value in clean.iloc[indexes].tolist()]
+
+
+def _problem_type(target: pd.Series | None, requested: str | None) -> str:
+    if requested in {"classification", "regression"}:
+        return str(requested)
+    if target is None:
+        return "classification"
+    distinct = int(target.dropna().nunique())
+    return "classification" if 1 < distinct <= 20 else "regression"
+
+
+def _event_value(target: pd.Series, requested: Any) -> Any:
+    if requested is not None and str(requested) != "":
+        return requested
+    for value in target.dropna().unique():
+        if str(value) == "1":
+            return value
+    return None
 
 
 class OutlierService:
-    """
-    Service class wrapping outlier logic for better testability and reuse.
-    """
+    def summary(
+        self,
+        df: pd.DataFrame,
+        target: str | None = None,
+        event_value: Any = None,
+        problem_type: str | None = None,
+    ) -> dict[str, Any]:
+        if df is None or df.empty:
+            raise ValueError("No full backend dataset is loaded.")
 
-    def summary(self, df: pd.DataFrame, method: str = "iqr", z_thresh: float = 3.0) -> Dict[str, Any]:
-        """
-        Compute per-column outlier counts and percentages.
+        y = df[target] if target and target in df.columns else None
+        resolved_problem = _problem_type(y, problem_type)
+        resolved_event = _event_value(y, event_value) if y is not None and resolved_problem == "classification" else None
+        event_rate = None
+        if y is not None and resolved_event is not None:
+            valid = y.notna()
+            event_rate = float((y[valid].astype(str) == str(resolved_event)).mean()) if int(valid.sum()) else None
 
-        Parameters
-        ----------
-        df : DataFrame
-            Input dataset.
-        method : str
-            'iqr' or 'zscore'
-        z_thresh : float
-            Z-score threshold when method == 'zscore'
-
-        Returns
-        -------
-        dict:
-            {
-              "ok": True,
-              "rows": [
-                 {"column": col, "method": method, "count": int, "pct": float},
-                 ...
-              ]
-            }
-        """
-        rows: List[Dict[str, Any]] = []
-
-        for c in df.columns:
-            s = df[c]
-            if not is_numeric_series(s):
+        rows: list[dict[str, Any]] = []
+        for column in df.columns:
+            name = str(column)
+            if target and name == str(target):
+                continue
+            numeric = _numeric(df[column])
+            if numeric is None:
                 continue
 
-            try:
-                if method == "iqr":
-                    m = outlier_iqr_mask(s.astype(float))
+            signal = None
+            association_status = "not_evaluated"
+            if y is not None:
+                if resolved_problem == "classification":
+                    try:
+                        signal, resolved_event = information_value(df[column], y, resolved_event)
+                        association_status = "evaluated"
+                    except ValueError:
+                        association_status = "target_definition_required"
                 else:
-                    m = outlier_zscore_mask(s.astype(float), thresh=float(z_thresh))
-            except Exception:
-                # Fail gracefully on weird columns
-                m = pd.Series(False, index=s.index)
+                    pairs = pd.DataFrame({"feature": numeric, "target": pd.to_numeric(y, errors="coerce")}).dropna()
+                    if len(pairs) >= 3:
+                        correlation = pairs["feature"].corr(pairs["target"])
+                        if pd.notna(correlation):
+                            signal = float(correlation)
+                            association_status = "evaluated"
 
-            count = int(m.sum())
-            pct = float(count * 100.0 / len(s)) if len(s) else 0.0
-            rows.append(
-                {
-                    "column": c,
-                    "method": method,
-                    "count": count,
-                    "pct": pct,
-                }
-            )
+            clean = numeric.dropna().astype(float)
+            quantiles = clean.quantile([0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99]) if len(clean) else None
+            rows.append({
+                "feature": name,
+                "datatype": str(df[column].dtype),
+                "nonmissing_count": int(len(clean)),
+                "missing_count": int(numeric.isna().sum()),
+                "signal_metric": signal,
+                "association_status": association_status,
+                "methods": {method: _method_result(numeric, method) for method in OUTLIER_METHODS},
+                "rendered_sample": _rendered_sample(numeric),
+                "rendered_sample_count": min(int(len(clean)), 600),
+                "quantiles": {
+                    "p01": float(quantiles.loc[0.01]) if quantiles is not None else None,
+                    "p05": float(quantiles.loc[0.05]) if quantiles is not None else None,
+                    "p25": float(quantiles.loc[0.25]) if quantiles is not None else None,
+                    "median": float(quantiles.loc[0.5]) if quantiles is not None else None,
+                    "p75": float(quantiles.loc[0.75]) if quantiles is not None else None,
+                    "p95": float(quantiles.loc[0.95]) if quantiles is not None else None,
+                    "p99": float(quantiles.loc[0.99]) if quantiles is not None else None,
+                },
+            })
 
-        rows.sort(key=lambda r: (-r["count"], r["column"]))
-
+        rows.sort(key=lambda row: abs(float(row["signal_metric"] or 0)), reverse=True)
         return {
             "ok": True,
-            "rows": rows,
+            "scope": "full_dataset",
+            "row_count": int(len(df)),
+            "target": target,
+            "problem_type": resolved_problem,
+            "event_value": resolved_event,
+            "event_rate": event_rate,
+            "rare_event": bool(event_rate is not None and event_rate < 0.05),
+            "features": rows,
         }
 
+    def apply(
+        self,
+        df: pd.DataFrame,
+        config: dict[str, Any],
+        global_method: str = "IQR_1_5",
+        target: str | None = None,
+    ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
+        if df is None or df.empty:
+            raise ValueError("No full backend dataset is loaded.")
+        if global_method not in OUTLIER_METHODS:
+            raise ValueError(f"Unsupported global outlier method: {global_method}.")
 
-# Singleton service instance
+        work = df.copy()
+        applied: list[dict[str, Any]] = []
+        for column, configured_value in config.items():
+            if column not in work.columns or (target and column == target):
+                continue
+            configured = str(configured_value or "USE_GLOBAL")
+            method = global_method if configured == "USE_GLOBAL" else configured
+            if method not in OUTLIER_METHODS:
+                raise ValueError(f"Unsupported outlier method '{method}' for {column}.")
+            numeric = _numeric(work[column])
+            if numeric is None:
+                continue
+            result = _method_result(numeric, method)
+            if method != "NONE":
+                work[column] = numeric.clip(result["lower_threshold"], result["upper_threshold"])
+            applied.append({
+                "feature": column,
+                "configured_method": configured,
+                "applied_method": method,
+                "changed_values": result["outlier_count"],
+                "lower_threshold": result["lower_threshold"],
+                "upper_threshold": result["upper_threshold"],
+            })
+        return work, applied
+
+
 outlier_service = OutlierService()

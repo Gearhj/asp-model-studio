@@ -5,7 +5,6 @@ import re
 from ..core.dataset_store import DATASTORE
 from ..core.json_safety import json_safe
 from ..core.result_store import RESULTS
-from ..splitting.split_service import split_service
 from .trainer import MODEL_CATALOG, train_models
 
 
@@ -13,9 +12,8 @@ class TrainerService:
     """
     Service behind /api/model/train.
 
-    This calls the real training engine in trainer.py. If Step 6 has not
-    materialized splits yet, it creates a conservative holdout split from the
-    current loaded dataset so the Train Selected button performs actual fits.
+    This calls the real training engine in trainer.py using only the explicit,
+    current validation split approved in Balance & Split.
     """
 
     MODEL_LABELS: Dict[str, str] = {
@@ -29,8 +27,6 @@ class TrainerService:
         aliases = {
             self._normalized(target),
             self._normalized(DATASTORE.target),
-            "bad_flag",
-            "riskperformance",
         }
         source = DATASTORE.meta.get("source") if isinstance(DATASTORE.meta, dict) else {}
         if isinstance(source, dict):
@@ -85,32 +81,37 @@ class TrainerService:
         return None
 
     def _get_or_create_splits(self, k_folds: int) -> Tuple[Any, Any, Any, Any, List[str]]:
+        """Compatibility name retained for callers; hidden split creation is prohibited."""
         X_train, X_test, y_train, y_test = DATASTORE.get_splits()
-        if X_train is not None and X_test is not None and y_train is not None and y_test is not None:
-            active_target = str(DATASTORE.target or getattr(y_train, "name", "") or "")
-            X_train, dropped_train = self._sanitize_feature_frame(X_train, active_target)
-            X_test, dropped_test = self._sanitize_feature_frame(X_test, active_target)
-            dropped = sorted(set(dropped_train + dropped_test))
-            if dropped:
-                DATASTORE.set_splits(X_train, X_test, y_train, y_test)
-            return X_train, X_test, y_train, y_test, dropped
+        if any(part is None for part in (X_train, X_test, y_train, y_test)):
+            raise ValueError("A governed validation split has not been created. Return to Balance & Split.")
+        if str(DATASTORE.meta.get("split_status") or "not_created") != "current":
+            raise ValueError("The governed validation split is stale. Rebuild it in Balance & Split.")
 
-        df, target = self._current_dataset_and_target()
-        X_train, X_test, y_train, y_test, _ = split_service.make_dev_split(
-            df,
-            target,
-            {
-                "split_strategy": "kfold" if k_folds > 2 else "holdout",
-                "k_folds": int(k_folds),
-                "balance_method": "none",
-                "balance_ratio": "80/20",
-            },
-        )
-        X_train, dropped_train = self._sanitize_feature_frame(X_train, target)
-        X_test, dropped_test = self._sanitize_feature_frame(X_test, target)
+        active_target = str(DATASTORE.target or getattr(y_train, "name", "") or "")
+        manifest = DATASTORE.meta.get("feature_manifest") if isinstance(DATASTORE.meta.get("feature_manifest"), dict) else {}
+        governed = [
+            str(row.get("feature_name"))
+            for row in manifest.get("features", [])
+            if isinstance(row, dict) and row.get("selected") and row.get("eligibility_status") == "eligible"
+        ]
+        if not governed:
+            governed = DATASTORE.get_selected_columns()
+        missing = [column for column in governed if column not in X_train.columns or column not in X_test.columns]
+        unexpected = [column for column in X_train.columns if governed and column not in governed]
+        if missing:
+            raise ValueError("The training split is missing approved predictors: " + ", ".join(missing))
+        if unexpected:
+            raise ValueError("The training split contains predictors outside the approved manifest: " + ", ".join(map(str, unexpected)))
+        if governed:
+            X_train = X_train.loc[:, governed].copy()
+            X_test = X_test.loc[:, governed].copy()
+        X_train, dropped_train = self._sanitize_feature_frame(X_train, active_target)
+        X_test, dropped_test = self._sanitize_feature_frame(X_test, active_target)
         dropped = sorted(set(dropped_train + dropped_test))
-        DATASTORE.set_splits(X_train, X_test, y_train, y_test)
-        return X_train, X_test, y_train, y_test, dropped
+        if dropped:
+            raise ValueError("Target-derived fields reached the training contract: " + ", ".join(dropped))
+        return X_train, X_test, y_train, y_test, []
 
     def get_availability(self) -> Dict[str, Any]:
         availability: Dict[str, bool] = {}
@@ -153,6 +154,7 @@ class TrainerService:
             grid_search=grid_search,
             grid_search_level=grid_search_level,
             model_params=model_params or {},
+            calibrate=calibrate,
         )
         if not result.get("ok"):
             raise ValueError(result.get("error") or "No models were successfully trained.")
@@ -183,6 +185,7 @@ class TrainerService:
                 "n_train": int(len(y_train)),
                 "n_test": int(len(y_test)),
                 "n_features": int(X_train.shape[1]),
+                "trained_feature_names": [str(column) for column in X_train.columns],
                 "excluded_target_features": excluded_target_features,
                 "k_folds": int(k_folds),
                 "max_parallel": int(max_parallel),

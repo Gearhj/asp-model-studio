@@ -1,0 +1,69 @@
+{
+  "projectId": "atlas-mrlgel4o",
+  "projectName": "Cash Logistics Transportation QA",
+  "evidenceType": "optimization_recommendation",
+  "title": "Transportation Optimization: Recommendation",
+  "summary": "Minimize total supplier-to-customer cash distribution cost while satisfying all customer demand and respecting supplier supply and transportation-capacity limits.. Recommendation evidence captured from the governed transportation workflow.",
+  "sourcePage": "Optimization Step 12",
+  "sourceRoute": "/workflow/optimization/12",
+  "workflowStep": "12. Recommendation",
+  "sourceRunReference": "run-fb3c39a3700f4cb7",
+  "artifactType": "optimization_recommendation",
+  "artifactId": "solution-55a6ee5eaf004afa:recommendation",
+  "datasetIds": [
+    "ds_date_transportation_cost_0e1b9b64",
+    "ds_date_demand_787e523d",
+    "ds_date_supply_max_7e4d8975",
+    "ds_date_transport_capacity_56ed23df",
+    "ds_date_inventory_cost_b9333777"
+  ],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Recommendation"
+  ],
+  "tags": [
+    "optimization",
+    "transportation",
+    "recommendation",
+    "captured"
+  ],
+  "status": "ready",
+  "importance": "critical",
+  "capturedAt": "2026-07-15T19:48:52.448Z",
+  "lineage": {
+    "projectId": "atlas-mrlgel4o",
+    "formulationId": "transport-b5a97c5609bbfcc8",
+    "normalizationHash": "b5a97c5609bbfcc8112ea7bace12a9cd5d929ea2a742d7be493f71331c91fd96",
+    "solutionId": "solution-55a6ee5eaf004afa",
+    "runId": "run-fb3c39a3700f4cb7"
+  },
+  "payload": {
+    "stage": "recommendation",
+    "capturedAt": "2026-07-15T19:48:52.448Z",
+    "formulationId": "transport-b5a97c5609bbfcc8",
+    "formulationVersion": "1.0",
+    "normalizationHash": "b5a97c5609bbfcc8112ea7bace12a9cd5d929ea2a742d7be493f71331c91fd96",
+    "solutionId": "solution-55a6ee5eaf004afa",
+    "runId": "run-fb3c39a3700f4cb7",
+    "status": "Recommended",
+    "owner": "Transportation Planning Director",
+    "recommendedAction": "Approve the optimized cash and logistics distribution plan for the selected planning period. The solution fulfills 480 units of demand across 6 demand locations while respecting supplier supply and transportation-capacity limits. Total optimized distribution cost is 818.75. The plan uses 8 active supplier-customer routes and leaves 90 units of residual transport capacity. Implementation should proceed after operations confirms route availability, cost assumptions, and exception handling.",
+    "alternativesConsidered": "Retain the current operating allocation, execute a partial allocation using only the lowest-risk routes, or rerun the model after refreshing demand, supply, transport-capacity, and route-cost assumptions. These alternatives preserve operational flexibility but may increase total cost or reduce resilience compared with the validated optimum.",
+    "residualRisksAndLimitations": "Residual risks include supplier or route unavailability, demand variance, transport-capacity deterioration, route-cost changes, execution overrides, and conditions resembling the Severe Disruption scenario. Monitor these risks against the implementation thresholds and rerun the model when a trigger is breached."
+  },
+  "governance": {
+    "accountableOwner": "Transportation Planning Director",
+    "reviewer": "Independent Model Validation",
+    "approvalDate": "2026-08-01",
+    "businessValidityStatus": "valid"
+  },
+  "evidenceId": "ev-transportation-optimization-recommendation-591c3f90d778d678",
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-15T18:55:42.614176+00:00",
+  "updatedAt": "2026-07-15T19:48:52.480711+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 100
+}

@@ -10,7 +10,8 @@ import io
 import os
 
 import pandas as pd
-from fastapi import Depends, FastAPI, UploadFile, File, HTTPException
+from fastapi import Depends, FastAPI, UploadFile, File, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
 
@@ -24,13 +25,20 @@ from .core.utils import df_to_records
 from .eda.eda_router import router as eda_router
 from .preprocessing.outlier_router import router as outlier_router
 from .preprocessing.missing_router import router as missing_router
+from .preprocessing.quality_profile_router import router as quality_profile_router
+from .preprocessing.feature_profile_router import router as feature_profile_router
+from .preprocessing.bureau_detection_router import router as bureau_detection_router
 from .splitting.split_router import router as split_router
 from .training.trainer_router import router as trainer_router
+from .features.feature_router import router as feature_router
 from .evaluation.eval_router import router as eval_router
 from .python_execution import router as python_execution_router
 from .datasets.dataset_router import router as dataset_library_router
 from .security.security_router import router as security_router
-from .security.security_store import init_security_store, require_user
+from .admin.router import router as admin_router
+from .sharing.router import router as sharing_router
+from .notifications.router import router as notifications_router
+from .security.security_store import AtlasUserContextError, init_security_store, list_users, require_user
 from .analytics.analytics_router import router as analytics_router
 from .charts.chart_router import router as chart_router
 from .model_diagnostics.diagnostics_router import router as model_diagnostics_router
@@ -41,6 +49,14 @@ from .projects.project_router import router as project_registry_router
 from .sql_studio.sql_router import router as sql_studio_router
 from .evidence.evidence_router import router as evidence_router
 from .credit_risk.credit_risk_router import router as credit_risk_router
+from .experimentation.ab_router import router as experimentation_router
+from .optimization.optimization_router import router as optimization_router
+from .persistence import PersistenceUnavailableError, get_persistence_service, initialize_persistence
+from .persistence.persistence_router import router as persistence_router
+from .registry.router import router as registry_router
+from .validation.router import router as validation_router
+from .monitoring.router import router as monitoring_router
+from .analytics_engine.router import router as analytics_engine_router
 
 MAX_UPLOAD_BYTES = int(os.getenv("ATLAS_MAX_UPLOAD_BYTES", str(250 * 1024 * 1024)))
 MAX_UPLOAD_ROWS = int(os.getenv("ATLAS_MAX_UPLOAD_ROWS", "500000"))
@@ -49,6 +65,7 @@ MAX_UPLOAD_SAMPLE_ROWS = int(os.getenv("ATLAS_MAX_UPLOAD_SAMPLE_ROWS", "5000"))
 ALLOWED_UPLOAD_EXTENSIONS = {".csv", ".txt"}
 PUBLIC_API_PATHS = {
     "/api/health",
+    "/api/persistence/health",
     "/api/auth/login",
     "/api/auth/register",
     "/api/auth/request-password-reset",
@@ -96,6 +113,10 @@ def create_app() -> FastAPI:
         description="Backend API for ATLAS regulated AI/ML model development.",
     )
 
+    @app.exception_handler(AtlasUserContextError)
+    async def atlas_user_context_error(_request: Request, exc: AtlasUserContextError) -> JSONResponse:
+        return JSONResponse(status_code=exc.status_code, content=exc.detail)
+
     # -------------------------------------------------------------------------
     # CORS – support local Vite dev + fall back to permissive for now
     # -------------------------------------------------------------------------
@@ -128,6 +149,14 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     def restore_session_checkpoint() -> None:
         init_security_store()
+        try:
+            initialize_persistence()
+            service = get_persistence_service()
+            for security_user in list_users():
+                service.sync_user(security_user)
+        except PersistenceUnavailableError as exc:
+            # Browser and legacy JSON persistence remain available when SQLite cannot start.
+            print(f"ATLAS SQLite persistence unavailable; local fallback remains active: {exc}")
         load_checkpoint()
 
     # -------------------------------------------------------------------------
@@ -214,13 +243,25 @@ def create_app() -> FastAPI:
     app.include_router(eda_router, prefix="/api/eda", tags=["EDA"], dependencies=authenticated)
     app.include_router(outlier_router, prefix="/api/outliers", tags=["Outliers"], dependencies=authenticated)
     app.include_router(missing_router, prefix="/api/missing", tags=["Missing Values"], dependencies=authenticated)
+    app.include_router(quality_profile_router, prefix="/api", tags=["Data Quality"], dependencies=authenticated)
+    app.include_router(feature_profile_router, prefix="/api", tags=["Feature Profiling"], dependencies=authenticated)
+    app.include_router(bureau_detection_router, prefix="/api", tags=["Bureau Detection"], dependencies=authenticated)
     app.include_router(split_router, prefix="/api/balancing_split", tags=["Splitting & Balancing"], dependencies=authenticated)
     app.include_router(trainer_router, prefix="/api", tags=["Training"], dependencies=authenticated)
+    app.include_router(feature_router, prefix="/api", tags=["Feature Engineering"], dependencies=authenticated)
     app.include_router(eval_router, prefix="/api", tags=["Evaluation"], dependencies=authenticated)
     app.include_router(python_execution_router, prefix="/api", tags=["Python Execution"], dependencies=authenticated)
+    app.include_router(admin_router, prefix="/api", tags=["Admin"])
+    app.include_router(sharing_router, prefix="/api", tags=["Sharing"])
+    app.include_router(notifications_router, prefix="/api", tags=["Notifications"])
     app.include_router(security_router, prefix="/api", tags=["Security"])
     app.include_router(dataset_library_router, prefix="/api", tags=["Dataset Library"], dependencies=authenticated)
     app.include_router(project_registry_router, prefix="/api", tags=["Project Registry"], dependencies=authenticated)
+    app.include_router(persistence_router, prefix="/api", tags=["Persistence"])
+    app.include_router(registry_router, prefix="/api", tags=["Registry"], dependencies=authenticated)
+    app.include_router(validation_router, prefix="/api", tags=["Validation"], dependencies=authenticated)
+    app.include_router(monitoring_router, tags=["Monitoring"], dependencies=authenticated)
+    app.include_router(analytics_engine_router, tags=["Statistical & Analytical Engine"])
     app.include_router(analytics_router, prefix="/api", tags=["Analytics Workbench"], dependencies=authenticated)
     app.include_router(chart_router, prefix="/api", tags=["Chart Studio"], dependencies=authenticated)
     app.include_router(scoring_router, prefix="/api", tags=["Scoring"], dependencies=authenticated)
@@ -230,6 +271,8 @@ def create_app() -> FastAPI:
     app.include_router(sql_studio_router, prefix="/api", tags=["SQL Data Studio"], dependencies=authenticated)
     app.include_router(evidence_router, prefix="/api", tags=["Evidence Graph"], dependencies=authenticated)
     app.include_router(credit_risk_router, prefix="/api", tags=["Credit Risk Studio"], dependencies=authenticated)
+    app.include_router(experimentation_router, prefix="/api", tags=["Experimentation"], dependencies=authenticated)
+    app.include_router(optimization_router, prefix="/api", tags=["Optimization"], dependencies=authenticated)
 
     assert_api_routes_authenticated(app)
     return app

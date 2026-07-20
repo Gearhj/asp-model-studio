@@ -42,10 +42,11 @@ class PythonExecutionTests(unittest.TestCase):
 
     def test_user_edited_python_is_preserved_after_execution(self) -> None:
         source = (ROOT / "src/components/StepPythonPanel.tsx").read_text(encoding="utf-8")
-        self.assertIn("Run User Python", source)
+        self.assertIn('runLabel: "Run Python"', source)
         self.assertNotIn("Run Full Page Python", source)
         self.assertNotIn("Run Generated Python", source)
-        self.assertIn("persistDraftIfNeeded()", source)
+        self.assertIn('persist("python")', source)
+        self.assertIn("USER_STEP_PYTHON_CODE_KEY", source)
         self.assertNotIn("setDraftCode(result", source)
 
     def test_notebook_export_includes_user_edited_python(self) -> None:

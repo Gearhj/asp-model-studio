@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { BarChart3, Database, Download, FilePlus2, LineChart, RefreshCw, Search, ShieldCheck, Table2, Trash2, UploadCloud } from "lucide-react";
+import { BarChart3, Database, Download, FilePlus2, FolderOpen, LineChart, Link2, RefreshCw, Search, Share2, ShieldCheck, Table2, Trash2, UploadCloud } from "lucide-react";
 import BrandLogo from "../components/BrandLogo";
+import ShareResourceDialog from "../components/sharing/ShareResourceDialog";
 import {
   archiveDataset,
   linkDatasetToProject,
@@ -36,6 +37,7 @@ export default function DatasetLibrary() {
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [shareDataset, setShareDataset] = useState<DatasetSummary | null>(null);
   const currentProjectId = useWorkflowStore((state) => state.projectId);
 
   const ownerOptions = useMemo(() => {
@@ -178,7 +180,7 @@ export default function DatasetLibrary() {
   }
 
   return (
-    <div className="w-full space-y-5">
+    <div className="min-w-0 w-full space-y-5">
       <section className="rounded-xl border border-slate-200/80 bg-white/90 p-5 shadow-sm">
         <BrandLogo size="md" variant="light" showSubtitle className="mb-3" />
         <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -274,37 +276,46 @@ export default function DatasetLibrary() {
       </section>
 
       {viewMode === "detail" ? (
-        <DatasetDetailTable datasets={filtered} sort={sort} onSort={toggleDatasetSort} onDelete={deleteDataset} onExportMetadata={exportMetadata} onLinkToProject={linkToCurrentProject} />
+        <DatasetDetailTable datasets={filtered} sort={sort} onSort={toggleDatasetSort} onDelete={deleteDataset} onExportMetadata={exportMetadata} onLinkToProject={linkToCurrentProject} onShareDataset={setShareDataset} />
       ) : (
       <section className="grid gap-4 xl:grid-cols-3">
         {filtered.map((dataset) => (
-          <Link key={dataset.datasetId} to={`/datasets/${dataset.datasetId}`} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md">
-            <div className="flex items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h2 className="truncate text-base font-semibold text-slate-950">{dataset.name}</h2>
-                <p className="mt-1 line-clamp-2 text-sm leading-5 text-slate-600">{dataset.description || "No description provided."}</p>
+          <article key={dataset.datasetId} className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md">
+            <Link to={`/datasets/${dataset.datasetId}`} className="block">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="truncate text-base font-semibold text-slate-950">{dataset.name}</h2>
+                  <p className="mt-1 line-clamp-2 text-sm leading-5 text-slate-600">{dataset.description || "No description provided."}</p>
+                </div>
+                <span className={`rounded-full px-2 py-1 text-[11px] font-semibold uppercase ${isSqlResultDataset(dataset) ? "bg-indigo-100 text-indigo-800" : isScoredOutputDataset(dataset) ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}`}>
+                  {isSqlResultDataset(dataset) ? "SQL Result" : isScoredOutputDataset(dataset) ? "Scored Output" : dataset.sourceType || "dataset"}
+                </span>
               </div>
-              <span className={`rounded-full px-2 py-1 text-[11px] font-semibold uppercase ${isSqlResultDataset(dataset) ? "bg-indigo-100 text-indigo-800" : isScoredOutputDataset(dataset) ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}`}>
-                {isSqlResultDataset(dataset) ? "SQL Result" : isScoredOutputDataset(dataset) ? "Scored Output" : dataset.sourceType || "dataset"}
-              </span>
+              <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
+                <Metric label="Rows" value={dataset.latestVersion?.rowCount?.toLocaleString() ?? "-"} />
+                <Metric label="Columns" value={dataset.latestVersion?.columnCount?.toLocaleString() ?? "-"} />
+                <Metric label="Versions" value={String(dataset.versionCount ?? 0)} />
+              </div>
+              <div className="mt-4 border-t border-slate-100 pt-3 text-xs leading-5 text-slate-500">
+                <div>Owner: {dataset.ownerDisplayName || dataset.ownerUserId || "Unknown"}</div>
+                <div>Updated: {dataset.updatedAt ? new Date(dataset.updatedAt).toLocaleString() : "Not available"}</div>
+                <div className="truncate">Latest version: {dataset.latestVersion?.versionId || "No version"}</div>
+                {isScoredOutputDataset(dataset) && (
+                  <div className="mt-2 font-semibold text-emerald-700">Ready for Model Diagnostics</div>
+                )}
+                {isSqlResultDataset(dataset) && (
+                  <div className="mt-2 font-semibold text-indigo-700">Created by SQL Data Studio</div>
+                )}
+              </div>
+            </Link>
+            <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
+              <Link to={`/datasets/${dataset.datasetId}`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-800 hover:text-blue-700"><FolderOpen size={15} /> Open</Link>
+              <div className="flex items-center gap-1">
+                <button type="button" title="Share Dataset" aria-label={`Share Dataset: ${dataset.name}`} onClick={() => setShareDataset(dataset)} className="rounded-md border border-blue-200 bg-blue-50 p-2 text-blue-800 hover:bg-blue-100"><Share2 size={15} /></button>
+                <button type="button" title="Archive dataset" aria-label={`Archive ${dataset.name}`} onClick={() => void deleteDataset(dataset)} className="rounded-md border border-red-200 bg-white p-2 text-red-700 hover:bg-red-50"><Trash2 size={15} /></button>
+              </div>
             </div>
-            <div className="mt-4 grid grid-cols-3 gap-2 text-xs">
-              <Metric label="Rows" value={dataset.latestVersion?.rowCount?.toLocaleString() ?? "-"} />
-              <Metric label="Columns" value={dataset.latestVersion?.columnCount?.toLocaleString() ?? "-"} />
-              <Metric label="Versions" value={String(dataset.versionCount ?? 0)} />
-            </div>
-            <div className="mt-4 border-t border-slate-100 pt-3 text-xs leading-5 text-slate-500">
-              <div>Owner: {dataset.ownerDisplayName || dataset.ownerUserId || "Unknown"}</div>
-              <div>Updated: {dataset.updatedAt ? new Date(dataset.updatedAt).toLocaleString() : "Not available"}</div>
-              <div className="truncate">Latest version: {dataset.latestVersion?.versionId || "No version"}</div>
-              {isScoredOutputDataset(dataset) && (
-                <div className="mt-2 font-semibold text-emerald-700">Ready for Model Diagnostics</div>
-              )}
-              {isSqlResultDataset(dataset) && (
-                <div className="mt-2 font-semibold text-indigo-700">Created by SQL Data Studio</div>
-              )}
-            </div>
-          </Link>
+          </article>
         ))}
       </section>
       )}
@@ -320,6 +331,13 @@ export default function DatasetLibrary() {
       )}
 
       {(loading || uploading) && <div className="text-sm font-semibold text-slate-500">Working...</div>}
+      <ShareResourceDialog
+        open={Boolean(shareDataset)}
+        onClose={() => setShareDataset(null)}
+        resourceType="dataset"
+        resourceId={shareDataset?.datasetId || ""}
+        resourceName={shareDataset?.name || "Dataset"}
+      />
     </div>
   );
 }
@@ -331,6 +349,7 @@ function DatasetDetailTable({
   onDelete,
   onExportMetadata,
   onLinkToProject,
+  onShareDataset,
 }: {
   datasets: DatasetSummary[];
   sort: { key: DatasetSortKey; direction: SortDirection };
@@ -338,84 +357,61 @@ function DatasetDetailTable({
   onDelete: (dataset: DatasetSummary) => void;
   onExportMetadata: (dataset: DatasetSummary) => void;
   onLinkToProject: (dataset: DatasetSummary) => void;
+  onShareDataset: (dataset: DatasetSummary) => void;
 }) {
   return (
-    <section className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-      <table className="min-w-[1320px] w-full text-left text-sm">
+    <section className="min-w-0 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+      <table className="min-w-[980px] w-full table-fixed text-left text-sm">
         <thead className="sticky top-0 z-10 bg-slate-100 text-[11px] uppercase tracking-wide text-slate-500">
           <tr>
             <SortableDatasetHeader label="Dataset Name" sortKey="name" activeSort={sort} onSort={onSort} />
             <SortableDatasetHeader label="Type" sortKey="type" activeSort={sort} onSort={onSort} />
-            <SortableDatasetHeader label="Rows" sortKey="rows" activeSort={sort} onSort={onSort} />
-            <SortableDatasetHeader label="Columns" sortKey="columns" activeSort={sort} onSort={onSort} />
+            <th className="px-3 py-3">Shape</th>
             <th className="px-3 py-3">Versions</th>
             <SortableDatasetHeader label="Owner" sortKey="owner" activeSort={sort} onSort={onSort} />
-            <SortableDatasetHeader label="Created" sortKey="created" activeSort={sort} onSort={onSort} />
             <SortableDatasetHeader label="Updated" sortKey="updated" activeSort={sort} onSort={onSort} />
             <th className="px-3 py-3">Linked Projects</th>
-            <th className="px-3 py-3">Latest Version</th>
-            <th className="px-3 py-3">Source Type</th>
             <SortableDatasetHeader label="Status" sortKey="status" activeSort={sort} onSort={onSort} />
-            <th className="px-3 py-3">Actions</th>
+            <th className="sticky right-0 z-20 border-l border-slate-200 bg-slate-100 px-3 py-3 shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)]">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
           {datasets.map((dataset) => (
             <tr key={dataset.datasetId} className="odd:bg-white even:bg-slate-50/60">
-              <td className="max-w-[280px] px-3 py-2">
+              <td className="w-[24%] px-3 py-2">
                 <div className="truncate font-semibold text-slate-950" title={dataset.name}>{dataset.name}</div>
-                <div className="line-clamp-2 text-xs text-slate-500">{dataset.description || dataset.datasetId}</div>
+                <div className="truncate text-xs text-slate-500" title={dataset.latestVersion?.versionId || dataset.datasetId}>{dataset.description || dataset.latestVersion?.versionId || dataset.datasetId}</div>
               </td>
-              <td className="px-3 py-2 capitalize text-slate-700">{formatDatasetType(dataset)}</td>
-              <td className="px-3 py-2 text-slate-700">{dataset.latestVersion?.rowCount?.toLocaleString() ?? "-"}</td>
-              <td className="px-3 py-2 text-slate-700">{dataset.latestVersion?.columnCount?.toLocaleString() ?? "-"}</td>
+              <td className="w-[12%] px-3 py-2 capitalize text-slate-700"><div>{formatDatasetType(dataset)}</div><div className="truncate text-xs text-slate-500">{formatSourceType(dataset)}</div></td>
+              <td className="w-[10%] px-3 py-2 text-slate-700"><div>{dataset.latestVersion?.rowCount?.toLocaleString() ?? "-"} rows</div><div className="text-xs text-slate-500">{dataset.latestVersion?.columnCount?.toLocaleString() ?? "-"} cols</div></td>
               <td className="px-3 py-2 text-slate-700">{dataset.versionCount ?? 0}</td>
-              <td className="px-3 py-2 text-slate-700">{dataset.ownerDisplayName || dataset.ownerUserId || "Unknown"}</td>
-              <td className="px-3 py-2 text-slate-700">{dataset.createdAt ? new Date(dataset.createdAt).toLocaleString() : "-"}</td>
-              <td className="px-3 py-2 text-slate-700">{dataset.updatedAt ? new Date(dataset.updatedAt).toLocaleString() : "-"}</td>
-              <td className="max-w-[220px] px-3 py-2 text-slate-700">
+              <td className="w-[12%] px-3 py-2 text-slate-700">{dataset.ownerDisplayName || dataset.ownerUserId || "Unknown"}</td>
+              <td className="w-[11%] px-3 py-2 text-slate-700">{dataset.updatedAt ? new Date(dataset.updatedAt).toLocaleString() : "-"}</td>
+              <td className="px-3 py-2 text-slate-700">
                 {dataset.linkedProjects?.length ? (
                   <span className="rounded-full bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-800" title={dataset.linkedProjects.map((link) => `${link.projectId} (${link.datasetRole})`).join(", ")}>
                     {dataset.linkedProjects.length} linked
                   </span>
                 ) : "-"}
               </td>
-              <td className="max-w-[180px] truncate px-3 py-2 font-mono text-xs text-slate-700" title={dataset.latestVersion?.versionId || "-"}>{dataset.latestVersion?.versionId || "-"}</td>
-              <td className="px-3 py-2 capitalize text-slate-700">{formatSourceType(dataset)}</td>
               <td className="px-3 py-2">
                 <span className={`rounded-full px-2 py-1 text-xs font-semibold ${dataset.archived ? "bg-slate-100 text-slate-600" : isSqlResultDataset(dataset) ? "bg-indigo-100 text-indigo-800" : isScoredOutputDataset(dataset) ? "bg-emerald-100 text-emerald-800" : "bg-blue-50 text-blue-800"}`}>
                   {dataset.archived ? "Archived" : isSqlResultDataset(dataset) ? "SQL Result" : isScoredOutputDataset(dataset) ? "Scored Output" : "Active"}
                 </span>
               </td>
-              <td className="px-3 py-2">
-                <div className="flex flex-nowrap gap-1.5">
-                  <Link to={`/datasets/${dataset.datasetId}`} className="rounded-md bg-slate-950 px-2 py-1 text-xs font-semibold text-white">Open</Link>
-                  <Link to={`/analytics?datasetId=${dataset.datasetId}`} title="Open in Analytics" aria-label="Open in Analytics" className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700">
-                    <Table2 size={12} />
-                    Analytics
-                  </Link>
-                  <Link to={`/chart-studio?datasetId=${dataset.datasetId}`} title="Open in Chart Studio" aria-label="Open in Chart Studio" className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700">
-                    <BarChart3 size={12} />
-                    Chart
-                  </Link>
-                  <Link to={`/sql-data-studio?datasetId=${dataset.datasetId}`} title="Open in SQL Data Studio" aria-label="Open in SQL Data Studio" className="inline-flex items-center gap-1 rounded-md border border-indigo-200 bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-800">
-                    SQL
-                  </Link>
+              <td className="sticky right-0 z-10 border-l border-slate-200 bg-white px-3 py-2 shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)]">
+                <div className="flex items-center justify-end gap-1">
+                  <Link to={`/datasets/${dataset.datasetId}`} title="Open dataset" aria-label={`Open ${dataset.name}`} className="rounded-md bg-slate-950 p-2 text-white hover:bg-slate-800"><FolderOpen size={15} /></Link>
+                  <Link to={`/analytics?datasetId=${dataset.datasetId}`} title="Open in Analytics" aria-label={`Open ${dataset.name} in Analytics`} className="rounded-md border border-slate-300 bg-white p-2 text-slate-700 hover:bg-slate-50"><Table2 size={15} /></Link>
+                  <Link to={`/chart-studio?datasetId=${dataset.datasetId}`} title="Open in Chart Studio" aria-label={`Open ${dataset.name} in Chart Studio`} className="rounded-md border border-slate-300 bg-white p-2 text-slate-700 hover:bg-slate-50"><BarChart3 size={15} /></Link>
+                  <Link to={`/sql-data-studio?datasetId=${dataset.datasetId}`} title="Open in SQL Data Studio" aria-label={`Open ${dataset.name} in SQL Data Studio`} className="rounded-md border border-indigo-200 bg-indigo-50 p-2 text-indigo-800 hover:bg-indigo-100">SQL</Link>
                   {isScoredOutputDataset(dataset) && (
-                    <Link to={`/model-diagnostics?datasetId=${dataset.datasetId}`} title="Open in Model Diagnostics" aria-label="Open in Model Diagnostics" className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-800">
-                      <LineChart size={12} />
-                      Diagnostics
-                    </Link>
+                    <Link to={`/model-diagnostics?datasetId=${dataset.datasetId}`} title="Open in Model Diagnostics" aria-label={`Open ${dataset.name} in Model Diagnostics`} className="rounded-md border border-emerald-200 bg-emerald-50 p-2 text-emerald-800 hover:bg-emerald-100"><LineChart size={15} /></Link>
                   )}
-                  <button type="button" onClick={() => onLinkToProject(dataset)} className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700">Link to Project</button>
-                  <button type="button" onClick={() => onExportMetadata(dataset)} className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700">
-                    <Download size={12} />
-                    Export Metadata
-                  </button>
-                  <button type="button" onClick={() => onDelete(dataset)} className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-white px-2 py-1 text-xs font-semibold text-red-700">
-                    <Trash2 size={12} />
-                    Delete
-                  </button>
+                  <button type="button" title="Link to current project" aria-label={`Link ${dataset.name} to the current project`} onClick={() => onLinkToProject(dataset)} className="rounded-md border border-slate-300 bg-white p-2 text-slate-700 hover:bg-slate-50"><Link2 size={15} /></button>
+                  <button type="button" title="Share Dataset" aria-label={`Share Dataset: ${dataset.name}`} onClick={() => onShareDataset(dataset)} className="rounded-md border border-blue-200 bg-blue-50 p-2 text-blue-800 hover:bg-blue-100"><Share2 size={15} /></button>
+                  <button type="button" title="Export metadata" aria-label={`Export ${dataset.name} metadata`} onClick={() => onExportMetadata(dataset)} className="rounded-md border border-slate-300 bg-white p-2 text-slate-700 hover:bg-slate-50"><Download size={15} /></button>
+                  <button type="button" title="Archive dataset" aria-label={`Archive ${dataset.name}`} onClick={() => void onDelete(dataset)} className="rounded-md border border-red-200 bg-white p-2 text-red-700 hover:bg-red-50"><Trash2 size={15} /></button>
                 </div>
               </td>
             </tr>

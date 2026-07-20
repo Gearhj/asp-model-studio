@@ -57,7 +57,7 @@ export default function ModeSwitcher() {
             {mode === "advanced" ? <TerminalSquare size={13} /> : <Route size={13} />}
             Dual-mode modeling
           </div>
-          <div className="mt-1 text-xs font-medium text-slate-700">{modeDescription(mode)}</div>
+          <div className="mt-1 hidden text-xs font-medium text-slate-700 2xl:block">{modeDescription(mode)}</div>
         </div>
         <div className="inline-flex rounded-lg border border-slate-200 bg-slate-100 p-1">
           <button
@@ -81,7 +81,7 @@ export default function ModeSwitcher() {
           </button>
         </div>
       </div>
-      <div className="mt-2 flex flex-wrap gap-1.5">
+      <div className="mt-2 hidden flex-wrap gap-1.5 2xl:flex">
         {links.map((link) => (
           <Link
             key={link.to}

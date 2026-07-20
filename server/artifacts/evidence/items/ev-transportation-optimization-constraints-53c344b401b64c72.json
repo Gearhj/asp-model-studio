@@ -1,0 +1,384 @@
+{
+  "projectId": "atlas-mrl6mm9i",
+  "projectName": "00009",
+  "evidenceType": "optimization_constraints",
+  "title": "Transportation Optimization: Constraints",
+  "summary": "Minimize total supplier-to-customer cash distribution cost while satisfying all customer demand and respecting supplier supply and transportation-capacity limits.. Constraints evidence captured from the governed transportation workflow.",
+  "sourcePage": "Optimization Step 6",
+  "sourceRoute": "/workflow/optimization/6",
+  "workflowStep": "6. Constraints",
+  "sourceRunReference": "run-6a557f4ba8a24965",
+  "artifactType": "optimization_constraints",
+  "artifactId": "solution-700b21215d674816:constraints",
+  "datasetIds": [
+    "ds_date_transportation_cost_0e1b9b64",
+    "ds_date_demand_787e523d",
+    "ds_date_supply_max_7e4d8975",
+    "ds_date_transport_capacity_56ed23df",
+    "ds_date_inventory_cost_b9333777"
+  ],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Constraints"
+  ],
+  "tags": [
+    "optimization",
+    "transportation",
+    "constraints",
+    "captured"
+  ],
+  "status": "ready",
+  "importance": "high",
+  "capturedAt": "2026-07-15T20:09:10.815Z",
+  "lineage": {
+    "projectId": "atlas-mrl6mm9i",
+    "formulationId": "transport-b5a97c5609bbfcc8",
+    "normalizationHash": "b5a97c5609bbfcc8112ea7bace12a9cd5d929ea2a742d7be493f71331c91fd96",
+    "solutionId": "solution-700b21215d674816",
+    "runId": "run-6a557f4ba8a24965"
+  },
+  "payload": {
+    "stage": "constraints",
+    "capturedAt": "2026-07-15T20:09:10.815Z",
+    "formulationId": "transport-b5a97c5609bbfcc8",
+    "formulationVersion": "1.0",
+    "normalizationHash": "b5a97c5609bbfcc8112ea7bace12a9cd5d929ea2a742d7be493f71331c91fd96",
+    "solutionId": "solution-700b21215d674816",
+    "runId": "run-6a557f4ba8a24965",
+    "constraints": [
+      {
+        "id": "demand-Customer1",
+        "name": "Demand fulfillment: Customer1",
+        "constraintType": "demand",
+        "category": "Service",
+        "coefficients": {
+          "x_Supplier1_Customer1": 1,
+          "x_Supplier2_Customer1": 1,
+          "x_Supplier3_Customer1": 1,
+          "x_Supplier4_Customer1": 1,
+          "x_Supplier5_Customer1": 1
+        },
+        "sense": "=",
+        "rhs": 80,
+        "hard": true,
+        "sourceTable": "Demand table",
+        "entity": "Customer1"
+      },
+      {
+        "id": "demand-Customer2",
+        "name": "Demand fulfillment: Customer2",
+        "constraintType": "demand",
+        "category": "Service",
+        "coefficients": {
+          "x_Supplier1_Customer2": 1,
+          "x_Supplier2_Customer2": 1,
+          "x_Supplier3_Customer2": 1,
+          "x_Supplier4_Customer2": 1,
+          "x_Supplier5_Customer2": 1
+        },
+        "sense": "=",
+        "rhs": 75,
+        "hard": true,
+        "sourceTable": "Demand table",
+        "entity": "Customer2"
+      },
+      {
+        "id": "demand-Customer3",
+        "name": "Demand fulfillment: Customer3",
+        "constraintType": "demand",
+        "category": "Service",
+        "coefficients": {
+          "x_Supplier1_Customer3": 1,
+          "x_Supplier2_Customer3": 1,
+          "x_Supplier3_Customer3": 1,
+          "x_Supplier4_Customer3": 1,
+          "x_Supplier5_Customer3": 1
+        },
+        "sense": "=",
+        "rhs": 90,
+        "hard": true,
+        "sourceTable": "Demand table",
+        "entity": "Customer3"
+      },
+      {
+        "id": "demand-Customer4",
+        "name": "Demand fulfillment: Customer4",
+        "constraintType": "demand",
+        "category": "Service",
+        "coefficients": {
+          "x_Supplier1_Customer4": 1,
+          "x_Supplier2_Customer4": 1,
+          "x_Supplier3_Customer4": 1,
+          "x_Supplier4_Customer4": 1,
+          "x_Supplier5_Customer4": 1
+        },
+        "sense": "=",
+        "rhs": 70,
+        "hard": true,
+        "sourceTable": "Demand table",
+        "entity": "Customer4"
+      },
+      {
+        "id": "demand-Customer5",
+        "name": "Demand fulfillment: Customer5",
+        "constraintType": "demand",
+        "category": "Service",
+        "coefficients": {
+          "x_Supplier1_Customer5": 1,
+          "x_Supplier2_Customer5": 1,
+          "x_Supplier3_Customer5": 1,
+          "x_Supplier4_Customer5": 1,
+          "x_Supplier5_Customer5": 1
+        },
+        "sense": "=",
+        "rhs": 85,
+        "hard": true,
+        "sourceTable": "Demand table",
+        "entity": "Customer5"
+      },
+      {
+        "id": "demand-Customer6",
+        "name": "Demand fulfillment: Customer6",
+        "constraintType": "demand",
+        "category": "Service",
+        "coefficients": {
+          "x_Supplier1_Customer6": 1,
+          "x_Supplier2_Customer6": 1,
+          "x_Supplier3_Customer6": 1,
+          "x_Supplier4_Customer6": 1,
+          "x_Supplier5_Customer6": 1
+        },
+        "sense": "=",
+        "rhs": 80,
+        "hard": true,
+        "sourceTable": "Demand table",
+        "entity": "Customer6"
+      },
+      {
+        "id": "supply-Supplier1",
+        "name": "Supply maximum: Supplier1",
+        "constraintType": "supply",
+        "category": "Capacity",
+        "coefficients": {
+          "x_Supplier1_Customer1": 1,
+          "x_Supplier1_Customer2": 1,
+          "x_Supplier1_Customer3": 1,
+          "x_Supplier1_Customer4": 1,
+          "x_Supplier1_Customer5": 1,
+          "x_Supplier1_Customer6": 1
+        },
+        "sense": "<=",
+        "rhs": 250,
+        "hard": true,
+        "sourceTable": "Supply maximum table",
+        "entity": "Supplier1"
+      },
+      {
+        "id": "transport-Supplier1",
+        "name": "Transport capacity: Supplier1",
+        "constraintType": "transport_capacity",
+        "category": "Capacity",
+        "coefficients": {
+          "x_Supplier1_Customer1": 1,
+          "x_Supplier1_Customer2": 1,
+          "x_Supplier1_Customer3": 1,
+          "x_Supplier1_Customer4": 1,
+          "x_Supplier1_Customer5": 1,
+          "x_Supplier1_Customer6": 1
+        },
+        "sense": "<=",
+        "rhs": 120,
+        "hard": true,
+        "sourceTable": "Transportation capacity table",
+        "entity": "Supplier1"
+      },
+      {
+        "id": "supply-Supplier2",
+        "name": "Supply maximum: Supplier2",
+        "constraintType": "supply",
+        "category": "Capacity",
+        "coefficients": {
+          "x_Supplier2_Customer1": 1,
+          "x_Supplier2_Customer2": 1,
+          "x_Supplier2_Customer3": 1,
+          "x_Supplier2_Customer4": 1,
+          "x_Supplier2_Customer5": 1,
+          "x_Supplier2_Customer6": 1
+        },
+        "sense": "<=",
+        "rhs": 230,
+        "hard": true,
+        "sourceTable": "Supply maximum table",
+        "entity": "Supplier2"
+      },
+      {
+        "id": "transport-Supplier2",
+        "name": "Transport capacity: Supplier2",
+        "constraintType": "transport_capacity",
+        "category": "Capacity",
+        "coefficients": {
+          "x_Supplier2_Customer1": 1,
+          "x_Supplier2_Customer2": 1,
+          "x_Supplier2_Customer3": 1,
+          "x_Supplier2_Customer4": 1,
+          "x_Supplier2_Customer5": 1,
+          "x_Supplier2_Customer6": 1
+        },
+        "sense": "<=",
+        "rhs": 110,
+        "hard": true,
+        "sourceTable": "Transportation capacity table",
+        "entity": "Supplier2"
+      },
+      {
+        "id": "supply-Supplier3",
+        "name": "Supply maximum: Supplier3",
+        "constraintType": "supply",
+        "category": "Capacity",
+        "coefficients": {
+          "x_Supplier3_Customer1": 1,
+          "x_Supplier3_Customer2": 1,
+          "x_Supplier3_Customer3": 1,
+          "x_Supplier3_Customer4": 1,
+          "x_Supplier3_Customer5": 1,
+          "x_Supplier3_Customer6": 1
+        },
+        "sense": "<=",
+        "rhs": 220,
+        "hard": true,
+        "sourceTable": "Supply maximum table",
+        "entity": "Supplier3"
+      },
+      {
+        "id": "transport-Supplier3",
+        "name": "Transport capacity: Supplier3",
+        "constraintType": "transport_capacity",
+        "category": "Capacity",
+        "coefficients": {
+          "x_Supplier3_Customer1": 1,
+          "x_Supplier3_Customer2": 1,
+          "x_Supplier3_Customer3": 1,
+          "x_Supplier3_Customer4": 1,
+          "x_Supplier3_Customer5": 1,
+          "x_Supplier3_Customer6": 1
+        },
+        "sense": "<=",
+        "rhs": 115,
+        "hard": true,
+        "sourceTable": "Transportation capacity table",
+        "entity": "Supplier3"
+      },
+      {
+        "id": "supply-Supplier4",
+        "name": "Supply maximum: Supplier4",
+        "constraintType": "supply",
+        "category": "Capacity",
+        "coefficients": {
+          "x_Supplier4_Customer1": 1,
+          "x_Supplier4_Customer2": 1,
+          "x_Supplier4_Customer3": 1,
+          "x_Supplier4_Customer4": 1,
+          "x_Supplier4_Customer5": 1,
+          "x_Supplier4_Customer6": 1
+        },
+        "sense": "<=",
+        "rhs": 210,
+        "hard": true,
+        "sourceTable": "Supply maximum table",
+        "entity": "Supplier4"
+      },
+      {
+        "id": "transport-Supplier4",
+        "name": "Transport capacity: Supplier4",
+        "constraintType": "transport_capacity",
+        "category": "Capacity",
+        "coefficients": {
+          "x_Supplier4_Customer1": 1,
+          "x_Supplier4_Customer2": 1,
+          "x_Supplier4_Customer3": 1,
+          "x_Supplier4_Customer4": 1,
+          "x_Supplier4_Customer5": 1,
+          "x_Supplier4_Customer6": 1
+        },
+        "sense": "<=",
+        "rhs": 105,
+        "hard": true,
+        "sourceTable": "Transportation capacity table",
+        "entity": "Supplier4"
+      },
+      {
+        "id": "supply-Supplier5",
+        "name": "Supply maximum: Supplier5",
+        "constraintType": "supply",
+        "category": "Capacity",
+        "coefficients": {
+          "x_Supplier5_Customer1": 1,
+          "x_Supplier5_Customer2": 1,
+          "x_Supplier5_Customer3": 1,
+          "x_Supplier5_Customer4": 1,
+          "x_Supplier5_Customer5": 1,
+          "x_Supplier5_Customer6": 1
+        },
+        "sense": "<=",
+        "rhs": 200,
+        "hard": true,
+        "sourceTable": "Supply maximum table",
+        "entity": "Supplier5"
+      },
+      {
+        "id": "transport-Supplier5",
+        "name": "Transport capacity: Supplier5",
+        "constraintType": "transport_capacity",
+        "category": "Capacity",
+        "coefficients": {
+          "x_Supplier5_Customer1": 1,
+          "x_Supplier5_Customer2": 1,
+          "x_Supplier5_Customer3": 1,
+          "x_Supplier5_Customer4": 1,
+          "x_Supplier5_Customer5": 1,
+          "x_Supplier5_Customer6": 1
+        },
+        "sense": "<=",
+        "rhs": 120,
+        "hard": true,
+        "sourceTable": "Transportation capacity table",
+        "entity": "Supplier5"
+      }
+    ],
+    "approvals": {
+      "Demand fulfillment: Customer1": true,
+      "Demand fulfillment: Customer2": true,
+      "Demand fulfillment: Customer3": true,
+      "Demand fulfillment: Customer4": true,
+      "Demand fulfillment: Customer5": true,
+      "Demand fulfillment: Customer6": true,
+      "Supply maximum: Supplier1": true,
+      "Transport capacity: Supplier1": true,
+      "Supply maximum: Supplier2": true,
+      "Transport capacity: Supplier2": true,
+      "Supply maximum: Supplier3": true,
+      "Transport capacity: Supplier3": true,
+      "Supply maximum: Supplier4": true,
+      "Transport capacity: Supplier4": true,
+      "Supply maximum: Supplier5": true,
+      "Transport capacity: Supplier5": true
+    },
+    "executableRulesValidated": true,
+    "customConstraints": []
+  },
+  "governance": {
+    "accountableOwner": "Operations planning owner",
+    "reviewer": "Operations planning owner",
+    "approvalDate": "2026-07-15",
+    "businessValidityStatus": "valid"
+  },
+  "evidenceId": "ev-transportation-optimization-constraints-53c344b401b64c72",
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-15T20:08:53.244375+00:00",
+  "updatedAt": "2026-07-15T20:09:10.868661+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 100
+}

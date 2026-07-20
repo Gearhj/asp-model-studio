@@ -1,0 +1,59 @@
+{
+  "evidenceId": "optimization-atlas-mrlgel4o-export-sas_code",
+  "projectId": "atlas-mrlgel4o",
+  "projectName": "Cash Logistics Transportation QA",
+  "evidenceType": "export",
+  "title": "Transportation Optimization Export: atlas-transportation-atlas-mrlgel4o.sas",
+  "summary": "atlas-transportation-atlas-mrlgel4o.sas was generated from the current governed transportation formulation and solver state.",
+  "sourcePage": "Optimization Documentation",
+  "sourceRoute": "/workflow/optimization/14",
+  "workflowStep": "14. Documentation",
+  "sourceRunReference": "run-1e1990c8e40b4a53",
+  "artifactType": "optimization_export_sas_code",
+  "artifactId": "atlas-mrlgel4o:sas_code",
+  "datasetIds": [
+    "ds_date_transportation_cost_0e1b9b64",
+    "ds_date_demand_787e523d",
+    "ds_date_supply_max_7e4d8975",
+    "ds_date_transport_capacity_56ed23df",
+    "ds_date_inventory_cost_b9333777"
+  ],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "SAS-Compatible Code",
+    "Reproducibility Appendix"
+  ],
+  "tags": [
+    "optimization",
+    "transportation",
+    "export",
+    "sas_code"
+  ],
+  "status": "ready",
+  "importance": "high",
+  "capturedAt": "2026-07-15T23:36:15.915Z",
+  "lineage": {
+    "formulationId": "transport-b5a97c5609bbfcc8",
+    "normalizationHash": "b5a97c5609bbfcc8112ea7bace12a9cd5d929ea2a742d7be493f71331c91fd96",
+    "solutionId": "solution-e541f79955964a71"
+  },
+  "payload": {
+    "fileName": "atlas-transportation-atlas-mrlgel4o.sas",
+    "mimeType": "text/plain",
+    "byteCount": 4153,
+    "generatedAt": "2026-07-15T23:36:15.915Z",
+    "kind": "sas_code"
+  },
+  "governance": {
+    "accountableOwner": "Transportation Planning Director",
+    "reviewer": "Independent Model Validation"
+  },
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-15T23:36:15.940452+00:00",
+  "updatedAt": "2026-07-15T23:36:15.940452+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 100
+}

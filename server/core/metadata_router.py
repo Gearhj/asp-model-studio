@@ -79,11 +79,13 @@ class SetSamplePayload(BaseModel):
     rows: List[Dict[str, Any]] = Field(default_factory=list)
     target: Optional[str] = None
     selected_columns: Optional[List[str]] = None
+    dataset_version: Optional[str] = None
 
 
 class SetTargetPayload(BaseModel):
     target: Optional[str] = None
     selected_columns: Optional[List[str]] = None
+    dataset_version: Optional[str] = None
 
 
 # -----------------------------------------------------------------------------
@@ -134,15 +136,12 @@ def set_sample(payload: SetSamplePayload) -> Dict[str, Any]:
         for col in (payload.selected_columns or [])
         if str(col) in columns and str(col) != DATASTORE.target
     ]
-    if selected_columns:
-        keep = list(selected_columns)
-        if DATASTORE.target and DATASTORE.target in df.columns and DATASTORE.target not in keep:
-            keep.append(DATASTORE.target)
-        df = df.loc[:, keep].copy()
-
-    # Persist into DATASTORE after applying selected feature scope.
+    # Preserve the complete source frame. selected_columns governs the active
+    # modeling view without destroying columns that a reviewer may restore.
     DATASTORE.set_raw(df)
     DATASTORE.meta["selected_columns"] = selected_columns
+    if payload.dataset_version:
+        DATASTORE.meta["dataset_version"] = payload.dataset_version
     RESULTS.clear_model_artifacts()
 
     save_checkpoint()
@@ -169,6 +168,8 @@ def set_target(payload: SetTargetPayload) -> Dict[str, Any]:
     if df is None or df.empty:
         return {"ok": False, "error": "No backend dataset is loaded."}
 
+    previous_target = DATASTORE.target
+    previous_selected = DATASTORE.get_selected_columns()
     if payload.target:
         if payload.target not in df.columns:
             return {"ok": False, "error": f"Target column '{payload.target}' is not present in the loaded dataset."}
@@ -178,7 +179,23 @@ def set_target(payload: SetTargetPayload) -> Dict[str, Any]:
 
     columns = [str(col) for col in df.columns]
     selected_columns = [str(col) for col in (payload.selected_columns or []) if str(col) in columns and str(col) != DATASTORE.target]
+    contract_changed = previous_target != DATASTORE.target or previous_selected != selected_columns
+    if contract_changed:
+        DATASTORE.processed_df = None
+        for key in (
+            "processed_stage",
+            "outlier_application",
+            "missing_application",
+            "missing_config",
+            "materialized_feature_names",
+            "feature_manifest",
+            "split_record",
+            "split_status",
+        ):
+            DATASTORE.meta.pop(key, None)
     DATASTORE.meta["selected_columns"] = selected_columns
+    if payload.dataset_version:
+        DATASTORE.meta["dataset_version"] = payload.dataset_version
     DATASTORE.reset_splits()
     RESULTS.clear_model_artifacts()
     save_checkpoint()

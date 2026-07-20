@@ -10,17 +10,25 @@ from typing import Any, Dict, List
 from ..analytics.analytics_store import list_insights as list_analytics_insights
 from ..datasets.dataset_registry import load_registry, project_dataset_links, write_json
 from ..projects.project_registry import list_backend_projects
+from .mdd_framework import DOCUMENT_STATUSES, family_for_project, template_sections
 
 
 DOCUMENTATION_ROOT = Path(__file__).resolve().parents[1] / "artifacts" / "model_documentation"
 DOCUMENT_INDEX_PATH = DOCUMENTATION_ROOT / "document_index.json"
 
 TEMPLATE_TYPES = [
+    {"templateType": "validator_aligned_mdd", "label": "Validator-Aligned Model Development Document", "status": "available", "description": "Evidence-linked common MDD backbone with method-specific validator requirements and governed document lifecycle."},
     {
         "templateType": "model_development_document",
         "label": "Model Development Document",
         "status": "available",
         "description": "Governed model development document with workflow evidence, diagnostics, and implementation readiness.",
+    },
+    {
+        "templateType": "optimization_decision_report",
+        "label": "Optimization Decision Report",
+        "status": "available",
+        "description": "Audit-ready optimization report covering inputs, formulation, solver evidence, scenarios, sensitivity, validation, recommendation, implementation, monitoring, and reproducibility.",
     },
     {
         "templateType": "validation_evidence_pack",
@@ -75,6 +83,29 @@ MODEL_DEVELOPMENT_OUTLINE = [
     ("monitoring_plan", "Monitoring Plan", True),
     ("limitations", "Limitations", True),
     ("appendices", "Appendices", False),
+]
+
+OPTIMIZATION_DECISION_OUTLINE = [
+    ("optimization_executive_summary", "Executive Summary", True),
+    ("optimization_business_decision", "Business Decision", True),
+    ("optimization_data_inputs", "Data Inputs", True),
+    ("optimization_formulation_readiness", "Formulation Readiness", True),
+    ("optimization_objective_function", "Objective Function", True),
+    ("optimization_decision_variables", "Decision Variables", True),
+    ("optimization_constraints", "Constraints", True),
+    ("optimization_solver_configuration", "Solver Configuration", True),
+    ("optimization_baseline_scenarios", "Baseline and Scenarios", True),
+    ("optimization_results", "Optimization Results", True),
+    ("optimization_sensitivity_tradeoffs", "Sensitivity and Tradeoffs", True),
+    ("optimization_validation", "Validation", True),
+    ("optimization_recommendation", "Recommendation", True),
+    ("optimization_implementation_plan", "Implementation Plan", True),
+    ("optimization_monitoring_plan", "Monitoring Plan", True),
+    ("optimization_limitations", "Limitations", True),
+    ("optimization_approvals", "Approvals", True),
+    ("optimization_reproducibility_appendix", "Reproducibility Appendix", False),
+    ("optimization_python_code", "Python Code", False),
+    ("optimization_sas_code", "SAS-Compatible Code", False),
 ]
 
 
@@ -254,15 +285,25 @@ def create_document(project_id: str, template_type: str = "model_development_doc
     context = build_project_context(project_id)
     project = context["project"]
     document_id = f"doc-{project_id}-{int(datetime.now(timezone.utc).timestamp())}"
+    family = family_for_project(str(project.get("projectType") or ""), str(project.get("taskType") or ""))
+    outline = OPTIMIZATION_DECISION_OUTLINE if template_type == "optimization_decision_report" else MODEL_DEVELOPMENT_OUTLINE
+    if template_type == "validator_aligned_mdd":
+        outline = [(section_id, title, required) for section_id, title, required in template_sections(family)]
     sections = [
         build_section(section_id, title, index + 1, required, context)
-        for index, (section_id, title, required) in enumerate(MODEL_DEVELOPMENT_OUTLINE)
+        for index, (section_id, title, required) in enumerate(outline)
     ]
     document = {
         "documentId": document_id,
         "projectId": project.get("projectId") or project_id,
         "projectName": project.get("projectName"),
         "templateType": template_type,
+        "templateFamily": family,
+        "documentVersion": "0.1",
+        "documentStatus": "working_draft",
+        "currentValidatedVersion": None,
+        "versionControlEntries": [],
+        "sectionChangeRecords": [],
         "createdAt": now_iso(),
         "updatedAt": now_iso(),
         "createdBy": created_by,
@@ -306,6 +347,15 @@ def draft_for_section(section_id: str, context: Dict[str, Any]) -> str:
     diagnostic_count = len(diagnostics)
     chart_count = len(charts)
     insight_count = len(analytics)
+    if section_id.startswith("optimization_"):
+        topic = section_id.removeprefix("optimization_").replace("_", " ")
+        dataset_names = ", ".join(item.get("dataset") for item in datasets[:8]) or "No governed optimization inputs are linked"
+        return (
+            f"ATLAS optimization evidence topic: {topic}. Project: {project.get('projectName')}. "
+            f"Governed input inventory: {dataset_names}. "
+            "Populate this section from captured optimization evidence for the exact formulation version, solver run, decision vector, scenarios, sensitivity analysis, validation, and approval record. "
+            "Do not represent the section as complete when the required evidence is missing, stale, infeasible, or business-invalid."
+        )
     if section_id == "executive_summary":
         return (
             f"What ATLAS found: {project.get('projectName')} is documented as a {task} model development effort targeting {target}. "
@@ -392,6 +442,11 @@ def default_evidence_for_section(section_id: str, context: Dict[str, Any]) -> Li
         "source": "Project Registry",
         "preview": project,
     }
+    if section_id.startswith("optimization_"):
+        evidence.append(project_metadata)
+        if section_id in {"optimization_data_inputs", "optimization_formulation_readiness", "optimization_reproducibility_appendix"} and datasets:
+            evidence.append({"type": "Dataset Inventory", "title": "Optimization Input Inventory", "source": "Dataset Library", "rows": datasets})
+        return evidence
     target_metadata = {
         "type": "Target Metadata",
         "title": "Target Definition Evidence",
@@ -471,14 +526,22 @@ def save_section(document_id: str, section_payload: Dict[str, Any]) -> Dict[str,
     sections = document.get("sections") or []
     for section in sections:
         if section.get("sectionId") == section_payload.get("sectionId"):
+            prior_text = section.get("userNarrative", "")
+            status = section_payload.get("status", section.get("status", "draft"))
+            rationale = section_payload.get("notApplicableRationale", section.get("notApplicableRationale", ""))
+            if status == "not_applicable" and not rationale.strip():
+                raise ValueError("Not applicable requires a documented rationale.")
             section.update(
                 {
                     "status": section_payload.get("status", section.get("status", "draft")),
                     "userNarrative": section_payload.get("userNarrative", section.get("userNarrative", "")),
                     "includeInExport": bool(section_payload.get("includeInExport", section.get("includeInExport", True))),
                     "attachedEvidence": section_payload.get("attachedEvidence", section.get("attachedEvidence", [])),
+                    "notApplicableRationale": rationale,
                 }
             )
+            if prior_text != section.get("userNarrative", ""):
+                document.setdefault("sectionChangeRecords", []).append({"section_id": section.get("sectionId"), "section_number": section.get("order"), "section_title": section.get("title"), "change_type": "modification", "prior_text_hash": str(hash(prior_text)), "new_text_hash": str(hash(section.get("userNarrative", ""))), "created_at": now_iso()})
             break
     document["quality"] = quality_check(document, document.get("contextSummary") or build_project_context(document.get("projectId", "")))
     return save_document(document)

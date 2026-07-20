@@ -28,7 +28,10 @@ $excludeDirs = @(
 $excludeFiles = @(
   ".env",
   ".env.local",
-  "*.pyc"
+  "*.pyc",
+  "*.db",
+  "*.db-wal",
+  "*.db-shm"
 )
 
 $robocopyArgs = @(

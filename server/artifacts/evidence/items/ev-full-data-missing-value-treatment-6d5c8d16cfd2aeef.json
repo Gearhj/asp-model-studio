@@ -1,0 +1,352 @@
+{
+  "projectId": "atlas-mrp3y4tx",
+  "projectName": "Credit Card Fraud TEST",
+  "evidenceType": "missing_values",
+  "title": "Full-Data Missing-Value Treatment",
+  "summary": "29 treatments were applied to the full dataset. Missing cells changed from 247,529 to 0.",
+  "sourcePage": "Missing Values",
+  "sourceRoute": "/step04",
+  "datasetIds": [
+    "20260720204622-00c4161e"
+  ],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Missing Value Treatment",
+    "Data Quality",
+    "Feature Engineering"
+  ],
+  "tags": [
+    "predictive_modeling",
+    "missing_values",
+    "full_dataset"
+  ],
+  "status": "ready",
+  "importance": "high",
+  "lineage": {
+    "datasetVersion": "20260720204622-00c4161e",
+    "sourceStage": "outlier_treated",
+    "rowsBefore": 170884,
+    "rowsAfter": 170884,
+    "scope": "full_dataset"
+  },
+  "payload": {
+    "applied_at": "2026-07-20T20:59:14.434188+00:00",
+    "dataset_version": "20260720204622-00c4161e",
+    "config": {
+      "Amount": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "Time": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V1": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V10": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V11": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V12": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V13": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V14": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V15": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V16": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V17": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V18": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V19": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V2": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V20": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V21": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V22": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V23": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V24": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V25": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V26": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V27": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V28": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V3": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V4": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V5": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V6": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V7": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V8": {
+        "strategy": "Median",
+        "constantValue": null
+      },
+      "V9": {
+        "strategy": "Median",
+        "constantValue": null
+      }
+    },
+    "config_signature": "8ce22720e0f452ee",
+    "source_stage": "outlier_treated",
+    "rows_before": 170884,
+    "rows_after": 170884,
+    "missing_before": 247529,
+    "missing_after": 0,
+    "dropped_rows": 0,
+    "treatments": [
+      {
+        "feature": "V1",
+        "strategy": "Median",
+        "filled": 8438,
+        "value": "-0.183254848017699"
+      },
+      {
+        "feature": "V2",
+        "strategy": "Median",
+        "filled": 8458,
+        "value": "0.108617269354591"
+      },
+      {
+        "feature": "V3",
+        "strategy": "Median",
+        "filled": 8590,
+        "value": "0.6240181132922775"
+      },
+      {
+        "feature": "V4",
+        "strategy": "Median",
+        "filled": 8588,
+        "value": "0.1249059430576"
+      },
+      {
+        "feature": "V5",
+        "strategy": "Median",
+        "filled": 8636,
+        "value": "-0.2259935362875665"
+      },
+      {
+        "feature": "V6",
+        "strategy": "Median",
+        "filled": 8526,
+        "value": "-0.203386294546277"
+      },
+      {
+        "feature": "V7",
+        "strategy": "Median",
+        "filled": 8430,
+        "value": "-0.032299145305204655"
+      },
+      {
+        "feature": "V8",
+        "strategy": "Median",
+        "filled": 8611,
+        "value": "0.0565556423542121"
+      },
+      {
+        "feature": "V9",
+        "strategy": "Median",
+        "filled": 8560,
+        "value": "-0.07970549110641831"
+      },
+      {
+        "feature": "V10",
+        "strategy": "Median",
+        "filled": 8530,
+        "value": "-0.11099244384732901"
+      },
+      {
+        "feature": "V11",
+        "strategy": "Median",
+        "filled": 8450,
+        "value": "0.1204566550442735"
+      },
+      {
+        "feature": "V12",
+        "strategy": "Median",
+        "filled": 8640,
+        "value": "0.11067580482987399"
+      },
+      {
+        "feature": "V13",
+        "strategy": "Median",
+        "filled": 8728,
+        "value": "0.0319072703534055"
+      },
+      {
+        "feature": "V14",
+        "strategy": "Median",
+        "filled": 8580,
+        "value": "0.09270770052290861"
+      },
+      {
+        "feature": "V15",
+        "strategy": "Median",
+        "filled": 8485,
+        "value": "0.243442949096833"
+      },
+      {
+        "feature": "V16",
+        "strategy": "Median",
+        "filled": 8472,
+        "value": "0.06375637873477821"
+      },
+      {
+        "feature": "V17",
+        "strategy": "Median",
+        "filled": 8390,
+        "value": "-0.017787031938737652"
+      },
+      {
+        "feature": "V18",
+        "strategy": "Median",
+        "filled": 8473,
+        "value": "-0.0525485220302932"
+      },
+      {
+        "feature": "V19",
+        "strategy": "Median",
+        "filled": 8413,
+        "value": "-0.0217447921380109"
+      },
+      {
+        "feature": "V20",
+        "strategy": "Median",
+        "filled": 8465,
+        "value": "-0.0359766827737653"
+      },
+      {
+        "feature": "V21",
+        "strategy": "Median",
+        "filled": 8750,
+        "value": "-0.05444668638131245"
+      },
+      {
+        "feature": "V22",
+        "strategy": "Median",
+        "filled": 8612,
+        "value": "-0.0673438574557622"
+      },
+      {
+        "feature": "V23",
+        "strategy": "Median",
+        "filled": 8399,
+        "value": "-0.0360142011142873"
+      },
+      {
+        "feature": "V24",
+        "strategy": "Median",
+        "filled": 8607,
+        "value": "0.059011842709994"
+      },
+      {
+        "feature": "V25",
+        "strategy": "Median",
+        "filled": 8612,
+        "value": "0.135489969040479"
+      },
+      {
+        "feature": "V26",
+        "strategy": "Median",
+        "filled": 8589,
+        "value": "-0.0596084715679679"
+      },
+      {
+        "feature": "V27",
+        "strategy": "Median",
+        "filled": 8460,
+        "value": "0.00869191854269035"
+      },
+      {
+        "feature": "V28",
+        "strategy": "Median",
+        "filled": 8506,
+        "value": "0.02108731695127035"
+      },
+      {
+        "feature": "Amount",
+        "strategy": "Median",
+        "filled": 8531,
+        "value": "21.92"
+      }
+    ]
+  },
+  "evidenceId": "ev-full-data-missing-value-treatment-6d5c8d16cfd2aeef",
+  "governance": {},
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-17T17:36:52.571460+00:00",
+  "capturedAt": "2026-07-17T17:36:52.572460+00:00",
+  "updatedAt": "2026-07-20T21:00:05.950492+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 86
+}

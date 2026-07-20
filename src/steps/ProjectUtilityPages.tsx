@@ -34,6 +34,9 @@ import {
   type ProjectRecoveryCandidate,
 } from "../lib/projectRecovery";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { getWorkflowDefinition, type ProjectType } from "../config/workflows";
+import { deleteProjectFromDatabase, getProjectPersistenceBundle, listProjectsFromDatabase } from "../lib/serverPersistence";
+import { normalizeOptimizationTemplateId, storeOptimizationTemplateId } from "../config/optimizationTemplates";
 
 const OPEN_PROJECT_VIEW_MODE_KEY = "atlas-open-project-view-mode";
 
@@ -47,10 +50,79 @@ function readSavedViewMode(key: string, fallback: ViewMode = "detail"): ViewMode
   return saved === "card" || saved === "detail" ? saved : fallback;
 }
 
+function mergeProjectRecords(local: LocalProjectRecord[], backend: LocalProjectRecord[]) {
+  const merged = new Map(backend.map((project) => [project.projectId, project]));
+  local.forEach((project) => {
+    const persisted = merged.get(project.projectId);
+    merged.set(project.projectId, persisted ? {
+      ...persisted,
+      ...project,
+      backendMetadata: persisted.backendMetadata,
+      snapshot: {
+        ...persisted.snapshot,
+        ...project.snapshot,
+        templateId: project.snapshot.templateId || persisted.snapshot.templateId,
+      },
+    } : project);
+  });
+  return [...merged.values()];
+}
+
+async function loadDatabaseProjects(): Promise<LocalProjectRecord[]> {
+  const projects = await listProjectsFromDatabase();
+  const records = await Promise.all(projects.map(async (project) => {
+    const projectId = String(project.projectId || "");
+    if (!projectId) return null;
+    const bundle = await getProjectPersistenceBundle(projectId);
+    const workflowId = String(project.workflowType || "predictive-modeling");
+    const workflow = getWorkflowDefinition(workflowId);
+    const completed = new Set(Array.isArray(bundle.workflowState?.completedSteps) ? bundle.workflowState.completedSteps.map(String) : []);
+    const persistedStatuses = bundle.workflowState?.workflowStatus?.steps ?? {};
+    const workflowSteps = workflow.steps.map((step) => ({
+      ...step,
+      status: completed.has(step.id) || persistedStatuses[step.id] === "complete"
+        ? "complete" as const
+        : persistedStatuses[step.id] === "skipped"
+          ? "skipped" as const
+          : persistedStatuses[step.id] === "in_progress"
+            ? "in_progress" as const
+            : "pending" as const,
+    }));
+    const metadata = project.metadata && typeof project.metadata === "object" ? project.metadata : {};
+    const snapshot = {
+      projectId,
+      modelId: String(metadata.modelId || ""),
+      projectName: String(project.projectName || "Untitled ATLAS Project"),
+      projectType: String(project.projectType || workflow.projectType) as ProjectType,
+      workflowId,
+      templateId: project.templateId ? String(project.templateId) : undefined,
+      workflowSteps,
+      currentStepId: String(bundle.workflowState?.currentStepId || workflowSteps.find((step) => step.status !== "complete")?.id || workflowSteps[workflowSteps.length - 1]?.id || ""),
+      hasDataset: Boolean(metadata.hasDataset),
+      restoreWarnings: ["Restored from the ATLAS backend registry. Large governed artifacts remain in SQLite and linked source storage."],
+    };
+    return {
+      projectId,
+      modelId: snapshot.modelId,
+      projectName: snapshot.projectName,
+      projectType: snapshot.projectType,
+      workflowId,
+      createdAt: String(project.createdAt || project.updatedAt || new Date().toISOString()),
+      lastModified: String(project.updatedAt || project.createdAt || new Date().toISOString()),
+      source: "database" as const,
+      restoreStatus: "Backend Registry",
+      backendMetadata: metadata,
+      snapshot,
+    } satisfies LocalProjectRecord;
+  }));
+  return records.filter(Boolean) as LocalProjectRecord[];
+}
+
 export function OpenProject() {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [projects, setProjects] = useState<LocalProjectRecord[]>([]);
+  const [backendProjects, setBackendProjects] = useState<LocalProjectRecord[]>([]);
   const [importMessage, setImportMessage] = useState("");
   const [registryStatus, setRegistryStatus] = useState<LocalProjectsRegistryStatus>(() => ({
     ok: true,
@@ -88,7 +160,7 @@ export function OpenProject() {
     const status = getLocalProjectsRegistryStatus();
     const nextProjects = loadLocalProjects();
     setRegistryStatus(status);
-    setProjects(nextProjects);
+    setProjects(mergeProjectRecords(nextProjects, backendProjects));
     setViewMode((current) => (nextProjects.length > 6 ? "detail" : current));
     setDiagnostics(getProjectStorageDiagnostics(workflowState.projectId, workflowState.workflowSteps));
   };
@@ -102,7 +174,7 @@ export function OpenProject() {
     const status = getLocalProjectsRegistryStatus();
     setRegistryStatus(status);
     if (status.corrupted) {
-      setProjects(status.validProjects);
+      setProjects(mergeProjectRecords(status.validProjects, backendProjects));
       setImportMessage(status.message);
       return;
     }
@@ -113,11 +185,26 @@ export function OpenProject() {
         setImportMessage(`Recovered ${migration.migrated} browser-saved project${migration.migrated === 1 ? "" : "s"} from legacy ATLAS storage.`);
       }
     } catch (error) {
-      setProjects(loadLocalProjects());
+      setProjects(mergeProjectRecords(loadLocalProjects(), backendProjects));
       setImportMessage(error instanceof Error ? `Open Project loaded, but project registry maintenance failed: ${error.message}` : "Open Project loaded, but project registry maintenance failed.");
     }
     // Keep the launcher route resilient even when registry migration fails.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    void loadDatabaseProjects()
+      .then((records) => {
+        if (!active) return;
+        setBackendProjects(records);
+        setProjects((current) => mergeProjectRecords(current, records));
+      })
+      .catch((error) => {
+        if (!active) return;
+        setImportMessage((current) => current || (error instanceof Error ? `Backend project registry unavailable: ${error.message}` : "Backend project registry unavailable."));
+      });
+    return () => { active = false; };
   }, []);
 
   const displayProjects = useMemo(() => {
@@ -171,6 +258,11 @@ export function OpenProject() {
   };
 
   const openProject = (project: LocalProjectRecord) => {
+    if (project.snapshot.templateId) storeOptimizationTemplateId(project.projectId, normalizeOptimizationTemplateId(project.snapshot.templateId));
+    const optimizationState = project.backendMetadata?.optimizationState;
+    if (project.snapshot.templateId === "transportation_logistics" && optimizationState && typeof optimizationState === "object") {
+      localStorage.setItem(`atlas-optimization-transportation:${project.projectId}`, JSON.stringify(optimizationState));
+    }
     loadProjectSnapshot(project.snapshot);
     const route = currentWorkflowStage(project.snapshot.workflowSteps, project.snapshot.currentStepId)?.route || "/project-overview";
     navigate(route);
@@ -304,7 +396,7 @@ export function OpenProject() {
   const duplicateProject = (event: React.MouseEvent, project: LocalProjectRecord) => {
     event.stopPropagation();
     const { projects: nextProjects, duplicate } = duplicateLocalProject(project.projectId);
-    setProjects(nextProjects);
+    setProjects(mergeProjectRecords(nextProjects, backendProjects));
     if (duplicate) setImportMessage(`Duplicated "${project.projectName}".`);
   };
 
@@ -313,18 +405,28 @@ export function OpenProject() {
     const nextName = window.prompt("Rename project", project.projectName);
     if (!nextName || !nextName.trim()) return;
     const nextProjects = renameLocalProject(project.projectId, nextName);
-    setProjects(nextProjects);
+    setProjects(mergeProjectRecords(nextProjects, backendProjects));
     if (project.projectId === activeProjectId) setProjectName(nextName.trim());
     setImportMessage(`Renamed project to "${nextName.trim()}".`);
   };
 
-  const removeProject = (event: React.MouseEvent, project: LocalProjectRecord) => {
+  const removeProject = async (event: React.MouseEvent, project: LocalProjectRecord) => {
     event.stopPropagation();
-    const confirmed = window.confirm(`Delete "${project.projectName}" from local recent projects? This will not remove source data files from your machine.`);
+    const confirmed = window.confirm(`Delete "${project.projectName}"? This removes the project workspace and its saved workflow records. Dataset Library assets and source data files are retained.`);
     if (!confirmed) return;
-    setProjects(deleteLocalProject(project.projectId));
+    let databaseWarning = "";
+    try {
+      await deleteProjectFromDatabase(project.projectId);
+    } catch (error) {
+      databaseWarning = error instanceof Error
+        ? ` Browser cleanup completed, but the backend record could not be removed: ${error.message}`
+        : " Browser cleanup completed, but the backend record could not be removed.";
+    }
+    const remainingBackend = backendProjects.filter((record) => record.projectId !== project.projectId);
+    setBackendProjects(remainingBackend);
+    setProjects(mergeProjectRecords(deleteLocalProject(project.projectId), remainingBackend));
     if (project.projectId === activeProjectId) resetProject();
-    setImportMessage(`Deleted "${project.projectName}" from Recent Projects.`);
+    setImportMessage(`Deleted "${project.projectName}".${databaseWarning}`);
   };
 
   const importProjectFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -343,7 +445,7 @@ export function OpenProject() {
         setImportMessage("The selected file does not look like an ATLAS project export.");
         return;
       }
-      setProjects(loadLocalProjects());
+      setProjects(mergeProjectRecords(loadLocalProjects(), backendProjects));
       setImportMessage(`Imported "${imported.projectName}".${validation.warnings.length ? ` ${validation.warnings.join(" ")}` : ""}`);
     } catch {
       setImportMessage("Could not import that file. Select a valid ATLAS project JSON export.");
@@ -780,7 +882,11 @@ function ProjectCard({
             <h2 className="truncate text-base font-semibold text-slate-950">{project.projectName}</h2>
             {isActive && <span className="rounded-full bg-blue-50 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-blue-700">Current</span>}
             <span className="rounded-full bg-slate-100 px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-600">
-              {project.source === "imported" ? "Imported" : "Browser saved"}
+                    {project.source === "imported"
+                      ? "Imported"
+                      : project.source === "database"
+                        ? "ATLAS database"
+                        : "Browser saved"}
             </span>
           </div>
           <p className="mt-1 text-sm text-slate-600">{label}</p>
@@ -859,22 +965,18 @@ function EnterpriseProjectTable({
   onSort: (key: ProjectSortKey) => void;
 }) {
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-      <table className="min-w-[1480px] w-full text-left text-sm">
+    <div className="min-w-0 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+      <table className="min-w-[940px] w-full table-fixed text-left text-sm">
         <thead className="sticky top-0 z-10 bg-slate-100 text-[11px] uppercase tracking-wide text-slate-500">
           <tr>
             <SortableProjectHeader label="Project Name" sortKey="projectName" activeSort={sort} onSort={onSort} />
             <SortableProjectHeader label="Project Type" sortKey="projectType" activeSort={sort} onSort={onSort} />
-            <SortableProjectHeader label="Task" sortKey="task" activeSort={sort} onSort={onSort} />
-            <SortableProjectHeader label="Target" sortKey="target" activeSort={sort} onSort={onSort} />
             <th className="px-3 py-3">Current Stage</th>
             <SortableProjectHeader label="Progress" sortKey="progress" activeSort={sort} onSort={onSort} />
             <th className="px-3 py-3">Linked Datasets</th>
             <SortableProjectHeader label="Last Modified" sortKey="lastModified" activeSort={sort} onSort={onSort} />
-            <SortableProjectHeader label="Created" sortKey="created" activeSort={sort} onSort={onSort} />
-            <th className="px-3 py-3">Storage Location</th>
             <SortableProjectHeader label="Recovery Status" sortKey="recoveryStatus" activeSort={sort} onSort={onSort} />
-            <th className="px-3 py-3">Actions</th>
+            <th className="sticky right-0 z-20 border-l border-slate-200 bg-slate-100 px-3 py-3 shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)]">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
@@ -885,14 +987,14 @@ function EnterpriseProjectTable({
             const linkedDatasets = inferLinkedDatasets(project);
             return (
               <tr key={project.projectId} className={project.projectId === activeProjectId ? "bg-blue-50/70" : "odd:bg-white even:bg-slate-50/60"}>
-                <td className="max-w-[260px] px-3 py-2">
+                <td className="w-[22%] px-3 py-2">
                   <div className="truncate font-semibold text-slate-950" title={project.projectName}>{project.projectName}</div>
-                  <div className="text-xs text-slate-500">{project.modelId ? `Model ID ${project.modelId}` : project.projectId}</div>
+                  <div className="truncate text-xs text-slate-500" title={`${inferProjectTask(project) || "No task"} | ${inferProjectTarget(project) || "No target"}`}>
+                    {project.modelId ? `Model ${project.modelId}` : project.projectId} | {inferProjectTask(project) || "No task"} | {inferProjectTarget(project) || "No target"}
+                  </div>
                 </td>
-                <td className="px-3 py-2 capitalize text-slate-700">{workflowLabel(project.projectType, project.workflowId)}</td>
-                <td className="px-3 py-2 capitalize text-slate-700">{inferProjectTask(project) || "-"}</td>
-                <td className="px-3 py-2 text-slate-700">{inferProjectTarget(project) || "-"}</td>
-                <td className="px-3 py-2 text-slate-700">{currentStage?.label ?? "Not started"}</td>
+                <td className="w-[13%] px-3 py-2 capitalize text-slate-700">{workflowLabel(project.projectType, project.workflowId)}</td>
+                <td className="w-[15%] px-3 py-2 text-slate-700">{currentStage?.label ?? "Not started"}</td>
                 <td className="px-3 py-2">
                   <div className="text-xs font-semibold text-slate-700">{progress.complete} / {progress.total} steps</div>
                   <div className="mt-1 h-1.5 w-24 overflow-hidden rounded-full bg-slate-200">
@@ -900,24 +1002,22 @@ function EnterpriseProjectTable({
                   </div>
                   <div className="mt-0.5 text-[11px] text-slate-500">{percent}%</div>
                 </td>
-                <td className="max-w-[240px] px-3 py-2 text-slate-700">
+                <td className="w-[16%] px-3 py-2 text-slate-700">
                   <span className="line-clamp-2" title={linkedDatasets}>{linkedDatasets}</span>
                 </td>
-                <td className="px-3 py-2 text-slate-700">{formatProjectDate(project.lastModified)}</td>
-                <td className="px-3 py-2 text-slate-700">{formatProjectDate(project.createdAt)}</td>
-                <td className="px-3 py-2 capitalize text-slate-700">{inferProjectStorageLocation(project)}</td>
+                <td className="w-[11%] px-3 py-2 text-slate-700">{formatProjectDate(project.lastModified)}</td>
                 <td className="px-3 py-2">
                   <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700">
                     {inferProjectRecoveryStatus(project)}
                   </span>
                 </td>
-                <td className="px-3 py-2">
-                  <div className="flex flex-nowrap gap-1.5">
-                    <button type="button" onClick={() => onOpen(project)} className="rounded-md bg-slate-950 px-2 py-1 text-xs font-semibold text-white">Open</button>
-                    <button type="button" onClick={(event) => onDuplicate(event, project)} className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700">Duplicate</button>
-                    <button type="button" onClick={(event) => onRename(event, project)} className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700">Rename</button>
-                    <button type="button" onClick={() => onExport(project)} className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700">Export Backup</button>
-                    <button type="button" onClick={(event) => onDelete(event, project)} className="rounded-md border border-red-200 bg-white px-2 py-1 text-xs font-semibold text-red-700">Delete</button>
+                <td className={`sticky right-0 z-10 border-l border-slate-200 px-3 py-2 shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)] ${project.projectId === activeProjectId ? "bg-blue-50" : "bg-white"}`}>
+                  <div className="flex items-center justify-end gap-1">
+                    <button type="button" title="Open project" aria-label={`Open ${project.projectName}`} onClick={() => onOpen(project)} className="rounded-md bg-slate-950 p-2 text-white hover:bg-slate-800"><FolderOpen size={15} /></button>
+                    <button type="button" title="Duplicate project" aria-label={`Duplicate ${project.projectName}`} onClick={(event) => onDuplicate(event, project)} className="rounded-md border border-slate-300 bg-white p-2 text-slate-700 hover:bg-slate-50"><Copy size={15} /></button>
+                    <button type="button" title="Rename project" aria-label={`Rename ${project.projectName}`} onClick={(event) => onRename(event, project)} className="rounded-md border border-slate-300 bg-white p-2 text-slate-700 hover:bg-slate-50"><Pencil size={15} /></button>
+                    <button type="button" title="Export project backup" aria-label={`Export ${project.projectName} backup`} onClick={() => onExport(project)} className="rounded-md border border-slate-300 bg-white p-2 text-slate-700 hover:bg-slate-50"><Download size={15} /></button>
+                    <button type="button" title="Delete project" aria-label={`Delete ${project.projectName}`} onClick={(event) => void onDelete(event, project)} className="rounded-md border border-red-200 bg-white p-2 text-red-700 hover:bg-red-50"><Trash2 size={15} /></button>
                   </div>
                 </td>
               </tr>
@@ -1106,6 +1206,7 @@ function inferProjectStorageLocation(project: LocalProjectRecord) {
   if (restoreText.includes("backend")) return "Backend Registry";
   if (restoreText.includes("recover")) return "Recovered";
   if (project.source === "imported") return "Imported";
+  if (project.source === "database") return "Backend Registry";
   return "Browser";
 }
 

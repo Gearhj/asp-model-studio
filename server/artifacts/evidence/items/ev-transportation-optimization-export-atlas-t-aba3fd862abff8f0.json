@@ -1,0 +1,77 @@
+{
+  "projectId": "atlas-mrl6mm9i",
+  "projectName": "00009",
+  "evidenceType": "export",
+  "title": "Transportation Optimization Export: atlas-transportation-optimization-atlas-mrl6mm9i.json",
+  "summary": "atlas-transportation-optimization-atlas-mrl6mm9i.json was generated from the current governed transportation formulation and solver state.",
+  "sourcePage": "Optimization Documentation",
+  "sourceRoute": "/workflow/optimization/14",
+  "workflowStep": "14. Documentation",
+  "sourceRunReference": "run-6a557f4ba8a24965",
+  "artifactType": "optimization_export_governed_json",
+  "artifactId": "atlas-mrl6mm9i:governed_json",
+  "datasetIds": [
+    "ds_date_transportation_cost_0e1b9b64",
+    "ds_date_demand_787e523d",
+    "ds_date_supply_max_7e4d8975",
+    "ds_date_transport_capacity_56ed23df",
+    "ds_date_inventory_cost_b9333777"
+  ],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Executive Summary",
+    "Business Decision",
+    "Data Inputs",
+    "Formulation Readiness",
+    "Objective Function",
+    "Decision Variables",
+    "Constraints",
+    "Solver Configuration",
+    "Baseline and Scenarios",
+    "Optimization Results",
+    "Sensitivity and Tradeoffs",
+    "Validation",
+    "Recommendation",
+    "Implementation Plan",
+    "Monitoring Plan",
+    "Limitations",
+    "Approvals",
+    "Reproducibility Appendix",
+    "Python Code",
+    "SAS-Compatible Code"
+  ],
+  "tags": [
+    "optimization",
+    "transportation",
+    "export",
+    "governed_json"
+  ],
+  "status": "ready",
+  "importance": "high",
+  "capturedAt": "2026-07-15T20:09:13.529Z",
+  "lineage": {
+    "formulationId": "transport-b5a97c5609bbfcc8",
+    "normalizationHash": "b5a97c5609bbfcc8112ea7bace12a9cd5d929ea2a742d7be493f71331c91fd96",
+    "solutionId": "solution-700b21215d674816"
+  },
+  "payload": {
+    "fileName": "atlas-transportation-optimization-atlas-mrl6mm9i.json",
+    "mimeType": "application/json",
+    "byteCount": 249749,
+    "generatedAt": "2026-07-15T20:09:13.529Z",
+    "kind": "governed_json"
+  },
+  "governance": {
+    "accountableOwner": "Operations planning owner",
+    "reviewer": "Operations planning owner"
+  },
+  "evidenceId": "ev-transportation-optimization-export-atlas-t-aba3fd862abff8f0",
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-15T20:09:13.555734+00:00",
+  "updatedAt": "2026-07-15T20:09:13.555734+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 100
+}

@@ -12,6 +12,7 @@ import { loadWorkflowNodeEvidence } from "./workflowNodeEvidence";
 
 export const USER_PYTHON_CODE_KEY = "modeling-tool-user-python-code";
 export const USER_STEP_PYTHON_CODE_KEY = "modeling-tool-user-python-code-by-step";
+export const USER_STEP_SAS_CODE_KEY = "modeling-tool-user-sas-code-by-step";
 
 type NotebookCell = {
   cell_type: "markdown" | "code";
@@ -81,6 +82,15 @@ function customPythonCode() {
 function customPythonCodeByStep() {
   try {
     const parsed = JSON.parse(localStorage.getItem(USER_STEP_PYTHON_CODE_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function customSasCodeByStep() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(USER_STEP_SAS_CODE_KEY) || "{}");
     return parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {};
   } catch {
     return {};
@@ -681,6 +691,7 @@ export function buildWorkflowNotebook(): Notebook {
   const entries = loadDecisionJournal();
   const legacyUserCode = customPythonCode().trim();
   const userCodeByStep = customPythonCodeByStep();
+  const userSasCodeByStep = customSasCodeByStep();
   const workflowState = useWorkflowStore.getState();
   const sections = workflowState.projectType === "predictive-modeling" ? buildSections() : buildWorkflowPlaceholderNotebookSections();
   const cells: NotebookCell[] = [
@@ -717,6 +728,17 @@ ${formatDecisionNotes(entries, section.decisionMatchers)}`),
 This cell contains Python code edited in the platform for this workflow section.`),
         code(userCode)
       );
+    }
+
+    const userSasCode = (userSasCodeByStep[section.sectionKey] ?? "").trim();
+    if (userSasCode) {
+      cells.push(markdown(`### User-Edited SAS Code
+
+The SAS program below is preserved for SASPy execution, SAS-compatible local execution, or external SAS export.
+
+\`\`\`sas
+${userSasCode}
+\`\`\``));
     }
 
     cells.push(markdown(`### Output Placeholder

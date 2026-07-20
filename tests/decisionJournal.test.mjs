@@ -78,6 +78,18 @@ async function compileModules() {
     'export const BRAND = { productName: "ATLAS", productSubtitle: "Enterprise AI Model Development Platform" };\n',
     "utf8"
   );
+  await mkdir(path.join(TMP_DIR, "src/lib"), { recursive: true });
+  await mkdir(path.join(TMP_DIR, "src/state"), { recursive: true });
+  await writeFile(
+    path.join(TMP_DIR, "src/lib/serverPersistence.js"),
+    "export async function saveDecisionToDatabase() { return null; }\n",
+    "utf8"
+  );
+  await writeFile(
+    path.join(TMP_DIR, "src/state/useWorkflowStore.js"),
+    "export const useWorkflowStore = { getState: () => ({ projectId: null }) };\n",
+    "utf8"
+  );
   await transpileSource("src/lib/localDataset.ts", path.join(TMP_DIR, "src/lib/localDataset.js"));
   await transpileSource("src/lib/projectContext.ts", path.join(TMP_DIR, "src/lib/projectContext.js"));
   await transpileSource("src/lib/decisionJournal.ts", path.join(TMP_DIR, "src/lib/decisionJournal.js"));

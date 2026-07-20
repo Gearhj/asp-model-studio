@@ -1,5 +1,6 @@
 import { DATASET_API_BASE } from "./datasetLibrary";
 import type { CreditRiskContext, CreditRiskEvidenceChecklist, FinancialDomain, RegulatoryRelevance } from "./financialServicesEvidence";
+import { saveEvidenceToDatabase, updateEvidenceInDatabase } from "./serverPersistence";
 
 export type EvidenceType =
   | "dataset"
@@ -19,7 +20,28 @@ export type EvidenceType =
   | "documentation"
   | "governance"
   | "decision"
-  | "export";
+  | "export"
+  | "optimization_decision_charter"
+  | "optimization_input_bundle"
+  | "optimization_data_profile"
+  | "optimization_route_normalization"
+  | "optimization_formulation_readiness"
+  | "optimization_objective"
+  | "optimization_decision_variables"
+  | "optimization_constraints"
+  | "optimization_solver_configuration"
+  | "optimization_baseline"
+  | "optimization_scenarios"
+  | "optimization_solver_run"
+  | "optimization_solution"
+  | "optimization_sensitivity"
+  | "optimization_validation"
+  | "optimization_recommendation"
+  | "optimization_implementation_plan"
+  | "optimization_monitoring_plan"
+  | "optimization_documentation_package"
+  | "optimization_reproducibility_code"
+  | "optimization_code_reproducibility";
 
 export type EvidenceStatus = "draft" | "ready" | "needs_review" | "accepted" | "deprecated";
 export type EvidenceImportance = "low" | "medium" | "high" | "critical";
@@ -49,8 +71,11 @@ export type EvidenceItem = {
   importance: EvidenceImportance;
   qualityScore?: number;
   createdAt?: string;
+  capturedAt?: string;
   updatedAt?: string;
   createdBy?: string;
+  workflowStep?: string;
+  sourceRunReference?: string;
   lineage?: Record<string, unknown>;
   payload?: Record<string, unknown>;
   governance?: Record<string, unknown>;
@@ -58,6 +83,7 @@ export type EvidenceItem = {
 
 export type EvidenceCoverage = {
   projectId: string;
+  workflowType?: string;
   totalEvidence: number;
   readyEvidence: number;
   needsReviewEvidence: number;
@@ -120,6 +146,27 @@ export const EVIDENCE_TYPES: EvidenceType[] = [
   "governance",
   "decision",
   "export",
+  "optimization_decision_charter",
+  "optimization_input_bundle",
+  "optimization_data_profile",
+  "optimization_route_normalization",
+  "optimization_formulation_readiness",
+  "optimization_objective",
+  "optimization_decision_variables",
+  "optimization_constraints",
+  "optimization_solver_configuration",
+  "optimization_baseline",
+  "optimization_scenarios",
+  "optimization_solver_run",
+  "optimization_solution",
+  "optimization_sensitivity",
+  "optimization_validation",
+  "optimization_recommendation",
+  "optimization_implementation_plan",
+  "optimization_monitoring_plan",
+  "optimization_documentation_package",
+  "optimization_reproducibility_code",
+  "optimization_code_reproducibility",
 ];
 
 export const FINANCIAL_SERVICES_TAGS = [
@@ -209,6 +256,7 @@ export async function createEvidence(input: Partial<EvidenceItem>) {
     method: "POST",
     body: JSON.stringify(input),
   });
+  if (payload.evidence.projectId) void saveEvidenceToDatabase(payload.evidence.projectId, payload.evidence as unknown as Record<string, unknown>);
   return payload.evidence;
 }
 
@@ -217,6 +265,9 @@ export async function updateEvidence(evidenceId: string, input: Partial<Evidence
     method: "PUT",
     body: JSON.stringify(input),
   });
+  if (payload.evidence.projectId) {
+    void updateEvidenceInDatabase(payload.evidence.projectId, evidenceId, payload.evidence as unknown as Record<string, unknown>);
+  }
   return payload.evidence;
 }
 

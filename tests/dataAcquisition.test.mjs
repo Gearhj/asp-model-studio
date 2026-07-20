@@ -137,11 +137,15 @@ test("frontend source calls backend upload and avoids set_sample for backend-imp
 
 test("data acquisition uses canonical target setup and shared next navigation", async () => {
   const source = await readFile(new URL("../src/steps/Step01_DataAcquisition.tsx", import.meta.url), "utf8");
+  assert.match(source, /Upload File[\s\S]*Existing Dataset[\s\S]*SQL Database[\s\S]*Python Loader[\s\S]*Cloud Storage/);
   assert.match(source, /function TargetSetup/);
   assert.match(source, /<Select label="Target Column"/);
   assert.match(source, /Target profile/);
-  assert.match(source, /Target and sampling controls are managed in the setup panels above/);
-  assert.match(source, /nextPath="\/step01b"/);
+  assert.match(source, /Configured browser preview rows\. Preview settings do not alter the registered modeling population/);
+  assert.match(source, /sourceType === "existing" && existingDatasetPicker/);
+  assert.doesNotMatch(source, /<PreviewProfilingSettings/);
+  assert.match(source, /nextPath="\/step02"/);
+  assert.match(source, /BureauReviewPanel/);
   assert.doesNotMatch(source, /navigate\("\/step01b"\)/);
 });
 
@@ -163,6 +167,8 @@ test("backend routers use active selected-column dataset view", async () => {
   assert.match(datasetStore, /def get_active_df/);
   assert.match(metadataRouter, /DATASTORE\.get_active_df/);
   assert.match(edaRouter, /DATASTORE\.get_active_df/);
-  assert.match(splitRouter, /DATASTORE\.get_active_df/);
+  assert.match(splitRouter, /DATASTORE\.get_base_df/);
+  assert.match(splitRouter, /manifest_selected/);
+  assert.match(splitRouter, /payload\.selected_features or manifest_selected or DATASTORE\.get_selected_columns\(\)/);
   assert.match(trainerService, /DATASTORE\.get_active_df/);
 });

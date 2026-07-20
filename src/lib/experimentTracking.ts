@@ -207,7 +207,7 @@ export async function recordTrainingExperiments(input: CaptureInput) {
   const records = await Promise.all(
     input.ranked
       .filter((model) => input.selectedModelKeys.includes(model.key))
-      .map(async (model, index) => {
+      .map(async (model) => {
         const diagnostics = await captureDiagnostics(input.apiBase, model.key);
         const curveMetrics = diagnostics.curves?.metrics ?? {};
         const metrics: ExperimentMetricSet = {
@@ -246,8 +246,8 @@ export async function recordTrainingExperiments(input: CaptureInput) {
           calibrationStatus: input.calibrated ? "calibrated" : "not calibrated",
           interpretability: interpretabilityScore(model.key, model.name),
           runtimeMs: Math.round(input.runtimeMs / Math.max(1, input.selectedModelKeys.length)),
-          champion: index === 0,
-          notes: "",
+          champion: false,
+          notes: "Candidate model. Champion approval requires Evaluation and governance review.",
         } satisfies ExperimentRecord;
       })
   );

@@ -1,1365 +1,882 @@
-// src/steps/Step06_Train.tsx
-
-import React, { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Activity,
+  AlertTriangle,
+  BrainCircuit,
+  CheckCircle2,
+  ChevronDown,
+  CircleStop,
+  Clock3,
+  Cpu,
+  LoaderCircle,
+  Play,
+  RefreshCw,
+  ShieldCheck,
+  SlidersHorizontal,
+  Trash2,
+  XCircle,
+} from "lucide-react";
+import StepShell from "../components/StepShell";
+import {
+  AtlasAttentionPanel,
+  AtlasDataScopeBadge,
+  AtlasExecutionStatus,
+  AtlasStatusStrip,
+  AtlasWorkflowSection,
+  type AtlasWorkflowMetric,
+} from "../components/ui/AtlasWorkflow";
+import { createEvidence } from "../lib/evidenceGraph";
+import { me } from "../lib/auth";
+import { getFeatureManifest, type FeatureManifest } from "../lib/featureManifest";
+import { loadLocalDataset } from "../lib/localDataset";
 import { logDecision } from "../lib/decisionJournal";
 import { recordTrainingExperiments } from "../lib/experimentTracking";
-import { inferLocalProblemType, loadLocalDataset, localDatasetVersion } from "../lib/localDataset";
 import { useWorkflowStore } from "../state/useWorkflowStore";
-import StepPythonPanel from "../components/StepPythonPanel";
 
 const API_BASE =
-  import.meta.env.VITE_API_BASE?.replace(/\/$/, "") || "http://127.0.0.1:8001/api";
-const LOCAL_TRAINING_SUMMARY_KEY = "modeling-tool-training-summary";
-const LOCAL_TRAINING_CONFIG_KEY = "modeling-tool-training-config";
-
-type Status = "idle" | "pending" | "done" | "error";
-
-type AvailabilityResponse = {
-  ok: boolean;
-  availability?: Record<string, boolean>;
-  labels?: Record<string, string>;
-  error?: string;
-};
-
-type TrainResponse = {
-  ok?: boolean;
-  status?: string;
-  models?: string[];
-  rows?: number;
-  error?: string;
-  detail?: string;
-  summary?: {
-    problem_type?: ProblemType;
-    ranked?: RankedRow[];
-    failed?: { key: string; name?: string; error?: string }[];
-    n_features?: number;
-    excluded_target_features?: string[];
-  };
-  // backend may also persist a summary, but we read that via /train/last
-};
+  (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
+  "http://127.0.0.1:8001/api";
+const ACTIVE_JOB_KEY = "modeling-tool-active-training-job";
+const TRAINING_CONFIG_KEY = "modeling-tool-training-config";
 
 type ProblemType = "classification" | "regression";
+type JobState = "queued" | "preparing" | "running" | "complete" | "failed" | "cancelled" | "interrupted";
+type ModelState = JobState;
 
-// Shape of rows returned by /train/last -> summary.ranked
-type RankedRow = {
+type ModelDefinition = {
   key: string;
-  name: string;
-  task?: ProblemType | "anomaly";
-  auc?: number;
-  pr_auc?: number;
-  accuracy?: number;
-  f1?: number;
-  mae?: number;
-  mse?: number;
-  rmse?: number;
-  r2?: number;
-  adjusted_r2?: number;
-  best_params?: Record<string, unknown> | null;
-  best_score?: number | null;
-};
-
-// ---------------------------------------------------------------------------
-// Model catalogue
-// ---------------------------------------------------------------------------
-
-type ModelKey =
-  | "logreg"
-  | "dtree"
-  | "ebm"
-  | "rf"
-  | "xgb"
-  | "cat"
-  | "lgbm"
-  | "knn"
-  | "linsvm"
-  | "iso"
-  | "autoreg"
-  | "mlp"
-  | "linreg"
-  | "dt_reg"
-  | "rf_reg"
-  | "xgb_reg"
-  | "lgbm_reg"
-  | "cat_reg";
-
-type ModelDef = {
-  key: ModelKey;
   label: string;
-  tooltip?: string;
-  requiresBackendPackage?: boolean;
+  family: string;
+  task: ProblemType;
+  purpose: string;
+  bestUse: string;
+  interpretability: "High" | "Medium" | "Low";
+  scaling: string;
+  categorical: string;
+  probability: string;
+  kind?: "supervised" | "anomaly";
 };
 
-type GroupDef = {
-  id: string;
-  title: string;
-  task: ProblemType | "classification";
-  models: ModelDef[];
-};
-
-const MODEL_GROUPS: GroupDef[] = [
-  {
-    id: "transparent",
-    title: "Transparent Models",
-    task: "classification",
-    models: [
-      { key: "logreg", label: "Logistic Regression", tooltip: "Transparent baseline for classification. Use when interpretability, odds ratios, or regulatory review matter." },
-      { key: "dtree", label: "Decision Tree", tooltip: "Rule-based classifier. Use when simple split logic is valuable and modest performance tradeoffs are acceptable." },
-      { key: "ebm", label: "Explainable Boosting Machine (EBM)", tooltip: "Interpretable boosting model. Use when you need nonlinear performance with clear feature-shape explanations." },
-    ],
-  },
-  {
-    id: "ensemble",
-    title: "Ensemble Models (Black Box)",
-    task: "classification",
-    models: [
-      { key: "rf", label: "Random Forest", tooltip: "Robust ensemble baseline. Use when nonlinear feature interactions are likely and interpretability is secondary." },
-      { key: "xgb", label: "XGBoost", tooltip: "Gradient-boosted trees. Use for high-performing challenger models with careful validation and tuning." },
-      { key: "cat", label: "CatBoost", tooltip: "Boosting model with strong categorical handling. Use when categorical predictors are important." },
-      { key: "lgbm", label: "LightGBM", tooltip: "Fast gradient boosting. Use for larger tabular datasets and challenger benchmarking." },
-    ],
-  },
-  {
-    id: "distance",
-    title: "Distance Based",
-    task: "classification",
-    models: [
-      { key: "knn", label: "K-Nearest Neighbors", tooltip: "Distance-based classifier. Use when local similarity is meaningful and features are scaled." },
-      { key: "linsvm", label: "Linear SVM (Calibrated)", tooltip: "Margin-based linear classifier. Use with many standardized features and calibration for probabilities." },
-    ],
-  },
-  {
-    id: "anomaly",
-    title: "Anomaly Detection Models",
-    task: "classification",
-    models: [
-      { key: "iso", label: "Isolation Forest (Anomaly)", tooltip: "Unsupervised anomaly detector. Use as a supplemental rare-pattern screen, not as a standard supervised champion." },
-      { key: "autoreg", label: "Autoregression (Anomaly)", tooltip: "Time-aware anomaly baseline. Use when sequential behavior or monitoring drift is central." },
-    ],
-  },
-  {
-    id: "nn",
-    title: "Neural Network",
-    task: "classification",
-    models: [{ key: "mlp", label: "Neural Net (MLP)", tooltip: "Feed-forward neural network. Use as a black-box challenger when sample size and governance controls are sufficient." }],
-  },
-  {
-    id: "regression-transparent",
-    title: "Regression Models",
-    task: "regression",
-    models: [
-      { key: "linreg", label: "Linear Regression", tooltip: "Transparent regression baseline. Use when coefficients, residuals, and auditability matter." },
-      { key: "dt_reg", label: "Decision Tree Regressor", tooltip: "Interpretable nonlinear regression baseline. Use when simple rule paths explain continuous target movement." },
-      { key: "rf_reg", label: "Random Forest Regressor", tooltip: "Nonlinear ensemble regressor. Use when interactions are likely and prediction accuracy matters." },
-      { key: "xgb_reg", label: "XGBoost Regressor", tooltip: "Gradient-boosted regression model. Use as a high-performance challenger with tuning." },
-      { key: "lgbm_reg", label: "LightGBM Regressor", tooltip: "Fast boosted regression model. Use for larger tabular data and challenger benchmarking." },
-      { key: "cat_reg", label: "CatBoost Regressor", tooltip: "Boosted regression model with categorical support. Use when categorical features carry signal." },
-    ],
-  },
+const MODEL_DEFINITIONS: ModelDefinition[] = [
+  { key: "logreg", label: "Logistic Regression", family: "Transparent Models", task: "classification", purpose: "Auditable probability baseline with coefficient evidence.", bestUse: "Regulated classification and scorecard comparison", interpretability: "High", scaling: "Applied in pipeline", categorical: "Encoded", probability: "Native" },
+  { key: "ridge_clf", label: "Ridge Classifier", family: "Transparent Models", task: "classification", purpose: "Regularized linear classifier with stable coefficient direction and calibrated scores.", bestUse: "Auditable broad-feature baseline when predictors are correlated", interpretability: "High", scaling: "Required", categorical: "Encoded", probability: "Calibrated" },
+  { key: "dtree", label: "Decision Tree", family: "Transparent Models", task: "classification", purpose: "Compact nonlinear rules with reviewable decision paths.", bestUse: "Segment logic and transparent challenger analysis", interpretability: "High", scaling: "Not required", categorical: "Encoded", probability: "Native" },
+  { key: "ebm", label: "Explainable Boosting Machine", family: "Transparent Models", task: "classification", purpose: "Interpretable boosted effects for nonlinear relationships.", bestUse: "Performance with feature-shape explainability", interpretability: "High", scaling: "Applied in pipeline", categorical: "Encoded", probability: "Native" },
+  { key: "lda", label: "Linear Discriminant Analysis", family: "Transparent Models", task: "classification", purpose: "Linear class-separation benchmark with simple discriminant assumptions.", bestUse: "Fast transparent baseline when classes separate roughly linearly", interpretability: "High", scaling: "Required", categorical: "Encoded", probability: "Native" },
+  { key: "gnb", label: "Gaussian Naive Bayes", family: "Probabilistic Models", task: "classification", purpose: "Fast probabilistic benchmark under conditional-independence assumptions.", bestUse: "High-dimensional screening and transparent benchmark comparisons", interpretability: "High", scaling: "Applied in pipeline", categorical: "Encoded", probability: "Native" },
+  { key: "bernoulli_nb", label: "Bernoulli Naive Bayes", family: "Probabilistic Models", task: "classification", purpose: "Fast probability benchmark for binary or indicator-style features.", bestUse: "Sparse flags, binary indicators, and rapid screening", interpretability: "High", scaling: "Applied in pipeline", categorical: "Encoded", probability: "Native" },
+  { key: "qda", label: "Quadratic Discriminant Analysis", family: "Probabilistic Models", task: "classification", purpose: "Probabilistic classifier with class-specific covariance structure.", bestUse: "Small-to-midsize benchmarks where class shapes differ", interpretability: "Medium", scaling: "Required", categorical: "Encoded", probability: "Native" },
+  { key: "sgd_log", label: "SGD Logistic Classifier", family: "Transparent Models", task: "classification", purpose: "Elastic-net logistic learning designed for broad or high-volume feature matrices.", bestUse: "Fast scalable linear challenger with regularization", interpretability: "High", scaling: "Required", categorical: "Encoded", probability: "Native" },
+  { key: "histgb", label: "Histogram Gradient Boosting", family: "Tree and Ensemble Models", task: "classification", purpose: "Efficient native histogram boosting with nonlinear interaction capacity.", bestUse: "Strong scikit-learn tabular challenger without optional libraries", interpretability: "Medium", scaling: "Applied in pipeline", categorical: "Encoded", probability: "Native" },
+  { key: "rf", label: "Random Forest", family: "Tree and Ensemble Models", task: "classification", purpose: "Robust nonlinear benchmark across interactions and mixed signal.", bestUse: "Stable challenger and feature-importance benchmark", interpretability: "Medium", scaling: "Not required", categorical: "Encoded", probability: "Native" },
+  { key: "extra_trees", label: "Extra Trees", family: "Tree and Ensemble Models", task: "classification", purpose: "Highly randomized trees for a fast nonlinear variance-reduction benchmark.", bestUse: "Interaction-heavy tabular challenger and importance benchmark", interpretability: "Medium", scaling: "Not required", categorical: "Encoded", probability: "Native" },
+  { key: "xgb", label: "XGBoost", family: "Tree and Ensemble Models", task: "classification", purpose: "Regularized gradient boosting for high-performing tabular models.", bestUse: "Performance-focused challenger with careful tuning", interpretability: "Low", scaling: "Not required", categorical: "Encoded", probability: "Native" },
+  { key: "cat", label: "CatBoost", family: "Tree and Ensemble Models", task: "classification", purpose: "Boosted learner with strong nonlinear tabular performance.", bestUse: "Categorical-rich challenger benchmarking", interpretability: "Low", scaling: "Not required", categorical: "Encoded", probability: "Native" },
+  { key: "lgbm", label: "LightGBM", family: "Tree and Ensemble Models", task: "classification", purpose: "Efficient gradient boosting for larger modeling populations.", bestUse: "Fast challenger search on broad feature sets", interpretability: "Low", scaling: "Not required", categorical: "Encoded", probability: "Native" },
+  { key: "knn", label: "K-Nearest Neighbors", family: "Distance and Margin Models", task: "classification", purpose: "Local-neighborhood benchmark on standardized predictors.", bestUse: "Similarity-based benchmark on moderate data", interpretability: "Medium", scaling: "Required", categorical: "Encoded", probability: "Native" },
+  { key: "linsvm", label: "Linear SVM", family: "Distance and Margin Models", task: "classification", purpose: "Calibrated linear margin model for high-dimensional spaces.", bestUse: "Sparse or broad standardized feature sets", interpretability: "Medium", scaling: "Required", categorical: "Encoded", probability: "Calibrated" },
+  { key: "iso", label: "Isolation Forest", family: "Unsupervised Anomaly Detection", task: "classification", kind: "anomaly", purpose: "Fits without a target and isolates rare multivariate patterns.", bestUse: "Targetless anomaly screening and supplemental fraud evidence", interpretability: "Low", scaling: "Applied in pipeline", categorical: "Encoded", probability: "Anomaly score" },
+  { key: "autoreg", label: "Local Outlier Factor", family: "Unsupervised Anomaly Detection", task: "classification", kind: "anomaly", purpose: "Fits without a target and compares local density with neighboring observations.", bestUse: "Local-pattern anomaly screening on bounded samples", interpretability: "Medium", scaling: "Required", categorical: "Encoded", probability: "Anomaly score" },
+  { key: "oneclass_svm", label: "One-Class SVM", family: "Unsupervised Anomaly Detection", task: "classification", kind: "anomaly", purpose: "Fits a nonlinear boundary around normal observations without target labels.", bestUse: "Novelty detection on standardized moderate-size datasets", interpretability: "Low", scaling: "Required", categorical: "Encoded", probability: "Anomaly score" },
+  { key: "elliptic", label: "Robust Covariance", family: "Unsupervised Anomaly Detection", task: "classification", kind: "anomaly", purpose: "Fits a robust covariance envelope without a target variable.", bestUse: "Low-dimensional, approximately elliptical financial populations", interpretability: "Medium", scaling: "Required", categorical: "Encoded", probability: "Anomaly score" },
+  { key: "mlp", label: "Feedforward Neural Network (MLP)", family: "Neural Models", task: "classification", purpose: "Flexible nonlinear multilayer perceptron for sufficiently large tabular samples.", bestUse: "Black-box challenger with governance controls", interpretability: "Low", scaling: "Required", categorical: "Encoded", probability: "Native" },
+  { key: "fnn", label: "Deep Feedforward Network", family: "Neural Models", task: "classification", purpose: "Deeper multilayer perceptron for nonlinear tabular interactions.", bestUse: "Large tabular samples after transparent and ensemble baselines", interpretability: "Low", scaling: "Required", categorical: "Encoded", probability: "Native" },
+  { key: "tensorflow_dnn", label: "TensorFlow Deep Neural Network", family: "Neural Models", task: "classification", purpose: "TensorFlow-backed dense neural network for production-grade deep-learning experiments.", bestUse: "GPU-enabled research environments and large-scale benchmarks", interpretability: "Low", scaling: "Required", categorical: "Encoded", probability: "Native" },
+  { key: "cnn", label: "Convolutional Neural Network (CNN)", family: "Neural Models", task: "classification", purpose: "Convolutional architecture for image, signal, or spatial feature tensors.", bestUse: "Computer vision, spatial grids, or engineered tensor inputs", interpretability: "Low", scaling: "Required", categorical: "Encoded", probability: "Native" },
+  { key: "rnn_lstm", label: "Recurrent Neural Network (LSTM)", family: "Neural Models", task: "classification", purpose: "Sequential neural architecture for ordered events and temporal behavior.", bestUse: "Transaction sequences, behavioral streams, or time-ordered histories", interpretability: "Low", scaling: "Required", categorical: "Encoded", probability: "Native" },
+  { key: "linreg", label: "Linear Regression", family: "Transparent Models", task: "regression", purpose: "Auditable continuous-outcome baseline with coefficient evidence.", bestUse: "Regulated regression and benchmark interpretation", interpretability: "High", scaling: "Applied in pipeline", categorical: "Encoded", probability: "Not applicable" },
+  { key: "ridge_reg", label: "Ridge Regression", family: "Transparent Models", task: "regression", purpose: "L2-regularized linear model for correlated predictors and stable coefficients.", bestUse: "Regulated continuous outcomes with multicollinearity", interpretability: "High", scaling: "Required", categorical: "Encoded", probability: "Not applicable" },
+  { key: "elastic_reg", label: "Elastic Net Regression", family: "Transparent Models", task: "regression", purpose: "Combined L1/L2 regularization for sparse, correlated feature sets.", bestUse: "Feature-constrained continuous-outcome models", interpretability: "High", scaling: "Required", categorical: "Encoded", probability: "Not applicable" },
+  { key: "sgd_reg", label: "SGD Regressor", family: "Transparent Models", task: "regression", purpose: "Scalable iterative linear regression for high-volume datasets.", bestUse: "Fast large-population continuous-outcome benchmark", interpretability: "High", scaling: "Required", categorical: "Encoded", probability: "Not applicable" },
+  { key: "dt_reg", label: "Decision Tree Regressor", family: "Transparent Models", task: "regression", purpose: "Reviewable nonlinear rules for continuous outcomes.", bestUse: "Transparent nonlinear segment effects", interpretability: "High", scaling: "Not required", categorical: "Encoded", probability: "Not applicable" },
+  { key: "rf_reg", label: "Random Forest Regressor", family: "Tree and Ensemble Models", task: "regression", purpose: "Robust nonlinear benchmark for continuous targets.", bestUse: "Stable ensemble challenger", interpretability: "Medium", scaling: "Not required", categorical: "Encoded", probability: "Not applicable" },
+  { key: "extra_trees_reg", label: "Extra Trees Regressor", family: "Tree and Ensemble Models", task: "regression", purpose: "Randomized tree ensemble for nonlinear continuous outcomes.", bestUse: "Fast interaction-rich regression challenger", interpretability: "Medium", scaling: "Not required", categorical: "Encoded", probability: "Not applicable" },
+  { key: "histgb_reg", label: "Histogram Gradient Boosting Regressor", family: "Tree and Ensemble Models", task: "regression", purpose: "Efficient histogram boosting for nonlinear continuous outcomes.", bestUse: "Strong native tabular regression benchmark", interpretability: "Medium", scaling: "Applied in pipeline", categorical: "Encoded", probability: "Not applicable" },
+  { key: "ebm_reg", label: "Explainable Boosting Regressor", family: "Transparent Models", task: "regression", purpose: "Interpretable additive boosting for nonlinear continuous-outcome relationships.", bestUse: "Shape-based explainable regression when the optional EBM library is installed", interpretability: "High", scaling: "Applied in pipeline", categorical: "Encoded", probability: "Not applicable" },
+  { key: "xgb_reg", label: "XGBoost Regressor", family: "Tree and Ensemble Models", task: "regression", purpose: "Regularized boosted regression for tabular data.", bestUse: "Performance-focused regression challenger", interpretability: "Low", scaling: "Not required", categorical: "Encoded", probability: "Not applicable" },
+  { key: "lgbm_reg", label: "LightGBM Regressor", family: "Tree and Ensemble Models", task: "regression", purpose: "Efficient boosted regression for larger populations.", bestUse: "Fast regression challenger search", interpretability: "Low", scaling: "Not required", categorical: "Encoded", probability: "Not applicable" },
+  { key: "cat_reg", label: "CatBoost Regressor", family: "Tree and Ensemble Models", task: "regression", purpose: "Boosted regression for mixed tabular predictors.", bestUse: "Categorical-rich regression challenger", interpretability: "Low", scaling: "Not required", categorical: "Encoded", probability: "Not applicable" },
 ];
 
-const DEFAULT_SELECTION: Partial<Record<ModelKey, boolean>> = {
-  logreg: true,
-  rf: true,
-  xgb: false,
-  cat: false,
-  lgbm: false,
+const MODEL_SUITE_PRESETS = [
+  {
+    key: "audit_core",
+    title: "Audit-Ready Core",
+    description: "Transparent, fast, governance-friendly baselines for regulated review.",
+    models: {
+      classification: ["logreg", "ridge_clf", "dtree", "sgd_log", "gnb", "bernoulli_nb"],
+      regression: ["linreg", "ridge_reg", "elastic_reg", "sgd_reg", "dt_reg", "ebm_reg"],
+    },
+  },
+  {
+    key: "balanced_bench",
+    title: "Balanced Challenger Bench",
+    description: "A practical benchmark mixing explainable baselines with strong tabular challengers.",
+    models: {
+      classification: ["logreg", "ridge_clf", "dtree", "sgd_log", "gnb", "bernoulli_nb", "rf", "extra_trees", "xgb", "lgbm", "linsvm"],
+      regression: ["linreg", "ridge_reg", "elastic_reg", "dt_reg", "rf_reg", "extra_trees_reg", "histgb_reg", "xgb_reg", "lgbm_reg"],
+    },
+  },
+  {
+    key: "research_bench",
+    title: "Full Research Bench",
+    description: "The full eligible library for model discovery and challenger documentation.",
+    models: {
+      classification: MODEL_DEFINITIONS.filter((model) => model.task === "classification").map((model) => model.key),
+      regression: MODEL_DEFINITIONS.filter((model) => model.task === "regression").map((model) => model.key),
+    },
+  },
+] as const;
+
+type RankedResult = {
+  key: string;
+  name: string;
+  task?: ProblemType;
+  auc?: number | null;
+  pr_auc?: number | null;
+  precision?: number | null;
+  recall?: number | null;
+  f1?: number | null;
+  ks?: number | null;
+  gini?: number | null;
+  rmse?: number | null;
+  mae?: number | null;
+  mse?: number | null;
+  r2?: number | null;
+  adjusted_r2?: number | null;
+  best_params?: Record<string, unknown> | null;
+  search_runtime_ms?: number;
+  calibration_applied?: boolean;
+  calibration_method?: string | null;
+  runtime_ms?: number;
+  candidate_champion?: boolean;
+  candidate_status?: string;
+  kind?: "supervised" | "anomaly";
+  champion_eligible?: boolean;
+  target_usage?: string;
 };
 
-const DEFAULT_REGRESSION_SELECTION: Partial<Record<ModelKey, boolean>> = {
-  linreg: true,
-  dt_reg: true,
-  rf_reg: true,
-  xgb_reg: false,
-  lgbm_reg: false,
-  cat_reg: false,
+type ModelCompatibility = { compatible: boolean; reason: string };
+type Preflight = {
+  ok: boolean;
+  ready: boolean;
+  blocking_errors: string[];
+  warnings: string[];
+  dataset_id: string;
+  dataset_version: string;
+  target: string;
+  event_value?: unknown;
+  non_event_value?: unknown;
+  problem_type: ProblemType;
+  train_rows: number;
+  test_rows: number;
+  train_events?: number | null;
+  test_events?: number | null;
+  train_event_rate?: number | null;
+  test_event_rate?: number | null;
+  selected_features: string[];
+  selected_original_features: string[];
+  engineered_features: string[];
+  missing_features: string[];
+  feature_manifest_version: string;
+  split_id: string;
+  split_status: string;
+  split_configuration: Record<string, any>;
+  balancing_configuration: string;
+  optional_library_status: Record<string, { available: boolean; reason: string; label: string }>;
+  model_compatibility: Record<string, ModelCompatibility>;
+  calibration_compatibility: Record<string, ModelCompatibility>;
+  cross_validation_compatibility: { compatible: boolean; requested_folds: number; effective_folds: number; minimum_class_count?: number | null };
+  estimated_memory_mb: number;
+  recommended_parallelism: number;
+  backend_status: string;
+  worker_status: string;
+  duration_ms: number;
 };
 
-type TrainingUiState = {
-  problem_type?: ProblemType | null;
-  selected_map?: Partial<Record<ModelKey, boolean>>;
-  grid_search?: boolean;
-  search_depth?: "quick" | "balanced" | "thorough";
-  calibration?: boolean;
-  max_parallel_models?: number;
-  use_pca?: boolean;
+type ModelExecution = {
+  status: ModelState;
+  state: ModelState;
+  queued_at?: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  runtime_ms?: number;
+  current_stage?: string;
+  message?: string;
+  warning?: string | null;
+  user_error?: string | null;
+  technical_error?: string | null;
+  traceback_reference?: string | null;
+  best_parameters?: Record<string, unknown> | null;
+  search_summary?: Record<string, unknown> | null;
+  result?: RankedResult;
 };
 
-const gridSearchGuidance: Record<"quick" | "balanced" | "thorough", string> = {
-  quick: "Definition: small parameter search. Use for fast baseline comparison or when runtime matters. Example: first challenger benchmark.",
-  balanced: "Definition: moderate parameter search. Use when selecting a serious champion and runtime is acceptable.",
-  thorough: "Definition: deeper parameter search. Use when final performance matters and compute time is justified by governance impact.",
+type TrainingJob = {
+  ok?: boolean;
+  job_id: string;
+  overall_status: JobState;
+  created_at: string;
+  started_at?: string | null;
+  completed_at?: string | null;
+  requested_models: string[];
+  completed_count: number;
+  finished_count?: number;
+  total_count: number;
+  current_models: string[];
+  queued_models?: string[];
+  completed_models?: string[];
+  per_model_status: Record<string, ModelExecution>;
+  per_model_history?: Record<string, Array<{ state: ModelState; at: string; stage: string; message?: string }>>;
+  partial_results?: RankedResult[];
+  partial_ranked_results: RankedResult[];
+  failed_models: Array<{ key: string; name: string; error: string; technical_error?: string; traceback_reference?: string }>;
+  user_message?: string;
+  message: string;
+  developer_details?: Array<Record<string, unknown>>;
+  runtime_ms: number;
+  cancellation_requested: boolean;
+  max_parallel_honored: number;
+  input_feature_names?: string[];
+  trained_feature_names: string[];
+  engineered_feature_names?: string[];
+  feature_manifest_version?: string;
+  split_id?: string;
+  dataset_version?: string;
+  n_features: number;
+  summary?: { ranked?: RankedResult[]; trained_feature_names?: string[]; runtime_ms?: number } | null;
 };
 
-const ALL_MODEL_KEYS = MODEL_GROUPS.flatMap((group) => group.models.map((model) => model.key));
-const OPTIONAL_MODEL_KEYS = new Set<ModelKey>(["ebm", "xgb", "cat", "lgbm", "linsvm", "iso", "autoreg", "mlp", "xgb_reg", "lgbm_reg", "cat_reg"]);
-const TARGET_DERIVED_ALIASES = ["bad_flag", "riskperformance"];
+type Availability = { ok: boolean; availability: Record<string, boolean>; labels: Record<string, string> };
+type SplitStatus = { ok: boolean; status: "not_created" | "current" | "stale"; split_id?: string; config?: Record<string, any> };
 
-function normalizeFeatureName(value?: string | null) {
-  return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
-}
-
-function isTargetDerivedFeature(column: string, target?: string | null) {
-  const name = normalizeFeatureName(column);
-  const aliases = Array.from(new Set([normalizeFeatureName(target), ...TARGET_DERIVED_ALIASES].filter(Boolean)));
-  return aliases.some((alias) => name === alias || name.startsWith(`${alias}_`));
-}
-
-function trainingFeatureColumns(dataset: ReturnType<typeof loadLocalDataset>) {
-  if (!dataset) return { selected: [] as string[], excludedTargetDerived: [] as string[] };
-  const source = dataset.selected_columns?.length ? dataset.selected_columns : dataset.headers.filter((header) => header !== dataset.target);
-  const selected: string[] = [];
-  const excludedTargetDerived: string[] = [];
-  source.forEach((column) => {
-    if (isTargetDerivedFeature(column, dataset.target)) excludedTargetDerived.push(column);
-    else selected.push(column);
+async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    credentials: "include",
+    ...init,
+    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
   });
-  return { selected, excludedTargetDerived };
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || payload?.ok === false) throw new Error(payload?.detail ?? payload?.error ?? `ATLAS request failed with HTTP ${response.status}.`);
+  return payload as T;
 }
 
-function readTrainingUiState(): TrainingUiState {
-  if (typeof localStorage === "undefined") return {};
+function readConfig() {
   try {
-    const parsed = JSON.parse(localStorage.getItem(LOCAL_TRAINING_CONFIG_KEY) || "{}") as TrainingUiState;
-    return parsed && typeof parsed === "object" ? parsed : {};
+    return JSON.parse(localStorage.getItem(TRAINING_CONFIG_KEY) || "{}") as Record<string, any>;
   } catch {
     return {};
   }
 }
 
-function normalizeSelectedMap(map: unknown): Partial<Record<ModelKey, boolean>> | null {
-  if (!map || typeof map !== "object") return null;
-  const normalized: Partial<Record<ModelKey, boolean>> = {};
-  ALL_MODEL_KEYS.forEach((key) => {
-    if (Object.prototype.hasOwnProperty.call(map, key)) {
-      normalized[key] = Boolean((map as Record<string, unknown>)[key]);
-    }
-  });
-  return Object.keys(normalized).length ? normalized : null;
+function hasSavedSelectionForProblem(config: Record<string, any>, problemType: ProblemType) {
+  const hasCurrentSelection = Array.isArray(config.selectedModels);
+  const hasLegacySelection = !!config.selected_map && typeof config.selected_map === "object";
+  return (hasCurrentSelection || hasLegacySelection) && (!config.problem_type || config.problem_type === problemType);
 }
 
-function buildDefaultSelected(problemType: ProblemType | null) {
-  const init = Object.fromEntries(ALL_MODEL_KEYS.map((key) => [key, false])) as Record<ModelKey, boolean>;
-  const defaults = problemType === "regression" ? DEFAULT_REGRESSION_SELECTION : DEFAULT_SELECTION;
-  (Object.keys(defaults) as ModelKey[]).forEach((key) => {
-    init[key] = !!defaults[key];
-  });
-  return init;
-}
-
-function buildInitialSelected(problemType: ProblemType | null) {
-  const saved = readTrainingUiState();
-  const savedMap = normalizeSelectedMap(saved.selected_map);
-  const init = buildDefaultSelected(problemType);
-  if (savedMap && (!saved.problem_type || !problemType || saved.problem_type === problemType)) {
-    ALL_MODEL_KEYS.forEach((key) => {
-      if (Object.prototype.hasOwnProperty.call(savedMap, key)) {
-        init[key] = !!savedMap[key];
-      }
-    });
+function buildInitialSelected(config: Record<string, any>, problemType: ProblemType) {
+  const allowed = new Set(MODEL_DEFINITIONS.filter((model) => model.task === problemType).map((model) => model.key));
+  if (hasSavedSelectionForProblem(config, problemType)) {
+    const saved = Array.isArray(config.selectedModels)
+      ? config.selectedModels.map(String)
+      : Object.entries(config.selected_map as Record<string, unknown>).filter(([, selected]) => selected === true).map(([key]) => key);
+    return [...new Set(saved)].filter((key) => allowed.has(key));
   }
-  return init;
+  return problemType === "regression" ? ["linreg", "dt_reg", "rf_reg"] : ["logreg", "dtree", "rf"];
 }
 
-function coercePositiveInt(value: unknown, fallback: number) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) && numeric > 0 ? Math.floor(numeric) : fallback;
-}
-
-function inferTarget(headers: string[], current?: string | null) {
-  if (current && headers.includes(current)) return current;
-  return (
-    headers.find((h) => /^(fraud|label|target|class|y|bad|default|outcome|response|event)$/i.test(h)) ??
-    headers.find((h) => /target/i.test(h)) ??
-    headers[headers.length - 1] ??
-    ""
-  );
-}
-
-function inferProblemTypeFromLocalDataset(): ProblemType | null {
-  const localDataset = loadLocalDataset();
-  const explicitType = inferLocalProblemType(localDataset);
-  if (explicitType) return explicitType;
-  if (!localDataset?.rows.length) return null;
-  const target = inferTarget(localDataset.headers, localDataset.target);
-  if (!target) return null;
-
-  const values = localDataset.rows
-    .map((row) => row[target])
-    .filter((value) => value !== null && value !== undefined && String(value).trim() !== "");
-  if (!values.length) return null;
-
-  const numericValues = values.map((value) => Number(value));
-  const numericCount = numericValues.filter((value) => Number.isFinite(value)).length;
-  const uniqueCount = new Set(values.map((value) => String(value))).size;
-  if (numericCount / values.length >= 0.9 && uniqueCount > 10) return "regression";
-  return "classification";
-}
-
-// ---------------------------------------------------------------------------
-// Small UI helpers
-// ---------------------------------------------------------------------------
-
-function StatusPill({ status }: { status: Status }) {
-  if (status === "pending") {
-    return (
-      <span className="ml-2 inline-flex items-center rounded-full border border-indigo-200 bg-indigo-50 px-2 py-0.5 text-xs font-medium text-indigo-700">
-        Pending…
-      </span>
-    );
-  }
-  if (status === "done") {
-    return (
-      <span className="ml-2 inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-        Done
-      </span>
-    );
-  }
-  if (status === "error") {
-    return (
-      <span className="ml-2 inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-700">
-        Error
-      </span>
-    );
-  }
-  return null;
-}
-
-function Toggle({
-  checked,
-  disabled,
-  onChange,
-}: {
-  checked: boolean;
-  disabled?: boolean;
-  onChange: () => void;
-}) {
-  const base =
-    "relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-150 ease-in-out";
-  const enabled = checked ? "bg-indigo-600" : "bg-gray-200";
-  const knob =
-    "pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-150 ease-in-out" +
-    (checked ? " translate-x-4" : " translate-x-0");
-
-  return (
-    <button
-      type="button"
-      onClick={disabled ? undefined : onChange}
-      className={`${base} ${enabled} ${disabled ? "opacity-40 cursor-not-allowed" : ""}`}
-    >
-      <span className="sr-only">Toggle</span>
-      <span className={knob} />
-    </button>
-  );
-}
-
-function formatParams(params?: Record<string, unknown> | null) {
-  if (!params || !Object.keys(params).length) return "Default parameters, not tuned.";
-  return Object.entries(params)
-    .map(([key, value]) => `${key}: ${String(value)}`)
-    .join(", ");
-}
-
-function formatBestParams(row: RankedRow, useGridSearch: boolean) {
-  if (row.best_params && Object.keys(row.best_params).length) return formatParams(row.best_params);
-  if (row.task === "anomaly") return "No tunable parameters used.";
-  return useGridSearch ? "Tuning failed: no best parameter set returned." : "Default parameters, not tuned.";
-}
-
-function modelGuidance(model: ModelDef) {
-  const label = displayModelName(model.label);
-  if (/Linear Regression/i.test(label)) return { bestFor: "Transparent continuous-target baseline", strengths: "Coefficients, residual diagnostics, fast training", cautions: "Assumes linear additive effects and stable residuals" };
-  if (/Decision Tree/i.test(label)) return { bestFor: "Interpretable nonlinear rules", strengths: "Easy split logic and segment explanation", cautions: "Can overfit and underperform ensembles" };
-  if (/Random Forest/i.test(label)) return { bestFor: "Robust nonlinear challenger", strengths: "Handles interactions and nonlinear signal", cautions: "Less transparent; monitor feature importance stability" };
-  if (/XGBoost|LightGBM|CatBoost/i.test(label)) return { bestFor: "High-performance challenger", strengths: "Strong tabular predictive performance", cautions: "Requires tuning, validation, and governance explanation" };
-  if (/K-Nearest/i.test(label)) return { bestFor: "Local similarity benchmark", strengths: "Intuitive neighborhood behavior", cautions: "Sensitive to scaling and high-dimensional noise" };
-  if (/Logistic Regression/i.test(label)) return { bestFor: "Transparent binary classification baseline", strengths: "Stable, explainable, calibration-friendly", cautions: "May miss nonlinear interactions" };
-  return { bestFor: "Candidate model comparison", strengths: "Adds challenger evidence", cautions: "Confirm validation metrics and governance fit" };
-}
-
-function formatMetric(value?: number, digits = 4) {
-  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "-";
-}
-
-function displayModelName(name: string) {
-  return name.replace(/\s*\(k\s*=\s*\d+\)/i, "");
-}
-
-function saveLocalTrainingSummary(summary: { ranked?: RankedRow[]; problem_type?: ProblemType } | undefined) {
-  if (!summary?.ranked?.length) return;
+function readActiveJobId() {
   try {
-    sessionStorage.setItem(
-      LOCAL_TRAINING_SUMMARY_KEY,
-      JSON.stringify({
-        problem_type: summary.problem_type,
-        ranked: summary.ranked.slice(0, 25),
-        saved_at: new Date().toISOString(),
-      })
-    );
+    const value = JSON.parse(localStorage.getItem(ACTIVE_JOB_KEY) || "null");
+    return typeof value?.jobId === "string" ? value.jobId : "";
   } catch {
-    // Evaluation can still read from the backend if session storage is unavailable.
+    return "";
   }
 }
 
-// ---------------------------------------------------------------------------
-// Main component
-// ---------------------------------------------------------------------------
+function metricValue(row: RankedResult, metric: string) {
+  const value = row[metric as keyof RankedResult];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
 
-export default function Step06_Train() {
+function formatMetric(value: number | null | undefined, digits = 4) {
+  return typeof value === "number" && Number.isFinite(value) ? value.toFixed(digits) : "N/A";
+}
+
+function formatPercent(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(3)}%` : "N/A";
+}
+
+function cleanModelLabel(label: string | null | undefined) {
+  if (!label) return "";
+  return label
+    .replace(/\s*\(k=7\)\s*/gi, "")
+    .replace(/^Neural Net \(MLP\)$/i, "Feedforward Neural Network (MLP)")
+    .trim();
+}
+
+function modelLabel(key: string, labels: Record<string, string>) {
+  return cleanModelLabel(labels[key] ?? MODEL_DEFINITIONS.find((item) => item.key === key)?.label ?? key) || key;
+}
+
+export default function Step07ModelTraining() {
+  const dataset = loadLocalDataset();
   const projectId = useWorkflowStore((state) => state.projectId);
-  const initialProblemType = inferProblemTypeFromLocalDataset();
-  const savedTrainingUiState = readTrainingUiState();
+  const projectName = useWorkflowStore((state) => state.projectName);
+  const getNextStepPath = useWorkflowStore((state) => state.getNextStepPath);
+  const persisted = readConfig();
+  const [manifest, setManifest] = useState<FeatureManifest | null>(null);
+  const [splitStatus, setSplitStatus] = useState<SplitStatus | null>(null);
+  const [availability, setAvailability] = useState<Record<string, boolean>>({});
+  const [labels, setLabels] = useState<Record<string, string>>({});
+  const [problemType, setProblemType] = useState<ProblemType>(dataset?.problem_type ?? "classification");
+  const [selectedModels, setSelectedModels] = useState<string[]>(() => buildInitialSelected(persisted, dataset?.problem_type ?? "classification"));
+  const [kFolds, setKFolds] = useState(Number(persisted.kFolds ?? 5));
+  const [maxParallel, setMaxParallel] = useState(Number(persisted.maxParallel ?? 2));
+  const [calibrate, setCalibrate] = useState(Boolean(persisted.calibrate ?? false));
+  const [gridSearch, setGridSearch] = useState(Boolean(persisted.gridSearch ?? false));
+  const [gridSearchLevel, setGridSearchLevel] = useState<"quick" | "balanced" | "thorough">(persisted.gridSearchLevel ?? "quick");
+  const [primaryMetric, setPrimaryMetric] = useState(persisted.primaryMetric ?? (dataset?.problem_type === "regression" ? "rmse" : "pr_auc"));
+  const [preflight, setPreflight] = useState<Preflight | null>(null);
+  const [preflightSignature, setPreflightSignature] = useState("");
+  const [preflightLoading, setPreflightLoading] = useState(false);
+  const [job, setJob] = useState<TrainingJob | null>(null);
+  const [activeJobId, setActiveJobId] = useState(readActiveJobId());
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const [sortMetric, setSortMetric] = useState(primaryMetric);
+  const [requestUser, setRequestUser] = useState("");
+  const finalizedJobs = useRef(new Set<string>());
 
-  const [kFolds, setKFolds] = useState<number>(5);
-  const [maxParallel, setMaxParallel] = useState<number>(() => coercePositiveInt(savedTrainingUiState.max_parallel_models, 2));
-  const [calibrate, setCalibrate] = useState<boolean>(() => savedTrainingUiState.calibration ?? true);
-  const [usePCA, setUsePCA] = useState<boolean>(() => savedTrainingUiState.use_pca ?? false);
-  const [useGridSearch, setUseGridSearch] = useState<boolean>(() => savedTrainingUiState.grid_search ?? false);
-  const [gridSearchLevel, setGridSearchLevel] = useState<"quick" | "balanced" | "thorough">(
-    () => savedTrainingUiState.search_depth ?? "quick"
-  );
-
-  const [selected, setSelected] = useState<Record<ModelKey, boolean>>(() => {
-    return buildInitialSelected(initialProblemType);
-  });
-
-  const [status, setStatus] = useState<Record<ModelKey, Status>>(
-    () =>
-      Object.fromEntries(ALL_MODEL_KEYS.map((key) => [key, "idle"])) as Record<ModelKey, Status>
-  );
-
-  const [availability, setAvailability] = useState<Partial<Record<ModelKey, boolean>>>({});
-  const [availabilityLoaded, setAvailabilityLoaded] = useState(false);
-  const [labels, setLabels] = useState<Partial<Record<ModelKey, string>>>({});
-  const [isTraining, setIsTraining] = useState(false);
-  const [message, setMessage] = useState<string | null>(
-    "Models are trained on the full development dataset. Classification runs show AUC/PR-AUC/F1; regression runs show RMSE/MAE/R-squared. Detailed diagnostics appear in Step 8: Evaluation."
-  );
-
-  // NEW: summary of last training run (metrics per model)
-  const [summary, setSummary] = useState<RankedRow[] | null>(null);
-  const [problemType, setProblemType] = useState<ProblemType | null>(() => initialProblemType);
-
-  const visibleGroups = useMemo(
-    () => MODEL_GROUPS.filter((group) => !problemType || group.task === problemType),
-    [problemType]
-  );
-  const visibleModelKeys = useMemo(
-    () => new Set(visibleGroups.flatMap((group) => group.models.map((model) => model.key))),
-    [visibleGroups]
-  );
-
-  const selectedModels = useMemo(
-    () => (Object.keys(selected) as ModelKey[]).filter((k) => selected[k] && visibleModelKeys.has(k)),
-    [selected, visibleModelKeys]
-  );
-  const selectableModelKeys = useMemo(() => {
-    const keys = new Set<ModelKey>();
-    visibleGroups.forEach((group) => {
-      group.models.forEach((model) => {
-        keys.add(model.key);
-      });
-    });
-    return keys;
-  }, [visibleGroups]);
-  const isRegressionSummary =
-    problemType === "regression" ||
-    (!problemType &&
-      !!summary?.some(
-        (row) =>
-          row.task === "regression" ||
-          typeof row.rmse === "number" ||
-          typeof row.mae === "number" ||
-          typeof row.r2 === "number"
-      ));
-
-  useEffect(() => {
-    try {
-      const modelLabels = Object.fromEntries(
-        selectedModels.map((key) => {
-          const def = MODEL_GROUPS.flatMap((group) => group.models).find((model) => model.key === key);
-          return [key, displayModelName(labels[key] ?? def?.label ?? key)];
+  const availableDefinitions = useMemo(() => MODEL_DEFINITIONS.filter((model) => model.task === problemType), [problemType]);
+  const selectedDefinitions = useMemo(() => availableDefinitions.filter((model) => selectedModels.includes(model.key)), [availableDefinitions, selectedModels]);
+  const compatibleModelKeys = useMemo(() => {
+    return new Set(
+      availableDefinitions
+        .filter((model) => {
+          if (availability[model.key] === false) return false;
+          const compatibility = preflight?.model_compatibility?.[model.key];
+          if (compatibility && !compatibility.compatible) return false;
+          return true;
         })
-      );
-      localStorage.setItem(
-        LOCAL_TRAINING_CONFIG_KEY,
-        JSON.stringify({
-          problem_type: problemType,
-          selected_map: selected,
-          selected_models: selectedModels,
-          selected_model_labels: modelLabels,
-          grid_search: useGridSearch,
-          search_depth: gridSearchLevel,
-          calibration: calibrate,
-          max_parallel_models: maxParallel,
-          use_pca: usePCA,
-          training_summary: summary?.slice(0, 25) ?? [],
-          updated_at: new Date().toISOString(),
-        })
-      );
-    } catch {
-      // Training configuration remains visible in the UI if browser persistence is unavailable.
-    }
-  }, [problemType, selected, selectedModels, labels, useGridSearch, gridSearchLevel, calibrate, maxParallel, usePCA, summary]);
-
-  const toggleModelSelection = (model: ModelDef) => {
-    logDecision({
-      workflowStep: "Model Training",
-      actionType: "model_selected",
-      subject: model.label,
-      previousValue: selected[model.key] ? "selected" : "not selected",
-      newValue: !selected[model.key] ? "selected" : "not selected",
-    });
-    setSelected((prev) => ({ ...prev, [model.key]: !prev[model.key] }));
-  };
-
-  // -------------------------------------------------------------------------
-  // Helper: fetch last training summary from backend
-  // -------------------------------------------------------------------------
-
-  async function fetchLastSummary() {
-    const localProblemType = inferProblemTypeFromLocalDataset();
-    try {
-      const res = await fetch(`${API_BASE}/train/last`);
-      if (!res.ok) {
-        setSummary([]);
-        return;
-      }
-      const j = await res.json();
-      const ranked = j?.summary?.ranked;
-      if (Array.isArray(ranked)) {
-        setSummary(ranked as RankedRow[]);
-        const nextProblemType =
-          j?.summary?.problem_type ??
-          (ranked.some((row: RankedRow) => row.task === "regression" || row.rmse !== undefined)
-            ? "regression"
-            : ranked.length
-              ? "classification"
-              : null);
-        if (
-          localProblemType &&
-          nextProblemType &&
-          localProblemType !== nextProblemType
-        ) {
-          setSummary([]);
-          setProblemType(localProblemType);
-          setMessage(
-            `Loaded a ${localProblemType} dataset. Prior ${nextProblemType} training results were cleared from this view; train the selected ${localProblemType} models to refresh the leaderboard.`
-          );
-          return;
-        }
-        if (nextProblemType === "classification" || nextProblemType === "regression") {
-          setProblemType(nextProblemType);
-        }
-      } else {
-        setSummary([]);
-      }
-    } catch {
-      // don't blow up UI if summary is missing
-      setSummary([]);
-    }
-  }
-
-  // Load any existing last-run summary on mount (optional)
-  useEffect(() => {
-    fetchLastSummary();
-  }, []);
-
-  useEffect(() => {
-    const refreshProblemType = () => {
-      const nextProblemType = inferProblemTypeFromLocalDataset();
-      if (!nextProblemType) return;
-      setProblemType(nextProblemType);
-      setSummary([]);
-      setMessage(`Loaded a ${nextProblemType} dataset. Train the selected ${nextProblemType} models to refresh the leaderboard.`);
-    };
-    window.addEventListener("atlas-dataset-updated", refreshProblemType);
-    window.addEventListener("storage", refreshProblemType);
-    refreshProblemType();
-    return () => {
-      window.removeEventListener("atlas-dataset-updated", refreshProblemType);
-      window.removeEventListener("storage", refreshProblemType);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!problemType) return;
-
-    const defaults =
-      problemType === "regression" ? DEFAULT_REGRESSION_SELECTION : DEFAULT_SELECTION;
-    const saved = readTrainingUiState();
-    const savedMap = normalizeSelectedMap(saved.selected_map);
-    const hasSavedSelectionForProblem = !!savedMap && (!saved.problem_type || saved.problem_type === problemType);
-    const allowedKeys = new Set(
-      MODEL_GROUPS.filter((group) => group.task === problemType).flatMap((group) =>
-        group.models.map((model) => model.key)
-      )
+        .map((model) => model.key)
     );
+  }, [availableDefinitions, availability, preflight?.model_compatibility]);
+  const selectedFeatures = useMemo(() => (manifest?.features ?? []).filter((feature) => feature.selected && feature.eligibility_status === "eligible"), [manifest]);
+  const engineeredFeatures = useMemo(() => selectedFeatures.filter((feature) => feature.origin !== "original"), [selectedFeatures]);
 
-    setSelected((prev) => {
-      if (hasSavedSelectionForProblem) {
-        const next = { ...buildDefaultSelected(problemType) };
-        (Object.keys(next) as ModelKey[]).forEach((key) => {
-          next[key] = allowedKeys.has(key) && !!savedMap?.[key];
-        });
-        return next;
-      }
-      const hasAllowedSelection = (Object.keys(prev) as ModelKey[]).some(
-        (key) => allowedKeys.has(key) && prev[key]
-      );
-      const next = { ...prev };
-      (Object.keys(next) as ModelKey[]).forEach((key) => {
-        if (!allowedKeys.has(key)) next[key] = false;
-      });
-      if (!hasAllowedSelection) {
-        (Object.keys(defaults) as ModelKey[]).forEach((key) => {
-          next[key] = !!defaults[key];
-        });
-      }
-      return next;
-    });
-  }, [problemType]);
-
-  // -------------------------------------------------------------------------
-  // Load model availability / labels
-  // -------------------------------------------------------------------------
+  const requestPayload = useMemo(() => ({
+    models: selectedModels,
+    k_folds: kFolds,
+    max_parallel: maxParallel,
+    calibrate: problemType === "classification" && calibrate,
+    use_pca: false,
+    grid_search: gridSearch,
+    grid_search_level: gridSearchLevel,
+    model_params: {},
+    project_id: projectId,
+    dataset_id: dataset?.dataset_library?.datasetId ?? dataset?.data_access?.datasetId ?? "",
+    dataset_version: manifest?.dataset_version ?? dataset?.dataset_version ?? "",
+    target: dataset?.target ?? "",
+    problem_type: problemType,
+    event_value: dataset?.event_value,
+    non_event_value: dataset?.non_event_value,
+    feature_manifest_version: manifest?.manifest_version ?? "",
+    split_id: splitStatus?.split_id ?? "",
+    selected_original_features: selectedFeatures.filter((feature) => feature.origin === "original").map((feature) => feature.feature_name),
+    selected_engineered_features: engineeredFeatures.map((feature) => feature.feature_name),
+    preprocessing_pipeline: manifest?.pipeline_steps ?? [],
+    random_seed: Number(splitStatus?.config?.random_seed ?? 42),
+    primary_metric: primaryMetric,
+    user: requestUser,
+    requested_at: new Date().toISOString(),
+  }), [calibrate, dataset?.data_access?.datasetId, dataset?.dataset_library?.datasetId, dataset?.dataset_version, dataset?.event_value, dataset?.non_event_value, dataset?.target, engineeredFeatures, gridSearch, gridSearchLevel, kFolds, manifest?.dataset_version, manifest?.manifest_version, manifest?.pipeline_steps, maxParallel, primaryMetric, problemType, projectId, requestUser, selectedFeatures, selectedModels, splitStatus?.config?.random_seed, splitStatus?.split_id]);
+  const currentSignature = useMemo(() => JSON.stringify({ ...requestPayload, requested_at: "" }), [requestPayload]);
+  const preflightCurrent = !!preflight && preflightSignature === currentSignature;
 
   useEffect(() => {
-    let alive = true;
+    const selected_map = Object.fromEntries(MODEL_DEFINITIONS.map((model) => [model.key, selectedModels.includes(model.key)]));
+    localStorage.setItem(TRAINING_CONFIG_KEY, JSON.stringify({ problem_type: problemType, selectedModels, selected_models: selectedModels, selected_map, kFolds, maxParallel, calibrate, gridSearch, gridSearchLevel, primaryMetric }));
+  }, [calibrate, gridSearch, gridSearchLevel, kFolds, maxParallel, primaryMetric, problemType, selectedModels]);
 
-    fetch(`${API_BASE}/models/availability`)
-      .then((res) => res.json() as Promise<AvailabilityResponse>)
-      .then((j) => {
-        if (!alive) return;
-        if (!j.ok) {
-          setMessage(j.error ?? "Could not load model availability from the backend.");
+  useEffect(() => {
+    let active = true;
+    void me().then((response) => {
+      if (active) setRequestUser(response.user.email || response.user.displayName || response.user.userId);
+    }).catch(() => undefined);
+    Promise.all([
+      getFeatureManifest(),
+      requestJson<SplitStatus>("/balancing_split/status"),
+      requestJson<Availability>("/models/availability"),
+      requestJson<{ ok: boolean; summary?: { ranked?: RankedResult[] } | null }>("/train/last").catch(() => ({ ok: true, summary: null })),
+    ]).then(([nextManifest, nextSplit, modelAvailability, last]) => {
+      if (!active) return;
+      setManifest(nextManifest);
+      setSplitStatus(nextSplit);
+      setAvailability(modelAvailability.availability ?? {});
+      setLabels(modelAvailability.labels ?? {});
+      if (last.summary?.ranked?.length) {
+        setJob((current) => current ?? ({ job_id: "last-completed-run", overall_status: "complete", created_at: "", requested_models: [], completed_count: last.summary!.ranked!.length, total_count: last.summary!.ranked!.length, current_models: [], per_model_status: {}, partial_ranked_results: last.summary!.ranked!, failed_models: [], message: "Last completed training run", runtime_ms: 0, cancellation_requested: false, max_parallel_honored: 1, trained_feature_names: [], n_features: nextManifest.features.filter((row) => row.selected).length, summary: last.summary }));
+      }
+      if (dataset?.problem_type) setProblemType(dataset.problem_type);
+    }).catch((cause) => active && setError(cause instanceof Error ? cause.message : "Model Training could not load its governed contract."))
+      .finally(() => active && setLoading(false));
+    if (!activeJobId) {
+      requestJson<{ ok: boolean; jobs: TrainingJob[] }>("/model/train/jobs/active").then((response) => {
+        const latest = response.jobs?.[0];
+        if (active && latest) {
+          setActiveJobId(latest.job_id);
+          setJob(latest);
+          localStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify({ jobId: latest.job_id, projectId, datasetVersion: latest.dataset_version }));
+        }
+      }).catch(() => undefined);
+    }
+    return () => { active = false; };
+  }, [activeJobId, dataset?.problem_type, projectId]);
+
+  async function runPreflight() {
+    setPreflightLoading(true);
+    setError("");
+    try {
+      const result = await requestJson<Preflight>("/model/train/preflight", { method: "POST", body: JSON.stringify(requestPayload) });
+      setPreflight(result);
+      setPreflightSignature(currentSignature);
+      if (result.recommended_parallelism < maxParallel) setMaxParallel(result.recommended_parallelism);
+      setMessage(result.ready ? "Training preflight passed. The selected models are ready for governed execution." : "Training preflight found blocking issues.");
+      return result;
+    } catch (cause) {
+      const text = cause instanceof Error ? cause.message : "Training preflight failed.";
+      setError(text);
+      throw new Error(text);
+    } finally {
+      setPreflightLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!manifest || !splitStatus || !selectedModels.length || activeJobId) return;
+    void runPreflight().catch(() => undefined);
+    // The signature already captures all training inputs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [manifest?.manifest_version, splitStatus?.split_id]);
+
+  useEffect(() => {
+    if (!activeJobId) return;
+    let cancelled = false;
+    let timeout = 0;
+    async function poll() {
+      try {
+        const current = await requestJson<TrainingJob>(`/model/train/jobs/${encodeURIComponent(activeJobId)}`);
+        if (cancelled) return;
+        setJob(current);
+        setError("");
+        if (["complete", "failed", "cancelled", "interrupted"].includes(current.overall_status)) {
+          localStorage.removeItem(ACTIVE_JOB_KEY);
+          setActiveJobId("");
+          if (current.overall_status === "complete" && current.partial_ranked_results.length && !finalizedJobs.current.has(current.job_id)) {
+            finalizedJobs.current.add(current.job_id);
+            const trackingRows = current.partial_ranked_results.map((row) => ({
+              ...row,
+              task: row.task,
+              auc: row.auc ?? undefined,
+              pr_auc: row.pr_auc ?? undefined,
+              f1: row.f1 ?? undefined,
+              rmse: row.rmse ?? undefined,
+              mae: row.mae ?? undefined,
+              mse: row.mse ?? undefined,
+              r2: row.r2 ?? undefined,
+              adjusted_r2: row.adjusted_r2 ?? undefined,
+            }));
+            void recordTrainingExperiments({ apiBase: API_BASE, ranked: trackingRows, selectedModelKeys: current.requested_models, trainingSettings: requestPayload, runtimeMs: current.runtime_ms, calibrated: calibrate }).catch(() => undefined);
+          }
           return;
         }
-
-        const avail = (j.availability ?? {}) as Record<ModelKey, boolean>;
-        const lbls = (j.labels ?? {}) as Record<ModelKey, string>;
-        setAvailability(avail);
-        setAvailabilityLoaded(true);
-        setLabels(lbls);
-        setMessage("Backend reports algorithm availability successfully. Training will fit real models.");
-      })
-      .catch((err) => {
-        if (!alive) return;
-        setAvailabilityLoaded(false);
-        setMessage(
-          "Backend model availability is unavailable. Core model toggles remain selectable, but training requires the FastAPI backend on port 8001."
-        );
-      });
-
-    return () => {
-      alive = false;
-    };
-  }, []);
-
-  // -------------------------------------------------------------------------
-  // Training
-  // -------------------------------------------------------------------------
-
-  async function ensureBackendDataset() {
-    const localDataset = loadLocalDataset();
-    if (!localDataset?.rows.length) return false;
-    const target = inferTarget(localDataset.headers, localDataset.target);
-    const { selected, excludedTargetDerived } = trainingFeatureColumns(localDataset);
-
-    try {
-      const columnsRes = await fetch(`${API_BASE}/columns`);
-      if (columnsRes.ok) {
-        const columnsJson = await columnsRes.json();
-        if (Array.isArray(columnsJson?.columns) && columnsJson.columns.length > 0 && columnsJson?.target) {
-          const syncTargetRes = await fetch(`${API_BASE}/data/set_target`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ target, selected_columns: selected }),
-          });
-          if (syncTargetRes.ok) {
-            if (excludedTargetDerived.length) {
-              setMessage(`Training feature gate excluded target-derived fields: ${excludedTargetDerived.join(", ")}.`);
-            }
-            return true;
-          }
-        }
+        timeout = window.setTimeout(poll, 750);
+      } catch (cause) {
+        if (cancelled) return;
+        setError(`Connection to training job ${activeJobId} was lost. ${cause instanceof Error ? cause.message : "Retry required."}`);
+        setJob((current) => current ? { ...current, overall_status: "interrupted", message: "Connection lost. Retry required." } : current);
+        localStorage.removeItem(ACTIVE_JOB_KEY);
+        setActiveJobId("");
       }
-    } catch {
-      // Fall through and try the browser cache.
     }
-
-    setMessage("Backend dataset was empty or stale. Reloading the browser-selected preview sample before training. For full rare-event training, return to Data Acquisition and re-send the full uploaded file.");
-    const syncRes = await fetch(`${API_BASE}/data/set_sample`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...localDataset, target, selected_columns: selected }),
-    });
-
-    if (!syncRes.ok) return false;
-    const syncJson = await syncRes.json().catch(() => null);
-    return Boolean(syncJson?.ok);
-  }
+    void poll();
+    return () => { cancelled = true; window.clearTimeout(timeout); };
+  }, [activeJobId, calibrate, requestPayload]);
 
   async function startTraining() {
-    setMessage(null);
-    const startedAt = performance.now();
-    const currentDataset = loadLocalDataset();
-    const trainingProblemType = problemType ?? inferLocalProblemType(currentDataset);
-
-    const models = selectedModels;
-    if (!models.length) {
-      setMessage("Please select at least one model to train.");
+    if (!selectedModels.length) {
+      setError("Select at least one model before training.");
       return;
     }
-
-    // mark as pending
-    setStatus((prev) => {
-      const next = { ...prev };
-      models.forEach((m) => {
-        next[m] = "pending";
-      });
-      return next;
-    });
-
-    setIsTraining(true);
-
+    setError("");
     try {
-      const datasetReady = await ensureBackendDataset();
-      if (!datasetReady) {
-        setMessage("No dataset is loaded. Return to Data Acquisition and load a dataset first.");
-        setSummary([]);
-        setStatus((prev) => {
-          const next = { ...prev };
-          models.forEach((m) => {
-            next[m] = "error";
-          });
-          return next;
-        });
-        return;
-      }
-
-      const trainSelected = () =>
-        fetch(`${API_BASE}/model/train`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            models,
-            k_folds: kFolds,
-            max_parallel: maxParallel,
-            calibrate,
-            use_pca: usePCA,
-            grid_search: useGridSearch,
-            grid_search_level: gridSearchLevel,
-            project_id: projectId,
-            dataset_version: localDatasetVersion(currentDataset),
-            target: currentDataset?.target ?? "",
-            problem_type: trainingProblemType ?? "",
-          }),
-        });
-
-      let res = await trainSelected();
-
-      if (!res.ok) {
-        const firstError = await res.clone().json().catch(() => null);
-        const detail = String(firstError?.detail ?? firstError?.error ?? "");
-        if (/No dataset is loaded/i.test(detail)) {
-          const reloaded = await ensureBackendDataset();
-          if (reloaded) {
-            res = await trainSelected();
-          }
-        }
-      }
-
-      let j: TrainResponse = {};
-      try {
-        j = (await res.json()) as TrainResponse;
-      } catch {
-        // response without JSON body
-      }
-
-      const ok = res.ok && (j.ok ?? true);
-
-      if (!ok) {
-        const errMsg =
-          j.error ??
-          j.detail ??
-          (res.status === 400
-            ? "Training request rejected by backend."
-            : `Training failed (HTTP ${res.status}).`);
-        setMessage(errMsg);
-        setSummary([]);
-        setStatus((prev) => {
-          const next = { ...prev };
-          models.forEach((m) => {
-            next[m] = "error";
-          });
-          return next;
-        });
-        return;
-      }
-
-      const trainedKeys = new Set((j.summary?.ranked ?? []).map((row) => row.key));
-      const failedRows = j.summary?.failed ?? [];
-      const failedKeys = new Set(failedRows.map((row) => row.key));
-
-      setStatus((prev) => {
-        const next = { ...prev };
-        (Object.keys(next) as ModelKey[]).forEach((key) => {
-          if (trainedKeys.has(key)) {
-            next[key] = "done";
-          } else if (failedKeys.has(key)) {
-            next[key] = "error";
-          } else if (models.includes(key)) {
-            next[key] = "idle";
-          }
-        });
-        return next;
-      });
-
-      const responseProblemType = j.summary?.problem_type;
-      if (responseProblemType === "classification" || responseProblemType === "regression") {
-        setProblemType(responseProblemType);
-      }
-      setSummary((j.summary?.ranked ?? []) as RankedRow[]);
-      saveLocalTrainingSummary(j.summary);
-
-      const rowsInfo = j.rows ? ` on ${j.rows.toLocaleString()} rows` : "";
-      const featureInfo = typeof j.summary?.n_features === "number" ? ` using ${j.summary.n_features.toLocaleString()} features` : "";
-      const targetExclusionInfo = j.summary?.excluded_target_features?.length
-        ? ` Target-derived fields excluded: ${j.summary.excluded_target_features.join(", ")}.`
-        : "";
-      const statusInfo = j.status ? ` (status: ${j.status})` : "";
-      setMessage(
-        failedRows.length
-          ? `Training completed${rowsInfo}${featureInfo}${statusInfo}. ${trainedKeys.size} model(s) fit successfully; ${failedRows.length} model(s) failed. Metrics below are calculated from fitted backend models.${targetExclusionInfo}`
-          : `Training completed${rowsInfo}${featureInfo}${statusInfo}. Metrics below are calculated from fitted backend models.${targetExclusionInfo}`
-      );
-
-      const fittedRanked = (j.summary?.ranked ?? []) as RankedRow[];
-      if (fittedRanked.length) {
-        void recordTrainingExperiments({
-            apiBase: API_BASE,
-            ranked: fittedRanked,
-            selectedModelKeys: models,
-            runtimeMs: performance.now() - startedAt,
-            calibrated: calibrate,
-            trainingSettings: {
-              k_folds: kFolds,
-              max_parallel: maxParallel,
-              calibrate,
-              use_pca: usePCA,
-              grid_search: useGridSearch,
-              grid_search_level: gridSearchLevel,
-            },
-          })
-          .then((records) => {
-          setMessage((current) => `${current ?? ""} Created ${records.length} experiment record(s).`);
-          })
-          .catch((err) => {
-          console.error("Experiment capture failed:", err);
-          setMessage((current) => `${current ?? ""} Experiment capture failed; training results are still available.`);
-          });
-      }
-
-      // Keep the just-completed backend response as the authoritative table state.
-      // A stale /train/last response can briefly clear the summary and disable Evaluation.
-    } catch (err: any) {
-      setMessage(
-        `Training backend is unavailable. Start the FastAPI backend on port 8001 and try again. Details: ${String(
-          err?.message ?? err
-        )}`
-      );
-      setSummary([]);
-      setStatus((prev) => {
-        const next = { ...prev };
-        models.forEach((m) => {
-          next[m] = "error";
-        });
-        return next;
-      });
-    } finally {
-      setIsTraining(false);
+      const check = preflightCurrent ? preflight : await runPreflight();
+      if (!check?.ready) throw new Error("Resolve every blocking preflight issue before creating a training job.");
+      const created = await requestJson<TrainingJob>("/model/train/jobs", { method: "POST", body: JSON.stringify(requestPayload) });
+      const queued: TrainingJob = created.per_model_status ? created : {
+        ...created,
+        overall_status: "queued",
+        completed_count: 0,
+        total_count: selectedModels.length,
+        current_models: [],
+        requested_models: selectedModels,
+        per_model_status: Object.fromEntries(selectedModels.map((key) => [key, { status: "queued", state: "queued", current_stage: "Waiting for local worker" }])),
+        partial_ranked_results: [],
+        failed_models: [],
+        message: "Training job queued.",
+        runtime_ms: 0,
+        cancellation_requested: false,
+        max_parallel_honored: check.recommended_parallelism,
+        trained_feature_names: check.selected_features,
+        n_features: check.selected_features.length,
+      };
+      setJob(queued);
+      setActiveJobId(created.job_id);
+      localStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify({ jobId: created.job_id, projectId, datasetVersion: check.dataset_version }));
+      logDecision({ workflowStep: "Model Training", actionType: "workflow_setting_changed", subject: "Training job created", previousValue: null, newValue: { jobId: created.job_id, models: selectedModels, splitId: check.split_id, featureManifestVersion: check.feature_manifest_version }, systemRecommendation: "Train only after the governed preflight passes.", followStatus: "followed" });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "ATLAS could not create the training job.");
     }
   }
 
-  // -------------------------------------------------------------------------
-  // Render
-  // -------------------------------------------------------------------------
-  const readinessDataset = loadLocalDataset();
-  const readinessFeatureGate = trainingFeatureColumns(readinessDataset);
-  const readinessFeatureCount = readinessFeatureGate.selected.length || null;
-  const optimizationMetric = problemType === "regression" ? "RMSE primary, MAE/R-squared secondary" : "AUC/PR-AUC/F1 with lift and calibration";
+  async function cancelTraining() {
+    if (!activeJobId) return;
+    try {
+      const current = await requestJson<TrainingJob>(`/model/train/jobs/${encodeURIComponent(activeJobId)}/cancel`, { method: "POST" });
+      setJob(current);
+      if (["complete", "failed", "cancelled", "interrupted"].includes(current.overall_status)) {
+        localStorage.removeItem(ACTIVE_JOB_KEY);
+        setActiveJobId("");
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "ATLAS could not cancel the training job.");
+    }
+  }
+
+  function toggleModel(key: string) {
+    setSelectedModels((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
+    setPreflight(null);
+    logDecision({ workflowStep: "Model Training", actionType: "model_selected", subject: modelLabel(key, labels), previousValue: selectedModels, newValue: selectedModels.includes(key) ? selectedModels.filter((item) => item !== key) : [...selectedModels, key] });
+  }
+
+  function applyModelSuite(keys: readonly string[]) {
+    const allowed = new Set(availableDefinitions.map((model) => model.key));
+    const next = keys.filter((key) => allowed.has(key) && compatibleModelKeys.has(key));
+    setSelectedModels([...new Set(next)]);
+    setPreflight(null);
+  }
+
+  const results = useMemo(() => {
+    const rows = [...(job?.partial_ranked_results ?? job?.summary?.ranked ?? [])];
+    const ascending = ["rmse", "mae", "mse"].includes(sortMetric);
+    return rows.sort((left, right) => {
+      const a = metricValue(left, sortMetric);
+      const b = metricValue(right, sortMetric);
+      if (a === null) return 1;
+      if (b === null) return -1;
+      return ascending ? a - b : b - a;
+    });
+  }, [job?.partial_ranked_results, job?.summary?.ranked, sortMetric]);
+  const championEligibleResults = results.filter((row) => row.champion_eligible !== false && row.kind !== "anomaly");
+  const finishedCount = job?.finished_count ?? Object.values(job?.per_model_status ?? {}).filter((state) => ["complete", "failed", "cancelled", "interrupted"].includes(state.status)).length;
+  const progress = job?.total_count ? Math.round((finishedCount / job.total_count) * 100) : 0;
+  const jobActive = !!job && ["queued", "preparing", "running"].includes(job.overall_status);
+  const readiness = preflightCurrent && preflight?.ready;
+  const trainActionBlocked = jobActive || preflightLoading || !selectedModels.length || !manifest || !splitStatus || loading;
+  const trainActionLabel = jobActive
+    ? "Training in progress"
+    : preflightLoading
+      ? "Validating selection"
+      : readiness
+        ? "Train Selected Models"
+        : "Validate & Train Selected Models";
+
+  const heroMetrics: AtlasWorkflowMetric[] = [
+    { label: "Project", value: projectName },
+    { label: "Target", value: dataset?.target ?? "Not confirmed", tone: dataset?.target ? "neutral" : "warning" },
+    { label: "Problem Type", value: problemType },
+    { label: "Governed Features", value: selectedFeatures.length.toLocaleString() },
+    { label: "Engineered", value: engineeredFeatures.length.toLocaleString(), tone: engineeredFeatures.length ? "info" : "neutral" },
+    { label: "Validation", value: splitStatus?.status === "current" ? "Current holdout" : "Action required", tone: splitStatus?.status === "current" ? "success" : "warning" },
+    { label: "Selected Models", value: selectedModels.length.toLocaleString() },
+    { label: "Training Job", value: job?.overall_status ?? "Not started", tone: job?.overall_status === "complete" ? "success" : job?.overall_status === "failed" ? "danger" : jobActive ? "info" : "neutral" },
+  ];
+
+  async function completeStep() {
+    if (!championEligibleResults.length || job?.overall_status !== "complete") return false;
+    await createEvidence({
+      projectId,
+      projectName,
+      evidenceType: "model_training",
+      title: "Governed Model Training Run",
+      summary: `${results.length} model(s) completed under job ${job.job_id}. The leading result is a candidate and has not been automatically approved as champion.`,
+      sourcePage: "Model Training",
+      sourceRoute: "/step07",
+      datasetIds: preflight?.dataset_id ? [preflight.dataset_id] : preflight?.dataset_version ? [preflight.dataset_version] : [],
+      modelIds: championEligibleResults.map((row) => row.key),
+      documentIds: [],
+      notebookIds: [],
+      supportsSections: ["Candidate Models", "Model Selection Rationale", "Development Test and OOT Data"],
+      tags: ["predictive_modeling", "training_job", "candidate_models"],
+      status: job.failed_models.length ? "needs_review" : "ready",
+      importance: "high",
+      lineage: { datasetId: preflight?.dataset_id, datasetVersion: preflight?.dataset_version, manifestVersion: preflight?.feature_manifest_version, splitId: preflight?.split_id, jobId: job.job_id },
+      payload: { job, configuration: requestPayload },
+    });
+    return true;
+  }
+
+  if (loading) {
+    return <StepShell title="Step 7: Model Training" subtitle="Train governed transparent and challenger models." variant="modeling" heroMetrics={heroMetrics} nextDisabled><div className="atlas-workflow-section flex min-h-64 items-center justify-center"><LoaderCircle size={32} className="animate-spin text-blue-500" /></div></StepShell>;
+  }
 
   return (
-    <div className="w-full space-y-6">
-      <div className="hidden">
-        <div className="font-semibold">
-          Front-end: <span className="font-mono">Step06_Train.tsx</span>{" "}
-          <span className="mx-1">·</span> Backend: <span className="font-mono">/api/model/train</span>{" "}
-          on port <span className="font-mono">8001</span>
-        </div>
-        <div className="mt-1">
-          This step submits real training jobs to the FastAPI backend and persists metrics for Step
-          8: Evaluation.
-        </div>
-      </div>
+    <StepShell
+      title="Step 7: Model Training"
+      subtitle="Train transparent and challenger models using the governed feature set, approved validation design, reproducible tuning configuration, and financial-services evaluation metrics."
+      variant="modeling"
+      eyebrow="Predictive Modeling Workflow"
+      heroMetrics={heroMetrics}
+      nextPath={getNextStepPath("step07")}
+      nextDisabled={job?.overall_status !== "complete" || !championEligibleResults.length}
+      nextDisabledReason="Complete at least one supervised, champion-eligible model before continuing to Evaluation."
+      nextLabel="Confirm Model Training and Continue"
+      nextStatusLine="Training evidence and the candidate leaderboard will move to Evaluation. No champion is approved automatically."
+      onNext={completeStep}
+    >
+      <div className="space-y-4">
+        {error ? <AtlasAttentionPanel title="Model Training requires attention" tone="danger">{error}</AtlasAttentionPanel> : null}
+        {message ? <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-950">{message}</div> : null}
 
-      <div className="rounded-2xl border border-emerald-200 bg-gradient-to-r from-slate-950 via-slate-900 to-emerald-950 p-5 text-white shadow-sm">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-emerald-200">Credit Risk Studio Workflow</div>
-            <h1 className="mt-1 text-2xl font-semibold text-white">Step 7: Model Training</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-200">
-              Train selected champion and challenger models with the approved feature set, split policy, tuning depth, and calibration controls.
-            </p>
-          </div>
-          <div className="grid min-w-[280px] gap-2 sm:grid-cols-2">
-            <HeaderMetric label="Dataset" value={readinessDataset?.rows?.length ? "Loaded" : "Backend"} />
-            <HeaderMetric label="Features" value={readinessFeatureCount !== null ? readinessFeatureCount.toString() : "Backend"} />
-            <HeaderMetric label="Models" value={selectedModels.length.toString()} />
-            <HeaderMetric label="Status" value={selectedModels.length ? "Ready" : "Select models"} tone={selectedModels.length ? "green" : "amber"} />
-          </div>
-        </div>
-      </div>
+        <AtlasWorkflowSection
+          eyebrow="Governed execution gate"
+          title="Training Readiness"
+          description="ATLAS validates the full split, exact feature contract, target classes, runtime dependencies, calibration, and cross-validation before a job can be created."
+          tone={preflightCurrent ? preflight?.ready ? "success" : "warning" : "info"}
+          action={<div className="flex items-center gap-2"><AtlasDataScopeBadge scope="full_dataset" rows={preflight?.train_rows && preflight?.test_rows ? preflight.train_rows + preflight.test_rows : dataset?.registered_row_count} /><button type="button" className="atlas-secondary-button" disabled={preflightLoading || jobActive || !selectedModels.length} onClick={() => void runPreflight()}>{preflightLoading ? <LoaderCircle size={15} className="animate-spin" /> : <RefreshCw size={15} />} Run Preflight</button></div>}
+        >
+          <AtlasStatusStrip items={[
+            { label: "Dataset", state: preflight?.dataset_version ? "complete" : "blocked", detail: preflight?.dataset_version ?? "Unavailable" },
+            { label: "Target", state: preflight?.target ? "complete" : "blocked", detail: preflight?.target ?? "Missing" },
+            { label: "Feature contract", state: preflight?.missing_features?.length ? "blocked" : preflight?.selected_features?.length ? "complete" : "pending", detail: preflight ? `${preflight.selected_features.length} exact predictors` : "Not checked" },
+            { label: "Validation split", state: preflight?.split_status === "current" ? "complete" : "blocked", detail: preflight?.split_id ?? "Not current" },
+            { label: "Backend", state: preflight?.backend_status === "ready" ? "complete" : "blocked", detail: preflight?.backend_status ?? "Not checked" },
+            { label: "Workers", state: preflight?.worker_status === "ready" ? "complete" : "pending", detail: preflight ? `${preflight.recommended_parallelism} recommended` : "Not checked" },
+          ]} />
+          {preflight ? <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+            <Metric label="Train rows" value={preflight.train_rows.toLocaleString()} />
+            <Metric label="Holdout rows" value={preflight.test_rows.toLocaleString()} />
+            <Metric label="Train events" value={preflight.train_events?.toLocaleString() ?? "N/A"} />
+            <Metric label="Holdout events" value={preflight.test_events?.toLocaleString() ?? "N/A"} />
+            <Metric label="Train event rate" value={formatPercent(preflight.train_event_rate)} />
+            <Metric label="Estimated memory" value={`${preflight.estimated_memory_mb.toLocaleString()} MB`} />
+            <Metric label="Preflight" value={`${preflight.duration_ms.toLocaleString()} ms`} />
+          </div> : null}
+          {preflight?.blocking_errors.length ? <div className="mt-4 space-y-2">{preflight.blocking_errors.map((item) => <div key={item} className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900"><XCircle size={16} className="mt-0.5 shrink-0" />{item}</div>)}</div> : null}
+          {preflight?.warnings.length ? <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3"><summary className="cursor-pointer text-sm font-semibold text-amber-950">{preflight.warnings.length} preflight warning(s)</summary><ul className="mt-2 space-y-1 text-sm text-amber-900">{preflight.warnings.map((item) => <li key={item}>{item}</li>)}</ul></details> : null}
+        </AtlasWorkflowSection>
 
-      {/* Split configuration */}
-      <div className="rounded-2xl border border-blue-200 bg-blue-50/70 p-4 shadow-sm">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="text-sm font-semibold text-gray-800">
-              Data split configuration from Balancing &amp; Split
-            </div>
-            <div className="mt-1 text-xs text-gray-500">
-              These settings control backend training behavior. Split and fold choices are managed in the prior step.
-            </div>
-          </div>
-          <div className="text-xs rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-indigo-700">
-            {problemType === "regression" ? "Regression" : "Classification"}
-          </div>
-        </div>
-
-        <div className="mt-5 rounded-xl border border-blue-100 bg-white p-4 shadow-sm">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Validation Setup</div>
-          <p className="mt-1 text-xs text-slate-600">
-            Split strategy, folds, and holdout policy are inherited from Balance &amp; Split. Regression optimizes RMSE/MAE/R-squared; classification optimizes ranking and event-detection metrics.
-          </p>
-        </div>
-
-        <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Training Readiness</div>
-              <p className="mt-1 text-xs leading-5 text-emerald-900">
-                This summarizes the request ATLAS will send to the training backend.
-              </p>
-            </div>
-            <span className={`rounded-full px-3 py-1 text-xs font-semibold ${selectedModels.length ? "border border-emerald-200 bg-emerald-50 text-emerald-700" : "border border-amber-200 bg-amber-50 text-amber-700"}`}>
-              {selectedModels.length ? "Ready to train" : "Select models"}
-            </span>
-          </div>
-          <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-            <ReadinessCard label="Dataset" value={readinessDataset?.rows?.length ? "Loaded" : "Backend/local"} />
-            <ReadinessCard label="Target" value={readinessDataset?.target ?? "Backend target"} />
-            <ReadinessCard label="Features" value={readinessFeatureCount !== null ? readinessFeatureCount.toString() : "Backend"} />
-            <ReadinessCard label="Models" value={selectedModels.length.toString()} />
-            <ReadinessCard label="Optimization" value={optimizationMetric} />
-            <ReadinessCard label="Grid Search" value={useGridSearch ? gridSearchLevel : "Off"} />
-          </div>
-          {readinessFeatureGate.excludedTargetDerived.length > 0 && (
-            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
-              Target-derived fields excluded before training: {readinessFeatureGate.excludedTargetDerived.join(", ")}.
-            </div>
-          )}
-        </div>
-
-        <div className="mt-4 text-xs font-semibold uppercase tracking-wide text-slate-500">Configure Selected Models</div>
-        <div className="mt-4 grid gap-4 md:grid-cols-3">
-          <div className="space-y-1">
-            <label className="block text-xs font-medium text-gray-700">Max parallel model jobs</label>
-            <input
-              type="number"
-              min={1}
-              max={16}
-              value={maxParallel}
-              onChange={(e) => {
-                const next = Math.max(1, Math.min(16, Number(e.target.value) || 1));
-                logDecision({
-                  workflowStep: "Model Training",
-                  actionType: "workflow_setting_changed",
-                  subject: "Max parallel models",
-                  previousValue: maxParallel,
-                  newValue: next,
-                });
-                setMaxParallel(next);
-              }}
-              className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-            <p className="text-[11px] text-gray-500">
-              1 safest/slowest. 2 recommended for laptops. 4 is faster but needs CPU/RAM. 6+ is for powerful workstations or servers.
-            </p>
-          </div>
-
-          {problemType !== "regression" && (
-            <div className="flex items-center space-x-2">
-              <input
-                id="calibrate"
-                type="checkbox"
-                checked={calibrate}
-                onChange={(e) => {
-                  logDecision({
-                    workflowStep: "Model Training",
-                    actionType: "workflow_setting_changed",
-                    subject: "Calibrate probabilities",
-                    previousValue: calibrate,
-                    newValue: e.target.checked,
-                  });
-                  setCalibrate(e.target.checked);
-                }}
-                className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-              />
-              <label htmlFor="calibrate" className="text-xs font-medium text-gray-700">
-                Calibrate probabilities
-              </label>
-            </div>
-          )}
-
-          <div className="flex items-center space-x-2">
-            <input
-              id="usePCA"
-              type="checkbox"
-              checked={usePCA}
-              onChange={(e) => {
-                logDecision({
-                  workflowStep: "Model Training",
-                  actionType: "workflow_setting_changed",
-                  subject: "Use PCA",
-                  previousValue: usePCA,
-                  newValue: e.target.checked,
-                });
-                setUsePCA(e.target.checked);
-              }}
-              className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-            />
-            <label htmlFor="usePCA" className="text-xs font-medium text-gray-700">
-              Apply PCA preprocessing
-            </label>
-            <span className="text-[11px] leading-4 text-gray-500">
-              Default is no PCA. Use mainly for distance-based or highly collinear numeric feature spaces; avoid when coefficient-level interpretability is required.
-            </span>
-          </div>
-        </div>
-
-        <div className="mt-5 text-xs font-semibold uppercase tracking-wide text-slate-500">Advanced Options</div>
-        <div className="mt-4 grid gap-4 border-t border-gray-100 pt-4 md:grid-cols-[minmax(220px,1fr)_220px_minmax(0,2fr)]">
-          <div className="flex items-center space-x-2">
-            <input
-              id="useGridSearch"
-              type="checkbox"
-              checked={useGridSearch}
-              onChange={(e) => {
-                logDecision({
-                  workflowStep: "Model Training",
-                  actionType: "hyperparameter_search_changed",
-                  subject: "Grid search enabled",
-                  previousValue: useGridSearch,
-                  newValue: e.target.checked,
-                });
-                setUseGridSearch(e.target.checked);
-              }}
-              className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-            />
-            <label htmlFor="useGridSearch" className="text-xs font-medium text-gray-700">
-              Use grid search for hyperparameters
-            </label>
-          </div>
-          <label className="grid gap-1 text-xs font-medium text-gray-700">
-            Search depth
-            <select
-              value={gridSearchLevel}
-              disabled={!useGridSearch}
-              title={useGridSearch ? "Choose how many candidate hyperparameter combinations to test." : "Enable grid search to choose a search depth."}
-              onChange={(e) => {
-                logDecision({
-                  workflowStep: "Model Training",
-                  actionType: "hyperparameter_search_changed",
-                  subject: "Grid search depth",
-                  previousValue: gridSearchLevel,
-                  newValue: e.target.value,
-                });
-                setGridSearchLevel(e.target.value as "quick" | "balanced" | "thorough");
-              }}
-              className="rounded-md border border-gray-300 px-2 py-1.5 text-sm disabled:bg-gray-100 disabled:text-gray-400"
-            >
-              <option value="quick">Quick</option>
-              <option value="balanced">Balanced</option>
-              <option value="thorough">Thorough</option>
-            </select>
-            <span className="text-[11px] font-normal leading-4 text-slate-500">{gridSearchGuidance[gridSearchLevel]}</span>
-          </label>
-          <p className="self-end text-[11px] text-gray-500">
-            {useGridSearch
-              ? "Grid search tests a capped set of model-specific parameter combinations using the task metric, then fits the best estimator for evaluation and interpretation."
-              : "Grid search is off. Models train with governed defaults; enable it when challenger performance or hyperparameter sensitivity matters."}
-          </p>
-        </div>
-
-        {problemType === "regression" && (
-          <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950">
-            <div className="font-semibold">Regression optimization metric</div>
-            <p className="mt-1 text-xs leading-5">
-              ATLAS ranks regression models by RMSE first, with MAE, R-squared, adjusted R-squared, residual bias, and prediction stability used as secondary evidence.
-            </p>
-          </div>
-        )}
-
-        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Training Queue</div>
-              <div className="mt-1 text-sm font-medium text-slate-900">
-                {selectedModels.length ? `${selectedModels.length} model${selectedModels.length === 1 ? "" : "s"} selected` : "No models selected"}
+        <AtlasWorkflowSection eyebrow="Model and tuning configuration" title="Execution Policy" description="Set ranking objective, tuning depth, calibration, and bounded local runtime before starting the governed training job." tone="info">
+          <div className="grid gap-4 xl:grid-cols-[1.35fr_0.65fr]">
+            <div className="rounded-xl border border-blue-200 bg-white p-4 shadow-sm">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-950"><SlidersHorizontal size={16} className="text-blue-700" /> Objective and search strategy</div>
+              <p className="mt-1 text-xs leading-5 text-slate-600">Choose the metric and hyperparameter depth that will rank candidate models. Evaluation and governance still approve the champion downstream.</p>
+              <div className="mt-4 grid gap-3 lg:grid-cols-3">
+                <label><span className="atlas-label">Primary ranking metric</span><select className="atlas-input" value={primaryMetric} onChange={(event) => { setPrimaryMetric(event.target.value); setSortMetric(event.target.value); }}>{problemType === "classification" ? <><option value="pr_auc">PR-AUC</option><option value="auc">ROC-AUC</option><option value="ks">KS</option><option value="f1">F1</option><option value="recall">Recall</option></> : <><option value="rmse">RMSE</option><option value="mae">MAE</option><option value="r2">R-squared</option></>}</select><span className="mt-1 block text-xs text-slate-500">Ranking supports review; it does not approve a champion.</span></label>
+                <label className="rounded-xl border border-blue-200 bg-blue-50 p-3"><span className="flex items-center gap-2 text-sm font-semibold text-slate-900"><input type="checkbox" checked={gridSearch} disabled={jobActive} onChange={(event) => { setGridSearch(event.target.checked); setPreflight(null); }} /> Hyperparameter search</span><p className="mt-1 text-xs text-blue-900">Controls how aggressively ATLAS tunes candidate estimators.</p><select className="atlas-input mt-3" disabled={!gridSearch || jobActive} value={gridSearchLevel} onChange={(event) => { setGridSearchLevel(event.target.value as typeof gridSearchLevel); setPreflight(null); }}><option value="quick">Quick</option><option value="balanced">Balanced</option><option value="thorough">Thorough</option></select></label>
+                <label className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><span className="flex items-center gap-2 text-sm font-semibold text-slate-900"><input type="checkbox" checked={calibrate} disabled={problemType === "regression" || jobActive} onChange={(event) => { setCalibrate(event.target.checked); setPreflight(null); }} /> Probability calibration</span><p className="mt-1 text-xs leading-5 text-emerald-900">Applied only to compatible supervised classifiers with event-count-safe folds.</p></label>
               </div>
             </div>
-            <div className="text-xs text-slate-500">
-              Disabled toggles indicate optional libraries unavailable in the current backend environment.
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-950"><Cpu size={16} className="text-slate-700" /> Runtime guardrails</div>
+              <p className="mt-1 text-xs leading-5 text-slate-600">ATLAS caps local work so the UI stays responsive and completed models remain available if a run is stopped.</p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                <label><span className="atlas-label">Cross-validation folds</span><select className="atlas-input" value={kFolds} disabled={jobActive} onChange={(event) => { setKFolds(Number(event.target.value)); setPreflight(null); }}>{[2, 3, 4, 5, 6, 8, 10].map((value) => <option key={value} value={value}>{value} folds</option>)}</select><span className="mt-1 block text-xs text-slate-500">Preflight reduces folds when event counts require it.</span></label>
+                <label><span className="atlas-label">Parallel model workers</span><input className="atlas-input" type="number" min="1" max="4" value={maxParallel} disabled={jobActive} onChange={(event) => { setMaxParallel(Math.max(1, Math.min(4, Number(event.target.value) || 1))); setPreflight(null); }} /><span className="mt-1 block text-xs text-slate-500">Actual concurrency is capped by preflight.</span></label>
+              </div>
             </div>
           </div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            {selectedModels.length ? selectedModels.map((key) => {
-              const def = MODEL_GROUPS.flatMap((group) => group.models).find((model) => model.key === key);
-              return (
-                <span key={key} className="rounded-full border border-indigo-100 bg-indigo-50 px-3 py-1 text-xs font-medium text-indigo-700">
-                  {displayModelName(labels[key] ?? def?.label ?? key)}
-                </span>
-              );
-            }) : (
-              <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-800">
-                Select at least one model before training.
-              </span>
-            )}
-          </div>
-        </div>
+        </AtlasWorkflowSection>
 
-        <div className="hidden">
-          <button
-            type="button"
-            onClick={startTraining}
-            disabled={isTraining || selectedModels.length === 0}
-            className="inline-flex items-center rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300"
-          >
-            {isTraining ? "Training…" : "Train Selected"}
-          </button>
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
-          >
-            Refresh
-          </button>
-        </div>
-      </div>
-
-      {/* Model groups */}
-      <div className="space-y-4 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-4 shadow-sm">
-        <div className="rounded-xl border border-emerald-100 bg-white p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Select Algorithms</div>
-          <h2 className="mt-1 text-lg font-semibold text-slate-950">{problemType === "regression" ? "Regression algorithms" : "Classification algorithms"}</h2>
-          <p className="mt-1 text-sm text-slate-600">Choose candidate models first. ATLAS trains only the selected cards below.</p>
-        </div>
-        {visibleGroups.map((group) => (
-          <div
-            key={group.id}
-            className="rounded-2xl border border-emerald-100 bg-white p-4 shadow-sm"
-          >
-            <div className="mb-3 inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-sm font-semibold text-emerald-900">{group.title}</div>
-            <div className="grid gap-3 md:grid-cols-2">
-              {group.models.map((m) => {
-                const optionalUnavailable = availabilityLoaded && OPTIONAL_MODEL_KEYS.has(m.key) && availability[m.key] === false;
-                const enabled = selectableModelKeys.has(m.key);
-                const label = (labels[m.key as ModelKey] ?? m.label).replace(/\s*\(k\s*=\s*\d+\)/i, "");
-                const isChecked = selected[m.key];
-
+        <AtlasWorkflowSection eyebrow="Candidate algorithms" title="Algorithm Selection" description="Selected cards use ATLAS blue. Green appears only after a model completes successfully." tone="info">
+          <div className="space-y-5">
+            <div className="grid gap-3 lg:grid-cols-3">
+              {MODEL_SUITE_PRESETS.map((suite) => {
+                const suiteKeys = suite.models[problemType].filter((key) => availableDefinitions.some((model) => model.key === key));
+                const selectedCount = suiteKeys.filter((key) => selectedModels.includes(key)).length;
+                const fullySelected = suiteKeys.length > 0 && selectedCount === suiteKeys.length;
                 return (
-                  <div
-                    key={m.key}
-                    className={`rounded-lg border px-3 py-3 ${isChecked ? "border-indigo-200 bg-indigo-50" : "border-gray-100 bg-gray-50"}`}
-                  >
+                  <button key={suite.key} type="button" className={`rounded-xl border p-4 text-left transition ${fullySelected ? "border-blue-500 bg-blue-50 shadow-sm" : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/50"}`} disabled={jobActive || !suiteKeys.length} onClick={() => { setSelectedModels(suiteKeys); setPreflight(null); }}>
                     <div className="flex items-start justify-between gap-3">
-                      <div className="flex min-w-0 flex-col">
-                        <div className="flex items-center text-sm font-medium text-gray-800">
-                          {label}
-                          <StatusPill status={status[m.key]} />
-                        </div>
-                        <div className="text-[11px] leading-4 text-gray-500">{m.tooltip ?? "Select this candidate model when it aligns with the project objective and validation plan."}</div>
-                      </div>
-                      <Toggle
-                        checked={isChecked}
-                        disabled={!enabled || isTraining}
-                        onChange={() => toggleModelSelection(m)}
-                      />
+                      <div><div className="text-sm font-semibold text-slate-950">{suite.title}</div><p className="mt-1 text-xs leading-5 text-slate-600">{suite.description}</p></div>
+                      <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-semibold uppercase text-blue-800">{suiteKeys.length} models</span>
                     </div>
-                    {(() => {
-                      const guidance = modelGuidance(m);
-                      return (
-                        <div className="mt-3 grid gap-2 text-[11px] leading-4 text-slate-600 md:grid-cols-2">
-                          <div><span className="font-semibold text-slate-800">Best for: </span>{guidance.bestFor}</div>
-                          <div><span className="font-semibold text-slate-800">Strengths: </span>{guidance.strengths}</div>
-                          <div><span className="font-semibold text-slate-800">Cautions: </span>{guidance.cautions}</div>
-                          <div><span className="font-semibold text-slate-800">Tuning status: </span>{useGridSearch ? `${gridSearchLevel} grid search` : "Default parameters, not tuned."}</div>
-                        </div>
-                      );
-                    })()}
-                    {optionalUnavailable && (
-                      <span className="ml-2 text-[11px] font-medium text-amber-600" title="ATLAS will include this model in the request. If the backend package is unavailable, the model will be reported as failed without blocking other selected models.">
-                        package warning
-                      </span>
-                    )}
-                  </div>
+                    <div className="mt-3 text-xs font-semibold text-blue-800">{selectedCount} selected | Select suite</div>
+                  </button>
                 );
               })}
             </div>
+            {problemType === "classification" ? (
+              <AtlasAttentionPanel title="Unsupervised anomaly models fit without a target" tone="info">
+                Isolation Forest, Local Outlier Factor, One-Class SVM, and Robust Covariance do not use the target during fitting. In this supervised project, ATLAS uses the target only to benchmark their anomaly scores after fitting. They remain diagnostic models and are never eligible for champion selection.
+              </AtlasAttentionPanel>
+            ) : null}
+            {[...new Set(availableDefinitions.map((model) => model.family))].map((family) => (
+              <div key={family}>
+                <h3 className="text-sm font-semibold text-slate-950">{family}</h3>
+                <div className="mt-2 grid gap-3 lg:grid-cols-2">
+                  {availableDefinitions.filter((model) => model.family === family).map((model) => {
+                    const libraryAvailable = availability[model.key] !== false;
+                    const compatibility = preflight?.model_compatibility?.[model.key];
+                    const enabled = libraryAvailable && compatibility?.compatible !== false;
+                    const selected = selectedModels.includes(model.key);
+                    const execution = job?.per_model_status?.[model.key];
+                    const displayLabel = cleanModelLabel(model.label);
+                    const unavailableCopy = model.key === "ebm"
+                      ? "Explainable Boosting Machine requires the optional interpret package. Install or enable that backend dependency to train EBM."
+                      : `${displayLabel} library is not installed or could not initialize.`;
+                    return <ModelCard key={model.key} model={model} selected={selected} enabled={enabled} unavailableReason={!libraryAvailable ? unavailableCopy : compatibility?.reason} execution={execution} tuning={gridSearch ? `${gridSearchLevel} search` : "Governed defaults"} onToggle={() => toggleModel(model.key)} disabled={jobActive} />;
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </AtlasWorkflowSection>
 
-      <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Train Selected Models</div>
-            <p className="mt-1 text-sm text-slate-600">
-              Fit {selectedModels.length || 0} selected model{selectedModels.length === 1 ? "" : "s"} with the validation, tuning, calibration, and PCA settings above.
-            </p>
+        <div className="sticky bottom-24 z-10 rounded-lg border border-blue-300 bg-white/95 p-4 shadow-xl shadow-slate-900/15 backdrop-blur-xl">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 text-sm font-semibold text-slate-950"><BrainCircuit size={17} className="text-blue-700" /> Selected Model Bench <span className="text-blue-700">{selectedModels.length}</span></div>
+              <div className="mt-2 flex flex-wrap gap-1.5">{selectedDefinitions.length ? selectedDefinitions.map((model) => <span key={model.key} className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800">{modelLabel(model.key, labels)}</span>) : <span className="text-sm text-amber-800">Select at least one compatible model.</span>}</div>
+              <div className="mt-2 text-xs text-slate-500">{gridSearch ? `${gridSearchLevel} tuning` : "Governed defaults"} | {calibrate ? "Calibration requested where compatible" : "No added calibration"} | {maxParallel} requested worker(s) | {readiness ? "Preflight current" : "Preflight will run when training starts"}</div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" className="atlas-secondary-button" disabled={jobActive || !selectedModels.length} onClick={() => { setSelectedModels([]); setPreflight(null); }}><Trash2 size={15} /> Clear all</button>
+              {jobActive ? <button type="button" className="atlas-destructive-button" onClick={() => void cancelTraining()}><CircleStop size={15} /> Kill unfinished</button> : null}
+              <button type="button" className="atlas-primary-button min-w-60" disabled={trainActionBlocked} onClick={() => void startTraining()}><Play size={16} /> {trainActionLabel}</button>
+            </div>
           </div>
-          <button
-            type="button"
-            onClick={startTraining}
-            disabled={isTraining || selectedModels.length === 0}
-            className="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 disabled:cursor-not-allowed disabled:bg-indigo-300"
-          >
-            {isTraining ? "Training..." : "Train Selected Models"}
-          </button>
+          {!trainActionBlocked && !readiness ? <div className="mt-3 border-t border-blue-100 pt-3 text-xs font-medium text-blue-800">ATLAS will validate the current split, feature contract, selected algorithms, dependencies, and runtime policy, then start the job without requiring a separate preflight action.</div> : null}
         </div>
+
+        <AtlasWorkflowSection eyebrow="Background execution" title="Live Training" description="Each selected model reports its own preparation, fit, completion, cancellation, or failure state." tone={job?.overall_status === "complete" ? "success" : job?.overall_status === "failed" ? "danger" : jobActive ? "info" : "neutral"} action={<div className="flex flex-wrap items-center gap-2"><AtlasExecutionStatus state={job?.overall_status ?? "idle"} label={job ? `Job ${job.overall_status}` : "No active job"} detail={job?.job_id} />{jobActive ? <button type="button" className="atlas-destructive-button" onClick={() => void cancelTraining()}><CircleStop size={15} /> Kill unfinished</button> : null}</div>}>
+          {job ? <>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+              <Metric label="Job ID" value={job.job_id} />
+              <Metric label="Started" value={job.started_at ? new Date(job.started_at).toLocaleTimeString() : "Queued"} />
+              <Metric label="Finished" value={`${finishedCount} / ${job.total_count}`} />
+              <Metric label="Successful" value={job.completed_count} tone={job.completed_count ? "success" : "neutral"} />
+              <Metric label="Failed" value={job.failed_models.length} tone={job.failed_models.length ? "warning" : "neutral"} />
+              <Metric label="Workers" value={job.max_parallel_honored} />
+            </div>
+            <div className="mt-4"><div className="flex justify-between text-xs font-semibold text-slate-600"><span>{job.user_message ?? job.message}</span><span>{progress}%</span></div><div className="mt-2 h-2 overflow-hidden rounded bg-slate-100"><div className="h-full bg-blue-600 transition-all" style={{ width: `${progress}%` }} /></div></div>
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">{job.requested_models.map((key) => <ExecutionCard key={key} label={modelLabel(key, labels)} status={job.per_model_status[key]} history={job.per_model_history?.[key]} />)}</div>
+          </> : <div className="flex min-h-36 items-center justify-center text-sm text-slate-500">Run preflight, select compatible models, and start a governed training job.</div>}
+        </AtlasWorkflowSection>
+
+        <AtlasWorkflowSection eyebrow="Partial and final results" title="Candidate Leaderboard" description="Results appear as models finish. The leading metric identifies a candidate only; governance review and downstream evaluation remain required." tone="neutral" action={<label className="flex items-center gap-2 text-xs font-semibold text-slate-600">Sort by <select className="atlas-input w-32" value={sortMetric} onChange={(event) => setSortMetric(event.target.value)}>{problemType === "classification" ? <><option value="pr_auc">PR-AUC</option><option value="auc">ROC-AUC</option><option value="ks">KS</option><option value="f1">F1</option><option value="recall">Recall</option></> : <><option value="rmse">RMSE</option><option value="mae">MAE</option><option value="r2">R-squared</option></>}</select></label>}>
+          <CandidateLeaderboard results={results} problemType={problemType} sortMetric={sortMetric} />
+          {job?.failed_models.length ? <details className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3"><summary className="cursor-pointer text-sm font-semibold text-red-950">{job.failed_models.length} model failure(s)</summary><div className="mt-3 space-y-2">{job.failed_models.map((failure) => <div key={failure.key} className="rounded-lg border border-red-200 bg-white p-3"><div className="font-semibold text-red-950">{failure.name}</div><div className="mt-1 text-sm text-red-900">{failure.error}</div>{failure.technical_error ? <details className="mt-2"><summary className="cursor-pointer text-xs font-semibold text-slate-600">Technical details</summary><pre className="mt-2 overflow-auto whitespace-pre-wrap rounded bg-slate-950 p-3 text-xs text-slate-100">{failure.technical_error}\nReference: {failure.traceback_reference}</pre></details> : null}</div>)}</div></details> : null}
+        </AtlasWorkflowSection>
+      </div>
+    </StepShell>
+  );
+}
+
+function CandidateLeaderboard({ results, problemType, sortMetric }: { results: RankedResult[]; problemType: ProblemType; sortMetric: string }) {
+  const candidates = results.filter((row) => row.champion_eligible !== false && row.kind !== "anomaly");
+  const diagnostics = results.filter((row) => row.champion_eligible === false || row.kind === "anomaly");
+  const primaryLabels: Record<string, string> = { pr_auc: "PR-AUC", auc: "ROC-AUC", ks: "KS", f1: "F1", recall: "Recall", rmse: "RMSE", mae: "MAE", r2: "R-squared" };
+  const primaryLabel = primaryLabels[sortMetric] ?? sortMetric.replace(/_/g, " ");
+  const values = candidates.map((row) => metricValue(row, sortMetric)).filter((value): value is number => value !== null);
+  const minimum = values.length ? Math.min(...values) : 0;
+  const maximum = values.length ? Math.max(...values) : 0;
+  const ascending = ["rmse", "mae", "mse"].includes(sortMetric);
+  const rankWidth = (row: RankedResult, index: number) => {
+    const value = metricValue(row, sortMetric);
+    if (value === null) return 0;
+    if (maximum === minimum) return Math.max(35, 100 - index * 8);
+    const normalized = ascending ? (maximum - value) / (maximum - minimum) : (value - minimum) / (maximum - minimum);
+    return 35 + normalized * 65;
+  };
+
+  if (!results.length) return <div className="flex min-h-40 items-center justify-center rounded-xl border border-dashed border-slate-300 bg-slate-50 text-sm text-slate-500">No model results are available yet.</div>;
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <Metric label="Candidate models" value={candidates.length} tone={candidates.length ? "success" : "warning"} />
+        <Metric label="Current leader" value={candidates[0]?.name ? cleanModelLabel(candidates[0].name) : "No eligible candidate"} />
+        <Metric label={`Leading ${primaryLabel}`} value={formatMetric(metricValue(candidates[0] ?? ({} as RankedResult), sortMetric))} />
+        <Metric label="Targetless diagnostics" value={diagnostics.length} />
       </div>
 
-      <StepPythonPanel />
-
-      {/* Summary + metrics table */}
-      <div className="rounded-2xl border border-blue-200 bg-blue-50/70 p-4 shadow-sm">
-        <div className="mb-2 text-sm font-semibold text-gray-800">Training Results</div>
-        <p className="text-xs text-gray-600">
-          After training, this table shows basic performance metrics for each model from the latest
-          run. Detailed diagnostics (lift, SHAP, PDP, stability) will appear in Step 8.
-        </p>
-
-        {/* Metrics table */}
-        {summary === null && (
-          <div className="mt-3 text-xs text-gray-500">No training run loaded yet.</div>
-        )}
-
-        {summary !== null && summary.length === 0 && (
-          <div className="mt-3 text-xs text-gray-500">
-            No metrics available for the last run. This can happen if training failed or if the
-            backend is not running.
-          </div>
-        )}
-
-        {summary !== null && summary.length > 0 && (
-          <div className="mt-3 overflow-x-auto">
-            <table className="min-w-full text-xs">
-              <thead>
-                <tr className="text-left text-[11px] text-gray-500 border-b">
-                  <th className="py-1 pr-4">Model</th>
-                  {isRegressionSummary ? (
-                    <>
-                      <th className="py-1 pr-4">RMSE</th>
-                      <th className="py-1 pr-4">MAE</th>
-                      <th className="py-1 pr-4">R-squared</th>
-                      <th className="py-1 pr-4">Adj. R-squared</th>
-                      <th className="py-1 pr-4">MSE</th>
-                    </>
-                  ) : (
-                    <>
-                      <th className="py-1 pr-4">AUC</th>
-                      <th className="py-1 pr-4">PR-AUC</th>
-                      <th className="py-1 pr-4">Accuracy</th>
-                      <th className="py-1 pr-4">F1</th>
-                    </>
-                  )}
-                  <th className="py-1 pr-4">Best Params</th>
+      {candidates.length ? (
+        <div className="overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+          <table className="w-full min-w-[1080px] border-separate border-spacing-0 text-xs">
+            <thead className="sticky top-0 z-20 bg-slate-950 text-white shadow-sm"><tr><th className="sticky left-0 z-30 min-w-64 border-b border-slate-800 bg-slate-950 px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-200">Ranked candidate</th><th className="min-w-44 border-b border-slate-800 px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-200">{primaryLabel}</th><th className="min-w-48 border-b border-slate-800 px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-200">{problemType === "classification" ? "Discrimination" : "Error"}</th><th className="min-w-48 border-b border-slate-800 px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-200">{problemType === "classification" ? "Operating metrics" : "Model fit"}</th><th className="min-w-40 border-b border-slate-800 px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-200">Probability treatment</th><th className="min-w-28 border-b border-slate-800 px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-200">Runtime</th><th className="min-w-52 border-b border-slate-800 px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-200">Review state</th></tr></thead>
+            <tbody>{candidates.map((row, index) => {
+              const definition = MODEL_DEFINITIONS.find((model) => model.key === row.key);
+              return (
+                <tr key={row.key} className={`${index === 0 ? "bg-blue-50/80" : "even:bg-slate-50/70"} group hover:bg-blue-50`}>
+                  <td className={`sticky left-0 z-10 border-b border-slate-100 px-4 py-3 ${index === 0 ? "bg-blue-50 group-hover:bg-blue-50" : "bg-white group-even:bg-slate-50 group-hover:bg-blue-50"}`}><div className="flex items-center gap-3"><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ${index === 0 ? "bg-blue-700 text-white" : "border border-slate-200 bg-white text-slate-700"}`}>{index + 1}</span><div><div className="font-semibold text-slate-950">{cleanModelLabel(row.name)}</div><div className="mt-1 flex flex-wrap gap-1.5"><span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600">{definition?.family ?? "Model"}</span><span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600">{definition?.interpretability ?? "Review"} interpretability</span></div></div></div></td>
+                  <td className="border-b border-slate-100 px-4 py-3"><div className="font-mono text-base font-semibold text-slate-950">{formatMetric(metricValue(row, sortMetric))}</div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${rankWidth(row, index)}%` }} /></div><div className="mt-1 text-[10px] uppercase text-slate-500">{ascending ? "Lower is better" : "Higher is better"}</div></td>
+                  {problemType === "classification" ? <><td className="border-b border-slate-100 px-4 py-3"><LeaderboardMetricGrid rows={[["ROC-AUC", row.auc], ["PR-AUC", row.pr_auc], ["KS", row.ks]]} /></td><td className="border-b border-slate-100 px-4 py-3"><LeaderboardMetricGrid rows={[["Precision", row.precision], ["Recall", row.recall], ["F1", row.f1]]} /></td></> : <><td className="border-b border-slate-100 px-4 py-3"><LeaderboardMetricGrid rows={[["RMSE", row.rmse], ["MAE", row.mae]]} /></td><td className="border-b border-slate-100 px-4 py-3"><LeaderboardMetricGrid rows={[["R-squared", row.r2], ["Adjusted", row.adjusted_r2]]} /></td></>}
+                  <td className="border-b border-slate-100 px-4 py-3">{row.calibration_applied ? <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase text-emerald-800">{row.calibration_method ?? "Applied"}</span> : <span className="inline-flex rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase text-slate-600">Not applied</span>}</td>
+                  <td className="border-b border-slate-100 px-4 py-3 font-mono font-semibold text-slate-800">{typeof row.runtime_ms === "number" ? `${(row.runtime_ms / 1000).toFixed(1)} s` : "N/A"}</td>
+                  <td className="border-b border-slate-100 px-4 py-3"><span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase ${index === 0 ? "border-blue-200 bg-blue-50 text-blue-800" : "border-slate-200 bg-slate-100 text-slate-700"}`}>{row.candidate_status ?? (row.candidate_champion ? "Candidate leader" : "Challenger")}</span><div className="mt-1.5 text-[11px] leading-4 text-slate-500">Not approved until Evaluation and governance review.</div></td>
                 </tr>
-              </thead>
-              <tbody>
-                {summary.map((m) => (
-                  <tr key={m.key} className="border-t">
-                    <td className="py-1 pr-4">{displayModelName(m.name)}</td>
-                    {isRegressionSummary ? (
-                      <>
-                        <td className="py-1 pr-4">{formatMetric(m.rmse)}</td>
-                        <td className="py-1 pr-4">{formatMetric(m.mae)}</td>
-                        <td className="py-1 pr-4">{formatMetric(m.r2)}</td>
-                        <td className="py-1 pr-4">{formatMetric(m.adjusted_r2)}</td>
-                        <td className="py-1 pr-4">{formatMetric(m.mse)}</td>
-                      </>
-                    ) : (
-                      <>
-                    <td className="py-1 pr-4">
-                      {typeof m.auc === "number" ? m.auc.toFixed(4) : "—"}
-                    </td>
-                    <td className="py-1 pr-4">
-                      {typeof m.pr_auc === "number" ? m.pr_auc.toFixed(4) : "—"}
-                    </td>
-                    <td className="py-1 pr-4">
-                      {typeof m.accuracy === "number" ? m.accuracy.toFixed(4) : "—"}
-                    </td>
-                    <td className="py-1 pr-4">
-                      {typeof m.f1 === "number" ? m.f1.toFixed(4) : "—"}
-                    </td>
-                      </>
-                    )}
-                    <td
-                      className="max-w-[280px] truncate py-1 pr-4 text-gray-600"
-                      title={formatBestParams(m, useGridSearch)}
-                    >
-                      {formatBestParams(m, useGridSearch)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+              );
+            })}</tbody>
+          </table>
+        </div>
+      ) : <AtlasAttentionPanel title="No champion-eligible model has completed" tone="warning">Targetless anomaly diagnostics cannot become the supervised champion. Complete at least one compatible supervised model.</AtlasAttentionPanel>}
 
-        {message && (
-          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-            {message}
-          </div>
-        )}
-
-      </div>
+      {diagnostics.length ? (
+        <details className="rounded-xl border border-violet-200 bg-violet-50/60">
+          <summary className="cursor-pointer list-none px-4 py-3"><div className="flex items-center justify-between gap-3"><div><div className="text-sm font-semibold text-violet-950">Targetless diagnostic runs</div><div className="mt-1 text-xs text-violet-800">Supplemental anomaly evidence is reported separately and is never ranked as the supervised champion.</div></div><span className="rounded-full border border-violet-200 bg-white px-2.5 py-1 text-xs font-semibold text-violet-800">{diagnostics.length}</span></div></summary>
+          <div className="grid gap-2 border-t border-violet-200 p-4 md:grid-cols-2">{diagnostics.map((row) => <div key={row.key} className="rounded-lg border border-violet-200 bg-white p-3"><div className="flex items-start justify-between gap-3"><div><div className="text-sm font-semibold text-slate-950">{cleanModelLabel(row.name)}</div><div className="mt-1 text-xs text-slate-500">{row.target_usage ?? "Target not used"}</div></div><span className="rounded-full bg-violet-100 px-2 py-1 text-[10px] font-semibold uppercase text-violet-800">Diagnostic only</span></div><div className="mt-3 text-xs text-slate-600">Runtime <span className="font-mono font-semibold text-slate-900">{typeof row.runtime_ms === "number" ? `${(row.runtime_ms / 1000).toFixed(1)} s` : "N/A"}</span></div></div>)}</div>
+        </details>
+      ) : null}
     </div>
   );
 }
 
-function ReadinessCard({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-blue-100 bg-white p-3">
-      <div className="text-[10px] font-semibold uppercase text-blue-500">{label}</div>
-      <div className="mt-1 truncate text-xs font-semibold text-slate-900" title={value}>{value}</div>
-    </div>
-  );
+function LeaderboardMetricGrid({ rows }: { rows: Array<[string, number | null | undefined]> }) {
+  return <div className="grid grid-cols-3 gap-2">{rows.map(([label, value]) => <div key={label} className="min-w-0"><div className="truncate text-[9px] font-semibold uppercase text-slate-500" title={label}>{label}</div><div className="mt-0.5 font-mono font-semibold text-slate-900">{formatMetric(value)}</div></div>)}</div>;
 }
 
-function HeaderMetric({ label, value, tone = "blue" }: { label: string; value: string; tone?: "blue" | "green" | "amber" }) {
-  const toneClass =
-    tone === "green"
-      ? "border-emerald-300/40 bg-emerald-400/10 text-emerald-50"
-      : tone === "amber"
-        ? "border-amber-300/40 bg-amber-300/10 text-amber-50"
-        : "border-blue-300/30 bg-white/10 text-slate-50";
-  return (
-    <div className={`rounded-lg border px-3 py-2 ${toneClass}`}>
-      <div className="text-[10px] font-semibold uppercase opacity-75">{label}</div>
-      <div className="mt-1 truncate text-sm font-semibold" title={value}>{value}</div>
-    </div>
-  );
+function ModelCard({ model, selected, enabled, unavailableReason, execution, tuning, onToggle, disabled }: { model: ModelDefinition; selected: boolean; enabled: boolean; unavailableReason?: string; execution?: ModelExecution; tuning: string; onToggle: () => void; disabled: boolean }) {
+  const successful = execution?.status === "complete";
+  const failed = execution?.status === "failed";
+  const classes = successful ? "border-emerald-300 bg-emerald-50" : failed ? "border-red-300 bg-red-50" : selected ? "border-blue-600 bg-blue-50" : "border-slate-200 bg-white";
+  return <div className={`rounded-lg border p-4 ${classes} ${!enabled ? "opacity-70" : ""}`}><div className="flex items-start justify-between gap-3"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h4 className="text-sm font-semibold text-slate-950">{cleanModelLabel(model.label)}</h4>{model.kind === "anomaly" ? <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-0.5 text-[10px] font-semibold uppercase text-violet-800">Targetless fit | diagnostic only</span> : null}{execution ? <MiniStatus state={execution.status} /> : null}</div><p className="mt-1 text-xs leading-5 text-slate-600">{model.purpose}</p></div><label className="relative inline-flex shrink-0 items-center"><input type="checkbox" className="peer sr-only" checked={selected} disabled={disabled || !enabled} onChange={onToggle} /><span className="h-6 w-11 rounded-full bg-slate-300 after:absolute after:left-0.5 after:top-0.5 after:h-5 after:w-5 after:rounded-full after:bg-white after:transition peer-checked:bg-blue-600 peer-checked:after:translate-x-5 peer-disabled:cursor-not-allowed" /></label></div>{!enabled ? <div className="mt-3 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"><AlertTriangle size={14} className="mt-0.5 shrink-0" />{unavailableReason ?? "This model is not compatible with the active project."}</div> : <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-slate-600"><div><b className="text-slate-800">Best use:</b> {model.bestUse}</div><div><b className="text-slate-800">Interpretability:</b> {model.interpretability}</div><div><b className="text-slate-800">Scaling:</b> {model.scaling}</div><div><b className="text-slate-800">Categorical:</b> {model.categorical}</div><div><b className="text-slate-800">Probability:</b> {model.probability}</div><div><b className="text-slate-800">Tuning:</b> {tuning}</div></div>}</div>;
 }
 
+function ExecutionCard({ label, status, history }: { label: string; status?: ModelExecution; history?: Array<{ state: ModelState; at: string; stage: string; message?: string }> }) {
+  const state = status?.status ?? "queued";
+  return <div className={`rounded-lg border p-4 ${state === "complete" ? "border-emerald-200 bg-emerald-50" : state === "failed" ? "border-red-200 bg-red-50" : state === "running" || state === "preparing" ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white"}`}><div className="flex items-center justify-between gap-2"><div className="font-semibold text-slate-950">{label}</div><MiniStatus state={state} /></div><div className="mt-2 text-sm text-slate-700">{status?.current_stage ?? "Waiting for worker"}</div><div className="mt-1 text-xs text-slate-500">{status?.message ?? "Queued for training."}{typeof status?.runtime_ms === "number" && status.runtime_ms > 0 ? ` Runtime ${(status.runtime_ms / 1000).toFixed(1)} s.` : ""}</div>{status?.warning ? <div className="mt-2 text-xs font-medium text-amber-800">{status.warning}</div> : null}{history?.length ? <details className="mt-3"><summary className="cursor-pointer text-xs font-semibold text-slate-600">Execution history</summary><ol className="mt-2 space-y-1 border-l border-slate-300 pl-3 text-xs text-slate-600">{history.map((item, index) => <li key={`${item.at}-${index}`}><b>{item.state}</b> | {item.stage} | {new Date(item.at).toLocaleTimeString()}</li>)}</ol></details> : null}</div>;
+}
+
+function MiniStatus({ state }: { state: ModelState }) {
+  const config: Record<ModelState, { icon: typeof Clock3; label: string; classes: string }> = {
+    queued: { icon: Clock3, label: "Queued", classes: "bg-slate-100 text-slate-700" },
+    preparing: { icon: LoaderCircle, label: "Preparing", classes: "bg-blue-100 text-blue-800" },
+    running: { icon: Activity, label: "Running", classes: "bg-blue-100 text-blue-800" },
+    complete: { icon: CheckCircle2, label: "Complete", classes: "bg-emerald-100 text-emerald-800" },
+    failed: { icon: XCircle, label: "Failed", classes: "bg-red-100 text-red-800" },
+    cancelled: { icon: CircleStop, label: "Cancelled", classes: "bg-slate-100 text-slate-700" },
+    interrupted: { icon: AlertTriangle, label: "Interrupted", classes: "bg-amber-100 text-amber-900" },
+  };
+  const selected = config[state];
+  const Icon = selected.icon;
+  return <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 text-[10px] font-semibold uppercase ${selected.classes}`}><Icon size={12} className={state === "preparing" || state === "running" ? "animate-spin" : ""} />{selected.label}</span>;
+}
+
+function Metric({ label, value, tone = "neutral" }: { label: string; value: string | number; tone?: "neutral" | "success" | "warning" }) {
+  const classes = tone === "success" ? "border-emerald-200 bg-emerald-50" : tone === "warning" ? "border-amber-200 bg-amber-50" : "border-slate-200 bg-slate-50";
+  return <div className={`min-w-0 rounded-lg border p-3 ${classes}`}><div className="text-[10px] font-semibold uppercase text-slate-500">{label}</div><div className="mt-1 truncate text-sm font-semibold text-slate-950" title={String(value)}>{value}</div></div>;
+}

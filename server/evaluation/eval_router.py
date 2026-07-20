@@ -1,6 +1,7 @@
 # server/evaluation/eval_router.py
 
 import io
+import hashlib
 
 import pandas as pd
 from fastapi import APIRouter, File, UploadFile
@@ -14,23 +15,29 @@ router = APIRouter()
 
 @router.get("/eval/curves")
 def get_curves(model: str):
-    """
-    Returns dummy curve data so the Evaluation page loads.
-    """
+    """Return curves computed from the persisted governed holdout predictions."""
     return EVAL.get_curves(model)
 
 
 @router.get("/eval/deciles")
 def get_deciles(model: str):
-    """
-    Returns placeholder decile results.
-    """
+    """Return deciles computed from the persisted governed holdout predictions."""
     return EVAL.get_deciles(model)
 
 
+@router.get("/eval/command_center")
+def get_evaluation_command_center(model: str, threshold: float = 0.5, review_capacity: float = 0.1):
+    """Return real threshold, lift, gain, capture, and calibration diagnostics."""
+    return EVAL.get_evaluation_command_center(
+        model,
+        threshold=threshold,
+        review_capacity=review_capacity,
+    )
+
+
 @router.get("/eval/tree")
-def get_decision_tree(model: str, max_depth: int = 4):
-    return EVAL.decision_tree(model, max_depth=max_depth)
+def get_decision_tree(model: str, max_depth: int = 4, project_id: str = "", dataset_version: str = "", target: str = "", problem_type: str = ""):
+    return EVAL.decision_tree(model, max_depth=max_depth, context=_context(project_id, dataset_version, target, problem_type))
 
 
 @router.get("/eval/knn_clusters")
@@ -73,13 +80,13 @@ def get_hyperparameters(model: str, project_id: str = "", dataset_version: str =
 
 
 @router.get("/interpretation/pdp")
-def get_pdp(model: str, feature: str):
-    return EVAL.pdp(model, feature)
+def get_pdp(model: str, feature: str, project_id: str = "", dataset_version: str = "", target: str = "", problem_type: str = ""):
+    return EVAL.pdp(model, feature, _context(project_id, dataset_version, target, problem_type))
 
 
 @router.get("/interpretation/sensitivity")
-def get_sensitivity(model: str, feature: str):
-    return EVAL.sensitivity(model, feature)
+def get_sensitivity(model: str, feature: str, project_id: str = "", dataset_version: str = "", target: str = "", problem_type: str = ""):
+    return EVAL.sensitivity(model, feature, _context(project_id, dataset_version, target, problem_type))
 
 
 @router.get("/interpretation/sensitivity_summary")
@@ -98,18 +105,23 @@ def get_vif_summary(model: str = "final"):
 
 
 @router.get("/interpretation/shap")
-def get_shap_summary(model: str):
-    return EVAL.shap_summary(model)
+def get_shap_summary(model: str, project_id: str = "", dataset_version: str = "", target: str = "", problem_type: str = ""):
+    return EVAL.shap_summary(model, _context(project_id, dataset_version, target, problem_type))
 
 
 @router.get("/interpretation/decision_boundary")
-def get_decision_boundary(model: str, x_feature: str = "", y_feature: str = ""):
-    return EVAL.decision_boundary(model_name=model, x_feature=x_feature, y_feature=y_feature)
+def get_decision_boundary(model: str, x_feature: str = "", y_feature: str = "", project_id: str = "", dataset_version: str = "", target: str = "", problem_type: str = ""):
+    return EVAL.decision_boundary(
+        model_name=model,
+        x_feature=x_feature,
+        y_feature=y_feature,
+        context=_context(project_id, dataset_version, target, problem_type),
+    )
 
 
 @router.get("/interpretation/rfe")
-def get_rfe(model: str = "", keep: int = 10):
-    return EVAL.rfe(model_name=model, keep=keep)
+def get_rfe(model: str = "", keep: int = 10, project_id: str = "", dataset_version: str = "", target: str = "", problem_type: str = ""):
+    return EVAL.rfe(model_name=model, keep=keep, context=_context(project_id, dataset_version, target, problem_type))
 
 
 @router.post("/interpretation/rfe/save_final")
@@ -117,6 +129,12 @@ def save_rfe_final_model(request: dict):
     result = EVAL.save_rfe_model(
         model_name=str(request.get("model") or ""),
         keep=int(request.get("keep") or 10),
+        context=_context(
+            str(request.get("project_id") or ""),
+            str(request.get("dataset_version") or ""),
+            str(request.get("target") or ""),
+            str(request.get("problem_type") or ""),
+        ),
     )
     if result.get("ok"):
         save_checkpoint()
@@ -131,6 +149,11 @@ def save_selected_final_model(request: dict):
     if result.get("ok"):
         save_checkpoint()
     return result
+
+
+@router.get("/model/final/status")
+def get_final_model_status():
+    return EVAL.final_model_status()
 
 
 @router.get("/model/export")
@@ -168,6 +191,21 @@ async def score_upload(
         model_prior=model_prior,
     )
     if result.get("ok"):
+        result["dataset_identity"] = file.filename or f"{dataset_type.upper()} upload"
+        result["dataset_version"] = f"sha256:{hashlib.sha256(content).hexdigest()[:16]}"
+        date_candidates = [
+            column for column in df.columns
+            if any(token in str(column).strip().lower() for token in ("date", "time", "timestamp", "as_of", "asof"))
+        ]
+        for column in date_candidates:
+            parsed = pd.to_datetime(df[column], errors="coerce")
+            if parsed.notna().mean() >= 0.8:
+                result["period"] = {
+                    "column": str(column),
+                    "start": parsed.min().isoformat(),
+                    "end": parsed.max().isoformat(),
+                }
+                break
         save_checkpoint()
     return result
 

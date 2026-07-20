@@ -1,20 +1,52 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { Activity, BarChart3, Code2, Database, LockKeyhole, Save, ShieldCheck, UploadCloud } from "lucide-react";
 import { Link } from "react-router-dom";
+import StepShell from "../components/StepShell";
 import StepPythonPanel from "../components/StepPythonPanel";
+import { AtlasAttentionPanel, type AtlasWorkflowMetric } from "../components/ui/AtlasWorkflow";
+import { createEvidence } from "../lib/evidenceGraph";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { registerScoredDataset } from "../lib/modelDiagnostics";
+import { inferLocalProblemType, loadLocalDataset, localDatasetVersion } from "../lib/localDataset";
 
+const QUERY_API_BASE =
+  typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("apiBase")?.replace(/\/$/, "") : undefined;
 const API_BASE =
+  QUERY_API_BASE ||
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
   "http://127.0.0.1:8001/api";
 
 type Status = "pass" | "warning" | "fail";
 type ScoredSplit = "train" | "test" | "oot";
+type FinalModelMetadata = {
+  name?: string;
+  source_model?: string;
+  source_estimator_class?: string;
+  final_estimator_class?: string;
+  feature_selection_method?: string;
+  feature_count?: number;
+  features?: string[];
+  problem_type?: "classification" | "regression";
+  project_id?: string;
+  dataset_version?: string;
+  target?: string;
+  holdout_auc?: number | null;
+  holdout_rmse?: number | null;
+  final_model_version?: string;
+  preprocessing_pipeline?: string;
+  calibration_method?: string;
+  modeled_event_rate?: number | null;
+  natural_event_rate?: number | null;
+  artifact_hash?: string;
+};
 type ScoreResult = {
   ok: boolean;
   task?: "classification" | "regression";
   error?: string;
   dataset_type?: string;
+  dataset_identity?: string;
+  dataset_version?: string;
+  period?: { column?: string; start?: string; end?: string };
   rows?: number;
   target_column?: string | null;
   model?: { name?: string; feature_count?: number; features?: string[]; target?: string };
@@ -39,7 +71,7 @@ type ScoreResult = {
   psi?: { name: string; value: number; status: Status };
   vsi?: { feature: string; value: number; status: Status }[];
   vsi_scope?: "model_features" | "all_common_features";
-  stability_reference?: "uploaded_test" | "development_split";
+  stability_reference?: "uploaded_test" | "development_split" | "development_train";
   scored_rows?: Array<Record<string, unknown>>;
   scored_columns?: string[];
   scored_row_scope?: "full_scored_output" | "scoring_response_preview" | string;
@@ -87,6 +119,7 @@ async function uploadScore(
   if (options.modelPrior.trim() && Number.isFinite(modelPriorValue)) params.set("model_prior", String(modelPriorValue));
   const res = await fetch(`${API_BASE}/score/upload?${params.toString()}`, {
     method: "POST",
+    credentials: "include",
     body,
   });
   if (!res.ok) throw new Error(`Scoring failed (${res.status})`);
@@ -108,7 +141,7 @@ async function scoreDevelopmentSplit(
   const modelPriorValue = Number(options.modelPrior);
   if (options.originalPrior.trim() && Number.isFinite(originalPriorValue)) params.set("original_prior", String(originalPriorValue));
   if (options.modelPrior.trim() && Number.isFinite(modelPriorValue)) params.set("model_prior", String(modelPriorValue));
-  const res = await fetch(`${API_BASE}/score/development-split?${params.toString()}`, { method: "POST" });
+  const res = await fetch(`${API_BASE}/score/development-split?${params.toString()}`, { method: "POST", credentials: "include" });
   if (!res.ok) throw new Error(`Development split scoring failed (${res.status})`);
   const data = (await res.json()) as ScoreResult;
   if (!data.ok) throw new Error(data.error ?? "Development split scoring failed.");
@@ -118,6 +151,7 @@ async function scoreDevelopmentSplit(
 export default function Step10Scoring() {
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
+  const getNextStepPath = useWorkflowStore((state) => state.getNextStepPath);
   const [testResult, setTestResult] = useState<ScoreResult | null>(null);
   const [trainResult, setTrainResult] = useState<ScoreResult | null>(null);
   const [ootResult, setOotResult] = useState<ScoreResult | null>(null);
@@ -127,10 +161,45 @@ export default function Step10Scoring() {
   const [originalPrior, setOriginalPrior] = useState("");
   const [modelPrior, setModelPrior] = useState("");
   const [problemType, setProblemType] = useState<"classification" | "regression">("classification");
+  const [finalModelReady, setFinalModelReady] = useState<boolean | null>(null);
+  const [finalModelMetadata, setFinalModelMetadata] = useState<FinalModelMetadata>({});
+  const [finalModelError, setFinalModelError] = useState("");
   const [registeredScoredDataset, setRegisteredScoredDataset] = useState<{ datasetId: string; versionId?: string; split: ScoredSplit } | null>(null);
 
   useEffect(() => {
-    fetch(`${API_BASE}/train/last`)
+    const dataset = loadLocalDataset();
+    const expectedDatasetVersion = dataset?.dataset_version || localDatasetVersion(dataset);
+    const expectedProblemType = inferLocalProblemType(dataset);
+    const trainingContext = new URLSearchParams({
+      project_id: projectId,
+      dataset_version: expectedDatasetVersion,
+      target: dataset?.target ?? "",
+      problem_type: expectedProblemType ?? "",
+    });
+    fetch(`${API_BASE}/model/final/status`, { credentials: "include" })
+      .then(async (res) => {
+        if (!res.ok) throw new Error(`Final-model status failed (${res.status}).`);
+        return res.json();
+      })
+      .then((data) => {
+        const metadata = (data?.metadata ?? {}) as FinalModelMetadata;
+        const projectMatches = !metadata.project_id || metadata.project_id === projectId;
+        const datasetMatches = !metadata.dataset_version || metadata.dataset_version === expectedDatasetVersion;
+        const targetMatches = !metadata.target || metadata.target === (dataset?.target ?? "");
+        const contextMatches = projectMatches && datasetMatches && targetMatches;
+        setFinalModelReady(Boolean(data?.ready && contextMatches));
+        setFinalModelMetadata(contextMatches ? metadata : {});
+        setFinalModelError(data?.ready && !contextMatches ? "The saved final model belongs to a different project, dataset version, or target. Return to Interpretation and save the current final model." : "");
+        if (contextMatches && metadata.problem_type === "regression") {
+          setProblemType("regression");
+          setCorrectionMethod("none");
+        }
+      })
+      .catch((error) => {
+        setFinalModelReady(false);
+        setFinalModelError(error instanceof Error ? error.message : "Final-model status is unavailable.");
+      });
+    fetch(`${API_BASE}/train/last?${trainingContext.toString()}`, { credentials: "include" })
       .then((res) => res.json())
       .then((data) => {
         const ranked = data?.summary?.ranked ?? [];
@@ -140,7 +209,7 @@ export default function Step10Scoring() {
         }
       })
       .catch(() => {});
-  }, []);
+  }, [projectId]);
 
   async function handleFile(file: File | undefined, datasetType: "test" | "oot") {
     if (!file) return;
@@ -225,128 +294,421 @@ export default function Step10Scoring() {
     setMessage(`Scored ${datasetType.toUpperCase()} dataset registered.`);
   }
 
+  async function saveStabilityArtifact(destination: "evidence" | "monitoring") {
+    const available = [
+      testResult ? { split: "TEST", result: testResult } : null,
+      ootResult ? { split: "OOT", result: ootResult } : null,
+    ].filter(Boolean) as Array<{ split: "TEST" | "OOT"; result: ScoreResult }>;
+    if (!available.length) {
+      setMessage("Score TEST or OOT before saving stability evidence.");
+      return;
+    }
+    const failed = available.some(({ result }) => result.psi?.status === "fail" || result.vsi?.some((row) => row.status === "fail"));
+    try {
+      await createEvidence({
+        projectId,
+        projectName,
+        evidenceType: "model_diagnostics",
+        title: destination === "monitoring" ? "Final Model Stability Monitoring Baseline" : "Final Model Scoring Stability Evidence",
+        summary: `${available.map(({ split }) => split).join(" and ")} stability diagnostics for ${finalModelMetadata.name ?? "the governed final model"}.`,
+        sourcePage: "Final Model Scoring",
+        sourceRoute: "/step10",
+        datasetIds: finalModelMetadata.dataset_version ? [finalModelMetadata.dataset_version] : [],
+        modelIds: [finalModelMetadata.source_model ?? finalModelMetadata.name ?? "final_model"],
+        documentIds: [],
+        notebookIds: [],
+        supportsSections: destination === "monitoring" ? ["Model Monitoring", "Performance Monitoring", "Data Drift"] : ["Model Validation", "Stability Analysis", "Scoring"],
+        tags: ["predictive_modeling", "final_model", "psi", "vsi", destination],
+        status: failed ? "needs_review" : "ready",
+        importance: "high",
+        lineage: {
+          finalModelVersion: finalModelMetadata.final_model_version,
+          artifactHash: finalModelMetadata.artifact_hash,
+          datasetVersion: finalModelMetadata.dataset_version,
+          reference: "development_train",
+        },
+        payload: {
+          destination,
+          generatedAt: new Date().toISOString(),
+          datasets: available.map(({ split, result }) => ({
+            split,
+            rows: result.rows,
+            predictionPsi: result.psi,
+            variableStability: result.vsi,
+            vsiScope: result.vsi_scope,
+            reference: result.stability_reference,
+          })),
+        },
+      });
+      setMessage(destination === "monitoring" ? "Stability baseline added to the monitoring evidence plan." : "Scoring stability evidence saved to the Model Evidence Center.");
+    } catch (cause) {
+      setMessage(cause instanceof Error ? cause.message : "Stability evidence could not be saved.");
+    }
+  }
+
+  const scoredOutputCount = [trainResult, testResult, ootResult].filter(Boolean).length;
+  const proposedPolicy = readProposedOperatingPolicy(projectId);
+  const estimatorClass = finalModelMetadata.source_estimator_class ?? finalModelMetadata.final_estimator_class;
+  const estimatorLabel = estimatorClass === "Pipeline" && finalModelMetadata.name
+    ? `${finalModelMetadata.name} pipeline`
+    : estimatorClass ?? "Not available";
+  const modelFamilyLabel = estimatorClass === "Pipeline" && finalModelMetadata.name
+    ? finalModelMetadata.name
+    : estimatorClass ?? "Not recorded";
+  const heroMetrics: AtlasWorkflowMetric[] = [
+    { label: "Project", value: projectName },
+    { label: "Final Model", value: finalModelMetadata.name ?? (finalModelReady ? "Saved artifact" : "Required"), tone: finalModelReady ? "success" : "warning" },
+    { label: "Estimator", value: estimatorLabel },
+    { label: "Retained Features", value: finalModelMetadata.feature_count?.toLocaleString() ?? "-" },
+    { label: "Problem Type", value: problemType === "regression" ? "Regression" : "Classification" },
+    { label: "Scored Outputs", value: scoredOutputCount.toLocaleString(), tone: scoredOutputCount ? "info" : "warning" },
+    { label: "OOT Stability", value: ootResult?.psi ? `${ootResult.psi.status.toUpperCase()} | ${ootResult.psi.value.toFixed(3)}` : "Not evaluated" },
+  ];
+
+  if (finalModelReady === null) {
+    return <StepShell title="Step 10: Final Model Scoring" subtitle="Loading the governed final-model contract established in Interpretation." variant="modeling" heroMetrics={heroMetrics} nextLabel="Confirm Scoring and Continue to Documentation" nextDisabled><div className="atlas-workflow-section flex min-h-56 items-center justify-center text-sm text-slate-600">Loading final-model artifact...</div></StepShell>;
+  }
+
+  if (!finalModelReady) {
+    return (
+      <StepShell title="Step 10: Final Model Scoring" subtitle="Score TRAIN, External Validation, and Out-of-Time populations only after Interpretation saves the verified final artifact." variant="modeling" heroMetrics={heroMetrics} nextLabel="Confirm Scoring and Continue to Documentation" nextDisabled nextDisabledReason="Run RFE and save the final model in Interpretation before scoring.">
+        <AtlasAttentionPanel title="A verified final model is required" tone="warning">
+          {finalModelError || "Scoring is intentionally blocked because no saved RFE final-model artifact is available for this project."} <Link className="font-semibold underline" to="/step09">Return to Interpretation</Link>.
+        </AtlasAttentionPanel>
+      </StepShell>
+    );
+  }
+
   return (
-    <div className="w-full space-y-6">
-      <div>
-        <h1 className="text-2xl font-semibold text-slate-950">Step 10: Final Model Scoring</h1>
-        <p className="mt-1 text-sm text-slate-600">
-          {problemType === "regression"
-            ? "Score External Validation and Out-of-Time datasets using the saved final model. Out-of-Time scoring calculates prediction stability and VSI for input features."
-            : "Score External Validation and Out-of-Time datasets using the saved final model. Out-of-Time scoring calculates score PSI and VSI for input features."}
-        </p>
-      </div>
-
-      {message && <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{message}</div>}
-
-      {problemType === "classification" && <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap items-end gap-4">
-          <label className="grid gap-1 text-sm">
-            <span className="text-xs font-semibold uppercase text-slate-500">Probability Scale</span>
-            <select className="rounded-md border border-slate-300 px-3 py-2" value={correctionMethod} onChange={(event) => setCorrectionMethod(event.target.value)}>
-              <option value="none">Raw model probabilities</option>
-              <option value="prior_odds">Prior odds correction / Pozzolo-style</option>
-            </select>
-          </label>
-          <label className="grid gap-1 text-sm">
-            <span className="text-xs font-semibold uppercase text-slate-500">Original Prior</span>
-            <input className="w-36 rounded-md border border-slate-300 px-3 py-2" value={originalPrior} onChange={(event) => setOriginalPrior(event.target.value)} placeholder="auto" />
-          </label>
-          <label className="grid gap-1 text-sm">
-            <span className="text-xs font-semibold uppercase text-slate-500">Model Prior</span>
-            <input className="w-36 rounded-md border border-slate-300 px-3 py-2" value={modelPrior} onChange={(event) => setModelPrior(event.target.value)} placeholder="auto" />
-          </label>
-          <p className="max-w-xl text-xs text-slate-500">
-            Use prior correction when the training sample was balanced and you want scores back on the original event-rate scale.
-          </p>
-        </div>
-        <PozzoloPriorCorrectionCard
-          correctionMethod={correctionMethod}
-          originalPrior={originalPrior}
-          modelPrior={modelPrior}
-          result={testResult ?? trainResult ?? ootResult}
-        />
-      </section>}
-
-      {problemType === "regression" && (
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-base font-semibold text-slate-950">Pozzolo Prior Correction / Undersampling Calibration</h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
-            Pozzolo correction is classification-only and does not apply to regression predictions.
-          </p>
-        </section>
-      )}
-
-      <div className="grid gap-5">
-        <DevelopmentSplitCard
-          title="TRAIN Scored Output"
-          description="Score the fitted development TRAIN split and register it for model diagnostics."
-          loading={loading === "train"}
-          onScore={() => handleDevelopmentSplit("train")}
-          result={trainResult}
-          problemType={problemType}
-          datasetType="train"
-          onRegister={registerResult}
-          suggestedDatasetName={`${projectName || "ATLAS Project"} - TRAIN Scored Output`}
-        />
-        <UploadCard
-          title="External Validation Dataset / TEST Scored Output"
-          description="Upload a CSV with the same feature schema. If the target column is present, performance metrics are calculated."
-          loading={loading === "test"}
-          onFile={(file) => handleFile(file, "test")}
-          result={testResult}
-          problemType={problemType}
-          datasetType="test"
-          onRegister={registerResult}
-          suggestedDatasetName={`${projectName || "ATLAS Project"} - TEST Scored Output`}
-        />
-        <UploadCard
-          title="Out-of-Time Dataset / OOT Scored Output"
-          description="Upload a CSV from a later time window. PSI and VSI use the uploaded External Validation dataset as reference when available."
-          loading={loading === "oot"}
-          onFile={(file) => handleFile(file, "oot")}
-          result={ootResult}
-          showStability
-          problemType={problemType}
-          datasetType="oot"
-          onRegister={registerResult}
-          suggestedDatasetName={`${projectName || "ATLAS Project"} - OOT Scored Output`}
-        />
-      </div>
-      {registeredScoredDataset && (
-        <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900">
-          <div className="font-semibold">Scored {registeredScoredDataset.split.toUpperCase()} dataset registered.</div>
-          <div className="mt-1">The full scored output is now available in Dataset Library, Model Diagnostics, and Chart Studio.</div>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Link className="rounded-lg bg-emerald-700 px-3 py-2 text-xs font-semibold text-white" to={`/model-diagnostics?datasetId=${registeredScoredDataset.datasetId}${registeredScoredDataset.versionId ? `&versionId=${registeredScoredDataset.versionId}` : ""}`}>
-              Open in Model Diagnostics
-            </Link>
-            <Link className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-semibold text-emerald-900" to="/datasets">
-              Open Dataset Library
-            </Link>
-            <Link className="rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-semibold text-emerald-900" to={`/chart-studio?datasetId=${registeredScoredDataset.datasetId}`}>
-              Open in Chart Studio
-            </Link>
+    <StepShell
+      title="Step 10: Final Model Scoring"
+      subtitle={problemType === "regression" ? "Score governed TRAIN, External Validation, and Out-of-Time datasets with the saved final model, then compare prediction accuracy and stability." : "Score governed TRAIN, External Validation, and Out-of-Time datasets with the saved final model, then compare discrimination, lift, calibration, and stability."}
+      variant="modeling"
+      heroMetrics={heroMetrics}
+      nextPath={getNextStepPath("step10")}
+      nextDisabled={!scoredOutputCount}
+      nextDisabledReason="Score at least one governed TRAIN, External Validation, or OOT population before continuing."
+      nextLabel="Confirm Scoring and Continue to Documentation"
+      nextStatusLine={`${scoredOutputCount} scored output${scoredOutputCount === 1 ? "" : "s"} available for documentation and monitoring.`}
+      showDeveloperTools={false}
+    >
+      <div className="w-full space-y-7" data-testid="scoring-command-center">
+        <section className="overflow-hidden rounded-md border border-slate-800 bg-slate-950 text-white" data-testid="final-model-scoring-contract">
+          <div className="border-b border-slate-700 px-5 py-4">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2 text-xs font-semibold uppercase text-emerald-300"><LockKeyhole size={15} /> A. Governed Final-Model Scoring Contract</div>
+                <h2 className="mt-2 text-xl font-semibold">{finalModelMetadata.name ?? "Saved final model"}</h2>
+                <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-300">Read-only artifact identity, preprocessing, calibration, operating policy, and retained-feature lineage established before scoring.</p>
+              </div>
+              <span className="rounded-full border border-emerald-400/40 bg-emerald-400/10 px-3 py-1 text-xs font-semibold text-emerald-200">Verified artifact</span>
+            </div>
           </div>
-          <Link className="sr-only" to={`/model-diagnostics?datasetId=${registeredScoredDataset.datasetId}`}>
-            Open Model Diagnostics
-          </Link>
-        </div>
-      )}
-
-      {problemType === "regression" && (testResult || ootResult) && (
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-          <h2 className="text-base font-semibold text-slate-950">Regression Scoring Comparison</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Compare prediction distributions, performance metrics, and feature drift between External Validation and Out-of-Time data.
-          </p>
-          <RegressionScoringComparison testResult={testResult} ootResult={ootResult} />
+          <div className="grid gap-px bg-slate-700 sm:grid-cols-2 xl:grid-cols-4">
+            <ContractMetric label="Model version" value={finalModelMetadata.final_model_version ?? finalModelMetadata.dataset_version ?? "Version unavailable"} />
+            <ContractMetric label="Model family" value={modelFamilyLabel} />
+            <ContractMetric label="Retained features" value={String(finalModelMetadata.feature_count ?? finalModelMetadata.features?.length ?? "-")} />
+            <ContractMetric label="Selection method" value={finalModelMetadata.feature_selection_method ?? "Saved in Interpretation"} />
+            <ContractMetric label="Preprocessing" value={finalModelMetadata.preprocessing_pipeline ?? "Persisted training pipeline"} />
+            <ContractMetric label="Calibration" value={finalModelMetadata.calibration_method ?? (problemType === "classification" ? "Model-native / not recorded" : "Not applicable")} />
+            <ContractMetric label="Proposed threshold" value={typeof proposedPolicy?.threshold === "number" ? proposedPolicy.threshold.toFixed(3) : "No proposed policy"} />
+            <ContractMetric label="Natural event rate" value={formatRate(finalModelMetadata.natural_event_rate)} />
+          </div>
+          <details className="border-t border-slate-700 px-5 py-3 text-sm">
+            <summary className="cursor-pointer font-semibold text-slate-200">Feature manifest, hashes, and lineage</summary>
+            <div className="mt-3 grid gap-3 text-xs text-slate-300 lg:grid-cols-3">
+              <div><span className="font-semibold text-slate-100">Artifact hash:</span> {finalModelMetadata.artifact_hash ?? "Not recorded"}</div>
+              <div><span className="font-semibold text-slate-100">Dataset version:</span> {finalModelMetadata.dataset_version ?? "Not recorded"}</div>
+              <div><span className="font-semibold text-slate-100">Source candidate:</span> {finalModelMetadata.source_model ?? "Not recorded"}</div>
+              <div className="lg:col-span-3"><span className="font-semibold text-slate-100">Features:</span> {finalModelMetadata.features?.length ? finalModelMetadata.features.join(", ") : "No retained-feature manifest was returned."}</div>
+            </div>
+          </details>
         </section>
-      )}
 
-      <StepPythonPanel />
+        {message && <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">{message}</div>}
+
+        {problemType === "classification" ? (
+          <section className="border-l-4 border-indigo-500 bg-indigo-50/60 px-5 py-4">
+            <div className="flex flex-wrap items-end gap-4">
+              <label className="grid gap-1 text-sm">
+                <span className="text-xs font-semibold uppercase text-indigo-700">Scoring probability scale</span>
+                <select className="rounded-md border border-indigo-200 bg-white px-3 py-2" value={correctionMethod} onChange={(event) => setCorrectionMethod(event.target.value)}>
+                  <option value="none">Raw model probabilities</option>
+                  <option value="prior_odds">Prior odds correction / Pozzolo-style</option>
+                </select>
+              </label>
+              <label className="grid gap-1 text-sm"><span className="text-xs font-semibold uppercase text-indigo-700">Natural event prior</span><input className="w-40 rounded-md border border-indigo-200 bg-white px-3 py-2" value={originalPrior} onChange={(event) => setOriginalPrior(event.target.value)} placeholder="Auto-detect" /></label>
+              <label className="grid gap-1 text-sm"><span className="text-xs font-semibold uppercase text-indigo-700">Modeled event prior</span><input className="w-40 rounded-md border border-indigo-200 bg-white px-3 py-2" value={modelPrior} onChange={(event) => setModelPrior(event.target.value)} placeholder="Auto-detect" /></label>
+              <p className="max-w-lg text-xs leading-5 text-indigo-900">Apply prior correction only when training changed class prevalence. Every scored population uses the same governed choice in this session.</p>
+            </div>
+            <PozzoloPriorCorrectionCard correctionMethod={correctionMethod} originalPrior={originalPrior} modelPrior={modelPrior} result={testResult ?? trainResult ?? ootResult} />
+          </section>
+        ) : null}
+
+        <section className="border-l-4 border-slate-500 bg-slate-50 px-4 py-5" data-testid="train-scoring-zone">
+          <ScoringZoneHeader code="B" icon={<Database size={17} />} title="TRAIN Scoring - Development Diagnostics" description="Score the governed development population to establish the reference distribution. TRAIN is diagnostic evidence, not independent performance evidence." status={trainResult ? `${trainResult.rows?.toLocaleString() ?? "-"} rows scored` : "Awaiting score run"} />
+          <DevelopmentSplitCard title="Development TRAIN output" description="Use the fitted TRAIN split already held by the backend. No re-upload is required." loading={loading === "train"} onScore={() => handleDevelopmentSplit("train")} result={trainResult} problemType={problemType} datasetType="train" onRegister={registerResult} suggestedDatasetName={`${projectName || "ATLAS Project"} - TRAIN Scored Output`} showRegistration={false} />
+        </section>
+
+        <section className="border-l-4 border-blue-600 bg-blue-50/50 px-4 py-5" data-testid="test-scoring-zone">
+          <ScoringZoneHeader code="C" icon={<UploadCloud size={17} />} title="TEST Scoring - Independent In-Time Evaluation" description="Score an independent validation population and calculate performance plus drift against development TRAIN when the target is present." status={testResult ? `${testResult.rows?.toLocaleString() ?? "-"} rows scored` : "External dataset required"} />
+          <UploadCard title="External Validation Dataset / TEST Scored Output" description="Upload a CSV with the final-model feature schema. Performance metrics are calculated only when the governed target is present." loading={loading === "test"} onFile={(file) => handleFile(file, "test")} result={testResult} problemType={problemType} datasetType="test" onRegister={registerResult} suggestedDatasetName={`${projectName || "ATLAS Project"} - TEST Scored Output`} showRegistration={false} />
+        </section>
+
+        <section className="border-l-4 border-amber-500 bg-amber-50/50 px-4 py-5" data-testid="oot-scoring-zone">
+          <ScoringZoneHeader code="D" icon={<Activity size={17} />} title="OOT Scoring - Out-of-Time Stability Evaluation" description="Score a later time window to test temporal transportability. Prediction PSI and feature VSI use development TRAIN as the governed reference." status={ootResult ? `${ootResult.rows?.toLocaleString() ?? "-"} rows scored` : "Later-period dataset required"} />
+          <UploadCard title="Out-of-Time Dataset / OOT Scored Output" description="Upload a later-period CSV with the final-model feature schema. ATLAS keeps OOT separate from TEST for transparent temporal validation." loading={loading === "oot"} onFile={(file) => handleFile(file, "oot")} result={ootResult} problemType={problemType} datasetType="oot" onRegister={registerResult} suggestedDatasetName={`${projectName || "ATLAS Project"} - OOT Scored Output`} showRegistration={false} />
+        </section>
+
+        <section className="rounded-md border border-slate-200 bg-white p-5" data-testid="cross-dataset-performance">
+          <ScoringZoneHeader code="E" icon={<BarChart3 size={17} />} title="Cross-Dataset Performance" description="Compare actual metrics across the scored populations. Empty cells mean the backend could not evaluate that metric, usually because the target was absent." status={`${scoredOutputCount}/3 populations available`} />
+          <CrossDatasetPerformance problemType={problemType} trainResult={trainResult} testResult={testResult} ootResult={ootResult} />
+        </section>
+
+        <section className="rounded-md border border-emerald-200 bg-emerald-50/40 p-5" data-testid="stability-command-center">
+          <ScoringZoneHeader code="F" icon={<ShieldCheck size={17} />} title="Stability Command Center" description="Prediction PSI and Variable Stability Index compare TEST and OOT to development TRAIN. Pass/warning/fail statuses are backend-calculated from real scored populations." status={stabilityStatus(testResult, ootResult)} />
+          <StabilityCommandCenter trainResult={trainResult} testResult={testResult} ootResult={ootResult} problemType={problemType} onSaveEvidence={() => void saveStabilityArtifact("evidence")} onAddMonitoring={() => void saveStabilityArtifact("monitoring")} />
+        </section>
+
+        <section className="rounded-md border border-blue-200 bg-blue-50/40 p-5" data-testid="scored-output-registration">
+          <ScoringZoneHeader code="G" icon={<Save size={17} />} title="Scored Output Registration" description="Register full scored rows and diagnostic columns only after reviewing the scoring results above." status={registeredScoredDataset ? `${registeredScoredDataset.split.toUpperCase()} registered` : "No output registered this session"} />
+          <RegistrationCommandCenter projectName={projectName} problemType={problemType} trainResult={trainResult} testResult={testResult} ootResult={ootResult} onRegister={registerResult} />
+          {registeredScoredDataset ? <RegisteredOutputNotice record={registeredScoredDataset} /> : null}
+        </section>
+
+        <section className="border-t border-slate-300 pt-5" data-testid="scoring-developer-tools">
+          <ScoringZoneHeader code="H" icon={<Code2 size={17} />} title="Developer Tools and Reproducibility" description="Inspect generated code and preserve governed custom-code changes after the analytical review is complete." status="Collapsed by default" />
+          <StepPythonPanel />
+        </section>
+      </div>
+    </StepShell>
+  );
+}
+
+type ProposedOperatingPolicy = {
+  model?: string;
+  threshold?: number;
+  reviewCapacity?: number;
+  metrics?: Record<string, unknown>;
+  savedAt?: string;
+};
+
+function readProposedOperatingPolicy(projectId: string): ProposedOperatingPolicy | null {
+  try {
+    const raw = localStorage.getItem(`atlas-proposed-operating-policy:${projectId}`);
+    return raw ? JSON.parse(raw) as ProposedOperatingPolicy : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatRate(value?: number | null) {
+  return typeof value === "number" && Number.isFinite(value) ? `${(value * 100).toFixed(2)}%` : "Not recorded";
+}
+
+function ContractMetric({ label, value }: { label: string; value: string }) {
+  return <div className="min-h-20 bg-slate-900 px-4 py-3"><div className="text-[10px] font-semibold uppercase text-slate-400">{label}</div><div className="mt-1 text-sm font-semibold leading-5 text-white">{value}</div></div>;
+}
+
+function ScoringZoneHeader({ code, icon, title, description, status }: { code: string; icon: ReactNode; title: string; description: string; status: string }) {
+  return (
+    <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
+      <div className="max-w-4xl">
+        <div className="flex items-center gap-2 text-xs font-semibold uppercase text-blue-700">{icon} {code}. Scoring command center</div>
+        <h2 className="mt-1 text-lg font-semibold text-slate-950">{title}</h2>
+        <p className="mt-1 text-sm leading-6 text-slate-600">{description}</p>
+      </div>
+      <span className="rounded-full border border-slate-200 bg-white px-3 py-1 text-xs font-semibold text-slate-700">{status}</span>
     </div>
   );
 }
+
+function metricNumber(result: ScoreResult | null, key: string) {
+  const value = result?.metrics?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function topDecileValue(result: ScoreResult | null, key: "lift" | "capture_rate") {
+  const rows = result?.lift ?? [];
+  const top = rows.find((row) => row.decile === 1) ?? rows[0];
+  const value = top?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function displayMetric(value: number | null, digits = 4) {
+  return value == null ? "-" : value.toFixed(digits);
+}
+
+function displayDelta(reference: number | null, comparison: number | null) {
+  if (reference == null || comparison == null) return "-";
+  const delta = comparison - reference;
+  return `${delta >= 0 ? "+" : ""}${delta.toFixed(4)}`;
+}
+
+function CrossDatasetPerformance({ problemType, trainResult, testResult, ootResult }: { problemType: "classification" | "regression"; trainResult: ScoreResult | null; testResult: ScoreResult | null; ootResult: ScoreResult | null }) {
+  const populations = [
+    { label: "TRAIN", result: trainResult, color: "#475569" },
+    { label: "TEST", result: testResult, color: "#2563eb" },
+    { label: "OOT", result: ootResult, color: "#d97706" },
+  ];
+  const metrics = problemType === "classification"
+    ? [
+        { label: "ROC-AUC", value: (result: ScoreResult | null) => metricNumber(result, "auc") },
+        { label: "PR-AUC", value: (result: ScoreResult | null) => metricNumber(result, "pr_auc") },
+        { label: "Accuracy (context only)", value: (result: ScoreResult | null) => metricNumber(result, "accuracy"), muted: true },
+        { label: "Precision", value: (result: ScoreResult | null) => metricNumber(result, "precision") },
+        { label: "Recall", value: (result: ScoreResult | null) => metricNumber(result, "recall") },
+        { label: "F1", value: (result: ScoreResult | null) => metricNumber(result, "f1") },
+        { label: "KS", value: (result: ScoreResult | null) => metricNumber(result, "ks") },
+        { label: "Top-decile lift", value: (result: ScoreResult | null) => topDecileValue(result, "lift") },
+        { label: "Top-decile capture", value: (result: ScoreResult | null) => topDecileValue(result, "capture_rate") },
+        { label: "Brier score", value: (result: ScoreResult | null) => metricNumber(result, "brier_score") },
+        { label: "Mean score", value: (result: ScoreResult | null) => result?.score_summary?.mean ?? null },
+        { label: "Event rate", value: (result: ScoreResult | null) => metricNumber(result, "event_rate") },
+      ]
+    : [
+        { label: "RMSE", value: (result: ScoreResult | null) => metricNumber(result, "rmse") },
+        { label: "MAE", value: (result: ScoreResult | null) => metricNumber(result, "mae") },
+        { label: "R-squared", value: (result: ScoreResult | null) => metricNumber(result, "r2") },
+        { label: "Adjusted R-squared", value: (result: ScoreResult | null) => metricNumber(result, "adjusted_r2") },
+        { label: "Mean prediction", value: (result: ScoreResult | null) => result?.score_summary?.mean ?? null },
+      ];
+  if (!populations.some(({ result }) => result)) return <EmptyScoringState text="Score at least one population to populate the comparison table and metric movement visual." />;
+  return (
+    <div className="space-y-5">
+      <div className="overflow-x-auto rounded-md border border-slate-200">
+        <table className="min-w-[860px] w-full text-sm">
+          <thead className="bg-slate-950 text-left text-xs uppercase text-slate-200"><tr><th className="px-4 py-3">Metric</th><th className="px-4 py-3">TRAIN <span className="block text-[9px] font-normal normal-case text-slate-400">Development diagnostics</span></th><th className="px-4 py-3">TEST</th><th className="px-4 py-3">OOT</th><th className="px-4 py-3">TEST change</th><th className="px-4 py-3">OOT change</th></tr></thead>
+          <tbody>{metrics.map((metric) => {
+            const train = metric.value(trainResult), test = metric.value(testResult), oot = metric.value(ootResult);
+            return <tr key={metric.label} className={`border-t border-slate-200 ${"muted" in metric && metric.muted ? "bg-slate-50 text-slate-500" : "bg-white"}`}><td className="px-4 py-3 font-semibold">{metric.label}</td><td className="px-4 py-3 font-mono">{displayMetric(train)}</td><td className="px-4 py-3 font-mono">{displayMetric(test)}</td><td className="px-4 py-3 font-mono">{displayMetric(oot)}</td><td className="px-4 py-3 font-mono">{displayDelta(train, test)}</td><td className="px-4 py-3 font-mono">{displayDelta(train, oot)}</td></tr>;
+          })}</tbody>
+        </table>
+      </div>
+      <MetricMovementChart problemType={problemType} populations={populations} />
+      {problemType === "regression" && (testResult || ootResult) ? <RegressionScoringComparison testResult={testResult} ootResult={ootResult} /> : null}
+    </div>
+  );
+}
+
+function MetricMovementChart({ problemType, populations }: { problemType: "classification" | "regression"; populations: Array<{ label: string; result: ScoreResult | null; color: string }> }) {
+  const definitions = problemType === "classification"
+    ? [{ label: "ROC-AUC", key: "auc" }, { label: "PR-AUC", key: "pr_auc" }, { label: "KS", key: "ks" }]
+    : [{ label: "RMSE", key: "rmse" }, { label: "MAE", key: "mae" }, { label: "R-squared", key: "r2" }];
+  return (
+    <div className="rounded-md border border-slate-200 bg-slate-50 p-4">
+      <div className="text-sm font-semibold text-slate-900">Metric movement by population</div>
+      <div className="mt-4 grid gap-5 lg:grid-cols-3">
+        {definitions.map((definition) => {
+          const values = populations.map(({ result }) => metricNumber(result, definition.key));
+          const max = Math.max(...values.filter((value): value is number => value != null), 0.0001);
+          return <div key={definition.key}><div className="text-xs font-semibold uppercase text-slate-500">{definition.label}</div><div className="mt-3 space-y-2">{populations.map(({ label, result, color }) => { const value = metricNumber(result, definition.key); return <div key={label} className="grid grid-cols-[42px_1fr_58px] items-center gap-2 text-xs"><span className="font-semibold text-slate-600">{label}</span><div className="h-2.5 rounded-sm bg-slate-200"><div className="h-2.5 rounded-sm" style={{ width: value == null ? "0%" : `${Math.max(3, Math.min(100, (value / max) * 100))}%`, backgroundColor: color }} /></div><span className="font-mono text-right">{displayMetric(value, 3)}</span></div>; })}</div></div>;
+        })}
+      </div>
+    </div>
+  );
+}
+
+function stabilityStatus(testResult: ScoreResult | null, ootResult: ScoreResult | null) {
+  const rows = [testResult?.psi, ootResult?.psi].filter(Boolean) as Array<{ status: Status }>;
+  if (!rows.length) return "Awaiting TEST or OOT";
+  if (rows.some((row) => row.status === "fail")) return "Review required";
+  if (rows.some((row) => row.status === "warning")) return "Warning";
+  return "Within tolerance";
+}
+
+function StabilityCommandCenter({ trainResult, testResult, ootResult, problemType, onSaveEvidence, onAddMonitoring }: { trainResult: ScoreResult | null; testResult: ScoreResult | null; ootResult: ScoreResult | null; problemType: "classification" | "regression"; onSaveEvidence: () => void; onAddMonitoring: () => void }) {
+  const comparisons = [{ label: "TRAIN vs TEST", result: testResult }, { label: "TRAIN vs OOT", result: ootResult }];
+  const available = comparisons.some(({ result }) => result?.psi || result?.vsi?.length);
+  return (
+    <div className="space-y-5">
+      {!available ? <EmptyScoringState text="Score TEST or OOT to calculate prediction PSI and feature-level VSI against development TRAIN." /> : (
+        <div className="grid gap-5 xl:grid-cols-2">
+          {comparisons.map(({ label, result }) => <div key={label} className="rounded-md border border-slate-200 bg-white p-4"><div className="flex items-center justify-between gap-3"><h3 className="font-semibold text-slate-950">{label}</h3>{result?.psi ? <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold uppercase ${statusClass(result.psi.status)}`}>{result.psi.status}</span> : null}</div>{result?.psi ? <div className="mt-4 grid gap-3 sm:grid-cols-3"><Stat label="Prediction PSI" value={result.psi.value.toFixed(4)} /><Stat label="VSI features" value={String(result.vsi?.length ?? 0)} /><Stat label="Reference" value="Development TRAIN" /></div> : <div className="mt-4 text-sm text-slate-500">This population has not been scored with a valid development reference.</div>}</div>)}
+        </div>
+      )}
+      {available ? <><ScoreDistributionComparison trainResult={trainResult} testResult={testResult} ootResult={ootResult} problemType={problemType} /><CombinedVsiTable testResult={testResult} ootResult={ootResult} /></> : null}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-emerald-200 pt-4">
+        <p className="text-xs leading-5 text-slate-600">Thresholds: pass below 0.10, warning from 0.10 to below 0.25, fail at 0.25 or above. Evidence records the exact backend values and reference population.</p>
+        <div className="flex flex-wrap gap-2"><button type="button" className="atlas-secondary-button" onClick={onSaveEvidence} disabled={!available}><Save size={15} /> Save as Evidence</button><button type="button" className="atlas-primary-button" onClick={onAddMonitoring} disabled={!available}><Activity size={15} /> Add to Monitoring Plan</button></div>
+      </div>
+    </div>
+  );
+}
+
+function scoredValues(result: ScoreResult | null) {
+  if (!result) return [];
+  const source = result.scored_rows?.length ? result.scored_rows : result.preview ?? [];
+  return source.map((row) => {
+    const candidate = row.adjusted_score ?? row.score ?? row.predicted_value;
+    const value = typeof candidate === "number" ? candidate : Number(candidate);
+    return Number.isFinite(value) ? value : null;
+  }).filter((value): value is number => value != null);
+}
+
+function ScoreDistributionComparison({ trainResult, testResult, ootResult, problemType }: { trainResult: ScoreResult | null; testResult: ScoreResult | null; ootResult: ScoreResult | null; problemType: "classification" | "regression" }) {
+  const series = useMemo(() => [
+    { label: "TRAIN", color: "#475569", values: scoredValues(trainResult) },
+    { label: "TEST", color: "#2563eb", values: scoredValues(testResult) },
+    { label: "OOT", color: "#d97706", values: scoredValues(ootResult) },
+  ], [trainResult, testResult, ootResult]);
+  const all = series.flatMap((item) => item.values);
+  if (!all.length) return null;
+  const min = Math.min(...all), max = Math.max(...all), span = Math.max(max - min, 1e-9), bins = 18;
+  const distributions = series.map((item) => {
+    const counts = Array.from({ length: bins }, () => 0);
+    item.values.forEach((value) => { counts[Math.min(bins - 1, Math.max(0, Math.floor(((value - min) / span) * bins)))] += 1; });
+    const total = Math.max(1, item.values.length);
+    return { ...item, shares: counts.map((count) => count / total) };
+  });
+  const peak = Math.max(...distributions.flatMap((item) => item.shares), 0.001);
+  const width = 820, height = 270, left = 52, right = 18, top = 24, bottom = 42;
+  const x = (index: number) => left + (index / Math.max(1, bins - 1)) * (width - left - right);
+  const y = (value: number) => top + (1 - value / peak) * (height - top - bottom);
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-4" data-testid="score-distribution-comparison">
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-xs font-semibold uppercase text-emerald-700">Score shift</div><h3 className="mt-1 font-semibold text-slate-950">{problemType === "regression" ? "Prediction" : "Score"} distribution comparison</h3><p className="mt-1 text-xs text-slate-500">Curves use the full scored output returned by the backend when available.</p></div><div className="flex gap-3 text-xs">{distributions.map((item) => <span key={item.label} className="flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: item.color }} />{item.label}</span>)}</div></div>
+      <div className="mt-3 overflow-x-auto"><svg viewBox={`0 0 ${width} ${height}`} className="min-w-[720px] w-full" role="img" aria-label={`${problemType === "regression" ? "Prediction" : "Score"} distribution comparison across TRAIN TEST and OOT`}><line x1={left} y1={height - bottom} x2={width - right} y2={height - bottom} stroke="#94a3b8" /><line x1={left} y1={top} x2={left} y2={height - bottom} stroke="#94a3b8" />{distributions.filter((item) => item.values.length).map((item) => <polyline key={item.label} points={item.shares.map((value, index) => `${x(index)},${y(value)}`).join(" ")} fill="none" stroke={item.color} strokeWidth="3" strokeLinejoin="round" />)}<text x={left} y={height - 16} className="fill-slate-500 text-[11px]">{min.toFixed(3)}</text><text x={width - right} y={height - 16} textAnchor="end" className="fill-slate-500 text-[11px]">{max.toFixed(3)}</text><text x={width / 2} y={height - 8} textAnchor="middle" className="fill-slate-600 text-[11px]">{problemType === "regression" ? "Predicted value" : "Score / probability"}</text><text x={14} y={height / 2} transform={`rotate(-90 14 ${height / 2})`} textAnchor="middle" className="fill-slate-600 text-[11px]">Share of population</text></svg></div>
+    </div>
+  );
+}
+
+function CombinedVsiTable({ testResult, ootResult }: { testResult: ScoreResult | null; ootResult: ScoreResult | null }) {
+  const test = new Map((testResult?.vsi ?? []).map((row) => [row.feature, row]));
+  const oot = new Map((ootResult?.vsi ?? []).map((row) => [row.feature, row]));
+  const features = [...new Set([...test.keys(), ...oot.keys()])].map((feature) => ({ feature, test: test.get(feature), oot: oot.get(feature) })).sort((a, b) => Math.max(b.test?.value ?? -1, b.oot?.value ?? -1) - Math.max(a.test?.value ?? -1, a.oot?.value ?? -1)).slice(0, 20);
+  if (!features.length) return null;
+  const rank = (testStatus?: Status, ootStatus?: Status): Status => testStatus === "fail" || ootStatus === "fail" ? "fail" : testStatus === "warning" || ootStatus === "warning" ? "warning" : "pass";
+  return (
+    <div className="rounded-md border border-slate-200 bg-white p-4" data-testid="combined-variable-stability-index">
+      <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="text-xs font-semibold uppercase text-emerald-700">Variable Stability Index</div><h3 className="mt-1 font-semibold text-slate-950">Top unstable retained variables</h3><p className="mt-1 text-xs text-slate-500">Ranked by the largest observed shift across TEST and OOT.</p></div><Link className="atlas-secondary-button" to="/model-diagnostics">Distribution drill-down</Link></div>
+      <div className="mt-4 max-h-96 overflow-auto rounded-md border border-slate-200"><table className="w-full min-w-[660px] text-sm"><thead className="sticky top-0 bg-slate-950 text-left text-xs uppercase text-slate-200"><tr><th className="px-3 py-2">Rank</th><th className="px-3 py-2">Feature</th><th className="px-3 py-2">TRAIN vs TEST VSI</th><th className="px-3 py-2">TRAIN vs OOT VSI</th><th className="px-3 py-2">Status</th></tr></thead><tbody>{features.map((row, index) => { const status = rank(row.test?.status, row.oot?.status); return <tr key={row.feature} className="border-t border-slate-200"><td className="px-3 py-2 font-semibold">{index + 1}</td><td className="px-3 py-2 font-medium text-slate-950">{row.feature}</td><td className="px-3 py-2 font-mono">{row.test?.value.toFixed(4) ?? "-"}</td><td className="px-3 py-2 font-mono">{row.oot?.value.toFixed(4) ?? "-"}</td><td className="px-3 py-2"><span className={`rounded-full border px-2 py-1 text-[10px] font-semibold uppercase ${statusClass(status)}`}>{status}</span></td></tr>; })}</tbody></table></div>
+    </div>
+  );
+}
+
+function RegistrationCommandCenter({ projectName, problemType, trainResult, testResult, ootResult, onRegister }: { projectName: string; problemType: "classification" | "regression"; trainResult: ScoreResult | null; testResult: ScoreResult | null; ootResult: ScoreResult | null; onRegister: (result: ScoreResult, datasetType: ScoredSplit, datasetName?: string) => Promise<void> }) {
+  const [names, setNames] = useState<Record<ScoredSplit, string>>({ train: `${projectName || "ATLAS Project"} - TRAIN Scored Output`, test: `${projectName || "ATLAS Project"} - TEST Scored Output`, oot: `${projectName || "ATLAS Project"} - OOT Scored Output` });
+  const [busy, setBusy] = useState<ScoredSplit | "">("");
+  useEffect(() => setNames({ train: `${projectName || "ATLAS Project"} - TRAIN Scored Output`, test: `${projectName || "ATLAS Project"} - TEST Scored Output`, oot: `${projectName || "ATLAS Project"} - OOT Scored Output` }), [projectName]);
+  const rows = [{ split: "train" as const, result: trainResult }, { split: "test" as const, result: testResult }, { split: "oot" as const, result: ootResult }];
+  async function register(split: ScoredSplit, result: ScoreResult) { setBusy(split); try { await onRegister(result, split, names[split]); } finally { setBusy(""); } }
+  return (
+    <div className="space-y-3">
+      {rows.map(({ split, result }) => <div key={split} className="grid gap-3 rounded-md border border-blue-100 bg-white p-3 lg:grid-cols-[90px_minmax(220px,1fr)_repeat(3,minmax(90px,0.45fr))_auto] lg:items-center"><div className="font-semibold text-slate-950">{split.toUpperCase()}</div><label className="grid gap-1"><span className="text-[10px] font-semibold uppercase text-slate-500">Registered dataset name</span><input className="rounded-md border border-slate-200 px-3 py-2 text-sm" value={names[split]} onChange={(event) => setNames((current) => ({ ...current, [split]: event.target.value }))} /></label><RegistrationFact label="Rows" value={result?.rows?.toLocaleString() ?? "Not scored"} /><RegistrationFact label="Columns" value={String(result?.scored_columns?.length ?? 0)} /><RegistrationFact label="Scope" value={result?.scored_row_scope === "full_scored_output" ? "Full output" : result ? "Preview" : "-"} /><button type="button" className="atlas-primary-button justify-center" disabled={!result || busy !== ""} onClick={() => result && void register(split, result)}>{busy === split ? "Registering..." : "Register"}</button></div>)}
+      <div className="flex flex-wrap gap-2 pt-2"><Link className="atlas-secondary-button" to="/datasets"><Database size={15} /> Dataset Library</Link><Link className="atlas-secondary-button" to="/model-diagnostics"><Activity size={15} /> Model Diagnostics</Link><Link className="atlas-secondary-button" to="/chart-studio"><BarChart3 size={15} /> Chart Studio</Link></div>
+      <p className="text-xs text-slate-500">Registration preserves the full scored rows returned by the backend, the final-model name, task, target role, score/prediction fields, residuals where applicable, and stability metadata.</p>
+    </div>
+  );
+}
+
+function RegistrationFact({ label, value }: { label: string; value: string }) { return <div><div className="text-[10px] font-semibold uppercase text-slate-500">{label}</div><div className="mt-1 text-sm font-semibold text-slate-800">{value}</div></div>; }
+
+function RegisteredOutputNotice({ record }: { record: { datasetId: string; versionId?: string; split: ScoredSplit } }) {
+  return <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950"><div className="font-semibold">Scored {record.split.toUpperCase()} output registered</div><div className="mt-1">The dataset is available for diagnostics, charts, lineage, and monitoring.</div><div className="mt-3 flex flex-wrap gap-2"><Link className="atlas-primary-button" to={`/model-diagnostics?datasetId=${record.datasetId}${record.versionId ? `&versionId=${record.versionId}` : ""}`}>Open Model Diagnostics</Link><Link className="atlas-secondary-button" to={`/chart-studio?datasetId=${record.datasetId}`}>Open Chart Studio</Link></div></div>;
+}
+
+function EmptyScoringState({ text }: { text: string }) { return <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 px-4 py-8 text-center text-sm text-slate-600">{text}</div>; }
 
 function UploadCard({
   title,
@@ -355,6 +717,7 @@ function UploadCard({
   onFile,
   result,
   showStability = false,
+  showRegistration = true,
   problemType,
   datasetType,
   onRegister,
@@ -366,6 +729,7 @@ function UploadCard({
   onFile: (file: File | undefined) => void;
   result: ScoreResult | null;
   showStability?: boolean;
+  showRegistration?: boolean;
   problemType: "classification" | "regression";
   datasetType: "test" | "oot";
   onRegister: (result: ScoreResult, datasetType: ScoredSplit, datasetName?: string) => Promise<void>;
@@ -378,7 +742,7 @@ function UploadCard({
   const columnsAvailable = registrationRows[0] ? Object.keys(registrationRows[0]) : [];
   const detectedRoles = detectRegistrationRoles(columnsAvailable, result?.task ?? problemType);
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <section className="rounded-md border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-base font-semibold text-slate-950">{title}</h2>
@@ -392,7 +756,7 @@ function UploadCard({
 
       {result && (
         <div className="mt-5 space-y-5">
-          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950 shadow-sm">
+          {showRegistration ? <div className="rounded-md border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
               <div className="max-w-3xl">
                 <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Register Full Scored Output</div>
@@ -430,12 +794,17 @@ function UploadCard({
               <Link className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-semibold text-blue-900" to="/model-diagnostics">Open Model Diagnostics</Link>
               <Link className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-semibold text-blue-900" to="/chart-studio">Open in Chart Studio</Link>
             </div>
-          </div>
+          </div> : null}
           <div className="grid gap-3 sm:grid-cols-4">
             <Stat label="Rows" value={String(result.rows ?? "-")} />
             <Stat label={problemType === "regression" ? "Min Prediction" : "Min Score"} value={format(result.score_summary?.min)} />
             <Stat label={problemType === "regression" ? "Mean Prediction" : "Mean Score"} value={format(result.score_summary?.mean)} />
             <Stat label={problemType === "regression" ? "Max Prediction" : "Max Score"} value={format(result.score_summary?.max)} />
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <RegistrationFact label="Dataset identity" value={result.dataset_identity ?? `${datasetType.toUpperCase()} uploaded dataset`} />
+            <RegistrationFact label="Version / hash" value={result.dataset_version ?? "Not returned"} />
+            <RegistrationFact label="Evaluation period" value={result.period?.start && result.period?.end ? `${result.period.start.slice(0, 10)} to ${result.period.end.slice(0, 10)}` : datasetType === "oot" ? "No date column detected" : "In-time validation"} />
           </div>
           {problemType === "regression" && (
             <RegressionScoreVisual result={result} />
@@ -514,6 +883,7 @@ function DevelopmentSplitCard({
   datasetType,
   onRegister,
   suggestedDatasetName,
+  showRegistration = true,
 }: {
   title: string;
   description: string;
@@ -524,6 +894,7 @@ function DevelopmentSplitCard({
   datasetType: "train";
   onRegister: (result: ScoreResult, datasetType: ScoredSplit, datasetName?: string) => Promise<void>;
   suggestedDatasetName: string;
+  showRegistration?: boolean;
 }) {
   const [datasetName, setDatasetName] = useState(suggestedDatasetName);
   useEffect(() => setDatasetName(suggestedDatasetName), [suggestedDatasetName]);
@@ -532,7 +903,7 @@ function DevelopmentSplitCard({
   const columnsAvailable = registrationRows[0] ? Object.keys(registrationRows[0]) : [];
   const detectedRoles = detectRegistrationRoles(columnsAvailable, result?.task ?? problemType);
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <section className="rounded-md border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-base font-semibold text-slate-950">{title}</h2>
@@ -553,6 +924,7 @@ function DevelopmentSplitCard({
           columnsAvailable={columnsAvailable}
           detectedRoles={detectedRoles}
           onRegister={() => onRegister(result, datasetType, datasetName)}
+          showRegistration={showRegistration}
         />
       ) : (
         <div className="mt-5 rounded-xl border border-dashed border-slate-300 bg-slate-50 p-5 text-sm text-slate-600">
@@ -573,6 +945,7 @@ function ScoredRegistrationPanel({
   columnsAvailable,
   detectedRoles,
   onRegister,
+  showRegistration = true,
 }: {
   result: ScoreResult;
   problemType: "classification" | "regression";
@@ -583,11 +956,12 @@ function ScoredRegistrationPanel({
   columnsAvailable: string[];
   detectedRoles: ReturnType<typeof detectRegistrationRoles>;
   onRegister: () => void;
+  showRegistration?: boolean;
 }) {
   const targetColumn = result.target_column || result.model?.target || detectTargetColumn(result) || "Not detected";
   return (
     <div className="mt-5 space-y-5">
-      <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950 shadow-sm">
+      {showRegistration ? <div className="rounded-md border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="max-w-3xl">
             <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Register Full Scored Output</div>
@@ -626,13 +1000,14 @@ function ScoredRegistrationPanel({
           <Link className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-semibold text-blue-900" to="/model-diagnostics">Open Model Diagnostics</Link>
           <Link className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-xs font-semibold text-blue-900" to="/chart-studio">Open in Chart Studio</Link>
         </div>
-      </div>
+      </div> : null}
       <div className="grid gap-3 sm:grid-cols-4">
         <Stat label="Rows" value={String(result.rows ?? "-")} />
         <Stat label={problemType === "regression" ? "Min Prediction" : "Min Score"} value={format(result.score_summary?.min)} />
         <Stat label={problemType === "regression" ? "Mean Prediction" : "Mean Score"} value={format(result.score_summary?.mean)} />
         <Stat label={problemType === "regression" ? "Max Prediction" : "Max Score"} value={format(result.score_summary?.max)} />
       </div>
+      <div className="grid gap-3 sm:grid-cols-3"><RegistrationFact label="Dataset identity" value={result.dataset_identity ?? "Governed development TRAIN split"} /><RegistrationFact label="Dataset version" value={result.dataset_version ?? "Not returned"} /><RegistrationFact label="Evidence role" value="Development diagnostics" /></div>
       {problemType === "regression" && <RegressionScoreVisual result={result} />}
       <Preview rows={result.preview ?? []} problemType={problemType} />
     </div>

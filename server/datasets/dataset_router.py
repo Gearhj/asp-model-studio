@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Optional
+import pandas as pd
 
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from fastapi import Depends
@@ -27,7 +28,11 @@ from .dataset_registry import (
     share_dataset,
     switch_user,
     unlink_project_dataset,
+    ARTIFACT_ROOT,
 )
+from ..core.dataset_store import DATASTORE
+from ..core.result_store import RESULTS
+from ..core.session_checkpoint import save_checkpoint
 from ..security.security_store import require_user, user_can_access_project, audit_event
 
 
@@ -142,6 +147,48 @@ def get_profile(dataset_id: str, version_id: str) -> Dict[str, Any]:
 @router.get("/datasets/{dataset_id}/versions/{version_id}/preview")
 def get_preview(dataset_id: str, version_id: str) -> Dict[str, Any]:
     return {"ok": True, "preview": read_version_artifact(dataset_id, version_id, "preview.json", {"rows": [], "columns": []})}
+
+
+@router.post("/datasets/{dataset_id}/versions/{version_id}/activate")
+def activate_dataset_version(dataset_id: str, version_id: str) -> Dict[str, Any]:
+    dataset = require_dataset(dataset_id)
+    version = next((item for item in dataset.get("versions", []) if item.get("versionId") == version_id), None)
+    if not version:
+        raise HTTPException(status_code=404, detail="Dataset version not found.")
+    relative_path = version.get("fullDataPath")
+    if not relative_path:
+        raise HTTPException(status_code=409, detail="This dataset version does not contain a full registered artifact.")
+    path = (ARTIFACT_ROOT / str(relative_path)).resolve()
+    root = ARTIFACT_ROOT.resolve()
+    if root not in path.parents or not path.exists():
+        raise HTTPException(status_code=409, detail="The full registered dataset artifact is unavailable.")
+    try:
+        df = pd.read_csv(path)
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Unable to load registered dataset version: {exc}") from exc
+    DATASTORE.set_raw(df)
+    DATASTORE.set_target(None)
+    DATASTORE.meta["selected_columns"] = [str(column) for column in df.columns]
+    DATASTORE.meta["dataset_version"] = version_id
+    DATASTORE.meta["source"] = {
+        "kind": "dataset_library",
+        "datasetId": dataset_id,
+        "version": version_id,
+        "filename": version.get("originalFilename") or dataset.get("name"),
+        "rows": int(df.shape[0]),
+        "columns": int(df.shape[1]),
+    }
+    RESULTS.clear_model_artifacts()
+    save_checkpoint()
+    return {
+        "ok": True,
+        "datasetId": dataset_id,
+        "versionId": version_id,
+        "row_count": int(df.shape[0]),
+        "column_count": int(df.shape[1]),
+        "headers": [str(column) for column in df.columns],
+        "selected_columns": [str(column) for column in df.columns],
+    }
 
 
 @router.post("/datasets/{dataset_id}/share")

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type React from "react";
 import { Link } from "react-router-dom";
-import { ArrowUpRight, Database, Download, FileText, Filter, GitBranch, Network, PlusCircle, RefreshCw, Search, ShieldCheck } from "lucide-react";
+import { ArrowUpRight, Database, Download, FileText, Filter, GitBranch, Network, PlusCircle, RefreshCw, Search, Share2, ShieldCheck } from "lucide-react";
 import BrandLogo from "../components/BrandLogo";
+import ShareResourceDialog from "../components/sharing/ShareResourceDialog";
 import {
   autoCaptureEvidence,
   createEvidence,
@@ -29,8 +30,39 @@ import {
   techniqueLabel,
 } from "../lib/financialServicesEvidence";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { getProjectPersistenceBundle, type PersistedRecord } from "../lib/serverPersistence";
+import { persistedEvidenceStatusToLegacy, summarizePersistedEvidence } from "../lib/persistedEvidenceStatus";
 
 type EvidenceTab = "inventory" | "timeline" | "map" | "coverage" | "financial";
+
+function persistedEvidenceItem(record: PersistedRecord, projectId: string, projectName: string): EvidenceItem {
+  const payload = record.payload && typeof record.payload === "object" ? record.payload : {};
+  return {
+    evidenceId: String(record.evidenceId),
+    projectId,
+    projectName,
+    evidenceType: String(record.artifactType || "governance") as EvidenceItem["evidenceType"],
+    title: String(record.title || "Optimization Evidence"),
+    summary: String(record.summary || "Persisted governed artifact from the ATLAS SQLite evidence registry."),
+    sourcePage: String(record.sourceRef || record.stepId || "Optimization Workflow"),
+    sourceRoute: String(record.sourceRef || ""),
+    artifactType: String(record.artifactType || "evidence"),
+    artifactId: String(record.artifactHash || record.evidenceId),
+    datasetIds: [],
+    modelIds: [],
+    documentIds: [],
+    notebookIds: [],
+    supportsSections: [],
+    tags: ["optimization", "sqlite", String(record.artifactType || "evidence")],
+    status: persistedEvidenceStatusToLegacy(record.status),
+    importance: /solution|validation|recommendation|documentation/.test(String(record.artifactType)) ? "critical" : "high",
+    createdAt: record.createdAt,
+    capturedAt: record.capturedAt,
+    createdBy: record.createdBy,
+    workflowStep: record.stepId,
+    payload,
+  };
+}
 
 export default function EvidenceGraph() {
   const projectId = useWorkflowStore((state) => state.projectId);
@@ -43,6 +75,7 @@ export default function EvidenceGraph() {
   const [mapFocusMode, setMapFocusMode] = useState(false);
   const [filters, setFilters] = useState({ search: "", evidenceType: "", status: "", importance: "", tag: "", financialDomain: "", financialTechnique: "", productType: "", modelPurpose: "", regulatoryRelevance: "" });
   const [creditRiskForm, setCreditRiskForm] = useState<string | null>(null);
+  const [shareEvidence, setShareEvidence] = useState<EvidenceItem | null>(null);
   const [message, setMessage] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -50,11 +83,39 @@ export default function EvidenceGraph() {
     setLoading(true);
     setMessage("");
     try {
-      const nextItems = await listEvidence({ projectId, ...filters });
-      const [nextGraph, nextCoverage] = await Promise.all([
+      const [legacyItems, nextGraph, legacyCoverage, persistenceBundle] = await Promise.all([
+        listEvidence({ projectId, ...filters }),
         getEvidenceGraph(projectId).catch(() => ({ nodes: [], edges: [] })),
         getEvidenceCoverage(projectId).catch(() => null),
+        getProjectPersistenceBundle(projectId).catch(() => null),
       ]);
+      const persistedItems = (persistenceBundle?.evidence ?? []).map((record) => persistedEvidenceItem(record, projectId, projectName));
+      const merged = new Map<string, EvidenceItem>();
+      persistedItems.forEach((item) => merged.set(item.evidenceId, item));
+      legacyItems.forEach((item) => merged.set(item.evidenceId, { ...merged.get(item.evidenceId), ...item }));
+      const nextItems = [...merged.values()].filter((item) => {
+        if (filters.evidenceType && item.evidenceType !== filters.evidenceType) return false;
+        if (filters.status && item.status !== filters.status) return false;
+        if (filters.importance && item.importance !== filters.importance) return false;
+        if (filters.tag && !item.tags.includes(filters.tag)) return false;
+        return true;
+      });
+      const persistedSummary = summarizePersistedEvidence(persistenceBundle?.evidence ?? []);
+      const nextCoverage = legacyCoverage && (legacyCoverage.totalEvidence > 0 || !persistedItems.length)
+        ? legacyCoverage
+        : persistedItems.length
+          ? {
+              projectId,
+              workflowType: "optimization",
+              totalEvidence: persistedItems.length,
+              readyEvidence: persistedSummary.readyCount,
+              needsReviewEvidence: persistedSummary.rejectedCount + persistedSummary.staleCount,
+              coverageScore: persistedSummary.coverageScore,
+              categories: [],
+              warnings: [],
+              missingRecommended: [],
+            }
+          : legacyCoverage;
       setItems(nextItems);
       setGraph(nextGraph);
       setCoverage(nextCoverage);
@@ -295,6 +356,10 @@ export default function EvidenceGraph() {
                 </div>
               </div>
               <p className="text-sm leading-6 text-slate-600">{selected.summary}</p>
+              <DetailBlock title="Reference ID" text={selected.evidenceId} />
+              <DetailBlock title="Workflow step" text={selected.workflowStep || "Not specified"} />
+              <DetailBlock title="Evidence timing" text={`Created: ${formatDate(selected.createdAt)}\nCaptured: ${selected.capturedAt ? formatDate(selected.capturedAt) : "Not captured"}`} />
+              <DetailBlock title="Source data or run" text={`${selected.datasetIds?.join(", ") || "No source dataset reference"}\n${selected.sourceRunReference || "No source run reference"}`} />
               <DetailBlock title="What this proves" text={evidenceProof(selected)} />
               <DetailBlock title="Where it came from" text={`${selected.sourcePage || "ATLAS"}\n${selected.sourceRoute || ""}`} />
               <DetailBlock title="What it supports" text={(selected.supportsSections ?? []).join("\n") || "No model document sections mapped."} />
@@ -314,6 +379,7 @@ export default function EvidenceGraph() {
                 <button type="button" onClick={() => markStatus(selected, "ready")} className="atlas-secondary-button justify-center">Mark Ready</button>
                 <button type="button" onClick={() => markStatus(selected, "needs_review")} className="atlas-secondary-button justify-center">Mark Needs Review</button>
                 <button type="button" onClick={() => attachToDocumentation(selected)} className="inline-flex items-center justify-center rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white">Attach to Documentation</button>
+                <button type="button" onClick={() => setShareEvidence(selected)} className="atlas-secondary-button justify-center"><Share2 size={14} /> Share Evidence</button>
                 <button type="button" onClick={() => deleteEvidence(selected.evidenceId).then(refresh)} className="rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700">Delete Evidence</button>
               </div>
             </div>
@@ -322,6 +388,13 @@ export default function EvidenceGraph() {
           )}
         </aside>}
       </section>
+      <ShareResourceDialog
+        open={Boolean(shareEvidence)}
+        onClose={() => setShareEvidence(null)}
+        resourceType="evidence_artifact"
+        resourceId={shareEvidence?.evidenceId || ""}
+        resourceName={shareEvidence?.title || "Evidence"}
+      />
     </div>
   );
 }
@@ -392,10 +465,10 @@ function InfoCard({ title, text }: { title: string; text: string }) {
 function EvidenceTable({ items, onSelect, onReady, onReview, onAttach }: { items: EvidenceItem[]; onSelect: (item: EvidenceItem) => void; onReady: (item: EvidenceItem) => void; onReview: (item: EvidenceItem) => void; onAttach: (item: EvidenceItem) => void }) {
   return (
     <div className="mt-4 overflow-auto rounded-xl border border-slate-200">
-      <table className="min-w-[1100px] w-full text-left text-sm">
+      <table className="min-w-[1720px] w-full text-left text-sm">
         <thead className="sticky top-0 bg-slate-100 text-xs uppercase tracking-wide text-slate-600">
           <tr>
-            {["Title", "Type", "Credit Risk", "Source", "Project", "Dataset", "Status", "Importance", "Created", "Document support", "Actions"].map((header) => (
+            {["Title", "Artifact type", "Reference ID", "Status", "Project", "Workflow step", "Created", "Captured", "Source data / run", "Source page", "Document support", "Actions"].map((header) => (
               <th key={header} className="px-3 py-2">{header}</th>
             ))}
           </tr>
@@ -404,19 +477,15 @@ function EvidenceTable({ items, onSelect, onReady, onReview, onAttach }: { items
           {items.map((item, index) => (
             <tr key={item.evidenceId} className={index % 2 ? "bg-white" : "bg-slate-50/80"}>
               <td className="max-w-xs px-3 py-3 font-semibold text-slate-950"><button type="button" onClick={() => onSelect(item)} className="text-left hover:text-blue-700">{item.title}</button></td>
-              <td className="px-3 py-3">{item.evidenceType}</td>
-              <td className="px-3 py-3">
-                <div className="flex flex-wrap gap-1">
-                  {item.financialDomain && <Badge>{item.financialDomain}</Badge>}
-                  {item.financialTechnique && <Badge>{techniqueLabel(item.financialTechnique)}</Badge>}
-                </div>
-              </td>
-              <td className="px-3 py-3">{item.sourcePage || "-"}</td>
-              <td className="px-3 py-3">{item.projectName || item.projectId || "-"}</td>
-              <td className="px-3 py-3">{item.datasetIds?.join(", ") || "-"}</td>
+              <td className="px-3 py-3"><Badge>{item.evidenceType}</Badge></td>
+              <td className="max-w-[190px] px-3 py-3 font-mono text-xs text-slate-600">{item.evidenceId}</td>
               <td className="px-3 py-3"><StatusBadge status={item.status} /></td>
-              <td className="px-3 py-3">{item.importance}</td>
+              <td className="px-3 py-3">{item.projectName || item.projectId || "-"}</td>
+              <td className="px-3 py-3">{item.workflowStep || "-"}</td>
               <td className="px-3 py-3">{formatDate(item.createdAt)}</td>
+              <td className="px-3 py-3">{item.capturedAt ? formatDate(item.capturedAt) : "Not captured"}</td>
+              <td className="max-w-[230px] px-3 py-3"><div>{item.datasetIds?.join(", ") || "No dataset reference"}</div><div className="mt-1 font-mono text-xs text-slate-500">{item.sourceRunReference || "No run reference"}</div></td>
+              <td className="px-3 py-3">{item.sourcePage || "-"}</td>
               <td className="max-w-sm px-3 py-3">{item.supportsSections?.join(", ") || "-"}</td>
               <td className="px-3 py-3">
                 <div className="flex flex-wrap gap-1">
@@ -429,7 +498,7 @@ function EvidenceTable({ items, onSelect, onReady, onReview, onAttach }: { items
             </tr>
           ))}
           {!items.length && (
-            <tr><td colSpan={11} className="px-3 py-10 text-center text-slate-500">No evidence has been captured yet. Start by capturing current project evidence. ATLAS will scan datasets, SQL results, notebooks, charts, diagnostics, documentation, and governance notes.</td></tr>
+            <tr><td colSpan={12} className="px-3 py-10 text-center text-slate-500">No evidence has been captured yet. Start by capturing current project evidence. ATLAS will scan datasets, SQL results, notebooks, charts, diagnostics, documentation, and governance notes.</td></tr>
           )}
         </tbody>
       </table>
@@ -861,6 +930,7 @@ function GraphLegend() {
     ["#f97316", "Governance"],
     ["#ef4444", "Needs Review"],
     ["#d97706", "Credit Risk Evidence"],
+    ["#0891b2", "Optimization Evidence"],
     ["#64748b", "Documentation Section"],
   ];
   return (
@@ -897,6 +967,10 @@ function GraphNodeDetail({ node, item }: { node: EvidenceMapNode | null; item?: 
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
         <DetailBlock title="What this proves" text={item ? evidenceProof(item) : "This node anchors an evidence relationship in the ATLAS governance map."} />
         <DetailBlock title="Where it came from" text={item?.sourceRoute || node.sourcePage || "Model Evidence Center"} />
+        <DetailBlock title="Reference ID" text={item?.evidenceId || node.evidenceId || node.id} />
+        <DetailBlock title="Workflow step" text={item?.workflowStep || "Not specified"} />
+        <DetailBlock title="Evidence timing" text={item ? `Created: ${formatDate(item.createdAt)}\nCaptured: ${item.capturedAt ? formatDate(item.capturedAt) : "Not captured"}` : "Timing is not available for this relationship node."} />
+        <DetailBlock title="Source data or run" text={item ? `${item.datasetIds?.join(", ") || "No source dataset reference"}\n${item.sourceRunReference || "No source run reference"}` : "No source run reference."} />
         <DetailBlock title="What it supports" text={(item?.supportsSections ?? (typeof node.metadata?.section === "string" ? [node.metadata.section] : [])).join("\n") || "No documentation section mapped."} />
         <DetailBlock title="Linked datasets" text={(item?.datasetIds ?? []).join("\n") || "No linked dataset."} />
         <DetailBlock title="Linked documentation sections" text={(item?.supportsSections ?? []).join("\n") || "No linked documentation section."} />

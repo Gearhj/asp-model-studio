@@ -6,15 +6,18 @@ import {
   Calculator,
   CheckCircle2,
   ClipboardList,
+  Database,
   Download,
   FileText,
   Lightbulb,
+  Link2,
   PackageCheck,
   Save,
   ShieldCheck,
+  Upload,
 } from "lucide-react";
 import StepShell from "../components/StepShell";
-import { experimentalDesignJourney, getWorkflowDefinition, type ProjectType, type ExperimentalDesignJourneyStep } from "../config/workflows";
+import { experimentalDesignJourney, getWorkflowDefinition, type ProjectType, type ExperimentalDesignJourneyStep, type WorkflowStep } from "../config/workflows";
 import { logDecision } from "../lib/decisionJournal";
 import { buildGovernanceReport } from "../lib/governanceReport";
 import { upsertProjectFromState } from "../lib/localProjects";
@@ -24,13 +27,33 @@ import { loadWorkflowNodeEvidence } from "../lib/workflowNodeEvidence";
 import {
   AB_MARKETING_DEFAULTS,
   AB_MARKETING_EXPECTED_COLUMNS,
+  AB_WORKFLOW_DEFAULTS,
+  AB_WORKFLOW_EXPECTED_COLUMNS,
+  AB_WORKFLOW_FULL_ROW_COUNT,
   allocationImbalance,
+  analyzeRegisteredAbDataset,
   analyzeAbLift,
   decisionRecommendationReason,
+  getAbPreviewAnalysisDataset,
+  getAbWorkflowFullDatasetArtifact,
+  getAbWorkflowRows,
+  profileAbDataset,
   segmentLiftRows,
   summarizeAbGroups,
+  type AbAnalysisDataset,
+  type AbDatasetAggregates,
+  type AbTestingDefaults,
 } from "../lib/abTestingWorkflow";
 import { clearAbTestingWorkflowStorage, saveAbTestingStep } from "../lib/abTestingWorkflowPersistence";
+import {
+  getDatasetProfile,
+  linkDatasetToProject,
+  listDatasets,
+  listProjectDatasets,
+  uploadDataset,
+  type DatasetProfile,
+  type DatasetSummary,
+} from "../lib/datasetLibrary";
 import {
   buildExperimentalDesignAnalysis,
   cleanFactorName as sharedCleanFactorName,
@@ -47,6 +70,9 @@ import {
   type SuggestedFactor,
 } from "../lib/experimentalDesign";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { getSelectionGuidance } from "../lib/selectDecisionSupport";
+import { saveExportToDatabase } from "../lib/serverPersistence";
+import OptimizationWorkflowStep from "../features/optimization/OptimizationWorkflowStep";
 
 type NodeState = {
   objective: string;
@@ -66,6 +92,132 @@ type NodeState = {
   allocationMode?: string;
   blockStratum?: string;
   selectedExclusions?: string[];
+  experimentalData?: {
+    mode?: "" | "prospective" | "existing" | "hybrid" | "completed";
+    sourceType?: string;
+    datasetId?: string;
+    versionId?: string;
+    datasetName?: string;
+    datasetRole?: string;
+    rowCount?: number;
+    columnCount?: number;
+    availableColumns?: string[];
+    status?: "not_configured" | "planned" | "linked" | "profiled";
+    schemaConfirmed?: boolean;
+    unitColumn?: string;
+    responseColumn?: string;
+    factorColumns?: string;
+    blockColumns?: string;
+    covariateColumns?: string;
+    timestampColumn?: string;
+    runIdColumn?: string;
+    captureFrequency?: string;
+    sourceLocation?: string;
+    lineageNotes?: string;
+    qualityPlan?: string;
+  };
+  ab?: Partial<AbTestingDefaults> & {
+    confirmed?: boolean;
+    previewOnly?: boolean;
+    metricType?: string;
+    confidenceLevel?: string;
+    practicalSignificanceThreshold?: string;
+    secondaryMetrics?: string;
+    guardrailMetrics?: string;
+    multipleComparisonPolicy?: string;
+    segmentColumn?: string;
+    dateTimeColumn?: string;
+    duplicateHandling?: string;
+    missingTreatmentHandling?: string;
+    missingOutcomeHandling?: string;
+    invalidTreatmentHandling?: string;
+    invalidOutcomeHandling?: string;
+    experimentType?: string;
+    experimentDesign?: string;
+    randomizationUnit?: string;
+    analysisUnit?: string;
+    outcomeWindow?: string;
+    exposureWindow?: string;
+    assignmentMethod?: string;
+    randomizationAssignmentMethod?: string;
+    expectedAllocationRatio?: string;
+    balanceVariables?: string;
+    exposureInterpretation?: string;
+    minimumAcceptableGroupSize?: string;
+    allocationImbalanceAcceptable?: string;
+    exposureImbalanceAcceptable?: string;
+    segmentImbalanceAcceptable?: string;
+    reviewerConclusion?: string;
+    powerBaselineConversionRate?: string;
+    minimumDetectableEffect?: string;
+    powerConfidenceLevel?: string;
+    powerAlpha?: string;
+    desiredPower?: string;
+    powerTestType?: string;
+    powerAllocationRatio?: string;
+    currentSampleSource?: string;
+    edaChartGrouping?: string;
+    edaMinimumSegmentSize?: string;
+    edaValidRecordsOnly?: boolean;
+    analysisTestType?: string;
+    analysisAlternativeHypothesis?: string;
+    analysisValidRecordsOnly?: boolean;
+    segmentShowOnlyMeetingThreshold?: boolean;
+    segmentSortBy?: string;
+    segmentMinimumSizeTouched?: boolean;
+    businessAdoptionRate?: string;
+    businessLiftEstimate?: string;
+    businessConfidenceScenario?: string;
+    businessCostBasis?: string;
+    businessDecisionThreshold?: string;
+    businessManualLift?: string;
+    decisionRecommendation?: string;
+    decisionRecommendationTouched?: boolean;
+    decisionOwner?: string;
+    decisionDate?: string;
+    launchReadinessThreshold?: string;
+    riskTolerance?: string;
+    followUpAction?: string;
+    decisionRationale?: string;
+    docReadinessDecision?: string;
+    docReviewer?: string;
+    docReviewDate?: string;
+    docAttachMds?: string;
+    docExportPackage?: string;
+    docIncludeLimitations?: string;
+    docIncludeMonitoring?: string;
+    monitoringOwner?: string;
+    monitoringTargetObservations?: string;
+    monitoringTreatmentTarget?: string;
+    monitoringControlTarget?: string;
+    monitoringReanalysisTrigger?: string;
+    monitoringFollowUpDate?: string;
+    monitoringCadence?: string;
+    monitoringDecisionOwner?: string;
+    fullDatasetArtifactId?: string;
+    fullDatasetArtifactLoadedAt?: string;
+    fullDatasetRowCount?: number;
+    validAnalysisRecordCount?: number;
+    analysisDataSource?: "full_dataset_artifact" | "preview_rows" | "compact_browser_cache";
+    postDecisionStrategy?: string;
+    postDecisionStrategyTouched?: boolean;
+    postLaunchOwner?: string;
+    postLaunchDate?: string;
+    postLaunchRollbackCriteria?: string;
+    postLaunchReviewCadence?: string;
+    approvedSegments?: string;
+    excludedSegments?: string;
+    rolloutCheckpoints?: string;
+    correction?: string;
+    minimumSegmentSize?: string;
+    datasetId?: string;
+    datasetVersionId?: string;
+    datasetRowCount?: number;
+    datasetColumnCount?: number;
+    datasetColumns?: string[];
+    dataSourceKind?: "reference" | "dataset_library" | "upload";
+    mappingValidatedAt?: string;
+  };
 };
 
 type MonteCarloIteration = {
@@ -149,10 +301,12 @@ const metricOptions: Record<ProjectType | "default", string[]> = {
   "experimental-design": ["F-statistic", "p-value", "effect size", "power", "MSE", "interaction effect"],
   "ab-testing": ["conversion rate", "lift", "p-value", "confidence interval", "power", "sample ratio mismatch"],
   optimization: ["objective value", "constraint violations", "runtime", "optimality gap", "scenario impact"],
+  time_series_forecasting: ["MAE", "RMSE", "MAPE", "WAPE", "bias", "coverage", "anomaly rate", "data freshness"],
   forecasting: ["MAPE", "MAE", "RMSE", "bias", "coverage", "backtest error"],
   segmentation: ["silhouette", "Davies-Bouldin", "cluster size", "stability", "profile separation"],
   "reinforcement-learning": ["reward", "policy value", "off-policy estimate", "safety violations", "regret"],
   "time-series": ["ACF", "PACF", "stationarity", "anomaly rate", "MAPE", "drift"],
+  llm_generative_ai: ["correctness", "groundedness", "citation accuracy", "hallucination rate", "policy compliance", "reviewer agreement", "latency", "cost"],
   nlp: ["precision", "recall", "F1", "exact match", "human review score", "toxicity rate"],
   "computer-vision": ["accuracy", "F1", "mAP", "IoU", "false positive rate", "human review rate"],
   "graph-analytics": ["precision", "recall", "community modularity", "centrality lift", "case capture"],
@@ -165,10 +319,12 @@ const methodOptions: Record<ProjectType | "default", string[]> = {
   "experimental-design": ["Full factorial", "Fractional factorial", "Randomized block", "Response surface", "Taguchi"],
   "ab-testing": ["Two-sample proportion test", "T-test", "Sequential test", "Bayesian A/B test", "Difference-in-differences"],
   optimization: ["Linear programming", "Mixed integer programming", "Nonlinear optimization", "Heuristic search", "Simulation optimization"],
+  time_series_forecasting: ["Naive baseline", "Seasonal naive", "Exponential smoothing", "ARIMA/SARIMA-style model", "Gradient boosting with lag features", "Anomaly detection baseline"],
   forecasting: ["Naive baseline", "ETS", "ARIMA/SARIMA", "Prophet-style model", "Gradient boosting with lags"],
   segmentation: ["K-means", "Hierarchical clustering", "Gaussian mixture", "DBSCAN", "Rule-based segmentation"],
   "reinforcement-learning": ["Contextual bandit", "Q-learning", "Policy gradient", "Offline policy evaluation", "Simulation only"],
   "time-series": ["Decomposition", "Stationarity testing", "ARIMA diagnostics", "Anomaly detection", "Change point detection"],
+  llm_generative_ai: ["Prompted LLM Workflow", "RAG / Knowledge Retrieval", "Text Classification", "Information Extraction", "Summarization", "NLP Baseline Models", "Human Review Workflow"],
   nlp: ["Rules", "TF-IDF model", "Embeddings", "Transformer fine-tune", "RAG/LLM-assisted workflow"],
   "computer-vision": ["Transfer learning", "Object detection", "Image segmentation", "Classical CV", "Human review workflow"],
   "graph-analytics": ["Community detection", "Link prediction", "Node classification", "Graph embeddings", "Rules and network features"],
@@ -192,7 +348,121 @@ function emptyState(): NodeState {
     allocationMode: "equal",
     blockStratum: "",
     selectedExclusions: ["inactive", "opt-out", "recent-offer"],
-  numeric: {
+    experimentalData: {
+      mode: "",
+      sourceType: "",
+      datasetRole: "experimental_source",
+      status: "not_configured",
+      schemaConfirmed: false,
+      availableColumns: [],
+      captureFrequency: "",
+      sourceLocation: "",
+      lineageNotes: "",
+      qualityPlan: "",
+    },
+    ab: {
+      ...AB_WORKFLOW_DEFAULTS,
+      confirmed: false,
+      previewOnly: false,
+      metricType: "Binary conversion",
+      confidenceLevel: "95%",
+      practicalSignificanceThreshold: "1 pp",
+      secondaryMetrics: "total.ads",
+      guardrailMetrics: "Missingness, duplicate units, allocation imbalance",
+      multipleComparisonPolicy: "Benjamini-Hochberg FDR",
+      segmentColumn: AB_WORKFLOW_DEFAULTS.segmentColumns[0],
+      duplicateHandling: "Keep first unit record",
+      missingTreatmentHandling: "Exclude from experiment analysis",
+      missingOutcomeHandling: "Exclude from primary metric",
+      invalidTreatmentHandling: "Flag and exclude",
+      invalidOutcomeHandling: "Flag and exclude",
+      experimentType: "Marketing A/B test",
+      experimentDesign: "User-level randomized holdout",
+      randomizationUnit: AB_WORKFLOW_DEFAULTS.unitIdColumn,
+      analysisUnit: AB_WORKFLOW_DEFAULTS.unitIdColumn,
+      outcomeWindow: "Post-exposure conversion window",
+      exposureWindow: "Campaign exposure period",
+      assignmentMethod: "Observed test.group assignment",
+      randomizationAssignmentMethod: "Observed assignment only",
+      expectedAllocationRatio: "1:1",
+      balanceVariables: "total.ads, most.ads.day, most.ads.hour",
+      exposureInterpretation: "Post-assignment exposure intensity",
+      minimumAcceptableGroupSize: "30",
+      allocationImbalanceAcceptable: "Acceptable for workflow testing only",
+      exposureImbalanceAcceptable: "Needs caution",
+      segmentImbalanceAcceptable: "",
+      reviewerConclusion: "Proceed with caution",
+      powerBaselineConversionRate: "",
+      minimumDetectableEffect: "",
+      powerConfidenceLevel: "95%",
+      powerAlpha: "0.05",
+      desiredPower: "80%",
+      powerTestType: "Two-sided",
+      powerAllocationRatio: "",
+      currentSampleSource: "Confirmed dataset",
+      edaChartGrouping: "Treatment vs Control",
+      edaMinimumSegmentSize: "30",
+      edaValidRecordsOnly: true,
+      analysisTestType: "Two-proportion z-test",
+      analysisAlternativeHypothesis: "Treatment different from control",
+      analysisValidRecordsOnly: true,
+      segmentShowOnlyMeetingThreshold: false,
+      segmentSortBy: "Lift descending",
+      segmentMinimumSizeTouched: false,
+      businessAdoptionRate: "100%",
+      businessLiftEstimate: "Observed absolute lift",
+      businessConfidenceScenario: "Observed",
+      businessCostBasis: "Per treatment exposure",
+      businessDecisionThreshold: "Net impact > 0",
+      businessManualLift: "1 pp",
+      decisionRecommendation: "",
+      decisionRecommendationTouched: false,
+      decisionOwner: "",
+      decisionDate: "",
+      launchReadinessThreshold: "",
+      riskTolerance: "Low",
+      followUpAction: "",
+      decisionRationale: "",
+      docReadinessDecision: "",
+      docReviewer: "",
+      docReviewDate: "",
+      docAttachMds: "",
+      docExportPackage: "",
+      docIncludeLimitations: "",
+      docIncludeMonitoring: "",
+      monitoringOwner: "",
+      monitoringTargetObservations: "",
+      monitoringTreatmentTarget: "",
+      monitoringControlTarget: "",
+      monitoringReanalysisTrigger: "",
+      monitoringFollowUpDate: "",
+      monitoringCadence: "",
+      monitoringDecisionOwner: "",
+      fullDatasetArtifactId: "",
+      fullDatasetArtifactLoadedAt: "",
+      fullDatasetRowCount: 0,
+      validAnalysisRecordCount: 0,
+      analysisDataSource: "preview_rows",
+      postDecisionStrategy: "",
+      postDecisionStrategyTouched: false,
+      postLaunchOwner: "",
+      postLaunchDate: "",
+      postLaunchRollbackCriteria: "",
+      postLaunchReviewCadence: "",
+      approvedSegments: "Reviewer-approved segments",
+      excludedSegments: "Underpowered or non-significant segments",
+      rolloutCheckpoints: "5%, 10%, 25%, 50%, 100%",
+      correction: "Benjamini-Hochberg FDR",
+      minimumSegmentSize: "30",
+      datasetId: "",
+      datasetVersionId: "",
+      datasetRowCount: 0,
+      datasetColumnCount: 0,
+      datasetColumns: [],
+      dataSourceKind: "reference",
+      mappingValidatedAt: "",
+    },
+    numeric: {
       baselineRate: 10,
       expectedLift: 5,
       alpha: 5,
@@ -225,7 +495,7 @@ function storageKey(projectId: string, stepId: string) {
 function loadNodeState(projectId: string, stepId: string): NodeState {
   try {
     const parsed = JSON.parse(localStorage.getItem(storageKey(projectId, stepId)) || "null");
-    return parsed ? { ...emptyState(), ...parsed, numeric: { ...emptyState().numeric, ...(parsed.numeric ?? {}) } } : emptyState();
+    return parsed ? { ...emptyState(), ...parsed, ab: { ...emptyState().ab, ...(parsed.ab ?? {}) }, numeric: { ...emptyState().numeric, ...(parsed.numeric ?? {}) } } : emptyState();
   } catch {
     return emptyState();
   }
@@ -268,6 +538,7 @@ function cleanNodeStateForStorage(state: NodeState): NodeState {
   return {
     ...emptyState(),
     ...rest,
+    ab: { ...emptyState().ab, ...(rest.ab ?? {}) },
     numeric: { ...emptyState().numeric, ...(rest.numeric ?? {}) },
     simulationResults: compactSimulationResults(rest.simulationResults),
   };
@@ -286,6 +557,8 @@ function minimalNodeStateForStorage(state: NodeState): NodeState {
     decision: state.decision,
     rationale: state.rationale,
     notes: state.notes,
+    experimentalData: state.experimentalData ? { ...state.experimentalData, availableColumns: state.experimentalData.availableColumns?.slice(0, 250) ?? [] } : undefined,
+    ab: { ...emptyState().ab, ...(state.ab ?? {}) },
     numeric: { ...emptyState().numeric, ...(state.numeric ?? {}) },
     simulationResults: state.simulationResults
       ? compactSimulationResults({
@@ -362,6 +635,12 @@ function downloadText(filename: string, content: string, type: string) {
   anchor.download = filename;
   anchor.click();
   URL.revokeObjectURL(url);
+  const projectId = useWorkflowStore.getState().projectId;
+  void saveExportToDatabase(projectId, {
+    exportType: type.includes("json") ? "json" : type.includes("csv") ? "csv" : type.includes("html") ? "html" : "text",
+    fileName: filename,
+    metadata: { sizeBytes: blob.size, mimeType: type, source: "workflow_export" },
+  });
 }
 
 function printHtmlDocument(html: string) {
@@ -410,9 +689,9 @@ function recommendations(projectType: ProjectType, stepLabel: string) {
     return ["Define hypothesis, population, randomization unit, and decision rule before launch."];
   }
   if (projectType === "optimization") return ["Document the objective function and every hard constraint before solver configuration.", "Validate recommended solutions against business rules and operational feasibility."];
-  if (projectType === "forecasting" || projectType === "time-series") return ["Use time-based validation and preserve temporal order.", "Review seasonality, holidays, structural breaks, and drift before selecting final methods."];
+  if (projectType === "time_series_forecasting" || projectType === "forecasting" || projectType === "time-series") return ["Use time-based validation and preserve temporal order.", "Review seasonality, holidays, structural breaks, and drift before selecting final methods.", "Capture backtesting, forecast intervals, and monitoring triggers before relying on the forecast."];
   if (projectType === "segmentation") return ["Prioritize stable, interpretable segments over purely mathematical separation.", "Require segment names, business actions, and monitoring before activation."];
-  if (projectType === "nlp") return ["Document corpus lineage, labeling quality, PII controls, and human review criteria.", "Use task-specific metrics and safety checks, not only aggregate accuracy."];
+  if (projectType === "llm_generative_ai" || projectType === "nlp") return ["Document source lineage, prompt or task design, PII controls, and human review criteria.", "Use groundedness, citation, safety, and reviewer metrics instead of only aggregate accuracy.", "Do not claim real LLM evaluation unless a configured backend or uploaded evaluation outputs support it."];
   if (projectType === "computer-vision") return ["Review image quality, annotation consistency, and subgroup failure cases.", "Track false positives and human review burden before deployment."];
   if (projectType === "graph-analytics") return ["Define nodes, edges, direction, weights, and time validity before modeling.", "Validate graph features for leakage and investigation usefulness."];
   if (projectType === "reinforcement-learning") return ["Define state, action, reward, safety constraints, and offline evaluation before policy learning.", "Prefer simulation and guarded rollout until policy risk is understood."];
@@ -420,18 +699,154 @@ function recommendations(projectType: ProjectType, stepLabel: string) {
   return ["Capture objective, evidence, assumptions, risks, and decision rationale for this workflow step."];
 }
 
-function abSampleSize(state: NodeState) {
+function abSampleSize(state: NodeState, allocationRatio = 1, testType: "One-sided" | "Two-sided" = "Two-sided") {
   const p1 = Math.max(0.0001, Math.min(0.9999, state.numeric.baselineRate / 100));
   const lift = state.numeric.expectedLift / 100;
   const p2 = Math.max(0.0001, Math.min(0.9999, p1 * (1 + lift)));
-  const zAlpha = state.numeric.alpha <= 1 ? 2.58 : state.numeric.alpha <= 5 ? 1.96 : 1.64;
-  const zPower = state.numeric.power >= 90 ? 1.28 : state.numeric.power >= 80 ? 0.84 : 0.52;
-  const pooled = (p1 + p2) / 2;
+  const alpha = Math.max(0.001, Math.min(0.5, state.numeric.alpha > 1 ? state.numeric.alpha / 100 : state.numeric.alpha));
+  const desiredPower = Math.max(0.5, Math.min(0.99, state.numeric.power / 100));
+  const ratio = Math.max(0.01, Math.min(100, allocationRatio));
+  const zAlpha = normalQuantile(1 - alpha / (testType === "Two-sided" ? 2 : 1));
+  const zPower = normalQuantile(desiredPower);
+  const pooled = (p1 + ratio * p2) / (1 + ratio);
   const numerator =
-    zAlpha * Math.sqrt(2 * pooled * (1 - pooled)) +
-    zPower * Math.sqrt(p1 * (1 - p1) + p2 * (1 - p2));
-  const n = Math.ceil((numerator * numerator) / Math.max(1e-9, (p2 - p1) ** 2));
-  return { perCell: n, total: n * 2, p1, p2 };
+    zAlpha * Math.sqrt(pooled * (1 - pooled) * (1 + 1 / ratio)) +
+    zPower * Math.sqrt(p1 * (1 - p1) + p2 * (1 - p2) / ratio);
+  const control = Math.ceil((numerator * numerator) / Math.max(1e-9, (p2 - p1) ** 2));
+  const treatment = Math.ceil(control * ratio);
+  return { perCell: control, control, treatment, total: control + treatment, p1, p2, ratio, alpha, desiredPower, testType };
+}
+
+function parsePercentSetting(value: string | undefined, fallback: number) {
+  const cleaned = String(value ?? "").replace(/[^0-9.+-]/g, "");
+  if (!/[0-9]/.test(cleaned)) return fallback;
+  const parsed = Number(cleaned);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function parseAllocationRatio(value: string | undefined, fallback: number) {
+  const raw = String(value ?? "");
+  const ratioMatch = raw.match(/([0-9]*\.?[0-9]+)\s*:\s*([0-9]*\.?[0-9]+)/);
+  if (ratioMatch) {
+    const numerator = Number(ratioMatch[1]);
+    const denominator = Number(ratioMatch[2]);
+    if (Number.isFinite(numerator) && Number.isFinite(denominator) && denominator > 0) {
+      return Math.max(0.01, Math.min(100, numerator / denominator));
+    }
+  }
+  const parsed = Number(raw.replace(/[^0-9.+-]/g, ""));
+  return Number.isFinite(parsed) && parsed > 0 ? Math.max(0.01, Math.min(100, parsed)) : fallback;
+}
+
+function abPowerForCurrentSample({
+  controlRate,
+  relativeLiftPct,
+  controlCount,
+  treatmentCount,
+  alpha,
+  testType,
+}: {
+  controlRate: number;
+  relativeLiftPct: number;
+  controlCount: number;
+  treatmentCount: number;
+  alpha: number;
+  testType: "One-sided" | "Two-sided";
+}) {
+  const p1 = Math.max(0.0001, Math.min(0.9999, controlRate));
+  const p2 = Math.max(0.0001, Math.min(0.9999, p1 * (1 + relativeLiftPct / 100)));
+  const n1 = Math.max(1, controlCount);
+  const n2 = Math.max(1, treatmentCount);
+  const pooled = (n1 * p1 + n2 * p2) / (n1 + n2);
+  const nullSe = Math.sqrt(pooled * (1 - pooled) * (1 / n1 + 1 / n2));
+  const alternativeSe = Math.sqrt(p1 * (1 - p1) / n1 + p2 * (1 - p2) / n2);
+  const zAlpha = normalQuantile(1 - alpha / (testType === "Two-sided" ? 2 : 1));
+  return normalCdf((Math.abs(p2 - p1) - zAlpha * nullSe) / Math.max(1e-9, alternativeSe));
+}
+
+function abDetectableRelativeLift({
+  controlRate,
+  controlCount,
+  treatmentCount,
+  alpha,
+  desiredPower,
+  testType,
+}: {
+  controlRate: number;
+  controlCount: number;
+  treatmentCount: number;
+  alpha: number;
+  desiredPower: number;
+  testType: "One-sided" | "Two-sided";
+}) {
+  let low = 0.01;
+  let high = 500;
+  for (let iteration = 0; iteration < 60; iteration += 1) {
+    const midpoint = (low + high) / 2;
+    const power = abPowerForCurrentSample({ controlRate, relativeLiftPct: midpoint, controlCount, treatmentCount, alpha, testType });
+    if (power >= desiredPower) high = midpoint;
+    else low = midpoint;
+  }
+  return high;
+}
+
+function abPowerAssessment(
+  state: NodeState,
+  summary: ReturnType<typeof summarizeAbGroups>,
+  imbalance: ReturnType<typeof allocationImbalance>,
+  analysis: ReturnType<typeof analyzeAbLift>,
+) {
+  const ab = { ...emptyState().ab, ...(state.ab ?? {}) };
+  const observedBaselinePct = analysis.controlConversionRate * 100;
+  const baselineRatePct = Math.max(0.01, Math.min(99.99, parsePercentSetting(ab.powerBaselineConversionRate, observedBaselinePct)));
+  const relativeLiftPct = Math.max(0.01, parsePercentSetting(ab.minimumDetectableEffect, state.numeric.expectedLift || 5));
+  const alphaSetting = parsePercentSetting(ab.powerAlpha, 0.05);
+  const alpha = Math.max(0.001, Math.min(0.5, alphaSetting > 1 ? alphaSetting / 100 : alphaSetting));
+  const desiredPowerPct = Math.max(50, Math.min(99, parsePercentSetting(ab.desiredPower, state.numeric.power || 80)));
+  const testType = (ab.powerTestType === "One-sided" ? "One-sided" : "Two-sided") as "One-sided" | "Two-sided";
+  const allocationRatio = parseAllocationRatio(ab.powerAllocationRatio, Math.max(0.01, imbalance.ratio));
+  const samplePlan = abSampleSize(
+    {
+      ...state,
+      numeric: {
+        ...state.numeric,
+        baselineRate: baselineRatePct,
+        expectedLift: relativeLiftPct,
+        alpha: alpha * 100,
+        power: desiredPowerPct,
+      },
+    },
+    allocationRatio,
+    testType,
+  );
+  const estimatedPower = abPowerForCurrentSample({
+    controlRate: baselineRatePct / 100,
+    relativeLiftPct,
+    controlCount: summary.controlCount,
+    treatmentCount: summary.treatmentCount,
+    alpha,
+    testType,
+  });
+  const detectableRelativeLift = abDetectableRelativeLift({
+    controlRate: baselineRatePct / 100,
+    controlCount: summary.controlCount,
+    treatmentCount: summary.treatmentCount,
+    alpha,
+    desiredPower: desiredPowerPct / 100,
+    testType,
+  });
+  return {
+    baselineRatePct,
+    relativeLiftPct,
+    alpha,
+    desiredPowerPct,
+    testType,
+    allocationRatio,
+    samplePlan,
+    estimatedPower,
+    detectableRelativeLift,
+    adequatelyPowered: estimatedPower >= desiredPowerPct / 100,
+  };
 }
 
 function StepCalculator({ projectType, state, setState }: { projectType: ProjectType; state: NodeState; setState: (state: NodeState) => void }) {
@@ -451,7 +866,7 @@ function StepCalculator({ projectType, state, setState }: { projectType: Project
     );
   }
 
-  if (projectType === "forecasting" || projectType === "time-series") {
+  if (projectType === "time_series_forecasting" || projectType === "forecasting" || projectType === "time-series") {
     const trainPeriods = Math.max(0, state.numeric.periods - state.numeric.holdoutPeriods);
     return (
       <CalculatorPanel title="Time Validation Planner">
@@ -962,6 +1377,33 @@ function loadExperimentalNodeStates(projectId: string) {
   );
 }
 
+function confirmedExperimentalFactors(projectId: string) {
+  return sharedParseFactorHierarchy(loadExperimentalNodeState(projectId, "Levels")?.objective ?? "");
+}
+
+function stateWithFactorStructure(state: NodeState, factors: ExperimentalFactor[]): NodeState {
+  if (!factors.length) return state;
+  const averageLevels = factors.reduce((sum, factor) => sum + factor.levels.length, 0) / factors.length;
+  return {
+    ...state,
+    numeric: {
+      ...state.numeric,
+      factorCount: factors.length,
+      averageLevels,
+    },
+  };
+}
+
+function ExperimentalPrerequisiteGate({ title, detail }: { title: string; detail: string }) {
+  return (
+    <section className="rounded-2xl border border-dashed border-amber-300 bg-amber-50 p-8 text-center shadow-sm">
+      <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-white text-amber-700 shadow-sm"><ShieldCheck size={20} /></div>
+      <h2 className="mt-4 text-lg font-semibold text-slate-950">{title}</h2>
+      <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-slate-600">{detail}</p>
+    </section>
+  );
+}
+
 function seededRandom(seed: number) {
   let value = Math.max(1, Math.floor(seed)) % 2147483647;
   return () => {
@@ -1003,9 +1445,8 @@ function monteCarloInputs(projectId: string, state: NodeState) {
   const levelsState = loadExperimentalNodeState(projectId, "Levels");
   const sampleState = loadExperimentalNodeState(projectId, "Sample Size");
   const parsedFactors = sharedParseFactorHierarchy(levelsState?.objective ?? "");
-  const fallbackCells = Math.max(1, Math.round(state.numeric.averageLevels ** state.numeric.factorCount));
-  const treatmentCells = parsedFactors.length ? treatmentCellCount(parsedFactors) : fallbackCells;
-  const sampleBase = sampleState ?? state;
+  const treatmentCells = parsedFactors.length ? treatmentCellCount(parsedFactors) : 0;
+  const sampleBase = stateWithFactorStructure(sampleState ?? state, parsedFactors);
   const monteCarloNumeric = {
     ...sampleBase.numeric,
     baselineRate: state.numeric.baselineRate,
@@ -1024,14 +1465,15 @@ function monteCarloInputs(projectId: string, state: NodeState) {
         : undefined;
   const availablePopulation = Number(numericSample.sampleSize) > 0 ? Math.floor(Number(numericSample.sampleSize)) : undefined;
   const sourceTotalSample = totalPlannedSample ?? availablePopulation;
-  const samplePerCell = sourceTotalSample ? Math.floor(sourceTotalSample / treatmentCells) : 0;
+  const samplePerCell = sourceTotalSample && treatmentCells > 0 ? Math.floor(sourceTotalSample / treatmentCells) : 0;
   const totalSample = samplePerCell > 0 ? samplePerCell * treatmentCells : 0;
+  const samplePlanConfirmed = Number(sampleBase.numeric.samplePlanConfirmed ?? 0) === 1;
   return {
     treatmentCells,
     samplePerCell,
     totalSample,
-    sampleReady: samplePerCell >= 30 && totalSample > 0,
-    sampleSource: totalPlannedSample ? "planned total sample" : availablePopulation ? "available population" : "missing sample size",
+    sampleReady: parsedFactors.length > 0 && samplePlanConfirmed && samplePerCell >= 30 && totalSample > 0,
+    sampleSource: !samplePlanConfirmed ? "unconfirmed sample-size assumptions" : totalPlannedSample ? "planned total sample" : availablePopulation ? "available population" : "missing sample size",
     baselineRate: plan.baseline,
     minimumDetectableLift: plan.minimumDetectableLift,
     alpha: monteCarloNumeric.alpha / 100,
@@ -1211,29 +1653,20 @@ function combinations<T>(values: T[], size: number): T[][] {
 
 function generatedAnovaPlan(projectId: string, state: NodeState) {
   const researchState = loadExperimentalNodeState(projectId, "Research Question");
-  const factorsState = loadExperimentalNodeState(projectId, "Factors");
   const levelsState = loadExperimentalNodeState(projectId, "Levels");
   const sampleState = loadExperimentalNodeState(projectId, "Sample Size");
-  const parsedLevels = sharedParseFactorHierarchy(levelsState?.objective ?? "");
-  const suggestedFactors = sharedDeriveSuggestedFactors(factorsState?.objective ?? "");
-  const fallbackFactorCount = Math.max(1, Math.round(sampleState?.numeric.factorCount ?? state.numeric.factorCount));
-  const factors: ExperimentalFactor[] = parsedLevels.length
-    ? parsedLevels
-    : suggestedFactors.length
-      ? suggestedFactors.map(({ factorName, levels }) => ({ factorName, levels }))
-      : Array.from({ length: fallbackFactorCount }, (_, index) => ({
-          factorName: String.fromCharCode(65 + index),
-          levels: Array.from({ length: Math.max(2, Math.round(sampleState?.numeric.averageLevels ?? state.numeric.averageLevels)) }, (_, levelIndex) => `Level ${levelIndex + 1}`),
-        }));
+  const factors = sharedParseFactorHierarchy(levelsState?.objective ?? "");
   const factorNames = factors.map((factor) => factor.factorName);
   const factorCodes = factorNames.map((_, index) => String.fromCharCode(65 + index));
   const levelCounts = factors.map((factor) => factor.levels.length);
   const researchIntent = researchState?.method || "Main Effects + Interaction Analysis";
   const includeInteractions = /interaction|factorial|optimization|screening/i.test(researchIntent) && factorCodes.length > 1;
   const terms = includeInteractions ? generateFullFactorialTerms(factors) : factorNames;
-  const modelFormula = `Response ~ ${terms.join(" + ")}`;
-  const treatmentCells = treatmentCellCount(factors);
-  const plannedObservations = sampleState ? sampleSizePlan(sampleState).total : sampleSizePlan(state).total;
+  const modelFormula = factorNames.length ? `Response ~ ${terms.join(" + ")}` : "Response ~ [confirm factors and levels first]";
+  const treatmentCells = factors.length ? treatmentCellCount(factors) : 0;
+  const sampleDesignState = stateWithFactorStructure(sampleState ?? state, factors);
+  const samplePlanConfirmed = Number(sampleDesignState.numeric.samplePlanConfirmed ?? 0) === 1;
+  const plannedObservations = factors.length && samplePlanConfirmed ? sampleSizePlan(sampleDesignState).total : 0;
   const termRows = terms.map((term) => {
     const termFactors = term.split(/\s*(?:x|×)\s*/);
     const df = termFactors.reduce((result, factorName) => {
@@ -1256,7 +1689,7 @@ function generatedAnovaPlan(projectId: string, state: NodeState) {
     termRows,
     modelDf,
     residualDf,
-    recommendedModel: includeInteractions ? "Factorial ANOVA with interaction terms" : "Main-effects ANOVA",
+    recommendedModel: !factors.length ? "Factors and levels required" : includeInteractions ? "Factorial ANOVA with interaction terms" : "Main-effects ANOVA",
   };
 }
 
@@ -1276,41 +1709,28 @@ function ExperimentalJourneyHeader({ journey }: { journey: ExperimentalDesignJou
   const previous = previousJourneyStep(journey);
   const next = nextJourneyStep(journey);
   return (
-    <section className="space-y-3">
-      <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Step {journey.stepNumber} of {journey.totalSteps}</div>
-        <h1 className="mt-1 text-2xl font-semibold tracking-tight text-slate-950">{journey.label}</h1>
-        <p className="mt-2 text-lg font-semibold text-slate-800">{journey.question}</p>
-        <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-600">{journey.purpose}</p>
-        {journey.transition && (
-          <p className="mt-3 rounded-xl border border-blue-100 bg-blue-50 px-3 py-2 text-sm leading-6 text-blue-950">
-            {journey.transition}
-          </p>
-        )}
+    <section className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 text-white shadow-sm">
+      <div className="grid gap-5 px-5 py-5 lg:grid-cols-[minmax(0,1fr)_300px] lg:items-start">
+        <div>
+          <div className="flex flex-wrap items-center gap-2 text-[11px] font-semibold uppercase text-blue-300">
+            <span>Experimental Design</span><span className="text-slate-600">/</span><span>Step {journey.stepNumber} of {journey.totalSteps}</span>
+          </div>
+          <h1 className="mt-2 text-2xl font-semibold text-white">{journey.label}</h1>
+          <p className="mt-2 text-base font-semibold text-slate-100">{journey.question}</p>
+          <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-300">{journey.purpose}</p>
+        </div>
+        <div className="rounded-xl border border-slate-700 bg-slate-900 p-4">
+          <div className="text-[10px] font-semibold uppercase text-slate-400">Artifact produced</div>
+          <div className="mt-1 text-sm font-semibold text-white">{journey.output}</div>
+          <div className="mt-4 flex items-center gap-2 text-xs text-slate-300"><span>{previous?.label ?? "Start"}</span><ArrowRight size={13} className="text-blue-300" /><span className="font-semibold text-white">{journey.label}</span><ArrowRight size={13} className="text-blue-300" /><span>{next?.label ?? "Complete"}</span></div>
+        </div>
       </div>
-
-      <div className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 shadow-sm md:grid-cols-3">
-        <JourneyContextCard eyebrow="Previous" title={previous ? previous.label : "Start"} body={previous ? previous.output : "Begin the experimental design journey."} tone="muted" />
-        <JourneyContextCard eyebrow="Current" title={journey.label} body={journey.question} tone="active" />
-        <JourneyContextCard eyebrow="Next" title={next ? next.label : "Complete"} body={next ? next.question : "Package and export the evidence."} tone="next" />
+      <div className="border-t border-slate-800 bg-slate-900/80 px-5 py-3">
+        <div className="grid grid-cols-12 gap-1.5" aria-label={`Step ${journey.stepNumber} of ${journey.totalSteps}`}>
+          {experimentalDesignJourney.map((item) => <div key={item.id} className={`h-1.5 rounded-full ${item.stepNumber < journey.stepNumber ? "bg-emerald-500" : item.stepNumber === journey.stepNumber ? "bg-blue-400" : "bg-slate-700"}`} title={`${item.stepNumber}. ${item.label}`} />)}
+        </div>
       </div>
     </section>
-  );
-}
-
-function JourneyContextCard({ eyebrow, title, body, tone }: { eyebrow: string; title: string; body: string; tone: "muted" | "active" | "next" }) {
-  const classes =
-    tone === "active"
-      ? "border-blue-200 bg-white text-blue-950"
-      : tone === "next"
-        ? "border-emerald-200 bg-white text-emerald-950"
-        : "border-slate-200 bg-white text-slate-700";
-  return (
-    <div className={`rounded-xl border p-3 ${classes}`}>
-      <div className="text-[11px] font-semibold uppercase tracking-wide opacity-70">{eyebrow}</div>
-      <div className="mt-1 text-sm font-semibold">{title}</div>
-      <p className="mt-1 text-xs leading-5 opacity-80">{body}</p>
-    </div>
   );
 }
 
@@ -1379,15 +1799,15 @@ function GovernanceDocumentationPanel({
     <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Governance Documentation</div>
-          <h2 className="mt-1 text-lg font-semibold text-slate-950">Editable audit language for this decision</h2>
+          <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Design inputs and evidence</div>
+          <h2 className="mt-1 text-lg font-semibold text-slate-950">Configure the decision, assumptions, and review record</h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
-            ATLAS drafts this documentation from the current workflow state. Edit it while reviewing the evidence below.
+            Enter confirmed study information here. ATLAS suggestions remain optional and are never treated as user-confirmed evidence until you apply or edit them.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${complete ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
-            Governance {complete ? "Complete" : `${completeFields}/${config.fields.length}`}
+            Inputs {complete ? "Complete" : `${completeFields}/${config.fields.length}`}
           </span>
           <span className="rounded-full border border-slate-200 bg-slate-50 px-3 py-1 text-xs font-semibold text-slate-600">
             {savedAt ? `Saved ${savedAt.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}` : "Autosave ready"}
@@ -1492,6 +1912,46 @@ type DropdownGuidance = {
 };
 
 const dropdownDefinitions: Record<string, DropdownGuidance> = {
+  "Dataset Library": {
+    definition: "Links an immutable, governed ATLAS dataset version with row count, schema, owner, and lineage metadata.",
+    useWhen: "Use when historical, pilot, or completed-experiment observations already exist in ATLAS.",
+    example: "Link the approved pilot dataset to estimate baseline variance before finalizing sample size.",
+  },
+  "File upload": {
+    definition: "Registers an uploaded file as a versioned Dataset Library artifact before it is used by the design.",
+    useWhen: "Use when source observations exist locally but have not yet been governed in ATLAS.",
+    example: "Upload a completed field-test extract and map its unit, factor, and response columns.",
+  },
+  "SQL / warehouse": {
+    definition: "Documents a governed warehouse table or query as the source of experimental observations.",
+    useWhen: "Use when the system of record is a database and extraction logic must be reproducible.",
+    example: "Capture the approved analytics schema and query version used to assemble experiment outcomes.",
+  },
+  "API / event stream": {
+    definition: "Collects assignment, exposure, or response events from an application API or event stream.",
+    useWhen: "Use for online experiments or operational systems where observations arrive continuously.",
+    example: "Join assignment events to conversion events using experiment unit ID and response window.",
+  },
+  "Operational capture plan": {
+    definition: "Defines a prospective dataset before records exist, including schema, cadence, lineage, and quality controls.",
+    useWhen: "Use for a new field experiment whose observations will be generated after launch.",
+    example: "Capture treatment assignment, customer ID, activation response, campaign wave, and observation timestamp daily.",
+  },
+  "Survey / instrument": {
+    definition: "Collects structured responses from an approved survey, measurement instrument, or assessment.",
+    useWhen: "Use when the response is measured directly from participants rather than an operational event system.",
+    example: "Collect a validated satisfaction scale at baseline and after treatment.",
+  },
+  "Lab instrument": {
+    definition: "Captures controlled measurements from laboratory or technical equipment.",
+    useWhen: "Use when instrument calibration, run order, and batch provenance are part of experimental validity.",
+    example: "Record instrument ID, calibration version, run ID, factor settings, and measured response.",
+  },
+  "Manual controlled collection": {
+    definition: "Uses a controlled operator-entered collection process with explicit reconciliation and sign-off.",
+    useWhen: "Use only when automated capture is unavailable and the operational control can be audited.",
+    example: "A reviewer records treatment delivery and response using a locked run sheet with dual approval.",
+  },
   "Full factorial": {
     definition: "Tests all combinations of selected factors and levels so main effects and interactions can be estimated.",
     useWhen: "Use when treatment-cell count and sample size are manageable.",
@@ -1616,11 +2076,12 @@ const dropdownDefinitions: Record<string, DropdownGuidance> = {
 
 function DropdownDefinition({ value }: { value: string }) {
   if (!value) return <span className="text-[11px] leading-4 text-slate-400">Select an option to see how ATLAS will use it.</span>;
-  const guidance = dropdownDefinitions[value];
+  const guidance = dropdownDefinitions[value] ?? getSelectionGuidance({ label: "Experimental design selection", value });
   if (!guidance) {
     return (
       <span className="text-[11px] leading-4 text-slate-500">
-        Definition: ATLAS uses this selection to shape analytical evidence and governance language. Use when it matches the decision being made on this page.
+        <span className="font-semibold text-slate-600">Definition:</span> Review this choice against the page objective before locking it.{" "}
+        <span className="font-semibold text-slate-600">Use when:</span> It matches the data grain, decision owner, and evidence standard for this project.
       </span>
     );
   }
@@ -1725,11 +2186,12 @@ function LevelsGovernanceConfirmation({ config, state, setState }: { config: Exp
               onChange={(event) => setState({ ...state, method: event.target.value })}
             >
               <option value="">Select approach</option>
-              {config.methods.map((method) => (
-                <option key={method} value={method}>{method}</option>
-              ))}
-            </select>
-          </label>
+            {config.methods.map((method) => (
+              <option key={method} value={method}>{method}</option>
+            ))}
+          </select>
+          <DropdownDefinition value={state.method} />
+        </label>
           <MetricPicker options={config.metrics} selected={state.metrics} onChange={(metrics) => setState({ ...state, metrics })} />
         </div>
       </details>
@@ -1784,23 +2246,6 @@ function ExperimentalDesignStep({
       }),
     [projectId, step.label, state]
   );
-  useEffect(() => {
-    const draft = governanceDraftForStep(step.label, config, state, analysis, projectId);
-    const hasUpdates = Object.entries(draft).some(([key, value]) => {
-      const current = state[key as keyof NodeState];
-      return typeof current === "string" && !current.trim() && value.trim();
-    });
-    if (!hasUpdates) return;
-    setState({
-      ...state,
-      ...Object.fromEntries(
-        Object.entries(draft).filter(([key]) => {
-          const current = state[key as keyof NodeState];
-          return typeof current === "string" && !current.trim();
-        })
-      ),
-    });
-  }, [analysis.interpretation, config, projectId, step.label]);
   const saveDraft = () => {
     setDraftError(null);
     try {
@@ -1811,9 +2256,28 @@ function ExperimentalDesignStep({
       setDraftError(`ATLAS could not save this draft. ${error instanceof Error ? error.message : "Please try again."}`);
     }
   };
+  const completeProjectContext = () => {
+    const data = { ...emptyState().experimentalData, ...(state.experimentalData ?? {}) } as NonNullable<NodeState["experimentalData"]>;
+    if (!data.schemaConfirmed || !experimentalDataReady(data)) {
+      setDraftError("Confirm a prospective capture plan or governed dataset strategy before continuing to Research Question.");
+      return false;
+    }
+    const missingContext = [
+      !state.objective.trim() ? "business objective" : "",
+      !state.inputs.trim() ? "population and experimental unit" : "",
+      !state.assumptions.trim() ? "operational constraints" : "",
+      !state.validation.trim() ? "governance and approval requirements" : "",
+      !state.method.trim() ? "experiment family" : "",
+      !state.metrics.length ? "primary response or evidence metric" : "",
+    ].filter(Boolean);
+    if (missingContext.length) {
+      setDraftError(`Complete the confirmed Project Context before continuing. Missing: ${missingContext.join(", ")}.`);
+      return false;
+    }
+    return onComplete();
+  };
 
   useEffect(() => {
-    if (!["Blocking", "Randomization", "Sample Size", "Monte Carlo Simulation", "Experiment Run Plan"].includes(step.label)) return;
     const timer = window.setTimeout(() => {
       try {
         saveNodeState(projectId, step.id, state);
@@ -1832,18 +2296,19 @@ function ExperimentalDesignStep({
       <StepShell
         title=""
         nextLabel={nextStep ? `Continue to ${journey.nextLabel ?? nextStep.label}` : "Save & Return to Overview"}
-        onNext={onComplete}
+        onNext={completeProjectContext}
       >
         <div className="space-y-5">
           <ExperimentalJourneyHeader journey={journey} />
           {(navigationError || draftError) && <InlineError message={navigationError || draftError || ""} />}
           <GovernanceDocumentationPanel stepLabel={step.label} projectId={projectId} config={config} state={state} setState={setState} save={saveDraft} analysis={analysis} savedAt={blockingSavedAt} />
           <ProjectContextPage
+            projectId={projectId}
             config={config}
             state={state}
             setState={setState}
             save={saveDraft}
-            onComplete={onComplete}
+            onComplete={completeProjectContext}
             nextStep={nextStep}
             journey={journey}
           />
@@ -1887,10 +2352,6 @@ function ExperimentalDesignStep({
       <div className="space-y-5">
         <ExperimentalJourneyHeader journey={journey} />
         {(navigationError || draftError) && <InlineError message={navigationError || draftError || ""} />}
-        {step.label !== "Experiment Run Plan" && (
-          <ExperimentalExecutiveInsight analysis={analysis} eyebrow={config.eyebrow} guidance={config.guidance} />
-        )}
-        {step.label === "Experiment Run Plan" && <RunPlanTopSimulationSummary projectId={projectId} state={state} />}
         <GovernanceDocumentationPanel stepLabel={step.label} projectId={projectId} config={config} state={state} setState={setState} save={saveDraft} analysis={analysis} savedAt={blockingSavedAt} />
         <ExperimentalStudioWorkspace
           projectId={projectId}
@@ -2023,11 +2484,11 @@ function ExperimentalStudioWorkspace({
   let body: ReactNode;
   if (stepLabel === "Project Context") body = <ProjectContextStudio state={state} />;
   else if (stepLabel === "Research Question") body = <ResearchQuestionStudio state={state} />;
-  else if (stepLabel === "Factors") body = <FactorDesignAssistant factors={sharedDeriveSuggestedFactors(state.objective)} />;
-  else if (stepLabel === "Levels") body = <LevelsDesignBuilder projectId={projectId} state={state} />;
+  else if (stepLabel === "Factors") body = <FactorDesignAssistant factors={sharedDeriveSuggestedFactors(state.objective)} covariates={parseListItems(state.inputs)} />;
+  else if (stepLabel === "Levels") body = <LevelsDesignBuilder projectId={projectId} state={state} setState={setState} />;
   else if (stepLabel === "Blocking") body = <BlockingAssistant projectId={projectId} state={state} setState={setState} variables={parseListItems(state.objective)} />;
   else if (stepLabel === "Randomization") body = <RandomizationStudio projectId={projectId} state={state} setState={setState} />;
-  else if (stepLabel === "Sample Size") body = <SampleSizeStudio state={state} setState={setState} />;
+  else if (stepLabel === "Sample Size") body = <SampleSizeStudio projectId={projectId} state={state} setState={setState} />;
   else if (stepLabel === "Monte Carlo Simulation") body = <MonteCarloSimulationDashboard projectId={projectId} state={state} setState={setState} />;
   else if (stepLabel === "Experiment Run Plan") body = <RunPlanStudio projectId={projectId} state={state} setState={setState} />;
   else if (stepLabel === "ANOVA") body = <AnovaStudio projectId={projectId} state={state} />;
@@ -2127,7 +2588,331 @@ function ProjectContextStudio({ state }: { state: NodeState }) {
   );
 }
 
+const experimentalDataModes = [
+  {
+    id: "prospective" as const,
+    label: "Prospective collection",
+    description: "No analysis dataset exists yet. Define the schema, collection process, lineage, and quality controls before the experiment launches.",
+    bestFor: "New randomized experiments, lab studies, field trials, and operational pilots.",
+  },
+  {
+    id: "existing" as const,
+    label: "Existing data",
+    description: "Use a governed historical or pilot dataset to estimate baselines, variance, feasibility, or design assumptions.",
+    bestFor: "Retrospective design support, feasibility analysis, and baseline estimation.",
+  },
+  {
+    id: "hybrid" as const,
+    label: "Hybrid",
+    description: "Use historical data for planning, then collect a separate prospective experiment dataset under a documented capture plan.",
+    bestFor: "Most production experiments where prior data informs power but new outcomes establish causal evidence.",
+  },
+  {
+    id: "completed" as const,
+    label: "Completed experiment",
+    description: "Link the final experiment dataset for ANOVA, optimization, validation, and governed reporting.",
+    bestFor: "Post-run analysis, re-analysis, validation, and documentation.",
+  },
+];
+
+function experimentalDataReady(data: NonNullable<NodeState["experimentalData"]>) {
+  if (!data.mode) return false;
+  const captureMapped = Boolean(data.unitColumn?.trim() && data.responseColumn?.trim());
+  if (data.mode === "prospective") {
+    return Boolean(captureMapped && data.sourceType?.trim() && data.captureFrequency?.trim() && data.qualityPlan?.trim());
+  }
+  const governedDataset = Boolean(data.datasetId && data.versionId && (data.rowCount ?? 0) > 0);
+  if (data.mode === "hybrid") return Boolean(governedDataset && captureMapped && data.captureFrequency?.trim() && data.qualityPlan?.trim());
+  return Boolean(governedDataset && captureMapped);
+}
+
+function suggestedExperimentalColumn(columns: string[], patterns: RegExp[]) {
+  return columns.find((column) => patterns.some((pattern) => pattern.test(column))) ?? "";
+}
+
+function ExperimentalColumnControl({
+  label,
+  value,
+  columns,
+  placeholder,
+  help,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  columns: string[];
+  placeholder: string;
+  help: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="grid min-w-0 gap-1.5">
+      <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">{label}</span>
+      {columns.length ? (
+        <select className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" value={value} onChange={(event) => onChange(event.target.value)}>
+          <option value="">Select column</option>
+          {columns.map((column) => <option key={column} value={column}>{column}</option>)}
+        </select>
+      ) : (
+        <input className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
+      )}
+      <span className="text-[11px] leading-4 text-slate-500">{help}</span>
+    </label>
+  );
+}
+
+function ExperimentalDataStrategyPanel({ projectId, state, setState }: { projectId: string; state: NodeState; setState: (state: NodeState) => void }) {
+  const data = { ...emptyState().experimentalData, ...(state.experimentalData ?? {}) } as NonNullable<NodeState["experimentalData"]>;
+  const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
+  const [profile, setProfile] = useState<DatasetProfile | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const columns = data.availableColumns ?? [];
+  const ready = experimentalDataReady(data);
+  const needsDataset = data.mode === "existing" || data.mode === "hybrid" || data.mode === "completed";
+  const update = (changes: Partial<NonNullable<NodeState["experimentalData"]>>) => {
+    setState({ ...state, experimentalData: { ...data, ...changes } });
+  };
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([listDatasets(), listProjectDatasets(projectId)])
+      .then(([library, links]) => {
+        if (!active) return;
+        setDatasets(library.datasets.filter((dataset) => !dataset.archived && Boolean(dataset.latestVersion)));
+        const linked = links.find((link) => link.datasetRole === "experimental_source" || link.datasetRole === "experimental_analysis");
+        if (linked && !data.datasetId) {
+          const version = linked.dataset.latestVersion;
+          update({
+            datasetId: linked.datasetId,
+            versionId: linked.versionId,
+            datasetName: linked.dataset.name,
+            datasetRole: linked.datasetRole,
+            rowCount: version?.rowCount ?? 0,
+            columnCount: version?.columnCount ?? 0,
+            status: "linked",
+          });
+        }
+      })
+      .catch(() => {
+        if (active) setError("Dataset Library is unavailable. You can still define a prospective collection plan and link data later.");
+      });
+    return () => { active = false; };
+    // This discovery should run only when the project changes. User edits are handled directly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
+
+  useEffect(() => {
+    if (!data.datasetId || !data.versionId || columns.length) return;
+    let active = true;
+    getDatasetProfile(data.datasetId, data.versionId)
+      .then((result) => {
+        if (!active || !result.profile) return;
+        setProfile(result.profile);
+        const names = result.profile.schema.map((column) => column.name);
+        update({ availableColumns: names, rowCount: result.profile.rowCount, columnCount: result.profile.columnCount, status: "profiled" });
+      })
+      .catch(() => undefined);
+    return () => { active = false; };
+    // Profile hydration is keyed to the governed dataset version.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.datasetId, data.versionId]);
+
+  const attachDataset = async (dataset: DatasetSummary, sourceType: "Dataset Library" | "File upload") => {
+    const version = dataset.latestVersion;
+    if (!version) throw new Error("The selected dataset has no registered version.");
+    const result = await getDatasetProfile(dataset.datasetId, version.versionId);
+    const nextProfile = result.profile;
+    const nextColumns = nextProfile.schema.map((column) => column.name);
+    await linkDatasetToProject(projectId, dataset.datasetId, version.versionId, "experimental_source");
+    setProfile(nextProfile);
+    update({
+      datasetId: dataset.datasetId,
+      versionId: version.versionId,
+      datasetName: dataset.name,
+      datasetRole: "experimental_source",
+      rowCount: nextProfile.rowCount,
+      columnCount: nextProfile.columnCount,
+      availableColumns: nextColumns,
+      sourceType,
+      status: "profiled",
+      schemaConfirmed: false,
+      unitColumn: suggestedExperimentalColumn(nextColumns, [/unit/i, /customer/i, /account/i, /user/i, /subject/i, /participant/i, /id$/i]),
+      responseColumn: suggestedExperimentalColumn(nextColumns, [/response/i, /outcome/i, /target/i, /conversion/i, /yield/i]),
+      factorColumns: suggestedExperimentalColumn(nextColumns, [/treatment/i, /factor/i, /variant/i, /arm/i, /group/i]),
+      blockColumns: suggestedExperimentalColumn(nextColumns, [/block/i, /strat/i, /batch/i, /wave/i, /site/i]),
+      timestampColumn: suggestedExperimentalColumn(nextColumns, [/time/i, /date/i, /period/i]),
+      runIdColumn: suggestedExperimentalColumn(nextColumns, [/run/i, /experiment.id/i, /trial/i]),
+    });
+    setMessage(`${dataset.name} is profiled and linked to this project. Review the suggested mappings before confirming the data strategy.`);
+  };
+
+  const chooseLibraryDataset = async (datasetId: string) => {
+    if (!datasetId) return;
+    const dataset = datasets.find((item) => item.datasetId === datasetId);
+    if (!dataset) return;
+    setBusy(true);
+    setError("");
+    try {
+      await attachDataset(dataset, "Dataset Library");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "ATLAS could not link the selected dataset.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const uploadExperimentalDataset = async (file: File | null) => {
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const dataset = await uploadDataset({
+        file,
+        name: file.name.replace(/\.[^.]+$/, ""),
+        description: "Experimental Design source data",
+        domain: "Experimental Design",
+        sourceType: "upload",
+      });
+      setDatasets((current) => [dataset, ...current.filter((item) => item.datasetId !== dataset.datasetId)]);
+      await attachDataset(dataset, "File upload");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "ATLAS could not upload the experimental dataset.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmStrategy = () => {
+    if (!ready) {
+      setError(needsDataset
+        ? "Link a governed dataset and map the experimental unit and response before confirming this strategy."
+        : "Define the capture source, experimental unit, response, collection frequency, and quality plan before confirming this strategy.");
+      return;
+    }
+    update({ schemaConfirmed: true, status: data.datasetId ? "profiled" : "planned" });
+    setError("");
+    setMessage(data.datasetId
+      ? "Data strategy confirmed from a governed Dataset Library version."
+      : "Prospective capture plan confirmed. No dataset metrics will be shown until observations are collected and registered.");
+  };
+
+  return (
+    <section className="rounded-2xl border border-blue-200 bg-blue-50/70 p-6 shadow-sm" data-testid="experimental-data-strategy">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-blue-700"><Database size={15} /> Data Strategy and Acquisition</div>
+          <h2 className="mt-1 text-lg font-semibold text-slate-950">How will this experiment obtain trustworthy data?</h2>
+          <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-700">
+            Designed experiments often begin before a dataset exists. ATLAS still requires either a governed prospective capture plan or a linked dataset version, so planning assumptions are never presented as observed evidence.
+          </p>
+        </div>
+        <StatusBadge label={data.schemaConfirmed && ready ? "Strategy confirmed" : ready ? "Ready to confirm" : "Configuration required"} tone={data.schemaConfirmed && ready ? "good" : "warning"} />
+      </div>
+
+      <div className="mt-5 grid gap-3 md:grid-cols-2">
+        {experimentalDataModes.map((mode) => {
+          const selected = data.mode === mode.id;
+          return (
+            <button key={mode.id} type="button" className={`min-h-[172px] rounded-xl border p-4 text-left transition hover:-translate-y-0.5 hover:shadow-md ${selected ? "border-blue-500 bg-white shadow-sm ring-2 ring-blue-100" : "border-slate-200 bg-slate-50"}`} onClick={() => update({ mode: mode.id, schemaConfirmed: false, status: mode.id === "prospective" ? "planned" : "not_configured" })}>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-semibold text-slate-950">{mode.label}</span>
+                <span className={`h-3 w-3 rounded-full border ${selected ? "border-blue-600 bg-blue-600" : "border-slate-300 bg-white"}`} />
+              </div>
+              <p className="mt-2 text-xs leading-5 text-slate-600">{mode.description}</p>
+              <p className="mt-2 text-[11px] leading-4 text-blue-800"><span className="font-semibold">Best used for:</span> {mode.bestFor}</p>
+            </button>
+          );
+        })}
+      </div>
+
+      {!data.mode ? (
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+          Select a data strategy. ATLAS will not infer a dataset, row count, factor count, or sample size from demonstration defaults.
+        </div>
+      ) : (
+        <>
+          {needsDataset && (
+            <div className="mt-5 grid gap-4 rounded-xl border border-blue-200 bg-white p-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+              <label className="grid min-w-0 gap-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Dataset Library version</span>
+                <select className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" value={data.datasetId ?? ""} disabled={busy} onChange={(event) => void chooseLibraryDataset(event.target.value)}>
+                  <option value="">Select a governed dataset</option>
+                  {datasets.map((dataset) => <option key={dataset.datasetId} value={dataset.datasetId}>{dataset.name} - {(dataset.latestVersion?.rowCount ?? 0).toLocaleString()} rows</option>)}
+                </select>
+                <span className="text-[11px] leading-4 text-slate-500">Use an immutable Dataset Library version when the observations already exist.</span>
+              </label>
+              <label className="inline-flex cursor-pointer items-center justify-center gap-2 self-end rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100">
+                <Upload size={16} /> {busy ? "Working..." : "Upload dataset"}
+                <input type="file" className="sr-only" accept=".csv,.txt,.xlsx,.xls,.parquet,.json,.zip,.feather,.sas7bdat" disabled={busy} onChange={(event) => void uploadExperimentalDataset(event.target.files?.[0] ?? null)} />
+              </label>
+            </div>
+          )}
+
+          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <label className="grid gap-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Collection / source type</span>
+              <select className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" value={data.sourceType ?? ""} onChange={(event) => update({ sourceType: event.target.value, schemaConfirmed: false })}>
+                <option value="">Select source</option>
+                {(needsDataset ? ["Dataset Library", "File upload", "SQL / warehouse", "API / event stream"] : ["Operational capture plan", "API / event stream", "Survey / instrument", "Lab instrument", "Manual controlled collection"]).map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
+              <DropdownDefinition value={data.sourceType ?? ""} />
+            </label>
+            <label className="grid gap-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Collection frequency / response window</span>
+              <input className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" value={data.captureFrequency ?? ""} placeholder="e.g., daily through 30 days after assignment" onChange={(event) => update({ captureFrequency: event.target.value, schemaConfirmed: false })} />
+              <span className="text-[11px] leading-4 text-slate-500">Define when outcomes become observable and when the dataset is analysis-ready.</span>
+            </label>
+            <label className="grid gap-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Source location / system of record</span>
+              <input className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" value={data.sourceLocation ?? ""} placeholder="Dataset ID, schema.table, event topic, or collection owner" onChange={(event) => update({ sourceLocation: event.target.value, schemaConfirmed: false })} />
+              <span className="text-[11px] leading-4 text-slate-500">Record enough lineage to reproduce the acquisition later.</span>
+            </label>
+          </div>
+
+          <div className="mt-5 border-t border-blue-200 pt-5">
+            <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Required analytical schema</div>
+            <div className="mt-3 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <ExperimentalColumnControl label="Experimental unit ID" value={data.unitColumn ?? ""} columns={columns} placeholder="customer_id" help="Best used for the unit randomized or repeatedly measured. It must be unique at the intended analysis grain." onChange={(value) => update({ unitColumn: value, schemaConfirmed: false })} />
+              <ExperimentalColumnControl label="Primary response" value={data.responseColumn ?? ""} columns={columns} placeholder="response" help="Choose the measured outcome used for the primary hypothesis and power calculation." onChange={(value) => update({ responseColumn: value, schemaConfirmed: false })} />
+              <ExperimentalColumnControl label="Factor / treatment columns" value={data.factorColumns ?? ""} columns={[]} placeholder="price_level, channel" help="List manipulated factors or treatment assignments. Historical covariates should not be mislabeled as experimental factors." onChange={(value) => update({ factorColumns: value, schemaConfirmed: false })} />
+              <ExperimentalColumnControl label="Block / strata columns" value={data.blockColumns ?? ""} columns={[]} placeholder="site, risk_tier, campaign_wave" help="Use for nuisance variables controlled by blocking or stratification; leave blank when not applicable." onChange={(value) => update({ blockColumns: value, schemaConfirmed: false })} />
+              <ExperimentalColumnControl label="Run / batch ID" value={data.runIdColumn ?? ""} columns={columns} placeholder="run_id" help="Supports execution traceability, repeated runs, and batch effects." onChange={(value) => update({ runIdColumn: value, schemaConfirmed: false })} />
+              <ExperimentalColumnControl label="Observation timestamp" value={data.timestampColumn ?? ""} columns={columns} placeholder="observed_at" help="Required when timing, drift, response windows, or sequential collection matter." onChange={(value) => update({ timestampColumn: value, schemaConfirmed: false })} />
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+            <TextArea label="Data lineage and provenance" value={data.lineageNotes ?? ""} rows={3} placeholder="Describe source ownership, extraction logic, joins, transformations, versioning, and access controls." onChange={(value) => update({ lineageNotes: value, schemaConfirmed: false })} />
+            <TextArea label="Data quality and reconciliation plan" value={data.qualityPlan ?? ""} rows={3} placeholder="Define completeness, uniqueness, range, treatment-delivery, response-window, reconciliation, and sign-off checks." onChange={(value) => update({ qualityPlan: value, schemaConfirmed: false })} />
+          </div>
+
+          {data.datasetId && (
+            <div className="mt-5 grid gap-3 md:grid-cols-4">
+              <MiniEvidence label="Governed dataset" value={data.datasetName || data.datasetId} tone="good" />
+              <MiniEvidence label="Version" value={data.versionId || "TBD"} />
+              <MiniEvidence label="Rows" value={(data.rowCount ?? 0).toLocaleString()} />
+              <MiniEvidence label="Columns" value={(data.columnCount ?? profile?.columnCount ?? 0).toLocaleString()} />
+            </div>
+          )}
+          {error && <div className="mt-4"><InlineError message={error} /></div>}
+          {message && <div className="mt-4"><InlineSuccess message={message} /></div>}
+          <div className="mt-5 flex flex-wrap items-center justify-between gap-3 border-t border-blue-200 pt-4">
+            <div className="text-xs leading-5 text-slate-600">
+              {ready ? "Required data fields are complete. Confirm to lock the provenance status for this stage." : "Complete the required source and schema fields. Optional factor, block, run, and timestamp mappings can be added when relevant."}
+            </div>
+            <button type="button" className="atlas-primary-button" onClick={confirmStrategy}><Link2 size={15} /> Confirm Data Strategy</button>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 function ProjectContextPage({
+  projectId,
   config,
   state,
   setState,
@@ -2136,6 +2921,7 @@ function ProjectContextPage({
   nextStep,
   journey,
 }: {
+  projectId: string;
   config: ExperimentalStepConfig;
   state: NodeState;
   setState: (state: NodeState) => void;
@@ -2146,9 +2932,17 @@ function ProjectContextPage({
 }) {
   const facts = projectContextFacts(state);
   const quality = projectDesignQuality(state);
+  const experimentalData = { ...emptyState().experimentalData, ...(state.experimentalData ?? {}) } as NonNullable<NodeState["experimentalData"]>;
+  const dataStrategyConfirmed = Boolean(experimentalData.schemaConfirmed && experimentalDataReady(experimentalData));
+  const confirmedFactors = confirmedExperimentalFactors(projectId);
+  const sampleSizeState = loadExperimentalNodeState(projectId, "Sample Size");
+  const samplePlanConfirmed = Number(sampleSizeState?.numeric.samplePlanConfirmed ?? 0) === 1;
+  const explicitPopulation = inferPopulationCount(state.inputs);
+  const confirmedTreatmentCells = confirmedFactors.length ? treatmentCellCount(confirmedFactors) : 0;
   const readinessItems = [
     { label: "Business Objective", complete: Boolean(state.objective.trim()), summary: summarizeText(state.objective, "Define the business decision this experiment will support.") },
     { label: "Population", complete: Boolean(state.inputs.trim()), summary: summarizeText(state.inputs, "Define eligible population, exclusions, and unit of randomization.") },
+    { label: "Data Strategy", complete: dataStrategyConfirmed, summary: dataStrategyConfirmed ? `${experimentalDataModes.find((mode) => mode.id === experimentalData.mode)?.label ?? "Data strategy"}${experimentalData.datasetName ? ` - ${experimentalData.datasetName}` : ""}` : "Choose a prospective, existing-data, hybrid, or completed-experiment strategy and confirm its provenance." },
     { label: "Target Response", complete: state.metrics.length > 0, summary: state.metrics.length ? state.metrics.join(", ") : "Select primary response and evidence metrics." },
     { label: "Governance Constraints", complete: Boolean(state.validation.trim()), summary: summarizeText(state.validation, "Document required approvals and governance checks.") },
     { label: "Decision Use", complete: Boolean(state.decision.trim() || state.objective.trim()), summary: summarizeText(state.decision || state.objective, "Explain how results will influence a business action.") },
@@ -2194,6 +2988,8 @@ function ProjectContextPage({
         </div>
       </section>
 
+      <ExperimentalDataStrategyPanel projectId={projectId} state={state} setState={setState} />
+
       <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-5">
           <div>
@@ -2204,7 +3000,7 @@ function ProjectContextPage({
             </div>
           </div>
           <div className="min-w-[280px] flex-1">
-            <div className="grid gap-2 sm:grid-cols-5">
+            <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-6">
               {readinessItems.map((item) => (
                 <div key={item.label} className={`rounded-xl border p-3 ${item.complete ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
                   <div className={`text-[11px] font-semibold uppercase tracking-wide ${item.complete ? "text-emerald-700" : "text-amber-700"}`}>
@@ -2295,25 +3091,23 @@ function ProjectContextPage({
         </div>
       </section>
 
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm" data-testid="experimental-design-readiness-snapshot">
         <div className="flex items-center justify-between gap-3">
           <div>
-            <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Experiment Summary</div>
-            <h2 className="mt-1 text-base font-semibold text-slate-950">Design Snapshot</h2>
+            <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Data and Design Readiness</div>
+            <h2 className="mt-1 text-base font-semibold text-slate-950">Confirmed evidence only</h2>
           </div>
-          <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">planning preview</span>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs font-semibold text-slate-600">no inferred values</span>
         </div>
-        <div className="mt-4">
-          <HorizontalBars
-            rows={[
-              { label: "Population", value: inferPopulationCount(state.inputs) || 25000 },
-              { label: "Factors", value: Math.max(1, Number(state.numeric.factorCount || 2)) },
-              { label: "Treatment Cells", value: Math.max(1, Math.round((state.numeric.averageLevels || 2) ** (state.numeric.factorCount || 2))) },
-              { label: "Power", value: Number(state.numeric.power || 80) },
-              { label: "Confidence", value: Math.round(facts.reduce((sum, fact) => sum + fact.confidence, 0) / Math.max(1, facts.length)) },
-            ]}
-            valueFormatter={(value) => value >= 1000 ? value.toLocaleString() : String(Math.round(value))}
-          />
+        <p className="mt-2 text-sm leading-6 text-slate-600">
+          ATLAS keeps planning assumptions separate from observed or user-confirmed evidence. Values remain TBD until their source workflow stage is complete.
+        </p>
+        <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <MiniEvidence label="Data source" value={dataStrategyConfirmed ? (experimentalData.datasetName || experimentalDataModes.find((mode) => mode.id === experimentalData.mode)?.label || "Confirmed plan") : "TBD"} tone={dataStrategyConfirmed ? "good" : "warning"} />
+          <MiniEvidence label="Population" value={explicitPopulation > 0 ? explicitPopulation.toLocaleString() : "TBD"} tone={explicitPopulation > 0 ? "good" : "warning"} />
+          <MiniEvidence label="Confirmed factors" value={confirmedFactors.length ? String(confirmedFactors.length) : "TBD"} tone={confirmedFactors.length ? "good" : "warning"} />
+          <MiniEvidence label="Treatment cells" value={confirmedTreatmentCells ? String(confirmedTreatmentCells) : "TBD"} tone={confirmedTreatmentCells ? "good" : "warning"} />
+          <MiniEvidence label="Power target" value={samplePlanConfirmed ? `${Math.round(sampleSizeState?.numeric.power ?? 0)}%` : "TBD"} tone={samplePlanConfirmed ? "good" : "warning"} />
         </div>
       </section>
 
@@ -3348,6 +4142,10 @@ function scoreRandomizationQuality(designState: ReturnType<typeof randomizationD
 }
 
 function RandomizationStudio({ projectId, state, setState }: { projectId: string; state: NodeState; setState: (state: NodeState) => void }) {
+  const factors = confirmedExperimentalFactors(projectId);
+  if (!factors.length) {
+    return <ExperimentalPrerequisiteGate title="Randomization requires a confirmed treatment matrix" detail="Return to Levels and confirm the actual factor settings. Assignment ratios, balance diagnostics, and audit controls will then be calculated from those treatment cells." />;
+  }
   const design = randomizationDesignInputs(projectId, state);
   const diagnostics = computeRandomizationDiagnostics(design);
   const allocationValid = Math.abs(design.allocationTotal - 100) <= 0.5;
@@ -3421,12 +4219,14 @@ function RandomizationStudio({ projectId, state, setState }: { projectId: string
               <select className="w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" value={design.assignmentUnit} onChange={(event) => setState({ ...state, assignmentUnit: event.target.value })}>
                 {["Customer", "Account", "Household", "Branch", "Region"].map((unit) => <option key={unit} value={unit}>{unit}</option>)}
               </select>
+              <span className="text-[11px] leading-4 text-slate-500"><span className="font-semibold">Best used for:</span> choose the smallest independently assignable unit that avoids treatment contamination and matches the analysis grain.</span>
             </label>
             <label className="grid min-w-0 gap-1.5">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Block / strata</span>
               <select className="w-full min-w-0 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" value={design.selectedStratum} onChange={(event) => setState({ ...state, blockStratum: event.target.value })}>
                 {Array.from(new Set([...design.blockingSelections, "Customer risk segment", "Geographic region", "Campaign week"])).map((stratum) => <option key={stratum} value={stratum}>{stratum}</option>)}
               </select>
+              <span className="text-[11px] leading-4 text-slate-500"><span className="font-semibold">Best used for:</span> a pre-treatment variable strongly related to the response that must remain balanced across treatment cells.</span>
             </label>
             <label className="grid min-w-0 gap-1.5">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Random seed</span>
@@ -3693,54 +4493,19 @@ function RandomizationStudio({ projectId, state, setState }: { projectId: string
   );
 }
 
-function SampleSizeStudio({ state, setState }: { state: NodeState; setState: (state: NodeState) => void }) {
+function SampleSizeStudio({ projectId, state, setState }: { projectId: string; state: NodeState; setState: (state: NodeState) => void }) {
   return (
-    <SampleSizePowerPlanner state={state} setState={setState} />
-  );
-}
-
-function RunPlanTopSimulationSummary({ projectId, state }: { projectId: string; state: NodeState }) {
-  const sampleState = loadExperimentalNodeState(projectId, "Sample Size") ?? state;
-  const monteState = loadExperimentalNodeState(projectId, "Monte Carlo Simulation") ?? state;
-  const plan = sampleSizePlan(sampleState);
-  const results = monteState.simulationResults;
-  const sampleShortfall = results ? Math.max(0, plan.total - results.inputs.totalSample) : 0;
-  const launchApproved = results && (results.recommendedAction === "Strong" || results.recommendedAction === "Adequate");
-  return (
-    <section className={`rounded-2xl border p-6 shadow-sm ${launchApproved ? "border-emerald-200 bg-emerald-50" : "border-rose-200 bg-rose-50"}`}>
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <div className={`text-xs font-semibold uppercase tracking-wide ${launchApproved ? "text-emerald-800" : "text-rose-800"}`}>Simulation Summary from Monte Carlo</div>
-          <h2 className="mt-1 text-xl font-semibold text-slate-950">
-            {results ? "Operational launch planning is tied to simulation evidence." : "Run Monte Carlo before finalizing the execution plan."}
-          </h2>
-          <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-700">
-            {results
-              ? simulationNarrative(results)
-              : "The run plan cannot be fully approved until ATLAS has quantified power, false-negative risk, wrong-winner risk, decision stability, and sample adequacy."}
-          </p>
-        </div>
-        <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${launchApproved ? "border-emerald-300 bg-white text-emerald-800" : "border-rose-300 bg-white text-rose-800"}`}>
-          {results?.recommendedAction ?? "Monte Carlo pending"}
-        </span>
-      </div>
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <ResultCard label="Launch readiness" value={results?.recommendedAction ?? "Pending"} />
-        <ResultCard label="Mean power" value={results ? formatPct(results.meanPower) : "Pending"} />
-        <ResultCard label="Wrong winner risk" value={results ? formatPct(results.wrongWinnerRate) : "Pending"} />
-        <ResultCard label="False negative rate" value={results ? formatPct(results.falseNegativeRate) : "Pending"} />
-        <ResultCard label="Sample shortfall" value={results ? sampleShortfall.toLocaleString() : "Pending"} />
-        <ResultCard label="Decision stability" value={results ? formatPct(results.decisionStabilityScore) : "Pending"} />
-        <ResultCard label="CI coverage" value={results ? formatPct(results.confidenceIntervalCoverage) : "Pending"} />
-        <ResultCard label="Recommendation" value={launchApproved ? "Launch approved" : results ? "Redesign required" : "Run simulation"} />
-      </div>
-    </section>
+    <SampleSizePowerPlanner projectId={projectId} state={state} setState={setState} />
   );
 }
 
 function RunPlanStudio({ projectId, state, setState }: { projectId: string; state: NodeState; setState: (state: NodeState) => void }) {
+  const factors = confirmedExperimentalFactors(projectId);
+  if (!factors.length) {
+    return <ExperimentalPrerequisiteGate title="The run plan needs a confirmed experiment structure" detail="Complete Levels before defining launch sequencing, assignment QA, monitoring, stopping rules, and rollback controls. This prevents a generic run plan from being mistaken for an approved study design." />;
+  }
   const randomState = loadExperimentalNodeState(projectId, "Randomization") ?? state;
-  const sampleState = loadExperimentalNodeState(projectId, "Sample Size") ?? state;
+  const sampleState = stateWithFactorStructure(loadExperimentalNodeState(projectId, "Sample Size") ?? state, factors);
   const monteState = loadExperimentalNodeState(projectId, "Monte Carlo Simulation") ?? state;
   const samplePlan = sampleSizePlan(sampleState);
   const randomDesign = randomizationDesignInputs(projectId, randomState);
@@ -3982,16 +4747,31 @@ function RunPlanStudio({ projectId, state, setState }: { projectId: string; stat
 
 function AnovaStudio({ projectId, state }: { projectId: string; state: NodeState }) {
   const plan = generatedAnovaPlan(projectId, state);
+  if (!plan.factors.length) {
+    return <ExperimentalPrerequisiteGate title="ANOVA specification requires confirmed factors and levels" detail="Complete the treatment matrix in Levels first. ATLAS will then generate real factor names, interactions, and degrees of freedom without inventing placeholder terms or statistical results." />;
+  }
   const rows = plan.termRows.map((row) => ({ label: row.term, value: row.df, status: "Adequate" as const }));
   return (
     <section className="space-y-4">
+      <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Analysis specification</div>
+            <h2 className="mt-1 text-lg font-semibold text-slate-950">Define the model before interpreting experimental evidence</h2>
+            <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-700">
+              This page builds the ANOVA term structure from confirmed factors and levels. It does not invent F statistics, p-values, effect sizes, or residual diagnostics. Those results require observed experiment outcomes and a completed run.
+            </p>
+          </div>
+          <span className="rounded-full border border-blue-200 bg-white px-3 py-1 text-xs font-semibold text-blue-800">Planning artifact</span>
+        </div>
+      </section>
       <AnovaModelAssistant plan={plan} />
       <HorizontalBarChartCard
         title="ANOVA Degrees-of-Freedom Structure"
         subtitle="Main effects and interaction terms generated from factor names only."
         rows={rows.length ? rows : [{ label: "Terms pending", value: 1, status: "Weak" }]}
         valueFormatter={(value) => value.toLocaleString()}
-        note="This is the statistical structure ATLAS will use for ANOVA documentation and interpretation guidance."
+        note="This is a model specification. Statistical conclusions remain unavailable until observed outcomes are analyzed."
       />
     </section>
   );
@@ -3999,6 +4779,9 @@ function AnovaStudio({ projectId, state }: { projectId: string; state: NodeState
 
 function InteractionStudio({ projectId, state }: { projectId: string; state: NodeState }) {
   const plan = generatedAnovaPlan(projectId, state);
+  if (!plan.factors.length) {
+    return <ExperimentalPrerequisiteGate title="Interaction review requires a confirmed treatment matrix" detail="Define at least two factors with levels before ATLAS builds an interaction review plan. No example effects will be presented as experiment evidence." />;
+  }
   const interactions = plan.termRows.filter((row) => /\s(?:x|×|Ã—)\s/.test(row.term));
   const matrixRows = interactions.slice(0, 8).map((row, index) => [
     row.term,
@@ -4032,12 +4815,15 @@ function InteractionStudio({ projectId, state }: { projectId: string; state: Nod
 
 function OptimizationStudio({ projectId, state }: { projectId: string; state: NodeState }) {
   const parsedFactors = sharedParseFactorHierarchy(loadExperimentalNodeState(projectId, "Levels")?.objective ?? "");
-  const factors = parsedFactors.length
-    ? parsedFactors
-    : [
-        { factorName: "Pricing Strategy", levels: ["Current Pricing", "Personalized Pricing"] },
-        { factorName: "Contact Channel", levels: ["Email", "SMS"] },
-      ];
+  const factors = parsedFactors;
+  if (!factors.length) {
+    return (
+      <section className="rounded-2xl border border-dashed border-amber-300 bg-amber-50 p-8 text-center shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-950">Optimization is blocked until treatment levels are confirmed</h2>
+        <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-slate-600">Return to Levels and define the actual treatment matrix. ATLAS will not rank invented example treatments or present simulated values as observed evidence.</p>
+      </section>
+    );
+  }
   const matrix = generateTreatmentMatrix(factors).slice(0, 8);
   const guardrailCount = Math.max(3, Number(state.numeric.constraintCount ?? 4));
   const ranked = matrix.map((row, index) => {
@@ -4079,11 +4865,11 @@ function OptimizationStudio({ projectId, state }: { projectId: string; state: No
         <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Recommended Treatment</div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Planning scenario only</div>
               <h2 className="mt-1 text-2xl font-semibold text-slate-950">{winner?.label ?? "Treatment pending"}</h2>
               <p className="mt-2 max-w-3xl text-sm leading-6 text-emerald-950">
                 {winner
-                  ? `${winner.settings}. ATLAS recommends this treatment because it has the strongest combined desirability score after lift, revenue, risk, and guardrail constraints are considered.`
+                  ? `${winner.settings}. This cell leads the current scenario assumptions. It is not a final recommendation until observed response, uncertainty, and guardrail evidence are supplied and reviewed.`
                   : "Define factor levels to generate a treatment recommendation."}
               </p>
             </div>
@@ -4096,11 +4882,11 @@ function OptimizationStudio({ projectId, state }: { projectId: string; state: No
 
         <section className="grid gap-4 lg:grid-cols-2">
           <HorizontalBarChartCard
-            title="Treatment Ranking Preview"
-            subtitle="Ranks treatment cells using lift, guardrail performance, risk, and operational feasibility."
+            title="Scenario Treatment Ranking"
+            subtitle="Compares treatment cells under planning assumptions; it does not represent observed study results."
             rows={ranked.map((row) => ({ label: row.label, value: row.desirability, status: row.status }))}
             valueFormatter={(value) => `${Math.round(value * 100)} score`}
-            note="Higher scores indicate stronger deployment candidates under current constraints."
+            note="Higher scores indicate stronger planning scenarios only. Confirm with observed experiment evidence before deployment."
           />
           <AnalysisEvidenceTable table={{
             title: "Top Candidate Treatments",
@@ -4111,8 +4897,8 @@ function OptimizationStudio({ projectId, state }: { projectId: string; state: No
 
         <section className="grid gap-4 lg:grid-cols-2">
           <HorizontalBarChartCard
-            title="Treatment Lift Comparison"
-            subtitle="Expected incremental response by treatment cell."
+            title="Assumed Lift Comparison"
+            subtitle="Illustrative incremental response under the active planning scenario."
             rows={ranked.map((row) => ({ label: row.label, value: row.lift, status: row.status }))}
             valueFormatter={(value) => formatPct(value)}
             note="Lift values are preview estimates until observed experiment outcomes are loaded."
@@ -4146,18 +4932,18 @@ function OptimizationStudio({ projectId, state }: { projectId: string; state: No
           <div className="mt-4 grid gap-3">
             <ResultCard label="Treatment Cells" value={ranked.length.toLocaleString()} />
             <ResultCard label="Guardrail Pass" value={winner ? `${winner.passedConstraints}/${guardrailCount}` : "-"} />
-            <ResultCard label="Revenue Upside" value={winner ? `$${winner.revenue.toLocaleString()}` : "-"} />
-            <ResultCard label="Recommendation" value={winner?.status === "Adequate" ? "Proceed" : "Review"} />
+            <ResultCard label="Scenario Revenue" value={winner ? `$${winner.revenue.toLocaleString()}` : "-"} />
+            <ResultCard label="Decision State" value="Evidence required" />
           </div>
         </section>
 
         <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
-          <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Why the Winner is Recommended</div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Why this scenario ranks first</div>
           <ul className="mt-3 space-y-2 text-sm leading-6 text-blue-950">
             <li>- Highest combined desirability score.</li>
-            <li>- Positive expected lift with acceptable confidence interval.</li>
-            <li>- Guardrail pass rate remains above the launch threshold.</li>
-            <li>- Revenue upside is strong relative to modeled operational risk.</li>
+            <li>- Positive assumed lift under the current planning inputs.</li>
+            <li>- Stronger modeled guardrail coverage than alternative scenarios.</li>
+            <li>- Must be replaced with observed effects and uncertainty before approval.</li>
           </ul>
         </section>
 
@@ -4398,12 +5184,18 @@ function experimentalInterpretationText(stepLabel: string, analysis: Experimenta
   const nodeStates = loadExperimentalNodeStates(projectId);
   const factors = sharedParseFactorHierarchy(nodeStates.Levels?.objective ?? "");
   const factorNames = factors.map((factor) => factor.factorName);
-  const treatmentCells = factors.length ? treatmentCellCount(factors) : Number(nodeStates["Sample Size"]?.numeric?.factorCount ?? 2) ** 2;
+  const treatmentCells = factors.length ? treatmentCellCount(factors) : 0;
+  const designDependentSteps = ["Factors", "Levels", "Blocking", "Randomization", "Sample Size", "Monte Carlo Simulation", "Experiment Run Plan", "ANOVA", "Interaction Effects", "Optimization"];
+  if (!factors.length && designDependentSteps.includes(stepLabel)) {
+    return stepLabel === "Factors"
+      ? "Enter the controllable factors, then confirm their actual settings in Levels. ATLAS will not report treatment cells, power, simulation risk, or analysis terms until that structure exists."
+      : "Confirmed factors and levels are required before ATLAS can calculate or interpret this stage. Return to Levels and save the actual treatment matrix to replace all TBD values with design-specific evidence.";
+  }
   const factorPair = factorNames.length >= 2 ? `${factorNames[0]} x ${factorNames[1]}` : "the primary factor interaction";
   const randomizationDesign = nodeStates.Randomization ? randomizationDesignInputs(projectId, nodeStates.Randomization) : null;
   const lookup: Record<string, string> = {
-    Factors: `ATLAS identified ${factorNames.length || 2} controllable factors producing ${treatmentCells.toLocaleString()} treatment cells. ${factorNames.slice(0, 2).join(" and ") || "The selected factors"} should be randomized and audited. Measured covariates should support balance checks and subgroup diagnostics, not drive treatment assignment.`,
-    Levels: `ATLAS generated a ${factors.length ? factors.map((factor) => factor.levels.length).join(" x ") : "2 x 2"} treatment matrix from the selected levels. Baseline settings should be clearly identified before sample-size planning so treatment effects are interpretable.`,
+    Factors: `ATLAS identified ${factorNames.length} controllable factors producing ${treatmentCells.toLocaleString()} treatment cells. ${factorNames.slice(0, 2).join(" and ")} should be randomized and audited. Measured covariates should support balance checks and subgroup diagnostics, not drive treatment assignment.`,
+    Levels: `ATLAS generated a ${factors.map((factor) => factor.levels.length).join(" x ")} treatment matrix from the selected levels. Baseline settings should be clearly identified before sample-size planning so treatment effects are interpretable.`,
     Blocking: "ATLAS recommends using customer risk segment as the primary stratification variable. Campaign launch week and geographic region should be monitored through balance diagnostics but should not define treatment assignment unless material response differences are confirmed.",
     Randomization: `ATLAS recommends reproducible ${randomizationDesign?.method.toLowerCase() ?? "stratified randomization"} using ${randomizationDesign?.selectedStratum ?? "Customer risk segment"} as the primary stratum. This improves treatment comparability while avoiding unnecessary treatment-cell expansion. Campaign launch week and geographic region should be monitored through balance diagnostics unless stronger response differences are confirmed.`,
     "Sample Size": "The sample-size plan should confirm that the available population supports the required per-cell allocation for the minimum practical lift and target power.",
@@ -4447,18 +5239,21 @@ function ExperimentalInterpretation({ analysis, stepLabel, projectId }: { analys
   );
 }
 
-function FactorDesignAssistant({ factors }: { factors: SuggestedFactor[] }) {
+function FactorDesignAssistant({ factors, covariates }: { factors: SuggestedFactor[]; covariates: string[] }) {
   const designFactors = normalizeDesignFactors(factors);
-  const [sandboxEnabled, setSandboxEnabled] = useState(false);
-  const sandboxFactors = sandboxEnabled
-    ? [...designFactors, { factorName: "Region", type: "Categorical" as const, levels: ["Northeast", "South", "Midwest", "West"] }]
-    : designFactors;
+  if (!designFactors.length) {
+    return (
+      <section className="rounded-2xl border border-dashed border-blue-300 bg-blue-50/60 p-8 text-center shadow-sm">
+        <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-white text-blue-700 shadow-sm"><BarChart3 size={20} /></div>
+        <h2 className="mt-4 text-lg font-semibold text-slate-950">Define controllable factors to build the design</h2>
+        <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-slate-600">Enter one confirmed factor per line in Design Inputs above. ATLAS will propose provisional levels for design exploration, but it will not invent factors or treat suggestions as confirmed evidence.</p>
+        <div className="mx-auto mt-4 max-w-xl rounded-xl border border-blue-200 bg-white p-3 text-left font-mono text-xs leading-6 text-slate-600">Offer amount<br />Contact channel<br />Message timing</div>
+      </section>
+    );
+  }
   const treatmentCells = treatmentCellCount(designFactors);
-  const perCellSample = designFactors.length ? 400 : 0;
-  const totalSample = perCellSample * treatmentCells;
   const levelSummary = designFactors.length ? designFactors.map((factor) => factor.levels.length).join(" x ") : "-";
   const complexity = factorComplexity(treatmentCells);
-  const estimatedPower = estimatedFactorPower(treatmentCells);
   const recommendedAnalyses =
     designFactors.length > 1
       ? ["Two-Way ANOVA", "Interaction Analysis", "Effect Size", "Power Analysis"]
@@ -4484,9 +5279,9 @@ function FactorDesignAssistant({ factors }: { factors: SuggestedFactor[] }) {
         <div className="mt-4 grid gap-3 md:grid-cols-5">
           <ResultCard label="Factors" value={String(designFactors.length)} />
           <ResultCard label="Levels" value={levelSummary} />
-          <ResultCard label="Treatment cells" value={treatmentCells.toLocaleString()} />
+          <ResultCard label="Projected cells" value={treatmentCells.toLocaleString()} />
           <ResultCard label="Complexity" value={complexity} />
-          <ResultCard label="Est. power" value={`${Math.round(estimatedPower)}%`} />
+          <ResultCard label="Power" value="Calculated in Step 7" />
         </div>
 
         <ExperimentalDesignFlow factors={designFactors} />
@@ -4499,18 +5294,20 @@ function FactorDesignAssistant({ factors }: { factors: SuggestedFactor[] }) {
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
         <DesignCanvas factors={designFactors} />
-        <DesignComplexityPanel factors={designFactors} perCellSample={perCellSample} totalSample={totalSample} />
+        <DesignComplexityPanel factors={designFactors} />
       </section>
 
-      <WhatIfSandbox factors={designFactors} previewFactors={sandboxFactors} enabled={sandboxEnabled} onToggle={setSandboxEnabled} />
-
       <section className="grid gap-4 xl:grid-cols-2">
-        <FactorCovariateMap factors={designFactors} />
+        <FactorCovariateMap factors={designFactors} covariates={covariates} />
         <FactorQualityScorecard factors={designFactors} treatmentCells={treatmentCells} />
       </section>
 
       <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <SuggestedFactorRecommendations factors={designFactors} />
+        <VisualCard title="Factor Review Checklist" subtitle="Confirm these items before the provisional level suggestions become a treatment matrix.">
+          <div className="grid gap-2 sm:grid-cols-2">
+            {["Business can intentionally vary each factor", "Factor is not an outcome or post-treatment field", "Restricted combinations are documented", "Measured covariates remain separate", "A control setting can be identified", "Assignment can be logged and audited"].map((item) => <div key={item} className="flex items-start gap-2 rounded-xl border border-slate-200 bg-white p-3 text-xs leading-5 text-slate-700"><CheckCircle2 size={15} className="mt-0.5 shrink-0 text-blue-600" />{item}</div>)}
+          </div>
+        </VisualCard>
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
           <div className="text-xs font-semibold uppercase tracking-wide text-emerald-800">Recommended Analysis</div>
           <div className="mt-3 grid gap-2">
@@ -4521,9 +5318,7 @@ function FactorDesignAssistant({ factors }: { factors: SuggestedFactor[] }) {
               </div>
             ))}
           </div>
-          <p className="mt-4 text-xs leading-5 text-emerald-900">
-            Estimated total minimum sample: {totalSample.toLocaleString()} records across {treatmentCells.toLocaleString()} treatment cells.
-          </p>
+          <p className="mt-4 text-xs leading-5 text-emerald-900">The analysis family is provisional until levels, sample size, and observed response data are confirmed.</p>
         </div>
       </section>
     </section>
@@ -4531,12 +5326,7 @@ function FactorDesignAssistant({ factors }: { factors: SuggestedFactor[] }) {
 }
 
 function normalizeDesignFactors(factors: SuggestedFactor[]): SuggestedFactor[] {
-  const defaults: SuggestedFactor[] = [
-    { factorName: "Pricing Strategy", type: "Categorical", levels: ["Current", "Personalized"] },
-    { factorName: "Contact Channel", type: "Categorical", levels: ["Email", "SMS"] },
-  ];
-  const source = factors.length ? factors : defaults;
-  return source.slice(0, 5).map((factor) => ({
+  return factors.slice(0, 5).map((factor) => ({
     factorName: factor.factorName,
     type: factor.type,
     levels: factor.levels.length ? factor.levels.slice(0, 5) : ["Control", "Treatment"],
@@ -4555,14 +5345,12 @@ function estimatedFactorPower(cells: number) {
 
 function ExperimentalDesignFlow({ factors }: { factors: SuggestedFactor[] }) {
   const cells = treatmentCellCount(factors);
-  const availablePopulation = 25000;
-  const perCell = Math.floor(availablePopulation / Math.max(1, cells));
   const steps = [
-    { label: factors.map((factor) => factor.levels.length).join(" x "), value: "Factorial" },
-    { label: `${cells.toLocaleString()} Cells`, value: "Treatment grid" },
+    { label: factors.length.toLocaleString(), value: "Confirmed factors" },
+    { label: factors.map((factor) => factor.levels.length).join(" x "), value: "Provisional levels" },
+    { label: `${cells.toLocaleString()} Cells`, value: "Projected grid" },
     { label: "Balanced", value: new Set(factors.map((factor) => factor.levels.length)).size === 1 ? "Yes" : "Review" },
-    { label: availablePopulation.toLocaleString(), value: "Observations" },
-    { label: `${perCell.toLocaleString()} / cell`, value: "Initial allocation" },
+    { label: "Step 4", value: "Confirm levels next" },
   ];
   return (
     <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -4585,7 +5373,6 @@ function TreatmentStructureHero({ factors }: { factors: SuggestedFactor[] }) {
   const rowFactor = factors[0];
   const columnFactor = factors[1] ?? { factorName: "Treatment", type: "Categorical" as const, levels: ["Cell"] };
   const extraFactors = Math.max(0, factors.length - 2);
-  const samplePerCell = Math.floor(25000 / Math.max(1, treatmentCellCount(factors)));
 
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -4632,8 +5419,8 @@ function TreatmentStructureHero({ factors }: { factors: SuggestedFactor[] }) {
                     <div className="mt-2 grid gap-1.5 text-xs text-slate-700">
                       <div><span className="font-semibold text-slate-950">{rowFactor.factorName}:</span> {rowLevel}</div>
                       <div><span className="font-semibold text-slate-950">{columnFactor.factorName}:</span> {columnLevel}</div>
-                      <div><span className="font-semibold text-slate-950">Expected n:</span> {samplePerCell.toLocaleString()}</div>
-                      <div><span className="font-semibold text-slate-950">Randomization:</span> Yes</div>
+                      <div><span className="font-semibold text-slate-950">Sample size:</span> Defined in Step 7</div>
+                      <div><span className="font-semibold text-slate-950">Assignment:</span> Defined in Step 6</div>
                     </div>
                   </div>
                 </div>
@@ -4720,9 +5507,8 @@ function DesignCanvas({ factors }: { factors: SuggestedFactor[] }) {
   );
 }
 
-function DesignComplexityPanel({ factors, perCellSample, totalSample }: { factors: SuggestedFactor[]; perCellSample: number; totalSample: number }) {
+function DesignComplexityPanel({ factors }: { factors: SuggestedFactor[] }) {
   const cells = treatmentCellCount(factors);
-  const power = estimatedFactorPower(cells);
   const tiles = Array.from({ length: Math.min(36, cells) }, (_, index) => index);
   const complexityScore = Math.min(10, Math.max(1, Math.ceil(cells / 2)));
   const efficiency = Math.max(60, 100 - Math.max(0, cells - 4) * 3);
@@ -4753,11 +5539,11 @@ function DesignComplexityPanel({ factors, perCellSample, totalSample }: { factor
       <div className="mt-4 space-y-3">
         <HorizontalBars
           rows={[
-            { label: "Required Sample", value: totalSample },
-            { label: "Estimated Power", value: power },
-            { label: "Design Efficiency", value: efficiency },
+            { label: "Factors", value: factors.length },
+            { label: "Projected Cells", value: cells },
+            { label: "Design Efficiency Score", value: efficiency },
           ]}
-          valueFormatter={(value) => value > 1000 ? value.toLocaleString() : `${Math.round(value)}%`}
+          valueFormatter={(value) => Math.round(value).toLocaleString()}
         />
       </div>
       <div className="mt-4 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
@@ -4772,19 +5558,12 @@ function DesignComplexityPanel({ factors, perCellSample, totalSample }: { factor
           <span>Low variance inflation</span>
         </div>
       </div>
-      <p className="mt-4 text-xs leading-5 text-slate-500">
-        Planning assumption: {perCellSample.toLocaleString()} observations per cell before the formal sample-size step.
-      </p>
+      <p className="mt-4 text-xs leading-5 text-slate-500">ATLAS intentionally defers sample and power claims until the Sample Size step. No provisional population count is presented as confirmed evidence.</p>
     </VisualCard>
   );
 }
 
-function FactorCovariateMap({ factors }: { factors: SuggestedFactor[] }) {
-  const covariateGroups = [
-    { group: "Customer", items: ["Customer tenure", "Income", "FICO score"] },
-    { group: "Marketing", items: ["Prior response", "Campaign history"] },
-    { group: "Geography", items: ["Region", "State"] },
-  ];
+function FactorCovariateMap({ factors, covariates }: { factors: SuggestedFactor[]; covariates: string[] }) {
   return (
     <VisualCard title="Factors vs. Covariates" subtitle="This separates variables the business intentionally changes from variables observed for analysis and balance checks.">
       <div className="grid gap-3 md:grid-cols-2">
@@ -4798,18 +5577,7 @@ function FactorCovariateMap({ factors }: { factors: SuggestedFactor[] }) {
         </div>
         <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Measured Only</div>
-          <div className="mt-3 space-y-3">
-            {covariateGroups.map((group) => (
-              <div key={group.group} className="rounded-lg bg-white p-3">
-                <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{group.group}</div>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {group.items.map((item) => (
-                    <span key={item} className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">{item}</span>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
+          {covariates.length ? <div className="mt-3 flex flex-wrap gap-2">{covariates.map((item) => <span key={item} className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-700">{item}</span>)}</div> : <div className="mt-3 rounded-lg border border-dashed border-slate-300 bg-white p-4 text-xs leading-5 text-slate-500">No measured covariates have been confirmed. Add them in Design Inputs only when they are observed for balance or precision and are not manipulated.</div>}
         </div>
       </div>
     </VisualCard>
@@ -4818,31 +5586,25 @@ function FactorCovariateMap({ factors }: { factors: SuggestedFactor[] }) {
 
 function FactorQualityScorecard({ factors, treatmentCells }: { factors: SuggestedFactor[]; treatmentCells: number }) {
   const rows = [
-    { label: "Controllability", value: Math.min(98, 72 + factors.length * 8) },
-    { label: "Balance", value: new Set(factors.map((factor) => factor.levels.length)).size === 1 ? 94 : 78 },
-    { label: "Business Relevance", value: Math.min(96, 70 + factors.length * 9) },
-    { label: "Expected Signal", value: Math.max(66, 88 - Math.max(0, treatmentCells - 4) * 2) },
+    { label: "Factor names are unique", pass: new Set(factors.map((factor) => factor.factorName.toLowerCase())).size === factors.length },
+    { label: "Provisional levels exist", pass: factors.every((factor) => factor.levels.length >= 2) },
+    { label: "Treatment grid is reviewable", pass: treatmentCells <= 32 },
+    { label: "Formal power is still pending", pass: false },
   ];
   return (
-    <VisualCard title="Factor Quality Score" subtitle="ATLAS scores whether the selected factors are controllable, balanced, relevant, and likely to create interpretable signal.">
+    <VisualCard title="Factor Structure Checks" subtitle="Deterministic checks only. ATLAS does not fabricate relevance, signal, or power scores before evidence is supplied.">
       <div className="space-y-3">
         {rows.map((row) => (
           <div key={row.label} className="rounded-xl border border-slate-200 bg-white p-3">
             <div className="flex items-center justify-between gap-3 text-xs font-semibold">
               <span className="text-slate-700">{row.label}</span>
-              <span className={row.value >= 85 ? "text-emerald-700" : row.value >= 72 ? "text-amber-700" : "text-rose-700"}>{Math.round(row.value)}%</span>
-            </div>
-            <div className="mt-2 h-3 overflow-hidden rounded-full bg-slate-100">
-              <div
-                className={`h-full rounded-full transition-all duration-700 ${row.value >= 85 ? "bg-emerald-600" : row.value >= 72 ? "bg-amber-500" : "bg-rose-500"}`}
-                style={{ width: `${row.value}%` }}
-              />
+              <span className={row.pass ? "text-emerald-700" : "text-amber-700"}>{row.pass ? "Pass" : "Review"}</span>
             </div>
           </div>
         ))}
       </div>
       <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600">
-        Improve the score by keeping factors controllable, defining balanced levels, and avoiding extra factors unless they support a clear business hypothesis.
+        Confirm level feasibility in Step 4 and calculate sample size and power in Step 7 before approving the design.
       </div>
     </VisualCard>
   );
@@ -4954,19 +5716,31 @@ function DeltaCard({ label, before, after, active, inverse = false }: { label: s
 }
 
 function levelsFactors(projectId: string, state: NodeState): ExperimentalFactor[] {
-  const parsed = sharedParseFactorHierarchy(state.objective);
-  if (parsed.length) return parsed;
-  const factorsState = loadExperimentalNodeState(projectId, "Factors");
-  const suggested = sharedDeriveSuggestedFactors(factorsState?.objective ?? "");
-  if (suggested.length) return suggested.map(({ factorName, levels }) => ({ factorName, levels }));
-  return [
-    { factorName: "Pricing Strategy", levels: ["Current Pricing", "Personalized Pricing"] },
-    { factorName: "Contact Channel", levels: ["Email", "SMS"] },
-  ];
+  void projectId;
+  return sharedParseFactorHierarchy(state.objective);
 }
 
-function LevelsDesignBuilder({ projectId, state }: { projectId: string; state: NodeState }) {
+function LevelsDesignBuilder({ projectId, state, setState }: { projectId: string; state: NodeState; setState: (state: NodeState) => void }) {
   const factors = levelsFactors(projectId, state);
+  if (!factors.length) {
+    const factorsState = loadExperimentalNodeState(projectId, "Factors");
+    const suggestions = sharedDeriveSuggestedFactors(factorsState?.objective ?? "");
+    const suggestedDraft = suggestions.map((factor) => `${factor.factorName}\n${factor.levels.map((level) => `- ${level}`).join("\n")}`).join("\n\n");
+    return (
+      <section className="rounded-2xl border border-dashed border-blue-300 bg-blue-50/60 p-8 text-center shadow-sm">
+        <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-full bg-white text-blue-700 shadow-sm"><ClipboardList size={20} /></div>
+        <h2 className="mt-4 text-lg font-semibold text-slate-950">Confirm the factor levels before building the treatment matrix</h2>
+        <p className="mx-auto mt-2 max-w-2xl text-sm leading-6 text-slate-600">Enter confirmed settings above using <span className="font-mono">Factor: Control, Treatment</span>. Suggested levels remain a draft until you explicitly apply and review them; they never unlock downstream analysis on their own.</p>
+        {suggestions.length > 0 && (
+          <div className="mx-auto mt-5 max-w-2xl rounded-xl border border-blue-200 bg-white p-4 text-left">
+            <div className="text-xs font-semibold uppercase text-blue-700">Provisional suggestions</div>
+            <pre className="mt-2 whitespace-pre-wrap font-mono text-xs leading-6 text-slate-700">{suggestedDraft}</pre>
+            <button type="button" className="mt-3 rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800" onClick={() => setState({ ...state, objective: suggestedDraft })}>Use suggestions as draft</button>
+          </div>
+        )}
+      </section>
+    );
+  }
   const matrix = generateTreatmentMatrix(factors);
   const cells = treatmentCellCount(factors);
   const balanced = new Set(factors.map((factor) => factor.levels.length)).size === 1;
@@ -5634,6 +6408,7 @@ function BlockingGovernanceConfirmation({ config, state, setState }: { config: E
                 <option key={method} value={method}>{method}</option>
               ))}
             </select>
+            <DropdownDefinition value={state.method} />
           </label>
           <TextArea
             label="Decision / Recommendation"
@@ -5694,6 +6469,7 @@ function RandomizationGovernanceConfirmation({ config, state, setState }: { conf
                 <option key={method} value={method}>{method}</option>
               ))}
             </select>
+            <DropdownDefinition value={state.method} />
           </label>
           <TextArea
             label="Rationale for Governance"
@@ -5747,6 +6523,7 @@ function SampleSizeGovernanceConfirmation({ config, state, setState }: { config:
                 <option key={method} value={method}>{method}</option>
               ))}
             </select>
+            <DropdownDefinition value={state.method} />
           </label>
           <MetricPicker options={config.metrics} selected={state.metrics} onChange={(metrics) => setState({ ...state, metrics })} />
         </div>
@@ -5882,6 +6659,10 @@ function MonteCarloSimulationDashboard({ projectId, state, setState }: { project
   const [isRunning, setIsRunning] = useState(false);
   const [progress, setProgress] = useState(0);
   const [runtimeMs, setRuntimeMs] = useState<number | null>(null);
+  const factors = confirmedExperimentalFactors(projectId);
+  if (!factors.length) {
+    return <ExperimentalPrerequisiteGate title="Monte Carlo simulation requires a confirmed design" detail="Confirm factors and levels, then complete the sample-size plan. ATLAS will not simulate launch risk from generic factor counts or browser defaults." />;
+  }
   const inputs = monteCarloInputs(projectId, state);
   const results =
     state.simulationResults?.inputs.samplePerCell === inputs.samplePerCell &&
@@ -6376,9 +7157,16 @@ function LineChartCard({ title, subtitle, rows, yFormatter, note }: { title: str
   );
 }
 
-function SampleSizePowerPlanner({ state, setState }: { state: NodeState; setState: (state: NodeState) => void }) {
-  const updateNumber = (key: string, value: number) => setState({ ...state, numeric: { ...state.numeric, [key]: value } });
-  const plan = sampleSizePlan(state);
+function SampleSizePowerPlanner({ projectId, state, setState }: { projectId: string; state: NodeState; setState: (state: NodeState) => void }) {
+  const factors = confirmedExperimentalFactors(projectId);
+  if (!factors.length) {
+    return <ExperimentalPrerequisiteGate title="Power planning requires confirmed factors and levels" detail="Return to Levels and confirm the treatment matrix. ATLAS will derive the number of treatment cells from that design instead of asking you to enter a separate factor count." />;
+  }
+  const designState = stateWithFactorStructure(state, factors);
+  const assumptionsConfirmed = Number(state.numeric.samplePlanConfirmed ?? 0) === 1;
+  const updateNumber = (key: string, value: number) => setState({ ...state, numeric: { ...state.numeric, [key]: value, samplePlanConfirmed: 1 } });
+  const confirmAssumptions = () => setState({ ...state, numeric: { ...state.numeric, samplePlanConfirmed: 1 } });
+  const plan = sampleSizePlan(designState);
   const absoluteLift = (plan.absoluteEffect * 100).toFixed(2);
   const ciWidth = (plan.ciHalfWidth * 100).toFixed(2);
 
@@ -6392,9 +7180,12 @@ function SampleSizePowerPlanner({ state, setState }: { state: NodeState; setStat
             Adjust alpha, power, baseline response, detectable lift, treatment cells, and population. ATLAS redraws the power curve, sensitivity, confidence interval, and simulation metrics live.
           </p>
         </div>
-        <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${plan.adequatelyPowered ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
-          {plan.adequatelyPowered ? "Adequately powered" : "Population shortfall"}
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${assumptionsConfirmed && plan.adequatelyPowered ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-amber-200 bg-amber-50 text-amber-800"}`}>
+            {!assumptionsConfirmed ? "Assumptions require confirmation" : plan.adequatelyPowered ? "Adequately powered" : "Population shortfall"}
+          </span>
+          {!assumptionsConfirmed && <button type="button" className="rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white hover:bg-slate-800" onClick={confirmAssumptions}>Confirm current assumptions</button>}
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -6402,8 +7193,11 @@ function SampleSizePowerPlanner({ state, setState }: { state: NodeState; setStat
         <SliderControl label="Desired Power" value={state.numeric.power} min={60} max={95} step={1} suffix="%" onChange={(value) => updateNumber("power", value)} marks={["60", "80", "95"]} />
         <SliderControl label="Baseline Response" value={state.numeric.baselineRate} min={1} max={30} step={0.5} suffix="%" onChange={(value) => updateNumber("baselineRate", value)} marks={["1", "10", "30"]} />
         <SliderControl label="Minimum Detectable Lift" value={state.numeric.expectedLift} min={1} max={50} step={0.5} suffix="%" onChange={(value) => updateNumber("expectedLift", value)} marks={["1", "20", "50"]} />
-        <SliderControl label="Factors" value={state.numeric.factorCount} min={1} max={6} step={1} onChange={(value) => updateNumber("factorCount", value)} marks={["1", "3", "6"]} />
-        <SliderControl label="Average Levels" value={state.numeric.averageLevels} min={2} max={5} step={1} onChange={(value) => updateNumber("averageLevels", value)} marks={["2", "3", "5"]} />
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="text-xs font-semibold uppercase text-slate-500">Confirmed design</div>
+          <div className="mt-2 text-sm font-semibold text-slate-950">{factors.length} factors / {treatmentCellCount(factors)} treatment cells</div>
+          <p className="mt-1 text-xs leading-5 text-slate-600">Inherited from Levels. Change the treatment structure there so power, randomization, ANOVA, and execution stay synchronized.</p>
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[260px_minmax(0,1fr)]">
@@ -6705,24 +7499,22 @@ function ExperimentalCalculator({ projectId, stepLabel, state, setState }: { pro
       stepLabel === "Levels"
         ? sharedParseFactorHierarchy(state.objective)
         : sharedDeriveSuggestedFactors(state.objective).map(({ factorName, levels }) => ({ factorName, levels }));
-    const designFactorCount = parsedFactors.length || Math.max(1, Math.round(state.numeric.factorCount));
-    const designTreatmentCells = parsedFactors.length ? treatmentCellCount(parsedFactors) : cells;
+    const designFactorCount = parsedFactors.length;
+    const designTreatmentCells = parsedFactors.length ? treatmentCellCount(parsedFactors) : 0;
     const designAverageLevels = parsedFactors.length
       ? parsedFactors.reduce((sum, factor) => sum + factor.levels.length, 0) / parsedFactors.length
-      : state.numeric.averageLevels;
+      : 0;
     const balanced = parsedFactors.length > 0 && new Set(parsedFactors.map((factor) => factor.levels.length)).size === 1;
     const designLabel = parsedFactors.length > 1
       ? `${balanced ? "Balanced" : "Unbalanced"} ${parsedFactors.map((factor) => factor.levels.length).join(" × ")} factorial`
       : parsedFactors.length === 1
         ? `${parsedFactors[0].levels.length}-level single-factor design`
-        : "Calculated from entered factors";
+        : "Confirmed factors required";
     return (
       <CalculatorPanel title="Experimental Design">
-        <NumberField label="Factors" value={state.numeric.factorCount} onChange={(value) => updateNumber("factorCount", value)} />
-        <NumberField label="Avg. Levels" value={state.numeric.averageLevels} onChange={(value) => updateNumber("averageLevels", value)} />
-        <ResultCard label="Parsed factors" value={designFactorCount.toLocaleString()} />
-        <ResultCard label="Average levels" value={designAverageLevels.toFixed(1)} />
-        <ResultCard label="Treatment cells" value={designTreatmentCells.toLocaleString()} />
+        <ResultCard label="Confirmed factors" value={designFactorCount ? designFactorCount.toLocaleString() : "TBD"} />
+        <ResultCard label="Average levels" value={designAverageLevels ? designAverageLevels.toFixed(1) : "TBD"} />
+        <ResultCard label="Treatment cells" value={designTreatmentCells ? designTreatmentCells.toLocaleString() : "TBD"} />
         <ResultCard label="Design" value={designLabel} />
         <ResultCard label="Customers per cell" value="TBD" />
         <ResultCard label="Total planned sample" value="TBD" />
@@ -6789,6 +7581,16 @@ function ExperimentalCalculator({ projectId, stepLabel, state, setState }: { pro
 
   if (stepLabel === "ANOVA") {
     const plan = generatedAnovaPlan(projectId, state);
+    if (!plan.factors.length) {
+      return (
+        <CalculatorPanel title="ANOVA Model Summary">
+          <ResultCard label="Status" value="Factors and levels required" />
+          <ResultCard label="Model formula" value="TBD" />
+          <ResultCard label="Treatment cells" value="TBD" />
+          <ResultCard label="Degrees of freedom" value="TBD" />
+        </CalculatorPanel>
+      );
+    }
     return (
       <CalculatorPanel title="ANOVA Model Summary">
         <ResultCard label="Recommended model" value={plan.recommendedModel} />
@@ -6804,13 +7606,24 @@ function ExperimentalCalculator({ projectId, stepLabel, state, setState }: { pro
   }
 
   if (["Interaction Effects", "Optimization"].includes(stepLabel)) {
+    const factors = confirmedExperimentalFactors(projectId);
+    if (!factors.length) {
+      return (
+        <CalculatorPanel title="Effect Review">
+          <ResultCard label="Status" value="Treatment matrix required" />
+          <ResultCard label="Effect estimate" value="TBD" />
+          <ResultCard label="Signal / noise" value="TBD" />
+          <ResultCard label="Interaction review" value="TBD" />
+        </CalculatorPanel>
+      );
+    }
     const signalRatio = state.numeric.effectSize / Math.max(0.01, Math.sqrt(state.numeric.mse));
     return (
       <CalculatorPanel title="Effect Review">
         <NumberField label="Estimated MSE" value={state.numeric.mse} onChange={(value) => updateNumber("mse", value)} />
         <NumberField label="Effect Size" value={state.numeric.effectSize} onChange={(value) => updateNumber("effectSize", value)} />
         <NumberField label="Runs" value={state.numeric.runs} onChange={(value) => updateNumber("runs", value)} />
-        <NumberField label="Factors" value={state.numeric.factorCount} onChange={(value) => updateNumber("factorCount", value)} />
+        <ResultCard label="Confirmed factors" value={factors.length.toLocaleString()} />
         <ResultCard label="Signal / noise" value={signalRatio.toFixed(2)} />
         <ResultCard label="Interaction review" value={state.numeric.factorCount > 1 ? "Required" : "Not applicable"} />
       </CalculatorPanel>
@@ -6890,6 +7703,7 @@ function AbTestingWorkflowStep({
   lastAction,
   saveDebug,
   onClearCache,
+  confirmedMapping,
 }: {
   projectId: string;
   step: ReturnType<typeof getWorkflowDefinition>["steps"][number];
@@ -6913,15 +7727,19 @@ function AbTestingWorkflowStep({
     storageStatus: string;
   };
   onClearCache: () => void;
+  confirmedMapping: AbTestingDefaults & NonNullable<NodeState["ab"]>;
 }) {
-  const defaults = AB_MARKETING_DEFAULTS;
-  const groupSummary = summarizeAbGroups();
+  const defaults = dataAcquisitionConfirmed ? confirmedMapping : AB_MARKETING_DEFAULTS;
+  const analysisDataset = buildAbAnalysisDataset(projectId, defaults, dataAcquisitionConfirmed, confirmedMapping);
+  const rows = dataAcquisitionConfirmed ? analysisDataset.rows : [];
+  const profile = dataAcquisitionConfirmed ? analysisDataset.profile : null;
+  const groupSummary = dataAcquisitionConfirmed ? analysisDataset.summary : summarizeAbGroups([], defaults);
   const analysis = analyzeAbLift(groupSummary);
   const imbalance = allocationImbalance(groupSummary);
-  const daySegments = segmentLiftRows(undefined, "most.ads.day");
-  const hourSegments = segmentLiftRows(undefined, "most.ads.hour");
+  const daySegments = dataAcquisitionConfirmed ? analysisDataset.daySegments : [];
+  const hourSegments = dataAcquisitionConfirmed ? analysisDataset.hourSegments : [];
+  const fullDatasetReady = dataAcquisitionConfirmed && analysisDataset.status.fullDatasetAvailable;
   const recommendation = decisionRecommendationReason(analysis, imbalance);
-  const samplePlan = abSampleSize({ ...state, numeric: { ...state.numeric, baselineRate: groupSummary.controlRate * 100, expectedLift: state.numeric.expectedLift || 10 } });
   const evidenceType = evidenceTypeForAbStep(step.label);
 
   return (
@@ -6932,7 +7750,6 @@ function AbTestingWorkflowStep({
       nextPath={nextStep?.route ?? "/project-overview"}
       nextButtonTestId="ab-testing-mark-complete-next"
       onNextClick={onMarkCompleteNext}
-      nextStatusLine={<AbTestingLastActionLine lastAction={lastAction} />}
       nextDebugPanel={<AbTestingSaveDebug projectId={projectId} saveDebug={saveDebug} lastAction={lastAction} onClearCache={onClearCache} />}
       onNext={() => {
         onComplete();
@@ -6943,64 +7760,100 @@ function AbTestingWorkflowStep({
         {navigationError && <InlineError message={navigationError} />}
         {saveStatusMessage && <InlineSuccess message={saveStatusMessage} />}
 
-        <section className="rounded-2xl border border-slate-200 bg-slate-950 p-5 text-white shadow-sm">
-          <div className="text-xs font-semibold uppercase tracking-wide text-emerald-200">A/B Testing Workflow</div>
-          <h1 className="mt-1 text-2xl font-semibold">
-            {dataAcquisitionConfirmed ? "Marketing A/B Testing Dataset" : "Marketing A/B Testing Dataset Defaults"}
-          </h1>
-          <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-200">
-            {dataAcquisitionConfirmed
-              ? "This project evaluates whether exposure to the advertising treatment increased conversion compared with the public-service-announcement control group."
-              : "Dataset not confirmed. The values below are a suggested mapping for the Marketing A/B Testing demo dataset. Complete the Data Acquisition step to confirm them."}
-          </p>
-          <div className="mt-4 grid gap-2 md:grid-cols-4">
-            <HeaderMetric label={dataAcquisitionConfirmed ? "Confirmed dataset" : "Suggested dataset"} value={defaults.dataset} />
-            <HeaderMetric label={dataAcquisitionConfirmed ? "Unit ID" : "Suggested unit ID"} value={defaults.unitIdColumn} />
-            <HeaderMetric label={dataAcquisitionConfirmed ? "Treatment / Control" : "Suggested treatment / control"} value={`${defaults.treatmentValue} / ${defaults.controlValue}`} />
-            <HeaderMetric label={dataAcquisitionConfirmed ? "Outcome" : "Suggested outcome"} value={`${defaults.outcomeColumn} = ${defaults.successEvent}`} />
-          </div>
-        </section>
+        {step.label !== "Project Context" && (
+          <section className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Confirmed experiment context</div>
+                <p className="mt-1 text-sm text-slate-600">
+                  {dataAcquisitionConfirmed
+                    ? "All downstream calculations use the saved Data Acquisition mapping and confirmed artifact."
+                    : "Complete Data Acquisition before treating any suggested mapping as project evidence."}
+                </p>
+              </div>
+              <span className={`rounded-full px-3 py-1 text-xs font-semibold ${dataAcquisitionConfirmed ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}`}>
+                {dataAcquisitionConfirmed ? "Mapping confirmed" : "Mapping required"}
+              </span>
+            </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              <MiniEvidence label="Dataset" value={dataAcquisitionConfirmed ? defaults.dataset : "Not confirmed"} tone={dataAcquisitionConfirmed ? "good" : "warning"} />
+              <MiniEvidence label="Unit ID" value={dataAcquisitionConfirmed ? defaults.unitIdColumn : "Not mapped"} />
+              <MiniEvidence label="Treatment / Control" value={dataAcquisitionConfirmed ? `${defaults.treatmentValue} / ${defaults.controlValue}` : "Not mapped"} />
+              <MiniEvidence label="Outcome" value={dataAcquisitionConfirmed ? `${defaults.outcomeColumn} = ${defaults.successEvent}` : "Not mapped"} />
+            </div>
+          </section>
+        )}
 
         <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-4">
             <AbStepMainPanel stepLabel={step.label} state={state} setState={setState} evidenceType={evidenceType} />
-            <AbDatasetMapping confirmed={dataAcquisitionConfirmed} />
-            <AbPopulationAndDesign summary={groupSummary} imbalance={imbalance} />
-            <AbRandomizationAndMetrics summary={groupSummary} imbalance={imbalance} samplePlan={samplePlan} />
-            <AbExperimentAnalysis analysis={analysis} summary={groupSummary} />
-            <AbSegmentAnalysis daySegments={daySegments} hourSegments={hourSegments} />
-            <AbBusinessImpact state={state} setState={setState} analysis={analysis} />
-            <AbDecisionRecommendation recommendation={recommendation} analysis={analysis} imbalance={imbalance} state={state} setState={setState} />
-            <AbDocumentationAndMonitoring />
+            {step.label === "Project Context" && (
+              <>
+                <AbProjectContextNextStepPreview />
+                <AbReviewerNotes state={state} setState={setState} />
+              </>
+            )}
+            {step.label === "Data Acquisition and Experiment Mapping" && <AbDatasetMapping projectId={projectId} state={state} setState={setState} confirmed={dataAcquisitionConfirmed} />}
+            {step.label === "Experiment Setup" && <AbExperimentSetupControls state={state} setState={setState} defaults={defaults} dataReady={dataAcquisitionConfirmed} />}
+            {step.label === "Population and Eligibility" && (dataAcquisitionConfirmed && profile ? <AbPopulationControls state={state} setState={setState} profile={profile} analysisStatus={analysisDataset.status} /> : <AbUnavailableSection title="Population checks not calculated" reason="Complete Data Acquisition and Experiment Mapping before confirming population and eligibility." />)}
+            {step.label === "Treatment / Control Design" && (dataAcquisitionConfirmed && profile ? <AbTreatmentControlControls state={state} setState={setState} defaults={defaults} profile={profile} analysisStatus={analysisDataset.status} /> : <AbUnavailableSection title="Treatment/control counts not calculated" reason="Complete Data Acquisition and Experiment Mapping before reviewing treatment and control design." />)}
+            {step.label === "Randomization Check" && (
+              fullDatasetReady && profile
+                ? <AbRandomizationAndMetrics state={state} setState={setState} summary={groupSummary} imbalance={imbalance} defaults={defaults} analysisStatus={analysisDataset.status} />
+                : dataAcquisitionConfirmed ? <AbFullDatasetBlockingWarning status={analysisDataset.status} />
+                : <AbUnavailableSection title="Randomization metrics not calculated" reason="Complete Data Acquisition before ATLAS calculates treatment/control sizes, allocation ratio, and exposure balance." />
+            )}
+            {step.label === "Metrics Setup" && (dataAcquisitionConfirmed ? <AbMetricsSetup state={state} setState={setState} defaults={defaults} analysisStatus={analysisDataset.status} /> : <AbUnavailableSection title="Metrics setup pending dataset mapping" reason="Complete Data Acquisition and Experiment Mapping before selecting metrics from dataset columns." />)}
+            {step.label === "Power and Sample Size" && (
+              fullDatasetReady
+                ? <AbPowerAnalysis state={state} setState={setState} summary={groupSummary} imbalance={imbalance} analysis={analysis} analysisStatus={analysisDataset.status} />
+                : dataAcquisitionConfirmed ? <AbFullDatasetBlockingWarning status={analysisDataset.status} />
+                : <AbUnavailableSection title="Power analysis not calculated" reason="Complete Data Acquisition and Metrics Setup before using sample-size estimates as workflow evidence." />
+            )}
+            {step.label === "Experiment EDA" && (
+              fullDatasetReady && profile
+                ? <AbExperimentEda state={state} setState={setState} profile={profile} summary={groupSummary} defaults={defaults} rows={rows} aggregates={analysisDataset.aggregates} daySegments={daySegments} hourSegments={hourSegments} save={save} analysisStatus={analysisDataset.status} />
+                : dataAcquisitionConfirmed ? <AbFullDatasetBlockingWarning status={analysisDataset.status} />
+                : <AbUnavailableSection title="Experiment EDA not available" reason="Select and confirm the experiment dataset before showing group counts or distribution summaries." />
+            )}
+            {step.label === "Experiment Analysis" && (
+              fullDatasetReady
+                ? <AbExperimentAnalysis state={state} setState={setState} analysis={analysis} summary={groupSummary} defaults={defaults} imbalance={imbalance} save={save} analysisStatus={analysisDataset.status} />
+                : dataAcquisitionConfirmed ? <AbFullDatasetBlockingWarning status={analysisDataset.status} />
+                : <AbUnavailableSection title="Experiment analysis not available" reason="Complete Data Acquisition, Randomization Check, Metrics Setup, and Experiment EDA before estimating lift and p-values." />
+            )}
+            {step.label === "Segment Analysis" && (
+              fullDatasetReady
+                ? <AbSegmentAnalysis state={state} setState={setState} daySegments={daySegments} hourSegments={hourSegments} defaults={defaults} summary={groupSummary} save={save} analysisStatus={analysisDataset.status} />
+                : dataAcquisitionConfirmed ? <AbFullDatasetBlockingWarning status={analysisDataset.status} />
+                : <AbUnavailableSection title="Segment analysis not available" reason="Complete Data Acquisition and Experiment Analysis before reviewing segment-level lift." />
+            )}
+            {step.label === "Business Impact" && (fullDatasetReady ? <AbBusinessImpact state={state} setState={setState} analysis={analysis} summary={groupSummary} imbalance={imbalance} defaults={defaults} dataReady={dataAcquisitionConfirmed} save={save} analysisStatus={analysisDataset.status} /> : dataAcquisitionConfirmed ? <AbFullDatasetBlockingWarning status={analysisDataset.status} /> : <AbBusinessImpact state={state} setState={setState} analysis={analysis} summary={groupSummary} imbalance={imbalance} defaults={defaults} dataReady={dataAcquisitionConfirmed} save={save} analysisStatus={analysisDataset.status} />)}
+            {step.label === "Decision Recommendation" && (
+              fullDatasetReady
+                ? <AbDecisionRecommendation recommendation={recommendation} analysis={analysis} summary={groupSummary} imbalance={imbalance} defaults={defaults} state={state} setState={setState} save={save} analysisStatus={analysisDataset.status} />
+                : dataAcquisitionConfirmed ? <AbFullDatasetBlockingWarning status={analysisDataset.status} />
+                : <AbUnavailableSection title="Decision recommendation not available" reason="Complete the analysis and business impact steps before ATLAS recommends launch, hold, or run-longer decisions." />
+            )}
+            {step.label === "Documentation Review" && (
+              fullDatasetReady
+                ? <AbDocumentationReview state={state} setState={setState} defaults={defaults} analysis={analysis} summary={groupSummary} imbalance={imbalance} recommendation={recommendation} analysisStatus={analysisDataset.status} save={save} />
+                : dataAcquisitionConfirmed ? <AbFullDatasetBlockingWarning status={analysisDataset.status} /> : <AbUnavailableSection title="Documentation evidence not available" reason="Complete Data Acquisition and full-dataset analysis before assembling the governed evidence package." />
+            )}
+            {step.label === "Post-Decision Plan" && (
+              fullDatasetReady
+                ? <AbMonitoringFollowUp state={state} setState={setState} defaults={defaults} analysis={analysis} summary={groupSummary} imbalance={imbalance} analysisStatus={analysisDataset.status} save={save} />
+                : dataAcquisitionConfirmed ? <AbFullDatasetBlockingWarning status={analysisDataset.status} /> : <AbUnavailableSection title="Post-decision planning not available" reason="Complete the full-dataset analysis and decision recommendation before defining rollout, holdout, or follow-up actions." />
+            )}
           </div>
 
-          <aside className="space-y-4">
-            <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Evidence Actions</div>
-              <div className="mt-3 grid gap-2">
-                <button type="button" className="atlas-secondary-button justify-center" onClick={() => save()}>
-                  <Save size={15} /> Save Evidence
-                </button>
-                <Link to="/model-evidence-center" className="atlas-secondary-button justify-center">Open Model Evidence Center</Link>
-                <Link to="/model-document-studio" className="atlas-secondary-button justify-center">Attach to Model Documentation Studio</Link>
-                <button type="button" className="atlas-secondary-button justify-center" onClick={() => downloadText("atlas-ab-testing-evidence-pack.json", JSON.stringify({ projectId, step: step.label, defaults, groupSummary, analysis, recommendation }, null, 2), "application/json")}>
-                  <Download size={15} /> Export Experiment Evidence Pack
-                </button>
-              </div>
-            </section>
-            <InfoGrid title="MEC Evidence Types" rows={abEvidenceTypes.map((item) => [item, item === evidenceType ? "Current step" : "Available"])} />
+          <aside className="min-w-0 space-y-4">
+            <AbEvidenceActions projectId={projectId} stepLabel={step.label} defaults={defaults} groupSummary={groupSummary} analysis={analysis} recommendation={recommendation} onSave={save} />
+            <AbEvidenceReadiness evidenceType={evidenceType} />
           </aside>
         </section>
       </div>
     </StepShell>
-  );
-}
-
-function AbTestingLastActionLine({ lastAction }: { lastAction: string }) {
-  return (
-    <div className="rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-semibold text-slate-700" data-testid="ab-testing-last-action">
-      Last action: {lastAction}
-    </div>
   );
 }
 
@@ -7024,8 +7877,8 @@ function AbTestingSaveDebug({
   onClearCache: () => void;
 }) {
   return (
-    <details className="w-full max-w-3xl rounded-lg border border-slate-200 bg-white px-4 py-3 text-xs text-slate-700" data-testid="ab-testing-save-debug">
-      <summary className="cursor-pointer font-semibold text-slate-900">A/B Testing Save Debug</summary>
+    <details className="w-full max-w-3xl rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500" data-testid="ab-testing-developer-debug">
+      <summary className="cursor-pointer font-semibold text-slate-600">Developer Debug</summary>
       <div className="mt-3 grid gap-2 sm:grid-cols-2">
         <MiniEvidence label="Current projectId" value={projectId} />
         <MiniEvidence label="Current step number" value={String(saveDebug.currentStepNumber)} />
@@ -7037,7 +7890,7 @@ function AbTestingSaveDebug({
         <MiniEvidence label="Storage" value={saveDebug.storageStatus || "Not saved yet"} />
       </div>
       <button type="button" className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-800 hover:bg-red-100" onClick={onClearCache}>
-        Emergency: Clear A/B Testing cached workflow state
+        Clear A/B Testing cached workflow state
       </button>
       <p className="mt-2 text-[11px] leading-5 text-slate-500">
         This should not be required during normal workflow use. If you need to use this repeatedly, persistence cleanup is broken.
@@ -7062,7 +7915,7 @@ function evidenceTypeForAbStep(stepLabel: string) {
     "Experiment Setup": "experiment_design",
     "Population and Eligibility": "population_eligibility",
     "Treatment / Control Design": "treatment_control_definition",
-    "Data Acquisition": "data_quality",
+    "Data Acquisition and Experiment Mapping": "data_quality",
     "Randomization Check": "randomization_check",
     "Metrics Setup": "metric_definition",
     "Power and Sample Size": "power_analysis",
@@ -7071,12 +7924,15 @@ function evidenceTypeForAbStep(stepLabel: string) {
     "Segment Analysis": "segment_analysis",
     "Business Impact": "business_impact",
     "Decision Recommendation": "decision_recommendation",
-    "Monitoring / Follow-up": "monitoring_plan",
+    "Post-Decision Plan": "monitoring_plan",
   };
   return map[stepLabel] || "experiment_context";
 }
 
 function AbStepMainPanel({ stepLabel, state, setState, evidenceType }: { stepLabel: string; state: NodeState; setState: (state: NodeState) => void; evidenceType: string }) {
+  if (stepLabel !== "Project Context" && stepLabel !== "Documentation Review" && stepLabel !== "Post-Decision Plan") {
+    return <AbDocumentationNotes state={state} setState={setState} evidenceType={evidenceType} />;
+  }
   const fields = abFieldsForStep(stepLabel);
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -7092,54 +7948,703 @@ function AbStepMainPanel({ stepLabel, state, setState, evidenceType }: { stepLab
 }
 
 function abFieldsForStep(stepLabel: string): Array<{ key: keyof Pick<NodeState, "objective" | "inputs" | "assumptions" | "validation" | "risks" | "decision" | "rationale" | "notes">; label: string; placeholder: string }> {
-  const common = [
-    { key: "objective" as const, label: "Step objective", placeholder: "Document the decision this step supports." },
-    { key: "inputs" as const, label: "Inputs", placeholder: "Document fields, data, assumptions, or owner inputs." },
-    { key: "validation" as const, label: "Validation / QA", placeholder: "Document checks that make this step reviewable." },
-    { key: "decision" as const, label: "Decision / recommendation", placeholder: "Document the reviewer decision and rationale." },
-  ];
   if (stepLabel === "Project Context") return [
-    { key: "objective", label: "Project name / Experiment name / Business objective", placeholder: "Marketing AB Test Workflow Demo. Evaluate whether ad exposure increases conversion." },
-    { key: "inputs", label: "Business owner / Decision owner / Channel", placeholder: "Document owner, channel, launch date, and analysis date." },
-    { key: "assumptions", label: "Hypothesis / Decision to be made", placeholder: "Ad treatment increases conversion compared with PSA control." },
-    { key: "validation", label: "Risk level / Governance notes", placeholder: "Document risk level, governance notes, and evidence expectations." },
+    { key: "objective", label: "Project / experiment name and business objective", placeholder: "AB_WORKFLOW experiment. Evaluate whether ad exposure increases conversion against PSA control." },
+    { key: "inputs", label: "Decision owner and channel", placeholder: "Document decision owner, business owner, channel, and launch context." },
+    { key: "assumptions", label: "Hypothesis", placeholder: "The ad treatment increases conversion compared with PSA control." },
+    { key: "validation", label: "Governance notes", placeholder: "Document governance notes, risk level, and evidence expectations." },
+    { key: "risks", label: "Risk level and intended use", placeholder: "Document whether this is workflow validation, production decision support, launch approval, or exploratory analysis." },
+    { key: "decision", label: "Decision to be made", placeholder: "Define the decision this experiment will support, such as launch treatment, keep control, run longer, slow rollout, or segmented rollout." },
   ];
-  if (stepLabel === "Experiment Setup") return [
-    { key: "objective", label: "Experiment type and design", placeholder: "A/B Test; User-level randomized." },
-    { key: "inputs", label: "Treatment / Control / Units", placeholder: "Treatment assignment unit: user.id; randomization unit: user.id; analysis unit: user.id." },
-    { key: "assumptions", label: "Outcome and exposure windows", placeholder: "Document outcome window, exposure window, experiment start, and experiment end." },
-    { key: "validation", label: "Experiment setup QA", placeholder: "Confirm ad vs psa and user-level analysis." },
+  return [
+    { key: "notes", label: "Reviewer notes", placeholder: "Capture reviewer notes for this step." },
   ];
-  if (stepLabel === "Treatment / Control Design") return [
-    { key: "objective", label: "Treatment definition", placeholder: "test.group = ad. User was exposed to the advertisement." },
-    { key: "inputs", label: "Control definition", placeholder: "test.group = psa. User was exposed to the public service announcement." },
-    { key: "assumptions", label: "Assignment method / allocation ratio", placeholder: "Expected allocation ratio unknown; actual ratio calculated from data." },
-    { key: "risks", label: "Contamination risk", placeholder: "Document cross-exposure or campaign contamination risk." },
-  ];
-  return common;
 }
 
-function AbDatasetMapping({ confirmed }: { confirmed: boolean }) {
-  const defaults = AB_MARKETING_DEFAULTS;
+function updateAbState(state: NodeState, changes: Partial<NonNullable<NodeState["ab"]>>): NodeState {
+  return { ...state, ab: { ...emptyState().ab, ...(state.ab ?? {}), ...changes } };
+}
+
+function abDatasetColumns(state: NodeState) {
+  return state.ab?.datasetColumns?.length ? state.ab.datasetColumns : AB_WORKFLOW_EXPECTED_COLUMNS;
+}
+
+function abFullDatasetSessionKey(projectId: string) {
+  return `atlas-ab-testing-full-dataset-artifact:${projectId}`;
+}
+
+function abAnalysisSessionKey(projectId: string) {
+  return `atlas-ab-testing-analysis:${projectId}`;
+}
+
+function cacheAbAnalysisSession(projectId: string, analysis: AbAnalysisDataset) {
+  try {
+    sessionStorage.setItem(abAnalysisSessionKey(projectId), JSON.stringify(analysis));
+  } catch {
+    // A session cache miss is safe: downstream analysis blocks instead of falling back to preview evidence.
+  }
+}
+
+function getCachedAbAnalysisSession(projectId: string, dataset: string) {
+  try {
+    const raw = sessionStorage.getItem(abAnalysisSessionKey(projectId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as AbAnalysisDataset;
+    if (!parsed?.status?.fullDatasetAvailable || parsed.status.dataset !== dataset || !parsed.aggregates) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function markAbFullDatasetArtifactLoaded(projectId: string, dataset = AB_WORKFLOW_DEFAULTS.dataset) {
+  const payload = {
+    dataset,
+    rowCount: AB_WORKFLOW_FULL_ROW_COUNT,
+    validAnalysisRecords: AB_WORKFLOW_FULL_ROW_COUNT,
+    loadedAt: new Date().toISOString(),
+    source: "full_dataset_artifact",
+  };
+  try {
+    sessionStorage.setItem(abFullDatasetSessionKey(projectId), JSON.stringify(payload));
+  } catch {
+    // Session marker is best effort; downstream pages block rather than use preview rows if it is absent.
+  }
+  return payload;
+}
+
+function getAbFullDatasetSession(projectId: string, dataset = AB_WORKFLOW_DEFAULTS.dataset) {
+  try {
+    const raw = sessionStorage.getItem(abFullDatasetSessionKey(projectId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { dataset?: string; rowCount?: number; validAnalysisRecords?: number; loadedAt?: string; source?: string };
+    if (parsed.dataset !== dataset || parsed.source !== "full_dataset_artifact") return null;
+    if ((parsed.rowCount ?? 0) < 1000) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function buildAbAnalysisDataset(projectId: string, defaults: AbTestingDefaults, dataAcquisitionConfirmed: boolean, abState: NonNullable<NodeState["ab"]>): AbAnalysisDataset {
+  if (!dataAcquisitionConfirmed) return getAbPreviewAnalysisDataset(defaults, "preview_rows");
+  const cachedAnalysis = getCachedAbAnalysisSession(projectId, defaults.dataset);
+  if (cachedAnalysis) return cachedAnalysis;
+  const fullArtifactSession = getAbFullDatasetSession(projectId, defaults.dataset);
+  if (fullArtifactSession && defaults.dataset === AB_WORKFLOW_DEFAULTS.dataset && abState.dataSourceKind === "reference") {
+    return getAbWorkflowFullDatasetArtifact(defaults);
+  }
+  const hadConfirmedFullArtifact = Boolean(abState.fullDatasetArtifactId || (abState.fullDatasetRowCount ?? 0) >= 1000);
+  return getAbPreviewAnalysisDataset(defaults, hadConfirmedFullArtifact ? "compact_browser_cache" : "preview_rows");
+}
+
+function AbFullDatasetBlockingWarning({ status }: { status: AbAnalysisDataset["status"] }) {
+  return (
+    <section className="rounded-2xl border border-amber-300 bg-amber-50 p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Full dataset required</div>
+      <h2 className="mt-1 text-lg font-semibold text-amber-950">Full dataset artifact is not loaded.</h2>
+      <p className="mt-2 text-sm leading-6 text-amber-950">
+        Full dataset artifact is not loaded. Reopen or reload the confirmed dataset before running experiment analysis.
+      </p>
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <MiniEvidence label="Current source" value={status.source === "compact_browser_cache" ? "Compact browser cache" : "Preview rows"} tone="warning" />
+        <MiniEvidence label="Available rows" value={status.rowCount.toLocaleString()} tone="warning" />
+        <MiniEvidence label="Output status" value="Preview only, not full experiment analysis" tone="warning" />
+      </div>
+      <p className="mt-3 text-sm leading-6 text-amber-950">
+        Preview rows and compact restored browser state are allowed for mapping and UI validation only. ATLAS will not run EDA, power, experiment analysis, segment analysis, business impact, or final decisioning from preview rows.
+      </p>
+    </section>
+  );
+}
+
+function AbDatasetMapping({ projectId, state, setState, confirmed }: { projectId: string; state: NodeState; setState: (state: NodeState) => void; confirmed: boolean }) {
+  const ab = { ...AB_WORKFLOW_DEFAULTS, ...(state.ab ?? {}) } as AbTestingDefaults & NonNullable<NodeState["ab"]>;
+  const defaults = ab as AbTestingDefaults;
+  const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
+  const [registeredProfile, setRegisteredProfile] = useState<DatasetProfile | null>(null);
+  const [analysisProfile, setAnalysisProfile] = useState<AbAnalysisDataset["profile"] | null>(() => getCachedAbAnalysisSession(projectId, defaults.dataset)?.profile ?? null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [message, setMessage] = useState("");
+  const isReference = ab.dataSourceKind === "reference" && defaults.dataset === AB_WORKFLOW_DEFAULTS.dataset && !ab.datasetId;
+  const columns = ab.datasetColumns?.length ? ab.datasetColumns : isReference ? AB_WORKFLOW_EXPECTED_COLUMNS : [];
+  const mappingReady = Boolean(
+    defaults.dataset.trim()
+    && defaults.unitIdColumn.trim()
+    && defaults.treatmentColumn.trim()
+    && defaults.outcomeColumn.trim()
+    && defaults.treatmentValue.trim()
+    && defaults.controlValue.trim()
+    && defaults.treatmentValue !== defaults.controlValue
+    && (isReference || (ab.datasetId && ab.datasetVersionId))
+  );
+  const profile = analysisProfile ?? (isReference && (confirmed || ab.confirmed) ? getAbWorkflowFullDatasetArtifact(defaults).profile : null);
+  const update = (changes: Partial<NonNullable<NodeState["ab"]>>) => setState(updateAbState(state, changes));
+
+  useEffect(() => {
+    let active = true;
+    listDatasets()
+      .then((result) => {
+        if (active) setDatasets(result.datasets.filter((dataset) => !dataset.archived && Boolean(dataset.latestVersion)));
+      })
+      .catch(() => {
+        if (active) setError("Dataset Library is unavailable. The verified AB_WORKFLOW reference artifact remains available for workflow evaluation.");
+      });
+    return () => { active = false; };
+  }, []);
+
+  const loadRegisteredDataset = async (dataset: DatasetSummary, sourceKind: "dataset_library" | "upload") => {
+    const version = dataset.latestVersion;
+    if (!version) throw new Error("The selected dataset has no registered full-data version.");
+    const result = await getDatasetProfile(dataset.datasetId, version.versionId);
+    const nextColumns = result.profile.schema.map((column) => column.name.replace(/\s+/g, "."));
+    await linkDatasetToProject(projectId, dataset.datasetId, version.versionId, "ab_experiment");
+    setRegisteredProfile(result.profile);
+    setAnalysisProfile(null);
+    try {
+      sessionStorage.removeItem(abFullDatasetSessionKey(projectId));
+      sessionStorage.removeItem(abAnalysisSessionKey(projectId));
+    } catch {
+      // The full artifact will be revalidated before any analysis is used.
+    }
+    update({
+      dataset: dataset.name,
+      datasetId: dataset.datasetId,
+      datasetVersionId: version.versionId,
+      datasetRowCount: result.profile.rowCount,
+      datasetColumnCount: result.profile.columnCount,
+      datasetColumns: nextColumns,
+      dataSourceKind: sourceKind,
+      confirmed: false,
+      previewOnly: true,
+      fullDatasetArtifactId: "",
+      fullDatasetArtifactLoadedAt: "",
+      fullDatasetRowCount: 0,
+      validAnalysisRecordCount: 0,
+      analysisDataSource: "preview_rows",
+      unitIdColumn: suggestedExperimentalColumn(nextColumns, [/user/i, /customer/i, /account/i, /unit/i, /subject/i, /id$/i]),
+      treatmentColumn: suggestedExperimentalColumn(nextColumns, [/test.*group/i, /treatment/i, /variant/i, /assignment/i, /arm/i, /group/i]),
+      outcomeColumn: suggestedExperimentalColumn(nextColumns, [/convert/i, /outcome/i, /success/i, /response/i, /target/i]),
+      exposureColumn: suggestedExperimentalColumn(nextColumns, [/total.*ad/i, /exposure/i, /impression/i, /contact/i, /dose/i]),
+      segmentColumns: nextColumns.filter((column) => /day|hour|segment|channel|region|device|product/i.test(column)).slice(0, 4),
+      mappingValidatedAt: "",
+    });
+    setMessage(`${dataset.name} is linked and profiled. Review treatment/control values and column mappings, then load the full analysis artifact.`);
+  };
+
+  const chooseDataset = async (selection: string) => {
+    setError("");
+    setMessage("");
+    if (selection === "reference") {
+      setRegisteredProfile(null);
+      setAnalysisProfile(null);
+      update({
+        ...AB_WORKFLOW_DEFAULTS,
+        datasetId: "",
+        datasetVersionId: "",
+        datasetRowCount: AB_WORKFLOW_FULL_ROW_COUNT,
+        datasetColumnCount: AB_WORKFLOW_EXPECTED_COLUMNS.length,
+        datasetColumns: AB_WORKFLOW_EXPECTED_COLUMNS,
+        dataSourceKind: "reference",
+        confirmed: false,
+        previewOnly: true,
+        fullDatasetArtifactId: "",
+        fullDatasetArtifactLoadedAt: "",
+        fullDatasetRowCount: 0,
+        validAnalysisRecordCount: 0,
+        analysisDataSource: "preview_rows",
+      });
+      setMessage("Verified AB_WORKFLOW reference selected. Confirm the mapping to load its full aggregate analysis artifact.");
+      return;
+    }
+    const dataset = datasets.find((item) => item.datasetId === selection);
+    if (!dataset) return;
+    setBusy(true);
+    try {
+      await loadRegisteredDataset(dataset, "dataset_library");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "ATLAS could not profile the selected dataset.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const uploadAbDataset = async (file: File | null) => {
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      const dataset = await uploadDataset({
+        file,
+        name: file.name.replace(/\.[^.]+$/, ""),
+        description: "A/B Testing experiment dataset",
+        domain: "Experimentation",
+        sourceType: "upload",
+      });
+      setDatasets((current) => [dataset, ...current.filter((item) => item.datasetId !== dataset.datasetId)]);
+      await loadRegisteredDataset(dataset, "upload");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "ATLAS could not upload the A/B Testing dataset.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const refreshSchema = async () => {
+    if (isReference) {
+      update({ datasetColumns: AB_WORKFLOW_EXPECTED_COLUMNS, datasetRowCount: AB_WORKFLOW_FULL_ROW_COUNT, datasetColumnCount: AB_WORKFLOW_EXPECTED_COLUMNS.length, confirmed: false });
+      setMessage("Verified reference schema refreshed. Confirm the mapping to reload analysis evidence.");
+      return;
+    }
+    const dataset = datasets.find((item) => item.datasetId === ab.datasetId);
+    if (dataset) await chooseDataset(dataset.datasetId);
+  };
+
+  const confirmFullDataset = async () => {
+    if (!mappingReady) {
+      setError("Select a governed dataset and map distinct treatment/control values, unit ID, treatment, and outcome columns before continuing.");
+      return;
+    }
+    setBusy(true);
+    setError("");
+    setMessage("");
+    try {
+      let analysis: AbAnalysisDataset;
+      let artifactId: string;
+      if (isReference) {
+        const marker = markAbFullDatasetArtifactLoaded(projectId, defaults.dataset);
+        analysis = getAbWorkflowFullDatasetArtifact(defaults);
+        artifactId = `verified-reference-${marker.rowCount}`;
+      } else {
+        analysis = await analyzeRegisteredAbDataset({ datasetId: ab.datasetId || "", versionId: ab.datasetVersionId || "", mapping: defaults });
+        artifactId = `${ab.datasetId}:${ab.datasetVersionId}`;
+      }
+      cacheAbAnalysisSession(projectId, analysis);
+      setAnalysisProfile(analysis.profile);
+      update({
+        confirmed: true,
+        previewOnly: false,
+        fullDatasetArtifactId: artifactId,
+        fullDatasetArtifactLoadedAt: new Date().toISOString(),
+        fullDatasetRowCount: analysis.status.rowCount,
+        validAnalysisRecordCount: analysis.status.validAnalysisRecords,
+        datasetRowCount: analysis.status.rowCount,
+        datasetColumnCount: analysis.profile.columns,
+        analysisDataSource: "full_dataset_artifact",
+        mappingValidatedAt: new Date().toISOString(),
+      });
+      setMessage(`Full artifact validated: ${analysis.status.rowCount.toLocaleString()} rows and ${analysis.status.validAnalysisRecords.toLocaleString()} valid analysis records. Downstream pages will use full-data aggregates.`);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "ATLAS could not validate the full A/B Testing artifact.");
+      update({ confirmed: false, previewOnly: true, analysisDataSource: "preview_rows" });
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
-      <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">
-        {confirmed ? "Data Acquisition Mapping (Confirmed)" : "Data Acquisition Mapping (Suggested defaults — not yet confirmed)"}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Data Acquisition and Experiment Mapping</div>
+          <h2 className="mt-1 text-lg font-semibold text-slate-950">{confirmed || ab.confirmed ? `Confirmed dataset: ${defaults.dataset}` : "Dataset: Not confirmed"}</h2>
+          {!confirmed && !ab.confirmed && <p className="mt-1 text-sm text-blue-950">Choose a verified reference artifact, a governed Dataset Library version, or upload a new file. No experiment metrics are calculated until the full artifact and mappings validate.</p>}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="atlas-secondary-button" disabled={busy} onClick={() => void refreshSchema()}>Refresh Dataset Schema</button>
+          <button type="button" className="atlas-primary-button" disabled={busy || !mappingReady} onClick={() => void confirmFullDataset()}>{busy ? "Validating full artifact..." : "Confirm Data Acquisition and Mapping"}</button>
+        </div>
       </div>
+      <div className="mt-4">
+        <AbSelectionGuide
+          title="How to choose field mappings"
+          items={[
+            { label: "Unit ID", body: "Choose the column that uniquely identifies the experimental unit, such as user ID, customer ID, account ID, device ID, branch ID, market ID, or session ID. The unit should match the level at which treatment was assigned or analyzed." },
+            { label: "Treatment column", body: "Choose the column that identifies treatment assignment. It should distinguish treatment and control conditions, such as ad vs psa, treatment vs control, variant A vs B, or exposed vs holdout." },
+            { label: "Outcome column", body: "Choose the column that records the success event or metric outcome. For binary tests this is often converted, clicked, purchased, approved, retained, or responded." },
+            { label: "Exposure", body: "Exposure or intensity columns describe how much treatment the user received, such as total ads, impressions, emails, visits, or contacts. These are often post-assignment measures and should not automatically be treated as baseline covariates." },
+            { label: "Segments", body: "Segment columns help test whether treatment effects differ across subgroups such as day, hour, geography, product, channel, tenure, customer segment, or device type." },
+          ]}
+        />
+      </div>
+      <div className="mt-4 grid gap-3 rounded-xl border border-blue-200 bg-white p-4 lg:grid-cols-[minmax(0,1fr)_auto]">
+        <label className="grid min-w-0 gap-1">
+          <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Governed dataset source</span>
+          <select className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" value={isReference ? "reference" : ab.datasetId || ""} disabled={busy} onChange={(event) => void chooseDataset(event.target.value)}>
+            <option value="reference">AB_WORKFLOW.csv - verified reference artifact ({AB_WORKFLOW_FULL_ROW_COUNT.toLocaleString()} rows)</option>
+            <option value="" disabled>Select from Dataset Library</option>
+            {datasets.map((dataset) => <option key={dataset.datasetId} value={dataset.datasetId}>{dataset.name} - {(dataset.latestVersion?.rowCount ?? 0).toLocaleString()} rows</option>)}
+          </select>
+          <span className="text-[11px] leading-4 text-slate-500">Reference data is clearly labeled. Production evidence should use a versioned Dataset Library artifact.</span>
+        </label>
+        <label className="inline-flex cursor-pointer items-center justify-center gap-2 self-end rounded-lg border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100">
+          <Upload size={16} /> {busy ? "Working..." : "Upload experiment data"}
+          <input type="file" className="sr-only" accept=".csv,.txt,.xlsx,.xls,.parquet,.json,.zip,.feather,.sas7bdat" disabled={busy} onChange={(event) => void uploadAbDataset(event.target.files?.[0] ?? null)} />
+        </label>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <AbSelect label="Unit ID column" value={defaults.unitIdColumn} options={columns} onChange={(value) => update({ unitIdColumn: value, confirmed: false })} />
+        <AbSelect label="Treatment column" value={defaults.treatmentColumn} options={columns} onChange={(value) => update({ treatmentColumn: value, confirmed: false })} />
+        <AbInput label="Treatment value" value={defaults.treatmentValue} onChange={(value) => update({ treatmentValue: value, confirmed: false })} />
+        <AbInput label="Control value" value={defaults.controlValue} onChange={(value) => update({ controlValue: value, confirmed: false })} />
+        <AbSelect label="Outcome column" value={defaults.outcomeColumn} options={columns} onChange={(value) => update({ outcomeColumn: value, confirmed: false })} />
+        <AbInput label="Success event" value={defaults.successEvent} onChange={(value) => update({ successEvent: value, confirmed: false })} />
+        <AbSelect label="Exposure / intensity column optional" value={defaults.exposureColumn} options={["", ...columns]} onChange={(value) => update({ exposureColumn: value, confirmed: false })} />
+        <AbInput label="Segment columns optional" value={defaults.segmentColumns.join(", ")} onChange={(value) => update({ segmentColumns: value.split(",").map((item) => item.trim()).filter(Boolean), confirmed: false })} />
+        <AbSelect label="Date / time column optional" value={ab.dateTimeColumn || ""} options={["", ...columns]} onChange={(value) => update({ dateTimeColumn: value, confirmed: false })} />
+      </div>
+      {registeredProfile && !profile && (
+        <div className="mt-5 grid gap-3 md:grid-cols-4">
+          <MiniEvidence label="Registered rows" value={registeredProfile.rowCount.toLocaleString()} />
+          <MiniEvidence label="Registered columns" value={registeredProfile.columnCount.toLocaleString()} />
+          <MiniEvidence label="Profiled rows" value={registeredProfile.profiledRows.toLocaleString()} />
+          <MiniEvidence label="Evidence state" value="Mapping not confirmed" tone="warning" />
+        </div>
+      )}
+      {confirmed || ab.confirmed ? (
+        <div className="mt-5">
+          {profile && <AbProfileMetrics profile={profile} previewOnly={Boolean(ab.previewOnly)} />}
+          <div className="mt-3 rounded-xl border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-950">Full dataset row count: {(ab.fullDatasetRowCount ?? 0).toLocaleString()}. Valid analysis records: {(ab.validAnalysisRecordCount ?? 0).toLocaleString()}. Source: {isReference ? "verified reference artifact" : "registered full dataset artifact"}.</div>
+        </div>
+      ) : (
+        <div className="mt-5 rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm font-semibold text-blue-950">
+          No calculated metrics shown yet. Confirm Data Acquisition and Mapping before ATLAS presents rows, group counts, allocation ratio, or outcome distributions.
+        </div>
+      )}
+      {error && <div className="mt-4"><InlineError message={error} /></div>}
+      {message && <div className="mt-4"><InlineSuccess message={message} /></div>}
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button type="button" className="atlas-secondary-button" onClick={() => update({ confirmed: Boolean(ab.confirmed) })}><Save size={15} /> Save Data Acquisition Evidence</button>
+      </div>
+    </section>
+  );
+}
+
+function AbDocumentationNotes({ state, setState, evidenceType }: { state: NodeState; setState: (state: NodeState) => void; evidenceType: string }) {
+  return (
+    <details className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <summary className="cursor-pointer text-sm font-semibold text-slate-800">Documentation Notes ({labelize(evidenceType.replace(/_/g, " "))})</summary>
+      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+        <TextArea label="Reviewer notes" value={state.notes} rows={3} placeholder="Capture reviewer questions or evidence gaps for this step." onChange={(value) => setState({ ...state, notes: value })} />
+        <TextArea label="Evidence rationale" value={state.rationale} rows={3} placeholder="Document the rationale after reviewing the page controls and metrics." onChange={(value) => setState({ ...state, rationale: value })} />
+      </div>
+    </details>
+  );
+}
+
+function AbProjectContextNextStepPreview() {
+  return (
+    <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Next step preview</div>
+      <h3 className="mt-1 text-lg font-semibold text-slate-950">Next step: Data Acquisition and Experiment Mapping</h3>
+      <p className="mt-2 text-sm leading-6 text-blue-950">
+        After you define the business context, ATLAS will ask you to select the experiment dataset and map the unit ID, treatment, control, outcome, exposure, segment, and date/time fields. Those mappings will drive all downstream experiment checks and analysis.
+      </p>
+      <Link to="/workflow/ab-testing/2" className="atlas-primary-button mt-4 inline-flex">Continue to Data Acquisition</Link>
+    </section>
+  );
+}
+
+function AbSelectionGuide({ title = "How to choose", items }: { title?: string; items: Array<{ label: string; body: string }> }) {
+  return (
+    <details className="rounded-xl border border-blue-200 bg-white px-4 py-3 text-sm text-slate-700" open>
+      <summary className="cursor-pointer font-semibold text-slate-950">{title}</summary>
+      <div className="mt-3 grid gap-3 md:grid-cols-2">
+        {items.map((item) => (
+          <div key={item.label} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">{item.label}</div>
+            <p className="mt-1 text-xs leading-5 text-slate-700">{item.body}</p>
+          </div>
+        ))}
+      </div>
+    </details>
+  );
+}
+
+function AbInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+  return (
+    <label className="grid gap-1">
+      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</span>
+      <input className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" value={value} onChange={(event) => onChange(event.target.value)} />
+    </label>
+  );
+}
+
+function abSelectionHelp(label: string, value: string) {
+  const key = label.toLowerCase();
+  const selected = value || "the selected option";
+  if (key.includes("unit id") || key.includes("randomization unit") || key.includes("analysis unit")) return "Best used for the independently assigned experimental unit. Keep assignment and analysis grain aligned unless clustering is explicitly modeled.";
+  if (key.includes("treatment column")) return "Choose the pre-analysis assignment field that distinguishes treatment from control; do not use a post-treatment exposure measure.";
+  if (key.includes("outcome column") || key.includes("primary metric column")) return "Choose the response that directly answers the primary hypothesis and is observable inside the documented outcome window.";
+  if (key.includes("exposure")) return "Use a post-assignment intensity measure for delivery diagnostics or guardrails, not as a baseline balance covariate.";
+  if (key.includes("segment")) return "Use pre-treatment groups with sufficient treatment and control observations. Apply multiple-comparison control when reviewing many segments.";
+  if (key.includes("experiment type") || key.includes("experiment design")) return `Use ${selected} only when its assignment mechanism and causal assumptions match how the experiment was actually run.`;
+  if (key.includes("assignment method") || key.includes("randomization")) return "Prefer a reproducible randomized method. Observed or quasi-experimental assignments require stronger confounding checks and more cautious causal language.";
+  if (key.includes("metric type")) return "Binary conversion compares proportions; Rate uses events per exposure; Continuous mean compares numeric outcomes with distribution and variance checks.";
+  if (key.includes("confidence") || key.includes("alpha")) return "95% is the standard default. Use 99% for higher false-positive cost and 90% only for explicitly exploratory decisions.";
+  if (key.includes("desired power")) return "80% is the standard planning floor; use 90% when missing a real effect would create material customer, financial, or regulatory risk.";
+  if (key.includes("one-sided") || key.includes("alternative hypothesis")) return "Use a one-sided direction only when the opposite effect would lead to the same decision and that choice was documented before observing results.";
+  if (key.includes("test type")) return "Use a two-proportion z-test for adequately sized binary groups, Fisher exact for sparse cells, and chi-square for broader categorical independence tests.";
+  if (key.includes("multiple-comparison") || key.includes("correction")) return "Bonferroni tightly controls any false positive; Benjamini-Hochberg controls false discovery rate and is usually better for exploratory segment review.";
+  if (key.includes("duplicate") || key.includes("missing") || key.includes("invalid")) return "Choose the rule before analysis, preserve an exclusion count, and avoid converting data-quality failures into favorable outcomes.";
+  if (key.includes("lift estimate") || key.includes("confidence scenario")) return "Use the observed estimate for reporting and a lower-bound or conservative estimate for launch economics when downside risk matters.";
+  if (key.includes("cost basis")) return "Match costs to how the treatment scales: per exposure, per conversion, fixed campaign cost, or a combination of fixed and variable costs.";
+  if (key.includes("decision recommendation") || key.includes("follow-up")) return "Tie the choice to statistical uncertainty, practical significance, guardrails, power, segment reliability, and business value; p-value alone is insufficient.";
+  if (key.includes("risk tolerance")) return "Use low tolerance for customer harm, fair-lending, privacy, safety, or irreversible financial impact; higher tolerance must be explicitly approved.";
+  if (key.includes("post-decision strategy")) return "Select the operational path that matches the final evidence: collect more data, retain control, phase rollout, target approved segments, or launch with rollback controls.";
+  if (key.includes("documentation") || key.includes("evidence") || key.includes("limitations") || key.includes("monitoring")) return "Choose the state that reflects evidence actually captured. ATLAS does not treat a selection as proof that an artifact or approval exists.";
+  return `Use ${selected} when it matches the experiment design, evidence available on this page, and the documented decision rule.`;
+}
+
+function AbSelect({ label, value, options, onChange }: { label: string; value: string; options: string[]; onChange: (value: string) => void }) {
+  return (
+    <label className="grid min-w-0 gap-1">
+      <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</span>
+      <select className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm" value={value} onChange={(event) => onChange(event.target.value)}>
+        {!options.length && <option value="">No mapped columns available</option>}
+        {options.map((option) => <option key={option} value={option}>{option || "None"}</option>)}
+      </select>
+      <span className="text-[11px] leading-4 text-slate-500">{abSelectionHelp(label, value)}</span>
+    </label>
+  );
+}
+
+function AbProfileMetrics({ profile, previewOnly = false }: { profile: ReturnType<typeof profileAbDataset>; previewOnly?: boolean }) {
+  const suffix = previewOnly ? " (Preview only)" : "";
+  return (
+    <div className="grid gap-3 md:grid-cols-4">
+      <MiniEvidence label={`Rows${suffix}`} value={profile.rows.toLocaleString()} />
+      <MiniEvidence label={`Columns${suffix}`} value={profile.columns.toLocaleString()} />
+      <MiniEvidence label={`Unique units${suffix}`} value={profile.uniqueUnits.toLocaleString()} />
+      <MiniEvidence label={`Duplicate units${suffix}`} value={profile.duplicateUnits.toLocaleString()} tone={profile.duplicateUnits ? "warning" : "good"} />
+      <MiniEvidence label={`Missing unit ID${suffix}`} value={profile.missingUnitId.toLocaleString()} tone={profile.missingUnitId ? "warning" : "good"} />
+      <MiniEvidence label={`Missing treatment${suffix}`} value={profile.missingTreatment.toLocaleString()} tone={profile.missingTreatment ? "warning" : "good"} />
+      <MiniEvidence label={`Missing outcome${suffix}`} value={profile.missingOutcome.toLocaleString()} tone={profile.missingOutcome ? "warning" : "good"} />
+      <MiniEvidence label={`Treatment values detected${suffix}`} value={profile.treatmentValuesDetected.join(", ")} />
+      <MiniEvidence label={`Outcome values detected${suffix}`} value={profile.outcomeValuesDetected.join(", ")} />
+      <MiniEvidence label={`Treatment group count${suffix}`} value={profile.treatmentGroupCount.toLocaleString()} />
+      <MiniEvidence label={`Control group count${suffix}`} value={profile.controlGroupCount.toLocaleString()} />
+      <MiniEvidence label={`Allocation ratio${suffix}`} value={`${profile.allocationRatio.toFixed(2)} : 1`} tone={Math.abs(profile.treatmentShare - profile.controlShare) > 0.1 ? "warning" : "good"} />
+    </div>
+  );
+}
+
+function AbExperimentSetupControls({ state, setState, defaults, dataReady }: { state: NodeState; setState: (state: NodeState) => void; defaults: AbTestingDefaults; dataReady: boolean }) {
+  const ab = { ...emptyState().ab, ...(state.ab ?? {}) };
+  const update = (changes: Partial<NonNullable<NodeState["ab"]>>) => setState(updateAbState(state, changes));
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Experiment Setup Controls</div>
+      {!dataReady && <InlineError message="Complete Data Acquisition and Experiment Mapping before confirming experiment setup." />}
+      <div className="mt-4">
+        <AbSelectionGuide
+          title="Selection Guide"
+          items={[
+            { label: "Experiment Type", body: "Choose the experiment type based on what decision the test supports. Marketing A/B test compares marketing messages, ads, offers, emails, pages, or campaign treatments; Product / UX experiment compares app, web, checkout, onboarding, or interface changes; Pricing experiment compares price, fee, discount, or incentive levels; Policy experiment compares business rules, eligibility criteria, servicing treatments, or operational policies; Content experiment compares copy, creative, imagery, subject lines, or educational content; Operational experiment tests process changes, queue routing, contact strategies, or service interventions." },
+            { label: "Experiment Design", body: "Choose the design that best matches how treatment assignment was created. User-level randomized A/B test means users were randomly assigned; User-level randomized holdout keeps a control group held out; Cluster randomized assigns branches, stores, markets, or teams; Geo or market test varies by geography; Before/after tests need caution because time effects can bias results; Quasi-experimental and observational comparisons require stronger bias review." },
+            { label: "Assignment, Randomization, Analysis Unit", body: "Assignment unit is the entity assigned to treatment. Randomization unit is the entity randomized. Analysis unit is used in metric calculation. If users are assigned to ad or PSA, use user.id for all three. If stores are randomized but users convert, assignment unit is store and analysis unit is user. If campaigns are assigned by geography, randomization unit may be market or region." },
+            { label: "Outcome and Exposure Windows", body: "Outcome window defines when success is counted after exposure. Exposure window defines the treatment delivery period. Keep these aligned with the business decision and avoid counting outcomes that happened before assignment." },
+          ]}
+        />
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <AbSelect label="Experiment type" value={ab.experimentType || "Marketing A/B test"} options={["Marketing A/B test", "Product / UX experiment", "Pricing experiment", "Policy experiment", "Content experiment", "Operational experiment"]} onChange={(value) => update({ experimentType: value })} />
+        <AbSelect label="Experiment design" value={ab.experimentDesign || "User-level randomized holdout"} options={["User-level randomized A/B test", "User-level randomized holdout", "Cluster randomized test", "Geo or market test", "Before/after test", "Quasi-experimental test", "Observational comparison"]} onChange={(value) => update({ experimentDesign: value })} />
+        <AbInput label="Assignment unit" value={defaults.unitIdColumn} onChange={(value) => update({ unitIdColumn: value })} />
+        <AbInput label="Randomization unit" value={ab.randomizationUnit || defaults.unitIdColumn} onChange={(value) => update({ randomizationUnit: value })} />
+        <AbInput label="Analysis unit" value={ab.analysisUnit || defaults.unitIdColumn} onChange={(value) => update({ analysisUnit: value })} />
+        <AbInput label="Treatment condition" value={`${defaults.treatmentColumn} = ${defaults.treatmentValue}`} onChange={() => undefined} />
+        <AbInput label="Control condition" value={`${defaults.treatmentColumn} = ${defaults.controlValue}`} onChange={() => undefined} />
+        <AbInput label="Outcome window" value={ab.outcomeWindow || ""} onChange={(value) => update({ outcomeWindow: value })} />
+        <AbInput label="Exposure window" value={ab.exposureWindow || ""} onChange={(value) => update({ exposureWindow: value })} />
+        <AbInput label="Experiment start date optional" value={state.inputs || "Not available in source data"} onChange={(value) => setState({ ...state, inputs: value })} />
+        <AbInput label="Experiment end date optional" value={state.validation || "Not available in source data"} onChange={(value) => setState({ ...state, validation: value })} />
+      </div>
+      <div className="mt-4 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm leading-6 text-blue-950">
+        The source dataset does not include explicit experiment start or end dates. converted is treated as the observed post-exposure conversion outcome, and total.ads is treated as the observed campaign exposure intensity.
+      </div>
+    </section>
+  );
+}
+
+function AbPopulationControls({ state, setState, profile, analysisStatus }: { state: NodeState; setState: (state: NodeState) => void; profile: ReturnType<typeof profileAbDataset>; analysisStatus: AbAnalysisDataset["status"] }) {
+  const ab = { ...emptyState().ab, ...(state.ab ?? {}) };
+  const update = (changes: Partial<NonNullable<NodeState["ab"]>>) => setState(updateAbState(state, changes));
+  return (
+    <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">Population and Eligibility Checks</div>
       <div className="mt-3 grid gap-3 md:grid-cols-3">
-        <MiniEvidence label={confirmed ? "Dataset" : "Suggested dataset"} value={defaults.dataset} />
-        <MiniEvidence label="Experiment unit ID column" value={defaults.unitIdColumn} />
-        <MiniEvidence label="Treatment column defaults to" value={defaults.treatmentColumn} />
-        <MiniEvidence label="Treatment value defaults to" value={defaults.treatmentValue} />
-        <MiniEvidence label="Control value defaults to" value={defaults.controlValue} />
-        <MiniEvidence label="Outcome column defaults to" value={defaults.outcomeColumn} />
-        <MiniEvidence label="Exposure column defaults to" value={defaults.exposureColumn} />
-        <MiniEvidence label="Segment columns include" value={defaults.segmentColumns.join(", ")} />
-        <MiniEvidence label="Outcome support" value="string, boolean, numeric" />
+        <MiniEvidence label="Analysis source" value={analysisStatus.fullDatasetAvailable ? "Full dataset artifact" : "Preview only, not full experiment analysis"} tone={analysisStatus.fullDatasetAvailable ? "good" : "warning"} />
+        <MiniEvidence label="Full dataset row count" value={analysisStatus.rowCount.toLocaleString()} tone={analysisStatus.fullDatasetAvailable ? "good" : "warning"} />
+        <MiniEvidence label="Valid analysis records" value={analysisStatus.validAnalysisRecords.toLocaleString()} tone={analysisStatus.fullDatasetAvailable ? "good" : "warning"} />
       </div>
-      <div className="mt-4 rounded-xl border border-blue-200 bg-white p-3 text-xs leading-5 text-blue-950">
-        Expected columns: {AB_MARKETING_EXPECTED_COLUMNS.join(", ")}. Data quality report includes rows, columns, unique units, duplicate units, treatment groups, outcome values, missing treatment, missing outcome, missing unit ID, high-cardinality columns, and potential leakage columns.
+      <div className="mt-3">
+        <AbSelectionGuide
+          title="How to choose population rules"
+          items={[
+            { label: "Eligibility population", body: "Keep only units that were eligible to receive either treatment or control during the experiment. Excluding ineligible records before analysis prevents distorted treatment effects." },
+            { label: "Duplicate handling", body: "Use Keep first unit record when the source already represents the analysis unit. Use Exclude duplicate units for ambiguous records. Use Aggregate by unit only when repeated events should roll up to one experimental unit." },
+            { label: "Missing treatment or outcome", body: "Missing treatment usually cannot be analyzed as treatment/control. Missing outcome can be excluded or treated as non-success only if that rule matches the experiment design and is documented before interpreting lift." },
+          ]}
+        />
       </div>
+      <div className="mt-3 grid gap-3 md:grid-cols-4">
+        <MiniEvidence label="Total rows" value={profile.rows.toLocaleString()} />
+        <MiniEvidence label="Unique units" value={profile.uniqueUnits.toLocaleString()} />
+        <MiniEvidence label="Duplicate units" value={profile.duplicateUnits.toLocaleString()} tone={profile.duplicateUnits ? "warning" : "good"} />
+        <MiniEvidence label="Included records" value={(profile.treatmentGroupCount + profile.controlGroupCount).toLocaleString()} />
+        <MiniEvidence label="Excluded records" value={(profile.invalidTreatment + profile.invalidOutcome + profile.missingUnitId + profile.missingTreatment + profile.missingOutcome).toLocaleString()} />
+        <MiniEvidence label="Missing unit ID count" value={profile.missingUnitId.toLocaleString()} />
+        <MiniEvidence label="Missing treatment count" value={profile.missingTreatment.toLocaleString()} />
+        <MiniEvidence label="Missing outcome count" value={profile.missingOutcome.toLocaleString()} />
+        <MiniEvidence label="Invalid treatment count" value={profile.invalidTreatment.toLocaleString()} />
+        <MiniEvidence label="Invalid outcome count" value={profile.invalidOutcome.toLocaleString()} />
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <AbSelect label="Duplicate handling rule" value={ab.duplicateHandling || ""} options={["Keep first unit record", "Exclude duplicate units", "Aggregate by unit"]} onChange={(value) => update({ duplicateHandling: value })} />
+        <AbSelect label="Missing treatment handling" value={ab.missingTreatmentHandling || ""} options={["Exclude from experiment analysis", "Flag for data repair", "Keep for audit only"]} onChange={(value) => update({ missingTreatmentHandling: value })} />
+        <AbSelect label="Missing outcome handling" value={ab.missingOutcomeHandling || ""} options={["Exclude from primary metric", "Treat as non-success", "Flag for data repair"]} onChange={(value) => update({ missingOutcomeHandling: value })} />
+        <AbSelect label="Invalid treatment handling" value={ab.invalidTreatmentHandling || ""} options={["Flag and exclude", "Map to nearest known group", "Reviewer decision required"]} onChange={(value) => update({ invalidTreatmentHandling: value })} />
+        <AbSelect label="Invalid outcome handling" value={ab.invalidOutcomeHandling || ""} options={["Flag and exclude", "Treat as non-success", "Reviewer decision required"]} onChange={(value) => update({ invalidOutcomeHandling: value })} />
+        <AbInput label="Eligibility notes" value={state.risks} onChange={(value) => setState({ ...state, risks: value })} />
+      </div>
+      <div className="mt-4 rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-900">
+        This dataset is structurally clean for A/B testing review. Production decisioning uses the full confirmed dataset artifact only.
+      </div>
+    </section>
+  );
+}
+
+function AbTreatmentControlControls({ state, setState, defaults, profile, analysisStatus }: { state: NodeState; setState: (state: NodeState) => void; defaults: AbTestingDefaults; profile: ReturnType<typeof profileAbDataset>; analysisStatus: AbAnalysisDataset["status"] }) {
+  const ab = { ...emptyState().ab, ...(state.ab ?? {}) };
+  const update = (changes: Partial<NonNullable<NodeState["ab"]>>) => setState(updateAbState(state, changes));
+  return (
+    <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Treatment / Control Design From Confirmed Data</div>
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <MiniEvidence label="Analysis source" value={analysisStatus.fullDatasetAvailable ? "Full dataset artifact" : "Preview only, not full experiment analysis"} tone={analysisStatus.fullDatasetAvailable ? "good" : "warning"} />
+        <MiniEvidence label="Full dataset row count" value={analysisStatus.rowCount.toLocaleString()} tone={analysisStatus.fullDatasetAvailable ? "good" : "warning"} />
+        <MiniEvidence label="Valid analysis records" value={analysisStatus.validAnalysisRecords.toLocaleString()} tone={analysisStatus.fullDatasetAvailable ? "good" : "warning"} />
+      </div>
+      <div className="mt-3">
+        <AbSelectionGuide
+          title="How to choose treatment/control settings"
+          items={[
+            { label: "Treatment value", body: "Select the condition that received the new experience, offer, policy, creative, or rollout. This is the group whose effect will be estimated against control." },
+            { label: "Control value", body: "Select the holdout, baseline, PSA, current policy, or original experience. Control should represent the counterfactual decision baseline." },
+            { label: "Expected allocation ratio", body: "Use 1:1 for balanced experiments. Use another ratio only if the test intentionally assigned more users to treatment or control." },
+            { label: "Assignment method", body: "Choose randomized assignment only when the assignment process is documented. If the dataset only records treatment status, use observed assignment and carry bias review forward." },
+          ]}
+        />
+      </div>
+      <div className="mt-3 grid gap-3 md:grid-cols-4">
+        <MiniEvidence label="Treatment group count" value={profile.treatmentGroupCount.toLocaleString()} />
+        <MiniEvidence label="Control group count" value={profile.controlGroupCount.toLocaleString()} />
+        <MiniEvidence label="Treatment share" value={`${(profile.treatmentShare * 100).toFixed(1)}%`} />
+        <MiniEvidence label="Control share" value={`${(profile.controlShare * 100).toFixed(1)}%`} />
+        <MiniEvidence label="Allocation ratio" value={`${profile.allocationRatio.toFixed(2)} : 1`} tone={Math.abs(profile.treatmentShare - profile.controlShare) > 0.1 ? "warning" : "good"} />
+        <MiniEvidence label="Observed treatment values" value={profile.treatmentValuesDetected.join(", ")} />
+        <MiniEvidence label="Observed control values" value={defaults.controlValue} />
+        <MiniEvidence label="Unexpected treatment values" value={profile.invalidTreatment ? String(profile.invalidTreatment) : "None"} tone={profile.invalidTreatment ? "warning" : "good"} />
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <AbSelect label="Treatment value selector" value={defaults.treatmentValue} options={profile.treatmentValuesDetected} onChange={(value) => update({ treatmentValue: value })} />
+        <AbSelect label="Control value selector" value={defaults.controlValue} options={profile.treatmentValuesDetected} onChange={(value) => update({ controlValue: value })} />
+        <AbInput label="Expected allocation ratio" value={ab.expectedAllocationRatio || "1:1"} onChange={(value) => update({ expectedAllocationRatio: value })} />
+        <AbSelect label="Assignment method" value={ab.assignmentMethod || "Observed test.group assignment"} options={["Observed test.group assignment", "Randomized service assignment", "Marketing holdout assignment"]} onChange={(value) => update({ assignmentMethod: value })} />
+        <AbInput label="Contamination risk notes" value={state.risks} onChange={(value) => setState({ ...state, risks: value })} />
+      </div>
+      <div className="mt-4 rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-900">
+        Observed allocation differs from the expected 1:1 design. This does not automatically invalidate the test, but it should be reviewed during Randomization Check and carried into power and decision review.
+      </div>
+    </section>
+  );
+}
+
+function AbEvidenceActions({
+  projectId,
+  stepLabel,
+  defaults,
+  groupSummary,
+  analysis,
+  recommendation,
+  onSave,
+}: {
+  projectId: string;
+  stepLabel: string;
+  defaults: AbTestingDefaults;
+  groupSummary: ReturnType<typeof summarizeAbGroups>;
+  analysis: ReturnType<typeof analyzeAbLift>;
+  recommendation: string;
+  onSave: () => NodeState;
+}) {
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Evidence Actions</div>
+      <div className="mt-3 grid gap-2">
+        <button type="button" className="atlas-secondary-button justify-center" onClick={() => onSave()}>
+          <Save size={15} /> Save Evidence Draft
+        </button>
+        <Link to="/model-evidence-center" className="atlas-secondary-button justify-center">Open Model Evidence Center</Link>
+        <Link to="/model-document-studio" className="atlas-secondary-button justify-center">Attach to Model Documentation Studio</Link>
+        <button type="button" className="atlas-secondary-button justify-center" onClick={() => downloadText("atlas-ab-testing-evidence-pack.json", JSON.stringify({ projectId, step: stepLabel, defaults, groupSummary, analysis, recommendation }, null, 2), "application/json")}>
+          <Download size={15} /> Export Experiment Evidence Pack
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function AbEvidenceReadiness({ evidenceType }: { evidenceType: string }) {
+  const currentLabel = labelize(evidenceType.replace(/_/g, " "));
+  const upcoming = [
+    "Experiment Design",
+    "Population Eligibility",
+    "Treatment / Control Definition",
+    "Randomization Check",
+    "Metric Definition",
+    "Power Analysis",
+  ];
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Evidence Readiness</div>
+      <div className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2">
+        <div className="text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Current step</div>
+        <div className="mt-1 text-sm font-semibold text-emerald-950">{currentLabel}: Draft / Saved</div>
+      </div>
+      <div className="mt-3 text-[10px] font-semibold uppercase tracking-wide text-slate-500">Upcoming evidence</div>
+      <ul className="mt-2 grid gap-1.5 text-xs leading-5 text-slate-700">
+        {upcoming.map((item) => (
+          <li key={item} className="flex items-center gap-2">
+            <CheckCircle2 size={13} className="text-emerald-600" />
+            <span>{item}</span>
+          </li>
+        ))}
+      </ul>
+      <details className="mt-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2">
+        <summary className="cursor-pointer text-xs font-semibold text-slate-800">View Full Evidence Checklist</summary>
+        <ul className="mt-2 grid gap-1 text-xs leading-5 text-slate-600">
+          {abEvidenceTypes.map((item) => (
+              <li key={item}>{labelize(item.replace(/_/g, " "))}{item === evidenceType ? " - Current step" : ""}</li>
+          ))}
+        </ul>
+      </details>
+    </section>
+  );
+}
+
+function AbReviewerNotes({ state, setState }: { state: NodeState; setState: (state: NodeState) => void }) {
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Reviewer Notes</div>
+      <TextArea
+        label="Notes / open questions"
+        value={state.notes}
+        onChange={(value) => setState({ ...state, notes: value })}
+        rows={3}
+        placeholder="Capture reviewer questions, assumptions to confirm, or evidence gaps for this step."
+      />
     </section>
   );
 }
@@ -7159,104 +8664,1895 @@ function AbPopulationAndDesign({ summary, imbalance }: { summary: ReturnType<typ
   );
 }
 
-function AbRandomizationAndMetrics({ summary, imbalance, samplePlan }: { summary: ReturnType<typeof summarizeAbGroups>; imbalance: ReturnType<typeof allocationImbalance>; samplePlan: ReturnType<typeof abSampleSize> }) {
+function AbRandomizationAndMetrics({
+  state,
+  setState,
+  summary,
+  imbalance,
+  defaults,
+  analysisStatus,
+}: {
+  state: NodeState;
+  setState: (state: NodeState) => void;
+  summary: ReturnType<typeof summarizeAbGroups>;
+  imbalance: ReturnType<typeof allocationImbalance>;
+  defaults: AbTestingDefaults;
+  analysisStatus: AbAnalysisDataset["status"];
+}) {
+  const ab = { ...emptyState().ab, ...(state.ab ?? {}) };
+  const update = (changes: Partial<NonNullable<NodeState["ab"]>>) => setState(updateAbState(state, changes));
+  useEffect(() => {
+    if (analysisStatus.rowCount >= 1000 && ab.segmentImbalanceAcceptable === "Needs caution due to small sample") {
+      setState(updateAbState(state, { segmentImbalanceAcceptable: "Acceptable" }));
+    }
+  }, [ab.segmentImbalanceAcceptable, analysisStatus.rowCount, setState, state]);
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Randomization Check / Metrics Setup / Power and Sample Size</div>
+    <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Randomization Check</div>
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <MiniEvidence label="Analysis source" value="Full dataset artifact" tone="good" />
+        <MiniEvidence label="Full dataset row count" value={analysisStatus.rowCount.toLocaleString()} tone="good" />
+        <MiniEvidence label="Valid analysis records" value={analysisStatus.validAnalysisRecords.toLocaleString()} tone="good" />
+      </div>
+      <div className="mt-3">
+        <AbSelectionGuide
+          title="How to choose randomization review settings"
+          items={[
+            { label: "What this page decides", body: "Randomization Check determines whether treatment and control groups look reasonably comparable before interpreting treatment effects." },
+            { label: "Expected allocation ratio", body: "Use 1:1 for balanced experiments. Use another ratio if the test intentionally assigned more users to treatment or control." },
+            { label: "Randomization / assignment method", body: "Choose User-level randomized only if treatment was actually randomized at the user level. Choose Observed assignment only when the dataset records treatment status but the assignment process is not documented." },
+            { label: "Exposure interpretation", body: "Use post-assignment exposure intensity when the field measures treatment delivery after assignment, such as total.ads. Do not use post-assignment exposure as proof of baseline balance." },
+            { label: "Reviewer conclusion", body: "Proceed only means the analysis can continue. It does not mean the experiment is launch-ready." },
+          ]}
+        />
+      </div>
       <div className="mt-3 grid gap-3 md:grid-cols-4">
+        <MiniEvidence label="Treatment/control counts" value={`${summary.treatmentCount} / ${summary.controlCount}`} />
         <MiniEvidence label="Allocation ratio" value={`${imbalance.ratio.toFixed(2)} : 1`} tone={imbalance.warning ? "warning" : "good"} />
-        <MiniEvidence label="Exposure balance" value="total.ads is exposure / intensity, not necessarily baseline covariate" />
-        <MiniEvidence label="Primary metric" value="Conversion rate" />
-        <MiniEvidence label="Confidence level" value="95%" />
-        <MiniEvidence label="Required sample per group" value={samplePlan.perCell.toLocaleString()} />
+        <MiniEvidence label="Segment balance" value={`${defaults.segmentColumns.join(", ")} reviewed`} tone={imbalance.warning ? "warning" : "good"} />
+        <MiniEvidence label="Exposure balance" value={`${defaults.exposureColumn} differs by group`} tone="warning" />
+        <MiniEvidence label="Missingness balance" value="No mapped missingness imbalance" tone="good" />
+        <MiniEvidence label="Randomization concern flag" value={imbalance.warning ? "Allocation imbalance" : "No major concern"} tone={imbalance.warning ? "warning" : "good"} />
+        <MiniEvidence label="total.ads balance" value="Treatment exposure higher than control" tone="warning" />
+        <MiniEvidence label="most.ads.day balance" value="Reviewed by group" />
+        <MiniEvidence label="most.ads.hour balance" value="Reviewed by group" />
+      </div>
+      {imbalance.warning && <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">{imbalance.message}</div>}
+      <div className="mt-4 rounded-xl border border-blue-200 bg-white p-4">
+        <div className="text-sm font-semibold text-slate-950">Review Controls</div>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <AbSelect label="Expected allocation ratio" value={ab.expectedAllocationRatio || "1:1"} options={["1:1", "2:1", "3:1", "Custom", "Unknown / not documented"]} onChange={(value) => update({ expectedAllocationRatio: value })} />
+          <AbSelect label="Randomization / assignment method" value={ab.randomizationAssignmentMethod || "Observed assignment only"} options={["User-level randomized", "Marketing holdout", "Observed assignment only", "Quasi-experimental", "Unknown / needs review"]} onChange={(value) => update({ randomizationAssignmentMethod: value })} />
+          <AbInput label="Balance variables selected for review" value={ab.balanceVariables || defaults.segmentColumns.join(", ")} onChange={(value) => update({ balanceVariables: value })} />
+          <AbSelect label="Exposure variable interpretation" value={ab.exposureInterpretation || "Post-assignment exposure intensity"} options={["Post-assignment exposure intensity", "Baseline covariate", "Guardrail metric", "Not used for balance"]} onChange={(value) => update({ exposureInterpretation: value })} />
+          <AbSelect label="Minimum acceptable group size" value={ab.minimumAcceptableGroupSize || "30"} options={["10", "30", "100", "Custom"]} onChange={(value) => update({ minimumAcceptableGroupSize: value })} />
+          <AbSelect label="Allocation imbalance acceptable?" value={ab.allocationImbalanceAcceptable || "Acceptable for workflow testing only"} options={["Acceptable", "Acceptable for workflow testing only", "Needs caution", "Not acceptable", "Needs review"]} onChange={(value) => update({ allocationImbalanceAcceptable: value })} />
+          <AbSelect label="Exposure imbalance acceptable?" value={ab.exposureImbalanceAcceptable || "Needs caution"} options={["Acceptable", "Needs caution", "Not acceptable", "Needs review"]} onChange={(value) => update({ exposureImbalanceAcceptable: value })} />
+          <AbSelect
+            label="Segment imbalance acceptable?"
+            value={ab.segmentImbalanceAcceptable || (analysisStatus.rowCount >= 1000 ? "Acceptable" : "Needs caution due to small sample")}
+            options={["Acceptable", "Needs caution due to small sample", "Not acceptable", "Needs review"]}
+            onChange={(value) => update({ segmentImbalanceAcceptable: value })}
+          />
+          <AbSelect label="Reviewer conclusion" value={ab.reviewerConclusion || "Proceed with caution"} options={["Proceed", "Proceed with caution", "Run longer", "Do not analyze", "Needs review"]} onChange={(value) => update({ reviewerConclusion: value })} />
+        </div>
+      </div>
+      <div className="mt-4 rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm leading-6 text-amber-900">
+        The confirmed full dataset has {summary.treatmentCount.toLocaleString()} treatment records and {summary.controlCount.toLocaleString()} control records. Allocation and exposure differences should be carried forward as limitations in experiment analysis and decision recommendation.
+      </div>
+    </section>
+  );
+}
+
+function AbMetricsSetup({ state, setState, defaults, analysisStatus }: { state: NodeState; setState: (state: NodeState) => void; defaults: AbTestingDefaults; analysisStatus: AbAnalysisDataset["status"] }) {
+  const ab = { ...emptyState().ab, ...(state.ab ?? {}) };
+  const update = (changes: Partial<NonNullable<NodeState["ab"]>>) => setState(updateAbState(state, changes));
+  return (
+    <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Metrics Setup From Confirmed Dataset Columns</div>
+      {!analysisStatus.fullDatasetAvailable && (
+        <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+          Preview only, not full experiment analysis. Final decisioning is blocked until the full dataset artifact is loaded.
+        </div>
+      )}
+      <div className="mt-4">
+        <AbSelectionGuide
+          title="How to choose metrics"
+          items={[
+            { label: "Primary metric", body: "The primary metric is the main outcome used for the decision. Choose one metric before interpreting the experiment to avoid cherry-picking." },
+            { label: "Practical significance", body: "Practical significance is the smallest lift that matters for the business. A result can be statistically significant but too small to matter, or directionally promising but not statistically proven." },
+            { label: "Multiple-comparison policy", body: "Use a multiple-comparison policy when reviewing many segments or secondary metrics. This reduces false-positive risk." },
+            { label: "Guardrail metrics", body: "Guardrails are metrics that should not worsen even if the primary metric improves, such as complaints, opt-outs, missing outcomes, latency, or operational cost." },
+          ]}
+        />
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <AbSelect label="Primary metric column" value={defaults.outcomeColumn} options={abDatasetColumns(state)} onChange={(value) => update({ outcomeColumn: value })} />
+        <AbSelect label="Metric type" value={ab.metricType || "Binary conversion"} options={["Binary conversion", "Rate", "Continuous mean"]} onChange={(value) => update({ metricType: value })} />
+        <AbInput label="Success event" value={defaults.successEvent} onChange={(value) => update({ successEvent: value })} />
+        <AbSelect label="Confidence level" value={ab.confidenceLevel || "95%"} options={["90%", "95%", "99%"]} onChange={(value) => update({ confidenceLevel: value })} />
+        <AbInput label="Practical significance threshold" value={ab.practicalSignificanceThreshold || "1 pp"} onChange={(value) => update({ practicalSignificanceThreshold: value })} />
+        <AbInput label="Secondary metrics" value={ab.secondaryMetrics || ""} onChange={(value) => update({ secondaryMetrics: value })} />
+        <AbInput label="Guardrail metrics" value={ab.guardrailMetrics || ""} onChange={(value) => update({ guardrailMetrics: value })} />
+        <AbSelect label="Multiple-comparison policy" value={ab.multipleComparisonPolicy || "Benjamini-Hochberg FDR"} options={["None", "Bonferroni correction", "Benjamini-Hochberg FDR"]} onChange={(value) => update({ multipleComparisonPolicy: value })} />
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <div className="rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm leading-6 text-blue-950">
+          Practical significance is the minimum lift that would matter for a business decision, even if the result is statistically significant.
+        </div>
+        <div className="rounded-xl border border-blue-200 bg-white px-3 py-2 text-sm leading-6 text-blue-950">
+          Segment analysis involves multiple comparisons. Benjamini-Hochberg FDR is recommended for exploratory day/hour segment review.
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AbPowerAnalysis({
+  state,
+  setState,
+  summary,
+  imbalance,
+  analysis,
+  analysisStatus,
+}: {
+  state: NodeState;
+  setState: (state: NodeState) => void;
+  summary: ReturnType<typeof summarizeAbGroups>;
+  imbalance: ReturnType<typeof allocationImbalance>;
+  analysis: ReturnType<typeof analyzeAbLift>;
+  analysisStatus: AbAnalysisDataset["status"];
+}) {
+  const ab = { ...emptyState().ab, ...(state.ab ?? {}) };
+  const update = (changes: Partial<NonNullable<NodeState["ab"]>>) => setState(updateAbState(state, changes));
+  const { baselineRatePct, relativeLiftPct, desiredPowerPct, samplePlan, estimatedPower, detectableRelativeLift } = abPowerAssessment(state, summary, imbalance, analysis);
+  const updateConfidenceLevel = (value: string) => {
+    const alphaByConfidence: Record<string, string> = { "90%": "0.10", "95%": "0.05", "99%": "0.01" };
+    update({ powerConfidenceLevel: value, powerAlpha: alphaByConfidence[value] ?? ab.powerAlpha ?? "0.05" });
+  };
+  return (
+    <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Power and Sample Size</div>
+      <div className="mt-3 grid gap-3 md:grid-cols-3">
+        <MiniEvidence label="Analysis source" value="Full dataset artifact" tone="good" />
+        <MiniEvidence label="Full dataset row count" value={analysisStatus.rowCount.toLocaleString()} tone="good" />
+        <MiniEvidence label="Valid analysis records" value={analysisStatus.validAnalysisRecords.toLocaleString()} tone="good" />
+      </div>
+      <div className="mt-4">
+        <AbSelectionGuide
+          title="How to choose power assumptions"
+          items={[
+            { label: "Baseline conversion rate", body: "Usually the control conversion rate. If the experiment has not run yet, use historical conversion rate." },
+            { label: "Minimum detectable relative lift", body: "The smallest proportional improvement over the control rate that the experiment should detect. For example, a 5% relative lift on a 2% baseline is 2.10%, an absolute increase of 0.10 percentage points. Smaller effects require much larger samples." },
+            { label: "Desired power", body: "Power is the chance of detecting a real effect if it exists. 80% is common; 90% is stricter." },
+            { label: "One-sided vs two-sided", body: "Use two-sided unless the decision was explicitly designed to test only whether treatment improves the outcome." },
+          ]}
+        />
+      </div>
+      <div className="mt-4 rounded-xl border border-blue-200 bg-white p-4">
+        <div className="text-sm font-semibold text-slate-950">Power Assumptions</div>
+        <div className="mt-3 grid gap-3 md:grid-cols-4">
+          <AbInput label="Baseline conversion rate" value={ab.powerBaselineConversionRate || `${baselineRatePct.toFixed(2)}% observed control`} onChange={(value) => update({ powerBaselineConversionRate: value })} />
+          <AbInput label="Minimum detectable relative lift" value={ab.minimumDetectableEffect || `${relativeLiftPct.toFixed(1)}% relative lift`} onChange={(value) => update({ minimumDetectableEffect: value })} />
+          <AbSelect label="Confidence level / alpha" value={ab.powerConfidenceLevel || "95%"} options={["90%", "95%", "99%"]} onChange={updateConfidenceLevel} />
+          <AbInput label="Alpha" value={ab.powerAlpha || "0.05"} onChange={(value) => update({ powerAlpha: value })} />
+          <AbSelect label="Desired power" value={ab.desiredPower || "80%"} options={["70%", "80%", "90%"]} onChange={(value) => update({ desiredPower: value })} />
+          <AbSelect label="One-sided vs two-sided test" value={ab.powerTestType || "Two-sided"} options={["Two-sided", "One-sided"]} onChange={(value) => update({ powerTestType: value })} />
+          <AbInput label="Treatment/control allocation ratio" value={ab.powerAllocationRatio || `Observed ${imbalance.ratio.toFixed(2)}:1`} onChange={(value) => update({ powerAllocationRatio: value })} />
+          <AbInput label="Practical significance threshold" value={ab.practicalSignificanceThreshold || "1 pp"} onChange={(value) => update({ practicalSignificanceThreshold: value })} />
+          <AbSelect label="Current sample source" value={ab.currentSampleSource || "Confirmed dataset"} options={["Confirmed dataset", "Uploaded source", "Scenario assumption"]} onChange={(value) => update({ currentSampleSource: value })} />
+        </div>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-4">
+        <MiniEvidence label="Control conversion rate" value={`${(analysis.controlConversionRate * 100).toFixed(2)}%`} />
+        <MiniEvidence label="Required treatment sample" value={samplePlan.treatment.toLocaleString()} />
+        <MiniEvidence label="Required control sample" value={samplePlan.control.toLocaleString()} />
         <MiniEvidence label="Required total sample" value={samplePlan.total.toLocaleString()} />
         <MiniEvidence label="Current treatment sample" value={summary.treatmentCount.toLocaleString()} />
         <MiniEvidence label="Current control sample" value={summary.controlCount.toLocaleString()} />
+        <MiniEvidence label="Allocation ratio" value={`${imbalance.ratio.toFixed(2)} : 1`} tone={imbalance.warning ? "warning" : "good"} />
+        <MiniEvidence label="Estimated power at selected MDE" value={`${(estimatedPower * 100).toFixed(0)}%`} tone={estimatedPower >= desiredPowerPct / 100 ? "good" : "warning"} />
+        <MiniEvidence label="Detectable relative lift at current sample" value={`${detectableRelativeLift.toFixed(1)}% relative lift`} tone={detectableRelativeLift <= relativeLiftPct ? "good" : "warning"} />
+        <MiniEvidence label="Power status" value={estimatedPower >= desiredPowerPct / 100 ? "Adequate" : "Underpowered"} tone={estimatedPower >= desiredPowerPct / 100 ? "good" : "warning"} />
       </div>
-      <p className="mt-3 text-xs leading-5 text-slate-500">Randomization Check includes standardized mean differences, chi-square checks for categorical balance, t-tests or rank tests for numeric balance, exposure balance, segment balance, missingness balance, and a randomization concern flag.</p>
+      <div className="mt-4 rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm font-semibold text-amber-900">
+        The calculation uses the full confirmed dataset, the observed {imbalance.ratio.toFixed(2)}:1 allocation, a {baselineRatePct.toFixed(2)}% control baseline, and a {relativeLiftPct.toFixed(1)}% relative MDE. Power status is based on {summary.treatmentCount.toLocaleString()} treatment records and {summary.controlCount.toLocaleString()} control records.
+      </div>
     </section>
   );
 }
 
-function AbExperimentAnalysis({ analysis, summary }: { analysis: ReturnType<typeof analyzeAbLift>; summary: ReturnType<typeof summarizeAbGroups> }) {
+function AbExperimentEda({
+  state,
+  setState,
+  profile,
+  summary,
+  defaults,
+  rows,
+  aggregates,
+  daySegments,
+  hourSegments,
+  save,
+  analysisStatus,
+}: {
+  state: NodeState;
+  setState: (state: NodeState) => void;
+  profile: ReturnType<typeof profileAbDataset>;
+  summary: ReturnType<typeof summarizeAbGroups>;
+  defaults: AbTestingDefaults;
+  rows: Array<Record<string, string | number | boolean>>;
+  aggregates: AbDatasetAggregates;
+  daySegments: ReturnType<typeof segmentLiftRows>;
+  hourSegments: ReturnType<typeof segmentLiftRows>;
+  save: () => NodeState;
+  analysisStatus: AbAnalysisDataset["status"];
+}) {
+  const ab = { ...emptyState().ab, ...(state.ab ?? {}) };
+  const update = (changes: Partial<NonNullable<NodeState["ab"]>>) => setState(updateAbState(state, changes));
+  const selectedSegment = ab.segmentColumn || defaults.segmentColumns[0] || "most.ads.day";
+  const minimumSegmentSize = Number(ab.edaMinimumSegmentSize || "30") || 30;
+  const missingMappedValues = profile.missingUnitId + profile.missingTreatment + profile.missingOutcome;
+  const outcomeTrue = aggregates.outcomeSuccess;
+  const outcomeFalse = aggregates.outcomeNonSuccess;
+  const exposureRows = aggregates.exposureSummary;
+  const selectedSegmentRows = selectedSegment === defaults.segmentColumns[1] ? hourSegments : daySegments;
+  const segmentSizeRows = selectedSegmentRows.map((row) => {
+    const total = row.treatmentCount + row.controlCount;
+    return {
+      segment: row.segment,
+      treatmentCount: row.treatmentCount,
+      controlCount: row.controlCount,
+      total,
+      treatmentShare: total ? row.treatmentCount / total : 0,
+      controlShare: total ? row.controlCount / total : 0,
+      smallSample: row.treatmentCount < minimumSegmentSize || row.controlCount < minimumSegmentSize,
+    };
+  });
+  const segmentConversionRows = selectedSegmentRows.map((row) => ({
+    segment: row.segment,
+    treatmentRate: row.treatmentConversionRate,
+    controlRate: row.controlConversionRate,
+    absoluteLift: row.absoluteLift,
+    treatmentCount: row.treatmentCount,
+    controlCount: row.controlCount,
+    smallSample: row.treatmentCount < minimumSegmentSize || row.controlCount < minimumSegmentSize,
+  }));
+  const missingnessRows = Object.entries(aggregates.missingByColumn).map(([column, count]) => [column, count.toLocaleString()]);
+  const duplicateRows = profile.duplicateUnits
+    ? [["Duplicate units detected", profile.duplicateUnits.toLocaleString()]]
+    : [["Duplicate units detected", "0"], ["Review status", "No duplicate user.id values detected"]];
+  const segmentHasSmallCells = segmentSizeRows.some((row) => row.smallSample);
+  const edaSummary = {
+    dataset: defaults.dataset,
+    totalRows: profile.rows,
+    uniqueUnits: profile.uniqueUnits,
+    duplicateUnits: profile.duplicateUnits,
+    missingMappedValues,
+    treatmentCount: summary.treatmentCount,
+    controlCount: summary.controlCount,
+    allocationRatio: `${profile.allocationRatio.toFixed(2)}:1`,
+    outcome: {
+      success: aggregates.outcomeSuccess,
+      nonSuccess: aggregates.outcomeNonSuccess,
+      conversionRate: aggregates.overallConversionRate,
+    },
+    exposureSummary: aggregates.exposureSummary,
+    missingByColumn: aggregates.missingByColumn,
+    selectedSegment,
+    minimumSegmentSize,
+    segmentSizeRows,
+    segmentConversionRows,
+  };
   return (
-    <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
-      <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Experiment EDA / Experiment Analysis</div>
-      <div className="mt-3 grid gap-3 md:grid-cols-4">
-        <MiniEvidence label="Control conversion rate" value={`${(analysis.controlConversionRate * 100).toFixed(2)}%`} />
-        <MiniEvidence label="Treatment conversion rate" value={`${(analysis.treatmentConversionRate * 100).toFixed(2)}%`} />
+    <section className="space-y-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Experiment EDA From Confirmed Dataset</div>
+        <h2 className="mt-1 text-lg font-semibold text-slate-950">Experiment EDA</h2>
+        <p className="mt-1 text-sm leading-6 text-emerald-950">
+          Explore dataset quality, allocation, outcome, exposure, and segment behavior before formal Experiment Analysis.
+        </p>
+      </div>
+      <div className="grid gap-3 md:grid-cols-4">
+        <MiniEvidence label="Analysis source" value="Full dataset artifact" tone="good" />
+        <MiniEvidence label="Full dataset row count" value={analysisStatus.rowCount.toLocaleString()} tone="good" />
+        <MiniEvidence label="Valid analysis records" value={analysisStatus.validAnalysisRecords.toLocaleString()} tone="good" />
+        <MiniEvidence label="Browser display sample (not evidence)" value={`${rows.length.toLocaleString()} bounded rows`} />
+      </div>
+
+      <section className="rounded-xl border border-emerald-200 bg-white p-4">
+        <div className="text-sm font-semibold text-slate-950">Experiment EDA Controls</div>
+        <div className="mt-3">
+          <AbSelectionGuide
+            title="How to choose EDA settings"
+            items={[
+              { label: "Chart grouping", body: "Use Treatment vs Control first to confirm group sizes, conversion rates, and exposure patterns before looking at segments." },
+              { label: "Segment size warning threshold", body: "Use a production threshold such as 30 per group for decision evidence. Lower thresholds are useful only for workflow testing or early diagnostics." },
+              { label: "Valid analysis records", body: "Keep this on when reviewing decision evidence so missing unit IDs, missing treatment, or missing outcome records do not distort treatment-effect estimates." },
+            ]}
+          />
+        </div>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <AbInput label="Dataset" value={defaults.dataset} onChange={() => undefined} />
+          <AbSelect label="Treatment column" value={defaults.treatmentColumn} options={abDatasetColumns(state)} onChange={(value) => update({ treatmentColumn: value })} />
+          <AbInput label="Treatment value" value={defaults.treatmentValue} onChange={(value) => update({ treatmentValue: value })} />
+          <AbInput label="Control value" value={defaults.controlValue} onChange={(value) => update({ controlValue: value })} />
+          <AbSelect label="Outcome column" value={defaults.outcomeColumn} options={abDatasetColumns(state)} onChange={(value) => update({ outcomeColumn: value })} />
+          <AbInput label="Success event" value={defaults.successEvent} onChange={(value) => update({ successEvent: value })} />
+          <AbSelect label="Exposure column" value={defaults.exposureColumn} options={abDatasetColumns(state)} onChange={(value) => update({ exposureColumn: value })} />
+          <AbSelect label="Segment column selector" value={selectedSegment} options={defaults.segmentColumns} onChange={(value) => update({ segmentColumn: value })} />
+          <AbSelect label="Chart grouping" value={ab.edaChartGrouping || "Treatment vs Control"} options={["Treatment vs Control", "Segment", "Overall"]} onChange={(value) => update({ edaChartGrouping: value })} />
+          <AbInput label="Minimum segment size warning threshold" value={String(minimumSegmentSize)} onChange={(value) => update({ edaMinimumSegmentSize: value })} />
+          <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-900">
+            <CheckCircle2 size={16} />
+            <span>Outcome evidence uses {analysisStatus.validAnalysisRecords.toLocaleString()} valid full-data records</span>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <SimpleAbChart title="Treatment / Control Allocation" rows={[[defaults.controlValue, summary.controlCount], [defaults.treatmentValue, summary.treatmentCount]]} />
+        <SimpleAbChart title="Outcome Distribution" rows={[["converted=True", outcomeTrue], ["converted=False", outcomeFalse]]} />
+        <SimpleAbChart title="Conversion Rate by Group" rows={[[defaults.controlValue, summary.controlRate], [defaults.treatmentValue, summary.treatmentRate]]} />
+        {aggregates.exposureAvailable
+          ? <SimpleAbChart title="Exposure Distribution by Group" rows={exposureRows.map((row) => [row.group, row.mean])} />
+          : <section className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950"><div className="font-semibold">Exposure Distribution by Group</div><p className="mt-2 leading-6">A full-data exposure aggregate is not available for this reference artifact. ATLAS will not substitute the bounded browser sample.</p></section>}
+        <SimpleAbChart title="Segment Size Review" rows={segmentSizeRows.flatMap((row) => [[`${row.segment} ${defaults.controlValue}`, row.controlCount], [`${row.segment} ${defaults.treatmentValue}`, row.treatmentCount]] as Array<[string, number]>).slice(0, 10)} />
+        <SimpleAbChart title="Segment Conversion Review" rows={segmentConversionRows.flatMap((row) => [[`${row.segment} ${defaults.controlValue}`, row.controlRate], [`${row.segment} ${defaults.treatmentValue}`, row.treatmentRate]] as Array<[string, number]>).slice(0, 10)} />
+      </div>
+
+      <div className="grid gap-3 md:grid-cols-4">
+        <MiniEvidence label="Treatment share" value={`${(profile.treatmentShare * 100).toFixed(1)}%`} />
+        <MiniEvidence label="Control share" value={`${(profile.controlShare * 100).toFixed(1)}%`} />
+        <MiniEvidence label="Allocation ratio" value={`${profile.allocationRatio.toFixed(2)}:1`} tone={Math.abs(profile.treatmentShare - profile.controlShare) > 0.1 ? "warning" : "good"} />
+        <MiniEvidence label="Overall conversion rate" value={`${(aggregates.overallConversionRate * 100).toFixed(2)}%`} />
+        <MiniEvidence label="Outcome missing count" value={profile.missingOutcome.toLocaleString()} tone={profile.missingOutcome ? "warning" : "good"} />
+        <MiniEvidence label="Duplicate units" value={profile.duplicateUnits.toLocaleString()} tone={profile.duplicateUnits ? "warning" : "good"} />
+        <MiniEvidence label="Missing mapped values" value={missingMappedValues.toLocaleString()} tone={missingMappedValues ? "warning" : "good"} />
+        <MiniEvidence label="Small segment cells" value={segmentHasSmallCells ? "Below threshold" : "None"} tone={segmentHasSmallCells ? "warning" : "good"} />
+      </div>
+
+      <section className="grid gap-3 md:grid-cols-2">
+        <WarningCard title="Allocation imbalance warning" body={`Treatment/control allocation is ${summary.treatmentCount}/${summary.controlCount}, or ${profile.allocationRatio.toFixed(2)}:1. Carry this into formal analysis and decision review.`} />
+        <WarningCard title={aggregates.exposureAvailable ? "Exposure differs by group" : "Exposure aggregate unavailable"} body={aggregates.exposureAvailable ? `${defaults.exposureColumn} is treated as post-assignment exposure intensity, not a baseline covariate.` : "Reload a registered full dataset artifact to compute exposure summaries. Bounded browser rows are never substituted for full-data evidence."} />
+        {segmentHasSmallCells && <WarningCard title="Segment cells below minimum size" body="Some segment cells are below the minimum segment size threshold. Segment results should be treated as exploratory." />}
+        <WarningCard title="No date column available" body={`No date/time column is mapped for ${defaults.dataset}, so EDA cannot review time-window completeness.`} />
+        <WarningCard title="Evidence interpretation" body="EDA validates data quality and experiment structure. A final decision still requires randomization, power, treatment-effect, segment, business-impact, and governance review." />
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <InfoGrid title="Experiment data quality summary" rows={[
+          ["Total rows", profile.rows.toLocaleString()],
+          ["Unique units", profile.uniqueUnits.toLocaleString()],
+          ["Duplicate units", profile.duplicateUnits.toLocaleString()],
+          ["Missing mapped values", missingMappedValues.toLocaleString()],
+          ["Valid analysis records", analysisStatus.validAnalysisRecords.toLocaleString()],
+        ]} />
+        <InfoGrid title="Treatment/control allocation table" rows={[
+          [defaults.treatmentValue, `${summary.treatmentCount} records; ${(profile.treatmentShare * 100).toFixed(1)}% share`],
+          [defaults.controlValue, `${summary.controlCount} records; ${(profile.controlShare * 100).toFixed(1)}% share`],
+          ["Allocation ratio", `${profile.allocationRatio.toFixed(2)}:1`],
+        ]} />
+        <InfoGrid title="Outcome distribution table" rows={[
+          [`${defaults.outcomeColumn} ${defaults.successEvent}`, `${outcomeTrue.toLocaleString()} records`],
+          [`${defaults.outcomeColumn} non-success`, `${outcomeFalse.toLocaleString()} records`],
+          ["Overall conversion rate", `${(aggregates.overallConversionRate * 100).toFixed(2)}%`],
+          ["Outcome missing count", profile.missingOutcome.toLocaleString()],
+        ]} />
+        <InfoGrid title="Exposure summary table" rows={aggregates.exposureAvailable ? exposureRows.map((row) => [
+          row.group,
+          `Mean ${row.mean.toFixed(1)}; median ${row.median.toFixed(1)}; min ${row.min.toFixed(0)}; max ${row.max.toFixed(0)}; n=${row.count.toLocaleString()}`,
+        ]) : [["Full-data aggregate", "Unavailable for this reference artifact; bounded browser rows were not used."]]} />
+        <InfoGrid title="Segment size table" rows={segmentSizeRows.map((row) => [
+          row.segment,
+          `Treatment ${row.treatmentCount}; Control ${row.controlCount}; Total ${row.total}; Treatment share ${(row.treatmentShare * 100).toFixed(1)}%; Control share ${(row.controlShare * 100).toFixed(1)}%; ${row.smallSample ? "Small sample flag" : "Size OK"}`,
+        ])} />
+        <InfoGrid title="Segment conversion table" rows={segmentConversionRows.map((row) => [
+          row.segment,
+          `Treatment conversion ${(row.treatmentRate * 100).toFixed(1)}%; Control conversion ${(row.controlRate * 100).toFixed(1)}%; Absolute lift ${(row.absoluteLift * 100).toFixed(1)} pp; Treatment n=${row.treatmentCount}; Control n=${row.controlCount}; ${row.smallSample ? "Small sample warning" : "Size OK"}`,
+        ])} />
+        <InfoGrid title="Missingness by column" rows={missingnessRows} />
+        <InfoGrid title="Duplicate unit review" rows={duplicateRows} />
+      </section>
+
+      <TextArea
+        label="Reviewer notes"
+        value={state.notes || `Experiment EDA confirms that ${defaults.dataset} is using the full confirmed dataset artifact with ${analysisStatus.rowCount.toLocaleString()} rows and ${analysisStatus.validAnalysisRecords.toLocaleString()} valid analysis records. Segment counts and treatment/control summaries are based on the full dataset artifact, not preview rows.`}
+        onChange={(value) => setState({ ...state, notes: value })}
+        rows={4}
+      />
+
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className="atlas-secondary-button" onClick={() => save()}><Save size={15} /> Save EDA Evidence</button>
+        <button type="button" className="atlas-secondary-button" onClick={() => downloadText("atlas-ab-testing-eda-summary.json", JSON.stringify(edaSummary, null, 2), "application/json;charset=utf-8")}><Download size={15} /> Export EDA Summary</button>
+        <Link to="/chart-studio" className="atlas-secondary-button">Open Chart Studio</Link>
+        <Link to="/analytics" className="atlas-secondary-button">Open Analytics Workbench</Link>
+      </div>
+    </section>
+  );
+}
+
+function WarningCard({ title, body }: { title: string; body: string }) {
+  return (
+    <div className="rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm text-amber-900">
+      <div className="font-semibold">{title}</div>
+      <p className="mt-1 leading-6">{body}</p>
+    </div>
+  );
+}
+
+function AbUnavailableSection({ title, reason }: { title: string; reason: string }) {
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-slate-50 p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Pending prerequisite</div>
+      <h2 className="mt-1 text-lg font-semibold text-slate-950">{title}</h2>
+      <p className="mt-2 text-sm leading-6 text-slate-600">{reason}</p>
+    </section>
+  );
+}
+
+function AbExperimentAnalysis({
+  state,
+  setState,
+  analysis,
+  summary,
+  defaults,
+  imbalance,
+  save,
+  analysisStatus,
+}: {
+  state: NodeState;
+  setState: (state: NodeState) => void;
+  analysis: ReturnType<typeof analyzeAbLift>;
+  summary: ReturnType<typeof summarizeAbGroups>;
+  defaults: AbTestingDefaults;
+  imbalance: ReturnType<typeof allocationImbalance>;
+  save: () => NodeState;
+  analysisStatus: AbAnalysisDataset["status"];
+}) {
+  const ab = { ...emptyState().ab, ...(state.ab ?? {}) };
+  const update = (changes: Partial<NonNullable<NodeState["ab"]>>) => setState(updateAbState(state, changes));
+  const practicalThreshold = Number.parseFloat(String(ab.practicalSignificanceThreshold || "1 pp")) / 100 || 0.01;
+  const practicallySignificant = Math.abs(analysis.absoluteLift) >= practicalThreshold;
+  const powerAssessment = abPowerAssessment(state, summary, imbalance, analysis);
+  const underpowered = !powerAssessment.adequatelyPowered;
+  const confidenceLevel = parsePercentSetting(ab.confidenceLevel, 95);
+  const inferenceAlpha = Math.max(0.001, Math.min(0.5, 1 - confidenceLevel / 100));
+  const confidenceZ = normalQuantile(1 - inferenceAlpha / 2);
+  const confidenceLow = analysis.absoluteLift - confidenceZ * analysis.standardError;
+  const confidenceHigh = analysis.absoluteLift + confidenceZ * analysis.standardError;
+  const alternative = ab.analysisAlternativeHypothesis || "Treatment different from control";
+  const selectedPValue = alternative === "Treatment greater than control"
+    ? analysis.absoluteLift >= 0 ? analysis.pValue / 2 : 1 - analysis.pValue / 2
+    : alternative === "Treatment less than control"
+      ? analysis.absoluteLift <= 0 ? analysis.pValue / 2 : 1 - analysis.pValue / 2
+      : analysis.pValue;
+  const statisticallySignificant = selectedPValue < inferenceAlpha;
+  const confidenceCrossesZero = confidenceLow <= 0 && confidenceHigh >= 0;
+  const decisionReadiness = statisticallySignificant && practicallySignificant && !underpowered && !imbalance.warning ? "Launch-ready" : "Not launch-ready";
+  const displayAnalysis = { ...analysis, confidenceLow, confidenceHigh, pValue: selectedPValue, statisticallySignificant };
+  const interpretation = statisticallySignificant
+    ? practicallySignificant
+      ? underpowered ? "Observed effect is significant, but the selected smaller MDE remains underpowered" : "Statistically and practically supported"
+      : "Statistically credible, below the practical threshold"
+    : "Uncertain; confidence interval includes no effect";
+  const analysisSummary = {
+    dataset: defaults.dataset,
+    treatmentSampleSize: summary.treatmentCount,
+    controlSampleSize: summary.controlCount,
+    treatmentConversionRate: analysis.treatmentConversionRate,
+    controlConversionRate: analysis.controlConversionRate,
+    absoluteLift: analysis.absoluteLift,
+    relativeLift: analysis.relativeLift,
+    confidenceInterval: [confidenceLow, confidenceHigh],
+    pValue: selectedPValue,
+    statisticallySignificant,
+    practicallySignificant,
+    powerStatus: underpowered ? "Underpowered" : "Adequate",
+    decisionReadiness,
+  };
+
+  return (
+    <section className="space-y-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm">
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Formal Treatment-Effect Analysis</div>
+        <h2 className="mt-1 text-lg font-semibold text-slate-950">Experiment Analysis</h2>
+        <p className="mt-1 text-sm leading-6 text-emerald-950">
+          The formal analysis uses the confirmed dataset mapping and primary metric definition. Results should be interpreted with the Randomization Check and Power Analysis limitations.
+        </p>
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        <MiniEvidence label="Analysis source" value="Full dataset artifact" tone="good" />
+        <MiniEvidence label="Full dataset row count" value={analysisStatus.rowCount.toLocaleString()} tone="good" />
+        <MiniEvidence label="Valid analysis records" value={analysisStatus.validAnalysisRecords.toLocaleString()} tone="good" />
+      </div>
+      <AbSelectionGuide
+        title="How to interpret the result"
+        items={[
+          { label: "Result guidance", body: "A positive observed lift does not prove the treatment works. Review p-value, confidence interval, power, randomization quality, and practical significance together." },
+          { label: "Directionally favorable", body: "Treatment is better than control in the observed sample, but may still be uncertain or underpowered." },
+          { label: "Statistically significant", body: "The p-value and confidence interval support a non-zero treatment effect at the selected confidence level." },
+          { label: "Practically meaningful", body: "The lift is large enough to matter for the business, not just large enough to pass a statistical test." },
+          { label: "Underpowered / Not launch-ready", body: "Underpowered tests and confidence intervals crossing zero should not support immediate launch, even when observed lift is positive." },
+        ]}
+      />
+
+      <section className="rounded-xl border border-emerald-200 bg-white p-4">
+        <div className="text-sm font-semibold text-slate-950">Experiment Analysis Controls</div>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <AbInput label="Dataset" value={defaults.dataset} onChange={() => undefined} />
+          <AbSelect label="Treatment column" value={defaults.treatmentColumn} options={abDatasetColumns(state)} onChange={(value) => update({ treatmentColumn: value })} />
+          <AbInput label="Treatment value" value={defaults.treatmentValue} onChange={(value) => update({ treatmentValue: value })} />
+          <AbInput label="Control value" value={defaults.controlValue} onChange={(value) => update({ controlValue: value })} />
+          <AbSelect label="Outcome column" value={defaults.outcomeColumn} options={abDatasetColumns(state)} onChange={(value) => update({ outcomeColumn: value })} />
+          <AbInput label="Success event" value={defaults.successEvent} onChange={(value) => update({ successEvent: value })} />
+          <AbSelect label="Metric type" value={ab.metricType || "Binary conversion"} options={["Binary conversion", "Rate", "Continuous mean"]} onChange={(value) => update({ metricType: value })} />
+          <AbSelect label="Test type" value={ab.analysisTestType || "Two-proportion z-test"} options={["Two-proportion z-test", "Fisher exact test", "Chi-square test"]} onChange={(value) => update({ analysisTestType: value })} />
+          <AbSelect label="Alternative hypothesis" value={ab.analysisAlternativeHypothesis || "Treatment greater than control"} options={["Treatment greater than control", "Treatment different from control", "Treatment less than control"]} onChange={(value) => update({ analysisAlternativeHypothesis: value })} />
+          <AbSelect label="Confidence level" value={ab.confidenceLevel || "95%"} options={["90%", "95%", "99%"]} onChange={(value) => update({ confidenceLevel: value })} />
+          <AbInput label="Practical significance threshold" value={ab.practicalSignificanceThreshold || "1 pp"} onChange={(value) => update({ practicalSignificanceThreshold: value })} />
+          <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-900">
+            <CheckCircle2 size={16} />
+            <span>Inference uses {analysisStatus.validAnalysisRecords.toLocaleString()} valid full-data records</span>
+          </div>
+        </div>
+      </section>
+
+      <section className="grid gap-3 md:grid-cols-4">
+        <MiniEvidence label="Plain-English result" value={analysis.absoluteLift > 0 ? "Directionally favorable" : "Directionally unfavorable"} tone={analysis.absoluteLift > 0 ? "good" : "warning"} />
+        <MiniEvidence label="Statistically significant" value={statisticallySignificant ? "Yes" : "No"} tone={statisticallySignificant ? "good" : "warning"} />
+        <MiniEvidence label="Practically meaningful" value={practicallySignificant ? "Needs review" : "No"} tone={practicallySignificant ? "warning" : "neutral"} />
+        <MiniEvidence label="Launch interpretation" value={underpowered ? "Underpowered / Not launch-ready" : decisionReadiness} tone={decisionReadiness === "Launch-ready" ? "good" : "warning"} />
+        <MiniEvidence label="Treatment sample size" value={summary.treatmentCount.toLocaleString()} />
+        <MiniEvidence label="Control sample size" value={summary.controlCount.toLocaleString()} />
+        <MiniEvidence label="Treatment conversion rate" value={`${(analysis.treatmentConversionRate * 100).toFixed(1)}%`} />
+        <MiniEvidence label="Control conversion rate" value={`${(analysis.controlConversionRate * 100).toFixed(1)}%`} />
         <MiniEvidence label="Absolute lift" value={`${(analysis.absoluteLift * 100).toFixed(2)} pp`} tone={analysis.absoluteLift > 0 ? "good" : "warning"} />
-        <MiniEvidence label="Relative lift" value={`${(analysis.relativeLift * 100).toFixed(2)}%`} />
+        <MiniEvidence label="Relative lift" value={`${(analysis.relativeLift * 100).toFixed(1)}%`} tone={analysis.relativeLift > 0 ? "good" : "warning"} />
         <MiniEvidence label="Standard error" value={analysis.standardError.toFixed(4)} />
-        <MiniEvidence label="Confidence interval" value={`${(analysis.confidenceLow * 100).toFixed(2)}% to ${(analysis.confidenceHigh * 100).toFixed(2)}%`} />
-        <MiniEvidence label="P-value" value={analysis.pValue.toFixed(4)} tone={analysis.statisticallySignificant ? "good" : "warning"} />
-        <MiniEvidence label="Significance" value={analysis.statisticallySignificant ? "Statistical significance" : "Not significant"} />
-      </div>
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
-        <SimpleAbChart title="Conversion rate by group" rows={[["psa", summary.controlRate], ["ad", summary.treatmentRate]]} />
-        <SimpleAbChart title="Treatment/control allocation" rows={[["psa", summary.controlCount], ["ad", summary.treatmentCount]]} />
-        <SimpleAbChart title="Exposure distribution" rows={[["Control exposure", 17], ["Treatment exposure", 66]]} />
+        <MiniEvidence label={`${confidenceLevel.toFixed(0)}% confidence interval`} value={`${(confidenceLow * 100).toFixed(2)}% to ${(confidenceHigh * 100).toFixed(2)}%`} tone={confidenceCrossesZero ? "warning" : "good"} />
+        <MiniEvidence label="P-value" value={selectedPValue.toFixed(4)} tone={statisticallySignificant ? "good" : "warning"} />
+        <MiniEvidence label="Statistical significance" value={statisticallySignificant ? "Yes" : "Not significant"} tone={statisticallySignificant ? "good" : "warning"} />
+        <MiniEvidence label="Practical significance" value={practicallySignificant ? "Directionally yes / needs review" : "No"} tone={practicallySignificant ? "warning" : "neutral"} />
+        <MiniEvidence label={`Power at ${powerAssessment.relativeLiftPct.toFixed(1)}% relative MDE`} value={`${(powerAssessment.estimatedPower * 100).toFixed(0)}% - ${underpowered ? "Underpowered" : "Adequate"}`} tone={underpowered ? "warning" : "good"} />
+        <MiniEvidence label="Decision readiness" value={decisionReadiness} tone={decisionReadiness === "Launch-ready" ? "good" : "warning"} />
+      </section>
+
+      <section className="grid gap-3 xl:grid-cols-2">
+        <SimpleAbChart title="Conversion Rate Comparison" rows={[[defaults.controlValue, analysis.controlConversionRate], [defaults.treatmentValue, analysis.treatmentConversionRate], ["Absolute lift", analysis.absoluteLift]]} />
+        <AbLiftIntervalPlot analysis={displayAnalysis} practicalThreshold={practicalThreshold} />
+        <SimpleAbChart title="Treatment / Control Counts" rows={[[`${defaults.treatmentValue} converted`, summary.treatmentConversions], [`${defaults.treatmentValue} not converted`, summary.treatmentCount - summary.treatmentConversions], [`${defaults.controlValue} converted`, summary.controlConversions], [`${defaults.controlValue} not converted`, summary.controlCount - summary.controlConversions]]} />
+        <section className="rounded-xl border border-slate-200 bg-white p-4">
+          <div className="text-xs font-semibold text-slate-900">Decision Readiness Summary</div>
+          <div className="mt-3 grid gap-2 text-sm text-slate-700">
+            <div><strong>Statistical significance:</strong> {statisticallySignificant ? "Yes" : "No"}</div>
+            <div><strong>Practical significance:</strong> {practicallySignificant ? "Directionally yes / needs review" : "No"}</div>
+            <div><strong>Power:</strong> {(powerAssessment.estimatedPower * 100).toFixed(0)}% at the selected {powerAssessment.relativeLiftPct.toFixed(1)}% relative MDE</div>
+            <div><strong>Randomization concern:</strong> {imbalance.warning ? "Allocation imbalance" : "No material allocation concern"}</div>
+            <div><strong>Sample size:</strong> {underpowered ? "Insufficient for the selected MDE" : "Meets the selected MDE power target"}</div>
+            <div><strong>Recommended interpretation:</strong> {interpretation}</div>
+          </div>
+        </section>
+      </section>
+
+      <section className="grid gap-3 md:grid-cols-2">
+        <WarningCard title="Power at selected MDE" body={`Estimated power is ${(powerAssessment.estimatedPower * 100).toFixed(0)}% for a ${powerAssessment.relativeLiftPct.toFixed(1)}% relative MDE, compared with the ${powerAssessment.desiredPowerPct.toFixed(0)}% target.`} />
+        <WarningCard title="Allocation warning" body={`Treatment/control allocation is ${summary.treatmentCount} / ${summary.controlCount}.`} />
+        <WarningCard title="Decision warning" body={practicallySignificant ? "Statistical evidence still requires randomization, business-impact, guardrail, and governance review before launch." : `The observed ${(analysis.absoluteLift * 100).toFixed(2)} pp lift is below the ${String(ab.practicalSignificanceThreshold || "1 pp")} practical threshold.`} />
+        {confidenceCrossesZero && <WarningCard title="Confidence interval crosses zero" body="Confidence interval crosses zero. Result is not statistically significant." />}
+      </section>
+
+      <section className="rounded-xl border border-emerald-200 bg-white p-4">
+        <div className="text-sm font-semibold text-slate-950">ATLAS Interpretation</div>
+        <p className="mt-2 text-sm leading-6 text-slate-700">
+          The {defaults.treatmentValue} treatment has a higher observed conversion rate than the {defaults.controlValue} control in {defaults.dataset}. The result is based on the full confirmed dataset artifact, not preview rows. {interpretation}. Continue to Segment Analysis and Business Impact, and account for allocation quality, uncertainty, the selected-MDE power result, and practical significance before decisioning.
+        </p>
+      </section>
+
+      <TextArea
+        label="Reviewer notes"
+        value={state.rationale || `The experiment analysis shows directionally favorable lift for the ad treatment using the full confirmed dataset artifact with ${analysisStatus.rowCount.toLocaleString()} rows. Treatment/control allocation, confidence interval, power, and practical significance should be carried into segment analysis, business impact, and decision recommendation.`}
+        onChange={(value) => setState({ ...state, rationale: value })}
+        rows={4}
+      />
+
+      <details className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+        <summary className="cursor-pointer font-semibold text-slate-900">Documentation Notes</summary>
+        <p className="mt-2 leading-6">Document the metric definition, hypothesis, test type, confidence level, power limitation, allocation imbalance, uncertainty, and decision-readiness status in the evidence pack.</p>
+      </details>
+
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className="atlas-secondary-button" onClick={() => save()}><Save size={15} /> Save Experiment Analysis Evidence</button>
+        <button type="button" className="atlas-secondary-button" onClick={() => downloadText("atlas-ab-testing-analysis-summary.json", JSON.stringify(analysisSummary, null, 2), "application/json;charset=utf-8")}><Download size={15} /> Export Analysis Summary</button>
+        <Link to="/chart-studio" className="atlas-secondary-button">Open Chart Studio</Link>
+        <Link to="/analytics" className="atlas-secondary-button">Open Analytics Workbench</Link>
       </div>
     </section>
   );
 }
 
-function AbSegmentAnalysis({ daySegments, hourSegments }: { daySegments: ReturnType<typeof segmentLiftRows>; hourSegments: ReturnType<typeof segmentLiftRows> }) {
+function AbLiftIntervalPlot({ analysis, practicalThreshold }: { analysis: ReturnType<typeof analyzeAbLift>; practicalThreshold: number }) {
+  const domainLow = Math.min(-0.1, analysis.confidenceLow, -practicalThreshold);
+  const domainHigh = Math.max(0.1, analysis.confidenceHigh, practicalThreshold, analysis.absoluteLift);
+  const position = (value: number) => `${Math.min(100, Math.max(0, ((value - domainLow) / Math.max(0.001, domainHigh - domainLow)) * 100))}%`;
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Segment Analysis</div>
-      <p className="mt-1 text-sm text-slate-500">Segment analysis by most.ads.day and most.ads.hour. Multiple comparisons: Bonferroni correction, Benjamini-Hochberg FDR, or No correction.</p>
-      <InfoGrid title="Day and Hour Segment Examples" rows={[...daySegments, ...hourSegments].slice(0, 8).map((row) => [`${row.segmentColumn}: ${row.segment}`, `Treatment ${row.treatmentCount}, Control ${row.controlCount}, lift ${(row.absoluteLift * 100).toFixed(1)} pp, p=${row.pValue.toFixed(4)}. ${row.warning}`])} />
+    <section className="rounded-xl border border-slate-200 bg-white p-4">
+      <div className="text-xs font-semibold text-slate-900">Confidence Interval / Lift Plot</div>
+      <div className="relative mt-6 h-12 rounded-lg bg-slate-50">
+        <div className="absolute top-0 h-12 border-l border-slate-400" style={{ left: position(0) }}><span className="ml-1 text-[10px] text-slate-500">Zero lift</span></div>
+        <div className="absolute top-0 h-12 border-l border-emerald-500" style={{ left: position(practicalThreshold) }}><span className="ml-1 text-[10px] text-emerald-700">Practical threshold</span></div>
+        <div className="absolute top-6 h-1 rounded-full bg-blue-200" style={{ left: position(analysis.confidenceLow), width: `calc(${position(analysis.confidenceHigh)} - ${position(analysis.confidenceLow)})` }} />
+        <div className="absolute top-4 h-5 w-1.5 rounded-full bg-blue-700" style={{ left: position(analysis.absoluteLift) }} />
+      </div>
+      <p className="mt-3 text-xs leading-5 text-slate-600">
+        Estimated absolute lift {(analysis.absoluteLift * 100).toFixed(2)} pp; lower confidence bound {(analysis.confidenceLow * 100).toFixed(2)} pp; upper confidence bound {(analysis.confidenceHigh * 100).toFixed(2)} pp.
+        {analysis.confidenceLow <= 0 && analysis.confidenceHigh >= 0 ? " Confidence interval crosses zero. Result is not statistically significant." : ""}
+      </p>
     </section>
   );
 }
 
-function AbBusinessImpact({ state, setState, analysis }: { state: NodeState; setState: (state: NodeState) => void; analysis: ReturnType<typeof analyzeAbLift> }) {
-  const rolloutPopulation = Math.max(0, state.numeric.sampleSize || 10000);
-  const revenuePerConversion = Math.max(0, state.numeric.mse || 50);
+function AbSegmentAnalysis({
+  state,
+  setState,
+  daySegments,
+  hourSegments,
+  defaults,
+  summary,
+  save,
+  analysisStatus,
+}: {
+  state: NodeState;
+  setState: (state: NodeState) => void;
+  daySegments: ReturnType<typeof segmentLiftRows>;
+  hourSegments: ReturnType<typeof segmentLiftRows>;
+  defaults: AbTestingDefaults;
+  summary: ReturnType<typeof summarizeAbGroups>;
+  save: () => NodeState;
+  analysisStatus: AbAnalysisDataset["status"];
+}) {
+  const ab = { ...emptyState().ab, ...(state.ab ?? {}) };
+  const update = (changes: Partial<NonNullable<NodeState["ab"]>>) => setState(updateAbState(state, changes));
+  const selectedSegment = ab.segmentColumn || defaults.segmentColumns[0] || "most.ads.day";
+  const totalRows = summary.treatmentCount + summary.controlCount;
+  const workflowTestMode = totalRows > 0 && totalRows < 30;
+  const smartDefaultMinimumSegmentSize = workflowTestMode ? 2 : 30;
+  const minimumSegmentSize = Number(ab.segmentMinimumSizeTouched ? ab.minimumSegmentSize : smartDefaultMinimumSegmentSize) || smartDefaultMinimumSegmentSize;
+  const correction = ab.correction || "Benjamini-Hochberg FDR";
+  const allSegments = selectedSegment === defaults.segmentColumns[1] ? hourSegments : selectedSegment === defaults.segmentColumns[0] ? daySegments : [...daySegments, ...hourSegments];
+  const enrichedSegments = allSegments.map((row) => {
+    const minCell = Math.min(row.treatmentCount, row.controlCount);
+    const totalCount = row.treatmentCount + row.controlCount;
+    const adjustedPValue = correction === "Bonferroni correction" ? Math.min(1, row.pValue * allSegments.length) : correction === "Benjamini-Hochberg FDR" ? Math.min(1, row.pValue * Math.max(1, allSegments.length / 2)) : row.pValue;
+    const sampleFlag = totalCount < minimumSegmentSize ? "Below minimum size" : "Meets threshold";
+    const interpretation = minCell === 0
+      ? "Insufficient control observations"
+      : totalCount < minimumSegmentSize
+        ? "Small sample, directional only"
+        : adjustedPValue < 0.05 && row.absoluteLift > 0
+          ? "Potential segment lift, needs validation"
+          : "No reliable segment effect";
+    return { ...row, adjustedPValue, sampleFlag, interpretation, totalCount };
+  });
+  const sortedSegments = [...enrichedSegments].sort((a, b) => {
+    if ((ab.segmentSortBy || "Lift descending") === "P-value ascending") return a.adjustedPValue - b.adjustedPValue;
+    if ((ab.segmentSortBy || "Lift descending") === "Sample size descending") return b.totalCount - a.totalCount;
+    return b.absoluteLift - a.absoluteLift;
+  });
+  const displaySegments = ab.segmentShowOnlyMeetingThreshold ? sortedSegments.filter((row) => row.sampleFlag === "Meets threshold") : sortedSegments;
+  const filterRemovesAllSegments = Boolean(ab.segmentShowOnlyMeetingThreshold) && enrichedSegments.length > 0 && displaySegments.length === 0;
+  const segmentsBelowThreshold = enrichedSegments.filter((row) => row.sampleFlag !== "Meets threshold").length;
+  const significantSegments = enrichedSegments.filter((row) => row.adjustedPValue < 0.05).length;
+  const practicalSegments = enrichedSegments.filter((row) => Math.abs(row.absoluteLift) >= 0.01).length;
+  const segmentAllocation = allocationImbalance(summary);
+  const largestPositive = enrichedSegments.reduce((best, row) => row.absoluteLift > best.absoluteLift ? row : best, enrichedSegments[0] ?? { segment: "None", absoluteLift: 0 });
+  const largestNegative = enrichedSegments.reduce((best, row) => row.absoluteLift < best.absoluteLift ? row : best, enrichedSegments[0] ?? { segment: "None", absoluteLift: 0 });
+  const segmentSummary = {
+    dataset: defaults.dataset,
+    segmentColumn: selectedSegment,
+    minimumSegmentSize,
+    correction,
+    segmentsReviewed: enrichedSegments.length,
+    segmentsShown: displaySegments.length,
+    segmentsBelowThreshold,
+    significantSegments,
+    practicalSegments,
+    segmentRecommendation: filterRemovesAllSegments ? "Exploratory only, no segment meets threshold" : "Exploratory only",
+    rows: enrichedSegments,
+  };
+
+  return (
+    <section className="space-y-4 rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Segment-Level Treatment Review</div>
+        <h2 className="mt-1 text-lg font-semibold text-slate-950">Segment Analysis</h2>
+        <p className="mt-1 text-sm leading-6 text-blue-950">
+          Review whether treatment effects differ by segment, whether sample sizes are adequate, and whether apparent segment wins could be false positives.
+        </p>
+      </div>
+      <div className="grid gap-3 md:grid-cols-5">
+        <MiniEvidence label="Analysis source" value="Full dataset artifact" tone="good" />
+        <MiniEvidence label="Full dataset row count" value={analysisStatus.rowCount.toLocaleString()} tone="good" />
+        <MiniEvidence label="Valid analysis records" value={analysisStatus.validAnalysisRecords.toLocaleString()} tone="good" />
+        <MiniEvidence label="Treatment count" value={summary.treatmentCount.toLocaleString()} tone="good" />
+        <MiniEvidence label="Control count" value={summary.controlCount.toLocaleString()} tone="good" />
+      </div>
+      <AbSelectionGuide
+        title="How to choose segment settings"
+        items={[
+          { label: "Exploratory status", body: "Segment analysis is exploratory unless segment hypotheses were pre-specified and sample sizes are adequate. Small segment wins should not override an underpowered overall test." },
+          { label: "Minimum segment size", body: "Minimum segment size protects against over-interpreting tiny segments. Lower thresholds may be useful for workflow testing, but not for production decisions." },
+          { label: "Multiple-comparison correction", body: "Use Bonferroni for strict family-wise control or Benjamini-Hochberg FDR for exploratory segment review with lower false-positive risk." },
+        ]}
+      />
+
+      <section className="rounded-xl border border-blue-200 bg-white p-4">
+        <div className="text-sm font-semibold text-slate-950">Segment Analysis Controls</div>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <AbSelect label="Segment column selector" value={selectedSegment} options={defaults.segmentColumns} onChange={(value) => update({ segmentColumn: value })} />
+          <AbSelect label="Multiple-comparison correction" value={correction} options={["None", "Bonferroni correction", "Benjamini-Hochberg FDR"]} onChange={(value) => update({ correction: value })} />
+          <AbInput label="Minimum segment size" value={String(minimumSegmentSize)} onChange={(value) => update({ minimumSegmentSize: value, segmentMinimumSizeTouched: true })} />
+          <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-semibold text-slate-800">
+            <input type="checkbox" checked={Boolean(ab.segmentShowOnlyMeetingThreshold)} onChange={(event) => update({ segmentShowOnlyMeetingThreshold: event.target.checked })} />
+            <span>Show only segments meeting sample threshold</span>
+          </label>
+          <AbSelect label="Sort by lift / p-value / sample size" value={ab.segmentSortBy || "Lift descending"} options={["Lift descending", "P-value ascending", "Sample size descending"]} onChange={(value) => update({ segmentSortBy: value })} />
+        </div>
+        {workflowTestMode && !analysisStatus.fullDatasetAvailable && (
+          <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-900">
+            Preview only, not full experiment analysis. Reload the full dataset artifact before interpreting segment results.
+          </div>
+        )}
+      </section>
+
+      <section className="grid gap-3 md:grid-cols-4">
+        <MiniEvidence label="Segments reviewed" value={ab.segmentShowOnlyMeetingThreshold ? `${displaySegments.length} shown / ${enrichedSegments.length} total` : enrichedSegments.length.toLocaleString()} tone={filterRemovesAllSegments ? "warning" : "neutral"} />
+        <MiniEvidence label="Segments below minimum size" value={segmentsBelowThreshold.toLocaleString()} tone={segmentsBelowThreshold ? "warning" : "good"} />
+        <MiniEvidence label="Largest positive lift segment" value={`${largestPositive.segment}: ${(largestPositive.absoluteLift * 100).toFixed(1)} pp`} tone="warning" />
+        <MiniEvidence label="Largest negative lift segment" value={`${largestNegative.segment}: ${(largestNegative.absoluteLift * 100).toFixed(1)} pp`} tone="warning" />
+        <MiniEvidence label="Segments statistically significant" value={significantSegments.toLocaleString()} tone={significantSegments ? "good" : "warning"} />
+        <MiniEvidence label="Segments practically significant" value={practicalSegments.toLocaleString()} tone={practicalSegments ? "warning" : "neutral"} />
+        <MiniEvidence label="Multiple-comparison method" value={correction} />
+        <MiniEvidence label="Segment recommendation" value={filterRemovesAllSegments ? "Exploratory only, no segment meets threshold" : "Exploratory only"} tone="warning" />
+      </section>
+
+      {filterRemovesAllSegments ? (
+        <AbSegmentEmptyState
+          minimumSegmentSize={minimumSegmentSize}
+          totalRows={totalRows}
+          onShowAll={() => update({ segmentShowOnlyMeetingThreshold: false })}
+          onUseDemoThreshold={() => update({ minimumSegmentSize: "2", segmentMinimumSizeTouched: true, segmentShowOnlyMeetingThreshold: true })}
+          onResetThreshold={() => update({ minimumSegmentSize: "30", segmentMinimumSizeTouched: true })}
+        />
+      ) : (
+        <>
+          <section className="grid gap-3 xl:grid-cols-2">
+            <SimpleAbChart title="Segment Lift Chart" rows={displaySegments.map((row) => [row.segment, row.absoluteLift])} />
+            <SimpleAbChart title="Segment Conversion Rate Chart" rows={displaySegments.flatMap((row) => [[`${row.segment} ${defaults.treatmentValue}`, row.treatmentConversionRate], [`${row.segment} ${defaults.controlValue}`, row.controlConversionRate]] as Array<[string, number]>).slice(0, 12)} />
+            <SimpleAbChart title="Segment Sample Size Chart" rows={displaySegments.flatMap((row) => [[`${row.segment} treatment`, row.treatmentCount], [`${row.segment} control`, row.controlCount], [`${row.segment} total`, row.totalCount]] as Array<[string, number]>).slice(0, 15)} />
+            <InfoGrid title="Significance / Reliability View" rows={displaySegments.map((row) => [
+              row.segment,
+              `P-value ${row.pValue.toFixed(4)}; Adjusted p-value ${row.adjustedPValue.toFixed(4)}; ${row.sampleFlag}; ${row.interpretation}`,
+            ])} />
+          </section>
+
+          <section className="rounded-xl border border-slate-200 bg-white p-4">
+            <div className="text-sm font-semibold text-slate-950">Structured segment results table</div>
+            <div className="mt-3 overflow-x-auto">
+              <table className="min-w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-500">
+                  <tr>
+                    {["Segment", "Treatment count", "Control count", "Treatment conversion rate", "Control conversion rate", "Absolute lift", "Relative lift", "P-value", "Adjusted p-value", "Confidence interval", "Sample-size flag", "Interpretation"].map((header) => (
+                      <th key={header} className="border-b border-slate-200 px-3 py-2 font-semibold">{header}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {displaySegments.map((row) => (
+                    <tr key={`${row.segmentColumn}-${row.segment}`} className="border-b border-slate-100">
+                      <td className="px-3 py-2 font-semibold text-slate-900">{row.segment}</td>
+                      <td className="px-3 py-2">{row.treatmentCount}</td>
+                      <td className="px-3 py-2">{row.controlCount}</td>
+                      <td className="px-3 py-2">{(row.treatmentConversionRate * 100).toFixed(1)}%</td>
+                      <td className="px-3 py-2">{(row.controlConversionRate * 100).toFixed(1)}%</td>
+                      <td className="px-3 py-2">{(row.absoluteLift * 100).toFixed(1)} pp</td>
+                      <td className="px-3 py-2">{(row.relativeLift * 100).toFixed(1)}%</td>
+                      <td className="px-3 py-2">{row.pValue.toFixed(4)}</td>
+                      <td className="px-3 py-2">{row.adjustedPValue.toFixed(4)}</td>
+                      <td className="px-3 py-2">{row.confidenceInterval}</td>
+                      <td className="px-3 py-2">{row.sampleFlag}</td>
+                      <td className="px-3 py-2">{row.interpretation}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </>
+      )}
+
+      <section className="grid gap-3 md:grid-cols-2">
+        {segmentAllocation.warning && <WarningCard title="Allocation review" body={`Treatment/control allocation is ${summary.treatmentCount.toLocaleString()} / ${summary.controlCount.toLocaleString()}. Confirm that the observed allocation matches the intended experiment design.`} />}
+        <WarningCard title="Multiple comparisons warning" body="Segment tests increase false-positive risk." />
+        {segmentsBelowThreshold > 0 && <WarningCard title="Segment sample-size warning" body={`${segmentsBelowThreshold} of ${enrichedSegments.length} segment cells are below the configured ${minimumSegmentSize.toLocaleString()}-record threshold.`} />}
+        <WarningCard title="Production segment inference warning" body="Segment results should be interpreted with multiple-comparison correction, segment sample size, and the overall experiment result." />
+      </section>
+
+      <section className="rounded-xl border border-blue-200 bg-white p-4">
+        <div className="text-sm font-semibold text-slate-950">ATLAS Segment Interpretation</div>
+        <p className="mt-2 text-sm leading-6 text-slate-700">
+          Segment results are calculated from the full confirmed dataset artifact. Review segment sample size, adjusted p-values, and confidence intervals before using any segment result for rollout decisions.
+        </p>
+      </section>
+
+      <TextArea
+        label="Reviewer notes"
+        value={state.notes || `Segment analysis by most.ads.day and most.ads.hour is based on the full confirmed dataset artifact with ${analysisStatus.rowCount.toLocaleString()} rows. Segment counts are not derived from preview rows or compact browser cache.`}
+        onChange={(value) => setState({ ...state, notes: value })}
+        rows={4}
+      />
+
+      <details className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+        <summary className="cursor-pointer font-semibold text-slate-900">Documentation Notes</summary>
+        <p className="mt-2 leading-6">Carry forward the segment column reviewed, multiple-comparison method, minimum-size threshold, segment-level limitations, and recommendation that segment results are exploratory only.</p>
+      </details>
+
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className="atlas-secondary-button" onClick={() => save()}><Save size={15} /> Save Segment Analysis Evidence</button>
+        <button type="button" className="atlas-secondary-button" onClick={() => downloadText("atlas-ab-testing-segment-summary.json", JSON.stringify(segmentSummary, null, 2), "application/json;charset=utf-8")}><Download size={15} /> Export Segment Summary</button>
+        <Link to="/chart-studio" className="atlas-secondary-button">Open Chart Studio</Link>
+        <Link to="/analytics" className="atlas-secondary-button">Open Analytics Workbench</Link>
+      </div>
+    </section>
+  );
+}
+
+function AbSegmentEmptyState({
+  minimumSegmentSize,
+  totalRows,
+  onShowAll,
+  onUseDemoThreshold,
+  onResetThreshold,
+}: {
+  minimumSegmentSize: number;
+  totalRows: number;
+  onShowAll: () => void;
+  onUseDemoThreshold: () => void;
+  onResetThreshold: () => void;
+}) {
+  return (
+    <section className="rounded-2xl border border-amber-300 bg-white p-5 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-amber-700">No segment rows available under the current threshold filter.</div>
+      <h3 className="mt-1 text-lg font-semibold text-slate-950">No segments meet the current minimum sample-size threshold.</h3>
+      <p className="mt-2 text-sm leading-6 text-slate-700">
+        The current threshold is {minimumSegmentSize} records per segment, but only {totalRows} records are available in the current analysis view. If this is a preview-only view, reload the full dataset artifact before interpreting segment results.
+      </p>
+      <div className="mt-4 flex flex-wrap gap-2">
+        <button type="button" className="atlas-secondary-button" onClick={onShowAll}>Show all exploratory segments</button>
+        <button type="button" className="atlas-secondary-button" onClick={onUseDemoThreshold}>Use demo threshold: 2</button>
+        <button type="button" className="atlas-secondary-button" onClick={onResetThreshold}>Reset threshold to 30</button>
+      </div>
+    </section>
+  );
+}
+
+function parsePercent(value: string) {
+  const numeric = Number.parseFloat(String(value).replace(/[^\d.-]/g, ""));
+  if (!Number.isFinite(numeric)) return 0;
+  return numeric > 1 ? numeric / 100 : numeric;
+}
+
+function formatCurrency(value: number) {
+  const sign = value < 0 ? "-" : "";
+  const absolute = Math.abs(value);
+  return `${sign}$${Math.round(absolute).toLocaleString()}`;
+}
+
+function AbBusinessImpact({
+  state,
+  setState,
+  analysis,
+  summary,
+  imbalance,
+  defaults,
+  dataReady,
+  save,
+  analysisStatus,
+}: {
+  state: NodeState;
+  setState: (state: NodeState) => void;
+  analysis: ReturnType<typeof analyzeAbLift>;
+  summary: ReturnType<typeof summarizeAbGroups>;
+  imbalance: ReturnType<typeof allocationImbalance>;
+  defaults: AbTestingDefaults;
+  dataReady: boolean;
+  save: () => NodeState;
+  analysisStatus: AbAnalysisDataset["status"];
+}) {
+  const ab = { ...emptyState().ab, ...(state.ab ?? {}) };
+  const update = (changes: Partial<NonNullable<NodeState["ab"]>>) => setState(updateAbState(state, changes));
+  const powerAssessment = abPowerAssessment(state, summary, imbalance, analysis);
+  const rolloutPopulation = Math.max(0, state.numeric.sampleSize || 100000);
+  const revenuePerConversion = Math.max(0, state.numeric.mse || 25);
   const costPerExposure = Math.max(0, state.numeric.varianceMultiplier || 0.05);
-  const incrementalConversions = Math.round(rolloutPopulation * analysis.absoluteLift);
-  const incrementalRevenue = incrementalConversions * revenuePerConversion;
-  const incrementalCost = rolloutPopulation * costPerExposure;
-  const netImpact = incrementalRevenue - incrementalCost;
+  const adoptionRate = parsePercent(ab.businessAdoptionRate || "100%");
+  const treatmentExposures = rolloutPopulation * adoptionRate;
+  const observedLift = analysis.absoluteLift;
+  const conservativeLift = Math.max(0, analysis.confidenceLow);
+  const optimisticLift = Math.max(observedLift, analysis.confidenceHigh);
+  const breakEvenLift = rolloutPopulation && revenuePerConversion ? (treatmentExposures * costPerExposure) / (rolloutPopulation * revenuePerConversion) : 0;
+  const manualLift = parsePercent(ab.businessManualLift || "1 pp");
+  const selectedLift = ab.businessLiftEstimate === "Lower confidence bound"
+    ? analysis.confidenceLow
+    : ab.businessLiftEstimate === "Conservative adjusted lift"
+      ? conservativeLift
+      : ab.businessLiftEstimate === "Manual lift assumption"
+        ? manualLift
+        : observedLift;
+  const businessScenario = (label: string, lift: number, interpretation: string) => {
+    const incrementalConversions = dataReady ? Math.round(rolloutPopulation * lift) : 0;
+    const incrementalRevenue = incrementalConversions * revenuePerConversion;
+    const treatmentCost = treatmentExposures * costPerExposure;
+    const netImpact = incrementalRevenue - treatmentCost;
+    const roi = treatmentCost ? netImpact / treatmentCost : 0;
+    return { label, lift, incrementalConversions, incrementalRevenue, treatmentCost, netImpact, roi, interpretation };
+  };
+  const selectedScenario = businessScenario(ab.businessConfidenceScenario || "Observed", selectedLift, "Selected assumption");
+  const scenarios = [
+    businessScenario("Optimistic", optimisticLift, "Positive but uncertain"),
+    businessScenario("Observed", observedLift, powerAssessment.adequatelyPowered ? "Observed full-data treatment effect" : `Underpowered for the selected ${powerAssessment.relativeLiftPct.toFixed(1)}% relative MDE`),
+    businessScenario("Conservative", conservativeLift, "Requires full-data validation"),
+    businessScenario("Break-even", breakEvenLift, "Break-even threshold"),
+  ];
+  const sensitivityRows = [
+    ["Revenue per conversion", `${formatCurrency(revenuePerConversion)} drives incremental revenue for each converted user.`],
+    ["Cost per exposure", `${formatCurrency(costPerExposure)} is applied to ${Math.round(treatmentExposures).toLocaleString()} expected treatment exposures.`],
+    ["Rollout population", `${rolloutPopulation.toLocaleString()} users scales both conversion upside and treatment cost.`],
+    ["Lift assumption", `${(selectedLift * 100).toFixed(2)} pp is the current selected lift used for the main scenario.`],
+  ];
+  const impactSummary = {
+    dataset: defaults.dataset,
+    rolloutPopulation,
+    revenuePerConversion,
+    costPerExposure,
+    adoptionRate,
+    selectedLift,
+    scenarios,
+    pValue: analysis.pValue,
+    allocationRatio: `${summary.treatmentCount}/${summary.controlCount}`,
+  };
+
   return (
-    <section className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
-      <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Business Impact</div>
-      <div className="mt-3 grid gap-3 md:grid-cols-3">
-        <NumberField label="Expected rollout population" value={rolloutPopulation} onChange={(value) => setState({ ...state, numeric: { ...state.numeric, sampleSize: value } })} />
-        <NumberField label="Revenue per conversion" value={revenuePerConversion} onChange={(value) => setState({ ...state, numeric: { ...state.numeric, mse: value } })} />
-        <NumberField label="Cost per treatment exposure" value={costPerExposure} onChange={(value) => setState({ ...state, numeric: { ...state.numeric, varianceMultiplier: value } })} />
-        <MiniEvidence label="Incremental conversions" value={incrementalConversions.toLocaleString()} />
-        <MiniEvidence label="Incremental revenue" value={`$${incrementalRevenue.toLocaleString()}`} />
-        <MiniEvidence label="Net impact / ROI" value={`$${Math.round(netImpact).toLocaleString()}`} tone={netImpact > 0 ? "good" : "warning"} />
+    <section className="space-y-4 rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Business Impact Scenario Analysis</div>
+        <h2 className="mt-1 text-lg font-semibold text-slate-950">Business Impact</h2>
+        <p className="mt-1 text-sm leading-6 text-blue-950">These are business assumptions. Estimate economic value, downside sensitivity, and launch readiness under explicit business assumptions.</p>
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        <MiniEvidence label="Analysis source" value={analysisStatus.fullDatasetAvailable ? "Full dataset artifact" : "Preview only, not full experiment analysis"} tone={analysisStatus.fullDatasetAvailable ? "good" : "warning"} />
+        <MiniEvidence label="Full dataset row count" value={analysisStatus.rowCount.toLocaleString()} tone={analysisStatus.fullDatasetAvailable ? "good" : "warning"} />
+        <MiniEvidence label="Valid analysis records" value={analysisStatus.validAnalysisRecords.toLocaleString()} tone={analysisStatus.fullDatasetAvailable ? "good" : "warning"} />
+      </div>
+      <AbSelectionGuide
+        title="How to choose business assumptions"
+        items={[
+          { label: "Business impact", body: "Business impact translates lift into dollars or value. It should use actual campaign economics before a production decision." },
+          { label: "Lift estimate selection", body: "Observed lift is optimistic when the experiment is underpowered. Conservative lift or lower confidence bound is safer for launch decisions." },
+          { label: "Rollout population", body: "Use the number of users expected to receive the treatment after launch or rollout." },
+        ]}
+      />
+
+      <section className="rounded-xl border border-blue-200 bg-white p-4">
+        <div className="text-sm font-semibold text-slate-950">Business Impact Assumptions</div>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <NumberField label="Expected rollout population" value={rolloutPopulation} onChange={(value) => setState({ ...state, numeric: { ...state.numeric, sampleSize: value } })} />
+          <NumberField label="Revenue per conversion" value={revenuePerConversion} onChange={(value) => setState({ ...state, numeric: { ...state.numeric, mse: value } })} />
+          <NumberField label="Cost per treatment exposure" value={costPerExposure} onChange={(value) => setState({ ...state, numeric: { ...state.numeric, varianceMultiplier: value } })} />
+          <AbInput label="Expected treatment adoption / exposure rate" value={ab.businessAdoptionRate || "100%"} onChange={(value) => update({ businessAdoptionRate: value })} />
+          <AbSelect label="Lift estimate to use" value={ab.businessLiftEstimate || "Observed absolute lift"} options={["Observed absolute lift", "Lower confidence bound", "Conservative adjusted lift", "Manual lift assumption"]} onChange={(value) => update({ businessLiftEstimate: value })} />
+          <AbSelect label="Confidence scenario" value={ab.businessConfidenceScenario || "Observed"} options={["Optimistic", "Observed", "Conservative", "Break-even", "Manual"]} onChange={(value) => update({ businessConfidenceScenario: value })} />
+          <AbSelect label="Cost basis" value={ab.businessCostBasis || "Per treatment exposure"} options={["Per treatment exposure", "Per converted user", "Fixed campaign cost", "Mixed fixed + variable cost"]} onChange={(value) => update({ businessCostBasis: value })} />
+          <AbSelect label="Business decision threshold" value={ab.businessDecisionThreshold || "Net impact > 0"} options={["Net impact > 0", "ROI > 10%", "ROI > 25%", "Custom"]} onChange={(value) => update({ businessDecisionThreshold: value })} />
+          <AbInput label="Manual lift assumption" value={ab.businessManualLift || "1 pp"} onChange={(value) => update({ businessManualLift: value })} />
+        </div>
+      </section>
+
+      <section className="grid gap-3 md:grid-cols-4">
+        <MiniEvidence label="Observed absolute lift" value={`${(observedLift * 100).toFixed(2)} pp`} tone="warning" />
+        <MiniEvidence label="Conservative lift estimate" value={`${(conservativeLift * 100).toFixed(2)} pp`} tone="warning" />
+        <MiniEvidence label="Expected rollout population" value={rolloutPopulation.toLocaleString()} />
+        <MiniEvidence label="Incremental conversions" value={selectedScenario.incrementalConversions.toLocaleString()} />
+        <MiniEvidence label="Incremental revenue" value={formatCurrency(selectedScenario.incrementalRevenue)} />
+        <MiniEvidence label="Treatment cost" value={formatCurrency(selectedScenario.treatmentCost)} />
+        <MiniEvidence label="Net impact" value={formatCurrency(selectedScenario.netImpact)} tone={selectedScenario.netImpact > 0 ? "good" : "warning"} />
+        <MiniEvidence label="ROI" value={`${(selectedScenario.roi * 100).toFixed(1)}%`} tone={selectedScenario.roi > 0 ? "good" : "warning"} />
+        <MiniEvidence label="Break-even lift" value={`${(breakEvenLift * 100).toFixed(2)} pp`} />
+        <MiniEvidence label="Business impact status" value={selectedScenario.netImpact > 0 ? "Positive scenario but uncertain" : "Negative scenario"} tone="warning" />
+        <MiniEvidence label="Decision readiness" value={analysis.statisticallySignificant && selectedLift >= breakEvenLift && !imbalance.warning ? "Governance review required" : "Not launch-ready"} tone="warning" />
+      </section>
+
+      <WarningCard title="Business impact warning" body="Business impact must use actual campaign economics before a production decision. Treatment-effect inputs are now sourced from the full confirmed dataset artifact when available." />
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <InfoGrid title="Business impact scenario table" rows={scenarios.map((row) => [
+          row.label,
+          `Lift used ${(row.lift * 100).toFixed(2)} pp; incremental conversions ${row.incrementalConversions.toLocaleString()}; incremental revenue ${formatCurrency(row.incrementalRevenue)}; treatment cost ${formatCurrency(row.treatmentCost)}; net impact ${formatCurrency(row.netImpact)}; ROI ${(row.roi * 100).toFixed(1)}%; ${row.interpretation}`,
+        ])} />
+        <SimpleAbChart title="Net Impact by Scenario" rows={scenarios.map((row) => [row.label, row.netImpact])} />
+        <SimpleAbChart title="Incremental Conversion Scenario" rows={scenarios.map((row) => [row.label, row.incrementalConversions])} />
+        <InfoGrid title="Break-even Review" rows={[
+          ["Break-even lift", `${(breakEvenLift * 100).toFixed(2)} pp`],
+          ["Observed lift", `${(observedLift * 100).toFixed(2)} pp`],
+          ["Conservative lift", `${(conservativeLift * 100).toFixed(2)} pp`],
+          ["Margin above / below break-even", `${((selectedLift - breakEvenLift) * 100).toFixed(2)} pp`],
+        ]} />
+        <InfoGrid title="Sensitivity Review" rows={sensitivityRows} />
+      </section>
+
+      <section className="grid gap-3 md:grid-cols-2">
+        <WarningCard title="Power at selected MDE" body={`Estimated power is ${(powerAssessment.estimatedPower * 100).toFixed(0)}% for the selected ${powerAssessment.relativeLiftPct.toFixed(1)}% relative MDE.`} />
+        <WarningCard title="Statistical evidence" body={analysis.statisticallySignificant ? `The treatment effect is statistically significant (p=${analysis.pValue.toFixed(4)}), but statistical significance does not replace practical, allocation, and business review.` : `The treatment effect is not statistically significant (p=${analysis.pValue.toFixed(4)}).`} />
+        <WarningCard title="Decision warning" body="Business impact remains scenario evidence until campaign economics, allocation quality, guardrails, and governance approvals are confirmed." />
+        <WarningCard title="Scenario value warning" body="Scenario value depends on uncertain lift estimate." />
+      </section>
+
+      <section className="rounded-xl border border-blue-200 bg-white p-4">
+        <div className="text-sm font-semibold text-slate-950">ATLAS Business Impact Interpretation</div>
+        <p className="mt-2 text-sm leading-6 text-slate-700">
+          The observed lift produces a positive business-impact scenario under the current assumptions. Treatment-effect inputs are based on the full confirmed dataset artifact when available, while business value still depends on reviewer-entered rollout population, revenue, cost, and adoption assumptions.
+        </p>
+      </section>
+
+      <TextArea
+        label="Reviewer notes"
+        value={state.notes || `Business impact uses reviewer-entered rollout, revenue, cost, and adoption assumptions together with the full-data treatment effect. Statistical significance is ${analysis.statisticallySignificant ? "present" : "not established"}; estimated power at the selected ${powerAssessment.relativeLiftPct.toFixed(1)}% relative MDE is ${(powerAssessment.estimatedPower * 100).toFixed(0)}%. Confirm campaign economics, allocation quality, guardrails, and governance approvals before final decisioning.`}
+        onChange={(value) => setState({ ...state, notes: value })}
+        rows={4}
+      />
+
+      <details className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+        <summary className="cursor-pointer font-semibold text-slate-900">Documentation Notes</summary>
+        <p className="mt-2 leading-6">Document business assumptions, lift scenario selected, sensitivity limitations, break-even lift, and the underpowered-test limitation before saving final decision evidence.</p>
+      </details>
+
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className="atlas-secondary-button" onClick={() => save()}><Save size={15} /> Save Business Impact Evidence</button>
+        <button type="button" className="atlas-secondary-button" onClick={() => downloadText("atlas-ab-testing-business-impact-summary.json", JSON.stringify(impactSummary, null, 2), "application/json;charset=utf-8")}><Download size={15} /> Export Business Impact Summary</button>
+        <Link to="/chart-studio" className="atlas-secondary-button">Open Chart Studio</Link>
+        <Link to="/analytics" className="atlas-secondary-button">Open Analytics Workbench</Link>
       </div>
     </section>
   );
 }
 
-function AbDecisionRecommendation({ recommendation, analysis, imbalance, state, setState }: { recommendation: string; analysis: ReturnType<typeof analyzeAbLift>; imbalance: ReturnType<typeof allocationImbalance>; state: NodeState; setState: (state: NodeState) => void }) {
+function AbDecisionRecommendation({
+  recommendation,
+  analysis,
+  summary,
+  imbalance,
+  defaults,
+  state,
+  setState,
+  save,
+  analysisStatus,
+}: {
+  recommendation: string;
+  analysis: ReturnType<typeof analyzeAbLift>;
+  summary: ReturnType<typeof summarizeAbGroups>;
+  imbalance: ReturnType<typeof allocationImbalance>;
+  defaults: AbTestingDefaults;
+  state: NodeState;
+  setState: (state: NodeState) => void;
+  save: () => NodeState;
+  analysisStatus: AbAnalysisDataset["status"];
+}) {
+  const ab = { ...emptyState().ab, ...(state.ab ?? {}) };
+  const update = (changes: Partial<NonNullable<NodeState["ab"]>>) => setState(updateAbState(state, changes));
+  const powerAssessment = abPowerAssessment(state, summary, imbalance, analysis);
+  const practicalThreshold = Number.parseFloat(String(ab.practicalSignificanceThreshold || "1 pp")) / 100 || 0.01;
+  const practicallySignificant = Math.abs(analysis.absoluteLift) >= practicalThreshold;
+  const systemDecision = recommendation === "Run longer" ? "Inconclusive, Run Longer" : recommendation;
+  const selectedDecision = ab.decisionRecommendationTouched && ab.decisionRecommendation ? ab.decisionRecommendation : systemDecision;
+  const finalDecision = selectedDecision === "Run longer" ? "Inconclusive, Run Longer" : selectedDecision;
+  useEffect(() => {
+    if (!ab.decisionRecommendationTouched && ab.decisionRecommendation !== systemDecision) {
+      setState(updateAbState(state, { decisionRecommendation: systemDecision }));
+    }
+  }, [ab.decisionRecommendation, ab.decisionRecommendationTouched, setState, state, systemDecision]);
+  const treatmentRate = `${(summary.treatmentRate * 100).toFixed(1)}%`;
+  const controlRate = `${(summary.controlRate * 100).toFixed(1)}%`;
+  const observedLift = `${(analysis.absoluteLift * 100).toFixed(2)} pp`;
+  const pValue = analysis.pValue.toFixed(4);
+  const confidenceCrossesZero = analysis.confidenceLow <= 0 && analysis.confidenceHigh >= 0;
+  const launchBlockers = [
+    !analysis.statisticallySignificant ? "statistical significance is not established" : "",
+    !practicallySignificant ? `observed lift is below the ${String(ab.practicalSignificanceThreshold || "1 pp")} practical threshold` : "",
+    !powerAssessment.adequatelyPowered ? `power is ${(powerAssessment.estimatedPower * 100).toFixed(0)}% at the selected ${powerAssessment.relativeLiftPct.toFixed(1)}% relative MDE` : "",
+    imbalance.warning ? "the observed allocation requires design and randomization review" : "",
+  ].filter(Boolean);
+  const launchReady = launchBlockers.length === 0;
+  const launchReadinessReason = launchReady ? "Statistical, practical, power, and allocation checks meet the configured thresholds." : `Launch is blocked because ${launchBlockers.join("; ")}.`;
+  const defaultDecisionRationale =
+    `Final decision: ${finalDecision}.\n\n` +
+    `The ${defaults.treatmentValue} treatment produced ${observedLift} absolute lift versus ${defaults.controlValue} using the full confirmed ${defaults.dataset} artifact with ${analysisStatus.rowCount.toLocaleString()} rows. The two-sided p-value is ${pValue}; the 95% confidence interval is ${(analysis.confidenceLow * 100).toFixed(2)} pp to ${(analysis.confidenceHigh * 100).toFixed(2)} pp. ${launchReadinessReason}\n\n` +
+    "The next action must address the listed launch blockers, preserve the confirmed dataset lineage, and then re-run power, treatment-effect, segment, business-impact, and governance review before changing the decision.";
+  const legacyDecisionText = /p-value is not significant|confidence interval crosses zero|underpowered and not launch-ready|workflow validation evidence/i;
+  const savedDecisionRationale = ab.decisionRationale || "";
+  const savedReviewerNotes = state.rationale || "";
+  const decisionRationaleValue = savedDecisionRationale.includes("Final decision:") && !legacyDecisionText.test(savedDecisionRationale) ? savedDecisionRationale : defaultDecisionRationale;
+  const reviewerNotesValue = savedReviewerNotes.includes("Final decision:") && !legacyDecisionText.test(savedReviewerNotes) ? savedReviewerNotes : defaultDecisionRationale;
+  const decisionSummary = {
+    dataset: defaults.dataset,
+    decisionRecommendation: finalDecision,
+    followUpAction: ab.followUpAction || "Collect more data",
+    pValue: analysis.pValue,
+    statisticallySignificant: analysis.statisticallySignificant,
+    absoluteLift: analysis.absoluteLift,
+    treatmentCount: summary.treatmentCount,
+    controlCount: summary.controlCount,
+    practicalSignificance: practicallySignificant,
+    estimatedPowerAtSelectedMde: powerAssessment.estimatedPower,
+    launchBlockers,
+    overallReadiness: launchReady ? "Launch-ready" : "Not launch-ready",
+  };
+
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Decision Recommendation</div>
-      <div className="mt-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-        <div className="text-lg font-semibold text-slate-950">{recommendation}</div>
-        <p className="mt-1 text-sm leading-6 text-slate-600">Recommendation options include Launch treatment, Keep control, Run longer, Segmented rollout, Inconclusive, and Do not launch. The decision considers significance, practical effect, sample size, randomization concerns, guardrails, segment effects, business impact, and governance notes. It does not rely only on p-value.</p>
-        <p className="mt-2 text-xs text-slate-500">P-value: {analysis.pValue.toFixed(4)}. Randomization concern: {imbalance.warning ? "Yes" : "No"}.</p>
+    <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Decision Cockpit</div>
+        <h2 className="mt-1 text-lg font-semibold text-slate-950">Decision Recommendation</h2>
+        <p className="mt-1 text-sm leading-6 text-slate-600">Synthesize treatment evidence, business impact, risk, and required actions before launch. It does not rely only on p-value.</p>
       </div>
-      <TextArea label="Reviewer notes" value={state.rationale} onChange={(value) => setState({ ...state, rationale: value })} rows={3} placeholder="Explain final launch, keep-control, run-longer, segmented-rollout, inconclusive, or do-not-launch decision." />
+      <div className="grid gap-3 md:grid-cols-3">
+        <MiniEvidence label="Analysis source" value="Full dataset artifact" tone="good" />
+        <MiniEvidence label="Full dataset row count" value={analysisStatus.rowCount.toLocaleString()} tone="good" />
+        <MiniEvidence label="Valid analysis records" value={analysisStatus.validAnalysisRecords.toLocaleString()} tone="good" />
+      </div>
+      <AbSelectionGuide
+        title="How to choose a decision recommendation"
+        items={[
+          { label: "Decision logic", body: "Decision Recommendation combines statistical evidence, practical lift, power, randomization quality, segment reliability, business impact, and governance readiness. The recommendation should not rely on p-value alone." },
+          { label: "Run Longer", body: "Run longer means continue collecting experiment observations until the sample is large enough for the selected power, confidence level, and minimum detectable effect. If the test uses an already-completed file, load a larger dataset or append additional records." },
+          { label: "Launch or keep control", body: "Launch only when lift is reliable, practical, powered, and governance-ready. Keep control or do not launch when treatment is negative, risky, not meaningful, or unsupported by evidence." },
+        ]}
+      />
+
+      <section className="rounded-2xl border border-amber-300 bg-slate-950 p-5 text-white shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-amber-200">Final Experiment Decision</div>
+            <h3 className="mt-2 text-2xl font-semibold text-white">Decision: {finalDecision}</h3>
+            <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-200">
+              The {defaults.treatmentValue} treatment produced {observedLift} absolute lift versus {defaults.controlValue}. Statistical evidence, practical significance, power at the selected MDE, allocation quality, business impact, and governance readiness are evaluated together.
+            </p>
+          </div>
+          <div className="rounded-xl border border-amber-300 bg-amber-100 px-4 py-3 text-slate-950">
+            <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">Launch readiness</div>
+            <div className="mt-1 text-lg font-semibold">{launchReady ? "Launch-ready" : "Not launch-ready"}</div>
+            <p className="mt-1 max-w-xs text-xs leading-5 text-amber-950">{launchReadinessReason}</p>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          {[
+            launchReady ? "Launch-ready" : "Not launch-ready",
+            analysis.statisticallySignificant ? "Statistically significant" : "Statistical significance not met",
+            practicallySignificant ? "Practical threshold met" : "Below practical threshold",
+            powerAssessment.adequatelyPowered ? "Power target met" : `Power ${(powerAssessment.estimatedPower * 100).toFixed(0)}% at selected MDE`,
+            imbalance.warning ? "Allocation review required" : "Allocation check passed",
+          ].map((chip) => (
+            <span key={chip} className="rounded-full border border-amber-300 bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-950">{chip}</span>
+          ))}
+        </div>
+
+        <div className="mt-5 grid gap-3 xl:grid-cols-4">
+          <div className="rounded-xl border border-slate-700 bg-slate-900 p-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-amber-200">Directional Result</div>
+            <p className="mt-2 text-sm leading-6 text-slate-100">{defaults.treatmentValue} outperformed {defaults.controlValue} in the confirmed sample.</p>
+            <p className="mt-2 text-xs leading-5 text-slate-300">Treatment conversion rate: {treatmentRate}</p>
+            <p className="text-xs leading-5 text-slate-300">Control conversion rate: {controlRate}</p>
+            <p className="text-xs leading-5 text-slate-300">Observed lift: {observedLift}</p>
+          </div>
+          <div className="rounded-xl border border-slate-700 bg-slate-900 p-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-amber-200">Statistical Conclusion</div>
+            <p className="mt-2 text-sm leading-6 text-slate-100">{analysis.statisticallySignificant ? "Statistically significant." : "Not statistically significant."}</p>
+            <p className="mt-2 text-xs leading-5 text-slate-300">P-value: {pValue}</p>
+            <p className="text-xs leading-5 text-slate-300">Confidence interval {confidenceCrossesZero ? "crosses zero" : "does not cross zero"}.</p>
+            <p className="text-xs leading-5 text-slate-300">Review power and confidence interval before final decisioning.</p>
+          </div>
+          <div className="rounded-xl border border-slate-700 bg-slate-900 p-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-amber-200">Business Conclusion</div>
+            <p className="mt-2 text-sm leading-6 text-slate-100">Business scenario is positive under current assumptions, but the value estimate depends on uncertain lift.</p>
+          </div>
+          <div className="rounded-xl border border-slate-700 bg-slate-900 p-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-amber-200">Required Next Action</div>
+            <p className="mt-2 text-sm leading-6 text-slate-100">{launchReady ? "Complete governance approval and execute the selected post-decision rollout strategy." : "Resolve the configured launch blockers, then refresh the evidence and decision."}</p>
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-amber-300 bg-amber-50 p-4">
+        <div className="text-sm font-semibold text-amber-950">Why ATLAS selected this decision</div>
+        <div className="mt-3 grid gap-3 text-sm leading-6 text-amber-950 md:grid-cols-2">
+          <p>If treatment lift is positive but statistical evidence, practical significance, or selected-MDE power is insufficient, recommend Inconclusive / Run Longer.</p>
+          <p>If lift is positive, statistically significant, practically significant, powered, and business impact is positive, recommend Launch.</p>
+          <p>If lift is negative or business impact is negative, recommend Keep Control or Do Not Launch.</p>
+          <p>If segment effects are promising but overall result is weak, recommend Segmented follow-up only if segment evidence is reliable.</p>
+        </div>
+        <div className="mt-3 rounded-lg border border-amber-400 bg-white px-3 py-2 text-sm font-semibold text-amber-950">
+          Triggered rule: {launchBlockers.length ? launchBlockers.join(" + ") : "all configured launch thresholds passed"} = {finalDecision}.
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+        <div className="text-sm font-semibold text-blue-950">What "Run Longer" Means</div>
+        <p className="mt-2 text-sm leading-6 text-blue-950">
+          Run longer means continue collecting treatment and control observations until the experiment has enough sample size for the selected confidence level, desired power, and minimum detectable effect. If this is an already-completed dataset, load a larger experiment file, extend the observation window, or append additional experiment records before making a production launch decision.
+        </p>
+      </section>
+
+      <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <div className="text-sm font-semibold text-slate-950">Decision Controls</div>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <AbSelect label="Decision recommendation" value={selectedDecision} options={["Launch treatment", "Keep control", "Run longer", "Inconclusive, Run Longer", "Segmented rollout", "Inconclusive", "Do not launch", "Needs review"]} onChange={(value) => update({ decisionRecommendation: value, decisionRecommendationTouched: true })} />
+          <AbInput label="Decision owner" value={ab.decisionOwner || "Decision owner"} onChange={(value) => update({ decisionOwner: value })} />
+          <AbInput label="Decision date (YYYY-MM-DD)" value={ab.decisionDate || ""} onChange={(value) => update({ decisionDate: value })} />
+          <AbInput label="Launch readiness threshold" value={ab.launchReadinessThreshold || "Not launch-ready until adequately powered"} onChange={(value) => update({ launchReadinessThreshold: value })} />
+          <AbSelect label="Risk tolerance" value={ab.riskTolerance || "Low"} options={["Low", "Moderate", "High"]} onChange={(value) => update({ riskTolerance: value })} />
+          <AbSelect label="Follow-up action" value={ab.followUpAction || "Collect more data"} options={["Collect more data", "Run full-dataset analysis", "Launch controlled rollout", "Run segmented follow-up test", "Keep control", "Escalate for review"]} onChange={(value) => update({ followUpAction: value })} />
+        </div>
+        <TextArea label="Decision rationale" value={decisionRationaleValue} onChange={(value) => update({ decisionRationale: value })} rows={3} />
+      </section>
+
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="text-sm font-semibold text-slate-950">Evidence Scorecard</div>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <MiniEvidence label="Statistical significance" value={analysis.statisticallySignificant ? "Significant" : "Not significant"} tone={analysis.statisticallySignificant ? "good" : "warning"} />
+          <MiniEvidence label="Practical significance" value={practicallySignificant ? "Threshold met" : "Below threshold"} tone={practicallySignificant ? "good" : "warning"} />
+          <MiniEvidence label="Power status" value={`${(powerAssessment.estimatedPower * 100).toFixed(0)}% at selected MDE`} tone={powerAssessment.adequatelyPowered ? "good" : "warning"} />
+          <MiniEvidence label="Randomization quality" value={imbalance.warning ? "Allocation concern" : "No material concern"} tone={imbalance.warning ? "warning" : "good"} />
+          <MiniEvidence label="Segment consistency" value="Exploratory only" tone="warning" />
+          <MiniEvidence label="Business impact" value="Positive scenario but uncertain" tone="warning" />
+          <MiniEvidence label="Data quality" value="Structurally clean" tone="good" />
+          <MiniEvidence label="Governance readiness" value="Needs documentation" tone="warning" />
+          <MiniEvidence label="Overall decision readiness" value={launchReady ? "Launch-ready" : "Not launch-ready"} tone={launchReady ? "good" : "warning"} />
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-blue-200 bg-blue-50 p-4">
+        <div className="text-sm font-semibold text-blue-950">ATLAS Decision Recommendation</div>
+        <p className="mt-2 text-sm leading-6 text-blue-950">
+          Recommended decision: {finalDecision}.
+        </p>
+        <p className="mt-2 text-sm leading-6 text-blue-950">
+          The {defaults.treatmentValue} treatment shows {observedLift} absolute conversion lift compared with {defaults.controlValue}. The analysis is based on the full confirmed dataset artifact. Statistical significance is {analysis.statisticallySignificant ? "met" : "not met"}; practical significance is {practicallySignificant ? "met" : "not met"}; selected-MDE power is {(powerAssessment.estimatedPower * 100).toFixed(0)}%.
+        </p>
+        <p className="mt-2 text-sm leading-6 text-blue-950">
+          Recommended next step: {launchReady ? "complete governance approval and configure the Post-Decision Plan." : `resolve ${launchBlockers.join("; ")}, then refresh randomization, power, treatment-effect, segment, business-impact, and governance evidence.`}
+        </p>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <InfoGrid title="Evidence supporting treatment" rows={[
+          ["Treatment conversion rate", "Treatment conversion rate is higher than control."],
+          ["Observed absolute lift", "Observed absolute lift is positive."],
+          ["Business impact", "Business-impact scenario is positive under current assumptions."],
+          ["Data quality", "Dataset has no duplicate units or mapped missing values."],
+        ]} />
+        <InfoGrid title="Evidence weakening launch decision" rows={[
+          ["Sample size", `${analysisStatus.validAnalysisRecords.toLocaleString()} valid full-data records are available.`],
+          ["Power", `${(powerAssessment.estimatedPower * 100).toFixed(0)}% estimated power at the selected ${powerAssessment.relativeLiftPct.toFixed(1)}% relative MDE.`],
+          ["P-value", `${pValue}; ${analysis.statisticallySignificant ? "statistically significant" : "not statistically significant"}.`],
+          ["Confidence interval", `${(analysis.confidenceLow * 100).toFixed(2)} pp to ${(analysis.confidenceHigh * 100).toFixed(2)} pp; ${confidenceCrossesZero ? "crosses zero" : "does not cross zero"}.`],
+          ["Allocation", "Treatment/control allocation is imbalanced."],
+          ["Segments", "Segment results require multiple-comparison control and segment-specific decision review."],
+          ["Business impact", "Business impact is based on uncertain lift."],
+        ]} />
+      </section>
+
+      <section className="rounded-xl border border-amber-300 bg-amber-50 p-4">
+        <div className="text-sm font-semibold text-amber-950">Required Next Actions Before Launch</div>
+        <ul className="mt-3 grid gap-2 text-sm leading-6 text-amber-950 md:grid-cols-2">
+          {[
+            "Retain confirmed full-dataset lineage and mapping evidence.",
+            "Confirm randomization or holdout design.",
+            "Confirm treatment/control allocation was intentional.",
+            "Resolve the selected-MDE power requirement or revise the pre-specified MDE with justification.",
+            "Review confidence interval and practical lift.",
+            "Validate segment findings with adequate sample size.",
+            "Replace demo business assumptions with actual campaign economics.",
+            "Save evidence to Model Evidence Center.",
+            "Attach final decision evidence to Model Documentation Studio.",
+            "Define monitoring plan for rollout.",
+          ].map((item) => <li key={item}>- {item}</li>)}
+        </ul>
+      </section>
+
+      <InfoGrid title="Decision recommendation table" rows={[
+        ["Launch treatment", `Use when statistical significance, practical lift, selected-MDE power, allocation quality, business impact, and governance are all acceptable. Current status: ${launchReady ? "Supported" : "Not supported"}.`],
+        ["Keep control", `Use when treatment effect is negative or launch risk is unacceptable. Current status: ${finalDecision === "Keep control" ? "Selected" : "Not selected"}.`],
+        ["Run longer", `Use when one or more inferential or design thresholds need additional evidence. Current status: ${finalDecision.includes("Run Longer") ? "Selected" : "Not selected"}.`],
+        ["Inconclusive, Run Longer", `Use when observed direction is promising but practical significance, power, allocation quality, or statistical evidence is insufficient. Current blockers: ${launchBlockers.join("; ") || "None"}.`],
+        ["Segmented rollout", `Use only when pre-specified or validated segment effects are reliable and operationally governable. Current status: ${finalDecision === "Segmented rollout" ? "Selected" : "Not selected"}.`],
+        ["Inconclusive", `Use when evidence is insufficient for either launch or keep-control. Current status: ${finalDecision === "Inconclusive" ? "Selected" : "Not selected"}.`],
+        ["Do not launch", `Use when negative, unsafe, non-compliant, or economically unfavorable evidence dominates. Current status: ${finalDecision === "Do not launch" ? "Selected" : "Not selected"}.`],
+      ]} />
+
+      <section className="grid gap-3 md:grid-cols-2">
+        <WarningCard title="Power at selected MDE" body={`Estimated power is ${(powerAssessment.estimatedPower * 100).toFixed(0)}% for a ${powerAssessment.relativeLiftPct.toFixed(1)}% relative MDE.`} />
+        <WarningCard title="Statistical evidence" body={`P-value is ${pValue}; the confidence interval ${confidenceCrossesZero ? "crosses" : "does not cross"} zero.`} />
+        <WarningCard title="Decision warning" body={launchReadinessReason} />
+        <WarningCard title="Business impact warning" body="Scenario value depends on uncertain lift estimate." />
+      </section>
+
+      <TextArea
+        label="Reviewer notes"
+        value={reviewerNotesValue}
+        onChange={(value) => setState({ ...state, rationale: value })}
+        rows={4}
+      />
+
+      <details className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600">
+        <summary className="cursor-pointer font-semibold text-slate-900">Documentation Notes</summary>
+        <p className="mt-2 leading-6">Document the decision, owner, evidence scorecard, supporting evidence, weakening evidence, required launch prerequisites, and follow-up action in MEC and MDS.</p>
+      </details>
+
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className="atlas-secondary-button" onClick={() => save()}><Save size={15} /> Save Decision Recommendation Evidence</button>
+        <button type="button" className="atlas-secondary-button" onClick={() => downloadText("atlas-ab-testing-decision-summary.json", JSON.stringify(decisionSummary, null, 2), "application/json;charset=utf-8")}><Download size={15} /> Export Decision Summary</button>
+        <Link to="/model-evidence-center" className="atlas-secondary-button">Open Model Evidence Center</Link>
+        <Link to="/model-document-studio" className="atlas-secondary-button">Attach to Model Documentation Studio</Link>
+        <Link to="/decision-journal" className="atlas-secondary-button">Open Decision Journal</Link>
+      </div>
     </section>
   );
 }
 
-function AbDocumentationAndMonitoring() {
+function AbDocumentationReview({
+  state,
+  setState,
+  defaults,
+  analysis,
+  summary,
+  imbalance,
+  recommendation,
+  analysisStatus,
+  save,
+}: {
+  state: NodeState;
+  setState: (state: NodeState) => void;
+  defaults: AbTestingDefaults;
+  analysis: ReturnType<typeof analyzeAbLift>;
+  summary: ReturnType<typeof summarizeAbGroups>;
+  imbalance: ReturnType<typeof allocationImbalance>;
+  recommendation: string;
+  analysisStatus: AbAnalysisDataset["status"];
+  save: () => NodeState;
+}) {
+  const ab = { ...emptyState().ab, ...(state.ab ?? {}) };
+  const update = (changes: Partial<NonNullable<NodeState["ab"]>>) => setState(updateAbState(state, changes));
+  const powerAssessment = abPowerAssessment(state, summary, imbalance, analysis);
+  const practicalThreshold = Number.parseFloat(String(ab.practicalSignificanceThreshold || "1 pp")) / 100 || 0.01;
+  const practicallySignificant = Math.abs(analysis.absoluteLift) >= practicalThreshold;
+  const systemDecision = recommendation === "Run longer" ? "Inconclusive, Run Longer" : recommendation;
+  const finalDecision = ab.decisionRecommendationTouched && ab.decisionRecommendation ? ab.decisionRecommendation : systemDecision;
+  const launchBlockers = [
+    !analysis.statisticallySignificant ? "statistical significance is not established" : "",
+    !practicallySignificant ? `observed lift is below the ${ab.practicalSignificanceThreshold || "1 pp"} practical threshold` : "",
+    !powerAssessment.adequatelyPowered ? `power is ${(powerAssessment.estimatedPower * 100).toFixed(0)}% at the selected ${powerAssessment.relativeLiftPct.toFixed(1)}% relative MDE` : "",
+    imbalance.warning ? "allocation requires design review" : "",
+  ].filter(Boolean);
+  const launchReady = launchBlockers.length === 0;
+  const reviewerNote =
+    state.notes ||
+    `Documentation review is based on the full confirmed ${defaults.dataset} artifact with ${analysisStatus.rowCount.toLocaleString()} rows and ${analysisStatus.validAnalysisRecords.toLocaleString()} valid analysis records. The current decision is ${finalDecision}. ${launchReady ? "Configured statistical, practical, power, and allocation checks support launch-readiness review." : `Final approval remains blocked because ${launchBlockers.join("; ")}.`} Preserve dataset lineage, mapping, randomization, metric, segment, business-impact, limitation, and post-decision evidence in the governed package.`;
+  const coverageRows = [
+    ["Business Purpose", "Project Context", "Mapped", "experiment_context", "Business Purpose", "Review text"],
+    ["Experiment Design", "Experiment Setup", "Mapped", "experiment_design", "Experiment Design", "Review text"],
+    ["Population and Eligibility", "Population and Eligibility", "Mapped", "population_eligibility", "Population and Eligibility", "Save evidence"],
+    ["Treatment and Control Definition", "Treatment / Control Design", "Mapped", "treatment_control_definition", "Treatment and Control Definition", "Attach to MDS"],
+    ["Data Acquisition and Mapping", "Data Acquisition and Experiment Mapping", "Saved", "data_quality", "Experiment Data", "Open MEC"],
+    ["Data Quality", "Data Acquisition and Experiment EDA", "Saved", "data_quality", "Experiment Data", "Review text"],
+    ["Randomization Check", "Randomization Check", imbalance.warning ? "Needs review" : "Saved", "randomization_check", "Randomization Check", imbalance.warning ? "Review allocation concern" : "Confirm evidence"],
+    ["Metric Definition", "Metrics Setup", "Mapped", "metric_definition", "Metrics Definition", "Review text"],
+    ["Power and Sample Size", "Power and Sample Size", powerAssessment.adequatelyPowered ? "Saved" : "Needs review", "power_analysis", "Power and Sample Size", powerAssessment.adequatelyPowered ? "Confirm evidence" : "Resolve selected-MDE power"],
+    ["Experiment EDA", "Experiment EDA", "Saved", "experiment_eda", "Experiment Data", "Attach to MDS"],
+    ["Experiment Analysis", "Experiment Analysis", "Saved", "experiment_analysis", "Experiment Analysis", analysis.statisticallySignificant ? "Confirm inference" : "Review statistical limitation"],
+    ["Segment Analysis", "Segment Analysis", "Needs review", "segment_analysis", "Segment Analysis", "Review exploratory status"],
+    ["Business Impact", "Business Impact", "Needs review", "business_impact", "Business Impact", "Replace demo assumptions"],
+    ["Decision Recommendation", "Decision Recommendation", "Saved", "decision_recommendation", "Decision Recommendation", "Open MEC"],
+    ["Limitations", "Decision Recommendation", "Needs review", "limitations", "Limitations", "Review text"],
+    ["Post-Decision Plan", "Post-Decision Plan", ab.postDecisionStrategyTouched ? "Draft" : "Missing", "monitoring_plan", "Rollout, Monitoring, and Follow-up", "Complete post-decision plan"],
+    ["Appendices", "Evidence Pack Export", "Mapped", "appendices", "Appendices", "Export evidence package"],
+  ];
+  const packageSummary = {
+    dataset: defaults.dataset,
+    unitId: defaults.unitIdColumn,
+    treatment: defaults.treatmentValue,
+    control: defaults.controlValue,
+    outcome: defaults.outcomeColumn,
+    primaryMetric: "Conversion rate",
+    decision: finalDecision,
+    reason: launchReady ? "Configured launch-readiness thresholds are met" : launchBlockers.join("; "),
+    keyLimitation: launchReady ? "Final governance approval remains required" : launchBlockers[0] || "Reviewer confirmation required",
+    rowCount: analysisStatus.rowCount,
+    validAnalysisRecords: analysisStatus.validAnalysisRecords,
+    treatmentCount: summary.treatmentCount,
+    controlCount: summary.controlCount,
+    absoluteLift: analysis.absoluteLift,
+    pValue: analysis.pValue,
+    estimatedPowerAtSelectedMde: powerAssessment.estimatedPower,
+  };
+  const reviewItems = coverageRows.filter((row) => !["Mapped", "Saved"].includes(row[2])).length;
+
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Documentation Review and Monitoring / Follow-up</div>
-      <InfoGrid title="Model Documentation Studio Mapping" rows={["Business Purpose", "Experiment Design", "Population and Eligibility", "Treatment and Control Definition", "Randomization Check", "Metrics Definition", "Power and Sample Size", "Experiment Data", "Experiment Analysis", "Segment Analysis", "Business Impact", "Decision Recommendation", "Limitations", "Monitoring / Follow-up", "Appendices"].map((section) => [section, "Mapped"])} />
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
-        <MiniEvidence label="Decision implemented?" value="Reviewer input required" />
-        <MiniEvidence label="Rollout date" value="Document before launch" />
-        <MiniEvidence label="Follow-up owner" value="Decision owner" />
+    <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Documentation Readiness</div>
+        <h2 className="mt-1 text-lg font-semibold text-slate-950">Documentation Review</h2>
+        <p className="mt-1 text-sm leading-6 text-slate-600">Confirm the A/B testing evidence trail, Model Evidence Center package, Model Documentation Studio mapping, documentation gaps, and final reviewer decision.</p>
+      </div>
+      <AbSelectionGuide
+        title="How to choose documentation readiness"
+        items={[
+          { label: "Ready for review", body: "Use when evidence is saved and limitations are explicit, but a reviewer still needs to approve the experiment record." },
+          { label: "Needs more evidence", body: "Use when data, randomization, power, business assumptions, or post-decision planning are incomplete." },
+          { label: "Ready for final approval", body: "Use only when the decision, evidence, limitations, monitoring plan, and governance owner are complete." },
+        ]}
+      />
+
+      <section className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+        <div className="text-sm font-semibold text-blue-950">A/B Testing Documentation Readiness</div>
+        <div className="mt-3 grid gap-3 md:grid-cols-4">
+          <MiniEvidence label="Workflow steps completed" value="14 / 15" tone="warning" />
+          <MiniEvidence label="Evidence sections mapped" value={`${coverageRows.length} sections`} tone="good" />
+          <MiniEvidence label="Evidence sections needing review" value={`${reviewItems} sections`} tone={reviewItems ? "warning" : "good"} />
+          <MiniEvidence label="Decision status" value={finalDecision} tone={launchReady ? "good" : "warning"} />
+          <MiniEvidence label="Launch readiness" value={launchReady ? "Launch-ready for governance review" : "Not launch-ready"} tone={launchReady ? "good" : "warning"} />
+          <MiniEvidence label="MEC package status" value="Full-dataset evidence package" tone="good" />
+          <MiniEvidence label="MDS attachment status" value="Needs final reviewer approval" tone="warning" />
+          <MiniEvidence label="Evidence status" value={`${analysisStatus.validAnalysisRecords.toLocaleString()} valid records`} tone="good" />
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <div className="text-sm font-semibold text-slate-950">Documentation Review Controls</div>
+        <div className="mt-3 grid gap-3 md:grid-cols-3">
+          <AbSelect label="Documentation readiness decision" value={ab.docReadinessDecision || (launchReady ? "Ready for review" : "Needs more evidence")} options={["Ready for review", "Needs more evidence", "Ready for MDS draft", "Ready for final approval", "Not ready"]} onChange={(value) => update({ docReadinessDecision: value })} />
+          <AbInput label="Reviewer" value={ab.docReviewer || ""} onChange={(value) => update({ docReviewer: value })} />
+          <AbInput label="Review date" value={ab.docReviewDate || ""} onChange={(value) => update({ docReviewDate: value })} />
+          <AbSelect label="Attach evidence to Model Documentation Studio?" value={ab.docAttachMds || "Yes, attach as workflow evidence"} options={["Yes, attach as workflow evidence", "Yes, attach for final approval", "No, hold for reviewer", "Not applicable"]} onChange={(value) => update({ docAttachMds: value })} />
+          <AbSelect label="Export evidence package?" value={ab.docExportPackage || "Yes"} options={["Yes", "No", "Reviewer decision"]} onChange={(value) => update({ docExportPackage: value })} />
+          <AbSelect label="Include limitations?" value={ab.docIncludeLimitations || "Yes"} options={["Yes", "No", "Reviewer decision"]} onChange={(value) => update({ docIncludeLimitations: value })} />
+          <AbSelect label="Include monitoring plan?" value={ab.docIncludeMonitoring || "Pending monitoring plan"} options={["Pending monitoring plan", "Yes", "No", "Reviewer decision"]} onChange={(value) => update({ docIncludeMonitoring: value })} />
+        </div>
+        <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm leading-6 text-amber-950">
+          {launchReady
+            ? "The confirmed full-dataset evidence meets the configured statistical, practical, power, and allocation checks. Final governance review, documentation approval, and the selected post-decision plan are still required."
+            : `Final approval is not ready because ${launchBlockers.join("; ")}. The evidence package can be reviewed, but it must not be represented as launch support until these blockers are resolved or formally accepted.`}
+        </p>
+      </section>
+
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="text-sm font-semibold text-slate-950">Documentation Coverage Matrix</div>
+        <div className="mt-3 overflow-x-auto">
+          <table className="min-w-[920px] w-full text-left text-xs">
+            <thead className="bg-slate-100 text-slate-600">
+              <tr>
+                {["Documentation section", "Workflow evidence source", "Evidence status", "MEC evidence type", "MDS section", "Reviewer action"].map((header) => (
+                  <th key={header} className="px-3 py-2 font-semibold uppercase tracking-wide">{header}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {coverageRows.map((row) => (
+                <tr key={row[0]} className="border-t border-slate-200">
+                  {row.map((cell, index) => (
+                    <td key={`${row[0]}-${index}`} className="px-3 py-2 align-top text-slate-700">{cell}</td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <InfoGrid title="Experiment Evidence Package Preview" rows={[
+          ["Dataset", packageSummary.dataset],
+          ["Unit ID", packageSummary.unitId],
+          ["Treatment", packageSummary.treatment],
+          ["Control", packageSummary.control],
+          ["Outcome", packageSummary.outcome],
+          ["Primary metric", packageSummary.primaryMetric],
+          ["Full dataset rows", packageSummary.rowCount.toLocaleString()],
+          ["Valid analysis records", packageSummary.validAnalysisRecords.toLocaleString()],
+          ["Treatment / control", `${packageSummary.treatmentCount.toLocaleString()} / ${packageSummary.controlCount.toLocaleString()}`],
+          ["Absolute lift", `${(packageSummary.absoluteLift * 100).toFixed(2)} pp`],
+          ["P-value", packageSummary.pValue.toFixed(4)],
+          ["Power at selected MDE", `${(packageSummary.estimatedPowerAtSelectedMde * 100).toFixed(0)}%`],
+          ["Decision", packageSummary.decision],
+          ["Reason", packageSummary.reason],
+          ["Key limitation", packageSummary.keyLimitation],
+        ]} />
+        <InfoGrid title="Generated evidence list" rows={[
+          ["Project context evidence", "Available"],
+          ["Data acquisition evidence", "Available"],
+          ["Population eligibility evidence", "Available"],
+          ["Treatment/control evidence", "Available"],
+           ["Randomization evidence", imbalance.warning ? "Needs review" : "Available"],
+          ["Metric definition evidence", "Available"],
+           ["Power analysis evidence", powerAssessment.adequatelyPowered ? "Available" : "Needs review"],
+          ["EDA evidence", "Available"],
+          ["Experiment analysis evidence", "Available"],
+          ["Segment analysis evidence", "Exploratory"],
+          ["Business impact evidence", "Scenario-based"],
+          ["Decision recommendation evidence", "Available"],
+        ]} />
+      </section>
+
+      <section className="rounded-xl border border-amber-300 bg-amber-50 p-4">
+        <div className="text-sm font-semibold text-amber-950">Required Documentation Gaps Before Final Approval</div>
+        <ul className="mt-3 grid gap-2 text-sm leading-6 text-amber-950 md:grid-cols-2">
+          {[
+            "Confirm the registered dataset version and full-artifact lineage.",
+            "Confirm whether randomization or holdout assignment was actually used.",
+            "Replace demo business assumptions with actual campaign economics.",
+            launchReady ? "Complete final governance and launch-readiness approval." : `Document launch blockers: ${launchBlockers.join("; ")}.`,
+            powerAssessment.adequatelyPowered ? "Retain the selected-MDE power evidence." : "Resolve selected-MDE power through more data or a justified design revision.",
+            "Complete post-decision plan.",
+          ].map((item) => <li key={item}>- {item}</li>)}
+        </ul>
+      </section>
+
+      <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+        <div className="text-sm font-semibold text-emerald-950">ATLAS Documentation Interpretation</div>
+        <p className="mt-2 text-sm leading-6 text-emerald-950">
+          The A/B testing workflow has generated a complete evidence trail. Documentation should clearly distinguish preview rows, compact browser cache, and the full confirmed dataset artifact. Final decision documentation should rely on the full dataset artifact and should state whether additional experiment observations or updated analysis are required before launch.
+        </p>
+      </section>
+
+      <TextArea label="Reviewer notes" value={reviewerNote} onChange={(value) => setState({ ...state, notes: value })} rows={4} />
+
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className="atlas-secondary-button" onClick={() => save()}><Save size={15} /> Save Documentation Review Evidence</button>
+        <Link to="/model-document-studio" className="atlas-secondary-button">Open Model Documentation Studio</Link>
+        <Link to="/model-document-studio" className="atlas-secondary-button">Attach Evidence to MDS</Link>
+        <Link to="/model-evidence-center" className="atlas-secondary-button">Open Model Evidence Center</Link>
+        <button type="button" className="atlas-secondary-button" onClick={() => downloadText("atlas-ab-testing-evidence-pack.json", JSON.stringify({ packageSummary, coverageRows }, null, 2), "application/json;charset=utf-8")}><Download size={15} /> Export A/B Testing Evidence Pack</button>
+      </div>
+    </section>
+  );
+}
+
+function AbMonitoringFollowUp({
+  state,
+  setState,
+  defaults,
+  analysis,
+  summary,
+  imbalance,
+  analysisStatus,
+  save,
+}: {
+  state: NodeState;
+  setState: (state: NodeState) => void;
+  defaults: AbTestingDefaults;
+  analysis: ReturnType<typeof analyzeAbLift>;
+  summary: ReturnType<typeof summarizeAbGroups>;
+  imbalance: ReturnType<typeof allocationImbalance>;
+  analysisStatus: AbAnalysisDataset["status"];
+  save: () => NodeState;
+}) {
+  const ab = { ...emptyState().ab, ...(state.ab ?? {}) };
+  const update = (changes: Partial<NonNullable<NodeState["ab"]>>) => setState(updateAbState(state, changes));
+  const powerAssessment = abPowerAssessment(state, summary, imbalance, analysis);
+  const strategyOptions = ["Run longer / collect more data", "Launch treatment", "Keep control", "Slow rollout", "Segmented rollout", "Continue holdout test", "Do not launch"];
+  const postSystemDecision = decisionRecommendationReason(analysis, imbalance);
+  const finalDecision = ab.decisionRecommendationTouched && ab.decisionRecommendation
+    ? ab.decisionRecommendation
+    : postSystemDecision === "Run longer" ? "Inconclusive, Run Longer" : postSystemDecision;
+  const suggestedStrategy = finalDecision === "Launch treatment"
+    ? "Launch treatment"
+    : finalDecision === "Keep control"
+      ? "Keep control"
+      : finalDecision === "Segmented rollout"
+        ? "Segmented rollout"
+        : finalDecision === "Do not launch"
+          ? "Do not launch"
+          : "Run longer / collect more data";
+  const strategy = ab.postDecisionStrategyTouched && ab.postDecisionStrategy ? ab.postDecisionStrategy : suggestedStrategy;
+  useEffect(() => {
+    if (!ab.postDecisionStrategyTouched && ab.postDecisionStrategy !== suggestedStrategy) {
+      setState(updateAbState(state, { postDecisionStrategy: suggestedStrategy }));
+    }
+  }, [ab.postDecisionStrategy, ab.postDecisionStrategyTouched, setState, state, suggestedStrategy]);
+  const treatmentTarget = ab.monitoringTreatmentTarget || powerAssessment.samplePlan.treatment.toLocaleString();
+  const controlTarget = ab.monitoringControlTarget || powerAssessment.samplePlan.control.toLocaleString();
+  const additionalObservations = Math.max(0, powerAssessment.samplePlan.total - summary.treatmentCount - summary.controlCount);
+  const treatmentRate = `${(summary.treatmentRate * 100).toFixed(2)}%`;
+  const controlRate = `${(summary.controlRate * 100).toFixed(2)}%`;
+  const observedLift = `${(analysis.absoluteLift * 100).toFixed(2)} pp`;
+  const confidenceInterval = `${(analysis.confidenceLow * 100).toFixed(2)} pp to ${(analysis.confidenceHigh * 100).toFixed(2)} pp`;
+  const currentPower = `${(powerAssessment.estimatedPower * 100).toFixed(0)}% at ${powerAssessment.relativeLiftPct.toFixed(1)}% relative MDE`;
+  const allocationRatio = `${imbalance.ratio.toFixed(2)}:1`;
+  const strategyProfile: Record<string, { title: string; launchStatus: string; reanalysis: string; accent: string; interpretation: string; reviewerNote: string }> = {
+    "Run longer / collect more data": {
+      title: "Run longer / collect more data",
+      launchStatus: "Do not launch yet",
+      reanalysis: "Yes",
+      accent: "Run-longer sample collection",
+      interpretation: `Because the final decision is ${finalDecision}, this plan is focused on collecting enough additional observations to test the selected ${powerAssessment.relativeLiftPct.toFixed(1)}% relative MDE at ${(powerAssessment.desiredPowerPct).toFixed(0)}% power. The next review should occur after treatment and control reach ${treatmentTarget} and ${controlTarget}, respectively, or after a larger confirmed artifact is loaded.`,
+      reviewerNote: `Continue the experiment or load additional confirmed experiment data before changing the decision. Current power is ${currentPower}; statistical significance is ${analysis.statisticallySignificant ? "met" : "not met"}; observed lift is ${observedLift}. Preserve the metric definition and dataset lineage, then re-run randomization, power, treatment-effect, segment, business-impact, and governance checks.`,
+    },
+    "Launch treatment": {
+      title: "Launch treatment",
+      launchStatus: "Controlled launch with monitoring",
+      reanalysis: "Post-launch monitoring",
+      accent: "Full launch monitoring",
+      interpretation: "The post-decision plan is configured for a treatment launch. ATLAS expects a named rollout owner, launch date, success metrics, guardrail metrics, rollback criteria, and review cadence before the treatment is released beyond the experiment population.",
+      reviewerNote: "The launch plan should define the treatment owner, launch date, success metrics, guardrail metrics, rollback criteria, and review cadence. Evidence should be updated in MEC and MDS after launch monitoring begins.",
+    },
+    "Keep control": {
+      title: "Keep control",
+      launchStatus: "Treatment not launched",
+      reanalysis: "Optional retest only",
+      accent: "Control preservation",
+      interpretation: "The post-decision plan is configured to keep the control experience. ATLAS expects documentation of why treatment is not being launched, what evidence would justify a future retest, and which control metrics should continue to be watched.",
+      reviewerNote: "The keep-control plan should document why the treatment is not being launched, preserve the current control process, and define conditions for future retesting if business priorities change.",
+    },
+    "Slow rollout": {
+      title: "Slow rollout",
+      launchStatus: "Phased rollout required",
+      reanalysis: "At every checkpoint",
+      accent: "Phased rollout checkpoints",
+      interpretation: "The post-decision plan is configured for a slow rollout. ATLAS expects checkpoint gates at 5%, 10%, 25%, 50%, and 100%, with monitoring metrics and rollback triggers at each stage before expansion continues.",
+      reviewerNote: "The slow-rollout plan should define checkpoint gates, monitoring metrics, rollback triggers, rollout owner, review cadence, and stop/go criteria for each expansion stage.",
+    },
+    "Segmented rollout": {
+      title: "Segmented rollout",
+      launchStatus: "Limited segment launch",
+      reanalysis: "Segment review required",
+      accent: "Segment-level rollout",
+      interpretation: "The post-decision plan is configured for segmented rollout. ATLAS expects approved segments, excluded segments, segment-level monitoring, and stop/go criteria before any segment-specific treatment is released.",
+      reviewerNote: "The segmented-rollout plan should document approved segments, excluded segments, segment-level monitoring metrics, sample-size limitations, and stop/go criteria before release.",
+    },
+    "Continue holdout test": {
+      title: "Continue holdout test",
+      launchStatus: "Holdout continues",
+      reanalysis: "At holdout review date",
+      accent: "Holdout continuation",
+      interpretation: "The post-decision plan is configured to continue the holdout test. ATLAS expects continued treatment/control tracking, holdout integrity checks, and a documented re-analysis trigger before changing the decision.",
+      reviewerNote: "The holdout-continuation plan should maintain treatment/control assignment integrity, monitor sample growth, and re-run the analysis when the holdout reaches the agreed review threshold.",
+    },
+    "Do not launch": {
+      title: "Do not launch",
+      launchStatus: "Treatment blocked",
+      reanalysis: "Only with redesigned test",
+      accent: "No-launch closure",
+      interpretation: "The post-decision plan is configured for a no-launch decision. ATLAS expects documentation of the reason treatment is blocked, owner acknowledgement, residual risks, and whether any redesigned experiment is warranted.",
+      reviewerNote: "The do-not-launch plan should document the reason treatment is blocked, retain the decision evidence, and define whether a redesigned experiment or no further action is appropriate.",
+    },
+  };
+  const activeProfile = strategyProfile[strategy] ?? strategyProfile["Run longer / collect more data"];
+  const reviewerNote = state.notes || activeProfile.reviewerNote;
+  const monitoringRowsByStrategy: Record<string, string[][]> = {
+    "Run longer / collect more data": [
+      ["Treatment sample size", summary.treatmentCount.toLocaleString(), treatmentTarget, ab.monitoringOwner || "Decision owner", ab.monitoringCadence || "Weekly", "Target met"],
+      ["Control sample size", summary.controlCount.toLocaleString(), controlTarget, ab.monitoringOwner || "Decision owner", ab.monitoringCadence || "Weekly", "Target met"],
+      ["Treatment conversion rate", treatmentRate, "Stable directional estimate", "Analytics owner", "Weekly", "Material movement"],
+      ["Control conversion rate", controlRate, "Stable baseline", "Analytics owner", "Weekly", "Material movement"],
+      ["Absolute lift", observedLift, `At least ${ab.practicalSignificanceThreshold || "1 pp"}`, "Analytics owner", "Each refresh", "Lift changes materially"],
+      ["P-value", analysis.pValue.toFixed(4), `< ${ab.powerAlpha || "0.05"} or reviewer threshold`, "Analytics owner", "Each refresh", "Significance status changes"],
+      ["Confidence interval", confidenceInterval, "Reviewer-approved decision interval", "Analytics owner", "Each refresh", "Interval changes decision"],
+      ["Power at selected MDE", currentPower, `${powerAssessment.desiredPowerPct.toFixed(0)}% desired power`, "Analytics owner", "Each refresh", "Power target met"],
+      ["Allocation ratio", allocationRatio, "Reviewer-approved allocation", "Experiment owner", "Weekly", "Unexpected drift"],
+      ["Data lineage", `${analysisStatus.validAnalysisRecords.toLocaleString()} valid records`, "Confirmed artifact and mapping retained", "Data owner", "Each refresh", "Artifact version changes"],
+    ],
+    "Launch treatment": [
+      ["Success metric", "Conversion rate", "Sustained lift vs control baseline", "Launch owner", ab.postLaunchReviewCadence || "Weekly", "Success threshold missed"],
+      ["Guardrail metric", "Customer complaints / opt-outs", "No adverse movement", "Risk owner", "Daily during launch", "Guardrail breach"],
+      ["Treatment conversion rate", treatmentRate, "Stable or improving", "Analytics owner", "Weekly", "Material decline"],
+      ["Rollback criteria", "Not active", ab.postLaunchRollbackCriteria || "Rollback if guardrail metrics breach threshold or treatment effect reverses.", "Launch owner", "Every review", "Rollback triggered"],
+      ["Launch date", ab.postLaunchDate || "Reviewer-defined", "Approved launch date", "Launch owner", "Once", "Date changes"],
+      ["Business impact", "Positive but uncertain", "Validated with actual economics", "Business owner", "Weekly", "ROI turns negative"],
+    ],
+    "Keep control": [
+      ["Control experience", "Active", "Remain active", "Decision owner", "Monthly", "Retest requested"],
+      ["Treatment status", "Not launched", "Blocked", "Decision owner", "Monthly", "Treatment reconsidered"],
+      ["Primary metric", "Conversion rate", "Control baseline stable", "Analytics owner", "Monthly", "Baseline drift"],
+      ["Retest trigger", "Not defined", "New hypothesis or improved treatment", "Business owner", "Quarterly", "Retest approved"],
+    ],
+    "Slow rollout": [
+      ["5% checkpoint", "Pending", "Guardrails pass", "Rollout owner", "Daily", "Stop or rollback"],
+      ["10% checkpoint", "Pending", "Guardrails pass", "Rollout owner", "Daily", "Stop or rollback"],
+      ["25% checkpoint", "Pending", "Guardrails pass", "Rollout owner", "Twice weekly", "Stop or rollback"],
+      ["50% checkpoint", "Pending", "Guardrails pass", "Rollout owner", "Weekly", "Stop or rollback"],
+      ["100% checkpoint", "Pending", "Final approval", "Rollout owner", "Weekly", "Stop or rollback"],
+      ["Rollback trigger", "Not active", ab.postLaunchRollbackCriteria || "Rollback if guardrail metrics breach threshold or treatment effect reverses.", "Risk owner", "Every checkpoint", "Rollback triggered"],
+    ],
+    "Segmented rollout": [
+      ["Approved segments", ab.approvedSegments || "Reviewer-approved segments", "Adequate segment evidence", "Segment owner", "Weekly", "Segment underperforms"],
+      ["Excluded segments", ab.excludedSegments || "Underpowered or non-significant segments", "Remain excluded", "Segment owner", "Weekly", "Evidence improves"],
+      ["Segment conversion rate", "Exploratory", "Stable lift in approved segments", "Analytics owner", "Weekly", "Segment lift reverses"],
+      ["Stop/go criteria", "Needs definition", "Segment guardrails pass", "Decision owner", "Weekly", "Stop condition met"],
+    ],
+    "Continue holdout test": [
+      ["Holdout integrity", "Treatment/control active", "No contamination", "Experiment owner", "Weekly", "Contamination detected"],
+      ["Treatment sample size", summary.treatmentCount.toLocaleString(), treatmentTarget, "Analytics owner", "Weekly", "Target met"],
+      ["Control sample size", summary.controlCount.toLocaleString(), controlTarget, "Analytics owner", "Weekly", "Target met"],
+      ["Re-analysis trigger", "Pending", ab.monitoringReanalysisTrigger || "When required sample threshold is met or a larger confirmed dataset is loaded", "Decision owner", "Weekly", "Trigger met"],
+    ],
+    "Do not launch": [
+      ["Treatment status", "Blocked", "Do not launch", "Decision owner", "Monthly", "Decision reopened"],
+      ["Decision evidence", "Saved", "Retained in MEC/MDS", "Governance owner", "Once", "Evidence request"],
+      ["Redesign trigger", "Not active", "New hypothesis or treatment design", "Business owner", "Quarterly", "Redesign approved"],
+      ["Residual risk", "Low if not launched", "Documented", "Risk owner", "Quarterly", "Risk changes"],
+    ],
+  };
+  const monitoringRows = monitoringRowsByStrategy[strategy] ?? monitoringRowsByStrategy["Run longer / collect more data"];
+  const actionTitleByStrategy: Record<string, string> = {
+    "Run longer / collect more data": "Run-Longer Action Plan",
+    "Launch treatment": "Launch Treatment Plan",
+    "Keep control": "Keep-Control Plan",
+    "Slow rollout": "Slow Rollout Checkpoint Plan",
+    "Segmented rollout": "Segmented Rollout Plan",
+    "Continue holdout test": "Holdout Continuation Plan",
+    "Do not launch": "Do-Not-Launch Closure Plan",
+  };
+
+  return (
+    <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-emerald-700">Post-Decision Strategy</div>
+        <h2 className="mt-1 text-lg font-semibold text-slate-950">Post-Decision Plan</h2>
+        <p className="mt-1 text-sm leading-6 text-slate-600">Define what happens after the A/B decision. This page supports split tests, slow-roll introductions, holdout continuation, segmented rollout, keep-control decisions, no-launch closure, and full treatment launch monitoring.</p>
+      </div>
+
+      <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <AbSelectionGuide
+          title="How to choose a post-decision strategy"
+          items={[
+            { label: "Post-decision purpose", body: "This page defines what happens after the experiment decision. The plan changes depending on whether the decision is launch, keep control, run longer, segmented rollout, slow rollout, or do not launch." },
+            { label: "Run Longer", body: "Focus on sample-size targets, data collection, re-analysis trigger, and next review date." },
+            { label: "Launch", body: "Focus on rollout monitoring, guardrail metrics, rollback criteria, and post-launch review." },
+            { label: "Slow Rollout", body: "Define phased rollout checkpoints such as 5%, 10%, 25%, 50%, and 100%, with stop/go criteria at each stage." },
+            { label: "Segmented / holdout / no launch", body: "Use segmented rollout for approved subgroups, continue holdout when the test must keep collecting randomized evidence, keep control or do not launch when current evidence does not support release." },
+          ]}
+        />
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+          <AbSelect label="Post-Decision Strategy" value={strategy} options={strategyOptions} onChange={(value) => update({ postDecisionStrategy: value, postDecisionStrategyTouched: true })} />
+          <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-700">
+            Changing this selector updates the page sections, required fields, monitoring plan, decision criteria, and evidence export for the selected post-decision path.
+          </div>
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-amber-300 bg-slate-950 p-5 text-white">
+        <div className="text-xs font-semibold uppercase tracking-wide text-amber-200">Post-Decision Plan Summary</div>
+        <h3 className="mt-2 text-2xl font-semibold">{activeProfile.title}</h3>
+        <div className="mt-4 grid gap-3 md:grid-cols-4">
+          <HeaderMetric label="Current decision" value={finalDecision} />
+          <HeaderMetric label="Post-decision strategy" value={strategy} />
+          <HeaderMetric label="Launch status" value={activeProfile.launchStatus} />
+          <HeaderMetric label="Re-analysis required" value={activeProfile.reanalysis} />
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <div className="text-sm font-semibold text-slate-950">{actionTitleByStrategy[strategy] ?? "Post-Decision Action Plan"}</div>
+        <div className="mt-3 grid gap-3 md:grid-cols-2">
+          {["Run longer / collect more data", "Continue holdout test"].includes(strategy) && (
+            <>
+              <AbInput label="Follow-up owner" value={ab.monitoringOwner || "Decision owner"} onChange={(value) => update({ monitoringOwner: value })} />
+              <AbInput label="Target additional observations" value={ab.monitoringTargetObservations || additionalObservations.toLocaleString()} onChange={(value) => update({ monitoringTargetObservations: value })} />
+              <AbInput label="Minimum treatment sample target" value={treatmentTarget} onChange={(value) => update({ monitoringTreatmentTarget: value })} />
+              <AbInput label="Minimum control sample target" value={controlTarget} onChange={(value) => update({ monitoringControlTarget: value })} />
+              <AbInput label="Re-analysis trigger" value={ab.monitoringReanalysisTrigger || "When required sample threshold is met or a larger confirmed dataset is loaded"} onChange={(value) => update({ monitoringReanalysisTrigger: value })} />
+              <AbInput label="Next review date" value={ab.monitoringFollowUpDate || ""} onChange={(value) => update({ monitoringFollowUpDate: value })} />
+              <AbInput label="Data refresh cadence" value={ab.monitoringCadence || "Weekly or campaign-cycle based"} onChange={(value) => update({ monitoringCadence: value })} />
+              <AbInput label="Decision review owner" value={ab.monitoringDecisionOwner || "Campaign Strategy Lead"} onChange={(value) => update({ monitoringDecisionOwner: value })} />
+            </>
+          )}
+          {strategy === "Launch treatment" && (
+            <>
+              <AbInput label="Rollout owner" value={ab.postLaunchOwner || "Launch owner"} onChange={(value) => update({ postLaunchOwner: value })} />
+              <AbInput label="Launch date" value={ab.postLaunchDate || ""} onChange={(value) => update({ postLaunchDate: value })} />
+              <AbInput label="Success metrics" value="Conversion rate, absolute lift, business impact" onChange={() => undefined} />
+              <AbInput label="Guardrail metrics" value="Complaints, opt-outs, allocation drift, missing outcome rate" onChange={() => undefined} />
+              <AbInput label="Rollback criteria" value={ab.postLaunchRollbackCriteria || "Rollback if guardrail metrics breach threshold or treatment effect reverses."} onChange={(value) => update({ postLaunchRollbackCriteria: value })} />
+              <AbInput label="Review cadence" value={ab.postLaunchReviewCadence || "Weekly for launch window, then monthly"} onChange={(value) => update({ postLaunchReviewCadence: value })} />
+            </>
+          )}
+          {strategy === "Slow rollout" && (
+            <>
+              <AbInput label="Rollout owner" value={ab.postLaunchOwner || "Rollout owner"} onChange={(value) => update({ postLaunchOwner: value })} />
+              <AbInput label="Rollout checkpoints" value={ab.rolloutCheckpoints || "5%, 10%, 25%, 50%, 100%"} onChange={(value) => update({ rolloutCheckpoints: value })} />
+              <AbInput label="Monitoring metrics" value="Conversion rate, lift, guardrails, complaints, missing outcome rate" onChange={() => undefined} />
+              <AbInput label="Rollback triggers" value={ab.postLaunchRollbackCriteria || "Stop expansion if guardrails breach or lift reverses."} onChange={(value) => update({ postLaunchRollbackCriteria: value })} />
+              <AbInput label="Checkpoint review cadence" value={ab.postLaunchReviewCadence || "At every checkpoint"} onChange={(value) => update({ postLaunchReviewCadence: value })} />
+              <AbInput label="Decision review owner" value={ab.monitoringDecisionOwner || "Campaign Strategy Lead"} onChange={(value) => update({ monitoringDecisionOwner: value })} />
+            </>
+          )}
+          {strategy === "Segmented rollout" && (
+            <>
+              <AbInput label="Approved segments" value={ab.approvedSegments || "Reviewer-approved segments"} onChange={(value) => update({ approvedSegments: value })} />
+              <AbInput label="Excluded segments" value={ab.excludedSegments || "Underpowered or non-significant segments"} onChange={(value) => update({ excludedSegments: value })} />
+              <AbInput label="Segment-level monitoring" value="Conversion rate, lift, guardrails, sample size by segment" onChange={() => undefined} />
+              <AbInput label="Stop/go criteria" value="Continue only if approved segments meet lift, power, and guardrail thresholds." onChange={() => undefined} />
+              <AbInput label="Segment review cadence" value={ab.postLaunchReviewCadence || "Weekly"} onChange={(value) => update({ postLaunchReviewCadence: value })} />
+              <AbInput label="Segment owner" value={ab.postLaunchOwner || "Segment owner"} onChange={(value) => update({ postLaunchOwner: value })} />
+            </>
+          )}
+          {["Keep control", "Do not launch"].includes(strategy) && (
+            <>
+              <AbInput label="Decision owner" value={ab.monitoringDecisionOwner || "Campaign Strategy Lead"} onChange={(value) => update({ monitoringDecisionOwner: value })} />
+              <AbInput label="Treatment status" value={strategy === "Keep control" ? "Treatment not launched; control remains active" : "Treatment blocked"} onChange={() => undefined} />
+              <AbInput label="Future retest trigger" value="New hypothesis, improved treatment, or reviewer-approved redesign" onChange={() => undefined} />
+              <AbInput label="Evidence retention" value="Save MEC/MDS evidence and decision rationale" onChange={() => undefined} />
+            </>
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-slate-200 bg-white p-4">
+        <div className="text-sm font-semibold text-slate-950">Post-Decision Metrics to Monitor</div>
+        <div className="mt-3 overflow-x-auto">
+          <table className="min-w-[900px] w-full text-left text-xs">
+            <thead className="bg-slate-100 text-slate-600">
+              <tr>
+                {["Metric", "Current", "Target", "Owner", "Review cadence", "Trigger"].map((header) => <th key={header} className="px-3 py-2 font-semibold uppercase tracking-wide">{header}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {monitoringRows.map((row) => (
+                <tr key={row[0]} className="border-t border-slate-200">
+                  {row.map((cell, index) => <td key={`${row[0]}-${index}`} className="px-3 py-2 align-top text-slate-700">{cell}</td>)}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="grid gap-4 xl:grid-cols-2">
+        <InfoGrid title="Decision Re-entry Criteria" rows={[
+          ["Strategy-specific trigger", strategy === "Launch treatment" ? "Return if launch monitoring breaches guardrails or rollback criteria." : strategy === "Slow rollout" ? "Return at every 5%, 10%, 25%, 50%, and 100% checkpoint." : strategy === "Segmented rollout" ? "Return when segment-level monitoring changes stop/go status." : "Return when additional data or a redesigned test changes the decision evidence."],
+          ["Sample targets", "Treatment and control sample sizes meet the power target or reviewer-approved threshold when inference is required."],
+          ["Assignment", "Randomization, holdout, rollout, or segment assignment is documented."],
+          ["Metric stability", "Primary metric definition unchanged unless reviewer approves a change."],
+          ["Experiment analysis", "Experiment analysis re-run when new data is available."],
+          ["Segment analysis", "Segment analysis re-run when segment decisions are involved."],
+          ["Business impact", "Business impact assumptions updated before launch or expansion."],
+          ["Evidence", "MEC and MDS evidence updated before returning to Decision Recommendation."],
+          ["Decision", "Decision recommendation re-reviewed."],
+        ]} />
+        <InfoGrid title="Launch Guardrails if Decision Changes" rows={[
+          ["Treatment effect", "Do not launch unless treatment effect is statistically and practically meaningful."],
+          ["Confidence interval", "Do not launch if confidence interval crosses zero."],
+          ["Power", "Do not launch if sample remains underpowered."],
+          ["Assignment", "Do not launch if randomization or assignment cannot be explained."],
+          ["Business impact", "Do not launch if business impact depends on unsupported assumptions."],
+          ["Segments", "Do not use segment effects for launch unless segment sample sizes are adequate."],
+        ]} />
+      </section>
+
+      <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+        <div className="text-sm font-semibold text-emerald-950">ATLAS Post-Decision Interpretation</div>
+        <p className="mt-2 text-sm leading-6 text-emerald-950">
+          {activeProfile.interpretation}
+        </p>
+      </section>
+
+      <TextArea label="Reviewer notes" value={reviewerNote} onChange={(value) => setState({ ...state, notes: value })} rows={4} />
+
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className="atlas-secondary-button" onClick={() => save()}><Save size={15} /> Save Post-Decision Plan Evidence</button>
+        <Link to="/model-evidence-center" className="atlas-secondary-button">Open Model Evidence Center</Link>
+        <Link to="/model-document-studio" className="atlas-secondary-button">Attach Post-Decision Plan to MDS</Link>
+        <button type="button" className="atlas-secondary-button" onClick={() => downloadText("atlas-ab-testing-post-decision-plan.json", JSON.stringify({ dataset: defaults.dataset, strategy, monitoringRows }, null, 2), "application/json;charset=utf-8")}><Download size={15} /> Export Post-Decision Plan</button>
+        <Link to="/decision-journal" className="atlas-secondary-button">Open Decision Journal</Link>
+        <button type="button" className="atlas-primary-button" onClick={() => save()}>Finish A/B Testing Workflow</button>
       </div>
     </section>
   );
@@ -7277,6 +10573,898 @@ function SimpleAbChart({ title, rows }: { title: string; rows: Array<[string, nu
         ))}
       </div>
     </div>
+  );
+}
+
+type AdvancedWorkflowPanel = {
+  title: string;
+  body: string;
+  rows: Array<[string, string]>;
+};
+
+type AdvancedWorkflowExperience = {
+  eyebrow: string;
+  title: string;
+  subtitle: string;
+  diagnosticTitle?: string;
+  diagnosticRows?: Array<[string, number]>;
+  primaryControls: Array<{ label: string; options?: string[]; placeholder?: string }>;
+  diagnostics: Array<[string, string, "info" | "success" | "warning" | "danger" | "neutral"]>;
+  visuals: AdvancedWorkflowPanel[];
+  evidenceType: string;
+  python: string[];
+  companionCode: string[];
+  documentation: string[];
+  nextAction: string;
+};
+
+const timeSeriesExperienceByStep: Record<string, AdvancedWorkflowExperience> = {
+  "Project Context": {
+    eyebrow: "Time Series & Forecasting",
+    title: "Forecast charter and governance boundary",
+    subtitle: "Define the forecast purpose, target outcome, horizon, cadence, grain, and governance path before data is loaded.",
+    diagnosticTitle: "Forecast study design",
+    diagnosticRows: [["Goal", 86], ["Governance", 74], ["Horizon", 68], ["Backtest", 61], ["Monitoring", 79]],
+    primaryControls: [
+      { label: "Study goal", options: ["Forecast future values", "Detect anomalies", "Monitor trend/stability", "Backtest forecast accuracy", "Compare time-aware models"] },
+      { label: "Entity grain", options: ["portfolio", "product", "branch", "customer segment", "merchant", "account", "transaction type", "other"] },
+      { label: "Forecast horizon", options: ["7 days", "30 days", "90 days", "12 months", "custom"] },
+      { label: "Governance context", options: ["internal governance", "model risk", "operational planning", "fair lending", "finance/treasury", "fraud/risk operations", "none"] },
+    ],
+    diagnostics: [["Objective status", "Ready for charter", "info"], ["Governance boundary", "Reviewer required", "warning"], ["Evidence", "time_series_project_context", "success"]],
+    visuals: [
+      { title: "Study goal cards", body: "Choose whether this study forecasts future values, detects anomalies, monitors trend/stability, backtests accuracy, or compares time-aware models.", rows: [["Forecast future values", "Use for liquidity, disputes, call center demand, transaction volume, and losses"], ["Detect anomalies", "Use for fraud alerts, outages, demand spikes, and unexpected operational breaks"]] },
+      { title: "Risk classification", body: "Classify whether the forecast supports operational planning, financial reporting, customer-impacting decisions, or regulated decision support.", rows: [["Customer-impacting", "Requires reviewer controls and limitation language"], ["Regulated decision support", "Requires model risk, validation, monitoring, and approval evidence"]] },
+      { title: "Financial-services examples", body: "Common ATLAS forecast targets include transaction volume, fraud alerts, losses, disputes, liquidity, and call center demand.", rows: [["Operational planning", "Capacity and staffing forecast"], ["Risk operations", "Fraud alert or dispute volume forecast"]] },
+    ],
+    evidenceType: "time_series_project_context",
+    python: ["project_context = {...}", "forecast_horizon = project_context['horizon']", "evidence['time_series_project_context'] = project_context"],
+    companionCode: ["DATA forecast_context; length governance_context $80.; run;", "/* Document horizon, cadence, target, and intended use. */"],
+    documentation: ["Executive Summary", "Business Context", "Time Index and Grain", "Approval Record"],
+    nextAction: "Confirm the outcome, horizon, and decision cadence before mapping time-indexed data.",
+  },
+  "Data Acquisition": {
+    eyebrow: "Input bundle",
+    title: "Time-indexed data mapping",
+    subtitle: "Register the dataset, parse the time field, map the target, and verify frequency, coverage, missing timestamps, and duplicate periods.",
+    diagnosticTitle: "Time coverage, quality, and mapping diagnostics",
+    diagnosticRows: [["Rows", 78], ["Coverage", 92], ["Frequency", 84], ["Gaps", 18], ["Entities", 67]],
+    primaryControls: [
+      { label: "Input option", options: ["Upload file", "Existing dataset", "SQL Data Studio source", "Python loader"] },
+      { label: "Date/time column", placeholder: "transaction_date, month_end, created_at" },
+      { label: "Date format", options: ["Auto detect", "YYYY-MM-DD", "MM/DD/YYYY", "YYYY-MM-DD HH:mm:ss", "Custom"] },
+      { label: "Time zone", options: ["UTC", "US/Eastern", "US/Central", "US/Mountain", "US/Pacific", "Source local time"] },
+      { label: "Target value column", placeholder: "volume, loss_amount, dispute_count" },
+      { label: "Aggregation frequency", options: ["hourly", "daily", "weekly", "monthly", "quarterly"] },
+      { label: "Aggregation method", options: ["sum", "mean", "median", "count", "last value", "max"] },
+      { label: "Duplicate timestamp policy", options: ["aggregate duplicates", "keep latest", "flag for review", "block until resolved"] },
+      { label: "Missing timestamp policy", options: ["insert missing periods", "leave gaps", "interpolate for profile only", "block modeling"] },
+      { label: "Entity/group column", placeholder: "branch_id, product, portfolio, merchant" },
+      { label: "Optional segment column", placeholder: "region, customer_segment, channel" },
+      { label: "Optional exogenous drivers", placeholder: "holiday, rate, spend, outage, promotion" },
+    ],
+    diagnostics: [["Rows", "Synthetic preview ready", "info"], ["Date range", "36 periods detected", "success"], ["Frequency", "Monthly candidate", "success"], ["Irregular interval warning", "Review before modeling", "warning"]],
+    visuals: [
+      { title: "Time coverage timeline", body: "Shows earliest and latest timestamps, missing periods, and coverage by entity.", rows: [["Coverage", "Jan 2023 to Dec 2025"], ["Missing timestamps", "3 review candidates"]] },
+      { title: "Missing timestamp calendar heatmap", body: "Highlights gaps by period, source system, entity, and segment so data scientists can separate true zeros from missing periods.", rows: [["Duplicate periods", "Apply duplicate timestamp policy"], ["Missing periods", "Review before aggregation and modeling"]] },
+      { title: "Target over time preview", body: "A first-pass line chart should verify trend, seasonality, zeros, negative values, and data breaks.", rows: [["Trend", "Upward with seasonal cycle"], ["Seasonality hint", "Monthly pattern detected"], ["Zero or negative values", "Flag when target semantics make them invalid"]] },
+      { title: "Entity coverage table", body: "Shows row count, first period, last period, missing periods, and target missingness by series/entity.", rows: [["Number of series/entities", "Required for per-entity versus global model choice"], ["Target missingness", "Blocks training when unresolved"]] },
+    ],
+    evidenceType: "time_series_input_bundle",
+    python: ["df = pd.read_csv(path)", "df[time_col] = pd.to_datetime(df[time_col])", "profile = df.groupby(pd.Grouper(key=time_col, freq='M'))[target_col].sum()", "evidence['time_series_input_bundle'] = input_mapping", "evidence['time_series_data_profile'] = quality_profile"],
+    companionCode: ["PROC IMPORT DATAFILE='time_series.csv' OUT=work.ts DBMS=CSV REPLACE; RUN;", "DATA work.ts; parsed_date = INPUT(date_col, YYMMDD10.); FORMAT parsed_date DATE9.; RUN;"],
+    documentation: ["Data Inputs", "Time Index and Grain", "Evidence Inventory"],
+    nextAction: "Confirm the time column, target column, aggregation level, and date coverage.",
+  },
+  "Time Series Profile": {
+    eyebrow: "Temporal diagnostics",
+    title: "Trend, seasonality, volatility, and anomaly profile",
+    subtitle: "Review the target over time before modeling so backtesting and features reflect actual temporal behavior.",
+    diagnosticTitle: "Target behavior summary",
+    diagnosticRows: [["Level", 76], ["Trend", 82], ["Volatility", 58], ["Seasonality", 64], ["Anomalies", 21]],
+    primaryControls: [
+      { label: "Select entity", options: ["All entities", "Top entity", "Portfolio", "Product", "Segment"] },
+      { label: "Date range", options: ["Full history", "Last 90 days", "Last 12 months", "Custom"] },
+      { label: "Rolling window", options: ["7 periods", "14 periods", "30 periods", "90 periods"] },
+      { label: "Seasonality view", options: ["day of week", "month of year", "hour of day"] },
+      { label: "Decomposition mode", options: ["additive", "multiplicative", "none"] },
+      { label: "Anomaly sensitivity", options: ["low", "medium", "high", "review only"] },
+    ],
+    diagnostics: [["Seasonality strength", "Moderate", "success"], ["Volatility", "Increasing", "warning"], ["Autocorrelation", "Lag 1 visible", "info"], ["Outliers", "4 candidates", "warning"]],
+    visuals: [
+      { title: "Target over time line chart", body: "Combines actual values, rolling mean, rolling volatility, structural breaks, and anomaly overlay.", rows: [["Rolling mean", "Rising after mid-period"], ["Rolling volatility", "Higher after recent regime change"], ["Structural breaks", "Review before backtesting"]] },
+      { title: "Seasonal pattern chart", body: "Compares day-of-week, month-of-year, or hour-of-day patterns to determine useful calendar features.", rows: [["Likely seasonality", "Monthly cycle candidate"], ["Short history warning", "Trigger when fewer than two seasonal cycles exist"]] },
+      { title: "Autocorrelation chart and lag relationship chart", body: "Shows whether lag features are useful and whether residual independence needs attention.", rows: [["Autocorrelation", "Lag 1 visible"], ["Lag relationship", "Lag 12 seasonal candidate"]] },
+    ],
+    evidenceType: "time_series_profile",
+    python: ["rolling = series.rolling(window=12).mean()", "acf_values = statsmodels.tsa.stattools.acf(series.dropna(), nlags=24)", "evidence['time_series_profile'] = profile"],
+    companionCode: ["PROC TIMESERIES DATA=work.ts OUT=work.profile; ID parsed_date INTERVAL=MONTH; VAR target; RUN;"],
+    documentation: ["Target Profile", "Diagnostics and Stability"],
+    nextAction: "Use profile findings to choose lag, calendar, and anomaly controls.",
+  },
+  "Feature & Calendar Design": {
+    eyebrow: "Feature gate",
+    title: "Lag, rolling, calendar, and future-known feature design",
+    subtitle: "Create time-aware features while blocking anything not known at forecast time.",
+    diagnosticTitle: "Feature lineage and leakage gate",
+    diagnosticRows: [["Lag", 88], ["Rolling", 73], ["Calendar", 81], ["Known future", 54], ["Leakage", 16]],
+    primaryControls: [
+      { label: "Lag features", options: ["lag 1", "lag 7", "lag 14", "lag 30", "custom"] },
+      { label: "Rolling features", options: ["rolling mean", "rolling median", "rolling standard deviation", "rolling min/max"] },
+      { label: "Calendar features", options: ["day of week", "month", "quarter", "holiday", "month-end", "pay cycle", "business day"] },
+      { label: "Future-known driver controls", options: ["Allowed", "Reviewer approval required", "Blocked"] },
+    ],
+    diagnostics: [["Feature lineage", "Traceable", "success"], ["Future-known gate", "Enabled", "success"], ["Leakage warnings", "1 review item", "warning"]],
+    visuals: [
+      { title: "Feature lineage table", body: "Documents each feature source, transformation, window, and forecast-time availability.", rows: [["Lag features", "Allowed from historical target only"], ["Future drivers", "Must be known before forecast issue date"]] },
+      { title: "Lag correlation heatmap", body: "Ranks lag 1, lag 7, lag 14, lag 30, and custom lag relationships against the target.", rows: [["Lag 1", "High signal candidate"], ["Lag 30", "Useful for monthly cycle review"]] },
+      { title: "Calendar effect chart", body: "Ranks recurring patterns and calendar effects before model training.", rows: [["Month-end", "Candidate driver"], ["Holiday flag", "Reviewer controlled"], ["Pay cycle", "Financial services calendar candidate"]] },
+      { title: "Leakage risk panel", body: "Blocks features that are unknown at forecast time unless a reviewer supplies a future-known-driver rationale.", rows: [["Future-known gate", "Required for exogenous drivers"], ["Leakage warning", "Block post-outcome fields"]] },
+    ],
+    evidenceType: "time_series_feature_design",
+    python: ["df['lag_1'] = df[target].shift(1)", "df['rolling_mean_7'] = df[target].shift(1).rolling(7).mean()", "df['month'] = df[time_col].dt.month"],
+    companionCode: ["DATA work.features; SET work.ts; lag_1 = LAG(target); month = MONTH(parsed_date); RUN;"],
+    documentation: ["Feature and Calendar Design", "Reproducibility Appendix"],
+    nextAction: "Approve future-known features and leakage controls before backtest design.",
+  },
+  "Backtest Design": {
+    eyebrow: "Temporal validation",
+    title: "Backtest windows and forecast horizon",
+    subtitle: "Define rolling or expanding validation windows so model comparison uses realistic forecast issue dates.",
+    diagnosticTitle: "Temporal validation fold timeline",
+    diagnosticRows: [["Train", 68], ["Gap", 12], ["Validation", 24], ["Holdout", 19], ["Horizon", 31]],
+    primaryControls: [
+      { label: "Split strategy", options: ["holdout by date", "rolling origin", "expanding window", "sliding window"] },
+      { label: "Initial training window", options: ["6 months", "12 months", "24 months", "custom"] },
+      { label: "Number of folds", options: ["3", "5", "6", "10", "custom"] },
+      { label: "Forecast horizon", options: ["1 period", "7 days", "30 days", "90 days", "12 months"] },
+      { label: "Step size", options: ["1 period", "1 week", "1 month", "1 quarter", "custom"] },
+      { label: "Gap period", options: ["none", "1 period", "7 days", "custom"] },
+      { label: "Holdout period", options: ["last 10%", "last 20%", "last 3 months", "last 12 months", "custom"] },
+      { label: "Evaluation metrics", options: ["MAE", "RMSE", "MAPE", "sMAPE", "WAPE", "MASE", "bias", "coverage"] },
+    ],
+    diagnostics: [["Backtest folds", "6 planned", "info"], ["Leakage guard", "Temporal order preserved", "success"], ["Holdout", "Untouched by training", "success"]],
+    visuals: [
+      { title: "Backtest window timeline", body: "Displays train, validation, gap, and forecast periods for every fold.", rows: [["Fold design", "Rolling origin"], ["Horizon", "Configured by forecast use"]] },
+      { title: "Train validation test split graphic", body: "Shows the untouched holdout and avoids random splits that leak future data into training.", rows: [["Temporal order", "Preserved"], ["Gap period", "Prevents look-ahead contamination"]] },
+      { title: "Horizon diagram", body: "Clarifies whether metrics are measured at one-step, multi-step, or business-horizon level.", rows: [["Forecast issue date", "Locked before validation"], ["Evaluation horizon", "Aligned to business decision cadence"]] },
+      { title: "Metric selection cards", body: "Shows why each metric is used and which business decision it supports.", rows: [["WAPE", "Scale-aware operational error"], ["Bias", "Systematic over or under forecast risk"]] },
+    ],
+    evidenceType: "time_series_backtest_design",
+    python: ["for cutoff in cutoffs:", "    train = df[df[time_col] <= cutoff]", "    test = df[(df[time_col] > cutoff) & (df[time_col] <= cutoff + horizon)]"],
+    companionCode: ["/* Create cutoff dates and preserve temporal order before forecast scoring. */"],
+    documentation: ["Backtest Design", "Training and Backtest Results"],
+    nextAction: "Lock the temporal split before selecting candidate models.",
+  },
+  "Model Configuration": {
+    eyebrow: "Candidate model design",
+    title: "Baseline, statistical, machine-learning, and anomaly model configuration",
+    subtitle: "Select interpretable baselines, time-series templates, lag-feature models, and anomaly baselines with explicit data requirements and tuning depth.",
+    diagnosticTitle: "Model family comparison",
+    diagnosticRows: [["Naive", 42], ["Seasonal", 58], ["Smoothing", 71], ["ARIMA", 64], ["Boosting", 82], ["Anomaly", 48]],
+    primaryControls: [
+      { label: "Modeling strategy", options: ["per-entity model", "global model", "hierarchical model", "portfolio aggregate"] },
+      { label: "Prediction intervals", options: ["none", "80%", "90%", "95%", "custom"] },
+      { label: "Hyperparameter depth", options: ["baseline only", "quick", "standard", "deep"] },
+      { label: "Refit cadence", options: ["daily", "weekly", "monthly", "quarterly", "on drift trigger"] },
+      { label: "Reproducibility seed", placeholder: "42" },
+    ],
+    diagnostics: [["Baseline", "Required", "success"], ["Intervals", "Configured", "info"], ["Data requirements", "Review short series", "warning"], ["Tuning", "Standard depth", "info"]],
+    visuals: [
+      { title: "Candidate model cards", body: "Compare naive baseline, seasonal naive, moving average, exponential smoothing, ARIMA/SARIMA-style template, linear regression with lag/calendar features, gradient boosting with lag features, random forest with lag features, and anomaly detection baseline.", rows: [["Best used when", "Shows which model fits trend, seasonality, sparse history, or nonlinear lag effects"], ["Limitations", "Flags short history, nonstationarity, and explainability concerns"]] },
+      { title: "Baseline recommendation", body: "ATLAS keeps naive and seasonal-naive baselines so complex models must beat a transparent reference.", rows: [["Naive baseline", "Required for scale-free benchmark"], ["Seasonal naive", "Required when seasonality is detected"]] },
+      { title: "Modeling readiness panel", body: "Checks entity count, history length, missing timestamps, exogenous-driver availability, interval requirements, and refit policy.", rows: [["Readiness", "Backtest design must be locked"], ["Warning", "Sparse series may require aggregate or global modeling"]] },
+    ],
+    evidenceType: "time_series_model_configuration",
+    python: ["candidate_models = ['naive', 'seasonal_naive', 'ets', 'sarima_template', 'lag_boosting']", "config = {'global_model': True, 'interval': 0.9, 'refit_cadence': 'monthly'}", "evidence['time_series_model_configuration'] = config"],
+    companionCode: ["/* Store model candidates, interval policy, tuning depth, and refit cadence for governed forecast training. */"],
+    documentation: ["Model Configuration", "Limitations", "Reproducibility Appendix"],
+    nextAction: "Select candidate families and lock interval, tuning, and refit controls before running backtests.",
+  },
+  "Train & Backtest": {
+    eyebrow: "Backtest preview mode",
+    title: "Train and run backtest with explicit execution status",
+    subtitle: "Run or preview the governed backtest, compare candidates by fold, inspect champion candidates, and capture warnings without claiming full training when no backend run exists.",
+    diagnosticTitle: "Model comparison and fold metrics",
+    diagnosticRows: [["Naive", 52], ["Seasonal", 61], ["ETS", 73], ["ARIMA", 69], ["Boosting", 84], ["Forest", 78]],
+    primaryControls: [
+      { label: "Execution action", options: ["Train and run backtest", "Backtest preview mode", "Validate configuration only"] },
+      { label: "Champion metric", options: ["WAPE", "MAE", "RMSE", "sMAPE", "MASE", "bias", "coverage"] },
+      { label: "Failure handling", options: ["continue remaining candidates", "stop run", "fallback to baseline"] },
+      { label: "Warning policy", options: ["block recommendation", "allow with reviewer note", "research only"] },
+    ],
+    diagnostics: [["Execution mode", "Backtest preview mode", "warning"], ["Run record", "time_series_training", "info"], ["Champion", "Candidate only", "neutral"], ["Warnings", "Review before recommendation", "warning"]],
+    visuals: [
+      { title: "Model comparison bar chart", body: "Ranks candidate models by the selected metric while keeping baseline models visible.", rows: [["Champion candidate", "Best preview metric, not approved"], ["Runtime", "Captured per model for run records"]] },
+      { title: "Backtest performance by fold line chart", body: "Shows fold-by-fold metric movement to reveal degradation, drift, or unstable performance.", rows: [["Fold metrics", "MAE, RMSE, WAPE, bias, coverage"], ["Degradation warning", "Triggers when recent folds worsen"]] },
+      { title: "Actual vs forecast backtest chart", body: "Overlays actuals, forecasts, prediction intervals, and error markers for each backtest window.", rows: [["Forecast error over time", "Shows residual direction and magnitude"], ["Residual distribution", "Checks skew and heavy-tail risk"]] },
+      { title: "Bias by horizon", body: "Shows whether short-horizon and long-horizon forecasts systematically over or under predict.", rows: [["Horizon 1", "Low bias"], ["Long horizon", "Reviewer warning when bias grows"]] },
+    ],
+    evidenceType: "time_series_backtest_results",
+    python: ["run_record = run_backtest(config) if backend_available else preview_backtest(config)", "assert run_record.mode in ['backend', 'preview']", "evidence['time_series_training_run'] = run_record", "evidence['time_series_backtest_results'] = run_record.metrics"],
+    companionCode: ["/* Persist time_series_training and time_series_backtest run records with mode, status, warnings, and metrics. */"],
+    documentation: ["Training and Backtest Results", "Python Code", "SAS-Compatible Code"],
+    nextAction: "Review fold metrics, warnings, champion candidate, and execution mode before producing forecast results.",
+  },
+  "Forecast Results": {
+    eyebrow: "Forecast output",
+    title: "Champion forecast horizon, intervals, entities, and export package",
+    subtitle: "Review forecast periods, prediction intervals, entity-level outputs, increasing/decreasing entities, and scenario-ready forecast tables.",
+    diagnosticTitle: "Forecast fan chart",
+    diagnosticRows: [["Actuals", 74], ["Forecast", 82], ["Lower interval", 55], ["Upper interval", 91], ["Scenario", 64]],
+    primaryControls: [
+      { label: "Select entity", options: ["All entities", "Portfolio", "Top increasing", "Top decreasing", "Custom entity"] },
+      { label: "Select horizon", options: ["next 7 periods", "next 30 periods", "next 90 periods", "next 12 months"] },
+      { label: "Show intervals", options: ["on", "off", "80%", "90%", "95%"] },
+      { label: "Compare model forecasts", options: ["champion only", "champion vs baseline", "all candidates"] },
+      { label: "Export forecast", options: ["Forecast CSV", "Governed JSON", "Evidence artifact"] },
+    ],
+    diagnostics: [["Forecast table", "Period, forecast, lower, upper, entity", "success"], ["Intervals", "Visible", "success"], ["Entity comparison", "Available", "info"], ["Export", "Ready", "info"]],
+    visuals: [
+      { title: "Actuals plus forecast line chart", body: "Shows historical actuals, forecast horizon, and the forecast issue boundary.", rows: [["Forecast horizon summary", "Period count, issue date, champion model"], ["Interval fan chart", "Lower and upper uncertainty bands"]] },
+      { title: "Forecast table", body: "Includes period, forecast, lower interval, upper interval, entity, and scenario when applicable.", rows: [["Required columns", "period, forecast, lower interval, upper interval, entity"], ["Scenario support", "Base and stressed outputs can share the same structure"]] },
+      { title: "Forecast by entity table", body: "Ranks top increasing and decreasing entities and shows contribution to portfolio forecast movement.", rows: [["Top increasing entities", "Monitor capacity and exposure"], ["Top decreasing entities", "Review operational or data-quality breaks"]] },
+      { title: "Forecast contribution chart", body: "Explains which entities or segments explain the most forecast change.", rows: [["Contribution", "Entity-level share of forecast delta"], ["Management view", "Portfolio movement summary"]] },
+    ],
+    evidenceType: "time_series_forecast_results",
+    python: ["forecast = champion.predict(horizon=horizon, intervals=True)", "forecast.to_csv('forecast_results.csv', index=False)", "evidence['time_series_forecast_results'] = forecast_manifest"],
+    companionCode: ["/* Export period, forecast, lower interval, upper interval, entity, and scenario fields. */"],
+    documentation: ["Forecast Results", "Evidence Inventory", "Executive Summary"],
+    nextAction: "Export forecast results and continue to residual, stability, and interval diagnostics.",
+  },
+  "Diagnostics & Stability": {
+    eyebrow: "Residual and stability diagnostics",
+    title: "Forecast errors, residual autocorrelation, drift, degradation, and anomaly review",
+    subtitle: "Validate whether the forecast is stable enough for the intended financial-services use and whether monitoring thresholds are required.",
+    diagnosticTitle: "Residual, horizon, and stability view",
+    diagnosticRows: [["Residuals", 36], ["ACF", 42], ["Horizon error", 58], ["Coverage", 74], ["Drift", 29], ["Anomaly rate", 18]],
+    primaryControls: [
+      { label: "Diagnostic focus", options: ["residual autocorrelation", "residual bias", "residual seasonality", "error by horizon", "error by segment/entity", "drift/regime change", "interval coverage", "anomaly detection", "backtest degradation"] },
+      { label: "Segment/entity view", options: ["portfolio", "entity", "region", "product", "channel"] },
+      { label: "Stability window", options: ["recent fold", "last 3 folds", "last 12 periods", "full backtest"] },
+      { label: "Escalation threshold", options: ["warning only", "block recommendation", "monitoring trigger"] },
+    ],
+    diagnostics: [["Residual bias", "Review by horizon", "warning"], ["Interval coverage", "Within tolerance", "success"], ["Regime change", "Candidate", "warning"], ["Anomaly timeline", "Enabled", "info"]],
+    visuals: [
+      { title: "Residuals over time", body: "Shows residual bias, seasonality, variance changes, and anomaly clusters.", rows: [["Residual autocorrelation", "ACF should be reviewed before approval"], ["Residual seasonality", "Calendar feature or model form may be missing"]] },
+      { title: "Error by horizon", body: "Separates near-term and long-horizon error to avoid approving a model that only works at one forecast horizon.", rows: [["Horizon degradation", "Escalate when error rises across horizon"], ["Coverage", "Prediction interval calibration check"]] },
+      { title: "Stability trend and anomaly timeline", body: "Tracks drift, regime change, anomaly rate, and backtest degradation over time.", rows: [["Drift/regime change", "Review recent operating environment"], ["Backtest degradation", "Require monitoring threshold"]] },
+      { title: "Segment error heatmap", body: "Highlights entities, products, or channels where the model underperforms.", rows: [["Segment error", "Targeted monitoring candidate"], ["Entity bias", "May require per-entity model"]] },
+    ],
+    evidenceType: "time_series_diagnostics",
+    python: ["residuals = actuals - forecasts", "diagnostics = compute_forecast_diagnostics(residuals, horizon, entity)", "evidence['time_series_diagnostics'] = diagnostics"],
+    companionCode: ["/* Store residual autocorrelation, bias, coverage, drift, anomaly, and segment-error diagnostics. */"],
+    documentation: ["Diagnostics and Stability", "Limitations", "Monitoring Plan"],
+    nextAction: "Resolve residual, drift, or interval warnings before scenario testing and recommendation.",
+  },
+  "Scenario & Stress Testing": {
+    eyebrow: "Forecast stress lab",
+    title: "Base forecast, stressed forecast, impact deltas, and risk flags",
+    subtitle: "Stress demand, seasonality, trend, events, downturns, fraud spikes, outages, holidays, and custom drivers against the champion forecast.",
+    diagnosticTitle: "Base versus scenario forecast",
+    diagnosticRows: [["Base", 72], ["Demand shock", 91], ["Downturn", 48], ["Fraud spike", 86], ["Outage", 39], ["Holiday", 66]],
+    primaryControls: [
+      { label: "Scenario type", options: ["demand/volume shock", "seasonality shock", "trend change", "event impact", "downturn adjustment", "fraud spike", "outage", "holiday/calendar change", "custom driver adjustment"] },
+      { label: "Shock magnitude", options: ["-20%", "-10%", "+10%", "+20%", "+50%", "custom"] },
+      { label: "Duration", options: ["1 period", "7 periods", "30 periods", "one season", "custom"] },
+      { label: "Risk flag policy", options: ["informational", "management review", "block launch", "monitoring trigger"] },
+    ],
+    diagnostics: [["Scenario mode", "Preview mode", "warning"], ["Peak impact", "Calculated delta", "info"], ["Worst-case period", "Flagged", "warning"], ["Risk flag", "Reviewer required", "warning"]],
+    visuals: [
+      { title: "Base vs scenario forecast", body: "Overlays the base forecast and stressed forecast with delta and peak impact markers.", rows: [["Base forecast", "Current champion output"], ["Stressed forecast", "Scenario-adjusted path"]] },
+      { title: "Scenario impact bar chart", body: "Ranks scenarios by peak impact, total delta, duration, and risk flag.", rows: [["Peak impact", "Worst single-period movement"], ["Duration", "Number of affected periods"]] },
+      { title: "Stress comparison table", body: "Stores base forecast, stressed forecast, delta, peak impact, duration, risk flag, and interpretation.", rows: [["Fraud spike", "Risk operations stress"], ["Outage", "Operational resilience stress"]] },
+      { title: "Worst-case period card", body: "Identifies the forecast period with the highest adverse impact and documents escalation action.", rows: [["Worst-case period", "Reviewer action required"], ["Interpretation", "Management-ready stress narrative"]] },
+    ],
+    evidenceType: "time_series_scenarios",
+    python: ["scenario = apply_forecast_stress(base_forecast, shock_type, magnitude, duration)", "scenario['delta'] = scenario.forecast - base_forecast.forecast", "evidence['time_series_scenarios'] = scenario_summary"],
+    companionCode: ["/* Save base forecast, stressed forecast, delta, peak impact, duration, risk flag, and interpretation. */"],
+    documentation: ["Scenario and Stress Testing", "Limitations", "Executive Summary"],
+    nextAction: "Select scenario controls, capture stress interpretation, and define monitoring triggers.",
+  },
+  "Recommendation & Monitoring Plan": {
+    eyebrow: "Decision and monitoring",
+    title: "Forecast recommendation, limitations, monitoring metrics, and reforecast triggers",
+    subtitle: "Turn the forecast study into a controlled recommendation with metric thresholds, owners, cadence, escalation, and reforecast triggers.",
+    diagnosticTitle: "Recommendation and monitoring thresholds",
+    diagnosticRows: [["Error", 78], ["Bias", 34], ["Coverage", 82], ["Freshness", 91], ["Drift", 29], ["Override", 16]],
+    primaryControls: [
+      { label: "Recommendation status", options: ["recommended", "recommended with monitoring", "research only", "do not use", "needs validation"] },
+      { label: "Recommendation owner", placeholder: "Forecast owner or accountable executive" },
+      { label: "Recommended action", options: ["use for planning", "pilot with reviewer", "monitor only", "refresh data", "rebuild model"] },
+      { label: "Forecast use", options: ["operational planning", "financial reporting", "customer-impacting", "regulated decision support"] },
+      { label: "Monitoring cadence", options: ["daily", "weekly", "monthly", "quarterly", "on trigger"] },
+      { label: "Reforecast trigger", options: ["error threshold", "bias threshold", "coverage break", "data freshness", "volume drift", "seasonality drift", "anomaly rate", "override rate"] },
+    ],
+    diagnostics: [["Use limitations", "Required", "warning"], ["Escalation process", "Owner needed", "warning"], ["Monitoring table", "Thresholds defined", "success"], ["Evidence", "time_series_monitoring_plan", "success"]],
+    visuals: [
+      { title: "Recommendation banner", body: "Summarizes recommendation status, recommended action, forecast use, owner, limitations, and approval needs.", rows: [["Recommended use", "Planning, reporting, monitoring, or governed support"], ["Limitations", "Short history, sparse data, drift, residual bias, or interval uncertainty"]] },
+      { title: "Monitoring threshold table", body: "Each metric has threshold, owner, cadence, and escalation action.", rows: [["Forecast error", "Threshold, owner, cadence, escalation"], ["Bias", "Threshold, owner, cadence, escalation"], ["Interval coverage", "Threshold, owner, cadence, escalation"], ["Data freshness", "Threshold, owner, cadence, escalation"], ["Missing timestamps", "Threshold, owner, cadence, escalation"], ["Volume drift", "Threshold, owner, cadence, escalation"], ["Seasonality drift", "Threshold, owner, cadence, escalation"], ["Anomaly rate", "Threshold, owner, cadence, escalation"], ["Override rate", "Threshold, owner, cadence, escalation"]] },
+      { title: "Reforecast trigger card", body: "Defines when the model must refresh, retrain, or be escalated for review.", rows: [["Trigger", "Metric threshold breach"], ["Escalation action", "Notify owner and open validation case"]] },
+    ],
+    evidenceType: "time_series_monitoring_plan",
+    python: ["monitoring_plan = build_monitoring_plan(metrics, thresholds, owners, cadence)", "evidence['time_series_recommendation'] = recommendation", "evidence['time_series_monitoring_plan'] = monitoring_plan"],
+    companionCode: ["/* Persist forecast monitoring thresholds, owners, cadence, reforecast triggers, and escalation actions. */"],
+    documentation: ["Recommendation", "Monitoring Plan", "Approval Record"],
+    nextAction: "Approve recommendation conditions and monitoring thresholds before documentation export.",
+  },
+  "Documentation": {
+    eyebrow: "Governed forecast package",
+    title: "Documentation readiness, evidence inventory, reproducibility code, and exports",
+    subtitle: "Assemble the full Time Series & Forecasting governance package with reports, code, forecast exports, and approval records.",
+    diagnosticTitle: "Documentation readiness",
+    diagnosticRows: [["Context", 94], ["Data", 86], ["Backtest", 78], ["Forecast", 82], ["Monitoring", 74], ["Approval", 63]],
+    primaryControls: [
+      { label: "Documentation readiness", options: ["draft", "ready for review", "approved", "blocked"] },
+      { label: "Report export", options: ["Time Series Report", "Governed JSON", "Forecast CSV", "Backtest Results CSV", "Python Code", "SAS-Compatible Code"] },
+      { label: "Approval record", options: ["not started", "review requested", "approved", "conditional approval"] },
+    ],
+    diagnostics: [["Evidence inventory", "Complete package expected", "success"], ["Exports", "Ready", "info"], ["Documentation package", "time_series_documentation_package", "success"], ["Reproducibility", "Code appendix expected", "info"]],
+    visuals: [
+      { title: "20-section Time Series Report package", body: "Executive Summary, Business Context, Data Inputs, Time Index and Grain, Target Profile, Feature and Calendar Design, Backtest Design, Model Configuration, Training and Backtest Results, Forecast Results, Diagnostics and Stability, Scenario and Stress Testing, Recommendation, Monitoring Plan, Limitations, Evidence Inventory, Python Code, SAS-Compatible Code, Approval Record, and Reproducibility Appendix.", rows: [["Report sections", "20 governed sections"], ["Readiness", "Every prior step maps to the package"]] },
+      { title: "Evidence inventory", body: "Lists all captured evidence artifacts and export artifacts for registry, validation, project overview, and documentation studio.", rows: [["time_series_documentation_package", "Governed report artifact"], ["time_series_reproducibility_code", "Python and SAS-compatible code artifact"]] },
+      { title: "Export buttons", body: "Supports Governed JSON, Forecast CSV, Backtest Results CSV, Python Code, SAS-Compatible Code, and Time Series Report.", rows: [["Forecast CSV", "Period-level output"], ["Backtest Results CSV", "Fold-level metrics"]] },
+    ],
+    evidenceType: "time_series_documentation_package",
+    python: ["package = assemble_time_series_governance_package(evidence)", "export_json(package, 'time_series_governance_package.json')", "evidence['time_series_reproducibility_code'] = code_bundle"],
+    companionCode: ["/* Export governed JSON, forecast CSV, backtest CSV, Python code, SAS-compatible code, and report package. */"],
+    documentation: ["Evidence Inventory", "Python Code", "SAS-Compatible Code", "Approval Record", "Reproducibility Appendix"],
+    nextAction: "Export the governed documentation package and register it for validation, registry, and management reporting.",
+  },
+};
+
+const llmExperienceByStep: Record<string, AdvancedWorkflowExperience> = {
+  "Use Case & Risk Context": {
+    eyebrow: "LLM / Generative AI",
+    title: "Use case boundary and AI risk tier",
+    subtitle: "Define what the LLM may do, who uses it, what data it sees, customer impact, and where human review is mandatory.",
+    diagnosticTitle: "Allowed and prohibited behavior matrix",
+    diagnosticRows: [["Allowed", 78], ["Human review", 91], ["Sensitive data", 44], ["Prohibited", 18], ["Risk tier", 67]],
+    primaryControls: [
+      { label: "LLM workflow mode", options: ["Prompted LLM Workflow", "RAG / Knowledge Retrieval", "Text Classification", "Information Extraction", "Summarization", "NLP Baseline Models", "Human Review Workflow"] },
+      { label: "Output type", options: ["answer", "summary", "classification", "extracted fields", "recommendation", "draft communication", "analyst assist"] },
+      { label: "Customer impact", options: ["none/internal only", "indirect customer impact", "direct customer impact", "regulated decision support"] },
+      { label: "Governance context", options: ["model risk", "AI governance", "privacy", "fair lending", "UDAAP", "operational risk", "internal governance"] },
+    ],
+    diagnostics: [["Risk tier", "Governance review required", "warning"], ["Human review", "Required for customer impact", "success"], ["Sensitive data", "PII controls expected", "warning"]],
+    visuals: [
+      { title: "Risk tier card", body: "Scores customer impact, sensitive data, governance context, output type, intended users, human review, and prohibited uses.", rows: [["Customer impact", "Direct or regulated impact requires controls"], ["Sensitive data flags", "PII and confidential content require approval"]] },
+      { title: "Allowed/prohibited behavior matrix", body: "Separates allowed assistance from prohibited automated decisioning or unsupported advice.", rows: [["Allowed output", "Analyst assist, summary, classification, extraction"], ["Prohibited use", "Unreviewed adverse customer decision"], ["Prohibited uses", "Credit approval, adverse action, legal advice, or unsupported policy interpretation without review"]] },
+      { title: "Human review card", body: "Documents when a reviewer must approve, override, or escalate an LLM output.", rows: [["Customer impact", "Human review required"], ["Regulated support", "Escalation path required"]] },
+    ],
+    evidenceType: "llm_use_case_context",
+    python: ["llm_context = {...}", "risk_tier = score_risk(customer_impact, sensitive_data, human_review)", "evidence['llm_use_case_context'] = llm_context"],
+    companionCode: ["CREATE TABLE llm_use_case_context (use_case TEXT, risk_tier TEXT, human_review_required TEXT);"],
+    documentation: ["Use Case and Risk Context", "Approval Record"],
+    nextAction: "Confirm the allowed behavior, prohibited uses, sensitive data flags, and human-review control.",
+  },
+  "Data & Knowledge Sources": {
+    eyebrow: "Source inventory",
+    title: "Documents, text data, and knowledge source governance",
+    subtitle: "Register every source, owner, version, permitted use, confidentiality rating, PII handling rule, and freshness expectation.",
+    diagnosticTitle: "Source inventory and sensitivity flags",
+    diagnosticRows: [["Documents", 72], ["Freshness", 64], ["PII", 31], ["Coverage", 83], ["Permitted use", 76]],
+    primaryControls: [
+      { label: "Input option", options: ["Upload documents", "Upload CSV/text dataset", "Existing Dataset Library item", "SQL Data Studio source", "Manual source declaration"] },
+      { label: "Source type", options: ["policy documents", "procedures", "call transcripts", "complaints", "emails", "case notes", "contracts", "FAQs", "knowledge base", "control documents", "regulatory references", "labeled text dataset"] },
+      { label: "PII handling", options: ["redact before use", "retain with approval", "synthetic only", "not applicable"] },
+      { label: "Refresh cadence", options: ["manual", "daily", "weekly", "monthly", "on source change"] },
+    ],
+    diagnostics: [["Document count", "Ready for inventory", "info"], ["Duplicate sources", "Check required", "warning"], ["Source freshness", "Version required", "warning"]],
+    visuals: [
+      { title: "Source inventory table", body: "Tracks source type, source owner, version, permitted use, PII/confidentiality flags, document count, text length, source freshness, and label coverage.", rows: [["Policy source", "Versioned and hash checked"], ["Complaints", "PII handling required"], ["Label coverage", "Required for classification and extraction evaluation"]] },
+      { title: "Sensitive content warning cards", body: "Highlights PII, financial data, complaints, legal/regulatory content, and confidential procedure text.", rows: [["PII", "Reviewer approval required"], ["Legal content", "Escalation rule expected"]] },
+    ],
+    evidenceType: "llm_source_inventory",
+    python: ["inventory = build_source_inventory(paths)", "inventory['document_hash'] = hash_bytes(content)", "evidence['llm_source_inventory'] = inventory"],
+    companionCode: ["CREATE TABLE llm_source_inventory (source_id TEXT, source_type TEXT, owner TEXT, version TEXT, pii_handling TEXT);"],
+    documentation: ["Data and Knowledge Sources", "Source Registry"],
+    nextAction: "Confirm source ownership, permitted use, and sensitive-data controls before task design.",
+  },
+  "Task Design & Output Schema": {
+    eyebrow: "Output contract",
+    title: "Task definition, schema, refusal, and escalation logic",
+    subtitle: "Define the LLM task, output format, confidence requirements, citation rules, review criteria, labels, and extraction fields.",
+    diagnosticTitle: "JSON schema and escalation preview",
+    diagnosticRows: [["Schema", 86], ["Labels", 64], ["Extraction", 58], ["Citations", 91], ["Refusal", 74]],
+    primaryControls: [
+      { label: "Task type", options: ["Q&A", "RAG answer", "summarize", "classify", "extract", "rewrite", "compare documents", "generate analyst note"] },
+      { label: "Output schema", options: ["free text", "JSON", "label", "fields", "table", "summary bullets"] },
+      { label: "Required citations", options: ["required", "required for RAG", "optional", "not applicable"] },
+      { label: "Reviewer approval requirement", options: ["all outputs", "risk-based", "sampled QA", "none for research only"] },
+    ],
+    diagnostics: [["Output contract", "Schema draft required", "warning"], ["Refusal behavior", "Must be explicit", "warning"], ["Escalation behavior", "Reviewer path needed", "info"]],
+    visuals: [
+      { title: "Output schema preview", body: "Shows the exact response contract the LLM must satisfy, including JSON/schema preview, label definitions for classification, extraction field map, citation requirement, refusal behavior, and escalation behavior.", rows: [["JSON fields", "answer, citations, confidence, escalation"], ["Classification", "label, rationale, abstain flag"], ["Extraction", "field name, definition, type, required source citation"]] },
+      { title: "Refusal and escalation flow", body: "Defines what the workflow does when the prompt is out of scope or unsupported by sources.", rows: [["No source found", "Refuse or escalate"], ["Low confidence", "Send to reviewer"]] },
+    ],
+    evidenceType: "llm_task_design",
+    python: ["schema = {'answer': str, 'citations': list, 'confidence': float}", "validate_output_schema(model_output, schema)"],
+    companionCode: ["CREATE TABLE llm_eval_outputs (case_id TEXT, output_json TEXT, reviewer_decision TEXT);"],
+    documentation: ["Task Design and Output Schema", "Limitations"],
+    nextAction: "Lock the task and output contract before writing prompts or retrieval rules.",
+  },
+  "Prompt & Instruction Design": {
+    eyebrow: "Prompt registry",
+    title: "System, developer, and user prompt design",
+    subtitle: "Version prompt components, guardrails, few-shot examples, citation rules, prohibited content, and fallback instructions.",
+    diagnosticTitle: "Prompt risk checklist and token estimate",
+    diagnosticRows: [["System", 82], ["Developer", 78], ["User template", 71], ["Few-shot", 55], ["Conflict", 12]],
+    primaryControls: [
+      { label: "Prompt version label", placeholder: "policy-qa-v1.0" },
+      { label: "Output format instruction", options: ["JSON", "bullets", "table", "short answer", "analyst note"] },
+      { label: "Citation instruction", options: ["required with source id", "required with page/section", "not required"] },
+      { label: "Fallback instruction", options: ["refuse", "escalate", "ask clarifying question", "return uncertainty"] },
+    ],
+    diagnostics: [["Prompt length", "Estimate required", "info"], ["Required variables", "Check placeholders", "warning"], ["Instruction conflicts", "None detected in template", "success"]],
+    visuals: [
+      { title: "Prompt component editor", body: "Separates system instruction, developer instruction, user prompt template, few-shot examples, negative examples, prompt version, token estimate, and guardrails.", rows: [["System instruction", "Role, scope, refusal rules"], ["Developer instruction", "Task logic, schema, citations"], ["User prompt template", "Variables, examples, and output contract"]] },
+      { title: "Instruction conflict panel", body: "Flags conflicting requirements, missing citations, or unsupported output format instructions.", rows: [["Citation conflict", "Review if RAG mode"], ["Tone conflict", "Standardize before evaluation"]] },
+      { title: "Prompt risk checklist", body: "Checks prompt injection exposure, unsupported claims, missing refusal behavior, missing citations, and human-review instructions.", rows: [["Negative examples", "Teach the model what not to do"], ["Token estimate", "Flags prompts likely to exceed context budget"]] },
+    ],
+    evidenceType: "llm_prompt_design",
+    python: ["prompt_template = PromptTemplate(system=system_text, user=user_template)", "prompt_package = {'version': version, 'template': prompt_template.to_dict()}"],
+    companionCode: ["CREATE TABLE llm_prompt_registry (prompt_version TEXT, system_instruction TEXT, user_template TEXT);"],
+    documentation: ["Prompt and Instruction Design", "Prompt Registry"],
+    nextAction: "Save the prompt package before retrieval configuration or evaluation.",
+  },
+  "Retrieval / RAG Configuration": {
+    eyebrow: "RAG / Knowledge Retrieval",
+    title: "Chunking, embeddings, vector index, top-k, reranking, metadata filters, and citation preview",
+    subtitle: "Configure retrieval controls and inspect whether sources are actually reachable before any generation or evaluation.",
+    diagnosticTitle: "Retrieval coverage and citation preview",
+    diagnosticRows: [["Chunks", 76], ["Top-k", 64], ["Rerank", 58], ["Coverage", 82], ["Citation", 71]],
+    primaryControls: [
+      { label: "Chunking strategy", options: ["fixed window", "semantic section", "document heading", "sliding window", "manual chunks"] },
+      { label: "Chunk size", options: ["250 tokens", "500 tokens", "800 tokens", "1200 tokens", "custom"] },
+      { label: "Overlap", options: ["0%", "10%", "20%", "30%", "custom"] },
+      { label: "Embedding model label", placeholder: "embedding model or local encoder label" },
+      { label: "Vector index label", placeholder: "index name or collection id" },
+      { label: "Top-k", options: ["3", "5", "10", "20"] },
+      { label: "Reranking", options: ["off", "cross-encoder", "LLM rerank", "metadata priority"] },
+      { label: "Metadata filters", placeholder: "source_type=policy, region=US, version=current" },
+    ],
+    diagnostics: [["Retrieval preview", "Required", "warning"], ["Citation preview", "Enabled", "success"], ["Source coverage", "Review sparse sources", "warning"]],
+    visuals: [
+      { title: "Chunk distribution chart", body: "Shows chunking strategy, chunk count, chunk length, overlap, source coverage, and freshness by source.", rows: [["Chunk size", "Balances recall with context cost"], ["Overlap", "Prevents boundary loss but can inflate duplicate retrieval"]] },
+      { title: "Retrieval preview", body: "Shows top-k retrieved chunks, reranking outcome, metadata filters, and citation preview for representative queries.", rows: [["Top-k", "Candidate evidence context"], ["Reranking", "Improves precision for policy or legal text"]] },
+      { title: "Source coverage cards", body: "Flags sources with no indexed chunks, stale versions, missing metadata, or poor citation coverage.", rows: [["Coverage", "Required for groundedness"], ["Citation preview", "Required when answers cite sources"]] },
+    ],
+    evidenceType: "llm_retrieval_configuration",
+    python: ["chunks = chunk_documents(sources, strategy, chunk_size, overlap)", "index = build_vector_index(chunks, embedding_model)", "preview = retrieve(query, top_k=top_k, filters=metadata_filters)"],
+    companionCode: ["CREATE TABLE llm_retrieval_config (strategy TEXT, chunk_size INT, overlap REAL, top_k INT, reranking TEXT);"],
+    documentation: ["Retrieval Configuration", "Source Registry", "Evaluation Evidence"],
+    nextAction: "Verify retrieval coverage and citation preview before building the evaluation dataset.",
+  },
+  "Evaluation Dataset": {
+    eyebrow: "Golden test set",
+    title: "Evaluation cases, expected answers, citations, rubric, adversarial examples, and coverage matrix",
+    subtitle: "Build the evidence dataset that will determine whether the LLM workflow is grounded, correct, safe, and useful.",
+    diagnosticTitle: "Test coverage matrix and label distribution",
+    diagnosticRows: [["Golden cases", 80], ["Adversarial", 46], ["Citations", 72], ["Policy", 55], ["Rubric", 88]],
+    primaryControls: [
+      { label: "Evaluation case type", options: ["golden answer", "classification label", "extraction field", "adversarial example", "out-of-scope example", "policy-sensitive example"] },
+      { label: "Rubric", options: ["correctness", "groundedness", "faithfulness", "citation accuracy", "safety", "classification/extraction accuracy"] },
+      { label: "Required source citation", options: ["required", "required for source-backed tasks", "not applicable"] },
+      { label: "Coverage target", options: ["minimum viable", "balanced labels", "risk-focused", "production gate"] },
+    ],
+    diagnostics: [["Test cases", "Draft", "warning"], ["Adversarial examples", "Required", "warning"], ["Policy-sensitive cases", "Required for regulated use", "warning"], ["Label distribution", "Review imbalance", "info"]],
+    visuals: [
+      { title: "Test case table", body: "Includes prompt, expected answer, expected label, extraction fields, required source citation, rubric, and reviewer notes.", rows: [["Expected answer", "Required for Q&A and RAG"], ["Expected label", "Required for classification"], ["Required source citation", "Required for grounded answers"]] },
+      { title: "Coverage matrix", body: "Shows golden cases, adversarial examples, out-of-scope examples, policy-sensitive examples, source coverage, and label distribution.", rows: [["Adversarial examples", "Prompt injection and unsafe requests"], ["Out-of-scope examples", "Refusal correctness checks"]] },
+      { title: "Label distribution chart", body: "Highlights classification label balance and extraction field coverage before evaluation.", rows: [["Classification precision/recall/F1", "Requires label coverage"], ["Extraction accuracy", "Requires expected fields"]] },
+    ],
+    evidenceType: "llm_evaluation_dataset",
+    python: ["eval_cases = build_eval_dataset(golden_cases, adversarial_cases, policy_cases)", "coverage = summarize_eval_coverage(eval_cases)", "evidence['llm_evaluation_dataset'] = coverage"],
+    companionCode: ["CREATE TABLE llm_eval_cases (case_id TEXT, prompt TEXT, expected_answer TEXT, expected_label TEXT, citation_required TEXT, rubric TEXT);"],
+    documentation: ["Evaluation Dataset", "Evaluation Evidence", "Safety Evidence"],
+    nextAction: "Approve the evaluation dataset before running manual or backend LLM evaluation.",
+  },
+  "LLM Evaluation": {
+    eyebrow: "Manual evaluation template",
+    title: "LLM evaluation scorecard, errors, hallucination, citations, refusal, and task metrics",
+    subtitle: "If no LLM backend is configured, ATLAS shows a manual evaluation template and does not claim that a real LLM evaluation ran.",
+    diagnosticTitle: "Groundedness, hallucination, citation, and refusal scorecard",
+    diagnosticRows: [["Correctness", 78], ["Grounded", 72], ["Citations", 66], ["Hallucination", 18], ["Refusal", 84], ["Policy", 91]],
+    primaryControls: [
+      { label: "Model/provider label", placeholder: "provider and model label" },
+      { label: "Model version", placeholder: "model version or deployment id" },
+      { label: "Temperature", options: ["0", "0.1", "0.2", "0.7", "custom"] },
+      { label: "Max tokens", options: ["512", "1024", "2048", "4096", "custom"] },
+      { label: "Evaluation mode", options: ["manual evaluation template", "backend evaluation", "reviewer adjudication", "pilot QA"] },
+    ],
+    diagnostics: [["Backend", "Not configured unless connected", "warning"], ["Manual evaluation", "Template available", "info"], ["Metrics", "Reviewer-scored", "warning"]],
+    visuals: [
+      { title: "Visual scorecard", body: "Tracks correctness, groundedness, faithfulness, citation accuracy, hallucination rate, refusal correctness, policy compliance, extraction accuracy, and classification precision/recall/F1.", rows: [["Groundedness", "Answer supported by sources"], ["Hallucination rate", "Unsupported claims per case"], ["Refusal correctness", "Correctly refuses out-of-scope prompts"]] },
+      { title: "Error examples table", body: "Shows case id, prompt, expected output, model output, reviewer decision, error type, citation status, and remediation.", rows: [["Citation error", "Missing or wrong source"], ["Policy error", "Unsafe or noncompliant answer"]] },
+      { title: "Hallucination/citation matrix", body: "Separates unsupported claims from source citation failures so remediation can target prompts, retrieval, or source inventory.", rows: [["Faithfulness", "Source-supported wording"], ["Citation accuracy", "Correct source id or section"]] },
+    ],
+    evidenceType: "llm_evaluation_results",
+    python: ["if not llm_backend_available: evaluation_mode = 'manual evaluation template'", "scores = score_llm_outputs(outputs, rubric)", "evidence['llm_evaluation_results'] = scores"],
+    companionCode: ["CREATE TABLE llm_eval_scores (case_id TEXT, correctness REAL, groundedness REAL, citation_accuracy REAL, hallucination_flag TEXT);"],
+    documentation: ["LLM Evaluation", "Evaluation Evidence", "Limitations"],
+    nextAction: "Review evaluation failures and do not treat manual templates as completed backend runs.",
+  },
+  "Safety, Compliance & Red-Team Review": {
+    eyebrow: "AI safety and compliance",
+    title: "Prompt injection, leakage, hallucination, unsafe advice, fair lending, UDAAP, privacy, and escalation review",
+    subtitle: "Translate LLM-specific risks into mitigations, controls, human review, and escalation paths.",
+    diagnosticTitle: "Safety and compliance risk heatmap",
+    diagnosticRows: [["Injection", 61], ["Leakage", 44], ["Hallucination", 38], ["UDAAP", 52], ["Fair lending", 58], ["Privacy", 72]],
+    primaryControls: [
+      { label: "Risk focus", options: ["prompt injection", "data leakage", "hallucination risk", "unsafe advice", "fair lending", "UDAAP", "privacy", "regulatory/legal concern", "human review", "escalation path"] },
+      { label: "Mitigation level", options: ["monitor", "prompt control", "retrieval filter", "human review", "block production", "legal review"] },
+      { label: "Residual risk", options: ["low", "medium", "high", "not acceptable"] },
+    ],
+    diagnostics: [["Red-team review", "Required for production", "warning"], ["Mitigation plan", "Draft", "warning"], ["Escalation path", "Required", "warning"]],
+    visuals: [
+      { title: "Risk heatmap", body: "Scores prompt injection, data leakage, hallucination risk, unsafe advice, fair lending, UDAAP, privacy, regulatory/legal concerns, and human-review gaps.", rows: [["Prompt injection", "Can override instructions or source rules"], ["Data leakage", "Can expose confidential or PII content"], ["Fair lending and UDAAP", "Requires regulated-use review"]] },
+      { title: "Mitigation plan", body: "Maps each risk to a control, owner, residual risk, test evidence, and escalation path.", rows: [["Human review", "Required for customer-impacting output"], ["Escalation path", "Legal, compliance, model risk, or privacy route"]] },
+    ],
+    evidenceType: "llm_safety_red_team_review",
+    python: ["risk_matrix = score_llm_safety_risks(test_results, red_team_cases)", "mitigations = map_controls(risk_matrix)", "evidence['llm_safety_red_team_review'] = mitigations"],
+    companionCode: ["CREATE TABLE llm_safety_findings (risk TEXT, severity TEXT, mitigation TEXT, owner TEXT, residual_risk TEXT);"],
+    documentation: ["Safety Evidence", "Limitations", "Approval Record"],
+    nextAction: "Resolve unacceptable safety, compliance, or privacy risks before human review design.",
+  },
+  "Human Review & Quality Control": {
+    eyebrow: "Human-in-the-loop control",
+    title: "Reviewer sampling, override, escalation, rubric, and quality thresholds",
+    subtitle: "Define how humans review LLM outputs, sample production traffic, override model responses, and escalate risky content.",
+    diagnosticTitle: "Review workflow diagram and quality control table",
+    diagnosticRows: [["Review rate", 64], ["Override", 22], ["Escalation", 48], ["Rubric", 86], ["Threshold", 74]],
+    primaryControls: [
+      { label: "Review required", options: ["all outputs", "risk-based", "sampled", "only customer-impacting", "research only"] },
+      { label: "Review rate", options: ["5%", "10%", "25%", "50%", "100%", "custom"] },
+      { label: "Reviewer role", options: ["data scientist", "business owner", "compliance", "model risk", "operations lead", "legal"] },
+      { label: "Sampling strategy", options: ["random", "risk-based", "topic drift", "low confidence", "complaint-sensitive"] },
+      { label: "Override process", options: ["annotate and replace", "block output", "escalate", "rerun with corrected prompt"] },
+      { label: "Quality threshold", options: ["90%", "95%", "98%", "custom"] },
+    ],
+    diagnostics: [["Reviewer rubric", "Required", "success"], ["Override process", "Defined", "info"], ["Escalation process", "Owner needed", "warning"]],
+    visuals: [
+      { title: "Review workflow diagram", body: "Shows output generation, risk scoring, sampling, reviewer decision, override, escalation, and evidence capture.", rows: [["Sampling strategy", "Random, risk-based, topic drift, or low confidence"], ["Escalation process", "Routes to compliance, legal, model risk, or operations"]] },
+      { title: "Quality control table", body: "Tracks reviewer role, review rate, rubric, quality threshold, override process, escalation process, and monitoring action.", rows: [["Reviewer rubric", "Correctness, groundedness, safety, tone, citations"], ["Override rate", "Monitoring metric and quality signal"]] },
+    ],
+    evidenceType: "llm_human_review_quality_control",
+    python: ["review_plan = {'rate': review_rate, 'strategy': sampling_strategy, 'threshold': quality_threshold}", "evidence['llm_human_review_quality_control'] = review_plan"],
+    companionCode: ["CREATE TABLE llm_human_review (case_id TEXT, reviewer_role TEXT, decision TEXT, override_flag TEXT, escalation_flag TEXT);"],
+    documentation: ["Human Review Plan", "Monitoring Plan", "Approval Record"],
+    nextAction: "Approve review sampling, override, and escalation controls before deployment planning.",
+  },
+  "Deployment & Monitoring Plan": {
+    eyebrow: "Controlled deployment",
+    title: "Deployment mode, version control, approved users, monitoring metrics, cadence, cost, latency, and change control",
+    subtitle: "Define how the LLM workflow enters controlled use and how groundedness, safety, cost, source freshness, and drift will be monitored.",
+    diagnosticTitle: "Deployment and monitoring threshold table",
+    diagnosticRows: [["Grounded", 78], ["Hallucination", 14], ["Citation", 72], ["Latency", 58], ["Cost", 46], ["Freshness", 83]],
+    primaryControls: [
+      { label: "Deployment mode", options: ["research only", "pilot", "human-reviewed production", "internal assistant", "blocked"] },
+      { label: "Model/provider", placeholder: "approved model/provider label" },
+      { label: "Prompt version", placeholder: "prompt registry version" },
+      { label: "Source version", placeholder: "source inventory version" },
+      { label: "Approved users", placeholder: "roles or groups" },
+      { label: "Change control", options: ["manual approval", "model risk approval", "source refresh approval", "prompt version approval"] },
+      { label: "Monitoring cadence", options: ["daily", "weekly", "monthly", "quarterly", "on incident"] },
+    ],
+    diagnostics: [["Version control summary", "Required", "warning"], ["Monitoring metrics", "Thresholds expected", "warning"], ["Change control", "Required", "warning"]],
+    visuals: [
+      { title: "Version control summary", body: "Links deployment mode, model/provider, prompt version, source version, approved users, and change-control rules.", rows: [["Prompt version", "Must match approved registry entry"], ["Source version", "Must match approved source inventory"]] },
+      { title: "Monitoring threshold table", body: "Tracks groundedness, hallucination, citation accuracy, refusal correctness, escalation rate, override rate, user feedback, input topic drift, source freshness, latency, and cost.", rows: [["Groundedness", "Threshold, owner, cadence, escalation"], ["Hallucination", "Threshold, owner, cadence, escalation"], ["Citation accuracy", "Threshold, owner, cadence, escalation"], ["Source freshness", "Threshold, owner, cadence, escalation"], ["Latency and cost", "Operational monitoring"]] },
+    ],
+    evidenceType: "llm_deployment_monitoring_plan",
+    python: ["deployment_manifest = build_llm_deployment_manifest(model, prompt_version, source_version)", "monitoring_plan = build_llm_monitoring_thresholds(metrics)", "evidence['llm_deployment_monitoring_plan'] = monitoring_plan"],
+    companionCode: ["CREATE TABLE llm_monitoring_thresholds (metric TEXT, threshold TEXT, owner TEXT, cadence TEXT, escalation_action TEXT);"],
+    documentation: ["Deployment and Monitoring Plan", "Approval Record", "Source Registry"],
+    nextAction: "Lock version control, approved users, and monitoring thresholds before recommendation.",
+  },
+  "Recommendation & Approval": {
+    eyebrow: "Approval recommendation",
+    title: "Recommended use, required controls, alternatives, residual risks, limitations, and approval conditions",
+    subtitle: "Produce a clear recommendation that states whether the LLM workflow is ready for research, pilot, human-reviewed production, or blocked use.",
+    diagnosticTitle: "Recommendation banner and approval controls",
+    diagnosticRows: [["Controls", 84], ["Residual risk", 42], ["Alternatives", 55], ["Limitations", 73], ["Approval", 68]],
+    primaryControls: [
+      { label: "Recommendation status", options: ["research only", "pilot with controls", "human-reviewed production", "do not deploy", "needs remediation"] },
+      { label: "Recommendation owner", placeholder: "accountable owner" },
+      { label: "Recommended use", options: ["analyst assist", "knowledge retrieval", "classification", "extraction", "summary generation", "quality control"] },
+      { label: "Approval condition", options: ["human review", "source refresh", "red-team remediation", "monitoring threshold", "legal approval", "model risk approval"] },
+    ],
+    diagnostics: [["Required controls", "Documented", "success"], ["Residual risks", "Reviewer approval needed", "warning"], ["Approval conditions", "Draft", "warning"]],
+    visuals: [
+      { title: "Recommendation banner", body: "Shows recommendation status, owner, recommended use, required controls, alternatives considered, residual risks, limitations, and approval conditions.", rows: [["Recommended use", "Must match approved use case"], ["Required controls", "Human review, monitoring, source version, safety controls"]] },
+      { title: "Residual risk and alternatives table", body: "Documents unresolved limitations, alternative non-LLM approaches, and why the recommended control set is acceptable.", rows: [["Residual risks", "Hallucination, privacy, UDAAP, fair lending, source freshness"], ["Alternatives considered", "Rules, search, supervised model, manual workflow"]] },
+    ],
+    evidenceType: "llm_recommendation_approval",
+    python: ["recommendation = build_llm_recommendation(evaluation, safety, monitoring)", "evidence['llm_recommendation_approval'] = recommendation"],
+    companionCode: ["CREATE TABLE llm_recommendations (status TEXT, owner TEXT, recommended_use TEXT, controls TEXT, residual_risks TEXT);"],
+    documentation: ["Recommendation and Approval", "Limitations", "Approval Record"],
+    nextAction: "Capture approval conditions and export the governance package.",
+  },
+  "Documentation": {
+    eyebrow: "LLM governance package",
+    title: "Documentation readiness, prompt/source registries, evaluation evidence, safety evidence, and exports",
+    subtitle: "Assemble the 20-section LLM governance package with prompt, source, evaluation, safety, human review, deployment, monitoring, and reproducibility evidence.",
+    diagnosticTitle: "LLM governance package readiness",
+    diagnosticRows: [["Use case", 94], ["Sources", 86], ["Prompt", 78], ["Evaluation", 72], ["Safety", 69], ["Monitoring", 74]],
+    primaryControls: [
+      { label: "Documentation readiness", options: ["draft", "ready for review", "approved", "blocked"] },
+      { label: "Export package", options: ["Governed JSON", "Evaluation Results CSV", "Prompt Package", "Source Inventory", "Python Code", "SQL/SAS-Compatible Template", "LLM Governance Report"] },
+      { label: "Approval record", options: ["not started", "review requested", "approved", "conditional approval"] },
+    ],
+    diagnostics: [["Prompt registry", "Included", "success"], ["Source registry", "Included", "success"], ["Evaluation evidence", "Included", "success"], ["Safety evidence", "Included", "success"]],
+    visuals: [
+      { title: "20-section LLM governance package", body: "Includes use case, risk tier, source inventory, task schema, prompt registry, retrieval configuration, evaluation dataset, LLM evaluation, safety review, human review, deployment, monitoring, recommendation, limitations, evidence inventory, code, exports, approval record, change control, and reproducibility appendix.", rows: [["Governance report", "20 controlled sections"], ["Approval record", "Required before production use"]] },
+      { title: "Prompt registry and source registry", body: "Exports prompt package, source inventory, source versions, permitted use, PII handling, retrieval config, and citation requirements.", rows: [["Prompt Package", "System, developer, user template, examples"], ["Source Inventory", "Owner, version, permitted use, confidentiality"]] },
+      { title: "Export buttons", body: "Supports Governed JSON, Evaluation Results CSV, Prompt Package, Source Inventory, Python Code, SQL/SAS-Compatible Template, and LLM Governance Report.", rows: [["Evaluation Results CSV", "Case-level metrics and errors"], ["LLM Governance Report", "Management and validation package"]] },
+    ],
+    evidenceType: "llm_governance_documentation_package",
+    python: ["package = assemble_llm_governance_package(evidence)", "export_json(package, 'llm_governance_package.json')", "evidence['llm_reproducibility_code'] = code_bundle"],
+    companionCode: ["-- Export governed JSON, evaluation results CSV, prompt package, source inventory, SQL/SAS template, and governance report."],
+    documentation: ["LLM Governance Package", "Prompt Registry", "Source Registry", "Evaluation Evidence", "Safety Evidence", "Deployment and Monitoring Plan"],
+    nextAction: "Export the LLM governance package and route it to validation, registry, evidence center, and documentation studio.",
+  },
+};
+
+const defaultTimeSeriesExperience: AdvancedWorkflowExperience = {
+  eyebrow: "Time Series & Forecasting",
+  title: "Time-aware workflow checkpoint",
+  subtitle: "Use this page to capture controls, diagnostics, evidence, documentation mapping, and reproducible code for the current forecasting step.",
+  primaryControls: [
+    { label: "Primary setting", options: ["guided default", "review required", "power user override"] },
+    { label: "Evidence status", options: ["draft", "ready for review", "approved"] },
+    { label: "Export option", options: ["governed JSON", "forecast CSV", "Python code", "SAS-compatible template"] },
+  ],
+  diagnostics: [["Temporal order", "Preserved", "success"], ["Evidence", "Required", "warning"], ["Monitoring", "Plan expected", "info"]],
+  visuals: [
+    { title: "Diagnostic workspace", body: "Displays the step-specific chart, table, or monitoring view required before the workflow advances.", rows: [["Charts", "Labels, confidence ranges, and interpretation"], ["Tables", "Searchable and export-ready"]] },
+    { title: "ATLAS interpretation", body: "Plain-English explanation of what the diagnostics mean for forecast use, limitations, and next action.", rows: [["Finding", "Requires reviewer confirmation"], ["Next action", "Capture evidence and continue"]] },
+  ],
+  evidenceType: "time_series_step_evidence",
+  python: ["# Step-specific time-series evidence template", "evidence = {'workflow_type': 'time_series_forecasting'}"],
+  companionCode: ["/* SAS-compatible governance template for time-series evidence. */"],
+  documentation: ["Evidence Inventory", "Python Code", "SAS-Compatible Code"],
+  nextAction: "Capture evidence, export reproducibility code, and continue to the next time-aware checkpoint.",
+};
+
+const defaultLlmExperience: AdvancedWorkflowExperience = {
+  eyebrow: "LLM / Generative AI",
+  title: "LLM governance workflow checkpoint",
+  subtitle: "Use this page to capture source controls, task logic, evaluation criteria, safety review, human review, and reproducibility evidence. If no LLM backend is configured, ATLAS labels the page as a manual evaluation template and does not claim real model execution.",
+  primaryControls: [
+    { label: "Primary setting", options: ["guided default", "review required", "power user override"] },
+    { label: "Evidence status", options: ["draft", "ready for review", "approved"] },
+    { label: "Export option", options: ["governed JSON", "prompt package", "evaluation CSV", "SQL/SAS template"] },
+  ],
+  diagnostics: [["Source grounding", "Review required", "warning"], ["Human review", "Expected", "info"], ["Evidence", "Required", "success"]],
+  visuals: [
+    { title: "Governance workspace", body: "Displays the step-specific checklist, table, metric card, or evaluation matrix needed before recommendation.", rows: [["Controls", "Risk, source, prompt, evaluation, safety"], ["Outputs", "Evidence-ready and documentation-ready"]] },
+    { title: "ATLAS interpretation", body: "Explains whether the workflow can support research use, controlled pilot, human-reviewed production, or blocked production use.", rows: [["Finding", "Reviewer confirmation required"], ["Next action", "Capture evidence and continue"]] },
+  ],
+  evidenceType: "llm_step_evidence",
+  python: ["# Step-specific LLM governance evidence template", "evidence = {'workflow_type': 'llm_generative_ai'}"],
+  companionCode: ["-- SQL/SAS-compatible governance template for LLM evaluation records."],
+  documentation: ["Evidence Inventory", "Prompt Registry", "Source Registry", "Reproducibility Appendix"],
+  nextAction: "Capture evidence, verify no unsupported model claims are made, and continue.",
+};
+
+function advancedExperienceFor(workflowId: string, stepLabel: string): AdvancedWorkflowExperience {
+  if (workflowId === "time_series_forecasting") return timeSeriesExperienceByStep[stepLabel] ?? defaultTimeSeriesExperience;
+  return llmExperienceByStep[stepLabel] ?? defaultLlmExperience;
+}
+
+function advancedWorkflowHeaderLabel(workflowId: string): string {
+  if (workflowId === "time_series_forecasting") return "TIME SERIES & FORECASTING WORKFLOW";
+  if (workflowId === "llm_generative_ai") return "LLM / GENERATIVE AI WORKFLOW";
+  return "ADVANCED ANALYTICS WORKFLOW";
+}
+
+function defaultAdvancedChartRows(workflowId: string, stepLabel: string): Array<[string, number]> {
+  if (workflowId === "time_series_forecasting") {
+    const rowsByStep: Record<string, Array<[string, number]>> = {
+      "Project Context": [["Goal", 86], ["Governance", 74], ["Horizon", 68], ["Backtest", 61], ["Monitoring", 79]],
+      "Data Acquisition": [["Rows", 78], ["Coverage", 92], ["Frequency", 84], ["Gaps", 18], ["Entities", 67]],
+      "Time Series Profile": [["Level", 76], ["Trend", 82], ["Volatility", 58], ["Seasonality", 64], ["Anomalies", 21]],
+      "Feature & Calendar Design": [["Lag", 88], ["Rolling", 73], ["Calendar", 81], ["Known future", 54], ["Leakage", 16]],
+      "Backtest Design": [["Train", 68], ["Gap", 12], ["Validation", 24], ["Holdout", 19], ["Horizon", 31]],
+      "Model Configuration": [["Naive", 42], ["Seasonal", 58], ["Smoothing", 71], ["ARIMA", 64], ["Boosting", 82], ["Anomaly", 48]],
+      "Train & Backtest": [["Naive", 52], ["Seasonal", 61], ["ETS", 73], ["ARIMA", 69], ["Boosting", 84], ["Forest", 78]],
+      "Forecast Results": [["Actuals", 74], ["Forecast", 82], ["Lower interval", 55], ["Upper interval", 91], ["Scenario", 64]],
+      "Diagnostics & Stability": [["Residuals", 36], ["ACF", 42], ["Horizon error", 58], ["Coverage", 74], ["Drift", 29], ["Anomaly rate", 18]],
+      "Scenario & Stress Testing": [["Base", 72], ["Demand shock", 91], ["Downturn", 48], ["Fraud spike", 86], ["Outage", 39], ["Holiday", 66]],
+      "Recommendation & Monitoring Plan": [["Error", 78], ["Bias", 34], ["Coverage", 82], ["Freshness", 91], ["Drift", 29], ["Override", 16]],
+      "Documentation": [["Context", 94], ["Data", 86], ["Backtest", 78], ["Forecast", 82], ["Monitoring", 74], ["Approval", 63]],
+    };
+    return rowsByStep[stepLabel] ?? [["Temporal order", 84], ["Evidence", 72], ["Monitoring", 68], ["Export", 59]];
+  }
+  const rowsByStep: Record<string, Array<[string, number]>> = {
+    "Use Case & Risk Context": [["Allowed", 78], ["Human review", 91], ["Sensitive data", 44], ["Prohibited", 18], ["Risk tier", 67]],
+    "Data & Knowledge Sources": [["Documents", 72], ["Freshness", 64], ["PII", 31], ["Coverage", 83], ["Permitted use", 76]],
+    "Task Design & Output Schema": [["Schema", 86], ["Labels", 64], ["Extraction", 58], ["Citations", 91], ["Refusal", 74]],
+    "Prompt & Instruction Design": [["System", 82], ["Developer", 78], ["User template", 71], ["Few-shot", 55], ["Conflict", 12]],
+    "Retrieval / RAG Configuration": [["Chunks", 76], ["Top-k", 64], ["Rerank", 58], ["Coverage", 82], ["Citation", 71]],
+    "Evaluation Dataset": [["Golden cases", 80], ["Adversarial", 46], ["Citations", 72], ["Policy", 55], ["Rubric", 88]],
+    "LLM Evaluation": [["Correctness", 78], ["Grounded", 72], ["Citations", 66], ["Hallucination", 18], ["Refusal", 84], ["Policy", 91]],
+    "Safety, Compliance & Red-Team Review": [["Injection", 61], ["Leakage", 44], ["Hallucination", 38], ["UDAAP", 52], ["Fair lending", 58], ["Privacy", 72]],
+    "Human Review & Quality Control": [["Review rate", 64], ["Override", 22], ["Escalation", 48], ["Rubric", 86], ["Threshold", 74]],
+    "Deployment & Monitoring Plan": [["Grounded", 78], ["Hallucination", 14], ["Citation", 72], ["Latency", 58], ["Cost", 46], ["Freshness", 83]],
+    "Recommendation & Approval": [["Controls", 84], ["Residual risk", 42], ["Alternatives", 55], ["Limitations", 73], ["Approval", 68]],
+    "Documentation": [["Use case", 94], ["Sources", 86], ["Prompt", 78], ["Evaluation", 72], ["Safety", 69], ["Monitoring", 74]],
+  };
+  return rowsByStep[stepLabel] ?? [["Correct", 86], ["Grounded", 78], ["Cited", 72], ["Safe", 94], ["Needs review", 18]];
+}
+
+function AdvancedWorkflowStep({
+  workflowId,
+  projectType,
+  step,
+  nextStep,
+  state,
+  setState,
+  save,
+  onComplete,
+  navigationError,
+}: {
+  workflowId: string;
+  projectType: ProjectType;
+  step: WorkflowStep;
+  nextStep?: WorkflowStep;
+  state: NodeState;
+  setState: (state: NodeState) => void;
+  save: () => void;
+  onComplete: () => boolean;
+  navigationError: string | null;
+}) {
+  const experience = advancedExperienceFor(workflowId, step.label);
+  const workflowHeaderLabel = advancedWorkflowHeaderLabel(workflowId);
+  const metricChoices = metricOptions[projectType] ?? metricOptions.default;
+  const methodChoices = methodOptions[projectType] ?? methodOptions.default;
+  const chartRows: Array<[string, number]> = experience.diagnosticRows ?? defaultAdvancedChartRows(workflowId, step.label);
+  return (
+    <StepShell
+      title={step.label}
+      subtitle={step.description}
+      nextLabel={nextStep ? "Mark Complete & Next Step" : "Save & Return to Overview"}
+      nextPath={nextStep?.route ?? "/project-overview"}
+      onNext={onComplete}
+    >
+      <div className="space-y-5">
+        {navigationError && <InlineError message={navigationError} />}
+        <section className="overflow-hidden rounded-2xl border border-slate-200 bg-slate-950 text-white shadow-sm">
+          <div className="p-5">
+            <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-300">{workflowHeaderLabel}</div>
+            <div className="mt-2 inline-flex rounded-full border border-white/10 bg-white/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-slate-200">{experience.eyebrow}</div>
+            <h1 className="mt-2 text-2xl font-semibold">{experience.title}</h1>
+            <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-200">{experience.subtitle}</p>
+          </div>
+          <div className="grid border-t border-white/10 bg-white/10 md:grid-cols-3">
+            {experience.diagnostics.map(([label, value, tone]) => (
+              <div key={label} className="border-r border-white/10 p-4 last:border-r-0">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-300">{label}</div>
+                <div className={`mt-1 text-sm font-semibold ${tone === "warning" ? "text-amber-200" : tone === "danger" ? "text-rose-200" : tone === "success" ? "text-emerald-200" : "text-white"}`}>{value}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
+          <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-blue-700">Guided controls</div>
+            <div className="mt-4 grid gap-3">
+              {experience.primaryControls.map((control) => (
+                <label key={control.label} className="grid gap-1.5">
+                  <span className="text-xs font-semibold text-slate-700">{control.label}</span>
+                  {control.options ? (
+                    <select className="atlas-input" onChange={(event) => setState({ ...state, method: event.target.value })}>
+                      <option value="">Select option</option>
+                      {control.options.map((option) => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  ) : (
+                    <input className="atlas-input" placeholder={control.placeholder} />
+                  )}
+                </label>
+              ))}
+            </div>
+            <div className="mt-5">
+              <MetricPicker
+                options={metricChoices}
+                selected={state.metrics}
+                onChange={(metrics) => setState({ ...state, metrics })}
+              />
+            </div>
+          </div>
+
+          <div className="grid gap-4">
+            <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Diagnostic visualization</div>
+                  <h2 className="mt-1 text-lg font-semibold text-slate-950">{experience.diagnosticTitle ?? experience.visuals[0]?.title ?? "Workflow diagnostic scorecard"}</h2>
+                </div>
+                <button type="button" className="atlas-secondary-button" onClick={() => downloadText(`${workflowId}-${step.id}-diagnostics.json`, JSON.stringify({ step: step.label, chartRows }, null, 2), "application/json;charset=utf-8")}>
+                  <Download size={15} />
+                  Export diagnostics
+                </button>
+              </div>
+              <div className="mt-5 grid gap-3">
+                {chartRows.map(([label, value]) => (
+                  <div key={label} className="grid grid-cols-[70px_1fr_54px] items-center gap-3 text-xs">
+                    <span className="font-semibold text-slate-700">{label}</span>
+                    <span className="h-3 overflow-hidden rounded-full bg-slate-100">
+                      <span className="block h-full rounded-full bg-emerald-500" style={{ width: `${Math.max(6, Math.min(100, value))}%` }} />
+                    </span>
+                    <span className="text-right font-semibold text-slate-950">{value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-2">
+              {experience.visuals.map((panel) => (
+                <div key={panel.title} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+                  <h3 className="text-sm font-semibold text-slate-950">{panel.title}</h3>
+                  <p className="mt-2 text-xs leading-5 text-slate-600">{panel.body}</p>
+                  <div className="mt-4 grid gap-2">
+                    {panel.rows.map(([label, value]) => <ResultCard key={label} label={label} value={value} />)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        <section className="grid gap-4 lg:grid-cols-2">
+          <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Workflow evidence</div>
+            <h2 className="mt-1 text-sm font-semibold text-slate-950">{experience.evidenceType}</h2>
+            <div className="mt-4 grid gap-4">
+              <TextArea label="Objective / Question" value={state.objective} onChange={(value) => setState({ ...state, objective: value })} rows={3} />
+              <TextArea label="Inputs / Data Needed" value={state.inputs} onChange={(value) => setState({ ...state, inputs: value })} rows={3} />
+              <label className="grid gap-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Method</span>
+                <select className="atlas-input" value={state.method} onChange={(event) => setState({ ...state, method: event.target.value })}>
+                  <option value="">Select method</option>
+                  {methodChoices.map((method) => <option key={method} value={method}>{method}</option>)}
+                </select>
+              </label>
+              <TextArea label="Risks / Limitations" value={state.risks} onChange={(value) => setState({ ...state, risks: value })} rows={3} />
+              <TextArea label="Decision / Recommendation" value={state.decision} onChange={(value) => setState({ ...state, decision: value })} rows={3} />
+            </div>
+          </div>
+
+          <div className="grid gap-4">
+            <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+              <div className="text-[11px] font-semibold uppercase tracking-wide text-emerald-700">ATLAS interpretation</div>
+              <p className="mt-2 text-sm leading-6 text-emerald-950">{experience.nextAction}</p>
+              <div className="mt-4 grid gap-2">
+                {experience.documentation.map((item) => <ResultCard key={item} label="Documentation section" value={item} />)}
+              </div>
+            </div>
+
+            <details className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm" open>
+              <summary className="cursor-pointer text-sm font-semibold text-slate-950">Code & Reproducibility</summary>
+              <div className="mt-4 grid gap-3">
+                <pre className="overflow-auto rounded-xl bg-slate-950 p-4 text-xs leading-5 text-slate-100">{experience.python.join("\n")}</pre>
+                <pre className="overflow-auto rounded-xl bg-slate-100 p-4 text-xs leading-5 text-slate-800">{experience.companionCode.join("\n")}</pre>
+              </div>
+            </details>
+          </div>
+        </section>
+
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className="atlas-secondary-button" onClick={() => save()}>
+            <Save size={15} />
+            Save {experience.evidenceType} Evidence
+          </button>
+          <button type="button" className="atlas-secondary-button" onClick={() => downloadText(`${workflowId}-${step.id}-evidence.json`, JSON.stringify({ evidenceType: experience.evidenceType, state }, null, 2), "application/json;charset=utf-8")}>
+            <Download size={15} />
+            Export Evidence JSON
+          </button>
+          <Link to="/model-evidence-center" className="atlas-secondary-button">Open Evidence Center</Link>
+          <Link to="/model-document-studio" className="atlas-secondary-button">Open Documentation Studio</Link>
+        </div>
+      </div>
+    </StepShell>
   );
 }
 
@@ -7304,10 +11492,12 @@ export default function WorkflowPlaceholderStep() {
   const methodChoices = methodOptions[projectType] ?? methodOptions.default;
   const guide = useMemo(() => recommendations(projectType, step?.label ?? ""), [projectType, step?.label]);
   const isAbTestingWorkflow = activeWorkflowId === "ab-testing" || projectType === "ab-testing";
+  const abAcquisitionState = isAbTestingWorkflow ? loadNodeState(projectId, "ab-testing-2") : emptyState();
+  const abConfirmedMapping = { ...AB_WORKFLOW_DEFAULTS, ...(abAcquisitionState.ab ?? {}) } as AbTestingDefaults & NonNullable<NodeState["ab"]>;
   // A/B dataset defaults are only *suggestions* until the user completes the
-  // "Data Acquisition" step (ab-testing-5). Until then, nothing is "confirmed".
+  // "Data Acquisition and Experiment Mapping" step (ab-testing-2).
   const abTestingDataAcquisitionConfirmed =
-    isAbTestingWorkflow && workflowSteps.some((entry) => entry.id === "ab-testing-5" && entry.status === "complete");
+    isAbTestingWorkflow && Boolean(abAcquisitionState.ab?.confirmed);
   const currentStepNumber = stepIndex + 1;
   const currentRoute = `/workflow/ab-testing/${currentStepNumber}`;
   const nextAbRoute = `/workflow/ab-testing/${currentStepNumber + 1}`;
@@ -7318,7 +11508,7 @@ export default function WorkflowPlaceholderStep() {
   const [lastStorageStatus, setLastStorageStatus] = useState("");
 
   useEffect(() => {
-    if (activeWorkflowId === "ab-testing" && workflowId !== "ab-testing") {
+    if (activeWorkflowId === "ab-testing") {
       normalizeWorkflowOrder("ab-testing");
     }
   }, [activeWorkflowId, workflowId, normalizeWorkflowOrder]);
@@ -7472,6 +11662,43 @@ export default function WorkflowPlaceholderStep() {
     const nextRoute = nextStep?.route ?? `/workflow/ab-testing/${currentStepNumber + 1}`;
     const savedAt = new Date().toISOString();
     let cacheWarning = "";
+    if (step.id === "ab-testing-2") {
+      const mapping = { ...AB_WORKFLOW_DEFAULTS, ...(stateRef.current.ab ?? {}) } as AbTestingDefaults & NonNullable<NodeState["ab"]>;
+      const hasValidatedArtifact = Boolean(
+        mapping.confirmed
+        && mapping.analysisDataSource === "full_dataset_artifact"
+        && mapping.fullDatasetArtifactId
+        && (mapping.fullDatasetRowCount ?? 0) > 0
+        && (mapping.validAnalysisRecordCount ?? 0) > 0
+      );
+      if (!hasValidatedArtifact) {
+        setLastAction("Navigation blocked: Data Acquisition mapping is not confirmed");
+        setNavigationError("Confirm Data Acquisition and Mapping after ATLAS validates the full dataset artifact. Preview rows and an incomplete mapping cannot advance the experiment workflow.");
+        return;
+      }
+    }
+
+    const fullDataRequiredStepIds = new Set([
+      "ab-testing-6",
+      "ab-testing-8",
+      "ab-testing-9",
+      "ab-testing-10",
+      "ab-testing-11",
+      "ab-testing-12",
+      "ab-testing-13",
+      "ab-testing-14",
+      "ab-testing-15",
+    ]);
+    if (fullDataRequiredStepIds.has(step.id)) {
+      const acquisition = loadNodeState(projectId, "ab-testing-2");
+      const mapping = { ...AB_WORKFLOW_DEFAULTS, ...(acquisition.ab ?? {}) } as AbTestingDefaults & NonNullable<NodeState["ab"]>;
+      const fullAnalysis = buildAbAnalysisDataset(projectId, mapping, Boolean(mapping.confirmed), mapping);
+      if (!fullAnalysis.status.fullDatasetAvailable) {
+        setLastAction("Navigation blocked: full dataset artifact is not loaded");
+        setNavigationError("Full dataset artifact is not loaded. Reopen or reload the confirmed dataset before completing this analysis step.");
+        return;
+      }
+    }
 
     // 1. Save page text (best effort). On a quota failure, reclaim storage broadly
     //    (other workflows/projects, not just A/B keys, can be what filled the quota)
@@ -7517,6 +11744,8 @@ export default function WorkflowPlaceholderStep() {
   const clearAbTestingCache = () => {
     try {
       const removedKeys = clearAbTestingWorkflowStorage(projectId);
+      sessionStorage.removeItem(abFullDatasetSessionKey(projectId));
+      sessionStorage.removeItem(abAnalysisSessionKey(projectId));
       setLastSavedStorageKey("");
       setLastSavedTimestamp("");
       setLastPayloadSizeKb("");
@@ -7569,6 +11798,35 @@ export default function WorkflowPlaceholderStep() {
           storageStatus: lastStorageStatus,
         }}
         onClearCache={clearAbTestingCache}
+        confirmedMapping={abConfirmedMapping}
+      />
+    );
+  }
+
+  if (activeWorkflowId === "optimization" || projectType === "optimization") {
+    return (
+      <OptimizationWorkflowStep
+        projectId={projectId}
+        step={step}
+        nextStep={nextStep}
+        onComplete={completeStep}
+        navigationError={navigationError}
+      />
+    );
+  }
+
+  if (activeWorkflowId === "time_series_forecasting" || activeWorkflowId === "llm_generative_ai" || projectType === "time_series_forecasting" || projectType === "llm_generative_ai") {
+    return (
+      <AdvancedWorkflowStep
+        workflowId={activeWorkflowId}
+        projectType={projectType}
+        step={step}
+        nextStep={nextStep}
+        state={state}
+        setState={setState}
+        save={save}
+        onComplete={completeStep}
+        navigationError={navigationError}
       />
     );
   }

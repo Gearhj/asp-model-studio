@@ -41,6 +41,7 @@ export type WorkflowProjectSnapshot = {
   projectName: string;
   projectType: ProjectType;
   workflowId: string;
+  templateId?: string;
   workflowSteps: WorkflowStep[];
   currentStepId: string;
   hasDataset?: boolean;
@@ -110,7 +111,6 @@ const workflowOrder: StepId[] = [
   "dashboard",
   "step00", // Project Context
   "step01", // Data Acquisition
-  "step01b", // Credit Bureau Data Review
   "step02", // EDA
   "step03", // Outliers
   "step04", // Missing Values
@@ -152,6 +152,12 @@ const defaultProjectTools: ProjectToolState = {
   governanceEnabled: true,
   notebookExportEnabled: true,
 };
+
+function normalizeLegacyStepId(stepId: string | undefined, workflowSteps: WorkflowStep[]) {
+  if (stepId === "step01b") return "step01";
+  if (stepId && workflowSteps.some((step) => step.id === stepId)) return stepId;
+  return workflowSteps[0]?.id ?? "step00";
+}
 
 function workflowStepsWithStatus(workflowSteps: WorkflowStep[], steps: Partial<Record<StepId, StepStatus>> = {}) {
   return workflowSteps.map((step) => {
@@ -287,7 +293,7 @@ export const useWorkflowStore = create<WorkflowState>()(
               projectType: snapshot.projectType ?? workflow.projectType,
               workflowId: workflow.id,
               workflowSteps,
-              currentStepId: snapshot.currentStepId || workflowSteps[0]?.id || "step00",
+              currentStepId: normalizeLegacyStepId(snapshot.currentStepId, workflowSteps),
               projectTools: { ...defaultProjectTools, ...(snapshot.projectTools ?? {}) },
               restoreWarnings,
             };
@@ -400,7 +406,7 @@ export const useWorkflowStore = create<WorkflowState>()(
     {
       name: "ds-workflow-store",
       storage: createJSONStorage(() => sessionStorage),
-      version: 5,
+      version: 6,
       migrate: (persisted: any) => ({
         ...persisted,
         projectId: persisted?.projectId ?? projectId(),
@@ -415,7 +421,9 @@ export const useWorkflowStore = create<WorkflowState>()(
           Array.isArray(persisted?.workflowSteps) && persisted.workflowSteps.length
             ? mergeWorkflowStepsWithDefinition(persisted.workflowSteps, persisted?.workflowId ?? "predictive-modeling", persisted?.steps ?? {})
             : workflowStepsWithStatus(defaultWorkflow.steps, persisted?.steps ?? {}),
-        currentStepId: persisted?.currentStepId ?? "step00",
+        currentStepId: normalizeLegacyStepId(persisted?.currentStepId, Array.isArray(persisted?.workflowSteps) && persisted.workflowSteps.length
+          ? mergeWorkflowStepsWithDefinition(persisted.workflowSteps, persisted?.workflowId ?? "predictive-modeling", persisted?.steps ?? {})
+          : workflowStepsWithStatus(defaultWorkflow.steps, persisted?.steps ?? {})),
         restoreWarnings: [],
         projectTools: { ...defaultProjectTools, ...(persisted?.projectTools ?? {}) },
       }),

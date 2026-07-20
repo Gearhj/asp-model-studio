@@ -1,0 +1,22 @@
+{
+  "columns": [
+    {
+      "distinctSample": 5,
+      "dtype": "categorical",
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "Suppliers"
+    },
+    {
+      "distinctSample": 5,
+      "dtype": "numeric",
+      "max": 0.5,
+      "mean": 0.33,
+      "min": 0.2,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "Inventory_Cost",
+      "std": 0.12041594578792296
+    }
+  ]
+}

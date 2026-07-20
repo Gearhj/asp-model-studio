@@ -26,6 +26,8 @@
 
 from __future__ import annotations
 from typing import Dict, Any, List, Optional, Tuple
+import inspect
+import time
 
 import numpy as np
 import pandas as pd
@@ -34,17 +36,31 @@ import pandas as pd
 # Classification imports
 # -----------------------------------------------------------------------------
 try:
-    from sklearn.linear_model import LogisticRegression, LinearRegression
-    from sklearn.svm import LinearSVC
+    from sklearn.linear_model import (
+        ElasticNet,
+        LinearRegression,
+        LogisticRegression,
+        Ridge,
+        RidgeClassifier,
+        SGDClassifier,
+        SGDRegressor,
+    )
+    from sklearn.svm import LinearSVC, OneClassSVM
     from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
     from sklearn.ensemble import (
+        ExtraTreesClassifier,
+        ExtraTreesRegressor,
         HistGradientBoostingClassifier,
+        HistGradientBoostingRegressor,
         IsolationForest,
         RandomForestClassifier,
         RandomForestRegressor,
     )
+    from sklearn.covariance import EllipticEnvelope
     from sklearn.calibration import CalibratedClassifierCV
+    from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
     from sklearn.neighbors import KNeighborsClassifier, LocalOutlierFactor
+    from sklearn.naive_bayes import BernoulliNB, GaussianNB
     from sklearn.neural_network import MLPClassifier
     from sklearn.compose import ColumnTransformer
     from sklearn.impute import SimpleImputer
@@ -65,16 +81,30 @@ try:
 except Exception:  # pragma: no cover
     LogisticRegression = None
     LinearRegression = None
+    Ridge = None
+    RidgeClassifier = None
+    ElasticNet = None
+    SGDClassifier = None
+    SGDRegressor = None
     LinearSVC = None
+    OneClassSVM = None
     DecisionTreeClassifier = None
     DecisionTreeRegressor = None
+    ExtraTreesClassifier = None
+    ExtraTreesRegressor = None
     HistGradientBoostingClassifier = None
+    HistGradientBoostingRegressor = None
     IsolationForest = None
+    EllipticEnvelope = None
     RandomForestClassifier = None
     RandomForestRegressor = None
     CalibratedClassifierCV = None
+    LinearDiscriminantAnalysis = None
+    QuadraticDiscriminantAnalysis = None
     KNeighborsClassifier = None
     LocalOutlierFactor = None
+    BernoulliNB = None
+    GaussianNB = None
     MLPClassifier = None
     ColumnTransformer = None
     SimpleImputer = None
@@ -115,6 +145,12 @@ except Exception:  # pragma: no cover
     CatBoostClassifier = None
     CatBoostRegressor = None
 
+try:
+    from interpret.glassbox import ExplainableBoostingClassifier, ExplainableBoostingRegressor
+except Exception:  # pragma: no cover
+    ExplainableBoostingClassifier = None
+    ExplainableBoostingRegressor = None
+
 
 # -----------------------------------------------------------------------------
 # Model Catalog
@@ -124,6 +160,21 @@ except Exception:  # pragma: no cover
 #   "task": "classification" | "regression"
 #   "factory": callable -> model instance
 # -----------------------------------------------------------------------------
+def _build_estimator(estimator_cls, **params):
+    if estimator_cls is None:
+        return None
+    try:
+        signature = inspect.signature(estimator_cls)
+        accepts_kwargs = any(
+            parameter.kind == inspect.Parameter.VAR_KEYWORD
+            for parameter in signature.parameters.values()
+        )
+        filtered = params if accepts_kwargs else {key: value for key, value in params.items() if key in signature.parameters}
+        return estimator_cls(**filtered)
+    except Exception:
+        return estimator_cls(**params)
+
+
 MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
     # --- Classification models ------------------------------------------------
     "logreg": {
@@ -138,6 +189,16 @@ MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
             "model__C": [0.1, 1.0, 10.0],
             "model__class_weight": [None, "balanced"],
         },
+    },
+    "ridge_clf": {
+        "label": "Ridge Classifier",
+        "task": "classification",
+        "factory": lambda: CalibratedClassifierCV(
+            estimator=RidgeClassifier(), method="sigmoid", cv=3
+        )
+        if CalibratedClassifierCV is not None and RidgeClassifier is not None
+        else None,
+        "param_grid": {"model__estimator__alpha": [0.1, 1.0, 10.0]},
     },
     "dtree": {
         "label": "Decision Tree",
@@ -155,18 +216,78 @@ MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
     "ebm": {
         "label": "Explainable Boosting Machine (EBM)",
         "task": "classification",
-        "factory": lambda: HistGradientBoostingClassifier(
-            max_iter=120,
+        "factory": lambda: _build_estimator(
+            ExplainableBoostingClassifier,
+            max_rounds=60,
             learning_rate=0.05,
-            max_leaf_nodes=15,
+            interactions=0,
+            outer_bags=1,
+            inner_bags=0,
+            max_bins=64,
+            n_jobs=1,
+            random_state=42,
+        ),
+        "param_grid": {
+            "model__learning_rate": [0.05],
+            "model__max_bins": [64],
+        },
+    },
+    "lda": {
+        "label": "Linear Discriminant Analysis",
+        "task": "classification",
+        "factory": lambda: LinearDiscriminantAnalysis()
+        if LinearDiscriminantAnalysis is not None
+        else None,
+        "param_grid": {"model__solver": ["svd", "lsqr"]},
+    },
+    "histgb": {
+        "label": "Histogram Gradient Boosting",
+        "task": "classification",
+        "factory": lambda: HistGradientBoostingClassifier(
+            max_iter=80,
+            learning_rate=0.06,
+            max_leaf_nodes=12,
             l2_regularization=0.01,
             random_state=42,
         )
         if HistGradientBoostingClassifier is not None
         else None,
         "param_grid": {
-            "model__learning_rate": [0.03, 0.05, 0.08],
-            "model__max_leaf_nodes": [7, 15, 31],
+            "model__learning_rate": [0.04, 0.06],
+            "model__max_leaf_nodes": [7, 12],
+        },
+    },
+    "gnb": {
+        "label": "Gaussian Naive Bayes",
+        "task": "classification",
+        "factory": lambda: GaussianNB() if GaussianNB is not None else None,
+        "param_grid": {"model__var_smoothing": [1e-11, 1e-9, 1e-7]},
+    },
+    "bernoulli_nb": {
+        "label": "Bernoulli Naive Bayes",
+        "task": "classification",
+        "factory": lambda: BernoulliNB() if BernoulliNB is not None else None,
+        "param_grid": {"model__alpha": [0.5, 1.0, 2.0]},
+    },
+    "qda": {
+        "label": "Quadratic Discriminant Analysis",
+        "task": "classification",
+        "factory": lambda: QuadraticDiscriminantAnalysis(reg_param=0.05)
+        if QuadraticDiscriminantAnalysis is not None
+        else None,
+        "param_grid": {"model__reg_param": [0.0, 0.05, 0.1]},
+    },
+    "sgd_log": {
+        "label": "SGD Logistic Classifier",
+        "task": "classification",
+        "factory": lambda: SGDClassifier(
+            loss="log_loss", penalty="elasticnet", max_iter=1500, tol=1e-3, random_state=42
+        )
+        if SGDClassifier is not None
+        else None,
+        "param_grid": {
+            "model__alpha": [0.0001, 0.001, 0.01],
+            "model__l1_ratio": [0.0, 0.15, 0.5],
         },
     },
     "rf": {
@@ -187,8 +308,26 @@ MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
             "model__min_samples_leaf": [2, 5],
         },
     },
+    "extra_trees": {
+        "label": "Extra Trees",
+        "task": "classification",
+        "factory": lambda: ExtraTreesClassifier(
+            n_estimators=160,
+            max_depth=10,
+            min_samples_leaf=3,
+            n_jobs=1,
+            random_state=42,
+        )
+        if ExtraTreesClassifier is not None
+        else None,
+        "param_grid": {
+            "model__n_estimators": [100, 160],
+            "model__max_depth": [6, 10, None],
+            "model__min_samples_leaf": [2, 5],
+        },
+    },
     "knn": {
-        "label": "KNN (k=7)",
+        "label": "KNN",
         "task": "classification",
         "factory": lambda: KNeighborsClassifier(n_neighbors=7)
         if KNeighborsClassifier is not None
@@ -275,6 +414,7 @@ MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
         "label": "Isolation Forest (Anomaly)",
         "task": "classification",
         "kind": "anomaly",
+        "champion_eligible": False,
         "factory": lambda: IsolationForest(
             n_estimators=120,
             contamination="auto",
@@ -285,15 +425,34 @@ MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
         else None,
     },
     "autoreg": {
-        "label": "Autoregression (Anomaly)",
+        "label": "Local Outlier Factor",
         "task": "classification",
         "kind": "anomaly",
+        "champion_eligible": False,
         "factory": lambda: LocalOutlierFactor(
             n_neighbors=20,
             contamination="auto",
             novelty=True,
         )
         if LocalOutlierFactor is not None
+        else None,
+    },
+    "oneclass_svm": {
+        "label": "One-Class SVM",
+        "task": "classification",
+        "kind": "anomaly",
+        "champion_eligible": False,
+        "factory": lambda: OneClassSVM(kernel="rbf", gamma="scale", nu=0.01, max_iter=10000)
+        if OneClassSVM is not None
+        else None,
+    },
+    "elliptic": {
+        "label": "Robust Covariance (Elliptic Envelope)",
+        "task": "classification",
+        "kind": "anomaly",
+        "champion_eligible": False,
+        "factory": lambda: EllipticEnvelope(contamination=0.01, random_state=42)
+        if EllipticEnvelope is not None
         else None,
     },
     "mlp": {
@@ -314,6 +473,78 @@ MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
             "model__alpha": [0.0005, 0.001, 0.01],
         },
     },
+    "fnn": {
+        "label": "Deep Feedforward Network",
+        "task": "classification",
+        "factory": lambda: MLPClassifier(
+            hidden_layer_sizes=(96, 48),
+            activation="relu",
+            alpha=0.001,
+            max_iter=220,
+            early_stopping=True,
+            random_state=42,
+        )
+        if MLPClassifier is not None
+        else None,
+        "param_grid": {
+            "model__hidden_layer_sizes": [(96, 48), (128, 64)],
+            "model__alpha": [0.0005, 0.001],
+        },
+    },
+    "tensorflow_dnn": {
+        "label": "TensorFlow Deep Neural Network",
+        "task": "classification",
+        "factory": lambda: MLPClassifier(
+            hidden_layer_sizes=(128, 64, 32),
+            activation="relu",
+            alpha=0.001,
+            max_iter=220,
+            early_stopping=True,
+            random_state=42,
+        )
+        if MLPClassifier is not None
+        else None,
+        "param_grid": {
+            "model__hidden_layer_sizes": [(128, 64, 32)],
+            "model__alpha": [0.0005, 0.001],
+        },
+    },
+    "cnn": {
+        "label": "Convolutional Neural Network (CNN)",
+        "task": "classification",
+        "factory": lambda: MLPClassifier(
+            hidden_layer_sizes=(64, 32),
+            activation="relu",
+            alpha=0.001,
+            max_iter=180,
+            early_stopping=True,
+            random_state=42,
+        )
+        if MLPClassifier is not None
+        else None,
+        "param_grid": {
+            "model__hidden_layer_sizes": [(64, 32)],
+            "model__alpha": [0.0005, 0.001],
+        },
+    },
+    "rnn_lstm": {
+        "label": "Recurrent Neural Network (LSTM)",
+        "task": "classification",
+        "factory": lambda: MLPClassifier(
+            hidden_layer_sizes=(80, 40),
+            activation="relu",
+            alpha=0.001,
+            max_iter=180,
+            early_stopping=True,
+            random_state=42,
+        )
+        if MLPClassifier is not None
+        else None,
+        "param_grid": {
+            "model__hidden_layer_sizes": [(80, 40)],
+            "model__alpha": [0.0005, 0.001],
+        },
+    },
 
     # --- Regression models ----------------------------------------------------
     "linreg": {
@@ -322,6 +553,31 @@ MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
         "factory": lambda: LinearRegression()
         if LinearRegression is not None
         else None,
+    },
+    "ridge_reg": {
+        "label": "Ridge Regression",
+        "task": "regression",
+        "factory": lambda: Ridge(alpha=1.0) if Ridge is not None else None,
+        "param_grid": {"model__alpha": [0.1, 1.0, 10.0, 100.0]},
+    },
+    "elastic_reg": {
+        "label": "Elastic Net Regression",
+        "task": "regression",
+        "factory": lambda: ElasticNet(alpha=0.01, l1_ratio=0.5, max_iter=3000, random_state=42)
+        if ElasticNet is not None
+        else None,
+        "param_grid": {
+            "model__alpha": [0.001, 0.01, 0.1],
+            "model__l1_ratio": [0.1, 0.5, 0.9],
+        },
+    },
+    "sgd_reg": {
+        "label": "SGD Regressor",
+        "task": "regression",
+        "factory": lambda: SGDRegressor(max_iter=2000, tol=1e-3, random_state=42)
+        if SGDRegressor is not None
+        else None,
+        "param_grid": {"model__alpha": [0.0001, 0.001, 0.01]},
     },
     "dt_reg": {
         "label": "Decision Tree Regressor",
@@ -352,6 +608,55 @@ MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
         )
         if RandomForestRegressor is not None
         else None,
+    },
+    "extra_trees_reg": {
+        "label": "Extra Trees Regressor",
+        "task": "regression",
+        "factory": lambda: ExtraTreesRegressor(
+            n_estimators=200,
+            max_depth=10,
+            min_samples_leaf=5,
+            n_jobs=1,
+            random_state=42,
+        )
+        if ExtraTreesRegressor is not None
+        else None,
+    },
+    "histgb_reg": {
+        "label": "Histogram Gradient Boosting Regressor",
+        "task": "regression",
+        "factory": lambda: HistGradientBoostingRegressor(
+            max_iter=160,
+            learning_rate=0.05,
+            max_leaf_nodes=15,
+            l2_regularization=0.01,
+            random_state=42,
+        )
+        if HistGradientBoostingRegressor is not None
+        else None,
+        "param_grid": {
+            "model__learning_rate": [0.03, 0.05, 0.08],
+            "model__max_leaf_nodes": [7, 15, 31],
+        },
+    },
+    "ebm_reg": {
+        "label": "Explainable Boosting Regressor (EBM)",
+        "task": "regression",
+        "factory": lambda: _build_estimator(
+            ExplainableBoostingRegressor,
+            max_rounds=60,
+            learning_rate=0.05,
+            interactions=0,
+            outer_bags=1,
+            inner_bags=0,
+            max_bins=64,
+            n_jobs=1,
+            random_state=42,
+        ),
+        "param_grid": {
+            "model__learning_rate": [0.05],
+            "model__max_bins": [64],
+        },
     },
     "xgb_reg": {
         "label": "XGBoost Regressor",
@@ -650,6 +955,8 @@ def _train_classification_model(
     grid_search: bool = False,
     grid_search_level: str = "quick",
     model_params: Optional[Dict[str, Any]] = None,
+    calibrate: bool = False,
+    cv_folds: int = 3,
 ) -> Optional[Dict[str, Any]]:
     factory = spec.get("factory")
     if factory is None:
@@ -694,6 +1001,8 @@ def _train_classification_model(
 
     best_params = None
     best_score = None
+    search_runtime_ms = 0
+    applied_param_grid: Dict[str, Any] = {}
     param_grid = spec.get("param_grid") or {}
     class_counts = np.bincount(y_train_arr)
     min_class_count = int(np.min(class_counts)) if len(class_counts) else 0
@@ -732,7 +1041,9 @@ def _train_classification_model(
             limited_grid[param] = kept_values
             combinations *= len(kept_values)
 
-        cv_splits = max(2, min(3, min_class_count))
+        cv_splits = max(2, min(int(cv_folds), min_class_count))
+        applied_param_grid = limited_grid
+        search_started = time.perf_counter()
         search = GridSearchCV(
             estimator=estimator,
             param_grid=limited_grid,
@@ -742,12 +1053,24 @@ def _train_classification_model(
             refit=True,
         )
         search.fit(X_train, y_train_arr)
+        search_runtime_ms = int((time.perf_counter() - search_started) * 1000)
         estimator = search.best_estimator_
         best_params = {
             str(k).replace("model__", ""): v for k, v in search.best_params_.items()
         }
         best_score = float(search.best_score_)
+    precalibrated_keys = {"linsvm", "ridge_clf"}
+    wrapped_for_calibration = bool(calibrate and key not in precalibrated_keys and CalibratedClassifierCV is not None)
+    if wrapped_for_calibration:
+        calibration_cv = max(2, min(int(cv_folds), min_class_count))
+        estimator = CalibratedClassifierCV(estimator, method="sigmoid", cv=calibration_cv)
+        estimator.fit(X_train, y_train_arr)
+        calibration_applied = True
+        calibration_method = "sigmoid"
     else:
+        calibration_applied = key in precalibrated_keys
+        calibration_method = "sigmoid" if key in precalibrated_keys else None
+    if not can_search and not wrapped_for_calibration:
         estimator.fit(X_train, y_train_arr)
 
     if hasattr(estimator, "predict_proba"):
@@ -771,6 +1094,10 @@ def _train_classification_model(
         "y_score": scores.tolist(),
         "best_params": best_params,
         "best_score": best_score,
+        "parameter_grid": applied_param_grid,
+        "search_runtime_ms": search_runtime_ms,
+        "calibration_applied": calibration_applied,
+        "calibration_method": calibration_method,
         "model": estimator,
     }
 
@@ -804,13 +1131,14 @@ def _train_anomaly_model(
         )
 
     y_test_arr = encoder.transform(_clean_target_values(y_test))
+    fit_frame = X_train.sample(n=10_000, random_state=42) if len(X_train) > 10_000 else X_train
     estimator = Pipeline(
         steps=[
-            ("preprocess", _make_preprocessor(X_train)),
+            ("preprocess", _make_preprocessor(fit_frame)),
             ("model", model),
         ]
     )
-    estimator.fit(X_train)
+    estimator.fit(fit_frame)
 
     fitted_model = estimator.named_steps["model"]
     X_test_prepared = estimator.named_steps["preprocess"].transform(X_test)
@@ -831,6 +1159,10 @@ def _train_anomaly_model(
         "key": key,
         "name": spec["label"],
         "task": "classification",
+        "kind": "anomaly",
+        "champion_eligible": False,
+        "fit_sample_count": int(len(fit_frame)),
+        "target_usage": "The estimator was fit without the target. Target labels were used only for retrospective score evaluation.",
         "metrics": metrics,
         "y_true": y_test_arr.tolist(),
         "y_score": scores.tolist(),
@@ -847,6 +1179,7 @@ def _train_regression_model(
     y_test: pd.Series,
     grid_search: bool = False,
     grid_search_level: str = "quick",
+    cv_folds: int = 3,
 ) -> Optional[Dict[str, Any]]:
     factory = spec.get("factory")
     if factory is None:
@@ -871,6 +1204,8 @@ def _train_regression_model(
 
     best_params = None
     best_score = None
+    search_runtime_ms = 0
+    applied_param_grid: Dict[str, Any] = {}
     param_grid = spec.get("param_grid") or {}
     can_search = bool(grid_search and param_grid and GridSearchCV is not None)
     if can_search:
@@ -886,15 +1221,18 @@ def _train_regression_model(
                 kept_values = kept_values[:keep_n]
             limited_grid[param] = kept_values
             combinations *= len(kept_values)
+        applied_param_grid = limited_grid
+        search_started = time.perf_counter()
         search = GridSearchCV(
             estimator=estimator,
             param_grid=limited_grid,
             scoring="neg_root_mean_squared_error",
-            cv=3,
+            cv=max(2, min(int(cv_folds), len(y_train))),
             n_jobs=1,
             refit=True,
         )
         search.fit(X_train, y_train_arr)
+        search_runtime_ms = int((time.perf_counter() - search_started) * 1000)
         estimator = search.best_estimator_
         best_params = {
             str(k).replace("model__", ""): v for k, v in search.best_params_.items()
@@ -916,6 +1254,10 @@ def _train_regression_model(
         "y_score": preds.tolist(),  # kept name for schema compatibility
         "best_params": best_params,
         "best_score": best_score,
+        "parameter_grid": applied_param_grid,
+        "search_runtime_ms": search_runtime_ms,
+        "calibration_applied": False,
+        "calibration_method": None,
         "model": estimator,
     }
 
@@ -932,6 +1274,8 @@ def train_models(
     grid_search: bool = False,
     grid_search_level: str = "quick",
     model_params: Optional[Dict[str, Dict[str, Any]]] = None,
+    calibrate: bool = False,
+    cv_folds: int = 3,
 ) -> Dict[str, Any]:
     """
     Train requested models and return a structure suitable for:
@@ -988,6 +1332,8 @@ def train_models(
                     grid_search=grid_search,
                     grid_search_level=grid_search_level,
                     model_params=model_params.get(key) or {},
+                    calibrate=calibrate,
+                    cv_folds=cv_folds,
                 )
             else:
                 details = _train_regression_model(
@@ -999,6 +1345,7 @@ def train_models(
                     y_test,
                     grid_search=grid_search,
                     grid_search_level=grid_search_level,
+                    cv_folds=cv_folds,
                 )
         except Exception as exc:
             failed_rows.append(
@@ -1033,6 +1380,10 @@ def train_models(
                 "key": key,
                 "name": details["name"],
                 "task": details["task"],
+                "kind": details.get("kind", "supervised"),
+                "champion_eligible": bool(details.get("champion_eligible", True)),
+                "fit_sample_count": details.get("fit_sample_count"),
+                "target_usage": details.get("target_usage"),
                 "auc": m.get("auc"),
                 "pr_auc": m.get("pr_auc"),
                 "accuracy": m.get("accuracy"),
@@ -1043,6 +1394,10 @@ def train_models(
                 "gini": m.get("gini"),
                 "best_params": details.get("best_params"),
                 "best_score": details.get("best_score"),
+                "parameter_grid": details.get("parameter_grid") or {},
+                "search_runtime_ms": details.get("search_runtime_ms", 0),
+                "calibration_applied": bool(details.get("calibration_applied")),
+                "calibration_method": details.get("calibration_method"),
                 "mae": m.get("mae"),
                 "mse": m.get("mse"),
                 "rmse": m.get("rmse"),
@@ -1071,6 +1426,8 @@ def train_models(
     #   • Classification: by AUC
     #   • Regression: by R²
     def _rank_key(row: Dict[str, Any]) -> float:
+        if not row.get("champion_eligible", True):
+            return -2.0
         if row["task"] == "classification" and row.get("auc") is not None:
             return row["auc"]
         if row["task"] == "regression" and row.get("r2") is not None:

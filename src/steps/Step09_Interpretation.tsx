@@ -1,9 +1,9 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
-import StepPythonPanel from "../components/StepPythonPanel";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import StepShell from "../components/StepShell";
+import { AtlasAttentionPanel, type AtlasWorkflowMetric } from "../components/ui/AtlasWorkflow";
 import { logDecision } from "../lib/decisionJournal";
 import { inferLocalProblemType, loadLocalDataset, localDatasetVersion } from "../lib/localDataset";
-import { upsertProjectFromState } from "../lib/localProjects";
+import { loadInterpretationCandidates } from "../lib/interpretationCandidates";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const QUERY_API_BASE =
@@ -19,6 +19,7 @@ const RFE_TIMEOUT_MS = 30000;
 
 type RankedRow = { key: string; name: string; task?: "classification" | "regression" | "anomaly"; auc?: number; pr_auc?: number; rmse?: number; mae?: number; r2?: number; adjusted_r2?: number };
 type ImportanceRow = { feature: string; importance: number; source?: string; direction?: number };
+type AnalysisMeta = { method: string; sampleCount: number | null };
 type DetailResponse = {
   ok: boolean;
   kind?: "equation" | "tree" | "generic";
@@ -199,18 +200,22 @@ function saveRfeCache(modelKey: string, data: RfeResult, keep: number) {
 }
 
 async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url);
+  const res = await fetch(url, { credentials: "include" });
   if (!res.ok) throw new Error(`Request failed (${res.status})`);
-  return (await res.json()) as T;
+  const payload = (await res.json()) as T & { ok?: boolean; error?: string };
+  if (payload && typeof payload === "object" && payload.ok === false) throw new Error(payload.error || "The requested analysis is unavailable.");
+  return payload as T;
 }
 
 async function getJsonWithTimeout<T>(url: string, timeoutMs: number, timeoutMessage: string): Promise<T> {
   const controller = new AbortController();
   const timer = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { signal: controller.signal });
+    const res = await fetch(url, { signal: controller.signal, credentials: "include" });
     if (!res.ok) throw new Error(`Request failed (${res.status})`);
-    return (await res.json()) as T;
+    const payload = (await res.json()) as T & { ok?: boolean; error?: string };
+    if (payload && typeof payload === "object" && payload.ok === false) throw new Error(payload.error || "The requested analysis is unavailable.");
+    return payload as T;
   } catch (error) {
     if (error instanceof DOMException && error.name === "AbortError") throw new Error(timeoutMessage);
     throw error;
@@ -229,7 +234,11 @@ function isLinearRegressionModel(model?: RankedRow, fallbackKey = "") {
 }
 
 function isRfeUnsupportedModel(model?: RankedRow, fallbackKey = "") {
-  return /knn|nearest|svm|support vector|isolation|anomaly|autoregression/i.test(`${model?.key ?? fallbackKey} ${model?.name ?? ""}`);
+  return /knn|nearest|svm|support vector|isolation|anomaly|autoregression|outlier|elliptic|covariance/i.test(`${model?.key ?? fallbackKey} ${model?.name ?? ""}`);
+}
+
+function isArtifactContextError(message: string) {
+  return /artifact (?:does not match|is not scoped|is missing)|training run does not match|returned key/i.test(message);
 }
 
 function displayModelName(model?: RankedRow, fallbackKey = "") {
@@ -238,17 +247,25 @@ function displayModelName(model?: RankedRow, fallbackKey = "") {
 }
 
 export default function Step09_Interpretation() {
-  const navigate = useNavigate();
-  const markComplete = useWorkflowStore((state) => state.markComplete);
   const projectId = useWorkflowStore((state) => state.projectId);
+  const projectName = useWorkflowStore((state) => state.projectName);
+  const getNextStepPath = useWorkflowStore((state) => state.getNextStepPath);
   const [models, setModels] = useState<RankedRow[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(true);
   const [selectedModel, setSelectedModel] = useState("");
   const [selectedFeature, setSelectedFeature] = useState("");
   const [importance, setImportance] = useState<ImportanceRow[]>([]);
+  const [importanceMeta, setImportanceMeta] = useState<AnalysisMeta>({ method: "", sampleCount: null });
+  const [shapMeta, setShapMeta] = useState<AnalysisMeta>({ method: "", sampleCount: null });
+  const [explanationLoading, setExplanationLoading] = useState(false);
+  const [explanationErrors, setExplanationErrors] = useState<{ importance?: string; shap?: string }>({});
+  const [artifactContextError, setArtifactContextError] = useState("");
   const [details, setDetails] = useState<DetailResponse | null>(null);
   const [hyperparameters, setHyperparameters] = useState<HyperparameterRow[]>([]);
   const [pdp, setPdp] = useState<CurveRow[]>([]);
   const [sensitivity, setSensitivity] = useState<SensitivityRow[]>([]);
+  const [effectLoading, setEffectLoading] = useState(false);
+  const [effectError, setEffectError] = useState("");
   const [finalSensitivityRows, setFinalSensitivityRows] = useState<SensitivitySummaryRow[]>([]);
   const [vifRows, setVifRows] = useState<VifRow[]>([]);
   const [finalDiagnosticsReady, setFinalDiagnosticsReady] = useState(false);
@@ -274,6 +291,12 @@ export default function Step09_Interpretation() {
   const [finalModelStatus, setFinalModelStatus] = useState<"success" | "error" | "">("");
   const [savingFinalModel, setSavingFinalModel] = useState(false);
   const [finalModelReady, setFinalModelReady] = useState(false);
+  const requestedEvaluationModel = useMemo(
+    () => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("model") ?? "" : ""),
+    []
+  );
+  const explanationSequence = useRef(0);
+  const effectSequence = useRef(0);
   const selectedModelRow = models.find((model) => model.key === selectedModel) ?? models[0];
   const activeProblemType = inferLocalProblemType(loadLocalDataset());
   const selectedModelIsRegression =
@@ -288,17 +311,20 @@ export default function Step09_Interpretation() {
   const rfeIsRegression = rfeMetric === "rmse" || (!rfeMetric && selectedModelIsRegression);
   const rfeSelectedCount = rfeRows.filter((row) => row.rank <= rfeKeep).length;
   const rfeRemovedCount = Math.max(0, rfeRows.length - rfeSelectedCount);
-  const canRunRfe = Boolean(selectedModel) && !rfeRunning && !rfeUnsupportedMessage && importance.length >= 2;
+  const canRunRfe = Boolean(selectedModel) && !rfeRunning && !rfeUnsupportedMessage && !artifactContextError;
   const interpretationContextQuery = useMemo(() => {
-    if (QUERY_API_BASE) return "";
     const dataset = loadLocalDataset();
     const params = new URLSearchParams();
     params.set("project_id", projectId);
-    params.set("dataset_version", localDatasetVersion(dataset));
+    params.set("dataset_version", dataset?.dataset_version || localDatasetVersion(dataset));
     params.set("target", dataset?.target ?? "");
     params.set("problem_type", inferLocalProblemType(dataset) ?? "");
     return params.toString();
   }, [projectId]);
+  const rfeCacheScope = useMemo(
+    () => `${projectId}:${interpretationContextQuery}:${selectedModel}`,
+    [interpretationContextQuery, projectId, selectedModel]
+  );
 
   const exportModel = (format: "json" | "jar") => {
     if (format === "jar") {
@@ -309,22 +335,56 @@ export default function Step09_Interpretation() {
   };
 
   useEffect(() => {
-    getJson<{ ok: boolean; summary?: { problem_type?: string; ranked?: RankedRow[] } }>(`${API_BASE}/train/last`)
+    getJson<{ ok: boolean; summary?: { problem_type?: string; ranked?: RankedRow[] }; context_error?: string }>(
+      `${API_BASE}/train/last?${interpretationContextQuery}`
+    )
       .then((data) => {
-        const ranked = data.summary?.ranked ?? [];
-        setModels(ranked);
+        if (data.context_error) setMessage(data.context_error);
+        const ranked = (data.summary?.ranked ?? []).filter((row: any) => row.champion_eligible !== false && row.kind !== "anomaly");
+        const candidateKeys = new Set(loadInterpretationCandidates(projectId).map((candidate) => candidate.key));
+        const selectedCandidates = ranked.filter((row) => candidateKeys.has(row.key));
+        setModels(selectedCandidates);
         const savedSelection = sessionStorage.getItem(LOCAL_SELECTED_INTERPRETATION_MODEL_KEY);
-        setSelectedModel(ranked.find((row) => row.key === savedSelection)?.key ?? ranked[0]?.key ?? "");
+        const requestedSelection = selectedCandidates.find((row) => row.key === requestedEvaluationModel)?.key;
+        setSelectedModel(requestedSelection ?? selectedCandidates.find((row) => row.key === savedSelection)?.key ?? selectedCandidates[0]?.key ?? "");
       })
-      .catch((err) => setMessage(String(err?.message ?? err)));
-  }, []);
+      .catch((err) => setMessage(String(err?.message ?? err)))
+      .finally(() => setModelsLoading(false));
+    getJson<{ ok: boolean; ready: boolean; metadata?: Record<string, unknown> }>(`${API_BASE}/model/final/status`)
+      .then((data) => {
+        const dataset = loadLocalDataset();
+        const expectedVersion = dataset?.dataset_version || localDatasetVersion(dataset);
+        const metadata = data.metadata ?? {};
+        const sameDataset = !metadata.dataset_version || String(metadata.dataset_version) === expectedVersion;
+        const sameProject = !metadata.project_id || String(metadata.project_id) === projectId;
+        if (data.ready && sameDataset && sameProject) {
+          setFinalModelReady(true);
+          setFinalModelStatus("success");
+          setFinalModelMessage(`Restored saved final model: ${String(metadata.name ?? "governed final artifact")}.`);
+          void loadFinalDiagnostics().catch(() => undefined);
+        }
+      })
+      .catch(() => undefined);
+  // The active project controls artifact isolation; model selection changes in the next effect.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   useEffect(() => {
     if (!selectedModel) return;
+    const sequence = explanationSequence.current + 1;
+    explanationSequence.current = sequence;
     setMessage("");
     setTreeStructure(null);
-    Promise.all([
-      getJson<{ ok: boolean; rows?: ImportanceRow[]; error?: string }>(
+    setExplanationLoading(true);
+    setExplanationErrors({});
+    setArtifactContextError("");
+    setImportance([]);
+    setShapRows([]);
+    setPdp([]);
+    setSensitivity([]);
+    setSelectedFeature("");
+    Promise.allSettled([
+      getJson<{ ok: boolean; rows?: ImportanceRow[]; method?: string; sample_count?: number; error?: string }>(
         `${API_BASE}/interpretation/importance?model=${encodeURIComponent(selectedModel)}&${interpretationContextQuery}`
       ),
       getJson<DetailResponse>(
@@ -333,18 +393,48 @@ export default function Step09_Interpretation() {
       getJson<{ ok: boolean; rows?: HyperparameterRow[] }>(
         `${API_BASE}/interpretation/hyperparameters?model=${encodeURIComponent(selectedModel)}&${interpretationContextQuery}`
       ),
-      getJson<{ ok: boolean; rows?: ImportanceRow[]; method?: string }>(
-        `${API_BASE}/interpretation/shap?model=${encodeURIComponent(selectedModel)}`
+      getJson<{ ok: boolean; rows?: ImportanceRow[]; method?: string; sample_count?: number }>(
+        `${API_BASE}/interpretation/shap?model=${encodeURIComponent(selectedModel)}&${interpretationContextQuery}`
       ),
     ])
-      .then(([importanceRes, detailsRes, hyperparameterRes, shapRes]) => {
-        const rows = importanceRes.rows ?? [];
+      .then(([importanceResult, detailsResult, hyperparameterResult, shapResult]) => {
+        if (explanationSequence.current !== sequence) return;
+        const importanceRes = importanceResult.status === "fulfilled" ? importanceResult.value : null;
+        const detailsRes = detailsResult.status === "fulfilled" ? detailsResult.value : null;
+        const hyperparameterRes = hyperparameterResult.status === "fulfilled" ? hyperparameterResult.value : null;
+        const shapRes = shapResult.status === "fulfilled" ? shapResult.value : null;
+        const rows = importanceRes?.rows ?? [];
+        const nextShapRows = shapRes?.rows ?? [];
+        const failures = [importanceResult, detailsResult, hyperparameterResult, shapResult]
+          .filter((result) => result.status === "rejected")
+          .map((result) => String((result as PromiseRejectedResult).reason?.message ?? (result as PromiseRejectedResult).reason));
+        const contextFailure = failures.find(isArtifactContextError) ?? "";
+        if (contextFailure) {
+          setArtifactContextError(contextFailure);
+          setImportance([]);
+          setShapRows([]);
+          setSelectedFeature("");
+          setDetails({ ok: false, error: contextFailure });
+          setHyperparameters([]);
+          setExplanationErrors({ importance: contextFailure, shap: contextFailure });
+          setMessage(contextFailure);
+          setBoundary(null);
+          return;
+        }
         setImportance(rows);
-        setDetails(detailsRes);
-        setHyperparameters(hyperparameterRes.rows ?? []);
-        setShapRows(shapRes.rows ?? []);
-        setSelectedFeature(rows[0]?.feature?.replace(/^.*__/, "") || "");
-        const cachedRfe = loadRfeCache(selectedModel);
+        setImportanceMeta({ method: importanceRes?.method ?? "", sampleCount: importanceRes?.sample_count ?? null });
+        setDetails(detailsRes ?? { ok: false, error: detailsResult.status === "rejected" ? String(detailsResult.reason?.message ?? detailsResult.reason) : "Model details are unavailable." });
+        setHyperparameters(hyperparameterRes?.rows ?? []);
+        setShapRows(nextShapRows);
+        setShapMeta({ method: shapRes?.method ?? "", sampleCount: shapRes?.sample_count ?? null });
+        setExplanationErrors({
+          importance: importanceResult.status === "rejected" ? String(importanceResult.reason?.message ?? importanceResult.reason) : undefined,
+          shap: shapResult.status === "rejected" ? String(shapResult.reason?.message ?? shapResult.reason) : undefined,
+        });
+        const firstFeature = rows[0]?.feature ?? nextShapRows[0]?.feature ?? "";
+        setSelectedFeature(firstFeature.replace(/^.*__/, ""));
+        if (failures.length) setMessage(Array.from(new Set(failures)).join(" "));
+        const cachedRfe = loadRfeCache(rfeCacheScope);
         setRfeRows(cachedRfe?.rows ?? []);
         setRfeCurve(cachedRfe?.curve ?? []);
         setRecommendedCount(cachedRfe?.recommended_count ?? null);
@@ -355,43 +445,64 @@ export default function Step09_Interpretation() {
         setRfeRmseTolerance(cachedRfe?.rmse_tolerance ?? null);
         setRfeMetric(cachedRfe?.metric ?? null);
         if (cachedRfe?.keep) setRfeKeep(cachedRfe.keep);
-        setFinalModelReady(false);
-        setFinalDiagnosticsReady(false);
-        setFinalModelMessage("");
-        setFinalModelStatus("");
-        setFinalSensitivityRows([]);
-        setVifRows([]);
-        if (detailsRes.kind === "tree") {
-          getJson<TreeResponse>(`${API_BASE}/eval/tree?model=${encodeURIComponent(selectedModel)}&max_depth=4`)
+        if (detailsRes?.kind === "tree") {
+          getJson<TreeResponse>(
+            `${API_BASE}/eval/tree?model=${encodeURIComponent(selectedModel)}&max_depth=4&${interpretationContextQuery}`
+          )
             .then((treeRes) => setTreeStructure(treeRes))
             .catch((err) => setTreeStructure({ ok: false, error: String(err?.message ?? err) }));
         }
       })
-      .catch((err) => setMessage(String(err?.message ?? err)));
-  }, [selectedModel, interpretationContextQuery]);
+      .catch((err) => {
+        if (explanationSequence.current === sequence) setMessage(String(err?.message ?? err));
+      })
+      .finally(() => {
+        if (explanationSequence.current === sequence) setExplanationLoading(false);
+      });
+  }, [selectedModel, interpretationContextQuery, rfeCacheScope]);
 
   useEffect(() => {
-    if (!selectedModel || !selectedFeature) return;
-    Promise.all([
+    if (!selectedModel || !selectedFeature || artifactContextError) return;
+    const sequence = effectSequence.current + 1;
+    effectSequence.current = sequence;
+    setEffectLoading(true);
+    setEffectError("");
+    setPdp([]);
+    setSensitivity([]);
+    Promise.allSettled([
       getJson<{ ok: boolean; rows?: CurveRow[] }>(
-        `${API_BASE}/interpretation/pdp?model=${encodeURIComponent(selectedModel)}&feature=${encodeURIComponent(selectedFeature)}`
+        `${API_BASE}/interpretation/pdp?model=${encodeURIComponent(selectedModel)}&feature=${encodeURIComponent(selectedFeature)}&${interpretationContextQuery}`
       ),
       getJson<{ ok: boolean; rows?: SensitivityRow[] }>(
-        `${API_BASE}/interpretation/sensitivity?model=${encodeURIComponent(selectedModel)}&feature=${encodeURIComponent(selectedFeature)}`
+        `${API_BASE}/interpretation/sensitivity?model=${encodeURIComponent(selectedModel)}&feature=${encodeURIComponent(selectedFeature)}&${interpretationContextQuery}`
       ),
     ])
-      .then(([pdpRes, sensitivityRes]) => {
-        setPdp(pdpRes.rows ?? []);
-        setSensitivity(sensitivityRes.rows ?? []);
+      .then(([pdpResult, sensitivityResult]) => {
+        if (effectSequence.current !== sequence) return;
+        const pdpRes = pdpResult.status === "fulfilled" ? pdpResult.value : null;
+        const sensitivityRes = sensitivityResult.status === "fulfilled" ? sensitivityResult.value : null;
+        setPdp(pdpRes?.rows ?? []);
+        setSensitivity(sensitivityRes?.rows ?? []);
+        const failures = [pdpResult, sensitivityResult]
+          .filter((result) => result.status === "rejected")
+          .map((result) => String((result as PromiseRejectedResult).reason?.message ?? (result as PromiseRejectedResult).reason));
+        if (failures.length) setEffectError(Array.from(new Set(failures)).join(" "));
       })
-      .catch((err) => setMessage(String(err?.message ?? err)));
-  }, [selectedModel, selectedFeature]);
+      .finally(() => {
+        if (effectSequence.current === sequence) setEffectLoading(false);
+      });
+  }, [selectedModel, selectedFeature, interpretationContextQuery, artifactContextError]);
 
   useEffect(() => {
-    if (!selectedModel) return;
+    if (!selectedModel || artifactContextError) {
+      setBoundary(null);
+      return;
+    }
     const params = new URLSearchParams({ model: selectedModel });
     if (boundaryX) params.set("x_feature", boundaryX);
     if (boundaryY) params.set("y_feature", boundaryY);
+    const contextParams = new URLSearchParams(interpretationContextQuery);
+    contextParams.forEach((value, key) => params.set(key, value));
     getJson<BoundaryResponse>(`${API_BASE}/interpretation/decision_boundary?${params.toString()}`)
       .then((data) => {
         if (!data.ok) {
@@ -403,11 +514,11 @@ export default function Step09_Interpretation() {
         setBoundaryY(data.y_feature ?? "");
       })
       .catch((err) => setMessage(String(err?.message ?? err)));
-  }, [selectedModel, boundaryX, boundaryY]);
+  }, [selectedModel, boundaryX, boundaryY, interpretationContextQuery, artifactContextError]);
 
   const featureOptions = useMemo(
-    () => Array.from(new Set(importance.map((row) => row.feature.replace(/^.*__/, "")))),
-    [importance]
+    () => Array.from(new Set([...importance, ...shapRows].map((row) => row.feature.replace(/^.*__/, "")))),
+    [importance, shapRows]
   );
 
   const runRfe = () => {
@@ -421,7 +532,7 @@ export default function Step09_Interpretation() {
     setMessage("Running RFE with timeout protection. ATLAS limits feature elimination requests so the workflow cannot remain stuck.");
     setRfeError("");
     getJsonWithTimeout<RfeResult>(
-      `${API_BASE}/interpretation/rfe?model=${encodeURIComponent(selectedModel)}&keep=${rfeKeep}`,
+      `${API_BASE}/interpretation/rfe?model=${encodeURIComponent(selectedModel)}&keep=${rfeKeep}&${interpretationContextQuery}`,
       RFE_TIMEOUT_MS,
       "RFE timed out after 30 seconds. Try a smaller feature set or select a linear, tree, or estimator-compatible model."
     )
@@ -438,7 +549,7 @@ export default function Step09_Interpretation() {
         setRfeMetric(data.metric ?? (data.task === "regression" ? "rmse" : "auc"));
         const nextKeep = data.recommended_count ?? data.best_count ?? rfeKeep;
         setRfeKeep(nextKeep);
-        saveRfeCache(selectedModel, data, nextKeep);
+        saveRfeCache(rfeCacheScope, data, nextKeep);
       })
       .catch((err) => {
         const text = String(err?.message ?? err);
@@ -471,8 +582,13 @@ export default function Step09_Interpretation() {
     try {
       const res = await fetch(`${API_BASE}/interpretation/rfe/save_final`, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: selectedModel, keep: rfeKeep }),
+        body: JSON.stringify({
+          model: selectedModel,
+          keep: rfeKeep,
+          ...Object.fromEntries(new URLSearchParams(interpretationContextQuery)),
+        }),
       });
       if (!res.ok) throw new Error(`Save failed (${res.status})`);
       const data = await res.json();
@@ -502,55 +618,48 @@ export default function Step09_Interpretation() {
     }
   };
 
-  const saveSelectedFinalModel = async () => {
-    setFinalModelMessage("");
-    setFinalModelStatus("");
-    setSavingFinalModel(true);
-    try {
-      const res = await fetch(`${API_BASE}/model/save_final`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: selectedModel }),
-      });
-      if (!res.ok) throw new Error(`Save failed (${res.status})`);
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error ?? "Unable to save final model.");
-      setFinalModelMessage(`Saved ${data.metadata?.name ?? selectedModel} as the final model.`);
-      logDecision({
-        workflowStep: "Interpretation",
-        actionType: "final_model_saved",
-        subject: "Selected final model",
-        previousValue: "candidate",
-        newValue: data.metadata?.name ?? selectedModel,
-      });
-      setFinalModelStatus("success");
-      setFinalModelReady(true);
-    } catch (err: any) {
-      setFinalModelMessage(err?.message ?? "Unable to save final model.");
-      setFinalModelStatus("error");
-    } finally {
-      setSavingFinalModel(false);
-    }
-  };
+  const heroMetrics: AtlasWorkflowMetric[] = [
+    { label: "Project", value: projectName },
+    { label: "Candidate Models", value: models.length.toLocaleString(), tone: models.length ? "info" : "warning" },
+    { label: "Selected Model", value: displayModelName(selectedModelRow, selectedModel) || "Not selected" },
+    { label: "Problem Type", value: selectedModelIsRegression ? "Regression" : "Classification" },
+    { label: "Importance Drivers", value: importance.length.toLocaleString(), tone: importance.length ? "success" : "warning" },
+    { label: "RFE Status", value: rfeRows.length ? `${rfeSelectedCount} retained` : "Not run", tone: rfeRows.length ? "info" : "warning" },
+    { label: "Final Artifact", value: finalModelReady ? "Saved" : "Required", tone: finalModelReady ? "success" : "warning" },
+  ];
+
+  if (modelsLoading) {
+    return <StepShell title="Step 9: Model Interpretation and Final Model" subtitle="Loading governed model artifacts and explanation contracts." variant="modeling" heroMetrics={heroMetrics} nextLabel="Confirm Final Model and Continue to Scoring" nextDisabled><div className="atlas-workflow-section flex min-h-64 items-center justify-center text-sm text-slate-600">Loading trained model artifacts...</div></StepShell>;
+  }
 
   if (!models.length) {
     return (
-      <div className="w-full space-y-4">
-        <h1 className="text-2xl font-semibold">Step 9: Model Interpretation</h1>
-        <div className="rounded-2xl border border-gray-200 bg-white p-4 text-sm text-gray-600">
-          Train models first, then return here for interpretation.
-        </div>
-      </div>
+      <StepShell title="Step 9: Model Interpretation and Final Model" subtitle="Explain a supervised candidate, run RFE, and save the governed final artifact used by Scoring." variant="modeling" heroMetrics={heroMetrics} nextLabel="Confirm Final Model and Continue to Scoring" nextDisabled nextDisabledReason="Train at least one supervised model before Interpretation.">
+        <AtlasAttentionPanel title="No models selected for Interpretation" tone="warning">Return to Evaluation and select one or more trained supervised models. Selected candidates are required before interpretation, RFE, and final-model review.</AtlasAttentionPanel>
+      </StepShell>
     );
   }
 
   return (
+    <StepShell
+      title="Step 9: Model Interpretation and Final Model"
+      subtitle="Explain candidate behavior, inspect marginal response, run recursive feature elimination, and save the exact final artifact that Scoring will use."
+      variant="modeling"
+      eyebrow="Predictive Modeling Workflow"
+      heroMetrics={heroMetrics}
+      nextPath={getNextStepPath("step09")}
+      nextDisabled={!finalModelReady}
+      nextDisabledReason="Run RFE and save the governed final model before continuing to Scoring."
+      nextLabel="Confirm Final Model and Continue to Scoring"
+      nextStatusLine="Scoring will use the saved final-model artifact and its retained feature contract."
+    >
     <div className="w-full space-y-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+      <div className="flex flex-wrap items-end justify-between gap-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
         <div>
-          <h1 className="text-2xl font-semibold">Step 9: Model Interpretation</h1>
+          <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Interpretation workspace</div>
+          <h2 className="mt-1 text-lg font-semibold text-slate-950">Candidate explanation and final-model control</h2>
           <p className="mt-1 text-sm text-gray-600">
-            Explain model behavior, feature effects, sensitivity, and candidate reduced feature sets.
+            Every panel is tied to the selected trained artifact, governed holdout, and current dataset version.
           </p>
         </div>
         <label className="grid gap-1 text-sm">
@@ -561,8 +670,8 @@ export default function Step09_Interpretation() {
             onChange={(e) => {
               logDecision({
                 workflowStep: "Interpretation",
-                actionType: "champion_model_selected",
-                subject: "Model selected for interpretation",
+                actionType: "workflow_setting_changed",
+                subject: "Interpretation model under review",
                 previousValue: selectedModel,
                 newValue: e.target.value,
               });
@@ -639,22 +748,28 @@ export default function Step09_Interpretation() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <section className="rounded-2xl border border-gray-200 bg-white p-4">
-          <h2 className="text-sm font-semibold">Feature Importance</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold">Feature Importance</h2>
+            <AnalysisScopeBadge loading={explanationLoading} meta={importanceMeta} />
+          </div>
           <p className="mt-1 text-xs text-gray-500">
             {selectedModelIsRegression
               ? "Appropriate for regression: ranks variables by contribution to predictive accuracy."
               : "Ranks variables by contribution to model performance."}
           </p>
-          <BarTable rows={importance} valueKey="importance" color="indigo" />
+          {explanationErrors.importance ? <AnalysisError text={explanationErrors.importance} /> : <BarTable rows={importance} valueKey="importance" color="indigo" loading={explanationLoading} />}
         </section>
         <section className="rounded-2xl border border-gray-200 bg-white p-4">
-          <h2 className="text-sm font-semibold">SHAP Summary</h2>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-semibold">SHAP Summary</h2>
+            <AnalysisScopeBadge loading={explanationLoading} meta={shapMeta} />
+          </div>
           <p className="mt-1 text-xs text-gray-500">
             {selectedModelIsRegression
               ? "Appropriate for regression: estimates how each feature changes predicted target values on holdout records."
               : "Model-agnostic replacement impact on held-out predictions. This differs from native feature importance."}
           </p>
-          <BarTable rows={shapRows} valueKey="importance" color="teal" />
+          {explanationErrors.shap ? <AnalysisError text={explanationErrors.shap} /> : <BarTable rows={shapRows} valueKey="importance" color="teal" loading={explanationLoading} />}
         </section>
       </div>
 
@@ -668,15 +783,17 @@ export default function Step09_Interpretation() {
                 : "Select a feature to inspect marginal response and scenario sensitivity."}
             </p>
           </div>
-          <select className="rounded-md border px-3 py-2 text-sm" value={selectedFeature} onChange={(e) => setSelectedFeature(e.target.value)}>
+          <select className="rounded-md border px-3 py-2 text-sm disabled:bg-slate-100 disabled:text-slate-500" value={selectedFeature} disabled={!featureOptions.length || explanationLoading} onChange={(e) => setSelectedFeature(e.target.value)}>
+            {!featureOptions.length ? <option value="">No explained feature available</option> : null}
             {featureOptions.map((feature) => (
               <option key={feature} value={feature}>{feature}</option>
             ))}
           </select>
         </div>
+        {effectError ? <AnalysisError text={effectError} /> : null}
         <div className="mt-4 grid gap-4 lg:grid-cols-2">
-          <LineChart title={selectedModelIsRegression ? "Partial Dependence: Predicted Target" : "Partial Dependence Plot"} rows={pdp} feature={selectedFeature} />
-          <SensitivityTable rows={sensitivity} />
+          <LineChart title={selectedModelIsRegression ? "Partial Dependence: Predicted Target" : "Partial Dependence Plot"} rows={pdp} feature={selectedFeature} loading={effectLoading} />
+          <SensitivityTable rows={sensitivity} loading={effectLoading} />
         </div>
       </section>
 
@@ -709,6 +826,9 @@ export default function Step09_Interpretation() {
                 ? "Runs backward elimination and recommends the smallest retained feature count that is effectively tied with the best holdout RMSE."
                 : "Runs backward elimination and recommends the smallest retained feature count that is effectively tied with the best holdout AUC."}
             </p>
+            <p className="mt-2 text-xs leading-5 text-slate-600">
+              ATLAS uses a bounded {rfeIsRegression ? "linear" : "logistic"} surrogate for fast, reproducible elimination, then refits the selected estimator family on the retained features when you save the final model.
+            </p>
           </div>
           <div className="flex items-end gap-2">
             {recommendedCount && (
@@ -725,7 +845,7 @@ export default function Step09_Interpretation() {
               className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 active:scale-95 disabled:cursor-not-allowed disabled:bg-indigo-300 disabled:active:scale-100"
               disabled={!canRunRfe}
               onClick={runRfe}
-              title={canRunRfe ? "Run recursive feature elimination for the selected model." : rfeUnsupportedMessage || "Train a model and load at least two candidate features before running RFE."}
+              title={canRunRfe ? "Run recursive feature elimination for the governed training split." : rfeUnsupportedMessage || "Select a supported supervised model before running RFE."}
             >
               {rfeRunning ? "Running..." : rfeRows.length ? "Rerun RFE" : "Run RFE"}
             </button>
@@ -761,7 +881,7 @@ export default function Step09_Interpretation() {
           <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
             {rfeUnsupportedMessage
               ? "Select another model to run RFE, or use KNN diagnostics without recursive elimination."
-              : "RFE requires a selected trained model and at least two loaded feature-importance rows. If this stays unavailable, return to Model Training, train the selected model, then reload Interpretation."}
+              : "RFE requires a selected supervised candidate and a current governed training split."}
           </div>
         )}
         {rfeRows.length > 0 && (
@@ -849,26 +969,8 @@ export default function Step09_Interpretation() {
         )}
       </section>}
 
-      <StepPythonPanel />
-
-      <div className="pb-10 flex justify-center">
-        <button
-          className="rounded-xl bg-indigo-600 px-5 py-3 text-white shadow-sm"
-          onClick={() => {
-            try {
-              markComplete("step09");
-              upsertProjectFromState(useWorkflowStore.getState());
-              navigate("/step10");
-              window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: "auto" }));
-            } catch (error) {
-              setMessage(error instanceof Error ? error.message : "ATLAS could not save this interpretation step before navigation.");
-            }
-          }}
-        >
-          Mark Complete & Next Step
-        </button>
-      </div>
     </div>
+    </StepShell>
   );
 }
 
@@ -1419,7 +1521,23 @@ function MetricTile({
   );
 }
 
-function BarTable({ rows, valueKey, color = "indigo" }: { rows: ImportanceRow[]; valueKey: "importance"; color?: "indigo" | "teal" }) {
+function AnalysisScopeBadge({ loading, meta }: { loading: boolean; meta: AnalysisMeta }) {
+  const label = loading
+    ? "Computing holdout evidence"
+    : meta.method
+      ? `${meta.method}${meta.sampleCount ? ` | ${meta.sampleCount.toLocaleString()} rows` : ""}`
+      : "Governed holdout";
+  return <span className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide ${loading ? "border-blue-200 bg-blue-50 text-blue-700" : "border-slate-200 bg-slate-50 text-slate-600"}`}>{label}</span>;
+}
+
+function AnalysisError({ text }: { text: string }) {
+  return <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-3 text-xs leading-5 text-amber-950">{text}</div>;
+}
+
+function BarTable({ rows, valueKey, color = "indigo", loading = false }: { rows: ImportanceRow[]; valueKey: "importance"; color?: "indigo" | "teal"; loading?: boolean }) {
+  if (loading) {
+    return <div className="mt-4 space-y-3" aria-label="Loading explanation evidence">{Array.from({ length: 7 }, (_, index) => <div key={index} className="grid animate-pulse grid-cols-[140px_1fr_60px] items-center gap-3"><span className="h-3 rounded bg-slate-200" /><span className="h-2 rounded bg-slate-100" /><span className="h-3 rounded bg-slate-100" /></div>)}</div>;
+  }
   const top = rows.slice(0, 15);
   const max = Math.max(...top.map((row) => Math.abs(row[valueKey])), 1e-9);
   const barColor = color === "teal" ? "bg-teal-600" : "bg-indigo-600";
@@ -1441,7 +1559,7 @@ function BarTable({ rows, valueKey, color = "indigo" }: { rows: ImportanceRow[];
           </div>
         </div>
       ))}
-      {!top.length && <div className="text-sm text-gray-500">No importance data available.</div>}
+      {!top.length && <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-4 text-sm text-gray-500">No importance rows were returned for this trained artifact. Retrain the selected supervised model if its estimator does not expose compatible explanation evidence.</div>}
     </div>
   );
 }
@@ -1547,8 +1665,9 @@ function HyperparameterTable({ rows }: { rows: HyperparameterRow[] }) {
   );
 }
 
-function LineChart({ title, rows, feature }: { title: string; rows: CurveRow[]; feature: string }) {
-  if (!rows.length) return <div className="text-sm text-gray-500">No PDP data available.</div>;
+function LineChart({ title, rows, feature, loading = false }: { title: string; rows: CurveRow[]; feature: string; loading?: boolean }) {
+  if (loading) return <div className="flex h-[260px] animate-pulse items-center justify-center rounded-xl bg-slate-100 text-sm font-medium text-slate-500">Computing partial dependence on the governed holdout...</div>;
+  if (!rows.length) return <div className="flex h-[260px] items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-6 text-center text-sm text-gray-500">Select a compatible explained feature to generate partial dependence.</div>;
   const width = 520;
   const height = 260;
   const pad = 46;
@@ -1688,7 +1807,9 @@ function RfeCurveChart({
   );
 }
 
-function SensitivityTable({ rows }: { rows: SensitivityRow[] }) {
+function SensitivityTable({ rows, loading = false }: { rows: SensitivityRow[]; loading?: boolean }) {
+  if (loading) return <div className="flex h-[260px] animate-pulse items-center justify-center rounded-xl bg-slate-100 text-sm font-medium text-slate-500">Computing scenario sensitivity...</div>;
+  if (!rows.length) return <div className="flex h-[260px] items-center justify-center rounded-xl border border-slate-200 bg-slate-50 px-6 text-center text-sm text-gray-500">Sensitivity scenarios will appear after a compatible feature is selected.</div>;
   return (
     <div>
       <div className="mb-2 text-xs font-semibold text-gray-700">Sensitivity Analysis</div>

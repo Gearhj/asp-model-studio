@@ -1,413 +1,485 @@
 import type React from "react";
-import { useMemo, useState } from "react";
-import LLMWritingAssist from "../components/LLMWritingAssist";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Check,
+  CheckCircle2,
+  Clipboard,
+  ShieldCheck,
+  Sparkles,
+} from "lucide-react";
+import LLMWritingAssist, { type WritingAssistAction } from "../components/LLMWritingAssist";
 import StepShell from "../components/StepShell";
-import { getWorkflowForProjectType, projectTypeOptions, type ProjectType } from "../config/workflows";
+import {
+  type AtlasWorkflowMetric,
+} from "../components/ui/AtlasWorkflow";
+import { me } from "../lib/auth";
+import { createEvidence } from "../lib/evidenceGraph";
 import { logDecision } from "../lib/decisionJournal";
 import {
-  defaultProjectContext,
-  modelTypeOptions,
-  regulatoryOptions,
-  saveProjectContext,
-  summarizeRegulatoryContext,
-  type DeploymentExpectation,
-  type InterpretabilityRequirement,
-  type ModelType,
-  type ProjectContext,
-  type RegulatoryEnvironment,
+  canonicalModelType,
   loadProjectContext,
+  predictiveModelTypeOptions,
+  saveProjectContext,
+  type ProjectContext,
+  type PredictiveModelTypeSelection,
 } from "../lib/projectContext";
+import { savePredictiveProjectContextToDatabase } from "../lib/serverPersistence";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
-const inputClass =
-  "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100";
+const inputClass = "atlas-input";
+const labelClass = "text-[11px] font-semibold uppercase text-slate-600";
+const deploymentModes = ["Research", "Development", "Validation", "Limited Pilot", "Production Candidate", "Production"];
+const aiActions: WritingAssistAction[] = ["Improve clarity"];
 
-const labelClass = "text-xs font-semibold uppercase tracking-wide text-slate-500";
-const classificationSuccessMetrics = ["AUC", "KS", "PR-AUC", "Precision", "Recall", "F1", "Lift", "Calibration", "PSI", "VSI"];
-const regressionSuccessMetrics = ["RMSE", "MAE", "MAPE", "R-squared", "Adjusted R-squared", "PSI", "VSI"];
+type AssessmentState = "complete" | "incomplete" | "needs_clarification";
+type MissingField = { key: string; label: string; sectionId: string };
+type ReviewItem = { key: string; label: string; sectionId: string; state: AssessmentState; guidance: string };
 
-const regulatoryDefinitions: Record<RegulatoryEnvironment, string> = {
-  "SR 11-7": "Federal Reserve guidance for model risk management: governance, validation, controls, documentation, and ongoing monitoring.",
-  OCC: "Office of the Comptroller of the Currency expectations for bank model risk, controls, auditability, and independent review.",
-  "Fair Lending": "Review for disparate treatment, disparate impact, proxy risk, explainability, and protected-class fairness concerns.",
-  FCRA: "Fair Credit Reporting Act requirements for credit-reporting data use, permissible purpose, accuracy, and adverse action support.",
-  ECOA: "Equal Credit Opportunity Act requirements related to prohibited basis discrimination and adverse action explanations.",
-  GDPR: "Privacy and automated decisioning requirements for applicable EU personal data.",
-  HIPAA: "Health data privacy and security controls for covered healthcare information.",
-  "internal governance": "Internal model risk, validation, documentation, implementation, monitoring, and approval standards.",
-  none: "No formal regulatory framework selected. Internal documentation and auditability may still be required.",
-};
+function assessText(value: string): AssessmentState {
+  const text = value.trim();
+  if (!text) return "incomplete";
+  const words = text.split(/\s+/).filter(Boolean);
+  return text.length >= 24 && words.length >= 4 ? "complete" : "needs_clarification";
+}
 
-const projectTypeGuidance: Record<ProjectType, string> = Object.fromEntries(
-  projectTypeOptions.map((option) => [
-    option.value,
-    `Definition: ${option.description} Use when the project objective matches this workflow family.`,
-  ])
-) as Record<ProjectType, string>;
+function assessWindows(observationWindow: string, performanceWindow: string): AssessmentState {
+  if (!observationWindow.trim() && !performanceWindow.trim()) return "incomplete";
+  return assessText(observationWindow) === "complete" && assessText(performanceWindow) === "complete"
+    ? "complete"
+    : "needs_clarification";
+}
 
-const modelTypeGuidance: Record<ModelType, string> = {
-  fraud: "Definition: rare-event abuse or loss detection. Use when the model flags suspicious behavior for review or intervention.",
-  "credit risk": "Definition: repayment, default, or loss-risk modeling. Use when credit decisions, pricing, or exposure management are affected.",
-  "marketing response": "Definition: likelihood of response or conversion. Use when ranking customers for campaigns or offers.",
-  attrition: "Definition: churn or retention-risk modeling. Use when identifying customers likely to leave or reduce engagement.",
-  approval: "Definition: eligibility or decision-support modeling. Use when scores influence approve/decline or manual review decisions.",
-  collections: "Definition: collections prioritization or treatment modeling. Use when selecting outreach strategy, queue priority, or repayment support.",
-  "AML/KYC": "Definition: anti-money-laundering or know-your-customer risk detection. Use when regulatory investigation workflows are affected.",
-  "generic classification": "Definition: binary or multiclass outcome modeling. Use when the target is categorical and not covered by a specialized type.",
-  regression: "Definition: continuous-target prediction. Use when predicting dollars, rates, balances, time, or another numeric outcome.",
-};
+function reviewItems(context: ProjectContext): ReviewItem[] {
+  return [
+    { key: "businessObjective", label: "Business objective", sectionId: "business-decision", state: assessText(context.businessObjective), guidance: "State the decision or process and the outcome expected to improve." },
+    { key: "intendedModelUse", label: "Intended model use", sectionId: "business-decision", state: assessText(context.intendedModelUse), guidance: "Name the user, action, and role of human judgment." },
+    { key: "targetDefinition", label: "Target definition", sectionId: "target-population", state: assessText(context.targetDefinition), guidance: "Define the real-world outcome, not a dataset column." },
+    { key: "populationDefinition", label: "Population definition", sectionId: "target-population", state: assessText(context.populationDefinition), guidance: "Define which records are eligible for scoring." },
+    { key: "timeWindows", label: "Observation and performance windows", sectionId: "time-windows", state: assessWindows(context.observationWindow, context.performanceWindow), guidance: "Define information availability and outcome finalization timing." },
+  ];
+}
 
-const interpretabilityGuidance: Record<InterpretabilityRequirement, string> = {
-  low: "Definition: black-box models may be acceptable. Use for research or low-impact decisions with strong monitoring.",
-  medium: "Definition: model behavior must be explainable at a feature or segment level. Use for most governed challenger models.",
-  high: "Definition: decisions must be readily explainable and defensible. Use for regulated credit, adverse action, or high-impact use cases.",
-};
+function getMissing(context: ProjectContext): MissingField[] {
+  const identity: MissingField[] = [
+    ["modelId", "Model ID", "model-identity"],
+    ["projectName", "Project Name", "model-identity"],
+    ["modelTypeSelection", "Model Type", "model-identity"],
+  ].filter(([key]) => !String(context[key as keyof ProjectContext] ?? "").trim()).map(([key, label, sectionId]) => ({ key, label, sectionId }));
+  const narrative = reviewItems(context)
+    .filter((item) => item.state !== "complete")
+    .map((item) => ({ key: item.key, label: item.label, sectionId: item.sectionId }));
+  return [...identity, ...narrative];
+}
 
-const deploymentGuidance: Record<DeploymentExpectation, string> = {
-  "research only": "Definition: exploratory analysis with no production decisioning. Use when validation and deployment are not yet planned.",
-  "batch scoring": "Definition: scheduled offline scoring. Use for periodic campaigns, portfolio reviews, or monitoring files.",
-  "real-time API": "Definition: low-latency scoring at decision time. Use only when latency, reliability, and controls are production-ready.",
-  "monitoring only": "Definition: no new decision model; track stability or performance. Use for surveillance, governance, or challenger observation.",
-};
+function concise(value: string, fallback = "Not yet defined") {
+  const text = value.trim().replace(/\s+/g, " ");
+  if (!text) return fallback;
+  const sentence = text.match(/^.*?[.!?](?:\s|$)/)?.[0]?.trim() || text;
+  return sentence.length <= 150 ? sentence : `${sentence.slice(0, 147).trimEnd()}...`;
+}
+
+function buildMissionSummary(context: ProjectContext) {
+  if (reviewItems(context).some((item) => item.state !== "complete")) return "";
+  return [
+    `This project will develop a ${context.modelTypeSelection.toLowerCase()} model for the following business objective: ${concise(context.businessObjective, "")}`,
+    `The model output is intended to support this use: ${concise(context.intendedModelUse, "")}`,
+    `The model will predict ${concise(context.targetDefinition, "").replace(/[.]$/, "")} for ${concise(context.populationDefinition, "").replace(/[.]$/, "")}.`,
+    `The observation window is defined as ${concise(context.observationWindow, "").replace(/[.]$/, "")}; the performance window is ${concise(context.performanceWindow, "").replace(/[.]$/, "")}.`,
+    `The current deployment mode is ${context.fraudDetails.deploymentMode}. Dataset binding, target-column selection, validation design, and model selection will be established in later workflow stages.`,
+  ].join(" ");
+}
+
+function stateLabel(state: AssessmentState) {
+  if (state === "complete") return "Complete";
+  if (state === "needs_clarification") return "Needs clarification";
+  return "Incomplete";
+}
 
 export default function Step00ProjectContext() {
-  const [context, setContext] = useState<ProjectContext>(() => loadProjectContext());
-  const projectType = useWorkflowStore((state) => state.projectType);
+  const projectId = useWorkflowStore((state) => state.projectId);
+  const activeModelId = useWorkflowStore((state) => state.modelId);
+  const activeProjectName = useWorkflowStore((state) => state.projectName);
   const setModelId = useWorkflowStore((state) => state.setModelId);
   const setProjectName = useWorkflowStore((state) => state.setProjectName);
-  const startProjectFromWorkflow = useWorkflowStore((state) => state.startProjectFromWorkflow);
-  const [selectedProjectType, setSelectedProjectType] = useState<ProjectType>(projectType);
+  const markWorkflowStepComplete = useWorkflowStore((state) => state.markWorkflowStepComplete);
+  const [context, setContext] = useState<ProjectContext>(() => loadProjectContext());
+  const [validated, setValidated] = useState(false);
+  const [saveState, setSaveState] = useState("Draft not saved in this session.");
+  const [summaryDraft, setSummaryDraft] = useState("");
+  const [currentUserId, setCurrentUserId] = useState("");
 
-  const requiredComplete = Boolean(
-    context.modelId.trim() &&
-    context.projectName.trim() &&
-      context.businessObjective.trim() &&
-      context.targetDefinition.trim() &&
-      context.populationDefinition.trim() &&
-      context.intendedModelUse.trim()
-  );
+  const reviews = useMemo(() => reviewItems(context), [context]);
+  const missing = useMemo(() => getMissing(context), [context]);
+  const isComplete = missing.length === 0;
+  const pageCompleted = isComplete && context.completionStatus === "complete" && Boolean(context.completedAt);
 
-  const governanceNote = useMemo(() => summarizeRegulatoryContext(context), [context]);
-  const successMetricOptions = context.modelType === "regression" ? regressionSuccessMetrics : classificationSuccessMetrics;
-  const selectedPrimaryMetrics = context.primarySuccessMetric
-    .split(",")
-    .map((metric) => metric.trim())
-    .filter(Boolean);
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent("atlas-project-context-updated", { detail: { projectContext: context } }));
+  }, [context]);
+
+  useEffect(() => {
+    setContext((current) => {
+      const modelId = current.modelId || activeModelId;
+      const projectName = current.projectName || (activeProjectName === "Untitled ATLAS Project" ? "" : activeProjectName);
+      return modelId === current.modelId && projectName === current.projectName ? current : { ...current, modelId, projectName };
+    });
+  }, [activeModelId, activeProjectName]);
+
+  useEffect(() => {
+    let active = true;
+    me().then((response) => {
+      if (active) setCurrentUserId(response.user.userId);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, []);
+
+  const heroMetrics: AtlasWorkflowMetric[] = [
+    { label: "Project", value: context.projectName || "Not defined", tone: context.projectName ? "info" : "warning" },
+    { label: "Model ID", value: context.modelId || "Required", tone: context.modelId ? "neutral" : "warning" },
+    { label: "Project Type", value: "Predictive Modeling" },
+  ];
+
+  const invalidateCompletion = (next: ProjectContext): ProjectContext => ({
+    ...next,
+    completionStatus: "draft",
+    completedAt: undefined,
+    completedBy: undefined,
+    fraudDetails: { ...next.fraudDetails, completedAt: undefined },
+  });
 
   const update = <K extends keyof ProjectContext>(key: K, value: ProjectContext[K]) => {
-    setContext((current) => ({ ...current, [key]: value }));
+    setContext((current) => invalidateCompletion({ ...current, [key]: value }));
+    setValidated(false);
   };
 
-  const togglePrimaryMetric = (metric: string) => {
-    const selected = selectedPrimaryMetrics.includes(metric)
-      ? selectedPrimaryMetrics.filter((item) => item !== metric)
-      : [...selectedPrimaryMetrics, metric];
-    update("primarySuccessMetric", selected.join(", "));
+  const updateDetail = (key: "deploymentMode" | "approvedUses" | "prohibitedUses" | "humanReviewRequired" | "overrideAuthority", value: string) => {
+    setContext((current) => invalidateCompletion({ ...current, fraudDetails: { ...current.fraudDetails, [key]: value } }));
+    setValidated(false);
   };
 
-  const toggleRegulation = (value: RegulatoryEnvironment) => {
-    setContext((current) => {
-      if (value === "none") return { ...current, regulatoryEnvironment: ["none"] };
-      const withoutNone = current.regulatoryEnvironment.filter((item) => item !== "none");
-      const next = withoutNone.includes(value)
-        ? withoutNone.filter((item) => item !== value)
-        : [...withoutNone, value];
-      return { ...current, regulatoryEnvironment: next.length ? next : ["none"] };
+  const updateModelType = (selection: PredictiveModelTypeSelection) => {
+    setContext((current) => invalidateCompletion({
+      ...current,
+      modelType: canonicalModelType(selection),
+      modelTypeSelection: selection,
+      fraudDetails: { ...current.fraudDetails, modelSubtype: selection },
+    }));
+    setValidated(false);
+  };
+
+  const acceptAiDraft = (key: keyof ProjectContext, draft: string, action: WritingAssistAction) => {
+    setContext((current) => invalidateCompletion({
+      ...current,
+      [key]: draft,
+      acceptedAiDrafts: [
+        ...current.acceptedAiDrafts,
+        { field: String(key), action, text: draft, acceptedAt: new Date().toISOString(), acceptedBy: currentUserId || current.updatedBy },
+      ],
+    }));
+    setValidated(false);
+  };
+
+  const acceptBoundaryDraft = (key: "approvedUses" | "prohibitedUses" | "humanReviewRequired" | "overrideAuthority", draft: string, action: WritingAssistAction) => {
+    setContext((current) => invalidateCompletion({
+      ...current,
+      fraudDetails: { ...current.fraudDetails, [key]: draft },
+      acceptedAiDrafts: [
+        ...current.acceptedAiDrafts,
+        { field: key, action, text: draft, acceptedAt: new Date().toISOString(), acceptedBy: currentUserId || current.updatedBy },
+      ],
+    }));
+    setValidated(false);
+  };
+
+  const withCurrentUser = async (draft: ProjectContext) => {
+    try {
+      const response = await me();
+      setCurrentUserId(response.user.userId);
+      return { ...draft, updatedBy: response.user.userId };
+    } catch {
+      return draft;
+    }
+  };
+
+  const persistDraft = async (draft: ProjectContext, message: string) => {
+    setSaveState("Saving Project Context...");
+    const identified = await withCurrentUser(draft);
+    const saved = saveProjectContext(identified);
+    setContext(saved);
+    setModelId(saved.modelId);
+    setProjectName(saved.projectName || "Untitled ATLAS Project");
+    await savePredictiveProjectContextToDatabase(projectId, {
+      projectName: saved.projectName,
+      modelId: saved.modelId,
+      projectContext: saved as unknown as Record<string, unknown>,
+      validationStatus: getMissing(saved).length ? "incomplete" : saved.completionStatus === "complete" ? "complete" : "ready",
     });
+    setSaveState(message);
+    return saved;
+  };
+
+  const completePage = async () => {
+    const requiredMissing = getMissing(context);
+    setValidated(true);
+    if (requiredMissing.length) {
+      setSaveState("Complete or clarify the required fields before marking this page complete.");
+      return false;
+    }
+    const completedAt = new Date().toISOString();
+    const completed = await withCurrentUser({
+      ...context,
+      completionStatus: "complete",
+      completedAt,
+      completedBy: context.updatedBy,
+      fraudDetails: { ...context.fraudDetails, completedAt },
+    });
+    completed.completedBy = completed.updatedBy;
+    const saved = await persistDraft(completed, "Project Context marked complete. Continue to Data Acquisition when ready.");
+    markWorkflowStepComplete("step00");
+    logDecision({ workflowStep: "Project Context", actionType: "project_context_updated", subject: saved.projectName || "Project Context", newValue: { completion: "passed", mddSections: ["1", "3"] }, followStatus: "followed" });
+    await createEvidence({
+      projectId,
+      projectName: saved.projectName,
+      evidenceType: "governance",
+      title: "Predictive Modeling Project Context",
+      summary: saved.modelingMissionSummary || "Project Context completed with business objective, intended use, target definition, population definition, observation window, and performance window.",
+      sourcePage: "Project Context",
+      sourceRoute: "/step00",
+      status: "needs_review",
+      importance: "high",
+      modelIds: saved.modelId ? [saved.modelId] : [],
+      supportsSections: ["1", "3"],
+      tags: ["predictive_modeling", "project_context", "modeling_mission"],
+      payload: {
+        businessObjective: saved.businessObjective,
+        intendedModelUse: saved.intendedModelUse,
+        targetDefinition: saved.targetDefinition,
+        populationDefinition: saved.populationDefinition,
+        observationWindow: saved.observationWindow,
+        performanceWindow: saved.performanceWindow,
+        deploymentMode: saved.fraudDetails.deploymentMode,
+        modelType: saved.modelTypeSelection,
+        modelingMissionSummary: saved.modelingMissionSummary || "",
+      },
+    });
+    return true;
+  };
+
+  const continueToDataAcquisition = async () => {
+    if (!isComplete) {
+      setValidated(true);
+      setSaveState(`Complete or clarify ${missing.length} required item${missing.length === 1 ? "" : "s"} before continuing.`);
+      return false;
+    }
+    if (pageCompleted) {
+      await persistDraft(context, "Project Context saved. Opening Data Acquisition.");
+      return true;
+    }
+    return completePage();
+  };
+
+  const saveMissionEvidence = async () => {
+    if (!context.modelingMissionSummary) return;
+    await createEvidence({
+      projectId,
+      projectName: context.projectName,
+      evidenceType: "governance",
+      title: "Modeling Mission Summary",
+      summary: context.modelingMissionSummary,
+      sourcePage: "Project Context",
+      sourceRoute: "/step00",
+      status: "needs_review",
+      importance: "high",
+      modelIds: context.modelId ? [context.modelId] : [],
+      supportsSections: ["1", "3"],
+      tags: ["predictive_modeling", "modeling_mission"],
+      payload: { modelingMissionSummary: context.modelingMissionSummary },
+    });
+    setSaveState("Modeling Mission Summary saved to the Evidence Center.");
+  };
+
+  const generateMissionSummaryDraft = () => {
+    const draft = buildMissionSummary(context);
+    if (!draft) {
+      setSaveState("Complete the six narrative fields before generating a mission summary draft.");
+      return;
+    }
+    setSummaryDraft(draft);
+    setSaveState("AI draft generated. Accept, edit, or discard before saving it.");
+  };
+
+  const acceptMissionSummary = () => {
+    const draft = summaryDraft.trim();
+    if (!draft) return;
+    setContext((current) => ({
+      ...current,
+      modelingMissionSummary: draft,
+      acceptedAiDrafts: [
+        ...current.acceptedAiDrafts,
+        { field: "modelingMissionSummary", action: "Draft from current project context", text: draft, acceptedAt: new Date().toISOString(), acceptedBy: currentUserId || current.updatedBy },
+      ],
+    }));
+    setSummaryDraft("");
+    setSaveState("Modeling Mission Summary accepted. Continue to Data Acquisition will persist it.");
+  };
+
+  const scrollToSection = (sectionId: string) => document.getElementById(sectionId)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const writingContext = {
+    projectName: context.projectName,
+    modelType: context.modelTypeSelection,
+    businessObjective: context.businessObjective,
+    intendedModelUse: context.intendedModelUse,
+    targetDefinition: context.targetDefinition,
+    populationDefinition: context.populationDefinition,
+    observationWindow: context.observationWindow,
+    performanceWindow: context.performanceWindow,
   };
 
   return (
     <StepShell
-      title="Step 0: Project Context"
-      subtitle="Define the business objective, target, population, governance constraints, and deployment expectations before data acquisition."
-      nextPath={selectedProjectType === "predictive-modeling" ? "/step01" : "/project-overview"}
-      nextDisabled={!requiredComplete}
-      onNext={() => {
-        const previous = loadProjectContext();
-        saveProjectContext(context);
-        setModelId(context.modelId);
-        setProjectName(context.projectName || "Untitled ATLAS Project");
-        if (selectedProjectType !== projectType) {
-          const workflow = getWorkflowForProjectType(selectedProjectType);
-          startProjectFromWorkflow({
-            projectName: context.projectName || "Untitled ATLAS Project",
-            modelId: context.modelId,
-            projectType: selectedProjectType,
-            workflowId: workflow.id,
-          });
-        }
-        logDecision({
-          workflowStep: "Project Context",
-          actionType: "project_context_updated",
-          subject: context.projectName || "Project context",
-          previousValue: previous,
-          newValue: context,
-          followStatus: "not_applicable",
-        });
-      }}
+      title="Step 0: Define the Modeling Mission"
+      subtitle="Define the business decision, target outcome, population, and time windows that will govern the model before data is connected."
+      eyebrow="Predictive Modeling Workflow"
+      heroMetrics={heroMetrics}
+      showDeveloperTools={false}
+      nextPath="/step01"
+      nextLabel="Continue to Data Acquisition"
+      nextDisabled={!isComplete}
+      nextDisabledReason={`Complete or clarify ${missing.length} required item${missing.length === 1 ? "" : "s"} before continuing.`}
+      nextStatusLine="Continue saves Project Context and opens Data Acquisition."
+      onNext={continueToDataAcquisition}
     >
-      <div className="space-y-5">
-        <section className="rounded-lg border border-slate-200/80 bg-white/90 p-5 shadow-sm">
-          <div className="grid gap-4 lg:grid-cols-3">
-            <Field label="Model ID #">
-              <input
-                className={inputClass}
-                value={context.modelId}
-                onChange={(event) => update("modelId", event.target.value)}
-                placeholder="15211"
-                aria-required="true"
-              />
-            </Field>
-
-            <Field label="Project name">
-              <input
-                className={inputClass}
-                value={context.projectName}
-                onChange={(event) => update("projectName", event.target.value)}
-                placeholder="Consumer lending attrition model"
-              />
-            </Field>
-
-            <Field label="Project type">
-              <select
-                className={inputClass}
-                value={selectedProjectType}
-                onChange={(event) => setSelectedProjectType(event.target.value as ProjectType)}
-              >
-                {projectTypeOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              <GuidanceText>{projectTypeGuidance[selectedProjectType]}</GuidanceText>
-            </Field>
-
-            <Field label="Model type">
-              <select
-                className={inputClass}
-                value={context.modelType}
-                onChange={(event) => update("modelType", event.target.value as ModelType)}
-              >
-                {modelTypeOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
-                ))}
-              </select>
-              <GuidanceText>{modelTypeGuidance[context.modelType]}</GuidanceText>
-            </Field>
-
-            <div className="lg:col-span-2">
-              <div className={labelClass}>Primary success metric</div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {successMetricOptions.map((metric) => {
-                  const selected = selectedPrimaryMetrics.includes(metric);
-                  return (
-                    <button
-                      key={metric}
-                      type="button"
-                      className={`rounded-lg border px-3 py-2 text-sm font-semibold ${
-                        selected ? "border-blue-300 bg-blue-50 text-blue-900" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-                      }`}
-                      onClick={() => togglePrimaryMetric(metric)}
-                    >
-                      {metric}
-                    </button>
-                  );
-                })}
+      <div className="space-y-5" id="project-context-top">
+        <div className="grid gap-5 xl:grid-cols-[468px_minmax(0,1fr)]">
+          <section id="model-identity" className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+            <div className="flex h-full flex-col gap-5">
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-wide text-blue-700">Model identity</div>
+                <h2 className="mt-1 text-xl font-semibold text-slate-950">Project Setup</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-600">Confirm the project identity created on the New Project screen. Dataset, target column, split, and validation evidence are captured later.</p>
               </div>
-              <p className="mt-2 text-xs text-slate-500">Selected: {context.primarySuccessMetric || "None selected"}</p>
+              <div className="grid gap-3">
+                <Field label="Model ID" required help="Assigned when the project is created."><input className={inputClass} value={context.modelId} readOnly aria-readonly="true" /></Field>
+                <Field label="Project Name" required><input className={inputClass} value={context.projectName} onChange={(event) => update("projectName", event.target.value)} placeholder="Card transaction fraud model" /></Field>
+                <Field label="Project Type"><input className={inputClass} value="Predictive Modeling" readOnly aria-readonly="true" /></Field>
+                <Field label="Model Type" required><select className={inputClass} value={context.modelTypeSelection} onChange={(event) => updateModelType(event.target.value as PredictiveModelTypeSelection)}>{predictiveModelTypeOptions.map((option) => <option key={option}>{option}</option>)}</select></Field>
+                <Field label="Deployment Mode"><select className={inputClass} value={context.fraudDetails.deploymentMode} onChange={(event) => updateDetail("deploymentMode", event.target.value)}>{deploymentModes.map((option) => <option key={option}>{option}</option>)}</select></Field>
+              </div>
             </div>
+          </section>
+
+          <section id="business-decision" className="rounded-xl border border-blue-200 bg-blue-50/70 p-5 shadow-sm">
+            <div className="mb-4">
+              <div className="text-[11px] font-bold uppercase tracking-wide text-blue-700">Decision foundation</div>
+              <h2 className="mt-1 text-xl font-semibold text-slate-950">Business Decision and Intended Use</h2>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">Anchor the model to a specific decision, user, action, and role for human judgment.</p>
+            </div>
+            <div className="grid gap-4">
+              <NarrativeField label="Business Objective" required value={context.businessObjective} onChange={(value) => update("businessObjective", value)} onAccept={(draft, action) => acceptAiDraft("businessObjective", draft, action)} placeholder="What decision or business process should this model improve, and what outcome should improve?" context={writingContext} />
+              <NarrativeField label="Intended Model Use" required value={context.intendedModelUse} onChange={(value) => update("intendedModelUse", value)} onAccept={(draft, action) => acceptAiDraft("intendedModelUse", draft, action)} placeholder="Who will use the model output, what action may follow, and how will human judgment remain involved?" context={writingContext} />
+            </div>
+            <details className="mt-4 rounded-lg border border-slate-200 bg-white px-4 py-3">
+              <summary className="cursor-pointer text-sm font-semibold text-slate-900">Optional Use Boundaries</summary>
+              <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                <NarrativeField label="Approved Uses" value={context.fraudDetails.approvedUses} onChange={(value) => updateDetail("approvedUses", value)} onAccept={(draft, action) => acceptBoundaryDraft("approvedUses", draft, action)} placeholder="Approved decisions or workflows" context={writingContext} />
+                <NarrativeField label="Prohibited Uses" value={context.fraudDetails.prohibitedUses} onChange={(value) => updateDetail("prohibitedUses", value)} onAccept={(draft, action) => acceptBoundaryDraft("prohibitedUses", draft, action)} placeholder="Uses that remain outside project scope" context={writingContext} />
+                <NarrativeField label="Human Review Expectations" value={context.fraudDetails.humanReviewRequired} onChange={(value) => updateDetail("humanReviewRequired", value)} onAccept={(draft, action) => acceptBoundaryDraft("humanReviewRequired", draft, action)} placeholder="Where human review remains required" context={writingContext} />
+                <NarrativeField label="Override Authority" value={context.fraudDetails.overrideAuthority} onChange={(value) => updateDetail("overrideAuthority", value)} onAccept={(draft, action) => acceptBoundaryDraft("overrideAuthority", draft, action)} placeholder="Who may override and under what authority" context={writingContext} />
+              </div>
+            </details>
+          </section>
+        </div>
+
+        <section id="target-population" className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-5 shadow-sm">
+          <div className="mb-4">
+            <div className="text-[11px] font-bold uppercase tracking-wide text-emerald-700">Outcome and eligibility</div>
+            <h2 className="mt-1 text-lg font-semibold text-slate-950">Target and Population</h2>
+            <p className="mt-1 text-sm leading-6 text-slate-600">Define the outcome and eligible scoring population in business terms. Physical columns are selected during Data Acquisition.</p>
           </div>
-
-          <div className="mt-4 grid gap-4 lg:grid-cols-2">
-            <LLMWritingAssist
-              label="Business objective"
-              value={context.businessObjective}
-              onChange={(value) => update("businessObjective", value)}
-              placeholder="Describe the decision this model will support and the business outcome it should improve."
-              context={context}
-            />
-
-            <LLMWritingAssist
-              label="Intended model use"
-              value={context.intendedModelUse}
-              onChange={(value) => update("intendedModelUse", value)}
-              placeholder="Describe how scores, rankings, or predictions will be used by the business."
-              context={context}
-            />
+          <div className="grid gap-4 xl:grid-cols-2">
+            <NarrativeField label="Target Definition" required value={context.targetDefinition} onChange={(value) => update("targetDefinition", value)} onAccept={(draft, action) => acceptAiDraft("targetDefinition", draft, action)} placeholder="What real-world outcome will the model predict? Define the outcome in business terms rather than naming a dataset column." context={writingContext} />
+            <NarrativeField label="Population Definition" required value={context.populationDefinition} onChange={(value) => update("populationDefinition", value)} onAccept={(draft, action) => acceptAiDraft("populationDefinition", draft, action)} placeholder="Which transactions, customers, accounts, applications, or other records are eligible for scoring?" context={writingContext} />
           </div>
         </section>
 
-        <section className="grid gap-5 xl:grid-cols-[1.1fr_0.9fr]">
-          <div className="rounded-lg border border-slate-200/80 bg-white/90 p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-950">Target and Population</h2>
-            <div className="mt-4 grid gap-4 lg:grid-cols-2">
-              <LLMWritingAssist
-                label="Target definition"
-                value={context.targetDefinition}
-                onChange={(value) => update("targetDefinition", value)}
-                placeholder="Define the dependent variable, event logic, exclusions, and timing."
-                context={context}
-                minHeightClass="min-h-[92px]"
-              />
-
-              <LLMWritingAssist
-                label="Population definition"
-                value={context.populationDefinition}
-                onChange={(value) => update("populationDefinition", value)}
-                placeholder="Define eligible accounts, customers, loans, applications, or transactions."
-                context={context}
-                minHeightClass="min-h-[92px]"
-              />
-
-              <Field label="Observation window">
-                <input
-                  className={inputClass}
-                  value={context.observationWindow}
-                  onChange={(event) => update("observationWindow", event.target.value)}
-                  placeholder="Example: 2024-01-01 to 2024-06-30"
-                />
-              </Field>
-
-              <Field label="Performance window">
-                <input
-                  className={inputClass}
-                  value={context.performanceWindow}
-                  onChange={(event) => update("performanceWindow", event.target.value)}
-                  placeholder="Example: 90 days after observation close"
-                />
-              </Field>
-            </div>
+        <section id="time-windows" className="rounded-lg border border-slate-200 bg-white/80 p-4 shadow-sm">
+          <div className="mb-3">
+            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Time design</div>
+            <h2 className="mt-1 text-base font-semibold text-slate-950">Observation and Performance Windows</h2>
           </div>
-
-          <div className="rounded-lg border border-slate-200/80 bg-white/90 p-5 shadow-sm">
-            <h2 className="text-sm font-semibold text-slate-950">Costs and Operating Constraints</h2>
-            <div className="mt-4 grid gap-4">
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label={context.modelType === "regression" ? "Overprediction cost" : "False positive cost"}>
-                  <input
-                    className={inputClass}
-                    value={context.falsePositiveCost}
-                    onChange={(event) => update("falsePositiveCost", event.target.value)}
-                    placeholder={context.modelType === "regression" ? "$, over-reserve, over-price, operational impact" : "$, operational, customer impact"}
-                  />
-                </Field>
-
-                <Field label={context.modelType === "regression" ? "Underprediction cost" : "False negative cost"}>
-                  <input
-                    className={inputClass}
-                    value={context.falseNegativeCost}
-                    onChange={(event) => update("falseNegativeCost", event.target.value)}
-                    placeholder={context.modelType === "regression" ? "$, loss, under-price, service-level impact" : "$, loss, fraud, compliance impact"}
-                  />
-                </Field>
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="Interpretability requirement">
-                  <select
-                    className={inputClass}
-                    value={context.interpretabilityRequirement}
-                    onChange={(event) => update("interpretabilityRequirement", event.target.value as InterpretabilityRequirement)}
-                  >
-                    <option value="low">low</option>
-                    <option value="medium">medium</option>
-                    <option value="high">high</option>
-                  </select>
-                  <GuidanceText>{interpretabilityGuidance[context.interpretabilityRequirement]}</GuidanceText>
-                </Field>
-
-                <Field label="Deployment expectation">
-                  <select
-                    className={inputClass}
-                    value={context.deploymentExpectation}
-                    onChange={(event) => update("deploymentExpectation", event.target.value as DeploymentExpectation)}
-                  >
-                    <option value="research only">research only</option>
-                    <option value="batch scoring">batch scoring</option>
-                    <option value="real-time API">real-time API</option>
-                    <option value="monitoring only">monitoring only</option>
-                  </select>
-                  <GuidanceText>{deploymentGuidance[context.deploymentExpectation]}</GuidanceText>
-                </Field>
-              </div>
-
-              <Field label="Secondary metrics">
-                <input
-                  className={inputClass}
-                  value={context.secondaryMetrics}
-                  onChange={(event) => update("secondaryMetrics", event.target.value)}
-                  placeholder={context.modelType === "regression" ? "RMSE, MAE, MAPE, R-squared, prediction PSI, VSI" : "Calibration, lift, recall, PSI, stability"}
-                />
-              </Field>
-            </div>
+          <div className="grid gap-4 xl:grid-cols-2">
+            <NarrativeField label="Observation Window" required value={context.observationWindow} onChange={(value) => update("observationWindow", value)} onAccept={(draft, action) => acceptAiDraft("observationWindow", draft, action)} placeholder="The period and information available when the model would generate a score." help="Example: Transaction attributes available at authorization time." context={writingContext} />
+            <NarrativeField label="Performance Window" required value={context.performanceWindow} onChange={(value) => update("performanceWindow", value)} onAccept={(draft, action) => acceptAiDraft("performanceWindow", draft, action)} placeholder="The period after the observation date during which the final outcome is determined." help="Example: Fraud outcome finalized within 90 days after the transaction." context={writingContext} />
           </div>
         </section>
 
-        <section className="rounded-lg border border-slate-200/80 bg-white/90 p-5 shadow-sm">
-          <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-            <div>
-              <h2 className="text-sm font-semibold text-slate-950">Regulatory Environment</h2>
-              <p className="mt-1 text-sm text-slate-500">{governanceNote}</p>
-            </div>
-            <button
-              type="button"
-              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-              onClick={() => setContext(defaultProjectContext)}
-            >
-              Reset Context
-            </button>
+        <section id="project-context-review" className={`rounded-xl border p-4 shadow-sm ${pageCompleted ? "border-emerald-200 bg-emerald-50/60" : isComplete ? "border-blue-200 bg-blue-50/50" : "border-amber-200 bg-amber-50/45"}`}>
+          <div className="mb-3">
+            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-500">Completion gate</div>
+            <h2 className="mt-1 text-base font-semibold text-slate-950">Project Context Review</h2>
+            <p className="mt-1 text-sm leading-6 text-slate-600">Confirm the modeling mission before data is connected.</p>
           </div>
-
-          <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
-            {regulatoryOptions.map((option) => {
-              const selected = context.regulatoryEnvironment.includes(option);
-              return (
-                <label
-                  key={option}
-                  className={`flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium ${
-                    selected
-                      ? "border-indigo-200 bg-indigo-50 text-indigo-900"
-                      : "border-slate-200 bg-slate-50 text-slate-700"
-                  }`}
-                >
-                  <input
-                    type="checkbox"
-                    checked={selected}
-                    onChange={() => toggleRegulation(option)}
-                    className="h-4 w-4 rounded border-slate-300 text-indigo-600"
-                  />
-                  {option}
-                  <span className="sr-only">{regulatoryDefinitions[option]}</span>
-                </label>
-              );
-            })}
-          </div>
-          <div className="mt-4 grid gap-2 md:grid-cols-2">
-            {regulatoryOptions.map((option) => (
-              <div key={`${option}-help`} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-                <div className="text-xs font-semibold text-slate-900">{option}</div>
-                <p className="mt-1 text-xs leading-5 text-slate-600">{regulatoryDefinitions[option]}</p>
-              </div>
+          <div className="divide-y divide-slate-200 rounded-lg border border-slate-200 bg-white">
+            {reviews.map((item) => (
+              <button key={item.key} type="button" className="grid w-full gap-2 px-4 py-3 text-left sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center" onClick={() => scrollToSection(item.sectionId)}>
+                <span><span className="block text-sm font-semibold text-slate-950">{item.label}</span><span className="mt-0.5 block text-xs text-slate-500">{item.state === "complete" ? "Required context is clear." : item.guidance}</span></span>
+                <ReviewStatus state={item.state} />
+              </button>
             ))}
           </div>
+
+          {validated ? <div className={`mt-4 rounded-lg border px-4 py-3 text-sm ${isComplete ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>{isComplete ? "Required Project Context fields are valid." : `${missing.length} required item${missing.length === 1 ? " needs" : "s need"} attention.`}</div> : null}
+
+          <div className="mt-4 rounded-lg border border-blue-200 bg-blue-50/70 p-4" data-testid="modeling-mission-summary-workspace">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <div className="text-xs font-semibold uppercase text-blue-700">Optional AI draft</div>
+                <h3 className="mt-1 text-sm font-semibold text-slate-950">Modeling Mission Summary</h3>
+                <p className="mt-1 text-xs leading-5 text-slate-600">This summary is not required to complete the page. Generate it only when you want draft documentation language.</p>
+              </div>
+              <button type="button" className="atlas-primary-button" onClick={generateMissionSummaryDraft}><Sparkles size={14} /> Generate Modeling Mission Summary</button>
+            </div>
+            {context.modelingMissionSummary ? (
+              <div className="mt-4 rounded-lg border border-emerald-200 bg-white p-3" data-testid="accepted-modeling-mission-summary">
+                <div className="text-xs font-semibold uppercase text-emerald-700">Accepted summary</div>
+                <p className="mt-2 text-sm leading-6 text-slate-800">{context.modelingMissionSummary}</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button type="button" className="atlas-secondary-button" onClick={() => { void navigator.clipboard.writeText(context.modelingMissionSummary).then(() => setSaveState("Modeling Mission Summary copied.")); }}><Clipboard size={14} /> Copy Summary</button>
+                  <button type="button" className="atlas-secondary-button" onClick={() => void saveMissionEvidence()}><ShieldCheck size={14} /> Save to Evidence Center</button>
+                  <button type="button" className="atlas-secondary-button" onClick={() => { setSummaryDraft(context.modelingMissionSummary); setContext((current) => ({ ...current, modelingMissionSummary: "" })); }}>Edit Summary</button>
+                </div>
+              </div>
+            ) : null}
+            {summaryDraft ? (
+              <div className="mt-4 rounded-lg border border-blue-200 bg-white p-3">
+                <div className="text-xs font-semibold uppercase text-blue-700">AI draft - not saved until accepted</div>
+                <textarea className={`${inputClass} mt-2 min-h-[132px]`} value={summaryDraft} onChange={(event) => setSummaryDraft(event.target.value)} aria-label="Editable AI Modeling Mission Summary draft" />
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button type="button" className="atlas-primary-button" onClick={acceptMissionSummary}><Check size={14} /> Accept Summary</button>
+                  <button type="button" className="atlas-secondary-button" onClick={() => setSummaryDraft("")}>Discard</button>
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mt-4 rounded-lg border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600"><b>Documentation mapping:</b> Business purpose and intended use support the model overview. Target, population, and time windows support the outcome-definition sections. Dataset and model evidence are assembled later.</div>
         </section>
+
+        <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700" aria-live="polite"><span className="font-semibold">Save status:</span> {saveState}</div>
       </div>
     </StepShell>
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="grid gap-1.5">
-      <span className={labelClass}>{label}</span>
-      {children}
-    </label>
-  );
+function Field({ label, children, required = false, help }: { label: string; children: React.ReactNode; required?: boolean; help?: string }) {
+  return <label className="grid content-start gap-1.5"><span className={labelClass}>{label}{required ? <span className="text-rose-600"> *</span> : null}</span>{children}{help ? <span className="text-xs leading-5 text-slate-500">{help}</span> : null}</label>;
 }
 
-function GuidanceText({ children }: { children: React.ReactNode }) {
-  return <span className="text-[11px] font-normal normal-case leading-4 text-slate-500">{children}</span>;
+function NarrativeField({ label, value, onChange, onAccept, placeholder, help, required = false, context }: { label: string; value: string; onChange: (value: string) => void; onAccept: (draft: string, action: WritingAssistAction) => void; placeholder?: string; help?: string; required?: boolean; context: Record<string, unknown> }) {
+  return <div className="rounded-lg border border-slate-200 bg-white p-3"><LLMWritingAssist label={`${label}${required ? " (required)" : ""}`} value={value} onChange={onChange} onAcceptDraft={onAccept} actions={aiActions} strictGrounding context={context} placeholder={placeholder} minHeightClass="min-h-[112px]" />{help ? <p className="mt-2 text-xs leading-5 text-slate-500">{help}</p> : null}</div>;
+}
+
+function ReviewStatus({ state }: { state: AssessmentState }) {
+  const className = state === "complete" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : state === "needs_clarification" ? "border-amber-200 bg-amber-50 text-amber-800" : "border-slate-200 bg-slate-50 text-slate-600";
+  return <span className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1 text-xs font-semibold ${className}`}>{state === "complete" ? <CheckCircle2 size={13} /> : null}{stateLabel(state)}</span>;
 }

@@ -150,7 +150,7 @@ assert.match(diagnostics, /chart_diagnostics/, "System diagnostics must include 
 
 assert.match(datasetDetail, /Saved Analytics Insights and Chart Insights/, "Dataset Detail must display chart insights.");
 assert.match(datasetDetail, /\/chart-studio/, "Dataset Detail should link to Chart Studio.");
-assert.match(projectOverview, /Project Analytics Insights and Chart Insights/, "Project Overview must display chart insights.");
+assert.match(projectOverview, /Project Analytics Insights/, "Project Overview must display shared analytics and chart insights.");
 assert.match(projectOverview, /chart_studio/, "Project Overview should route chart insights to Chart Studio.");
 
 console.log("Chart Studio Phase 9G static tests passed.");

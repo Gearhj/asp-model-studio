@@ -1,0 +1,809 @@
+{
+  "contextSummary": {
+    "analyticsInsights": [],
+    "chartInsights": [],
+    "datasets": [
+      {
+        "columns": 26,
+        "createdAt": "2026-07-09T16:38:25.499560+00:00",
+        "dataset": "HELOC_TRAIN",
+        "datasetId": "ds_heloc_train_6bdb184b",
+        "eventRateOrTargetMean": "",
+        "owner": "Local ATLAS User",
+        "role": "modeling",
+        "rows": 6275,
+        "sourceType": "upload",
+        "target": "",
+        "updatedAt": "2026-07-13T22:21:25.092536+00:00",
+        "version": "v_1783615105236_6bdb184b"
+      }
+    ],
+    "diagnosticInsights": [],
+    "generatedAt": "2026-07-14T14:31:16.100642+00:00",
+    "project": {
+      "championModel": "Not selected",
+      "createdAt": "2026-07-09T16:38:25.499560+00:00",
+      "lastModified": "2026-07-13T22:21:25.092536+00:00",
+      "projectId": "atlas-mrik5piw",
+      "projectName": "Heloc Train",
+      "projectType": "unknown",
+      "recoveryStatus": "Dataset-linked shell only",
+      "storageLocation": "recovered",
+      "target": "",
+      "taskType": "unknown"
+    },
+    "recoveredShell": true
+  },
+  "createdAt": "2026-07-14T14:31:16.100642+00:00",
+  "createdBy": "ATLAS local user",
+  "documentId": "doc-atlas-mrih2gqp-1784039476",
+  "exports": [],
+  "projectId": "atlas-mrik5piw",
+  "projectName": "Heloc Train",
+  "quality": {
+    "checks": [
+      {
+        "detail": "0 of 25 required sections complete.",
+        "id": "required_sections",
+        "label": "Required sections complete",
+        "status": "pass"
+      },
+      {
+        "detail": "Dataset inventory evidence is attached.",
+        "id": "dataset_lineage",
+        "label": "Dataset lineage documented",
+        "status": "pass"
+      },
+      {
+        "detail": "Target definition draft is available.",
+        "id": "target_definition",
+        "label": "Target definition documented",
+        "status": "pass"
+      },
+      {
+        "detail": "Attach evaluation or diagnostic evidence.",
+        "id": "performance_table",
+        "label": "Model performance table",
+        "status": "warning"
+      },
+      {
+        "detail": "Interpretability narrative is drafted.",
+        "id": "model_interpretation",
+        "label": "Model interpretation",
+        "status": "pass"
+      },
+      {
+        "detail": "Monitoring plan draft is available.",
+        "id": "monitoring_plan",
+        "label": "Monitoring plan",
+        "status": "pass"
+      },
+      {
+        "detail": "4 governance note(s) detected.",
+        "id": "governance_notes",
+        "label": "Fair Lending / governance notes",
+        "status": "pass"
+      }
+    ],
+    "completionPct": 0,
+    "exportReady": false,
+    "governanceWarningsCount": 4,
+    "missingEvidenceCount": 0,
+    "requiredSectionsComplete": 0,
+    "requiredSectionsTotal": 25,
+    "sectionsNeedingReview": 26
+  },
+  "sections": [
+    {
+      "attachedEvidence": [
+        {
+          "preview": {
+            "championModel": "Not selected",
+            "createdAt": "2026-07-09T16:38:25.499560+00:00",
+            "lastModified": "2026-07-13T22:21:25.092536+00:00",
+            "projectId": "atlas-mrik5piw",
+            "projectName": "Heloc Train",
+            "projectType": "unknown",
+            "recoveryStatus": "Dataset-linked shell only",
+            "storageLocation": "recovered",
+            "target": "",
+            "taskType": "unknown"
+          },
+          "source": "Project Registry",
+          "title": "Project Metadata and Workflow Context",
+          "type": "Project Metadata"
+        },
+        {
+          "createdAt": "2026-07-14T14:31:16.219306+00:00",
+          "preview": {
+            "championModel": "Not selected",
+            "createdAt": "2026-07-09T16:38:25.499560+00:00",
+            "lastModified": "2026-07-13T22:21:25.092536+00:00",
+            "projectId": "atlas-mrik5piw",
+            "projectName": "Heloc Train",
+            "projectType": "unknown",
+            "recoveryStatus": "Dataset-linked shell only",
+            "storageLocation": "recovered",
+            "target": "",
+            "taskType": "unknown"
+          },
+          "source": "Project Registry",
+          "title": "Project Metadata and Workflow Context",
+          "type": "Project Metadata"
+        },
+        {
+          "createdAt": "2026-07-14T14:31:16.219306+00:00",
+          "preview": {
+            "championModel": "Not selected",
+            "projectType": "unknown",
+            "target": "",
+            "taskType": "unknown"
+          },
+          "source": "Project Registry",
+          "title": "Target Definition Evidence",
+          "type": "Target Metadata"
+        },
+        {
+          "createdAt": "2026-07-14T14:31:16.219306+00:00",
+          "preview": {
+            "detail": "Document validation readiness, limitations, monitoring, and final model approval.",
+            "topic": "Model Risk"
+          },
+          "source": "ATLAS Guide",
+          "title": "Model Risk",
+          "type": "Warning"
+        },
+        {
+          "createdAt": "2026-07-14T14:31:16.219306+00:00",
+          "preview": {
+            "detail": "Review protected-class proxy risk and adverse-action explainability where applicable.",
+            "topic": "Fair Lending"
+          },
+          "source": "ATLAS Guide",
+          "title": "Fair Lending",
+          "type": "Warning"
+        },
+        {
+          "createdAt": "2026-07-14T14:31:16.219306+00:00",
+          "preview": {
+            "detail": "This project was reconstructed from artifacts; review section evidence before finalization.",
+            "topic": "Recovered Project"
+          },
+          "source": "ATLAS Guide",
+          "title": "Recovered Project",
+          "type": "Warning"
+        }
+      ],
+      "autoDraft": "What ATLAS found: Heloc Train is documented as a unknown model development effort targeting the selected target. The current champion model is Not selected. ATLAS found 1 linked dataset record(s), 0 model diagnostic insight(s), 0 chart insight(s), and 0 total analytics insight(s).\n\nEvidence support: The draft is assembled from the backend project registry, Dataset Library metadata, saved diagnostics, Chart Studio outputs, Analytics Workbench insights, and governance notes where available.\n\nNeeds review: Confirm the champion model, final target definition, development/test/OOT evidence, and validation-ready performance tables.\n\nGovernance caveat: Missing evidence should remain visible in the quality checklist until the MDD is ready for model risk review.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "",
+      "order": 1,
+      "required": true,
+      "sectionId": "executive_summary",
+      "status": "ready_for_review",
+      "title": "Executive Summary",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [
+        {
+          "preview": {
+            "championModel": "Not selected",
+            "createdAt": "2026-07-09T16:38:25.499560+00:00",
+            "lastModified": "2026-07-13T22:21:25.092536+00:00",
+            "projectId": "atlas-mrik5piw",
+            "projectName": "Heloc Train",
+            "projectType": "unknown",
+            "recoveryStatus": "Dataset-linked shell only",
+            "storageLocation": "recovered",
+            "target": "",
+            "taskType": "unknown"
+          },
+          "source": "Project Registry",
+          "title": "Project Metadata and Workflow Context",
+          "type": "Project Metadata"
+        }
+      ],
+      "autoDraft": "The business objective is to support the documented decision use case for Heloc Train using a governed, reproducible model development process.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "",
+      "order": 2,
+      "required": true,
+      "sectionId": "business_objective",
+      "status": "ready_for_review",
+      "title": "Business Objective",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [
+        {
+          "preview": {
+            "championModel": "Not selected",
+            "createdAt": "2026-07-09T16:38:25.499560+00:00",
+            "lastModified": "2026-07-13T22:21:25.092536+00:00",
+            "projectId": "atlas-mrik5piw",
+            "projectName": "Heloc Train",
+            "projectType": "unknown",
+            "recoveryStatus": "Dataset-linked shell only",
+            "storageLocation": "recovered",
+            "target": "",
+            "taskType": "unknown"
+          },
+          "source": "Project Registry",
+          "title": "Project Metadata and Workflow Context",
+          "type": "Project Metadata"
+        }
+      ],
+      "autoDraft": "The model is intended for unknown decision support. Intended-use language should be reviewed by business, compliance, and model risk stakeholders.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "",
+      "order": 3,
+      "required": true,
+      "sectionId": "model_use_case",
+      "status": "ready_for_review",
+      "title": "Model Use Case",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [
+        {
+          "preview": {
+            "championModel": "Not selected",
+            "createdAt": "2026-07-09T16:38:25.499560+00:00",
+            "lastModified": "2026-07-13T22:21:25.092536+00:00",
+            "projectId": "atlas-mrik5piw",
+            "projectName": "Heloc Train",
+            "projectType": "unknown",
+            "recoveryStatus": "Dataset-linked shell only",
+            "storageLocation": "recovered",
+            "target": "",
+            "taskType": "unknown"
+          },
+          "source": "Project Registry",
+          "title": "Project Metadata and Workflow Context",
+          "type": "Project Metadata"
+        },
+        {
+          "preview": {
+            "championModel": "Not selected",
+            "projectType": "unknown",
+            "target": "",
+            "taskType": "unknown"
+          },
+          "source": "Project Registry",
+          "title": "Target Definition Evidence",
+          "type": "Target Metadata"
+        },
+        {
+          "rows": [
+            {
+              "columns": 26,
+              "createdAt": "2026-07-09T16:38:25.499560+00:00",
+              "dataset": "HELOC_TRAIN",
+              "datasetId": "ds_heloc_train_6bdb184b",
+              "eventRateOrTargetMean": "",
+              "owner": "Local ATLAS User",
+              "role": "modeling",
+              "rows": 6275,
+              "sourceType": "upload",
+              "target": "",
+              "updatedAt": "2026-07-13T22:21:25.092536+00:00",
+              "version": "v_1783615105236_6bdb184b"
+            }
+          ],
+          "source": "Dataset Library",
+          "title": "Dataset Inventory",
+          "type": "Dataset Inventory"
+        }
+      ],
+      "autoDraft": "The modeled target is the selected target. The definition should state the event/outcome, observation window, performance window, exclusions, and treatment of ambiguous records.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "",
+      "order": 4,
+      "required": true,
+      "sectionId": "target_definition",
+      "status": "ready_for_review",
+      "title": "Target Definition",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [
+        {
+          "rows": [
+            {
+              "columns": 26,
+              "createdAt": "2026-07-09T16:38:25.499560+00:00",
+              "dataset": "HELOC_TRAIN",
+              "datasetId": "ds_heloc_train_6bdb184b",
+              "eventRateOrTargetMean": "",
+              "owner": "Local ATLAS User",
+              "role": "modeling",
+              "rows": 6275,
+              "sourceType": "upload",
+              "target": "",
+              "updatedAt": "2026-07-13T22:21:25.092536+00:00",
+              "version": "v_1783615105236_6bdb184b"
+            }
+          ],
+          "source": "Dataset Library",
+          "title": "Dataset Inventory",
+          "type": "Dataset Inventory"
+        }
+      ],
+      "autoDraft": "What ATLAS found: Data sources currently linked to the project include: HELOC_TRAIN.\n\nEvidence support: Dataset Library records provide available lineage, owner, version, row count, column count, target metadata, and dataset role evidence.\n\nNeeds review: Confirm that source systems, extraction dates, exclusions, and refresh cadence are complete.\n\nGovernance caveat: The final MDD should preserve dataset version identifiers so validation can reproduce the development record.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "",
+      "order": 5,
+      "required": true,
+      "sectionId": "data_sources",
+      "status": "ready_for_review",
+      "title": "Data Sources",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [
+        {
+          "preview": {
+            "championModel": "Not selected",
+            "createdAt": "2026-07-09T16:38:25.499560+00:00",
+            "lastModified": "2026-07-13T22:21:25.092536+00:00",
+            "projectId": "atlas-mrik5piw",
+            "projectName": "Heloc Train",
+            "projectType": "unknown",
+            "recoveryStatus": "Dataset-linked shell only",
+            "storageLocation": "recovered",
+            "target": "",
+            "taskType": "unknown"
+          },
+          "source": "Project Registry",
+          "title": "Project Metadata and Workflow Context",
+          "type": "Project Metadata"
+        },
+        {
+          "rows": [
+            {
+              "columns": 26,
+              "createdAt": "2026-07-09T16:38:25.499560+00:00",
+              "dataset": "HELOC_TRAIN",
+              "datasetId": "ds_heloc_train_6bdb184b",
+              "eventRateOrTargetMean": "",
+              "owner": "Local ATLAS User",
+              "role": "modeling",
+              "rows": 6275,
+              "sourceType": "upload",
+              "target": "",
+              "updatedAt": "2026-07-13T22:21:25.092536+00:00",
+              "version": "v_1783615105236_6bdb184b"
+            }
+          ],
+          "source": "Dataset Library",
+          "title": "Dataset Inventory",
+          "type": "Dataset Inventory"
+        }
+      ],
+      "autoDraft": "Appendices should include generated code, detailed diagnostics, evidence inventories, governance notes, and decision summaries as appropriate.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "",
+      "order": 6,
+      "required": true,
+      "sectionId": "population_definition",
+      "status": "ready_for_review",
+      "title": "Population Definition",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [
+        {
+          "preview": {
+            "championModel": "Not selected",
+            "createdAt": "2026-07-09T16:38:25.499560+00:00",
+            "lastModified": "2026-07-13T22:21:25.092536+00:00",
+            "projectId": "atlas-mrik5piw",
+            "projectName": "Heloc Train",
+            "projectType": "unknown",
+            "recoveryStatus": "Dataset-linked shell only",
+            "storageLocation": "recovered",
+            "target": "",
+            "taskType": "unknown"
+          },
+          "source": "Project Registry",
+          "title": "Project Metadata and Workflow Context",
+          "type": "Project Metadata"
+        }
+      ],
+      "autoDraft": "Appendices should include generated code, detailed diagnostics, evidence inventories, governance notes, and decision summaries as appropriate.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "",
+      "order": 7,
+      "required": true,
+      "sectionId": "inclusion_exclusion",
+      "status": "ready_for_review",
+      "title": "Inclusion and Exclusion Criteria",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [
+        {
+          "rows": [
+            {
+              "columns": 26,
+              "createdAt": "2026-07-09T16:38:25.499560+00:00",
+              "dataset": "HELOC_TRAIN",
+              "datasetId": "ds_heloc_train_6bdb184b",
+              "eventRateOrTargetMean": "",
+              "owner": "Local ATLAS User",
+              "role": "modeling",
+              "rows": 6275,
+              "sourceType": "upload",
+              "target": "",
+              "updatedAt": "2026-07-13T22:21:25.092536+00:00",
+              "version": "v_1783615105236_6bdb184b"
+            }
+          ],
+          "source": "Dataset Library",
+          "title": "Dataset Inventory",
+          "type": "Dataset Inventory"
+        }
+      ],
+      "autoDraft": "Development, test, and OOT data should be reviewed for separation, leakage risk, temporal ordering, population consistency, and target availability.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "",
+      "order": 8,
+      "required": true,
+      "sectionId": "development_test_oot",
+      "status": "ready_for_review",
+      "title": "Development, Test, and OOT Data",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "EDA evidence should summarize target distribution, missingness, data quality, distribution shape, key relationships, and potential leakage or stability concerns.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 9,
+      "required": true,
+      "sectionId": "eda",
+      "status": "draft",
+      "title": "Exploratory Data Analysis",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Missing value treatment should identify variable-level strategies, rationale, imputation statistics, and any variables excluded due to missingness.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 10,
+      "required": true,
+      "sectionId": "missing_value_treatment",
+      "status": "draft",
+      "title": "Missing Value Treatment",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Outlier treatment should document detection thresholds, caps or no-treatment decisions, and whether extreme values represent valid signal.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 11,
+      "required": true,
+      "sectionId": "outlier_treatment",
+      "status": "draft",
+      "title": "Outlier Treatment",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Feature engineering should document transformations, encodings, scaling, generated features, excluded fields, and reproducibility considerations.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 12,
+      "required": true,
+      "sectionId": "feature_engineering",
+      "status": "draft",
+      "title": "Feature Engineering",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Correlation and VIF review should document multicollinearity risks, high-VIF predictors, and the modeling decision for correlated fields.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 13,
+      "required": true,
+      "sectionId": "correlation_vif",
+      "status": "draft",
+      "title": "Correlation and VIF Review",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [
+        {
+          "preview": {
+            "championModel": "Not selected",
+            "createdAt": "2026-07-09T16:38:25.499560+00:00",
+            "lastModified": "2026-07-13T22:21:25.092536+00:00",
+            "projectId": "atlas-mrik5piw",
+            "projectName": "Heloc Train",
+            "projectType": "unknown",
+            "recoveryStatus": "Dataset-linked shell only",
+            "storageLocation": "recovered",
+            "target": "",
+            "taskType": "unknown"
+          },
+          "source": "Project Registry",
+          "title": "Project Metadata and Workflow Context",
+          "type": "Project Metadata"
+        }
+      ],
+      "autoDraft": "Training strategy should document split or cross-validation design, candidate algorithms, hyperparameter search, calibration, PCA settings, and optimization metric.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "",
+      "order": 14,
+      "required": true,
+      "sectionId": "model_training_strategy",
+      "status": "ready_for_review",
+      "title": "Model Training Strategy",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Candidate models should be compared using task-appropriate metrics, runtime, interpretability, stability, and governance constraints.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 15,
+      "required": true,
+      "sectionId": "candidate_models",
+      "status": "draft",
+      "title": "Candidate Models",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [
+        {
+          "preview": {
+            "championModel": "Not selected",
+            "createdAt": "2026-07-09T16:38:25.499560+00:00",
+            "lastModified": "2026-07-13T22:21:25.092536+00:00",
+            "projectId": "atlas-mrik5piw",
+            "projectName": "Heloc Train",
+            "projectType": "unknown",
+            "recoveryStatus": "Dataset-linked shell only",
+            "storageLocation": "recovered",
+            "target": "",
+            "taskType": "unknown"
+          },
+          "source": "Project Registry",
+          "title": "Project Metadata and Workflow Context",
+          "type": "Project Metadata"
+        }
+      ],
+      "autoDraft": "The champion selection rationale should explain why Not selected was selected over challengers, including performance, interpretability, stability, and implementation constraints.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "",
+      "order": 16,
+      "required": true,
+      "sectionId": "champion_model_selection",
+      "status": "ready_for_review",
+      "title": "Champion Model Selection",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "What ATLAS found: 0 diagnostic insight(s) are currently available for performance support.\n\nEvidence support: Attach training results, evaluation metrics, model diagnostics fit summaries, and scored split comparison tables.\n\nNeeds review: Confirm the primary metric, secondary metrics, train/test/OOT comparison, and whether performance is sufficient for intended use.\n\nGovernance caveat: If performance evidence is missing or stale, keep the section in needs-review status until final model approval.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 17,
+      "required": true,
+      "sectionId": "performance_summary",
+      "status": "draft",
+      "title": "Model Performance Summary",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Evaluation diagnostics should include residual diagnostics for regression or lift, calibration, ROC/PR, threshold analysis, and decile review for classification.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 18,
+      "required": true,
+      "sectionId": "evaluation_diagnostics",
+      "status": "draft",
+      "title": "Evaluation Diagnostics",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Interpretation should summarize feature importance, coefficients, SHAP-style summaries, PDP/sensitivity, RFE, and model behavior caveats.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 19,
+      "required": true,
+      "sectionId": "model_interpretation",
+      "status": "draft",
+      "title": "Model Interpretation",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "Scoring and external validation should document TEST and OOT scoring outputs, stability metrics, prediction distribution, and any model drift or validation warnings.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 20,
+      "required": true,
+      "sectionId": "scoring_external_validation",
+      "status": "draft",
+      "title": "Scoring and External Validation",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [],
+      "autoDraft": "What ATLAS found: 0 saved model diagnostic insight(s) are available for this project.\n\nEvidence support: Relevant evidence can include prediction summary, regression fit summary, detailed lift table, population waterfall, VIF analysis, KPI aggregation, and Pozzolo calibration.\n\nNeeds review: Confirm field mapping, actual-vs-predicted alignment, prediction distribution quality, segment performance, and any drift/stability warnings.\n\nGovernance caveat: Diagnostics should be interpreted as model behavior evidence and not as causal proof.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "No direct ATLAS evidence is attached yet. Review and attach evidence before marking complete.",
+      "order": 21,
+      "required": true,
+      "sectionId": "model_diagnostics",
+      "status": "draft",
+      "title": "Model Diagnostics",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [
+        {
+          "rows": [
+            {
+              "detail": "Document validation readiness, limitations, monitoring, and final model approval.",
+              "topic": "Model Risk"
+            },
+            {
+              "detail": "Review protected-class proxy risk and adverse-action explainability where applicable.",
+              "topic": "Fair Lending"
+            },
+            {
+              "detail": "This project was reconstructed from artifacts; review section evidence before finalization.",
+              "topic": "Recovered Project"
+            },
+            {
+              "detail": "Target definition is missing from backend project metadata.",
+              "topic": "Target Definition"
+            }
+          ],
+          "source": "ATLAS Guide",
+          "title": "Governance and Fair Lending Notes",
+          "type": "Governance Notes"
+        }
+      ],
+      "autoDraft": "Governance considerations should address fair lending, FCRA/ECOA applicability, data lineage, model risk controls, limitations, and monitoring expectations.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "",
+      "order": 22,
+      "required": true,
+      "sectionId": "fair_lending_governance",
+      "status": "ready_for_review",
+      "title": "Fair Lending and Governance Considerations",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [
+        {
+          "preview": {
+            "championModel": "Not selected",
+            "createdAt": "2026-07-09T16:38:25.499560+00:00",
+            "lastModified": "2026-07-13T22:21:25.092536+00:00",
+            "projectId": "atlas-mrik5piw",
+            "projectName": "Heloc Train",
+            "projectType": "unknown",
+            "recoveryStatus": "Dataset-linked shell only",
+            "storageLocation": "recovered",
+            "target": "",
+            "taskType": "unknown"
+          },
+          "source": "Project Registry",
+          "title": "Project Metadata and Workflow Context",
+          "type": "Project Metadata"
+        }
+      ],
+      "autoDraft": "Implementation plan should identify the deployment path, scoring cadence, controls, owners, dependencies, rollback plan, and production readiness decision.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "",
+      "order": 23,
+      "required": true,
+      "sectionId": "implementation_plan",
+      "status": "ready_for_review",
+      "title": "Implementation Plan",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [
+        {
+          "preview": {
+            "championModel": "Not selected",
+            "createdAt": "2026-07-09T16:38:25.499560+00:00",
+            "lastModified": "2026-07-13T22:21:25.092536+00:00",
+            "projectId": "atlas-mrik5piw",
+            "projectName": "Heloc Train",
+            "projectType": "unknown",
+            "recoveryStatus": "Dataset-linked shell only",
+            "storageLocation": "recovered",
+            "target": "",
+            "taskType": "unknown"
+          },
+          "source": "Project Registry",
+          "title": "Project Metadata and Workflow Context",
+          "type": "Project Metadata"
+        }
+      ],
+      "autoDraft": "Monitoring plan should include performance metrics, PSI/VSI, input drift, prediction drift, outcome drift, residual drift for regression, calibration/lift drift for classification, review cadence, and redevelopment triggers.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "",
+      "order": 24,
+      "required": true,
+      "sectionId": "monitoring_plan",
+      "status": "ready_for_review",
+      "title": "Monitoring Plan",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [
+        {
+          "preview": {
+            "championModel": "Not selected",
+            "createdAt": "2026-07-09T16:38:25.499560+00:00",
+            "lastModified": "2026-07-13T22:21:25.092536+00:00",
+            "projectId": "atlas-mrik5piw",
+            "projectName": "Heloc Train",
+            "projectType": "unknown",
+            "recoveryStatus": "Dataset-linked shell only",
+            "storageLocation": "recovered",
+            "target": "",
+            "taskType": "unknown"
+          },
+          "source": "Project Registry",
+          "title": "Project Metadata and Workflow Context",
+          "type": "Project Metadata"
+        }
+      ],
+      "autoDraft": "Known limitations should include sample constraints, data quality issues, external validation gaps, interpretability caveats, monitoring dependencies, and assumptions requiring stakeholder approval.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "",
+      "order": 25,
+      "required": true,
+      "sectionId": "limitations",
+      "status": "ready_for_review",
+      "title": "Limitations",
+      "userNarrative": ""
+    },
+    {
+      "attachedEvidence": [
+        {
+          "preview": {
+            "championModel": "Not selected",
+            "createdAt": "2026-07-09T16:38:25.499560+00:00",
+            "lastModified": "2026-07-13T22:21:25.092536+00:00",
+            "projectId": "atlas-mrik5piw",
+            "projectName": "Heloc Train",
+            "projectType": "unknown",
+            "recoveryStatus": "Dataset-linked shell only",
+            "storageLocation": "recovered",
+            "target": "",
+            "taskType": "unknown"
+          },
+          "source": "Project Registry",
+          "title": "Project Metadata and Workflow Context",
+          "type": "Project Metadata"
+        }
+      ],
+      "autoDraft": "Appendices should include generated code, detailed diagnostics, evidence inventories, governance notes, and decision summaries as appropriate.",
+      "includeInExport": true,
+      "missingEvidenceWarning": "",
+      "order": 26,
+      "required": false,
+      "sectionId": "appendices",
+      "status": "ready_for_review",
+      "title": "Appendices",
+      "userNarrative": ""
+    }
+  ],
+  "templateType": "model_development_document",
+  "updatedAt": "2026-07-14T14:31:19.960512+00:00"
+}

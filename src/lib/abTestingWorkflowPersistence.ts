@@ -52,6 +52,7 @@ const allowedFormValueKeys = new Set([
   "allocationMode",
   "blockStratum",
   "selectedExclusions",
+  "ab",
 ]);
 
 const blockedMetricKeys = new Set([
@@ -104,12 +105,25 @@ function compactNumeric(value: unknown) {
   );
 }
 
+function compactAbValues(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const output: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value as Record<string, unknown>).slice(0, 200)) {
+    if (typeof entry === "string") output[key] = textValue(entry);
+    else if (typeof entry === "number" && Number.isFinite(entry)) output[key] = entry;
+    else if (typeof entry === "boolean") output[key] = entry;
+    else if (Array.isArray(entry)) output[key] = compactArray(entry, 100);
+  }
+  return output;
+}
+
 export function compactFormValues(input: Record<string, unknown> = {}) {
   const output: Record<string, unknown> = {};
   for (const key of allowedFormValueKeys) {
     const value = input[key];
     if (value == null) continue;
     if (key === "metrics" || key === "selectedExclusions") output[key] = compactArray(value);
+    else if (key === "ab") output[key] = compactAbValues(value);
     else if (key === "numeric") output[key] = compactNumeric(value);
     else if (typeof value === "string") output[key] = textValue(value);
     else if (typeof value === "number" || typeof value === "boolean") output[key] = value;

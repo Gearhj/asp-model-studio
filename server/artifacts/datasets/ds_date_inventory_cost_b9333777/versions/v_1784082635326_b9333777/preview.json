@@ -1,0 +1,28 @@
+{
+  "columns": [
+    "Suppliers",
+    "Inventory_Cost"
+  ],
+  "rows": [
+    {
+      "Inventory_Cost": 0.4,
+      "Suppliers": "Supplier1"
+    },
+    {
+      "Inventory_Cost": 0.2,
+      "Suppliers": "Supplier2"
+    },
+    {
+      "Inventory_Cost": 0.3,
+      "Suppliers": "Supplier3"
+    },
+    {
+      "Inventory_Cost": 0.5,
+      "Suppliers": "Supplier4"
+    },
+    {
+      "Inventory_Cost": 0.25,
+      "Suppliers": "Supplier5"
+    }
+  ]
+}

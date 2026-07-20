@@ -1,0 +1,42 @@
+{
+  "projectId": "atlas-mrl6mm9i",
+  "evidenceType": "optimization_decision_charter",
+  "title": "Optimization Decision Charter",
+  "summary": "Minimize total supplier-to-customer cash distribution cost while satisfying all customer demand and respecting supplier supply and transportation-capacity limits.",
+  "sourcePage": "Optimization",
+  "sourceRoute": "/workflow/optimization/1",
+  "status": "ready",
+  "importance": "high",
+  "datasetIds": [],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Executive Summary",
+    "Business Decision"
+  ],
+  "tags": [
+    "optimization",
+    "transportation",
+    "decision_charter"
+  ],
+  "lineage": {
+    "projectId": "atlas-mrl6mm9i",
+    "decisionOwner": "Operations planning owner"
+  },
+  "payload": {
+    "businessObjective": "Determine the least-cost allocation of cash or logistics capacity from available supplier locations to customer demand locations. The optimization should satisfy all customer demand, avoid exceeding supplier supply limits, respect transportation capacity, and provide a reproducible allocation plan for operational review.",
+    "population": "The optimization includes five supplier locations and six customer demand locations. Each customer has a required demand quantity. Each supplier has a maximum supply amount, a transportation capacity limit, an inventory or handling cost, and route-specific transportation cost to each customer.",
+    "governanceBoundary": "This optimization is governed by operational feasibility, cost minimization, capacity limits, fulfillment requirements, reproducibility controls, and documented solver evidence. The solution should not exceed supplier supply or transportation capacity and must fully document assumptions, constraints, objective components, and validation results."
+  },
+  "governance": {
+    "accountableOwner": "Operations planning owner"
+  },
+  "evidenceId": "ev-optimization-decision-charter-fefa82665afe7819",
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-15T12:46:36.314784+00:00",
+  "updatedAt": "2026-07-15T12:46:36.314784+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 86
+}

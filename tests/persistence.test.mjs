@@ -49,6 +49,7 @@ globalThis.window = {
   addEventListener() {},
   removeEventListener() {},
 };
+globalThis.fetch = async () => ({ ok: true, json: async () => ({ ok: true }) });
 
 async function transpileSource(sourcePath, outputPath) {
   const source = await readFile(new URL(sourcePath, ROOT), "utf8");
@@ -70,9 +71,12 @@ async function transpileSource(sourcePath, outputPath) {
 async function compileTestModules() {
   await rm(TMP_DIR, { recursive: true, force: true });
   await transpileSource("src/config/workflows.ts", path.join(TMP_DIR, "src/config/workflows.js"));
+  await transpileSource("src/config/optimizationTemplates.ts", path.join(TMP_DIR, "src/config/optimizationTemplates.js"));
   await transpileSource("src/lib/artifactStorage.ts", path.join(TMP_DIR, "src/lib/artifactStorage.js"));
   await transpileSource("src/lib/projectImportValidation.ts", path.join(TMP_DIR, "src/lib/projectImportValidation.js"));
   await transpileSource("src/lib/projectPersistence.ts", path.join(TMP_DIR, "src/lib/projectPersistence.js"));
+  await transpileSource("src/lib/api.ts", path.join(TMP_DIR, "src/lib/api.js"));
+  await transpileSource("src/lib/serverPersistence.ts", path.join(TMP_DIR, "src/lib/serverPersistence.js"));
   await transpileSource("src/lib/localProjects.ts", path.join(TMP_DIR, "src/lib/localProjects.js"));
   return {
     artifactStorage: await import(pathToFileURL(path.join(TMP_DIR, "src/lib/artifactStorage.js")).href),
@@ -194,7 +198,13 @@ test("compact project snapshot creation excludes regulated browser artifacts", (
   assert.ok(snapshot);
   assert.equal(snapshot.datasetPreview, undefined);
   assert.deepEqual(snapshot.sessionStorage, {});
-  assert.deepEqual(snapshot.localStorage, {});
+  assert.deepEqual(snapshot.localStorage, {
+    "modeling-tool-project-context": {
+      projectName: "Predictive Persistence Test",
+      targetDefinition: "Class indicates confirmed fraud.",
+      primarySuccessMetric: ["AUC", "KS"],
+    },
+  });
   assert.deepEqual(snapshot.workflowNodeStates, {});
   assert.equal(snapshot.missingArtifacts.some((warning) => warning.includes("regulated data")), true);
 });

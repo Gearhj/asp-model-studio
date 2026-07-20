@@ -28,3 +28,5 @@ Thumbs.db
 .tmp/
 .runtime/
 server/artifacts/security/*.db
+server/data/*.db
+server/data/*.db-*

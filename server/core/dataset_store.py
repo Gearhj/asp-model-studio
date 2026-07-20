@@ -87,6 +87,17 @@ class DatasetStore:
         self.raw_df = df.copy()
         self.processed_df = None
         self.reset_splits()
+        for key in (
+            "processed_stage",
+            "outlier_application",
+            "missing_application",
+            "missing_config",
+            "materialized_feature_names",
+            "feature_manifest",
+            "split_record",
+            "split_status",
+        ):
+            self.meta.pop(key, None)
 
     def set_processed(self, df: pd.DataFrame) -> None:
         """
@@ -141,6 +152,20 @@ class DatasetStore:
         if self.raw_df is not None:
             return self.raw_df
         return None
+
+    def get_raw_active_df(self, include_target: bool = True) -> Optional[pd.DataFrame]:
+        """Return the governed modeling columns from the registered source frame."""
+        if self.raw_df is None or self.raw_df.empty:
+            return self.raw_df
+
+        selected = [column for column in self.get_selected_columns() if column in self.raw_df.columns]
+        if not selected:
+            return self.raw_df.copy()
+
+        keep = list(selected)
+        if include_target and self.target and self.target in self.raw_df.columns and self.target not in keep:
+            keep.append(self.target)
+        return self.raw_df.loc[:, keep].copy()
 
     def get_active_df(self, include_target: bool = True) -> Optional[pd.DataFrame]:
         """

@@ -4,19 +4,29 @@ import {
   AlertTriangle,
   BrainCircuit,
   CheckCircle2,
+  ChevronDown,
+  ChevronUp,
   HelpCircle,
   Lightbulb,
   ListChecks,
   ShieldAlert,
 } from "lucide-react";
 import { getWorkflowDefinition, type ProjectType } from "../config/workflows";
+import {
+  getOptimizationTemplate,
+  getOptimizationTemplateInputRoles,
+  readStoredOptimizationTemplateId,
+  type OptimizationTemplateId,
+} from "../config/optimizationTemplates";
 import { getAdaptiveRecommendations } from "../lib/adaptiveWorkflow";
+import { AB_WORKFLOW_DEFAULTS } from "../lib/abTestingWorkflow";
 import { logDecision } from "../lib/decisionJournal";
 import { loadExperiments, type ExperimentRecord } from "../lib/experimentTracking";
 import { deriveSuggestedFactors, treatmentCellCount } from "../lib/experimentalDesign";
 import { inferLocalProblemType, loadLocalDataset } from "../lib/localDataset";
 import { loadModelingMode, type ModelingMode } from "../lib/modelingMode";
 import { hasGovernanceRegulation, loadProjectContext, type ProjectContext } from "../lib/projectContext";
+import { deriveOptimizationEvidenceSummary, loadTransportationOptimizationSnapshot } from "../lib/transportationOptimizationEvidence";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const API_BASE =
@@ -25,6 +35,7 @@ const API_BASE =
 
 const OUTLIER_CONFIG_KEY = "modeling-tool-outlier-methods";
 const CHALLENGE_MODE_KEY = "modeling-tool-challenge-mode";
+const PROJECT_CONTEXT_GUIDE_COLLAPSED_KEY = "atlas-project-context-guide-collapsed";
 
 type TrainingSummary = {
   problem_type?: "classification" | "regression";
@@ -41,6 +52,7 @@ type TrainingSummary = {
 };
 
 type CopilotContext = {
+  projectId: string;
   route: string;
   routeLabel: string;
   projectType: ProjectType;
@@ -62,6 +74,7 @@ type CopilotContext = {
   trainingSummary: TrainingSummary | null;
   projectContext: ProjectContext;
   workflowNodeState: Record<string, any> | null;
+  optimizationTemplateId: OptimizationTemplateId;
 };
 
 type CopilotItem = {
@@ -168,28 +181,32 @@ function routeLabel(pathname: string) {
   return labels[pathname] ?? "Workflow";
 }
 
-function buildContext(route: string, completedSteps: number, trainingSummary: TrainingSummary | null): CopilotContext {
+function buildContext(route: string, completedSteps: number, trainingSummary: TrainingSummary | null, projectContextOverride?: ProjectContext | null): CopilotContext {
   const dataset = loadLocalDataset();
-  const target = dataset?.target ?? null;
+  const datasetTarget = dataset?.target ?? null;
   const rows = dataset?.rows ?? [];
   const headers = dataset?.headers ?? [];
   const outlierConfig = readOutlierConfig();
   const amountFeature = Object.keys(outlierConfig).find((feature) => /amount|balance|income|payment|loan/i.test(feature));
-  const projectContext = loadProjectContext();
+  const projectContext = projectContextOverride ?? loadProjectContext();
   const workflowState = useWorkflowStore.getState();
   const workflow = getWorkflowDefinition(workflowState.workflowId);
   const activeStep = workflowState.workflowSteps.find((step) => step.route === route) ?? workflowState.workflowSteps.find((step) => route.includes(step.id));
   const workflowNodeState = readWorkflowNodeState(workflowState.projectId, activeStep?.id);
+  const optimizationTemplateId = readStoredOptimizationTemplateId(workflowState.projectId);
+  const isOptimization = workflowState.projectType === "optimization";
+  const target = isOptimization ? null : datasetTarget;
 
   return {
+    projectId: workflowState.projectId,
     route,
-    routeLabel: routeLabel(route),
+    routeLabel: activeStep?.label ?? routeLabel(route),
     projectType: workflowState.projectType,
     workflowLabel: workflow.label,
     workflowStepLabel: activeStep?.label ?? routeLabel(route),
     mode: loadModelingMode(),
     completedSteps,
-    problemType: inferLocalProblemType(dataset),
+    problemType: isOptimization ? null : inferLocalProblemType(dataset),
     rowCount: rows.length,
     target,
     eventRate: eventRateForTarget(rows, target),
@@ -203,6 +220,7 @@ function buildContext(route: string, completedSteps: number, trainingSummary: Tr
     trainingSummary,
     projectContext,
     workflowNodeState,
+    optimizationTemplateId,
   };
 }
 
@@ -299,6 +317,8 @@ function buildChallengeItems(context: CopilotContext): ChallengeItem[] {
 }
 
 export function buildCopilotRecommendations(context: CopilotContext): CopilotItem[] {
+  if (context.projectType === "optimization") return buildOptimizationRecommendations(context);
+  if (context.route === "/step00") return buildProjectContextRecommendations(context);
   const items: CopilotItem[] = [];
   const champion = context.trainingSummary?.ranked?.[0];
 
@@ -371,9 +391,9 @@ export function buildCopilotRecommendations(context: CopilotContext): CopilotIte
   if (context.route === "/step01") {
     items.push({
       kind: "recommendation",
-      title: "Capture source metadata with the dataset",
-      body: "Use the Data Access module to preserve source type, connection, query, sampling method, dataset version, lineage, and data quality findings before modeling begins.",
-      why: "In regulated lending, validation needs to trace the final model dataset back to the governed source and extraction logic.",
+      title: "Confirm source, target, and lineage",
+      body: "Load or select the governed dataset, confirm the target, then review quality and predictors.",
+      why: "Validation needs a traceable source and target before modeling.",
       confidence: 0.95,
     });
     if (context.projectContext.regulatoryEnvironment.some((item) => ["Fair Lending", "FCRA", "ECOA", "SR 11-7", "OCC", "internal governance"].includes(item))) {
@@ -611,6 +631,181 @@ export function buildCopilotRecommendations(context: CopilotContext): CopilotIte
   return items.slice(0, 7);
 }
 
+function buildProjectContextRecommendations(context: CopilotContext): CopilotItem[] {
+  const project = context.projectContext;
+  const required = [
+    project.businessObjective,
+    project.intendedModelUse,
+    project.targetDefinition,
+    project.populationDefinition,
+    project.observationWindow,
+    project.performanceWindow,
+  ];
+  const completeCount = required.filter((value) => value.trim().length >= 24 && value.trim().split(/\s+/).length >= 4).length;
+  const completed = project.completionStatus === "complete" && Boolean(project.completedAt) && completeCount === required.length;
+  if (completed) {
+    return [{
+      kind: "recommendation",
+      title: "Project Context is complete",
+      body: "Continue to Data Acquisition to bind the TRAIN, TEST, and OOT datasets and validate the target definition.",
+      why: "Dataset roles, physical target binding, and the authoritative validation design require governed data evidence.",
+      confidence: 0.99,
+    }];
+  }
+  return [{
+    kind: "recommendation",
+    title: "Complete the modeling mission",
+    body: `${completeCount} of ${required.length} required narrative inputs are clear enough. Define the business objective, intended use, target, population, observation window, and performance window before connecting data.`,
+    why: "The modeling mission must establish the decision, outcome, population, and time design without inventing dataset properties.",
+    confidence: 0.99,
+  }];
+}
+
+function readTransportationOptimizationState(projectId: string) {
+  return loadTransportationOptimizationSnapshot(projectId) as Record<string, any> | null;
+}
+
+function buildOptimizationRecommendations(context: CopilotContext): CopilotItem[] {
+  const state = readTransportationOptimizationState(context.projectId);
+  const formulation = state?.formulation;
+  const result = state?.result;
+  const scenarios = state?.scenarioAnalysis;
+  const sensitivity = state?.sensitivity;
+  const validation = state?.validation;
+  const evidence = deriveOptimizationEvidenceSummary(state);
+  const step = context.workflowStepLabel;
+  const items: CopilotItem[] = [{
+    kind: "observation",
+    title: `${step} decision context`,
+    body: formulation
+      ? `Transportation / Logistics Template: ${formulation.metrics?.routeCount ?? 0} governed routes, ${formulation.metrics?.decisionVariableCount ?? 0} decision variables, and ${formulation.constraints?.length ?? 0} executable constraints are available. ${evidence.statusLabel}.`
+      : "Transportation / Logistics Template: ATLAS is tracking the transportation decision charter and governed multi-table input bundle for this stage.",
+    why: "Optimization guidance is derived from the saved transportation workflow state, not from predictive-model target assumptions.",
+    confidence: 0.98,
+  }];
+
+  const byStep: Record<string, CopilotItem> = {
+    "Project Context": {
+      kind: state?.decisionTitle && state?.businessObjective && state?.decisionOwner ? "recommendation" : "warning",
+      title: state?.decisionTitle && state?.businessObjective && state?.decisionOwner ? "Decision charter is defined" : "Define the transportation decision charter",
+      body: state?.decisionTitle && state?.businessObjective && state?.decisionOwner
+        ? "Confirm the eligible network, planning cadence, accountable owner, and non-negotiable governance boundary before registering inputs."
+        : "Define the allocation decision, accountable owner, business objective, network scope, planning cadence, and governance boundary.",
+      why: "Every coefficient, route, constraint, recommendation, and implementation control must trace to an approved operational decision.",
+      confidence: 0.97,
+    },
+    "Data Acquisition": {
+      kind: formulation?.fullArtifact ? "recommendation" : "warning",
+      title: formulation?.fullArtifact ? "Review normalized route evidence" : "Complete the governed input bundle",
+      body: formulation?.fullArtifact
+        ? "Inspect the route matrix, source-table lineage, schema confidence, duplicate keys, invalid values, and optional inventory-cost disclosure."
+        : "Register route cost, demand, supply maximum, and transport capacity as full artifacts. Inventory or handling cost is optional and must be disclosed when absent.",
+      why: "The route-level LP must be generated from full governed tables; browser previews cannot support a production recommendation.",
+      confidence: 0.99,
+    },
+    "Formulation Readiness": {
+      kind: state?.formulationConfirmed ? "recommendation" : "warning",
+      title: state?.formulationConfirmed ? "Input bundle confirmed" : "Confirm the normalized input bundle",
+      body: "Reconcile input completeness, aggregate feasibility, route coverage, and the exact objects ATLAS will generate next.",
+      why: "Readiness confirmation prevents an incomplete or internally inconsistent network from silently becoming a mathematical model.",
+      confidence: 0.97,
+    },
+    "Objective Function": {
+      kind: "recommendation",
+      title: "Validate every cost coefficient",
+      body: "Confirm the minimization objective, planning unit, horizon, mathematical expression, plain-language meaning, source tables, and total route-cost range.",
+      why: "An optimal answer is only defensible when the objective represents the real operating cost stakeholders intend to minimize.",
+      confidence: 0.96,
+    },
+    "Decision Variables": {
+      kind: "recommendation",
+      title: "Govern the active route set",
+      body: "Inspect each continuous shipment variable and document a rationale before excluding any supplier-to-customer route.",
+      why: "Route exclusions change the feasible region and must propagate consistently into scenarios, validation, evidence, and implementation.",
+      confidence: 0.97,
+    },
+    "Constraints & Business Rules": {
+      kind: state?.executableRulesValidated ? "recommendation" : "warning",
+      title: state?.executableRulesValidated ? "Executable rules validated" : "Approve and validate every business rule",
+      body: "Review customer demand equalities, supplier supply limits, transport-capacity limits, route bounds, custom policies, formulas, right-hand sides, and source lineage.",
+      why: "Constraints define what the optimizer is allowed to recommend; approval alone is not a substitute for executable validation.",
+      confidence: 0.98,
+    },
+    "Solver Configuration": {
+      kind: "recommendation",
+      title: "Confirm the LP execution contract",
+      body: "Compare LP, mixed-integer, and nonlinear use cases, then inspect the variable index, objective vector, bounds, matrices, right-hand sides, and solver payload.",
+      why: "The current transportation formulation is continuous and linear, so HiGHS LP is the supported reproducible method.",
+      confidence: 0.98,
+    },
+    "Baseline & Scenarios": {
+      kind: scenarios?.results?.length ? "recommendation" : "warning",
+      title: scenarios?.results?.length ? "Interpret feasible and infeasible stress cases" : "Run the transportation scenario set",
+      body: "Compare cost, unmet demand, route turnover, binding-constraint changes, and the exact stressed values that make a scenario infeasible.",
+      why: "A base optimum does not establish resilience under demand, supply, capacity, and route-cost stress.",
+      confidence: 0.97,
+    },
+    "Optimize": {
+      kind: result?.success ? "recommendation" : "warning",
+      title: result?.success ? "Translate the optimum into operating actions" : "Run a business-valid optimization",
+      body: result?.success
+        ? `The current solution fulfills ${Number(result.demandFulfilled ?? 0).toLocaleString()} units across ${result.activeRoutes ?? 0} active routes. Review allocation, cost concentration, utilization, reduced costs, and binding constraints.`
+        : "Run the approved LP and require a feasible, nonzero allocation before using any output for decisioning.",
+      why: "Solver success, full demand fulfillment, and business validity are separate controls and all must pass.",
+      confidence: 0.99,
+    },
+    "Sensitivity & Tradeoffs": {
+      kind: sensitivity?.available ? "recommendation" : "warning",
+      title: sensitivity?.available ? "Focus on fragile cost and capacity drivers" : "Stress the saved optimum",
+      body: sensitivity?.conclusion || "Run governed perturbations and review cost changes, route changes, allocation turnover, binding-constraint changes, and shadow prices.",
+      why: "Sensitivity evidence shows whether the recommendation remains stable when operational assumptions move.",
+      confidence: 0.97,
+    },
+    "Validation": {
+      kind: validation?.recommendationAllowed ? "recommendation" : "warning",
+      title: validation?.recommendationAllowed ? "Recommendation gate is open" : "Complete mathematical and governance validation",
+      body: validation?.recommendationAllowed
+        ? "Record the validation conclusion and preserve the accepted evidence before drafting the recommendation."
+        : "Confirm input reconciliation, business-rule validity, scenario adequacy, sensitivity review, implementation feasibility, and reviewer accountability.",
+      why: "Mathematical success can pass while governance acceptance remains pending.",
+      confidence: 0.99,
+    },
+    "Decision Recommendation": {
+      kind: state?.recommendationStatus && state.recommendationStatus !== "Draft" ? "recommendation" : "warning",
+      title: state?.recommendationStatus && state.recommendationStatus !== "Draft" ? "Recommendation has an accountable status" : "Make the validated decision explicit",
+      body: "State the recommended action, owner, alternatives considered, residual risks, scenario coverage, sensitivity conclusion, and approval disposition.",
+      why: "Management needs a decisive operational recommendation that remains traceable to the solver and validation evidence.",
+      confidence: 0.98,
+    },
+    "Implementation & Monitoring": {
+      kind: state?.implementationOwner && state?.fallbackPlan ? "recommendation" : "warning",
+      title: state?.implementationOwner && state?.fallbackPlan ? "Review thresholds and ownership" : "Generate an executable implementation plan",
+      body: "Define route exceptions, fallback allocation, cost and fulfillment thresholds, monitoring cadence, reconciliation, and re-optimization triggers.",
+      why: "An optimization study is incomplete until operations can execute, monitor, challenge, and reverse the recommendation.",
+      confidence: 0.98,
+    },
+    "Documentation": {
+      kind: evidence.packageReady ? "recommendation" : "warning",
+      title: evidence.packageReady ? "Evidence package ready" : evidence.statusLabel,
+      body: evidence.packageReady
+        ? `All 20 documentation sections are populated. ${evidence.capturedCount} governed artifacts are captured and ${evidence.readyCount} are ready. Confirm final reviewer and approval date before completion.`
+        : `Confirm reviewer, approval date, validation acceptance, recommendation status, implementation readiness, code, and all 20 documentation sections. ${evidence.generatedCount} artifacts are generated and ${evidence.capturedCount} are captured.`,
+      why: "The final package must support independent reproduction, governance review, operational approval, and Decision Journal traceability.",
+      confidence: 0.99,
+    },
+  };
+  const recommendation = byStep[step];
+  if (recommendation) items.push(recommendation);
+  items.push({
+    kind: "default",
+    title: "Evidence to preserve on this page",
+    body: `Capture the governed ${step.toLowerCase()} artifact together with source lineage, assumptions, generated code, reviewer decisions, and any override rationale.`,
+    why: "Stage-level evidence keeps the final optimization report reproducible and auditable without relying on screenshots or memory.",
+    confidence: 0.95,
+  });
+  return items.slice(0, 7);
+}
+
 function workflowOpeningRecommendation(projectType: ProjectType, stepLabel: string) {
   if (projectType === "ab-testing") return `Define the primary hypothesis and success metric before moving beyond ${stepLabel}.`;
   if (projectType === "optimization") return `Document objective function, decision variables, and constraints before configuring solver logic.`;
@@ -792,6 +987,78 @@ function confidenceScore(items: CopilotItem[]) {
   return Math.round(average * 100);
 }
 
+function AbTestingGuideContext({ context }: { context: CopilotContext }) {
+  const projectId = useWorkflowStore((state) => state.projectId);
+  const acquisitionState = readWorkflowNodeState(projectId, "ab-testing-2");
+  const decisionState = readWorkflowNodeState(projectId, "ab-testing-13");
+  const postDecisionState = readWorkflowNodeState(projectId, "ab-testing-15");
+  const savedMapping = acquisitionState?.ab && typeof acquisitionState.ab === "object" ? acquisitionState.ab : null;
+  const mappingConfirmed = Boolean(savedMapping?.confirmed);
+  const mapping = mappingConfirmed ? { ...AB_WORKFLOW_DEFAULTS, ...savedMapping } : null;
+  const savedDecision = String(decisionState?.ab?.decisionRecommendation || "Decision not confirmed");
+  const savedStrategy = String(postDecisionState?.ab?.postDecisionStrategy || "Strategy not confirmed");
+  if (context.workflowStepLabel === "Documentation Review") {
+    return (
+      <div className="mt-4 grid gap-2">
+        <MiniContext label="Current task" value="Documentation readiness" />
+        <MiniContext label="Decision" value={savedDecision} />
+        <MiniContext label="Dataset" value={mapping?.dataset || "Not confirmed"} />
+        <MiniContext label="Launch readiness" value={savedDecision === "Launch Treatment" ? "Pending documentation approval" : "Not launch-ready"} />
+        <MiniContext label="Evidence status" value="Needs final review" />
+      </div>
+    );
+  }
+  if (context.workflowStepLabel === "Post-Decision Plan") {
+    return (
+      <div className="mt-4 grid gap-2">
+        <MiniContext label="Current task" value="Post-decision planning" />
+        <MiniContext label="Decision" value={savedDecision} />
+        <MiniContext label="Post-decision strategy" value={savedStrategy} />
+        <MiniContext label="Launch status" value={savedStrategy === "Launch treatment" ? "Launch plan required" : "No full launch approved"} />
+        <MiniContext label="Re-analysis required" value={/run longer|holdout/i.test(savedStrategy) ? "Yes" : "Per selected strategy"} />
+      </div>
+    );
+  }
+  return (
+    <div className="mt-4 grid gap-2">
+      <MiniContext label="Task" value="A/B Testing" />
+      <MiniContext label="Project" value={context.projectContext.projectName || "Not defined"} />
+      <MiniContext label="Page" value={context.workflowStepLabel} />
+      <MiniContext label="Dataset" value={mapping?.dataset || "Not confirmed"} />
+      <MiniContext label="Unit ID" value={mapping?.unitIdColumn || "Not mapped"} />
+      <MiniContext label="Treatment" value={mapping?.treatmentValue || "Not mapped"} />
+      <MiniContext label="Control" value={mapping?.controlValue || "Not mapped"} />
+      <MiniContext label="Outcome" value={mapping?.outcomeColumn || "Not mapped"} />
+      <MiniContext label="Primary metric" value={mappingConfirmed ? "Conversion rate" : "Define after mapping"} />
+    </div>
+  );
+}
+
+function OptimizationGuideContext({ context }: { context: CopilotContext }) {
+  const template = getOptimizationTemplate(context.optimizationTemplateId);
+  const state = readTransportationOptimizationState(context.projectId);
+  const roles = getOptimizationTemplateInputRoles(template.template_id);
+  const required = roles.filter((role) => role.requirement === "required").map((role) => role.role_id.replace(/_/g, " "));
+  const optional = roles.filter((role) => role.requirement === "optional").map((role) => role.role_id.replace(/_/g, " "));
+  return (
+    <div className="mt-4 grid gap-2">
+      <MiniContext label="Model ID" value={context.projectContext.modelId || "Not applicable"} />
+      <MiniContext label="Project" value={context.projectContext.projectName || "Not defined"} />
+      <MiniContext label="Page" value={context.workflowStepLabel} />
+      <MiniContext label="Mode" value={context.mode === "advanced" ? "Power User" : "Guided"} />
+      <MiniContext label="Template" value={template.display_name} />
+      <MiniContext label="Task" value={template.guide_context.task} />
+      <MiniContext label="Target" value={template.guide_context.target} />
+      <MiniContext label="Objective" value={template.guide_context.objective} />
+      <MiniContext label="Solver" value={template.guide_context.solver} />
+      <MiniContext label="Stage state" value={state?.studyCompleted ? "Study complete" : state?.validation?.recommendationAllowed ? "Validated" : state?.result?.success ? "Solved" : state?.formulation?.formulationReady ? "Formulated" : "In progress"} />
+      <MiniContext label="Routes" value={state?.formulation?.metrics?.routeCount ? String(state.formulation.metrics.routeCount) : "Not normalized"} />
+      <MiniContext label="Required inputs" value={required.length ? required.join(", ") : "None"} />
+      <MiniContext label="Optional inputs" value={optional.length ? optional.join(", ") : "None"} />
+    </div>
+  );
+}
+
 type ExperimentalGuideHealth = {
   focusTitle: string;
   qualityLabel: string;
@@ -952,11 +1219,17 @@ function buildExperimentalGuideHealth(context: CopilotContext, confidence: numbe
 }
 
 function buildFactorGuideSummary(rawFactors: string): ExperimentalGuideHealth["designSummary"] {
-  const defaults = [
-    { factorName: "Pricing Strategy", levels: ["Current", "Personalized"] },
-    { factorName: "Contact Channel", levels: ["Email", "SMS"] },
-  ];
-  const factors = deriveSuggestedFactors(rawFactors).length ? deriveSuggestedFactors(rawFactors) : defaults;
+  const factors = deriveSuggestedFactors(rawFactors);
+  if (!factors.length) {
+    return [
+      { label: "Factors", value: "TBD", tone: "warning" },
+      { label: "Treatment Cells", value: "TBD", tone: "warning" },
+      { label: "Balance", value: "TBD", tone: "warning" },
+      { label: "Alias Risk", value: "TBD", tone: "warning" },
+      { label: "Interaction Potential", value: "TBD", tone: "warning" },
+      { label: "Design Efficiency", value: "TBD", tone: "warning" },
+    ];
+  }
   const cells = treatmentCellCount(factors);
   const balanced = new Set(factors.map((factor) => factor.levels.length)).size === 1;
   const designEfficiency = Math.max(62, 100 - Math.max(0, cells - 4) * 3);
@@ -979,9 +1252,11 @@ export default function CopilotCard() {
   const [overrideReasons, setOverrideReasons] = useState<Record<string, string>>({});
   const [savedChallenges, setSavedChallenges] = useState<Record<string, string>>({});
   const [workflowNodeVersion, setWorkflowNodeVersion] = useState(0);
+  const [projectContextOverride, setProjectContextOverride] = useState<ProjectContext | null>(null);
+  const [projectContextGuideCollapsed, setProjectContextGuideCollapsed] = useState(() => localStorage.getItem(PROJECT_CONTEXT_GUIDE_COLLAPSED_KEY) === "true");
 
   useEffect(() => {
-    fetch(`${API_BASE}/train/last`)
+    fetch(`${API_BASE}/train/last`, { credentials: "include" })
       .then((res) => res.json())
       .then((data) => setTrainingSummary(data?.summary ?? null))
       .catch(() => setTrainingSummary(null));
@@ -993,18 +1268,42 @@ export default function CopilotCard() {
     return () => window.removeEventListener("atlas-workflow-node-updated", refresh);
   }, []);
 
+  useEffect(() => {
+    const refreshProjectContext = (event: Event) => {
+      const detail = (event as CustomEvent<{ projectContext?: ProjectContext }>).detail;
+      if (detail?.projectContext) setProjectContextOverride(detail.projectContext);
+    };
+    window.addEventListener("atlas-project-context-updated", refreshProjectContext);
+    return () => window.removeEventListener("atlas-project-context-updated", refreshProjectContext);
+  }, []);
+
+  useEffect(() => {
+    if (location.pathname !== "/step00") setProjectContextOverride(null);
+  }, [location.pathname]);
+
   const completedSteps = Object.entries(steps).filter(([key, status]) => key !== "dashboard" && status === "completed").length;
-  const context = buildContext(location.pathname, completedSteps + workflowNodeVersion * 0, trainingSummary);
+  const context = buildContext(location.pathname, completedSteps + workflowNodeVersion * 0, trainingSummary, projectContextOverride);
   const challenges = challengeMode ? buildChallengeItems(context) : [];
-  const adaptiveItems = getAdaptiveRecommendations(location.pathname).map((recommendation): CopilotItem => ({
+  const isProjectContextGuide = location.pathname === "/step00";
+  const isCompactPrimaryGuide = location.pathname === "/step00" || location.pathname === "/step01";
+  const adaptiveItems = (isCompactPrimaryGuide ? [] : getAdaptiveRecommendations(location.pathname)).map((recommendation): CopilotItem => ({
     kind: recommendation.kind === "warning" ? "warning" : recommendation.kind === "default" ? "default" : "recommendation",
     title: recommendation.headline,
     body: `${recommendation.explanation} ${recommendation.suggestedAction}`,
     why: recommendation.why,
     confidence: recommendation.confidence,
   }));
-  const items = [...adaptiveItems, ...buildCopilotRecommendations(context)].slice(0, 9);
+  const builtItems = buildCopilotRecommendations(context);
+  const items = location.pathname === "/step01"
+    ? builtItems.filter((item) => item.title === "Confirm source, target, and lineage").slice(0, 1)
+    : [...adaptiveItems, ...builtItems].slice(0, isCompactPrimaryGuide ? 1 : 9);
   const confidence = confidenceScore(items);
+
+  const toggleProjectContextGuide = () => {
+    const next = !projectContextGuideCollapsed;
+    setProjectContextGuideCollapsed(next);
+    localStorage.setItem(PROJECT_CONTEXT_GUIDE_COLLAPSED_KEY, String(next));
+  };
 
   const toggleChallengeMode = (enabled: boolean) => {
     setChallengeMode(enabled);
@@ -1064,12 +1363,26 @@ export default function CopilotCard() {
           </div>
           <p className="mt-1 text-xs leading-5 text-slate-500">Rule-based guide. LLM-ready interface.</p>
         </div>
-        <div className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
-          {confidence}% confidence
+        <div className="flex shrink-0 items-center gap-2">
+          <div className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
+            {confidence}% confidence
+          </div>
+          {isProjectContextGuide ? (
+            <button type="button" className="rounded-lg border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-50" onClick={toggleProjectContextGuide} aria-label={projectContextGuideCollapsed ? "Expand Atlas Guide" : "Collapse Atlas Guide"}>
+              {projectContextGuideCollapsed ? <ChevronDown size={15} /> : <ChevronUp size={15} />}
+            </button>
+          ) : null}
         </div>
       </div>
 
-      {experimentalHealth ? (
+      {isProjectContextGuide && projectContextGuideCollapsed ? null : (
+        <>
+
+      {context.projectType === "optimization" ? (
+        <OptimizationGuideContext context={context} />
+      ) : context.projectType === "ab-testing" ? (
+        <AbTestingGuideContext context={context} />
+      ) : experimentalHealth ? (
         <ExperimentalGuideHealthPanel health={experimentalHealth} />
       ) : (
         <div className="mt-4 grid gap-2">
@@ -1077,8 +1390,8 @@ export default function CopilotCard() {
           <MiniContext label="Project" value={context.projectContext.projectName || "Not defined"} />
           <MiniContext label="Page" value={context.routeLabel} />
           <MiniContext label="Mode" value={context.mode === "advanced" ? "Power User" : "Guided"} />
-          <MiniContext label="Task" value={context.problemType ?? context.projectContext.modelType ?? "Unknown"} />
-          <MiniContext label="Target" value={context.target ?? "Not selected"} />
+          <MiniContext label="Task" value={context.route === "/step00" ? context.projectContext.modelTypeSelection : context.problemType ?? context.projectContext.modelType ?? "Unknown"} />
+          <MiniContext label="Target" value={context.route === "/step00" ? context.target ?? "Pending Data Acquisition" : context.target ?? "Not selected"} />
         </div>
       )}
 
@@ -1107,6 +1420,8 @@ export default function CopilotCard() {
         <CopilotSection title="Explanations" items={grouped.explanation} />
         <CopilotSection title="Suggested Defaults" items={grouped.default} />
       </div>
+        </>
+      )}
     </aside>
   );
 }

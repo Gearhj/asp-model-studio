@@ -1,54 +1,92 @@
-# server/preprocessing/outlier_router.py
-# =============================================================================
-# Outlier Router for DS Workflow (Modular Backend)
-# =============================================================================
-# Exposes REST endpoint(s) for Step03 Outliers.
-#
-#   POST /api/outliers/summary
-#
-# Uses the global DATASTORE singleton to fetch the current dataset, then
-# delegates to OutlierService for the actual logic.
-# =============================================================================
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from ..core.dataset_store import DATASTORE
+from ..core.json_safety import json_safe
+from ..core.session_checkpoint import save_checkpoint
 from .outlier_service import outlier_service
 
 
 router = APIRouter()
 
 
-class OutlierRequest(BaseModel):
-    method: str = Field("iqr", description="iqr|zscore")
+class OutlierSummaryRequest(BaseModel):
+    target: str | None = None
+    event_value: Any = None
+    problem_type: str | None = None
+    method: str | None = None
     z_thresh: float = 3.0
 
 
-def _require_df():
-    """
-    Helper to get a DataFrame from DATASTORE.
-    Use the active selected-column view from Data Acquisition.
-    """
-    df = DATASTORE.get_active_df()
-    if df is not None:
-        return df
-    raise HTTPException(status_code=400, detail="No dataset loaded.")
+class OutlierApplyRequest(BaseModel):
+    config: dict[str, str] = Field(default_factory=dict)
+    global_method: str = "IQR_1_5"
+    target: str | None = None
+    event_value: Any = None
+    problem_type: str | None = None
+
+
+def _source_df():
+    df = DATASTORE.get_raw_active_df()
+    if df is None or df.empty:
+        raise HTTPException(status_code=400, detail="No full registered dataset is loaded.")
+    return df
 
 
 @router.post("/summary")
-def outliers_summary(req: OutlierRequest):
-    """
-    Summarize numeric outliers for each column using IQR or z-score method.
+def outliers_summary(request: OutlierSummaryRequest):
+    try:
+        result = outlier_service.summary(
+            _source_df(),
+            target=request.target or DATASTORE.target,
+            event_value=request.event_value,
+            problem_type=request.problem_type,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    result["dataset_version"] = DATASTORE.meta.get("dataset_version") or "unversioned"
+    result["application"] = DATASTORE.meta.get("outlier_application")
+    return json_safe(result)
 
-    Response structure is compatible with the original monolithic backend:
-    {
-      "ok": True,
-      "rows": [
-        {"column": "AGE", "method": "iqr", "count": 123, "pct": 0.045},
-        ...
-      ]
+
+@router.post("/apply")
+def apply_outlier_treatments(request: OutlierApplyRequest):
+    target = request.target or DATASTORE.target
+    try:
+        work, applied = outlier_service.apply(
+            _source_df(),
+            config=request.config,
+            global_method=request.global_method,
+            target=target,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    applied_at = datetime.now(timezone.utc).isoformat()
+    application = {
+        "applied_at": applied_at,
+        "dataset_version": DATASTORE.meta.get("dataset_version") or "unversioned",
+        "row_count": int(len(work)),
+        "global_method": request.global_method,
+        "config": dict(request.config),
+        "treatments": applied,
+        "changed_values": int(sum(int(row.get("changed_values") or 0) for row in applied)),
     }
-    """
-    df = _require_df()
-    return outlier_service.summary(df, method=req.method, z_thresh=req.z_thresh)
+    DATASTORE.set_processed(work)
+    DATASTORE.meta["processed_stage"] = "outliers"
+    DATASTORE.meta["outlier_application"] = application
+    DATASTORE.meta.pop("missing_application", None)
+    DATASTORE.meta.pop("missing_config", None)
+    DATASTORE.meta["split_status"] = "stale"
+    manifest = DATASTORE.meta.get("feature_manifest")
+    if isinstance(manifest, dict):
+        manifest["split_status"] = "stale"
+
+    if not save_checkpoint():
+        raise HTTPException(status_code=500, detail="Outlier treatments were calculated, but ATLAS could not persist the workflow checkpoint.")
+    return json_safe({"ok": True, "scope": "full_dataset", "application": application})

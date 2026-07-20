@@ -1,0 +1,90 @@
+{
+  "projectId": "atlas-mrp3y4tx",
+  "projectName": "Credit Card Fraud TEST",
+  "evidenceType": "eda",
+  "title": "Governed Exploratory Data Analysis",
+  "summary": "Full-dataset EDA for Class across 170,884 registered rows.",
+  "sourcePage": "Exploratory Data Analysis",
+  "sourceRoute": "/step02",
+  "datasetIds": [
+    "in-memory"
+  ],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Exploratory Data Analysis",
+    "Data Quality",
+    "Feature Engineering"
+  ],
+  "tags": [
+    "predictive_modeling",
+    "eda",
+    "full_dataset"
+  ],
+  "status": "needs_review",
+  "importance": "high",
+  "lineage": {
+    "datasetVersion": "in-memory",
+    "target": "Class",
+    "problemType": "classification",
+    "eventValue": 1,
+    "rowCount": 170884,
+    "scope": "full_dataset"
+  },
+  "payload": {
+    "headline": {
+      "rows": 170884,
+      "predictors": 30,
+      "numeric_predictors": 30,
+      "categorical_predictors": 0,
+      "missing_cells": 0,
+      "missing_cell_rate": 0,
+      "duplicate_rows": 52
+    },
+    "findings": [
+      {
+        "category": "Rare event",
+        "severity": "warning",
+        "finding": "The observed event rate is below 1 percent.",
+        "recommended_action": "Use stratified validation and ranking, lift, calibration, and threshold metrics instead of accuracy alone."
+      },
+      {
+        "category": "Data integrity",
+        "severity": "warning",
+        "finding": "52 duplicate rows were detected.",
+        "recommended_action": "Confirm whether duplicate records represent repeated observations or ingestion duplication."
+      }
+    ],
+    "carryForward": {
+      "outliers": [
+        {
+          "category": "Data integrity",
+          "severity": "warning",
+          "finding": "52 duplicate rows were detected.",
+          "recommended_action": "Confirm whether duplicate records represent repeated observations or ingestion duplication."
+        }
+      ],
+      "missing_values": [],
+      "feature_engineering": [],
+      "balance_split": [
+        {
+          "category": "Rare event",
+          "severity": "warning",
+          "finding": "The observed event rate is below 1 percent.",
+          "recommended_action": "Use stratified validation and ranking, lift, calibration, and threshold metrics instead of accuracy alone."
+        }
+      ]
+    },
+    "userCommentary": "",
+    "findingStatus": "draft"
+  },
+  "evidenceId": "ev-governed-exploratory-data-analysis-54270dab9616b840",
+  "governance": {},
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-18T01:04:04.183482+00:00",
+  "updatedAt": "2026-07-18T01:04:04.183482+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 86
+}

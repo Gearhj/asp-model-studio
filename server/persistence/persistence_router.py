@@ -1,0 +1,535 @@
+from __future__ import annotations
+
+import re
+import sqlite3
+import uuid
+from typing import Any, Callable, Dict, Optional
+
+from fastapi import APIRouter, Depends, HTTPException
+
+from ..security.security_store import (
+    LOCAL_DEV_USER_HEADER,
+    SEEDED_LOCAL_ADMIN_USER_ID,
+    AUDIT_ROLES,
+    audit_event,
+    development_user_header_enabled,
+    require_role,
+    require_user,
+)
+from .db import PersistenceUnavailableError, now_iso
+from .service import PersistenceService, get_persistence_service
+
+
+router = APIRouter()
+
+
+def _pick(payload: Dict[str, Any], *keys: str, default: Any = None) -> Any:
+    for key in keys:
+        if key in payload and payload[key] is not None:
+            return payload[key]
+    return default
+
+
+def _camel(key: str) -> str:
+    return re.sub(r"_([a-z])", lambda match: match.group(1).upper(), key)
+
+
+def _api_record(record: Dict[str, Any] | None) -> Dict[str, Any] | None:
+    if record is None:
+        return None
+    result: Dict[str, Any] = {}
+    for key, value in record.items():
+        output_key = key[:-5] if key.endswith("_json") else key
+        result[_camel(output_key)] = value
+    return result
+
+
+def _execute(operation: Callable[[], Any]) -> Any:
+    try:
+        return operation()
+    except PersistenceUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except sqlite3.IntegrityError as exc:
+        raise HTTPException(status_code=400, detail=f"ATLAS persistence rejected the record: {exc}") from exc
+    except sqlite3.Error as exc:
+        raise HTTPException(status_code=503, detail=f"ATLAS persistence is temporarily unavailable: {exc}") from exc
+
+
+def _service() -> PersistenceService:
+    return get_persistence_service()
+
+
+def _id(prefix: str, payload: Dict[str, Any], *keys: str) -> str:
+    return str(_pick(payload, *keys, default=f"{prefix}_{uuid.uuid4().hex}"))
+
+
+def _project_record(project_id: str, payload: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
+    metadata = _pick(payload, "metadata", "metadataJson", "metadata_json", default={}) or {}
+    snapshot = payload.get("snapshot")
+    if snapshot is not None:
+        metadata = {**metadata, "snapshot": snapshot}
+    return {
+        "project_id": project_id,
+        "project_name": _pick(payload, "projectName", "project_name", default="Untitled ATLAS Project"),
+        "project_type": _pick(payload, "projectType", "project_type", default="predictive-modeling"),
+        "workflow_type": _pick(payload, "workflowType", "workflow_type", "workflowId", "workflow_id", default="predictive-modeling"),
+        "template_id": _pick(payload, "templateId", "template_id"),
+        "status": _pick(payload, "status", default="active"),
+        "owner_user_id": _pick(payload, "ownerUserId", "owner_user_id", default=user.get("userId")),
+        "created_at": _pick(payload, "createdAt", "created_at"),
+        "updated_at": _pick(payload, "updatedAt", "updated_at", default=now_iso()),
+        "created_by": _pick(payload, "createdBy", "created_by", default=user.get("userId")),
+        "updated_by": _pick(payload, "updatedBy", "updated_by", default=user.get("userId")),
+        "metadata_json": metadata,
+    }
+
+
+@router.get("/persistence/health")
+def persistence_health() -> Dict[str, Any]:
+    service = _service()
+    health = service.database.health()
+    dev_header_enabled = development_user_header_enabled()
+    return {
+        **health,
+        "service": "atlas-backend",
+        "component": "sqlite-persistence",
+        "engine": "sqlite",
+        "schemaVersion": "0003",
+        "requiresUserContext": False,
+        "devUserHeaderEnabled": dev_header_enabled,
+        "localUserHeader": {
+            "name": LOCAL_DEV_USER_HEADER,
+            "example": f"{LOCAL_DEV_USER_HEADER}: {SEEDED_LOCAL_ADMIN_USER_ID}",
+        }
+        if dev_header_enabled
+        else None,
+    }
+
+
+@router.get("/projects")
+def list_projects(_user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    items = _execute(lambda: _service().projects.list())
+    return {"ok": True, "projects": [_api_record(item) for item in items], "count": len(items)}
+
+
+@router.post("/projects")
+def create_project(payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    project_id = _id("project", payload, "projectId", "project_id")
+
+    def operation() -> Dict[str, Any]:
+        service = _service()
+        service.sync_user(user)
+        return service.projects.upsert(_project_record(project_id, payload, user))
+
+    record = _execute(operation)
+    audit_event(
+        "project.created",
+        "project",
+        project_id,
+        "success",
+        metadata={"projectId": project_id, "summary": f"Created project {record.get('project_name')}."},
+    )
+    if record.get("template_id"):
+        audit_event(
+            "template.selected",
+            "project",
+            project_id,
+            "success",
+            metadata={"projectId": project_id, "templateId": record.get("template_id"), "summary": f"Selected template {record.get('template_id')}."},
+        )
+    return {"ok": True, "project": _api_record(record)}
+
+
+@router.get("/projects/{project_id}")
+def get_project(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    record = _execute(lambda: _service().projects.get(project_id))
+    if record is None:
+        raise HTTPException(status_code=404, detail="ATLAS project was not found in the persistence database.")
+    audit_event(
+        "project.opened",
+        "project",
+        project_id,
+        "success",
+        user_id=user.get("userId"),
+        metadata={"projectId": project_id, "summary": f"Opened project {record.get('project_name')}."},
+    )
+    return {"ok": True, "project": _api_record(record)}
+
+
+@router.put("/projects/{project_id}")
+def update_project(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    def operation() -> Dict[str, Any]:
+        service = _service()
+        service.sync_user(user)
+        existing = service.projects.get(project_id) or {}
+        existing_metadata = existing.get("metadata_json") or {}
+        incoming_metadata = _pick(payload, "metadata", "metadataJson", "metadata_json", default={}) or {}
+        merged = {
+            "projectName": existing.get("project_name"),
+            "projectType": existing.get("project_type"),
+            "workflowType": existing.get("workflow_type"),
+            "templateId": existing.get("template_id"),
+            "status": existing.get("status"),
+            "ownerUserId": existing.get("owner_user_id"),
+            "createdAt": existing.get("created_at"),
+            "metadata": {**existing_metadata, **incoming_metadata},
+            **payload,
+        }
+        merged["metadata"] = {**existing_metadata, **incoming_metadata}
+        return service.projects.upsert(_project_record(project_id, merged, user))
+
+    record = _execute(operation)
+    audit_event(
+        "project.saved",
+        "project",
+        project_id,
+        "success",
+        metadata={"projectId": project_id, "summary": f"Saved project {record.get('project_name')}."},
+    )
+    return {"ok": True, "project": _api_record(record)}
+
+
+@router.delete("/projects/{project_id}")
+def delete_project(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    def operation() -> bool:
+        service = _service()
+        service.sync_user(user)
+        return service.projects.delete(project_id)
+
+    deleted = _execute(operation)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="ATLAS project was not found in the persistence database.")
+    audit_event(
+        "project.deleted",
+        "project",
+        project_id,
+        "success",
+        user_id=user.get("userId"),
+        metadata={
+            "projectId": project_id,
+            "summary": "Deleted the project workspace and project-scoped persisted records. Dataset Library assets were retained.",
+        },
+    )
+    return {"ok": True, "projectId": project_id, "deleted": True}
+
+
+@router.get("/projects/{project_id}/workflow-state")
+def get_workflow_state(project_id: str, _user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    record = _execute(lambda: _service().projects.get_workflow_state(project_id))
+    if record is None:
+        raise HTTPException(status_code=404, detail="Workflow state has not been saved for this project.")
+    return {"ok": True, "workflowState": _api_record(record)}
+
+
+@router.put("/projects/{project_id}/workflow-state")
+def save_workflow_state(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    previous_completed = set()
+
+    def operation() -> Dict[str, Any]:
+        service = _service()
+        service.ensure_project(project_id, user)
+        previous = service.projects.get_workflow_state(project_id) or {}
+        previous_completed.update(previous.get("completed_steps_json") or [])
+        return service.projects.upsert_workflow_state(
+            project_id,
+            {
+                "current_step_id": _pick(payload, "currentStepId", "current_step_id"),
+                "completed_steps_json": _pick(payload, "completedSteps", "completed_steps_json", default=[]),
+                "workflow_status_json": _pick(payload, "workflowStatus", "workflow_status_json", default={}),
+                "step_evidence_status_json": _pick(payload, "stepEvidenceStatus", "step_evidence_status_json", default={}),
+                "updated_at": _pick(payload, "updatedAt", "updated_at", default=now_iso()),
+                "completed_by": user.get("userId"),
+            },
+        )
+
+    record = _execute(operation)
+    new_completed = [step for step in (record.get("completed_steps_json") or []) if step not in previous_completed]
+    if new_completed:
+        audit_event(
+            "workflow.step.completed",
+            "workflow_state",
+            project_id,
+            "success",
+            metadata={"projectId": project_id, "completedSteps": new_completed, "summary": f"Completed workflow step(s): {', '.join(new_completed)}."},
+        )
+    workflow_status = record.get("workflow_status_json") or {}
+    if workflow_status.get("status") == "complete" and previous_completed != set(record.get("completed_steps_json") or []):
+        audit_event("project.completed", "project", project_id, "success", metadata={"projectId": project_id, "summary": "Completed the project workflow."})
+    return {"ok": True, "workflowState": _api_record(record)}
+
+
+@router.get("/projects/{project_id}/evidence")
+def list_evidence(project_id: str, _user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    items = _execute(lambda: _service().evidence.list_for_project(project_id))
+    return {"ok": True, "evidence": [_api_record(item) for item in items], "count": len(items)}
+
+
+def _evidence_record(project_id: str, evidence_id: str, payload: Dict[str, Any], user: Dict[str, Any]) -> Dict[str, Any]:
+    requested_status = str(_pick(payload, "status", default="generated") or "generated").lower()
+    status = {
+        "draft": "generated",
+        "needs_review": "generated",
+        "accepted": "approved",
+        "deprecated": "stale",
+    }.get(requested_status, requested_status)
+    if status not in {"generated", "captured", "ready", "approved", "stale", "rejected"}:
+        status = "generated"
+    return {
+        "evidence_id": evidence_id,
+        "project_id": project_id,
+        "workflow_type": _pick(payload, "workflowType", "workflow_type"),
+        "step_id": _pick(payload, "stepId", "step_id", "workflowStep"),
+        "artifact_type": _pick(payload, "artifactType", "artifact_type", "evidenceType", default="evidence"),
+        "status": status,
+        "title": _pick(payload, "title", default="ATLAS Evidence"),
+        "summary": _pick(payload, "summary"),
+        "source_ref": _pick(payload, "sourceRef", "source_ref", "sourceRoute", "sourcePage"),
+        "artifact_hash": _pick(payload, "artifactHash", "artifact_hash"),
+        "created_by": _pick(payload, "createdBy", "created_by", default=user.get("userId")),
+        "created_at": _pick(payload, "createdAt", "created_at"),
+        "captured_at": _pick(payload, "capturedAt", "captured_at"),
+        "approved_at": _pick(payload, "approvedAt", "approved_at"),
+        "payload_json": _pick(payload, "payload", "payloadJson", "payload_json", default=payload),
+    }
+
+
+@router.post("/projects/{project_id}/evidence")
+def create_evidence(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    evidence_id = _id("evidence", payload, "evidenceId", "evidence_id")
+
+    def operation() -> Dict[str, Any]:
+        service = _service()
+        service.ensure_project(project_id, user)
+        return service.evidence.upsert(_evidence_record(project_id, evidence_id, payload, user))
+
+    record = _execute(operation)
+    action = "evidence.artifact.captured" if record.get("status") in {"captured", "ready", "approved"} else "evidence.artifact.generated"
+    audit_event(action, "evidence", evidence_id, "success", metadata={"projectId": project_id, "status": record.get("status"), "summary": f"{record.get('title')} is {record.get('status')}."})
+    return {"ok": True, "evidence": _api_record(record)}
+
+
+@router.put("/projects/{project_id}/evidence/{evidence_id}")
+def update_evidence(project_id: str, evidence_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    def operation() -> Dict[str, Any]:
+        service = _service()
+        existing = service.evidence.get(evidence_id) or {}
+        merged = {**(existing.get("payload_json") or {}), **payload}
+        return service.evidence.upsert(_evidence_record(project_id, evidence_id, merged, user))
+
+    record = _execute(operation)
+    action = "evidence.artifact.captured" if record.get("status") in {"captured", "ready", "approved"} else "evidence.artifact.generated"
+    audit_event(action, "evidence", evidence_id, "success", metadata={"projectId": project_id, "status": record.get("status"), "summary": f"Updated {record.get('title')} to {record.get('status')}."})
+    return {"ok": True, "evidence": _api_record(record)}
+
+
+def _child_list(project_id: str, repository_name: str) -> Dict[str, Any]:
+    repository = getattr(_service(), repository_name)
+    items = _execute(lambda: repository.list_for_project(project_id))
+    return {"ok": True, "items": [_api_record(item) for item in items], "count": len(items)}
+
+
+@router.get("/projects/{project_id}/runs")
+def list_runs(project_id: str, _user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    payload = _child_list(project_id, "runs")
+    items = payload.pop("items")
+    return {**payload, "runs": items}
+
+
+@router.post("/projects/{project_id}/runs")
+def create_run(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    run_id = _id("run", payload, "runId", "run_id")
+
+    def operation() -> Dict[str, Any]:
+        service = _service()
+        service.ensure_project(project_id, user)
+        return service.runs.upsert(
+            {
+                "run_id": run_id,
+                "project_id": project_id,
+                "run_type": _pick(payload, "runType", "run_type", default="workflow"),
+                "workflow_type": _pick(payload, "workflowType", "workflow_type"),
+                "status": _pick(payload, "status", default="created"),
+                "started_at": _pick(payload, "startedAt", "started_at"),
+                "completed_at": _pick(payload, "completedAt", "completed_at"),
+                "parameters_json": _pick(payload, "parameters", "parametersJson", "parameters_json", default={}),
+                "metrics_json": _pick(payload, "metrics", "metricsJson", "metrics_json", default={}),
+                "artifacts_json": _pick(payload, "artifacts", "artifactsJson", "artifacts_json", default={}),
+                "error_json": _pick(payload, "error", "errorJson", "error_json", default={}),
+                "created_by": _pick(payload, "createdBy", "created_by", default=user.get("userId")),
+            }
+        )
+
+    record = _execute(operation)
+    run_type = str(record.get("run_type") or "workflow")
+    status = str(record.get("status") or "created").lower()
+    if status in {"complete", "completed", "success", "succeeded"}:
+        if "validation" in run_type:
+            action = "validation.completed"
+        elif "scenario" in run_type:
+            action = "scenario.run.completed"
+        elif "sensitivity" in run_type:
+            action = "sensitivity.run.completed"
+        else:
+            action = "solver.run.completed"
+    else:
+        action = "solver.run.started"
+    audit_event(action, "run", run_id, "success", metadata={"projectId": project_id, "runType": run_type, "status": status, "summary": f"{run_type} is {status}."})
+    return {"ok": True, "run": _api_record(record)}
+
+
+@router.get("/projects/{project_id}/decisions")
+def list_decisions(project_id: str, _user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    payload = _child_list(project_id, "decisions")
+    items = payload.pop("items")
+    return {**payload, "decisions": items}
+
+
+@router.post("/projects/{project_id}/decisions")
+def create_decision(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    decision_id = _id("decision", payload, "decisionId", "decision_id")
+
+    def operation() -> Dict[str, Any]:
+        service = _service()
+        service.ensure_project(project_id, user)
+        timestamp = now_iso()
+        return service.decisions.upsert(
+            {
+                "decision_id": decision_id,
+                "project_id": project_id,
+                "decision_type": _pick(payload, "decisionType", "decision_type", default="workflow_decision"),
+                "title": _pick(payload, "title", default="ATLAS Decision"),
+                "summary": _pick(payload, "summary"),
+                "status": _pick(payload, "status", default="draft"),
+                "owner": _pick(payload, "owner"),
+                "created_by": _pick(payload, "createdBy", "created_by", default=user.get("userId")),
+                "created_at": _pick(payload, "createdAt", "created_at", default=timestamp),
+                "updated_at": _pick(payload, "updatedAt", "updated_at", default=timestamp),
+                "payload_json": _pick(payload, "payload", "payloadJson", "payload_json", default=payload),
+            }
+        )
+
+    record = _execute(operation)
+    audit_event("recommendation.status.changed", "decision", decision_id, "success", metadata={"projectId": project_id, "status": record.get("status"), "summary": f"{record.get('title')} is {record.get('status')}."})
+    if "implementation" in str(record.get("decision_type") or "").lower() and record.get("status") in {"complete", "approved"}:
+        audit_event("implementation.plan.completed", "decision", decision_id, "success", metadata={"projectId": project_id, "summary": record.get("summary") or "Implementation plan completed."})
+    return {"ok": True, "decision": _api_record(record)}
+
+
+@router.get("/projects/{project_id}/documentation")
+def list_documentation(project_id: str, _user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    payload = _child_list(project_id, "documentation")
+    items = payload.pop("items")
+    return {**payload, "documentation": items}
+
+
+@router.post("/projects/{project_id}/documentation")
+def create_documentation(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    package_id = _id("package", payload, "packageId", "package_id", "documentId")
+
+    def operation() -> Dict[str, Any]:
+        service = _service()
+        service.ensure_project(project_id, user)
+        timestamp = now_iso()
+        return service.documentation.upsert(
+            {
+                "package_id": package_id,
+                "project_id": project_id,
+                "package_type": _pick(payload, "packageType", "package_type", "templateType", default="model_development_document"),
+                "status": _pick(payload, "status", default="draft"),
+                "readiness_score": _pick(payload, "readinessScore", "readiness_score"),
+                "section_count": _pick(payload, "sectionCount", "section_count"),
+                "completed_section_count": _pick(payload, "completedSectionCount", "completed_section_count"),
+                "created_at": _pick(payload, "createdAt", "created_at", default=timestamp),
+                "updated_at": _pick(payload, "updatedAt", "updated_at", default=timestamp),
+                "payload_json": _pick(payload, "payload", "payloadJson", "payload_json", default=payload),
+                "created_by": _pick(payload, "createdBy", "created_by", default=user.get("userId")),
+            }
+        )
+
+    record = _execute(operation)
+    audit_event("documentation.package.generated", "documentation", package_id, "success", metadata={"projectId": project_id, "status": record.get("status"), "summary": f"Generated {record.get('package_type')} documentation package."})
+    return {"ok": True, "documentationPackage": _api_record(record)}
+
+
+@router.get("/projects/{project_id}/exports")
+def list_exports(project_id: str, _user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    payload = _child_list(project_id, "exports")
+    items = payload.pop("items")
+    return {**payload, "exports": items}
+
+
+@router.post("/projects/{project_id}/exports")
+def create_export(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    export_id = _id("export", payload, "exportId", "export_id")
+
+    def operation() -> Dict[str, Any]:
+        service = _service()
+        service.ensure_project(project_id, user)
+        return service.exports.upsert(
+            {
+                "export_id": export_id,
+                "project_id": project_id,
+                "export_type": _pick(payload, "exportType", "export_type", default="download"),
+                "file_name": _pick(payload, "fileName", "file_name", default="atlas-export"),
+                "file_path": _pick(payload, "filePath", "file_path"),
+                "storage_mode": _pick(payload, "storageMode", "storage_mode", default="client_generated"),
+                "created_by": _pick(payload, "createdBy", "created_by", default=user.get("userId")),
+                "created_at": _pick(payload, "createdAt", "created_at", default=now_iso()),
+                "artifact_hash": _pick(payload, "artifactHash", "artifact_hash"),
+                "metadata_json": _pick(payload, "metadata", "metadataJson", "metadata_json", default=payload),
+            }
+        )
+
+    record = _execute(operation)
+    audit_event("export.generated", "export", export_id, "success", metadata={"projectId": project_id, "exportType": record.get("export_type"), "storageMode": record.get("storage_mode"), "summary": f"Generated export {record.get('file_name')}."})
+    return {"ok": True, "export": _api_record(record)}
+
+
+@router.get("/audit-log")
+def list_persisted_audit(
+    projectId: Optional[str] = None,
+    userId: Optional[str] = None,
+    actionType: Optional[str] = None,
+    limit: int = 250,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    require_role(user, AUDIT_ROLES)
+    items = _execute(lambda: _service().audit.list(project_id=projectId, user_id=userId, action_type=actionType, limit=limit))
+    return {"ok": True, "events": [_api_record(item) for item in items], "count": len(items)}
+
+
+@router.get("/demo-feedback")
+def list_demo_feedback(
+    projectId: Optional[str] = None,
+    limit: int = 250,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    require_role(user, {"admin", "manager", "validator"})
+    items = _execute(lambda: _service().feedback.list(project_id=projectId, limit=limit))
+    return {"ok": True, "feedback": [_api_record(item) for item in items], "count": len(items)}
+
+
+@router.post("/demo-feedback")
+def create_demo_feedback(payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    feedback_id = _id("feedback", payload, "feedbackId", "feedback_id")
+    record = _execute(
+        lambda: _service().feedback.upsert(
+            {
+                "feedback_id": feedback_id,
+                "project_id": _pick(payload, "projectId", "project_id"),
+                "user_id": user.get("userId"),
+                "route": _pick(payload, "route", default="/"),
+                "workflow_type": _pick(payload, "workflowType", "workflow_type"),
+                "step_id": _pick(payload, "stepId", "step_id"),
+                "issue_type": _pick(payload, "issueType", "issue_type", default="usability"),
+                "severity": _pick(payload, "severity", default="medium"),
+                "expected_behavior": _pick(payload, "expectedBehavior", "expected_behavior"),
+                "actual_behavior": _pick(payload, "actualBehavior", "actual_behavior"),
+                "notes": _pick(payload, "notes"),
+                "created_at": _pick(payload, "createdAt", "created_at", default=now_iso()),
+                "metadata_json": _pick(payload, "metadata", "metadataJson", "metadata_json", default={}),
+            }
+        )
+    )
+    audit_event("demo.feedback.submitted", "demo_feedback", feedback_id, "success", metadata={"projectId": record.get("project_id"), "severity": record.get("severity"), "summary": "Private demo feedback submitted."})
+    return {"ok": True, "feedback": _api_record(record)}

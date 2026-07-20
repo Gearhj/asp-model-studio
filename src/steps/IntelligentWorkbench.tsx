@@ -110,7 +110,7 @@ export default function IntelligentWorkbench() {
   const champion = ranked[0] ?? null;
 
   useEffect(() => {
-    fetch(`${API_BASE}/train/last`)
+    fetch(`${API_BASE}/train/last`, { credentials: "include" })
       .then((res) => res.json())
       .then((data) => {
         const rows = data?.summary?.ranked;

@@ -42,7 +42,7 @@ export function CodeWorkspacePanel({
     onActiveLanguageChange?.(language);
   };
   const current = languages.find((item) => item.language === active) ?? languages[0];
-  const badges = languages.reduce((record, item) => ({ ...record, [item.language]: item.supportBadge }), {} as Record<CodeLanguage, string>);
+  const badges = languages.reduce((record, item) => ({ ...record, [item.language]: item.supportBadge }), {} as Partial<Record<CodeLanguage, string>>);
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -51,7 +51,7 @@ export function CodeWorkspacePanel({
           <h3 className="text-base font-semibold text-slate-950">Multi-Language Code Workspace</h3>
           <p className="mt-1 text-sm text-slate-600">Generated and user-edited code stay aligned to the selected dataset, question, pivot, and join context.</p>
         </div>
-        <CodeLanguageTabs active={active} onChange={setActive} badges={badges} />
+        <CodeLanguageTabs active={active} onChange={setActive} badges={badges} languages={languages.map((item) => item.language)} />
       </div>
 
       <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">

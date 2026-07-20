@@ -17,13 +17,18 @@ from typing import Any, Dict, Iterable, List, Optional
 from fastapi import HTTPException, Request
 
 
-SECURITY_ROOT = Path(__file__).resolve().parents[1] / "artifacts" / "security"
-DB_PATH = SECURITY_ROOT / "atlas_security.db"
+DEFAULT_SECURITY_ROOT = Path(__file__).resolve().parents[1] / "artifacts" / "security"
+SECURITY_ROOT = Path(os.getenv("ATLAS_SECURITY_ROOT", str(DEFAULT_SECURITY_ROOT))).expanduser().resolve()
+DB_PATH = Path(os.getenv("ATLAS_SECURITY_DB_PATH", str(SECURITY_ROOT / "atlas_security.db"))).expanduser().resolve()
 SESSION_COOKIE_NAME = "atlas_session"
 ATLAS_AUTH_ENABLED = os.getenv("ATLAS_AUTH_ENABLED", "true").lower() not in {"0", "false", "no"}
 ATLAS_LOCAL_DEV = os.getenv("ATLAS_LOCAL_DEV", "true").lower() in {"1", "true", "yes"}
 ATLAS_HOSTED_MODE = os.getenv("ATLAS_HOSTED_MODE", "false").lower() in {"1", "true", "yes"}
 ATLAS_DEV_AUTH_TOOLS = os.getenv("ATLAS_DEV_AUTH_TOOLS", "false").lower() in {"1", "true", "yes"}
+ATLAS_DEV_MODE = os.getenv(
+    "ATLAS_DEV_MODE",
+    "true" if ATLAS_LOCAL_DEV and not ATLAS_HOSTED_MODE else "false",
+).lower() in {"1", "true", "yes"}
 SESSION_TTL_SECONDS = int(os.getenv("ATLAS_SESSION_TTL_SECONDS", str(8 * 60 * 60)))
 LOCKOUT_THRESHOLD = int(os.getenv("ATLAS_LOCKOUT_THRESHOLD", "5"))
 LOCKOUT_SECONDS = int(os.getenv("ATLAS_LOCKOUT_SECONDS", "900"))
@@ -35,17 +40,39 @@ DEFAULT_ADMIN_PASSWORD = os.getenv("ATLAS_DEFAULT_ADMIN_PASSWORD", "AtlasLocalDe
 
 ACTIVE_USER: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.ContextVar("atlas_active_user", default=None)
 
-ROLES = {"admin", "data_steward", "model_owner", "model_manager", "data_scientist", "auditor", "viewer"}
+ROLES = {"admin", "data_steward", "model_owner", "model_manager", "data_scientist", "validator", "manager", "auditor", "viewer"}
 DATASET_ACCESS_ROLES = {"owner", "editor", "viewer", "auditor"}
 PROJECT_ACCESS_ROLES = {"owner", "editor", "viewer", "approver", "auditor"}
 ADMIN_ROLES = {"admin"}
-AUDIT_ROLES = {"admin", "auditor", "model_manager"}
+AUDIT_ROLES = {"admin", "auditor", "model_manager", "validator", "manager"}
 DEFAULT_SESSION_SECRET = "atlas-local-dev-default-session-secret"
 DEFAULT_LOCAL_ADMIN_PASSWORD = "AtlasLocalDev123!"
+LOCAL_DEV_USER_ID = "local-dev-user"
+SEEDED_LOCAL_ADMIN_USER_ID = os.getenv("ATLAS_LOCAL_ADMIN_USER_ID", "user_eecc3a44ed694307")
+LOCAL_DEV_USER_HEADER = "X-ATLAS-USER-ID"
+DEMO_USERS = (
+    ("demo_ds_1", "demo.ds1@atlas.local", "Demo Data Scientist", "data_scientist"),
+    ("demo_validator", "demo.validator@atlas.local", "Demo Validator", "validator"),
+    ("demo_manager", "demo.manager@atlas.local", "Demo Manager", "manager"),
+)
+_DEV_CONTEXT_AUDITED: set[str] = set()
+
+
+class AtlasUserContextError(HTTPException):
+    """Authentication error whose payload is flattened by the FastAPI app handler."""
+
+    def __init__(self, payload: Dict[str, Any]):
+        super().__init__(status_code=401, detail=payload)
 
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def development_user_header_enabled() -> bool:
+    """Allow the explicit dev-user header only for non-hosted local/dev processes."""
+
+    return not ATLAS_HOSTED_MODE and (ATLAS_DEV_MODE or ATLAS_LOCAL_DEV)
 
 
 def epoch() -> int:
@@ -54,6 +81,7 @@ def epoch() -> int:
 
 def connect() -> sqlite3.Connection:
     SECURITY_ROOT.mkdir(parents=True, exist_ok=True)
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
@@ -129,6 +157,7 @@ def init_security_store() -> None:
         admin_count = conn.execute("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'").fetchone()["n"]
         if admin_count == 0:
             create_user(
+                user_id=SEEDED_LOCAL_ADMIN_USER_ID if ATLAS_LOCAL_DEV and not ATLAS_HOSTED_MODE else None,
                 email=DEFAULT_ADMIN_EMAIL,
                 display_name="ATLAS Local Admin",
                 password=DEFAULT_ADMIN_PASSWORD,
@@ -147,6 +176,23 @@ def init_security_store() -> None:
                 conn=conn,
                 user_id="local-user",
             )
+        if ATLAS_LOCAL_DEV and not ATLAS_HOSTED_MODE:
+            for user_id, email, display_name, role in DEMO_USERS:
+                exists = conn.execute(
+                    "SELECT user_id FROM users WHERE user_id = ? OR email = ?",
+                    (user_id, normalize_email(email)),
+                ).fetchone()
+                if exists is None:
+                    create_user(
+                        user_id=user_id,
+                        email=email,
+                        display_name=display_name,
+                        password=DEFAULT_ADMIN_PASSWORD,
+                        role=role,
+                        status="active",
+                        audit=False,
+                        conn=conn,
+                    )
 
 
 def row_to_user(row: sqlite3.Row | None) -> Optional[Dict[str, Any]]:
@@ -222,6 +268,8 @@ def create_user(
     validate_password(password)
     if role not in ROLES:
         raise HTTPException(status_code=400, detail="Unsupported ATLAS role.")
+    if status not in {"active", "inactive"}:
+        raise HTTPException(status_code=400, detail="User status must be active or inactive.")
     owns_conn = conn is None
     active_conn = conn or connect()
     try:
@@ -277,6 +325,8 @@ def update_user(user_id: str, fields: Dict[str, Any]) -> Dict[str, Any]:
         if key in fields:
             if key == "role" and fields[key] not in ROLES:
                 raise HTTPException(status_code=400, detail="Unsupported ATLAS role.")
+            if key == "status" and fields[key] not in {"active", "inactive", "disabled"}:
+                raise HTTPException(status_code=400, detail="User status must be active or inactive.")
             updates.append(f"{column} = ?")
             params.append(fields[key])
     if not updates:
@@ -297,7 +347,7 @@ def update_user(user_id: str, fields: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def set_user_status(user_id: str, status: str) -> Dict[str, Any]:
-    action = "user.disabled" if status == "disabled" else "user.enabled"
+    action = "user.inactivated" if status in {"disabled", "inactive"} else "user.activated"
     return update_user(user_id, {"status": status}) | {"auditAction": action}
 
 
@@ -326,8 +376,8 @@ def authenticate(email: str, password: str, request: Request | None = None) -> D
         if not user:
             audit_event("auth.login.failure", "auth", None, "failure", reason="Invalid credentials", metadata={"emailHash": hash_observable(normalize_email(email))}, conn=conn)
             raise generic
-        if user["status"] == "disabled":
-            audit_event("auth.login.failure", "auth", user["userId"], "denied", reason="Disabled user", conn=conn)
+        if user["status"] != "active":
+            audit_event("auth.login.failure", "auth", user["userId"], "denied", reason="Inactive user", conn=conn)
             raise generic
         locked_until = user.get("lockedUntil")
         if locked_until and locked_until > now_iso():
@@ -419,20 +469,107 @@ def set_active_user(user: Optional[Dict[str, Any]]) -> None:
     ACTIVE_USER.set(user)
 
 
+def _available_dev_users() -> List[Dict[str, Any]]:
+    return [
+        {"user_id": row.get("userId"), "display_name": row.get("displayName"), "role": row.get("role")}
+        for row in list_users()
+        if row.get("status") == "active"
+    ]
+
+
+def _local_header_help() -> Dict[str, str]:
+    return {
+        "name": LOCAL_DEV_USER_HEADER,
+        "example": f"{LOCAL_DEV_USER_HEADER}: {SEEDED_LOCAL_ADMIN_USER_ID}",
+    }
+
+
+def _track_user_activity(user: Dict[str, Any], *, dev_context: bool = False) -> None:
+    try:
+        from ..persistence.service import get_persistence_service
+
+        get_persistence_service().sync_user({**public_user(user), "lastActiveAt": now_iso()})
+    except Exception:
+        return
+    user_id = str(user.get("userId") or "")
+    if dev_context and user_id and user_id not in _DEV_CONTEXT_AUDITED:
+        _DEV_CONTEXT_AUDITED.add(user_id)
+        audit_event(
+            "auth.context.established",
+            "user",
+            user_id,
+            "success",
+            user_id=user_id,
+            metadata={"source": LOCAL_DEV_USER_HEADER, "summary": "Local development user context established."},
+        )
+
+
 def require_user(request: Request) -> Dict[str, Any]:
+    requested_dev_user = (request.headers.get(LOCAL_DEV_USER_HEADER) or "").strip()
+    if development_user_header_enabled() and requested_dev_user:
+        user = get_user(requested_dev_user)
+        if user is None and requested_dev_user == LOCAL_DEV_USER_ID:
+            user = get_user_by_email(DEFAULT_ADMIN_EMAIL)
+            if user is None:
+                user = create_user(
+                    user_id=LOCAL_DEV_USER_ID,
+                    email="local-dev@atlas.local",
+                    display_name="Local Dev User",
+                    password=DEFAULT_LOCAL_ADMIN_PASSWORD,
+                    role="admin",
+                    status="active",
+                    audit=False,
+                )
+        if user is None:
+            raise AtlasUserContextError(
+                {
+                    "error": "no user selected",
+                    "hint": f"The {LOCAL_DEV_USER_HEADER} header did not match a user in the local security database.",
+                    "example": f"{LOCAL_DEV_USER_HEADER}: {SEEDED_LOCAL_ADMIN_USER_ID}",
+                    "expected_local_header": _local_header_help(),
+                    "received_user_id": requested_dev_user,
+                    "available_dev_users": _available_dev_users(),
+                }
+            )
+        if user.get("status") != "active":
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "user is not active",
+                    "hint": f"Use an active local account with {LOCAL_DEV_USER_HEADER}.",
+                    "received_user_id": requested_dev_user,
+                },
+            )
+        set_active_user(user)
+        _track_user_activity(user, dev_context=True)
+        return public_user(user)
     if not ATLAS_AUTH_ENABLED:
         user = get_user("local-user") or get_user_by_email(DEFAULT_ADMIN_EMAIL)
         set_active_user(user)
+        if user:
+            _track_user_activity(user)
         return public_user(user or {})
     session_id = request.cookies.get(SESSION_COOKIE_NAME)
     user = user_for_session(session_id)
     if not user:
         audit_event("access.denied", "auth", None, "denied", reason="Authentication required")
-        raise HTTPException(status_code=401, detail="Authentication required.")
+        payload: Dict[str, Any] = {
+            "error": "no user selected",
+            "hint": "Authenticate through the login endpoint.",
+        }
+        if development_user_header_enabled():
+            payload["hint"] = (
+                f"For local API testing, pass {LOCAL_DEV_USER_HEADER} with an active user ID."
+            )
+            payload["example"] = f"{LOCAL_DEV_USER_HEADER}: {SEEDED_LOCAL_ADMIN_USER_ID}"
+            payload["expected_local_header"] = _local_header_help()
+            payload["available_dev_users"] = _available_dev_users()
+        raise AtlasUserContextError(payload)
     if user.get("status") != "active":
         audit_event("access.denied", "auth", user.get("userId"), "denied", reason="User is not active")
         raise HTTPException(status_code=403, detail="User is not active.")
     set_active_user(user)
+    _track_user_activity(user)
     return public_user(user)
 
 
@@ -455,18 +592,21 @@ def audit_event(
 ) -> None:
     owns_conn = conn is None
     active_conn = conn or connect()
+    audit_id = f"audit_{uuid.uuid4().hex}"
+    timestamp = now_iso()
+    actor: Optional[str] = user_id
+    safe_metadata = metadata or {}
     try:
         user = active_user()
         actor = user_id if user_id is not None else user.get("userId") if user else None
-        safe_metadata = metadata or {}
         active_conn.execute(
             """
             INSERT INTO audit_events (audit_id, timestamp, user_id, action, resource_type, resource_id, outcome, reason, metadata_json)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                f"audit_{uuid.uuid4().hex}",
-                now_iso(),
+                audit_id,
+                timestamp,
                 actor,
                 action,
                 resource_type,
@@ -481,9 +621,32 @@ def audit_event(
     finally:
         if owns_conn:
             active_conn.close()
+    try:
+        from ..persistence.service import get_persistence_service
+
+        project_id = safe_metadata.get("projectId") or safe_metadata.get("project_id")
+        if not project_id and resource_type == "project":
+            project_id = resource_id
+        get_persistence_service().audit.create(
+            {
+                "audit_id": audit_id,
+                "project_id": project_id,
+                "user_id": actor,
+                "action_type": action,
+                "entity_type": resource_type,
+                "entity_id": resource_id,
+                "title": safe_metadata.get("auditTitle") or action.replace(".", " ").title(),
+                "summary": safe_metadata.get("summary") or reason,
+                "created_at": timestamp,
+                "metadata_json": {**safe_metadata, "outcome": outcome, **({"reason": reason} if reason else {})},
+            }
+        )
+    except Exception:
+        # Security logging must remain available if project persistence is offline.
+        pass
 
 
-def list_audit_events(limit: int = 250, user_id: Optional[str] = None, resource_type: Optional[str] = None, outcome: Optional[str] = None, action: Optional[str] = None) -> List[Dict[str, Any]]:
+def list_audit_events(limit: int = 250, user_id: Optional[str] = None, resource_type: Optional[str] = None, outcome: Optional[str] = None, action: Optional[str] = None, project_id: Optional[str] = None) -> List[Dict[str, Any]]:
     query = "SELECT * FROM audit_events WHERE 1=1"
     params: List[Any] = []
     if user_id:
@@ -498,6 +661,12 @@ def list_audit_events(limit: int = 250, user_id: Optional[str] = None, resource_
     if action:
         query += " AND action = ?"
         params.append(action)
+    if project_id:
+        query += " AND ("
+        query += "(resource_type = 'project' AND resource_id = ?)"
+        query += " OR json_extract(metadata_json, '$.projectId') = ?"
+        query += " OR json_extract(metadata_json, '$.project_id') = ?)"
+        params.extend([project_id, project_id, project_id])
     query += " ORDER BY timestamp DESC LIMIT ?"
     params.append(max(1, min(limit, 1000)))
     with connect() as conn:
@@ -515,6 +684,7 @@ def audit_events_for_resource(resource_type: str, resource_id: str, limit: int =
 
 
 def audit_row(row: sqlite3.Row) -> Dict[str, Any]:
+    metadata = json.loads(row["metadata_json"] or "{}")
     return {
         "auditId": row["audit_id"],
         "timestamp": row["timestamp"],
@@ -524,7 +694,8 @@ def audit_row(row: sqlite3.Row) -> Dict[str, Any]:
         "resourceId": row["resource_id"],
         "outcome": row["outcome"],
         "reason": row["reason"],
-        "metadata": json.loads(row["metadata_json"] or "{}"),
+        "projectId": metadata.get("projectId") or metadata.get("project_id") or (row["resource_id"] if row["resource_type"] == "project" else None),
+        "metadata": metadata,
     }
 
 

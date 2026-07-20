@@ -4,6 +4,11 @@ import { AlertTriangle } from "lucide-react";
 import { saveActiveProjectBeforeNavigation } from "../lib/localProjects";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import StepPythonPanel from "./StepPythonPanel";
+import {
+  AtlasWorkflowHero,
+  type AtlasWorkflowMetric,
+  type AtlasWorkflowVariant,
+} from "./ui/AtlasWorkflow";
 
 const creditRiskStepByPredictiveRoute: Record<string, string> = {
   "/step00": "project-context",
@@ -42,9 +47,18 @@ type Props = {
   onNextClick?: React.MouseEventHandler<HTMLButtonElement>;
   nextButtonTestId?: string;
   nextStatusLine?: React.ReactNode;
+  /** Optional page-specific actions displayed in the sticky workflow bar. */
+  nextExtraActions?: React.ReactNode;
   nextDebugPanel?: React.ReactNode;
   /** Where to navigate on click, e.g. "/step05" */
   nextPath?: string;
+  variant?: AtlasWorkflowVariant;
+  eyebrow?: string;
+  heroMetrics?: AtlasWorkflowMetric[];
+  heroAction?: React.ReactNode;
+  hideHeader?: boolean;
+  /** Project Context is intentionally concise and does not expose page-level code tools. */
+  showDeveloperTools?: boolean;
 };
 
 export default function StepShell({
@@ -58,8 +72,15 @@ export default function StepShell({
   onNextClick,
   nextButtonTestId,
   nextStatusLine,
+  nextExtraActions,
   nextDebugPanel,
   nextPath,
+  variant = "standard",
+  eyebrow = "Predictive Modeling Workflow",
+  heroMetrics = [],
+  heroAction,
+  hideHeader = false,
+  showDeveloperTools = true,
 }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -100,13 +121,17 @@ export default function StepShell({
   };
 
   return (
-    <div className="w-full space-y-5">
-      {(title || subtitle) && (
-        <div className="pt-2">
-          {title && <h1 className="text-xl font-semibold text-gray-900">{title}</h1>}
-          {subtitle && <p className="text-gray-600 mt-1">{subtitle}</p>}
-        </div>
-      )}
+    <div className={`w-full space-y-5 ${hideEmbeddedNext ? "" : "pb-28"}`}>
+      {!hideHeader && (title || subtitle) ? (
+        <AtlasWorkflowHero
+          eyebrow={eyebrow}
+          title={title || "Workflow Step"}
+          description={subtitle}
+          variant={variant}
+          metrics={heroMetrics}
+          action={heroAction}
+        />
+      ) : null}
 
       <div>{children}</div>
 
@@ -122,32 +147,35 @@ export default function StepShell({
         </div>
       )}
 
-      <StepPythonPanel />
+      {showDeveloperTools ? <StepPythonPanel /> : null}
 
       {!hideEmbeddedNext && (
-        <div className="flex flex-col items-center gap-3 pb-14 pt-7">
-          {nextDisabled && nextDisabledReason && (
-            <div className="max-w-xl rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 text-center text-sm text-amber-900">
-              {nextDisabledReason}
+        <div className="sticky bottom-2 z-10 mt-8 rounded-lg border border-slate-200 bg-white/95 p-2 shadow-lg shadow-slate-900/10 backdrop-blur-xl sm:bottom-3 sm:p-3">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="hidden min-w-0 sm:block">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                {nextDisabled ? "Action required" : "Ready for next step"}
+              </div>
+              <div className={`mt-1 text-sm ${nextDisabled ? "text-amber-800" : "text-slate-600"}`}>
+                {nextDisabled && nextDisabledReason ? nextDisabledReason : nextStatusLine || "Complete this workflow step and continue."}
+              </div>
             </div>
-          )}
-          {nextStatusLine}
-          <button
-            type="button"
-            data-testid={nextButtonTestId}
-            data-step-next-button="true"
-            className={
-              nextDisabled
-                ? "min-w-64 rounded-xl bg-indigo-300 px-7 py-3 text-sm font-semibold text-white shadow-sm cursor-not-allowed"
-                : "min-w-64 rounded-xl bg-indigo-600 px-7 py-3 text-sm font-semibold text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-indigo-700 hover:shadow-md"
-            }
-            disabled={!!nextDisabled}
-            onClick={onNextClick ?? handleNext}
-            title={nextDisabled ? nextDisabledReason || "Complete required actions first" : nextLabel}
-          >
-            {nextLabel}
-          </button>
-          {nextDebugPanel}
+            <div className="flex w-full flex-wrap items-center justify-end gap-2 lg:w-auto">
+              {nextExtraActions}
+            <button
+              type="button"
+              data-testid={nextButtonTestId}
+              data-step-next-button="true"
+              className={nextDisabled ? "atlas-primary-button w-full min-w-0 cursor-not-allowed opacity-60 sm:w-auto sm:min-w-64" : "atlas-primary-button w-full min-w-0 sm:w-auto sm:min-w-64"}
+              disabled={!!nextDisabled}
+              onClick={onNextClick ?? handleNext}
+              title={nextDisabled ? nextDisabledReason || "Complete required actions first" : nextLabel}
+            >
+              {nextLabel}
+            </button>
+            </div>
+          </div>
+          {nextDebugPanel && <div className="mt-3">{nextDebugPanel}</div>}
         </div>
       )}
     </div>

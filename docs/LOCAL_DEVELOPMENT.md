@@ -18,17 +18,22 @@ Default URL:
 The FastAPI backend serves dataset, EDA, preprocessing, training, evaluation, and scoring endpoints.
 
 ```powershell
-.\.venv\Scripts\Activate.ps1
-uvicorn server.main:app --reload --port 8001
+Set-Location "C:\Users\james\ds-workflow-starter"
+$env:ATLAS_LOCAL_DEV = "true"
+$env:ATLAS_DEV_MODE = "true"
+$env:ATLAS_HOSTED_MODE = "false"
+.\.venv\Scripts\python.exe -m uvicorn server.main:app --host 127.0.0.1 --port 8000 --reload
 ```
+
+Do not run `uvicorn main:app` from inside `server`; the backend uses package-relative imports and must be loaded as `server.main` from the repository root.
 
 Backend health check:
 
-`http://127.0.0.1:8001/api/health`
+`http://127.0.0.1:8000/api/health`
 
 Interactive API docs:
 
-`http://127.0.0.1:8001/docs`
+`http://127.0.0.1:8000/docs`
 
 ## Common Commands
 

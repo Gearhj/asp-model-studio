@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import StepShell from "../components/StepShell";
+import BureauReviewPanel from "../components/BureauReviewPanel";
+import { AtlasStatusStrip, type AtlasStatusItem, type AtlasWorkflowMetric } from "../components/ui/AtlasWorkflow";
 import { logDecision } from "../lib/decisionJournal";
 import {
   BROWSER_PARSE_EXTENSIONS,
@@ -15,6 +17,7 @@ import {
 } from "../lib/dataAcquisitionUpload";
 import {
   buildDataAccessMetadata,
+  fetchFullDataQualityProfile,
   inferDataQuality,
   loadDataAccessMetadata,
   loadDatasetVersions,
@@ -29,12 +32,14 @@ import {
 } from "../lib/enterpriseDataAccess";
 import { loadLocalDataset, saveLocalDataset, type LocalDataset } from "../lib/localDataset";
 import {
+  activateDatasetVersion,
   getDatasetPreview,
   linkDatasetToProject,
   listDatasets,
   type DatasetSummary,
 } from "../lib/datasetLibrary";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { fetchFullFeatureProfile, predictorEligibility, profileFeaturesInBrowser, type FeatureProfileResponse } from "../lib/featureProfiling";
 
 const BASE =
   (import.meta.env?.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
@@ -42,48 +47,17 @@ const BASE =
 
 const sourceCards: { id: DataSourceType; title: string; body: string }[] = [
   { id: "upload", title: "Upload File", body: "CSV and JSON parse locally. Excel, Parquet, Feather, SAS, and ZIP are staged for backend import." },
+  { id: "existing", title: "Existing Dataset", body: "Reuse a registered Dataset Library asset and preserve its governed version history." },
   { id: "sql", title: "SQL Database", body: "Author governed SQL, validate queries, capture lineage, and generate Python extraction code." },
-  { id: "cloud", title: "Cloud Storage", body: "Document S3, Azure Blob, GCS, SharePoint, or OneDrive paths for governed ingestion." },
-  { id: "existing", title: "Existing Dataset", body: "Reuse previously imported project datasets and preserve dataset version history." },
   { id: "python", title: "Python Loader", body: "Advanced users can document Python or Spark loading logic that assigns the final dataframe to df." },
+  { id: "cloud", title: "Cloud Storage", body: "Document S3, Azure Blob, GCS, SharePoint, or OneDrive paths for governed ingestion." },
 ];
 
-const HELOC_DATA_ACQUISITION_SUMMARY = {
-  project: "HELOC Risk Model TEST",
-  trainingDataset: "HELOC_TRAIN",
-  validationDataset: "HELOC_TEST",
-  ootDataset: "HELOC_OOT",
-  target: "bad_flag = 1",
-  eventValue: "1",
-  nonEventValue: "0",
-  modelPurpose: "Application Underwriting",
-  productType: "Credit Card",
-  ootType: "Synthetic holdout",
-  sourceType: "Uploaded CSV datasets registered in Dataset Library",
-  datasetPurpose: "Credit-risk scorecard test run",
-  originalTargetLabel: "RiskPerformance",
-  splitColumn: "atlas_split",
-};
 const WEAK_IV_THRESHOLD = 0.01;
 const WEAK_CORRELATION_THRESHOLD = 0.05;
 
 const databaseProviders = ["Oracle", "SQL Server", "PostgreSQL", "MySQL", "Snowflake", "BigQuery", "Databricks SQL", "Teradata", "SQLite", "DuckDB"];
 const cloudProviders = ["AWS S3", "Azure Blob Storage", "Google Cloud Storage", "SharePoint", "OneDrive"];
-const selectGuidance: Record<string, Record<string, string>> = {
-  Sampling: {
-    full: "Definition: use all loaded records. Use when the file is small enough for browser and backend processing.",
-    sample: "Definition: take the first bounded sample. Use for quick previews when full data is large.",
-    random: "Definition: randomly sample records. Use when the preview should represent the full population.",
-    stratified: "Definition: preserve target or segment mix while sampling. Use when class balance or business segments matter.",
-    time_based: "Definition: preserve temporal order. Use when future performance or out-of-time validation matters.",
-    top_n: "Definition: keep the first N rows. Use only for deterministic debugging or fixed extracts.",
-  },
-  Target: {
-    "": "Definition: no target selected. Select the dependent variable before modeling so ATLAS can infer classification versus regression.",
-  },
-  Provider: Object.fromEntries(databaseProviders.map((providerName) => [providerName, `Definition: ${providerName} governed SQL source. Use when lineage, query review, and repeatable extraction are required.`])),
-  "Cloud Provider": Object.fromEntries(cloudProviders.map((providerName) => [providerName, `Definition: ${providerName} object/file source. Use when data is staged in managed cloud or document storage.`])),
-};
 
 function parseDelimitedLine(line: string) {
   const out: string[] = [];
@@ -219,9 +193,8 @@ function getBinaryTargetProfile(rows: Record<string, unknown>[], target: string)
   return { isEvent: (value: unknown) => String(value) !== majority };
 }
 
-function preferredCreditRiskTarget(headers: string[], fallbackTarget = "") {
-  const badFlag = headers.find((header) => /^bad_flag$/i.test(header));
-  return badFlag ?? fallbackTarget ?? guessTargetFromHeaders(headers);
+function preferredTarget(headers: string[], fallbackTarget = "") {
+  return (fallbackTarget && headers.includes(fallbackTarget) ? fallbackTarget : "") || guessTargetFromHeaders(headers);
 }
 
 function quantileBreaks(nums: number[], bins = 10) {
@@ -338,12 +311,45 @@ function signalStatusClass(value: unknown) {
   return "bg-red-100 font-semibold text-red-900";
 }
 
-function applySampling(rows: Record<string, unknown>[], method: SamplingMethod, detail: string) {
-  const n = Number(detail) || 1000;
-  if (method === "top_n") return rows.slice(0, Math.max(1, n));
-  if (method === "sample") return rows.slice(0, Math.min(rows.length, Math.max(1, n)));
-  if (method === "random") return [...rows].sort(() => Math.random() - 0.5).slice(0, Math.min(rows.length, Math.max(1, n)));
-  return rows;
+function seededRandom(seed: number) {
+  let value = Math.max(1, Math.floor(seed)) % 2147483647;
+  return () => {
+    value = (value * 16807) % 2147483647;
+    return (value - 1) / 2147483646;
+  };
+}
+
+function applyPreviewSampling(input: {
+  rows: Record<string, unknown>[];
+  method: SamplingMethod;
+  rowLimit: number;
+  seed: number;
+  stratificationColumn?: string;
+  timeColumn?: string;
+}) {
+  const rowLimit = Math.max(1, Math.min(input.rows.length, input.rowLimit));
+  if (input.method === "full") return input.rows;
+  if (input.method === "random") {
+    const random = seededRandom(input.seed);
+    return input.rows.map((row) => ({ row, order: random() })).sort((a, b) => a.order - b.order).slice(0, rowLimit).map((item) => item.row);
+  }
+  if (input.method === "stratified" && input.stratificationColumn) {
+    const groups = new Map<string, Record<string, unknown>[]>();
+    input.rows.forEach((row) => {
+      const key = String(row[input.stratificationColumn as string] ?? "__MISSING__");
+      groups.set(key, [...(groups.get(key) ?? []), row]);
+    });
+    const output: Record<string, unknown>[] = [];
+    groups.forEach((group) => {
+      const take = Math.max(1, Math.round((group.length / input.rows.length) * rowLimit));
+      output.push(...group.slice(0, take));
+    });
+    return output.slice(0, rowLimit);
+  }
+  if (input.method === "time_based" && input.timeColumn) {
+    return [...input.rows].sort((a, b) => String(a[input.timeColumn as string] ?? "").localeCompare(String(b[input.timeColumn as string] ?? ""))).slice(0, rowLimit);
+  }
+  return input.rows.slice(0, rowLimit);
 }
 
 export default function Step01DataAcquisition() {
@@ -355,8 +361,15 @@ export default function Step01DataAcquisition() {
   const [target, setTarget] = useState("");
   const [kept, setKept] = useState<Record<string, boolean>>({});
   const [autoExcludeWeakSignals, setAutoExcludeWeakSignals] = useState(false);
-  const [samplingMethod, setSamplingMethod] = useState<SamplingMethod>("full");
-  const [samplingDetail, setSamplingDetail] = useState("1000");
+  const [previewSamplingMethod, setPreviewSamplingMethod] = useState<SamplingMethod>("top_n");
+  const [previewRowLimit, setPreviewRowLimit] = useState(100);
+  const [profileRowLimit, setProfileRowLimit] = useState(5000);
+  const [previewRandomSeed, setPreviewRandomSeed] = useState(42);
+  const [previewStratificationColumn, setPreviewStratificationColumn] = useState("");
+  const [previewTimeColumn, setPreviewTimeColumn] = useState("");
+  const [browserDataComplete, setBrowserDataComplete] = useState(false);
+  const [eventValue, setEventValue] = useState<unknown>(1);
+  const [nonEventValue, setNonEventValue] = useState<unknown>(0);
   const [connectionName, setConnectionName] = useState("Development connection");
   const [provider, setProvider] = useState("Oracle");
   const [database, setDatabase] = useState("");
@@ -369,6 +382,7 @@ export default function Step01DataAcquisition() {
   const [pythonCode, setPythonCode] = useState("import pandas as pd\n\n# Assign final dataframe to df\n# df = pd.read_sql(...)\n");
   const [metadata, setMetadata] = useState<DataAccessMetadata | null>(() => loadDataAccessMetadata());
   const [quality, setQuality] = useState<DataQualitySummary | null>(null);
+  const [featureProfile, setFeatureProfile] = useState<FeatureProfileResponse | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [backendImportSynced, setBackendImportSynced] = useState(false);
@@ -389,6 +403,9 @@ export default function Step01DataAcquisition() {
     setHeaders(saved.headers);
     setRows(saved.rows ?? []);
     setTarget(savedTarget);
+    setEventValue(saved.event_value ?? 1);
+    setNonEventValue(saved.non_event_value ?? 0);
+    setBrowserDataComplete(saved.browser_data_complete === true);
     setKept(
       Object.fromEntries(
         saved.headers.map((header) => [header, header !== savedTarget && selectedSet.has(header)])
@@ -396,11 +413,11 @@ export default function Step01DataAcquisition() {
     );
     setImportError(null);
     setBackendImportSynced(false);
-    setBackendRowCount(null);
+    setBackendRowCount(saved.registered_row_count ?? null);
     setMessage((current) => current || "Restored the cached modeling dataset and selected features for this browser session.");
     setQuality(
       saved.data_quality ??
-        inferDataQuality({ headers: saved.headers, rows: (saved.rows ?? []).slice(0, 5000), target: savedTarget || null })
+        inferDataQuality({ headers: saved.headers, rows: saved.rows ?? [], target: savedTarget || null })
     );
     if (saved.data_access) setMetadata(saved.data_access);
   }, []);
@@ -426,19 +443,31 @@ export default function Step01DataAcquisition() {
     };
   }, [sourceType, selectedLibraryDatasetId]);
 
-  const modelingRows = useMemo(() => applySampling(rows, samplingMethod, samplingDetail), [rows, samplingMethod, samplingDetail]);
-  const sampleRows = useMemo(() => modelingRows.slice(0, 5000), [modelingRows]);
-  const effectiveModelingRowCount = backendRowCount ?? modelingRows.length;
-  const previewRows = sampleRows.slice(0, 100);
-  const targetInfo = useMemo(() => targetMeta(modelingRows, target), [modelingRows, target]);
-  const continuousTargetSummary = useMemo(() => targetSummary(modelingRows, target), [modelingRows, target]);
+  const fullSourceRows = rows;
+  const registeredRowCount = backendRowCount ?? fullSourceRows.length;
+  const completeBrowserDataset = browserDataComplete && fullSourceRows.length === registeredRowCount;
+  const previewRows = useMemo(() => applyPreviewSampling({
+    rows: fullSourceRows,
+    method: previewSamplingMethod,
+    rowLimit: previewRowLimit,
+    seed: previewRandomSeed,
+    stratificationColumn: previewStratificationColumn,
+    timeColumn: previewTimeColumn,
+  }), [fullSourceRows, previewSamplingMethod, previewRowLimit, previewRandomSeed, previewStratificationColumn, previewTimeColumn]);
+  const profilingRows = useMemo(
+    () => fullSourceRows.slice(0, Math.max(1, profileRowLimit)),
+    [fullSourceRows, profileRowLimit]
+  );
+  const targetAnalysisRows = completeBrowserDataset ? fullSourceRows : profilingRows;
+  const targetInfo = useMemo(() => targetMeta(targetAnalysisRows, target), [targetAnalysisRows, target]);
+  const continuousTargetSummary = useMemo(() => targetSummary(targetAnalysisRows, target), [targetAnalysisRows, target]);
   const selectable = headers.filter((header) => header !== target);
   const selected = selectable.filter((header) => kept[header]);
   const sqlWarnings = useMemo(() => validateSql(sql), [sql]);
   const generatedMetadata = useMemo(() => {
     if (!headers.length) return null;
     return buildDataAccessMetadata({
-      dataset: { headers, rows: modelingRows, target },
+      dataset: { headers, rows: completeBrowserDataset ? fullSourceRows : profilingRows, target },
       sourceType,
       sourceLabel:
         sourceType === "sql"
@@ -460,29 +489,105 @@ export default function Step01DataAcquisition() {
       cloudProvider: sourceType === "cloud" ? cloudProvider : undefined,
       cloudPath: sourceType === "cloud" ? cloudPath : undefined,
       pythonCode: sourceType === "python" ? pythonCode : undefined,
-      samplingMethod,
-      samplingDetail,
-      rowCountOverride: effectiveModelingRowCount,
+      samplingMethod: "full",
+      samplingDetail: "Registered modeling dataset",
+      rowCountOverride: registeredRowCount,
     });
-  }, [headers, modelingRows, target, sourceType, provider, cloudProvider, fileName, connectionName, database, schema, sql, cloudPath, pythonCode, samplingMethod, samplingDetail, effectiveModelingRowCount, libraryDatasets, selectedLibraryDatasetId]);
+  }, [headers, fullSourceRows, profilingRows, completeBrowserDataset, target, sourceType, provider, cloudProvider, fileName, connectionName, database, schema, sql, cloudPath, pythonCode, registeredRowCount, libraryDatasets, selectedLibraryDatasetId]);
 
   const variableSummary = useMemo(
-    () =>
-      headers.map((column) => ({
-        column,
-        ...summarizeColumn(sampleRows, column, target),
-        iv: informationValue(sampleRows, column, target),
-        corr: correlationWithTarget(sampleRows, column, target),
-      })),
-    [headers, sampleRows, target]
+    () => (featureProfile?.features ?? []).map((row) => ({
+      column: row.predictor,
+      type: row.datatype,
+      missingPct: row.missingPercent,
+      distinct: row.distinctCount,
+      mean: row.mean,
+      min: row.minimum,
+      max: row.maximum,
+      iv: row.iv,
+      corr: row.correlationWithTarget,
+      role: row.role,
+      exclusionReason: row.exclusionReason,
+    })),
+    [featureProfile]
   );
+
+  useEffect(() => {
+    if (!headers.length || !target || !profilingRows.length) {
+      setFeatureProfile(null);
+      return;
+    }
+    let alive = true;
+    const profileDataset: LocalDataset = {
+      headers,
+      rows: profilingRows,
+      target,
+      selected_columns: selected,
+      problem_type: targetInfo.kind === "continuous" ? "regression" : "classification",
+      registered_row_count: registeredRowCount,
+      browser_data_complete: completeBrowserDataset,
+      event_value: eventValue,
+      non_event_value: nonEventValue,
+    };
+    const browserProfile = () => profileFeaturesInBrowser(
+      profileDataset,
+      completeBrowserDataset ? fullSourceRows : profilingRows,
+      completeBrowserDataset ? "complete_browser_dataset" : "preview_profile",
+    );
+    if (backendImportSynced) {
+      fetchFullFeatureProfile(profileDataset)
+        .then((payload) => alive && setFeatureProfile(payload))
+        .catch(() => alive && setFeatureProfile(browserProfile()));
+    } else {
+      setFeatureProfile(browserProfile());
+    }
+    return () => {
+      alive = false;
+    };
+  }, [headers, target, profilingRows, fullSourceRows, selected.join("|"), targetInfo.kind, registeredRowCount, completeBrowserDataset, backendImportSynced, eventValue, nonEventValue]);
+
+  useEffect(() => {
+    if (!headers.length || !profilingRows.length) {
+      setQuality(null);
+      return;
+    }
+    let alive = true;
+    const browserQuality = () => {
+      const base = inferDataQuality({ headers, rows: completeBrowserDataset ? fullSourceRows : profilingRows, target: target || null });
+      return {
+        ...base,
+        profileScope: completeBrowserDataset ? "complete_browser_dataset" as const : "preview_profile" as const,
+        profiledRowCount: completeBrowserDataset ? fullSourceRows.length : profilingRows.length,
+        registeredRowCount,
+        rowCount: registeredRowCount,
+        warnings: completeBrowserDataset ? base.warnings : ["This report is based on configured profiling rows, not the full registered dataset."],
+        readinessStatus: "needs_review" as const,
+      };
+    };
+    if (backendImportSynced) {
+      fetchFullDataQualityProfile({ target, eventValue, nonEventValue, selectedColumns: selected })
+        .then((payload) => alive && setQuality(payload))
+        .catch(() => alive && setQuality(browserQuality()));
+    } else {
+      setQuality(browserQuality());
+    }
+    return () => {
+      alive = false;
+    };
+  }, [headers, target, profilingRows, fullSourceRows, completeBrowserDataset, registeredRowCount, backendImportSynced, eventValue, nonEventValue, selected.join("|")]);
 
   function saveKeptSelection(nextKept: Record<string, boolean>) {
     setKept(nextKept);
+    const currentDataset = loadLocalDataset();
     const localView = buildSelectedDatasetView({
       headers,
-      rows: sampleRows,
-      selectedColumns: headers.filter((header) => header !== target && !creditRiskLeakageRole(header) && nextKept[header] !== false),
+      rows: profilingRows,
+      selectedColumns: headers.filter((header) => header !== target && predictorEligibility(header, {
+        headers,
+        rows: profilingRows,
+        target,
+        selected_columns: [],
+      }).role === "eligible" && nextKept[header] !== false),
       target: target || null,
     });
     saveLocalDataset({
@@ -491,6 +596,11 @@ export default function Step01DataAcquisition() {
       target: target || null,
       selected_columns: localView.selectedColumns,
       problem_type: target ? inferProblemType(localView.rows, target) : undefined,
+      registered_row_count: registeredRowCount,
+      browser_data_complete: completeBrowserDataset,
+      event_value: eventValue,
+      non_event_value: nonEventValue,
+      dataset_library: currentDataset?.dataset_library,
     });
     window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
   }
@@ -498,7 +608,7 @@ export default function Step01DataAcquisition() {
   function applyWeakSignalFilter() {
     const nextKept = { ...kept };
     variableSummary.forEach((row) => {
-      const leakageRole = row.column === target ? "Target / Excluded" : creditRiskLeakageRole(row.column);
+      const leakageRole = row.role === "eligible" ? "" : row.role;
       if (leakageRole) {
         nextKept[row.column] = false;
         return;
@@ -517,8 +627,13 @@ export default function Step01DataAcquisition() {
     });
   }
 
-  function applyLoadedDataset(normalized: NormalizedBackendImport, options: { sourceLabel: string; backendSynced: boolean }) {
-    const guessedTarget = preferredCreditRiskTarget(normalized.headers, normalized.target);
+  function applyLoadedDataset(normalized: NormalizedBackendImport, options: {
+    sourceLabel: string;
+    backendSynced: boolean;
+    browserComplete?: boolean;
+    datasetLibrary?: LocalDataset["dataset_library"];
+  }) {
+    const guessedTarget = preferredTarget(normalized.headers, normalized.target);
     const keep: Record<string, boolean> = {};
     normalized.headers.forEach((header) => {
       keep[header] = header !== guessedTarget;
@@ -530,7 +645,8 @@ export default function Step01DataAcquisition() {
     setImportError(null);
     setBackendImportSynced(options.backendSynced);
     setBackendRowCount(options.backendSynced ? normalized.rowCount : null);
-    setSamplingMethod("full");
+    setBrowserDataComplete(options.browserComplete ?? (!options.backendSynced && normalized.previewRows.length === normalized.rowCount));
+    setPreviewSamplingMethod("top_n");
     const selectedColumns = normalized.selectedColumns.length ? normalized.selectedColumns : normalized.headers.filter((header) => header !== guessedTarget);
     const localView = buildSelectedDatasetView({
       headers: normalized.headers,
@@ -544,6 +660,11 @@ export default function Step01DataAcquisition() {
       target: guessedTarget || null,
       selected_columns: localView.selectedColumns,
       problem_type: guessedTarget ? inferProblemType(localView.rows, guessedTarget) : undefined,
+      registered_row_count: normalized.rowCount,
+      browser_data_complete: options.browserComplete ?? (!options.backendSynced && normalized.previewRows.length === normalized.rowCount),
+      event_value: eventValue,
+      non_event_value: nonEventValue,
+      dataset_library: options.datasetLibrary,
     });
     window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
     const dq = inferDataQuality({ headers: normalized.headers, rows: normalized.previewRows.slice(0, 5000), target: guessedTarget || null });
@@ -572,6 +693,7 @@ export default function Step01DataAcquisition() {
       formData.append("file", file);
       const response = await fetch(`${BASE}/data/upload_csv`, {
         method: "POST",
+        credentials: "include",
         body: formData,
       });
       const payload = await response.json().catch(() => null);
@@ -602,6 +724,7 @@ export default function Step01DataAcquisition() {
     setFileName(file.name);
     setBackendImportSynced(false);
     setBackendRowCount(null);
+    setBrowserDataComplete(false);
     const decision = getUploadDecision({ fileName: file.name, fileSize: file.size });
     if (decision.mode === "invalid" || decision.mode === "recognized_unsupported") {
       setImportError(decision.message);
@@ -633,12 +756,12 @@ export default function Step01DataAcquisition() {
         previewRows: parsed.rows,
         rowCount: parsed.rows.length,
         columnCount: parsed.headers.length,
-        target: preferredCreditRiskTarget(parsed.headers),
-        selectedColumns: parsed.headers.filter((header) => header !== preferredCreditRiskTarget(parsed.headers)),
+        target: preferredTarget(parsed.headers),
+        selectedColumns: parsed.headers.filter((header) => header !== preferredTarget(parsed.headers)),
         filename: file.name,
       };
-      applyLoadedDataset(normalized, { sourceLabel: `Uploaded ${file.name}`, backendSynced: false });
-      setMessage(`Loaded ${parsed.rows.length.toLocaleString()} rows and ${parsed.headers.length.toLocaleString()} columns in the browser preview.`);
+      applyLoadedDataset(normalized, { sourceLabel: `Uploaded ${file.name}`, backendSynced: false, browserComplete: true });
+      setMessage(`Loaded the complete browser dataset with ${parsed.rows.length.toLocaleString()} rows and ${parsed.headers.length.toLocaleString()} columns.`);
     } catch (err: any) {
       const errorText = err?.message ?? "Unable to parse file.";
       setImportError(errorText);
@@ -660,26 +783,27 @@ export default function Step01DataAcquisition() {
     setImportError(null);
     setBackendImportSynced(false);
     setBackendRowCount(null);
+    setBrowserDataComplete(false);
     setMessage("SQL metadata saved. Real query execution requires a backend connector; upload query output or connect the backend to populate rows.");
   }
 
   async function persistDataset() {
     if (!headers.length) throw new Error("No dataset or query metadata is available.");
-    const selectedColumns = selected.length ? selected : selectable;
+    const selectedColumns = selected;
     const localView = buildSelectedDatasetView({
       headers,
-      rows: sampleRows,
+      rows: profilingRows,
       selectedColumns,
       target: target || null,
     });
     const backendView = buildSelectedDatasetView({
       headers,
-      rows: modelingRows,
+      rows: fullSourceRows,
       selectedColumns,
       target: target || null,
     });
     const meta = generatedMetadata;
-    const dq = quality ?? inferDataQuality({ headers, rows: sampleRows, target: target || null });
+    const dq = quality ?? inferDataQuality({ headers, rows: completeBrowserDataset ? fullSourceRows : profilingRows, target: target || null });
     const problemType = targetInfo.kind === "continuous" ? "regression" : "classification";
     const localPayload: LocalDataset = {
       headers: localView.headers,
@@ -687,6 +811,11 @@ export default function Step01DataAcquisition() {
       target: target || null,
       selected_columns: localView.selectedColumns,
       problem_type: problemType,
+      registered_row_count: registeredRowCount,
+      browser_data_complete: completeBrowserDataset,
+      dataset_version: meta?.version,
+      event_value: eventValue,
+      non_event_value: nonEventValue,
       dataset_library:
         sourceType === "existing" && selectedLibraryDatasetId && selectedLibraryVersionId
           ? {
@@ -695,7 +824,7 @@ export default function Step01DataAcquisition() {
               datasetName: libraryDatasets.find((dataset) => dataset.datasetId === selectedLibraryDatasetId)?.name ?? "Dataset Library asset",
               datasetRole: "modeling",
               sourceType: "dataset-library",
-              rowCount: effectiveModelingRowCount,
+              rowCount: registeredRowCount,
               columnCount: headers.length,
               linkedAt: new Date().toISOString(),
             }
@@ -732,7 +861,7 @@ export default function Step01DataAcquisition() {
         data: {
           ...(state?.trainSpec?.data ?? {}),
           source: sourceType,
-          n_samples: effectiveModelingRowCount,
+          n_samples: registeredRowCount,
           task: problemType === "regression" ? "regression" : "binary",
           target,
           selected_columns: localView.selectedColumns,
@@ -743,10 +872,16 @@ export default function Step01DataAcquisition() {
 
     let backendSynced = backendImportSynced;
     try {
+      if (!backendImportSynced && !completeBrowserDataset) {
+        throw new Error("The full registered dataset artifact is not active. Reload the source instead of sending preview rows as modeling data.");
+      }
       const backendRes = await fetch(`${BASE}${backendImportSynced ? "/data/set_target" : "/data/set_sample"}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(backendImportSynced ? { target, selected_columns: localView.selectedColumns } : backendPayload),
+        credentials: "include",
+        body: JSON.stringify(backendImportSynced
+          ? { target, selected_columns: localView.selectedColumns, dataset_version: meta?.version }
+          : { ...backendPayload, dataset_version: meta?.version }),
       });
       const backendJson = await backendRes.json().catch(() => null);
       if (!backendRes.ok || !backendJson?.ok) {
@@ -758,9 +893,9 @@ export default function Step01DataAcquisition() {
     }
 
     if (backendSynced && localSaveStatus === "sample") {
-      setMessage(`Cached ${sampleRows.length.toLocaleString()} preview rows in the browser and sent ${effectiveModelingRowCount.toLocaleString()} rows to the backend for modeling.`);
+      setMessage(`Cached ${profilingRows.length.toLocaleString()} profiling rows in the browser and sent ${registeredRowCount.toLocaleString()} rows to the backend for modeling.`);
     } else if (backendSynced && localSaveStatus !== "failed") {
-      setMessage(`Cached ${sampleRows.length.toLocaleString()} preview rows in the browser and synced ${effectiveModelingRowCount.toLocaleString()} rows to the backend for modeling.`);
+      setMessage(`Cached ${profilingRows.length.toLocaleString()} profiling rows in the browser and preserved ${registeredRowCount.toLocaleString()} registered modeling rows.`);
     }
     if (sourceType === "existing" && selectedLibraryDatasetId && selectedLibraryVersionId) {
       try {
@@ -785,7 +920,7 @@ export default function Step01DataAcquisition() {
     hasHeaders: headers.length > 0,
     hasTarget: !!target,
     importError,
-  });
+  }) || (!selected.length ? "Select at least one eligible predictor before continuing." : "");
   const messageClass =
     importError && !headers.length
       ? "border-red-200 bg-red-50 text-red-900"
@@ -801,10 +936,11 @@ export default function Step01DataAcquisition() {
       newValue: next,
     });
     setTarget(next);
+    const currentDataset = loadLocalDataset();
     if (headers.length) setImportError(null);
     const localView = buildSelectedDatasetView({
       headers,
-      rows: sampleRows,
+      rows: profilingRows,
       selectedColumns: headers.filter((header) => header !== next && kept[header] !== false),
       target: next || null,
     });
@@ -814,18 +950,101 @@ export default function Step01DataAcquisition() {
       target: next || null,
       selected_columns: localView.selectedColumns,
       problem_type: next ? inferProblemType(localView.rows, next) : undefined,
+      registered_row_count: registeredRowCount,
+      browser_data_complete: completeBrowserDataset,
+      event_value: eventValue,
+      non_event_value: nonEventValue,
+      dataset_library: currentDataset?.dataset_library,
     });
     window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
     if (rows.length) setQuality(inferDataQuality({ headers, rows: rows.slice(0, 5000), target: next || null }));
   };
 
+  const existingDatasetPicker = (
+    <ExistingDatasetPanel
+      versions={datasetVersions}
+      libraryDatasets={libraryDatasets}
+      selectedDatasetId={selectedLibraryDatasetId}
+      selectedVersionId={selectedLibraryVersionId}
+      loading={libraryLoading}
+      onDatasetChange={(datasetId) => {
+        const dataset = libraryDatasets.find((item) => item.datasetId === datasetId);
+        setSelectedLibraryDatasetId(datasetId);
+        setSelectedLibraryVersionId(dataset?.latestVersion?.versionId ?? "");
+      }}
+      onVersionChange={setSelectedLibraryVersionId}
+      onRefresh={async () => {
+        setLibraryLoading(true);
+        try {
+          const payload = await listDatasets();
+          setLibraryDatasets(payload.datasets);
+        } finally {
+          setLibraryLoading(false);
+        }
+      }}
+      onLoad={async () => {
+        if (!selectedLibraryDatasetId || !selectedLibraryVersionId) {
+          setMessage("Select a dataset and version before loading from the Dataset Library.");
+          return;
+        }
+        const dataset = libraryDatasets.find((item) => item.datasetId === selectedLibraryDatasetId);
+        setIsImporting(true);
+        try {
+          const [preview, activation] = await Promise.all([
+            getDatasetPreview(selectedLibraryDatasetId, selectedLibraryVersionId),
+            activateDatasetVersion(selectedLibraryDatasetId, selectedLibraryVersionId),
+          ]);
+          const normalized = {
+            headers: preview.columns,
+            previewRows: preview.rows,
+            rowCount: activation.row_count ?? dataset?.latestVersion?.rowCount ?? preview.rows.length,
+            columnCount: preview.columns.length,
+            target: preferredTarget(preview.columns),
+            selectedColumns: preview.columns.filter((header) => header !== preferredTarget(preview.columns)),
+            filename: dataset?.name ?? selectedLibraryDatasetId,
+          };
+          applyLoadedDataset(normalized, {
+            sourceLabel: `Dataset Library: ${dataset?.name ?? selectedLibraryDatasetId} (${selectedLibraryVersionId})`,
+            backendSynced: true,
+            browserComplete: false,
+            datasetLibrary: {
+              datasetId: selectedLibraryDatasetId,
+              versionId: selectedLibraryVersionId,
+              datasetName: dataset?.name ?? "Dataset Library asset",
+              datasetRole: "modeling",
+              sourceType: "dataset-library",
+              rowCount: normalized.rowCount,
+              columnCount: normalized.columnCount,
+              linkedAt: new Date().toISOString(),
+            },
+          });
+          setFileName(dataset?.name ?? "Dataset Library asset");
+          setMessage(`Loaded ${dataset?.name ?? "Dataset Library asset"} version ${selectedLibraryVersionId} into Data Acquisition.`);
+        } catch (error) {
+          setMessage(error instanceof Error ? error.message : "ATLAS could not load the selected dataset version.");
+        } finally {
+          setIsImporting(false);
+        }
+      }}
+    />
+  );
+
   return (
     <StepShell
-      title="Step 1: Data Access & Data Acquisition"
-      subtitle="Connect to enterprise data sources, validate extraction logic, preview data, capture lineage, and persist the governed modeling dataset."
+      title="Step 1: Data Acquisition"
+      subtitle="Connect to governed sources, register the modeling population, confirm the target, assess data quality, approve predictors, and establish reproducible lineage."
+      variant="data"
+      heroMetrics={[
+        { label: "Source Type", value: sourceCards.find((card) => card.id === sourceType)?.title ?? "Not selected" },
+        { label: "Dataset", value: fileName || "Not registered", tone: fileName ? "neutral" : "warning" },
+        { label: "Registered Rows", value: registeredRowCount ? registeredRowCount.toLocaleString() : "Not available" },
+        { label: "Columns", value: headers.length ? headers.length.toLocaleString() : "Not available" },
+        { label: "Target", value: target || "Not confirmed", tone: target ? "neutral" : "warning" },
+        { label: "Modeling Readiness", value: nextDisabledReason ? "Needs review" : "Ready", tone: nextDisabledReason ? "warning" : "success" },
+      ] satisfies AtlasWorkflowMetric[]}
       nextDisabled={!!nextDisabledReason}
       nextDisabledReason={nextDisabledReason}
-      nextPath="/step01b"
+      nextPath="/step02"
       onNext={async () => {
         await persistDataset();
       }}
@@ -836,6 +1055,17 @@ export default function Step01DataAcquisition() {
             {message}
           </div>
         )}
+
+        <AtlasStatusStrip
+          items={[
+            { label: "Source selected", state: fileName || generatedMetadata ? "complete" : "current", detail: fileName || "Choose or configure a source" },
+            { label: "Import completed", state: headers.length ? "complete" : "pending", detail: headers.length ? `${headers.length.toLocaleString()} columns available` : "Awaiting source import" },
+            { label: "Dataset registered", state: registeredRowCount && backendImportSynced ? "complete" : registeredRowCount ? "warning" : "pending", detail: registeredRowCount ? `${registeredRowCount.toLocaleString()} modeling rows` : "No registered population" },
+            { label: "Target confirmed", state: target ? "complete" : "pending", detail: target || "Select the governed outcome" },
+            { label: "Quality reviewed", state: quality ? "complete" : "pending", detail: quality ? `${quality.profileScope?.replace(/_/g, " ") ?? "Profile available"}` : "Run data quality review" },
+            { label: "Predictors approved", state: selected.length ? "complete" : "pending", detail: selected.length ? `${selected.length.toLocaleString()} selected` : "Approve eligible inputs" },
+          ] satisfies AtlasStatusItem[]}
+        />
 
         <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
           <div>
@@ -860,15 +1090,23 @@ export default function Step01DataAcquisition() {
             {sourceType === "upload" && (
               <UploadPanel fileName={fileName} onFile={onFile} />
             )}
+            {sourceType === "existing" && existingDatasetPicker}
             <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50/60 p-4">
-              <TargetSetup headers={headers} target={target} setTarget={updateTarget} />
+              <TargetSetup
+                headers={headers}
+                target={target}
+                setTarget={updateTarget}
+                eventValue={eventValue}
+                setEventValue={setEventValue}
+                nonEventValue={nonEventValue}
+                setNonEventValue={setNonEventValue}
+                problemType={targetInfo.kind === "continuous" ? "regression" : "classification"}
+              />
             </div>
-            <details className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <summary className="cursor-pointer text-sm font-semibold text-slate-900">Advanced source options</summary>
-              <div className="mt-4">
-                {sourceType === "upload" && (
-                  <p className="text-sm leading-6 text-slate-600">Select SQL Database, Cloud Storage, Existing Dataset, or Python Loader above to configure a non-upload source.</p>
-                )}
+            {(sourceType === "sql" || sourceType === "cloud" || sourceType === "python") && (
+              <details className="rounded-xl border border-slate-200 bg-slate-50 p-3" open>
+                <summary className="cursor-pointer text-sm font-semibold text-slate-900">Configure {sourceCards.find((card) => card.id === sourceType)?.title}</summary>
+                <div className="mt-4">
                 {sourceType === "sql" && (
                   <SqlPanel
                     provider={provider}
@@ -893,78 +1131,25 @@ export default function Step01DataAcquisition() {
                 {sourceType === "cloud" && (
                   <CloudPanel cloudProvider={cloudProvider} setCloudProvider={setCloudProvider} cloudPath={cloudPath} setCloudPath={setCloudPath} />
                 )}
-                {sourceType === "existing" && (
-                  <ExistingDatasetPanel
-                    versions={datasetVersions}
-                    libraryDatasets={libraryDatasets}
-                    selectedDatasetId={selectedLibraryDatasetId}
-                    selectedVersionId={selectedLibraryVersionId}
-                    loading={libraryLoading}
-                    onDatasetChange={(datasetId) => {
-                      const dataset = libraryDatasets.find((item) => item.datasetId === datasetId);
-                      setSelectedLibraryDatasetId(datasetId);
-                      setSelectedLibraryVersionId(dataset?.latestVersion?.versionId ?? "");
-                    }}
-                    onVersionChange={setSelectedLibraryVersionId}
-                    onRefresh={async () => {
-                      setLibraryLoading(true);
-                      try {
-                        const payload = await listDatasets();
-                        setLibraryDatasets(payload.datasets);
-                      } finally {
-                        setLibraryLoading(false);
-                      }
-                    }}
-                    onLoad={async () => {
-                      if (!selectedLibraryDatasetId || !selectedLibraryVersionId) {
-                        setMessage("Select a dataset and version before loading from the Dataset Library.");
-                        return;
-                      }
-                      const dataset = libraryDatasets.find((item) => item.datasetId === selectedLibraryDatasetId);
-                      setIsImporting(true);
-                      try {
-                        const preview = await getDatasetPreview(selectedLibraryDatasetId, selectedLibraryVersionId);
-                        const normalized = {
-                          headers: preview.columns,
-                          previewRows: preview.rows,
-                          rowCount: dataset?.latestVersion?.rowCount ?? preview.rows.length,
-                          columnCount: preview.columns.length,
-                          target: preferredCreditRiskTarget(preview.columns),
-                          selectedColumns: preview.columns.filter((header) => header !== preferredCreditRiskTarget(preview.columns)),
-                          filename: dataset?.name ?? selectedLibraryDatasetId,
-                        };
-                        applyLoadedDataset(normalized, {
-                          sourceLabel: `Dataset Library: ${dataset?.name ?? selectedLibraryDatasetId} (${selectedLibraryVersionId})`,
-                          backendSynced: false,
-                        });
-                        setFileName(dataset?.name ?? "Dataset Library asset");
-                        setMessage(`Loaded ${dataset?.name ?? "Dataset Library asset"} version ${selectedLibraryVersionId} into Data Acquisition.`);
-                      } catch (error) {
-                        setMessage(error instanceof Error ? error.message : "ATLAS could not load the selected dataset version.");
-                      } finally {
-                        setIsImporting(false);
-                      }
-                    }}
-                  />
-                )}
                 {sourceType === "python" && (
                   <PythonPanel pythonCode={pythonCode} setPythonCode={setPythonCode} />
                 )}
-              </div>
-            </details>
+                </div>
+              </details>
+            )}
           </div>
         </section>
 
-        <CurrentProjectSummary target={target || "bad_flag"} />
-
-        <DatasetRoleAssignment />
-        <SamplingProfilingControls samplingMethod={samplingMethod} setSamplingMethod={setSamplingMethod} samplingDetail={samplingDetail} setSamplingDetail={setSamplingDetail} />
-        <details className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <summary className="cursor-pointer text-base font-semibold text-slate-950">Full Data Quality Report</summary>
-          <div className="mt-4">
-            <DataQualityPanel quality={quality} metadata={generatedMetadata ?? metadata} />
-          </div>
-        </details>
+        <CurrentDatasetSummary
+          fileName={fileName}
+          sourceType={sourceType}
+          target={target}
+          registeredRowCount={registeredRowCount}
+          columnCount={headers.length}
+          selectedCount={selected.length}
+          browserDataComplete={completeBrowserDataset}
+          datasetVersion={selectedLibraryVersionId || generatedMetadata?.version || metadata?.version}
+        />
 
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)] xl:items-start">
           <DataPreview
@@ -973,11 +1158,26 @@ export default function Step01DataAcquisition() {
             target={target}
             targetInfo={targetInfo}
             targetSummary={continuousTargetSummary}
-            effectiveModelingRowCount={effectiveModelingRowCount}
-            previewRowCount={sampleRows.length}
+            effectiveModelingRowCount={registeredRowCount}
+            previewRowCount={previewRows.length}
             backendImportSynced={backendImportSynced}
           />
         </section>
+
+        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-base font-semibold text-slate-950">Data Quality & Modeling Readiness</h2>
+              <p className="mt-1 text-sm text-slate-500">Quality findings identify their actual profiling scope and registered row count.</p>
+            </div>
+            <ProfileScopeBadge quality={quality} />
+          </div>
+          <div className="mt-4">
+            <DataQualityPanel quality={quality} metadata={generatedMetadata ?? metadata} />
+          </div>
+        </section>
+
+        <BureauReviewPanel target={target} eventValue={eventValue} enabled={!!headers.length && !!registeredRowCount} />
 
         {!!headers.length && (
           <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -1004,7 +1204,7 @@ export default function Step01DataAcquisition() {
                 <button
                   className="rounded-lg border px-3 py-2 text-sm"
                   onClick={() => {
-                    const nextKept = Object.fromEntries(headers.map((header) => [header, header !== target && !creditRiskLeakageRole(header)]));
+                    const nextKept = Object.fromEntries(variableSummary.map((row) => [row.column, row.role === "eligible"]));
                     saveKeptSelection(nextKept);
                   }}
                 >
@@ -1041,7 +1241,7 @@ export default function Step01DataAcquisition() {
                 </thead>
                 <tbody>
                   {variableSummary.map((row) => {
-                    const leakageRole = row.column === target ? "Target / Excluded" : creditRiskLeakageRole(row.column);
+                    const leakageRole = row.role === "eligible" ? "" : row.role;
                     const role = leakageRole || "Candidate Predictor";
                     return (
                       <tr key={row.column} className="border-t">
@@ -1078,7 +1278,7 @@ export default function Step01DataAcquisition() {
                         <td className="px-3 py-2 text-right">{formatNumber(row.min)}</td>
                         <td className="px-3 py-2 text-right">{formatNumber(row.max)}</td>
                         <td className={`px-3 py-2 text-xs font-semibold ${leakageRole ? "text-rose-700" : "text-emerald-700"}`}>{leakageRole ? "Excluded" : "Eligible"}</td>
-                        <td className="px-3 py-2 text-xs text-slate-600">{leakageReason(row.column, target)}</td>
+                        <td className="px-3 py-2 text-xs text-slate-600">{row.exclusionReason || "Eligible predictor."}</td>
                       </tr>
                     );
                   })}
@@ -1090,15 +1290,9 @@ export default function Step01DataAcquisition() {
 
         {!!headers.length && (
           <section className="space-y-4">
-            <h2 className="text-base font-semibold text-slate-950">Data Lineage and Python Sync</h2>
-            <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            <h2 className="text-base font-semibold text-slate-950">Data Lineage</h2>
+            <div className="mt-4 grid gap-4">
               <LineagePanel metadata={generatedMetadata ?? metadata} />
-              <details className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-                <summary className="cursor-pointer text-base font-semibold text-slate-950">Python Synchronization</summary>
-                <div className="mt-4">
-                  <PythonSyncPanel metadata={generatedMetadata ?? metadata} />
-                </div>
-              </details>
             </div>
           </section>
         )}
@@ -1123,87 +1317,123 @@ function UploadPanel({ fileName, onFile }: { fileName: string; onFile: (file: Fi
   );
 }
 
-function CurrentProjectSummary({ target }: { target: string }) {
-  return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-base font-semibold text-slate-950">Current Project Summary</h2>
-      <p className="mt-1 text-sm text-slate-500">Informational summary for this Credit Risk Studio data acquisition step.</p>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat label="Project" value={HELOC_DATA_ACQUISITION_SUMMARY.project} />
-        <Stat label="Training dataset" value={HELOC_DATA_ACQUISITION_SUMMARY.trainingDataset} />
-        <Stat label="Validation dataset" value={HELOC_DATA_ACQUISITION_SUMMARY.validationDataset} />
-        <Stat label="OOT dataset" value={HELOC_DATA_ACQUISITION_SUMMARY.ootDataset} />
-        <Stat label="Target" value={target === "bad_flag" ? HELOC_DATA_ACQUISITION_SUMMARY.target : `${target || "bad_flag"} = ${HELOC_DATA_ACQUISITION_SUMMARY.eventValue}`} />
-        <Stat label="Event / bad value" value={HELOC_DATA_ACQUISITION_SUMMARY.eventValue} />
-        <Stat label="Model purpose" value={HELOC_DATA_ACQUISITION_SUMMARY.modelPurpose} />
-        <Stat label="Product type" value={HELOC_DATA_ACQUISITION_SUMMARY.productType} />
-      </div>
-    </section>
-  );
-}
-
-function DatasetRoleAssignment() {
-  return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-base font-semibold text-slate-950">Dataset Role Assignment</h2>
-      <p className="mt-1 text-sm text-slate-500">One canonical role assignment for the HELOC scorecard test run.</p>
-      <div className="mt-4 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-        <ReadOnlyField label="Training Dataset" value={HELOC_DATA_ACQUISITION_SUMMARY.trainingDataset} />
-        <ReadOnlyField label="Validation Dataset" value={HELOC_DATA_ACQUISITION_SUMMARY.validationDataset} />
-        <ReadOnlyField label="OOT Dataset" value={HELOC_DATA_ACQUISITION_SUMMARY.ootDataset} />
-        <ReadOnlyField label="OOT Type" value={HELOC_DATA_ACQUISITION_SUMMARY.ootType} />
-        <ReadOnlyField label="Dataset Source Type" value={HELOC_DATA_ACQUISITION_SUMMARY.sourceType} />
-        <ReadOnlyField label="Dataset Purpose" value={HELOC_DATA_ACQUISITION_SUMMARY.datasetPurpose} />
-      </div>
-    </section>
-  );
-}
-
-function TargetSetup({ headers, target, setTarget }: { headers: string[]; target: string; setTarget: (value: string) => void }) {
-  const targetOptions = headers.length ? headers : ["bad_flag", "RiskPerformance", "atlas_split"];
-  return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-base font-semibold text-slate-950">Target Setup</h2>
-      <p className="mt-1 text-sm text-slate-500">One canonical target definition for the underwriting model.</p>
-      <div className="mt-4 grid gap-3 md:grid-cols-5">
-        <Select label="Target Column" value={target || "bad_flag"} onChange={setTarget} options={targetOptions} />
-        <ReadOnlyField label="Event / Bad Value" value={HELOC_DATA_ACQUISITION_SUMMARY.eventValue} />
-        <ReadOnlyField label="Non-event / Good Value" value={HELOC_DATA_ACQUISITION_SUMMARY.nonEventValue} />
-        <ReadOnlyField label="Original Target Label Column" value={HELOC_DATA_ACQUISITION_SUMMARY.originalTargetLabel} />
-        <ReadOnlyField label="Split Column" value={HELOC_DATA_ACQUISITION_SUMMARY.splitColumn} />
-      </div>
-      <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-950">
-        <div>RiskPerformance is the original target label and must be excluded from predictors.</div>
-        <div>bad_flag is the numeric target and must be excluded from predictors.</div>
-        <div>atlas_split is split metadata and must be excluded from predictors.</div>
-      </div>
-    </section>
-  );
-}
-
-function SamplingProfilingControls({
-  samplingMethod,
-  setSamplingMethod,
-  samplingDetail,
-  setSamplingDetail,
-}: {
-  samplingMethod: SamplingMethod;
-  setSamplingMethod: (value: SamplingMethod) => void;
-  samplingDetail: string;
-  setSamplingDetail: (value: string) => void;
+function CurrentDatasetSummary(props: {
+  fileName: string;
+  sourceType: DataSourceType;
+  target: string;
+  registeredRowCount: number;
+  columnCount: number;
+  selectedCount: number;
+  browserDataComplete: boolean;
+  datasetVersion?: string;
 }) {
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-base font-semibold text-slate-950">Sampling and Profiling Controls</h2>
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
-        <Select label="Sampling Method" value={samplingMethod} onChange={(value) => setSamplingMethod(value as SamplingMethod)} options={["full", "sample", "random", "stratified", "time_based", "top_n"]} />
-        <Input label="Sample Detail" value={samplingDetail} onChange={setSamplingDetail} />
-        <Input label="Profile Rows" value="5000" onChange={() => undefined} />
+      <h2 className="text-base font-semibold text-slate-950">Current Dataset Summary</h2>
+      <p className="mt-1 text-sm text-slate-500">Registered modeling data and governed selection state.</p>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <Stat label="Dataset" value={props.fileName || "Source metadata only"} />
+        <Stat label="Source" value={sourceCards.find((card) => card.id === props.sourceType)?.title ?? props.sourceType} />
+        <Stat label="Registered rows" value={props.registeredRowCount} />
+        <Stat label="Columns" value={props.columnCount} />
+        <Stat label="Target" value={props.target || "Not selected"} />
+        <Stat label="Selected predictors" value={props.selectedCount} />
+        <Stat label="Browser data" value={props.browserDataComplete ? "Complete dataset" : "Preview only"} />
+        <Stat label="Dataset version" value={props.datasetVersion || "Not registered"} />
       </div>
-      <p className="mt-3 text-sm leading-6 text-slate-600">
-        Sampling controls affect browser preview and profiling ergonomics. Backend modeling should use the full registered dataset unless preview mode is explicitly selected.
-      </p>
     </section>
+  );
+}
+
+function TargetSetup(props: {
+  headers: string[];
+  target: string;
+  setTarget: (value: string) => void;
+  eventValue: unknown;
+  setEventValue: (value: unknown) => void;
+  nonEventValue: unknown;
+  setNonEventValue: (value: unknown) => void;
+  problemType: "classification" | "regression";
+}) {
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h2 className="text-base font-semibold text-slate-950">Target Setup</h2>
+      <p className="mt-1 text-sm text-slate-500">Choose the outcome field. Binary classification also requires an explicit event and non-event definition.</p>
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <Select label="Target Column" value={props.target} onChange={props.setTarget} options={props.headers} />
+        {props.problemType === "classification" ? (
+          <>
+            <Input label="Event / Positive Value" value={String(props.eventValue ?? "")} onChange={props.setEventValue} />
+            <Input label="Non-event / Negative Value" value={String(props.nonEventValue ?? "")} onChange={props.setNonEventValue} />
+          </>
+        ) : (
+          <ReadOnlyField label="Target behavior" value="Continuous regression target" />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function PreviewProfilingSettings(props: {
+  headers: string[];
+  method: SamplingMethod;
+  setMethod: (value: SamplingMethod) => void;
+  previewRowLimit: number;
+  setPreviewRowLimit: (value: number) => void;
+  profileRowLimit: number;
+  setProfileRowLimit: (value: number) => void;
+  randomSeed: number;
+  setRandomSeed: (value: number) => void;
+  stratificationColumn: string;
+  setStratificationColumn: (value: string) => void;
+  timeColumn: string;
+  setTimeColumn: (value: string) => void;
+  registeredRowCount: number;
+  previewRowCount: number;
+  profileRowCount: number;
+  browserDataComplete: boolean;
+}) {
+  const stratifiedDisabled = !props.browserDataComplete || !props.headers.length;
+  const timeDisabled = !props.browserDataComplete || !props.headers.some((header) => /date|time|timestamp/i.test(header));
+  return (
+    <details className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+      <summary className="cursor-pointer text-base font-semibold text-slate-950">Preview & Profiling Settings</summary>
+      <div className="mt-4 grid gap-3 md:grid-cols-3">
+        <label className="grid gap-1 text-xs font-semibold text-slate-700">
+          Preview method
+          <select className="atlas-input" value={props.method} onChange={(event) => props.setMethod(event.target.value as SamplingMethod)}>
+            <option value="top_n">First rows</option>
+            <option value="random">Random sample</option>
+            <option value="stratified" disabled={stratifiedDisabled}>Stratified preview</option>
+            <option value="time_based" disabled={timeDisabled}>Time-ordered preview</option>
+            <option value="full" disabled={!props.browserDataComplete}>Use all available browser rows</option>
+          </select>
+        </label>
+        <NumberInput label="Preview row limit" value={props.previewRowLimit} onChange={props.setPreviewRowLimit} />
+        <NumberInput label="Profile row limit" value={props.profileRowLimit} onChange={props.setProfileRowLimit} />
+        {props.method === "random" && <NumberInput label="Random seed" value={props.randomSeed} onChange={props.setRandomSeed} />}
+        {props.method === "stratified" && <Select label="Stratification variable" value={props.stratificationColumn} onChange={props.setStratificationColumn} options={props.headers} />}
+        {props.method === "time_based" && <Select label="Time field" value={props.timeColumn} onChange={props.setTimeColumn} options={props.headers.filter((header) => /date|time|timestamp/i.test(header))} />}
+      </div>
+      {(stratifiedDisabled || timeDisabled) && (
+        <p className="mt-3 text-xs text-amber-800">Stratified and time-ordered previews are enabled only when the complete browser dataset and the required fields are available.</p>
+      )}
+      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+        <ReadOnlyField label="Current modeling row count" value={props.registeredRowCount.toLocaleString()} />
+        <ReadOnlyField label="Current preview row count" value={props.previewRowCount.toLocaleString()} />
+        <ReadOnlyField label="Current profile row count" value={props.profileRowCount.toLocaleString()} />
+      </div>
+      <p className="mt-3 text-sm font-semibold text-emerald-800">Preview and profiling settings do not change the registered modeling dataset.</p>
+    </details>
+  );
+}
+
+function NumberInput({ label, value, onChange }: { label: string; value: number; onChange: (value: number) => void }) {
+  return (
+    <label className="grid gap-1 text-xs font-semibold text-slate-700">
+      {label}
+      <input className="atlas-input" type="number" min={1} value={value} onChange={(event) => onChange(Math.max(1, Number(event.target.value) || 1))} />
+    </label>
   );
 }
 
@@ -1214,20 +1444,6 @@ function ReadOnlyField({ label, value }: { label: string; value: string }) {
       <div className="mt-1 text-sm font-semibold text-slate-950">{value}</div>
     </div>
   );
-}
-
-function creditRiskLeakageRole(column: string) {
-  if (/^riskperformance$/i.test(column)) return "Original Target Label / Excluded";
-  if (/^bad_flag$/i.test(column)) return "Target / Excluded";
-  if (/^atlas_split$/i.test(column)) return "Split Indicator / Excluded";
-  return "";
-}
-
-function leakageReason(column: string, target: string) {
-  if (column === target || /^bad_flag$/i.test(column)) return "Numeric target; excluded from predictors.";
-  if (/^riskperformance$/i.test(column)) return "Original target label; excluded from predictors.";
-  if (/^atlas_split$/i.test(column)) return "Split metadata; excluded from predictors.";
-  return "Eligible bureau feature; can be selected or deselected.";
 }
 
 function SqlPanel(props: {
@@ -1426,7 +1642,7 @@ function DataPreview(props: {
       <div>
         <div>
           <h2 className="text-base font-semibold text-slate-950">Data Preview</h2>
-          <p className="mt-1 text-sm text-slate-500">First 100 rows and schema profile. Target and sampling controls are managed in the setup panels above.</p>
+          <p className="mt-1 text-sm text-slate-500">Configured browser preview rows. Preview settings do not alter the registered modeling population.</p>
         </div>
       </div>
       {!!props.headers.length && (
@@ -1480,26 +1696,76 @@ function DataPreview(props: {
 }
 
 function DataQualityPanel({ quality, metadata }: { quality: DataQualitySummary | null; metadata: DataAccessMetadata | null }) {
+  if (!quality) return <div className="atlas-empty-state text-sm text-slate-600">Quality profiling has not been generated.</div>;
+  const actualOr = (values: string[], empty = "None detected") => values.length ? values.join(", ") : empty;
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-base font-semibold text-slate-950">Data Quality Report</h2>
-      <p className="mt-1 text-sm text-slate-500">Automatically generated after import and included in governance documentation.</p>
-      <div className="mt-4 grid gap-3 md:grid-cols-2">
-        <Stat label="Dataset Version" value={metadata?.version ?? "-"} />
-        <Stat label="Dataset Hash" value={metadata?.hash ?? "-"} />
-        <Stat label="Duplicate Rows" value={quality?.duplicateRows ?? "-"} />
-        <Stat label="Memory Estimate" value={quality ? `${quality.memoryEstimateMb.toFixed(2)} MB` : "-"} />
+    <div className="space-y-4">
+      {!!quality.warnings?.length && (
+        <div className="atlas-warning-panel">
+          <div className="text-sm font-semibold">Priority findings</div>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">{quality.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+        </div>
+      )}
+      <div>
+        <h3 className="atlas-section-title">Dataset identity and scope</h3>
+        <div className="mt-3 grid gap-3 md:grid-cols-4">
+          <Stat label="Registered rows" value={quality.registeredRowCount ?? quality.rowCount} />
+          <Stat label="Profiled rows" value={quality.profiledRowCount ?? quality.rowCount} />
+          <Stat label="Columns" value={quality.columnCount} />
+          <Stat label="Memory estimate" value={`${quality.memoryEstimateMb.toFixed(2)} MB`} />
+          {metadata?.version && <Stat label="Dataset version" value={quality.datasetVersion ?? metadata.version} />}
+          {(quality.datasetHash || metadata?.hash) && <Stat label="Dataset hash" value={quality.datasetHash ?? metadata?.hash ?? ""} />}
+        </div>
       </div>
-      <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
-        <QualityLine label="Highest Missing Fields" value={quality?.missing.slice(0, 5).map((row) => `${row.column} ${formatPercent(row.percent)}`).join(", ") || "-"} />
-        <QualityLine label="Potential Leakage" value={quality?.potentialLeakageColumns.join(", ") || "RiskPerformance"} />
-        <QualityLine label="Constant Columns" value={quality?.constantColumns.join(", ") || "atlas_split"} />
-        <QualityLine label="Near-Zero Variance" value={quality?.nearZeroVarianceColumns.join(", ") || "RiskPerformance, bad_flag, atlas_split"} />
-        <QualityLine label="High-Cardinality Categoricals" value={quality?.highCardinalityCategoricals.join(", ") || "-"} />
-        <QualityLine label="Date Ranges" value={quality?.dateRanges.map((row) => `${row.column}: ${row.min} to ${row.max}`).join(", ") || "-"} />
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="atlas-inset-section">
+          <h3 className="atlas-section-title">Row and column health</h3>
+          <div className="mt-3 grid gap-3 text-sm">
+            <QualityLine label="Duplicate rows" value={quality.duplicateRows.toLocaleString()} />
+            <QualityLine label="Duplicate ID candidates" value={actualOr(quality.duplicateIdCandidates)} />
+            <QualityLine label="Constant columns" value={actualOr(quality.constantColumns)} />
+            <QualityLine label="Near-zero variance" value={actualOr(quality.nearZeroVarianceColumns)} />
+          </div>
+        </div>
+        <div className="atlas-inset-section">
+          <h3 className="atlas-section-title">Missingness and duplicates</h3>
+          <div className="mt-3 grid gap-3 text-sm">
+            <QualityLine label="Highest missing fields" value={quality.missing.slice(0, 5).map((row) => `${row.column} ${formatPercent(row.percent)}`).join(", ") || "None detected"} />
+            <QualityLine label="High-cardinality categoricals" value={actualOr(quality.highCardinalityCategoricals)} />
+            <QualityLine label="Unexpected datatypes" value={actualOr(quality.unexpectedDatatypeColumns)} />
+          </div>
+        </div>
+        <div className="atlas-inset-section">
+          <h3 className="atlas-section-title">Predictor readiness</h3>
+          <div className="mt-3 grid gap-3 text-sm">
+            <QualityLine label="Outlier prevalence" value={quality.outlierPrevalence.length ? quality.outlierPrevalence.slice(0, 5).map((row) => `${row.column} ${formatPercent(row.percent)}`).join(", ") : "None detected"} />
+            <QualityLine label="Legitimate date ranges" value={quality.dateRanges.length ? quality.dateRanges.map((row) => `${row.column}: ${row.min} to ${row.max}`).join(", ") : "None detected"} />
+          </div>
+        </div>
+        <div className="atlas-inset-section">
+          <h3 className="atlas-section-title">Leakage and target health</h3>
+          <div className="mt-3 grid gap-3 text-sm">
+            <QualityLine label="Potential leakage candidates" value={actualOr(quality.potentialLeakageColumns)} />
+            <QualityLine label="Event rate" value={quality.classBalance?.eventRate === null || quality.classBalance?.eventRate === undefined ? "Not evaluated" : formatPercent(quality.classBalance.eventRate)} />
+            <QualityLine label="Majority class" value={quality.classBalance?.majorityClassPercent === null || quality.classBalance?.majorityClassPercent === undefined ? "Not evaluated" : formatPercent(quality.classBalance.majorityClassPercent)} />
+          </div>
+        </div>
       </div>
-    </section>
+    </div>
   );
+}
+
+function ProfileScopeBadge({ quality }: { quality: DataQualitySummary | null }) {
+  const label = !quality
+    ? "Not Generated"
+    : quality.profileScope === "full_dataset"
+      ? "Full Dataset"
+      : quality.profileScope === "complete_browser_dataset"
+        ? "Complete Browser Dataset"
+        : quality.profileScope === "preview_profile"
+          ? `Preview Profile: ${(quality.profiledRowCount ?? quality.rowCount).toLocaleString()} Rows`
+          : "Not Generated";
+  return <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800">{label}</span>;
 }
 
 function LineagePanel({ metadata }: { metadata: DataAccessMetadata | null }) {
@@ -1518,15 +1784,6 @@ function LineagePanel({ metadata }: { metadata: DataAccessMetadata | null }) {
   );
 }
 
-function PythonSyncPanel({ metadata }: { metadata: DataAccessMetadata | null }) {
-  return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-base font-semibold text-slate-950">Python Synchronization</h2>
-      <pre className="mt-4 max-h-[260px] overflow-auto rounded-lg bg-slate-950 p-4 text-xs text-emerald-100">{metadata?.generatedPython ?? "Generated loader code appears after data source metadata is captured."}</pre>
-    </section>
-  );
-}
-
 function Select({
   label,
   value,
@@ -1540,14 +1797,12 @@ function Select({
   options: string[];
   optionLabels?: Record<string, string>;
 }) {
-  const guidance = selectGuidance[label]?.[value] ?? (label === "Target" && value ? `Definition: ${value} is the selected dependent variable. Use it only if it represents the outcome the model should predict.` : "");
   return (
     <label className="grid gap-1 text-xs font-semibold uppercase text-slate-500">
       {label}
       <select className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal normal-case text-slate-900" value={value} onChange={(event) => onChange(event.target.value)}>
         {options.map((option) => <option key={option} value={option}>{optionLabels?.[option] ?? (option || "Select")}</option>)}
       </select>
-      {guidance && <span className="text-[11px] font-normal normal-case leading-4 text-slate-500">{guidance}</span>}
     </label>
   );
 }

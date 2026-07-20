@@ -19,11 +19,16 @@ import {
 import { listDatasets, listProjectDatasets, type AtlasUser, type DatasetSummary, type ProjectDatasetLink } from "../lib/datasetLibrary";
 import { loadLocalProjects } from "../lib/localProjects";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { auditExportUrl, searchAuditLog, type AuditEvent } from "../lib/adminSharing";
 
-const roles = ["admin", "data_steward", "model_owner", "model_manager", "data_scientist", "auditor", "viewer"];
+const roles = ["admin", "data_scientist", "validator", "manager", "viewer", "data_steward", "model_owner", "model_manager", "auditor"];
 const KEEP_SIGNED_IN_EMAIL_KEY = "atlas-keep-signed-in-email";
 
-export function LoginPage() {
+type AuthPageProps = {
+  onAuthenticated?: (user: AtlasUser) => void;
+};
+
+export function LoginPage({ onAuthenticated }: AuthPageProps = {}) {
   const navigate = useNavigate();
   const [email, setEmail] = useState(() => localStorage.getItem(KEEP_SIGNED_IN_EMAIL_KEY) || "admin@atlas.local");
   const [password, setPassword] = useState("");
@@ -33,15 +38,16 @@ export function LoginPage() {
   async function submit() {
     setMessage("");
     try {
-      await login(email, password);
+      const response = await login(email, password);
       if (keepSignedIn) {
         localStorage.setItem(KEEP_SIGNED_IN_EMAIL_KEY, email);
       } else {
         localStorage.removeItem(KEEP_SIGNED_IN_EMAIL_KEY);
       }
-      navigate("/dashboard");
-    } catch {
-      setMessage("Sign in failed. Check your email and password.");
+      onAuthenticated?.(response.user);
+      navigate("/dashboard", { replace: true });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Sign in failed. Check your email and password.");
     }
   }
 
@@ -59,7 +65,7 @@ export function LoginPage() {
   );
 }
 
-export function RegisterPage() {
+export function RegisterPage({ onAuthenticated }: AuthPageProps = {}) {
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
@@ -74,8 +80,9 @@ export function RegisterPage() {
       return;
     }
     try {
-      await register(email, displayName, password);
-      navigate("/dashboard");
+      const response = await register(email, displayName, password);
+      onAuthenticated?.(response.user);
+      navigate("/dashboard", { replace: true });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "ATLAS could not create this account.");
     }
@@ -235,7 +242,7 @@ export function AdminUsersPage() {
         <div className="overflow-auto rounded-lg border border-slate-200">
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-              <tr><th className="px-3 py-2 text-left">User</th><th className="px-3 py-2 text-left">Email</th><th className="px-3 py-2">Role</th><th className="px-3 py-2">Status</th><th className="px-3 py-2">Failed</th><th className="px-3 py-2 text-left">Actions</th></tr>
+              <tr><th className="px-3 py-2 text-left">User</th><th className="px-3 py-2 text-left">Email</th><th className="px-3 py-2">Role</th><th className="px-3 py-2">Status</th><th className="px-3 py-2 text-left">Created</th><th className="px-3 py-2 text-left">Last active</th><th className="px-3 py-2">Projects</th><th className="px-3 py-2">Evidence</th><th className="px-3 py-2">Validations</th><th className="px-3 py-2">Exports</th><th className="px-3 py-2">Failed</th><th className="px-3 py-2 text-left">Actions</th></tr>
             </thead>
             <tbody>
               {users.map((user) => (
@@ -248,9 +255,15 @@ export function AdminUsersPage() {
                     </select>
                   </td>
                   <td className="px-3 py-2">{user.status}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-xs">{formatTimestamp(user.createdAt)}</td>
+                  <td className="whitespace-nowrap px-3 py-2 text-xs">{formatTimestamp(user.lastActiveAt || user.lastLoginAt)}</td>
+                  <td className="px-3 py-2 text-center">{user.projectCount ?? 0}</td>
+                  <td className="px-3 py-2 text-center">{user.evidenceCount ?? 0}</td>
+                  <td className="px-3 py-2 text-center">{user.validationCount ?? 0}</td>
+                  <td className="px-3 py-2 text-center">{user.exportCount ?? 0}</td>
                   <td className="px-3 py-2 text-center">{user.failedLoginCount ?? 0}</td>
                   <td className="space-x-2 px-3 py-2">
-                    {user.status === "disabled" ? <button className="rounded border px-2 py-1" onClick={async () => { await adminEnableUser(user.userId); await refresh(); }}>Enable</button> : <button className="rounded border px-2 py-1" onClick={async () => { await adminDisableUser(user.userId); await refresh(); }}>Disable</button>}
+                    {user.status !== "active" ? <button className="rounded border px-2 py-1" onClick={async () => { await adminEnableUser(user.userId); await refresh(); }}>Activate</button> : <button className="rounded border px-2 py-1" onClick={async () => { await adminDisableUser(user.userId); await refresh(); }}>Set inactive</button>}
                     <button className="rounded border px-2 py-1" onClick={async () => { await adminUnlockUser(user.userId); await refresh(); }}>Unlock</button>
                   </td>
                 </tr>
@@ -264,15 +277,29 @@ export function AdminUsersPage() {
 }
 
 export function AuditPage() {
-  const [events, setEvents] = useState<Array<Record<string, unknown>>>([]);
-  const [filters, setFilters] = useState({ resourceType: "", outcome: "", action: "", userId: "" });
+  const [events, setEvents] = useState<AuditEvent[]>([]);
+  const [filters, setFilters] = useState({ projectId: "", resourceType: "", resourceId: "", actionType: "", userId: "", text: "", dateFrom: "", dateTo: "", sharingOnly: false, adminOnly: false });
+  const [selected, setSelected] = useState<AuditEvent | null>(null);
   const [message, setMessage] = useState("");
 
   async function refresh() {
     try {
-      setEvents((await auditEvents(filters)).events);
+      setEvents((await searchAuditLog(filters)).events);
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Audit events are unavailable.");
+      try {
+        setEvents((await auditEvents({ projectId: filters.projectId, resourceType: filters.resourceType, action: filters.actionType, userId: filters.userId })).events.map((event) => ({
+          audit_id: String(event.auditId ?? crypto.randomUUID()),
+          created_at: String(event.timestamp ?? ""),
+          project_id: String(event.projectId ?? ""),
+          user_id: String(event.userId ?? ""),
+          action_type: String(event.action ?? ""),
+          entity_type: String(event.resourceType ?? ""),
+          entity_id: String(event.resourceId ?? ""),
+          summary: String(event.reason ?? ""),
+        })));
+      } catch {
+        setMessage(error instanceof Error ? error.message : "Audit events are unavailable.");
+      }
     }
   }
 
@@ -285,37 +312,65 @@ export function AuditPage() {
       <Header title="Audit Log" icon={<FileClock size={21} />} description="Governance-ready event trail for authentication, access, dataset, project, model, report, diagnostics, and denied-access actions." />
       {message && <Banner message={message} />}
       <Card title="Filters">
-        <div className="grid gap-3 md:grid-cols-5">
+        <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-8">
+          <Input label="Project ID" value={filters.projectId} onChange={(value) => setFilters({ ...filters, projectId: value })} />
           <Input label="User ID" value={filters.userId} onChange={(value) => setFilters({ ...filters, userId: value })} />
-          <Input label="Action" value={filters.action} onChange={(value) => setFilters({ ...filters, action: value })} />
+          <Input label="Action Type" value={filters.actionType} onChange={(value) => setFilters({ ...filters, actionType: value })} />
           <Input label="Resource Type" value={filters.resourceType} onChange={(value) => setFilters({ ...filters, resourceType: value })} />
-          <Input label="Outcome" value={filters.outcome} onChange={(value) => setFilters({ ...filters, outcome: value })} />
+          <Input label="Resource ID" value={filters.resourceId} onChange={(value) => setFilters({ ...filters, resourceId: value })} />
+          <Input label="Text Search" value={filters.text} onChange={(value) => setFilters({ ...filters, text: value })} />
+          <Input label="Date From" type="date" value={filters.dateFrom} onChange={(value) => setFilters({ ...filters, dateFrom: value })} />
+          <Input label="Date To" type="date" value={filters.dateTo} onChange={(value) => setFilters({ ...filters, dateTo: value })} />
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={filters.sharingOnly} onChange={(event) => setFilters({ ...filters, sharingOnly: event.target.checked })} /> Permission and sharing events only</label>
+          <label className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-700"><input type="checkbox" checked={filters.adminOnly} onChange={(event) => setFilters({ ...filters, adminOnly: event.target.checked })} /> Admin actions only</label>
           <button onClick={refresh} className="self-end rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white">Apply</button>
+          <a className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700" href={auditExportUrl("csv", filters)}>Export filtered audit log CSV</a>
+          <a className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700" href={auditExportUrl("json", filters)}>Export filtered audit log JSON</a>
         </div>
       </Card>
       <Card title="Events">
         <div className="overflow-auto rounded-lg border border-slate-200">
           <table className="min-w-full text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-              <tr><th className="px-3 py-2 text-left">Timestamp</th><th className="px-3 py-2 text-left">User</th><th className="px-3 py-2 text-left">Action</th><th className="px-3 py-2 text-left">Resource</th><th className="px-3 py-2 text-left">Outcome</th><th className="px-3 py-2 text-left">Reason</th></tr>
+              <tr><th className="px-3 py-2 text-left">Timestamp</th><th className="px-3 py-2 text-left">Actor</th><th className="px-3 py-2 text-left">Action type</th><th className="px-3 py-2 text-left">Resource</th><th className="px-3 py-2 text-left">Project</th><th className="px-3 py-2 text-left">Summary</th><th className="px-3 py-2 text-left">Actions</th></tr>
             </thead>
             <tbody>
               {events.map((event) => (
-                <tr key={String(event.auditId)} className="border-t">
-                  <td className="whitespace-nowrap px-3 py-2">{String(event.timestamp ?? "")}</td>
-                  <td className="px-3 py-2">{String(event.userId ?? "-")}</td>
-                  <td className="px-3 py-2 font-semibold">{String(event.action ?? "")}</td>
-                  <td className="px-3 py-2">{String(event.resourceType ?? "")} / {String(event.resourceId ?? "-")}</td>
-                  <td className="px-3 py-2">{String(event.outcome ?? "")}</td>
-                  <td className="px-3 py-2">{String(event.reason ?? "")}</td>
+                <tr key={event.audit_id} className="border-t">
+                  <td className="whitespace-nowrap px-3 py-2">{formatTimestamp(event.created_at)}</td>
+                  <td className="px-3 py-2">{event.user_id || "-"}</td>
+                  <td className="px-3 py-2 font-semibold">{event.action_type}</td>
+                  <td className="px-3 py-2">{event.entity_type || ""} / {event.entity_id || "-"}</td>
+                  <td className="px-3 py-2">{event.project_id || "-"}</td>
+                  <td className="px-3 py-2">{event.summary || event.title || ""}</td>
+                  <td className="px-3 py-2"><button className="rounded border border-slate-300 px-2 py-1 text-xs font-semibold" onClick={() => setSelected(event)}>View details</button></td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       </Card>
+      {selected && (
+        <Card title="Audit Detail Drawer">
+          <div className="grid gap-3 md:grid-cols-3">
+            <Metric label="Actor" value={selected.user_id || "Not recorded"} />
+            <Metric label="Action" value={selected.action_type} />
+            <Metric label="Resource" value={`${selected.entity_type || "resource"} / ${selected.entity_id || "-"}`} />
+          </div>
+          <pre className="max-h-80 overflow-auto rounded-lg bg-slate-950 p-4 text-xs text-slate-100">{JSON.stringify(selected, null, 2)}</pre>
+          <button className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700" onClick={() => setSelected(null)}>Close details</button>
+        </Card>
+      )}
     </div>
   );
+}
+
+function formatTimestamp(value?: string) {
+  if (!value) return "Not recorded";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
 
 function AuthShell({ title, icon, message, children }: { title: string; icon: React.ReactNode; message: string; children: React.ReactNode }) {

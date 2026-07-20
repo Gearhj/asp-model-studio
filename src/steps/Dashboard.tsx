@@ -1,8 +1,22 @@
 import { Link } from "react-router-dom";
-import type React from "react";
-import { Activity, AlertTriangle, BarChart3, CheckCircle2, Database, GitBranch, RotateCcw } from "lucide-react";
-import BrandLogo from "../components/BrandLogo";
-import { BRAND } from "../config/brand";
+import {
+  Activity,
+  BarChart3,
+  BookOpenCheck,
+  CheckCircle2,
+  Database,
+  LineChart,
+  Network,
+  RotateCcw,
+  Search,
+  TerminalSquare,
+} from "lucide-react";
+import AtlasCard from "../components/ui/AtlasCard";
+import AtlasEmptyState from "../components/ui/AtlasEmptyState";
+import AtlasMetricCard from "../components/ui/AtlasMetricCard";
+import AtlasPageHero from "../components/ui/AtlasPageHero";
+import AtlasProgressBar from "../components/ui/AtlasProgressBar";
+import AtlasStatusBadge from "../components/ui/AtlasStatusBadge";
 import { getWorkflowDefinition } from "../config/workflows";
 import { saveActiveProjectBeforeNavigation } from "../lib/localProjects";
 import { buildEscalationQueue, loadProductionModels } from "../lib/modelMonitoring";
@@ -22,208 +36,237 @@ export default function Dashboard() {
   };
 
   const completed = workflowSteps.filter((step) => step.status === "complete").length;
-  const inProgress =
+  const currentStep =
     workflowSteps.find((step) => step.status !== "complete" && step.status !== "skipped") ?? workflowSteps[workflowSteps.length - 1];
+  const currentIndex = Math.max(0, workflowSteps.findIndex((step) => step.id === currentStep?.id));
+  const lastCompleted = [...workflowSteps].reverse().find((step) => step.status === "complete");
+  const upcoming = workflowSteps.slice(currentIndex + 1, currentIndex + 3);
   const progress = Math.round((completed / Math.max(1, workflowSteps.length)) * 100);
+  const highCount = escalations.filter((item) => item.severity === "high").length;
+  const warningCount = escalations.filter((item) => item.severity !== "high").length;
+  const hasMeaningfulProject = projectName !== "Untitled ATLAS Project" || completed > 0 || hasDataset;
+
+  if (!hasMeaningfulProject) {
+    return (
+      <div className="atlas-page-shell">
+        <AtlasPageHero
+          dark
+          eyebrow="Enterprise decision intelligence"
+          title="Move from data to governed decisions."
+          subtitle="Use ATLAS to acquire data, analyze evidence, develop models and decision strategies, document results, and prepare governed implementation."
+          actions={
+            <>
+              <Link to="/projects/new" className="atlas-primary-button">Start New Project</Link>
+              <Link to="/projects/open" onClick={saveBeforeOpenProject} className="atlas-secondary-button">Open Existing Project</Link>
+              <Link to="/datasets" className="atlas-tertiary-button bg-white/10 text-white hover:bg-white/15">Explore Dataset Library</Link>
+            </>
+          }
+          aside={<HeroProgress projectName={projectName} workflowLabel={workflow.label} progress={progress} completed={completed} total={workflowSteps.length} currentStep={currentStep?.label ?? "Project Context"} hasDataset={hasDataset} />}
+        />
+        <AtlasEmptyState
+          title="Start with a project or a governed dataset."
+          body="ATLAS will organize workflow steps, evidence, documentation, and monitoring around the project type you choose."
+          action={<Link to="/projects/new" className="atlas-primary-button">Start New Project</Link>}
+        />
+      </div>
+    );
+  }
 
   return (
-    <div className="w-full space-y-5">
-      <section className="rounded-xl border border-slate-200/80 bg-white/90 p-5 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <BrandLogo size="lg" variant="light" showSubtitle />
-            <p className="mt-3 max-w-2xl text-sm text-slate-600">
-              Navigate regulated model development from source data to documented champion model.
-            </p>
-            <p className="mt-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              {projectName} · {workflow.label}
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Link to="/projects/new" className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800">
-              Start New Project
-            </Link>
-            <Link to={inProgress.route} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
-              Continue Journey
-            </Link>
-            <Link to="/projects/open" onClick={saveBeforeOpenProject} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
-              Open Existing Project
-            </Link>
-            <Link to="/project-overview" className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50">
-              Project Overview
-            </Link>
-          </div>
-        </div>
-        <div className="mt-3 text-xs font-medium text-slate-500">{BRAND.shortDescription}</div>
+    <div className="atlas-page-shell">
+      <AtlasPageHero
+        dark
+        eyebrow="Enterprise decision intelligence"
+        title="Move from data to governed decisions."
+        subtitle="Use ATLAS to acquire data, analyze evidence, develop models and decision strategies, document results, and prepare governed implementation."
+        actions={
+          <>
+            <Link to={currentStep.route} className="atlas-primary-button">Continue {currentStep.shortLabel ?? currentStep.label}</Link>
+            <Link to="/projects/new" className="atlas-secondary-button">Start New Project</Link>
+            <Link to="/projects/open" onClick={saveBeforeOpenProject} className="atlas-tertiary-button bg-white/10 text-white hover:bg-white/15">Open Existing Project</Link>
+          </>
+        }
+        aside={<HeroProgress projectName={projectName} workflowLabel={workflow.label} progress={progress} completed={completed} total={workflowSteps.length} currentStep={currentStep.label} hasDataset={hasDataset} />}
+      />
+
+      <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-6">
+        {quickAccessItems.map((item) => (
+          <Link key={item.to} to={item.to} className="atlas-card group p-4 transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md">
+            <item.icon size={18} className="text-blue-600" aria-hidden="true" />
+            <div className="mt-3 text-sm font-semibold text-slate-950">{item.label}</div>
+            <div className="mt-1 text-xs leading-5 text-slate-500">{item.description}</div>
+          </Link>
+        ))}
       </section>
 
-      <section className="grid gap-4 md:grid-cols-4">
-        <StatCard icon={<GitBranch size={18} />} label="Journey Steps" value={workflowSteps.length} />
-        <StatCard icon={<CheckCircle2 size={18} />} label="Milestones Completed" value={completed} />
-        <StatCard icon={<Activity size={18} />} label="Progress" value={`${progress}%`} />
-        <StatCard icon={<Database size={18} />} label="Dataset Loaded" value={hasDataset ? "Yes" : "No"} />
-      </section>
-
-      <section className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="rounded-lg border border-rose-200 bg-rose-50 p-5 shadow-sm">
-          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.56fr)]">
+        <AtlasCard title="Continue Your Work" eyebrow="Current project">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_260px]">
             <div>
-              <div className="flex items-center gap-2 text-rose-950">
-                <AlertTriangle size={18} />
-                <h2 className="text-lg font-semibold">Manager Escalation Queue</h2>
+              <div className="text-2xl font-semibold text-slate-950">{projectName}</div>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">{workflow.description}</p>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <AtlasMetricCard label="Workflow" value={workflow.label} />
+                <AtlasMetricCard label="Completed steps" value={`${completed} / ${workflowSteps.length}`} tone={progress >= 70 ? "success" : "info"} />
+                <AtlasMetricCard label="Dataset loaded" value={hasDataset ? "Yes" : "No"} tone={hasDataset ? "success" : "warning"} />
+                <AtlasMetricCard label="Progress" value={`${progress}%`} icon={<Activity size={16} />} />
               </div>
-              <p className="mt-1 text-sm text-rose-800">
-                Models requiring Data Science Manager attention due to age, monitoring deterioration, or compliance issues.
-              </p>
             </div>
-            <Link to="/step13" className="rounded-lg bg-rose-900 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-rose-800">
-              Open Monitoring
-            </Link>
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+              <div className="atlas-eyebrow text-blue-700">Next required action</div>
+              <div className="mt-2 text-lg font-semibold text-blue-950">{currentStep.label}</div>
+              <p className="mt-2 text-sm leading-6 text-blue-900">{currentStep.description}</p>
+              <Link to={currentStep.route} className="atlas-primary-button mt-4 w-full">Continue workflow</Link>
+            </div>
           </div>
-          <div className="mt-4 grid gap-2">
+        </AtlasCard>
+
+        <AtlasCard title="What Needs Attention" eyebrow={`${highCount} high, ${warningCount} warning`}>
+          <div className="grid gap-2">
             {escalations.slice(0, 5).map((item, index) => (
-              <article key={`${item.modelId}-${index}`} className="rounded-lg border border-rose-200 bg-white px-3 py-3">
-                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+              <article key={`${item.modelId}-${index}`} className="atlas-compact-row">
+                <div className="flex items-start justify-between gap-3">
                   <div>
                     <div className="text-sm font-semibold text-slate-950">{item.modelId} {item.modelName}</div>
                     <div className="mt-1 text-xs leading-5 text-slate-600">{item.reason}</div>
+                    <div className="mt-1 text-xs text-slate-500">Owner: {item.owner}. Action: {item.action}</div>
                   </div>
-                  <span className={`rounded-full px-2 py-1 text-xs font-semibold ${item.severity === "high" ? "bg-rose-100 text-rose-800" : "bg-amber-100 text-amber-800"}`}>
-                    {item.severity}
-                  </span>
-                </div>
-                <div className="mt-2 text-xs text-rose-900">
-                  Owner: {item.owner} · Action: {item.action}
+                  <AtlasStatusBadge tone={item.severity === "high" ? "danger" : "warning"}>{item.severity === "high" ? "High" : "Warning"}</AtlasStatusBadge>
                 </div>
               </article>
             ))}
             {!escalations.length && (
-              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-3 text-sm font-medium text-emerald-900">
-                No production monitoring escalations are currently open.
+              <div className="atlas-success-panel">
+                <div className="flex items-center gap-2 font-semibold"><CheckCircle2 size={16} /> No production monitoring escalations are open.</div>
               </div>
             )}
           </div>
-        </div>
+          <Link to="/step13" className="atlas-secondary-button mt-4">Open Monitoring</Link>
+        </AtlasCard>
+      </section>
 
-        <div className="rounded-lg border border-slate-200/80 bg-white/90 p-5 shadow-sm">
-          <h2 className="text-lg font-semibold text-slate-950">Production Models Under Monitoring</h2>
-          <p className="mt-1 text-sm text-slate-500">Current monitored production inventory and latest status summary.</p>
-          <div className="mt-4 grid gap-2">
+      <section className="grid gap-5 xl:grid-cols-[0.95fr_1.05fr]">
+        <AtlasCard title="Production Monitoring" eyebrow="Operational snapshot">
+          <div className="grid gap-2">
             {productionModels.slice(0, 4).map((model) => {
               const redCount = model.metrics.filter((metric) => metric.status === "red").length;
               const yellowCount = model.metrics.filter((metric) => metric.status === "yellow").length;
               return (
-                <article key={`${model.modelId}-${model.modelName}`} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-3">
+                <article key={`${model.modelId}-${model.modelName}`} className="atlas-compact-row">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="text-sm font-semibold text-slate-950">{model.modelId} {model.modelName}</div>
-                      <div className="mt-1 text-xs text-slate-500">Owner: {model.owner} · Cadence: {model.monitoringCadence}</div>
+                      <div className="mt-1 text-xs text-slate-500">Owner: {model.owner}. Cadence: {model.monitoringCadence}</div>
                     </div>
-                    <span className={`rounded-full px-2 py-1 text-xs font-semibold ${
-                      redCount ? "bg-rose-100 text-rose-800" : yellowCount ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"
-                    }`}>
-                      {redCount ? `${redCount} red` : yellowCount ? `${yellowCount} warning` : "green"}
-                    </span>
+                    <AtlasStatusBadge tone={redCount ? "danger" : yellowCount ? "warning" : "success"}>
+                      {redCount ? `${redCount} breached` : yellowCount ? `${yellowCount} warning` : "Healthy"}
+                    </AtlasStatusBadge>
                   </div>
                 </article>
               );
             })}
           </div>
-        </div>
-      </section>
+        </AtlasCard>
 
-      <section className="rounded-lg border border-slate-200/80 bg-white/90 shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-slate-950">Model Development Journey</h2>
-            <p className="text-sm text-slate-500">
-              Capture each decision point from source data through governed documentation.
-            </p>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-              onClick={reset}
-            >
+        <AtlasCard
+          title="Workflow Snapshot"
+          eyebrow="Progress"
+          action={
+            <button type="button" className="atlas-secondary-button" onClick={reset}>
               <RotateCcw size={15} />
               Reset Progress
             </button>
-            <Link
-              to={inProgress.route}
-              className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800"
-            >
+          }
+        >
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <WorkflowSnapshotItem label="Recently completed" step={lastCompleted} fallback="No completed steps yet" />
+            <WorkflowSnapshotItem label="Current step" step={currentStep} emphasized />
+            {upcoming.map((step, index) => (
+              <WorkflowSnapshotItem key={step.id} label={index === 0 ? "Next step" : "Following step"} step={step} />
+            ))}
+          </div>
+          <AtlasProgressBar className="mt-5" value={progress} label="Overall workflow progress" />
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Link to="/project-overview" className="atlas-secondary-button">View Project Overview</Link>
+            <Link to={currentStep.route} className="atlas-primary-button">
               <BarChart3 size={15} />
-              Continue Journey
+              Continue workflow
             </Link>
           </div>
-        </div>
-
-        <div className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-3">
-          {workflowSteps.map((step, index) => {
-            const status = step.status ?? "pending";
-            return (
-              <article
-                key={step.id}
-                className="grid min-h-[150px] gap-4 rounded-lg border border-slate-200/80 bg-slate-50/70 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="flex min-w-0 items-center gap-3">
-                    <div
-                      className={`grid h-8 w-8 shrink-0 place-items-center rounded-full text-xs font-semibold ${
-                        status === "complete"
-                          ? "bg-emerald-100 text-emerald-700"
-                          : "bg-white text-slate-600 ring-1 ring-slate-200"
-                      }`}
-                    >
-                      {index + 1}
-                    </div>
-                    <div className="min-w-0">
-                      <h3 className="truncate font-semibold text-slate-950">{step.label}</h3>
-                      <span
-                        className={`mt-1 inline-flex rounded-full px-2 py-0.5 text-[11px] font-medium ${
-                          status === "complete"
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "bg-white text-slate-600 ring-1 ring-slate-200"
-                        }`}
-                      >
-                        {status === "complete" ? "Completed" : status === "skipped" ? "Skipped" : "Pending"}
-                      </span>
-                    </div>
-                  </div>
-                  <Link
-                    to={step.route}
-                    className="inline-flex shrink-0 justify-center rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-                  >
-                    Open
-                  </Link>
-                </div>
-                <p className="text-sm leading-5 text-slate-500">{step.description}</p>
-              </article>
-            );
-          })}
-        </div>
+        </AtlasCard>
       </section>
     </div>
   );
 }
 
-function StatCard({
-  icon,
-  label,
-  value,
+const quickAccessItems = [
+  { label: "Dataset Library", description: "Register and review governed data assets.", to: "/datasets", icon: Database },
+  { label: "SQL Data Studio", description: "Prepare governed SQL and extraction logic.", to: "/sql-data-studio", icon: TerminalSquare },
+  { label: "Analytics Workbench", description: "Analyze data and save reusable findings.", to: "/analytics", icon: Search },
+  { label: "Model Diagnostics", description: "Review model performance and stability.", to: "/model-diagnostics", icon: LineChart },
+  { label: "Model Evidence Center", description: "Track evidence for review and approval.", to: "/model-evidence-center", icon: Network },
+  { label: "Model Documentation Studio", description: "Prepare governed model documents.", to: "/model-document-studio", icon: BookOpenCheck },
+];
+
+function HeroProgress({
+  projectName,
+  workflowLabel,
+  progress,
+  completed,
+  total,
+  currentStep,
+  hasDataset,
 }: {
-  icon: React.ReactNode;
-  label: string;
-  value: number | string;
+  projectName: string;
+  workflowLabel: string;
+  progress: number;
+  completed: number;
+  total: number;
+  currentStep: string;
+  hasDataset: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-slate-200/80 bg-white/90 p-4 shadow-sm">
-      <div className="flex items-center justify-between text-slate-500">
-        <span className="text-xs font-semibold uppercase tracking-wide">{label}</span>
-        {icon}
+    <div className="rounded-2xl border border-white/15 bg-white/10 p-4 shadow-sm">
+      <div className="text-xs font-semibold uppercase tracking-wide text-blue-100">Current project</div>
+      <div className="mt-2 text-lg font-semibold text-white">{projectName}</div>
+      <div className="mt-1 text-sm text-blue-100">{workflowLabel}</div>
+      <div className="mt-4 grid gap-2">
+        <div className="flex items-center justify-between text-xs font-semibold text-blue-100">
+          <span>{completed} of {total} steps</span>
+          <span>{progress}%</span>
+        </div>
+        <div className="h-2 overflow-hidden rounded-full bg-white/15">
+          <div className="h-full rounded-full bg-sky-300" style={{ width: `${progress}%` }} />
+        </div>
       </div>
-      <div className="mt-3 text-2xl font-semibold text-slate-950">{value}</div>
+      <div className="mt-4 grid gap-2 text-sm">
+        <div className="rounded-xl bg-white/10 px-3 py-2">
+          <span className="block text-xs font-semibold uppercase tracking-wide text-blue-100">Current step</span>
+          <span className="mt-1 block font-semibold text-white">{currentStep}</span>
+        </div>
+        <div className="rounded-xl bg-white/10 px-3 py-2">
+          <span className="block text-xs font-semibold uppercase tracking-wide text-blue-100">Dataset status</span>
+          <span className="mt-1 block font-semibold text-white">{hasDataset ? "Loaded" : "Not loaded"}</span>
+        </div>
+      </div>
     </div>
+  );
+}
+
+function WorkflowSnapshotItem({ label, step, fallback, emphasized = false }: { label: string; step?: { label: string; route: string; description?: string }; fallback?: string; emphasized?: boolean }) {
+  if (!step) {
+    return (
+      <div className="atlas-inset-section">
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+        <div className="mt-2 text-sm font-semibold text-slate-600">{fallback}</div>
+      </div>
+    );
+  }
+  return (
+    <Link to={step.route} className={`rounded-2xl border p-4 transition hover:border-blue-300 ${emphasized ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-slate-50"}`}>
+      <div className={`text-xs font-semibold uppercase tracking-wide ${emphasized ? "text-blue-700" : "text-slate-500"}`}>{label}</div>
+      <div className="mt-2 text-sm font-semibold text-slate-950">{step.label}</div>
+      {step.description && <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{step.description}</div>}
+    </Link>
   );
 }

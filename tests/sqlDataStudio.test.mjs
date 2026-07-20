@@ -99,7 +99,7 @@ assert.match(store, /audit_event/);
   "Preview/sample-row execution only",
 ].forEach((snippet) => assert.ok(page.includes(snippet), `SQL Studio page missing ${snippet}`));
 
-assert.match(page, /className="grid min-h-\[560px\] gap-3 bg-slate-100 p-3"/);
+assert.match(page, /className="grid min-h-\[560px\] gap-3 bg-teal-50\/50 p-3"/);
 assert.match(page, /height: "calc\(100vh - 170px\)"/);
 assert.match(page, /gridTemplateColumns: focusMode \? "minmax\(700px, 1fr\)" : "260px minmax\(520px, 1fr\) 320px"/);
 assert.match(page, /gridTemplateRows: focusMode \? "minmax\(0, 1fr\) 280px" : "minmax\(0, 1fr\) 260px"/);

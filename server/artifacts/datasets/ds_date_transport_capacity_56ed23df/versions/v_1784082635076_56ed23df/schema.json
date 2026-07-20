@@ -1,0 +1,22 @@
+{
+  "columns": [
+    {
+      "distinctSample": 5,
+      "dtype": "categorical",
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "Suppliers"
+    },
+    {
+      "distinctSample": 4,
+      "dtype": "numeric",
+      "max": 120.0,
+      "mean": 114.0,
+      "min": 105.0,
+      "missingCountSample": 0,
+      "missingPctSample": 0.0,
+      "name": "Transport_Capacity",
+      "std": 6.519202405202649
+    }
+  ]
+}

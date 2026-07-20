@@ -15,12 +15,13 @@ seaborn==0.13.2
 plotly==5.23.0
 
 # --- Machine Learning / AI ---
-scikit-learn==1.5.2
+scikit-learn==1.6.1
 xgboost==2.1.1
 lightgbm==4.5.0
 catboost==1.2.5
 
 # --- Explainable AI (XAI) ---
+interpret-core==0.7.8
 shap==0.45.1
 lime==0.2.0.1
 eli5==0.13.0

@@ -1,0 +1,159 @@
+{
+  "projectId": "atlas-mrih2gqp",
+  "projectName": "Classification Predictive Model TEST",
+  "evidenceType": "feature_engineering",
+  "title": "Governed Feature Gate and Validation Split",
+  "summary": "29 predictors were approved for split split-27852e3639e937426ce8. Balancing was applied to training rows only.",
+  "sourcePage": "Balance & Split",
+  "sourceRoute": "/step06",
+  "datasetIds": [
+    "20260714123433-1ad1e42d"
+  ],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Feature Engineering",
+    "Development Test and OOT Data",
+    "Candidate Models"
+  ],
+  "tags": [
+    "predictive_modeling",
+    "feature_gate",
+    "validation_split"
+  ],
+  "status": "ready",
+  "importance": "high",
+  "lineage": {
+    "datasetVersion": "20260714123433-1ad1e42d",
+    "manifestVersion": "fm-bb63b387e68d7344",
+    "splitId": "split-27852e3639e937426ce8"
+  },
+  "payload": {
+    "ok": true,
+    "status": "current",
+    "ready": true,
+    "readiness_reason": "Ready for next step. Validation split is current.",
+    "has_split": true,
+    "split_id": "split-27852e3639e937426ce8",
+    "config_hash": "27852e3639e937426ce8",
+    "selected_feature_hash": "850feca64e8532dcd1fa",
+    "split_config_hash": "3be2903445ce74aff19f",
+    "balancing_config_hash": "76071160bab4502d5c09",
+    "created_at": "2026-07-14T14:13:56.584562+00:00",
+    "dataset_version": "20260714123433-1ad1e42d",
+    "target": "Class",
+    "event_value": 1,
+    "feature_manifest_version": "fm-bb63b387e68d7344",
+    "selected_features": [
+      "Time",
+      "V1",
+      "V2",
+      "V3",
+      "V4",
+      "V5",
+      "V6",
+      "V7",
+      "V8",
+      "V9",
+      "V10",
+      "V11",
+      "V12",
+      "V14",
+      "V15",
+      "V16",
+      "V17",
+      "V18",
+      "V19",
+      "V20",
+      "V21",
+      "V22",
+      "V23",
+      "V24",
+      "V25",
+      "V26",
+      "V27",
+      "V28",
+      "Amount"
+    ],
+    "feature_count": 29,
+    "config": {
+      "split_strategy": "holdout",
+      "test_size": 0.2,
+      "random_seed": 42,
+      "stratify": true,
+      "balance_method": "undersample",
+      "minority_share": 0.2,
+      "problem_type": "classification",
+      "event_value": 1,
+      "target": "Class"
+    },
+    "distributions": {
+      "full_dataset": {
+        "rows": 170884,
+        "valid_rows": 170884,
+        "missing_rows": 0,
+        "classes": {
+          "0": 170524,
+          "1": 360
+        },
+        "event_value": 1,
+        "events": 360,
+        "non_events": 170524,
+        "event_rate": 0.0021066922590763323
+      },
+      "train_before_balancing": {
+        "rows": 136707,
+        "valid_rows": 136707,
+        "missing_rows": 0,
+        "classes": {
+          "0": 136419,
+          "1": 288
+        },
+        "event_value": 1,
+        "events": 288,
+        "non_events": 136419,
+        "event_rate": 0.002106695341131032
+      },
+      "train_after_balancing": {
+        "rows": 1440,
+        "valid_rows": 1440,
+        "missing_rows": 0,
+        "classes": {
+          "0": 1152,
+          "1": 288
+        },
+        "event_value": 1,
+        "events": 288,
+        "non_events": 1152,
+        "event_rate": 0.2
+      },
+      "holdout_untouched": {
+        "rows": 34177,
+        "valid_rows": 34177,
+        "missing_rows": 0,
+        "classes": {
+          "0": 34105,
+          "1": 72
+        },
+        "event_value": 1,
+        "events": 72,
+        "non_events": 34105,
+        "event_rate": 0.002106679930947713
+      }
+    },
+    "n_train": 1440,
+    "n_test": 34177,
+    "original_train_rows": 136707,
+    "duration_ms": 224,
+    "execution_ms": 224
+  },
+  "evidenceId": "ev-governed-feature-gate-and-validation-split-ed7ea38233b389e4",
+  "governance": {},
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-13T19:06:27.823094+00:00",
+  "updatedAt": "2026-07-14T14:20:33.941987+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 86
+}

@@ -171,3 +171,86 @@ This implementation pass was validated by static workflow tests, TypeScript, bui
 9. Evidence can be saved to MEC.
 10. Documentation evidence can be mapped to MDS.
 11. Clean copy is synced and builds.
+
+## Phase 16C A/B Testing Workflow Route Alignment and Analytical Controls
+
+### Summary
+
+This phase tightened the A/B Testing workflow around the walkthrough findings: canonical route order, confirmed `AB_WORKFLOW.csv` as the downstream source of truth, and user-review controls on Randomization Check and Power and Sample Size. The work is scoped to the A/B Testing project type.
+
+### Route and Workflow Order Correction
+
+The A/B Testing route sequence is fixed at `/workflow/ab-testing/1` through `/workflow/ab-testing/15`, with Data Acquisition and Experiment Mapping as step 2 and Experiment Setup as step 3. A/B routes now normalize the persisted workflow order whenever the A/B workflow renders, so older browser state cannot leave the rail or progress bar on the previous step order.
+
+### Data Acquisition Source-of-Truth Behavior
+
+Data Acquisition remains the confirmation point for `AB_WORKFLOW.csv`, `user.id`, `test.group`, `ad`, `psa`, `converted`, `True`, `total.ads`, `most.ads.day`, and `most.ads.hour`. `AB_MARKETING.csv` remains a suggested demo dataset only when no dataset is confirmed.
+
+### Experiment Setup Controls
+
+Experiment Setup now uses confirmed mapping defaults and includes the required note that source data does not include explicit experiment dates; `converted` is treated as the observed post-exposure outcome and `total.ads` as observed campaign exposure intensity.
+
+### Population and Eligibility Data Checks
+
+The Population and Eligibility page keeps the `14` row / `14` unit structural checks and adds the required small-sample warning for workflow testing versus production inference.
+
+### Treatment / Control Design Controls
+
+Treatment and control review preserves the `8 / 6` group counts, `57.1% / 42.9%` shares, `1.33:1` allocation ratio, and the warning to carry allocation imbalance into Randomization, Power, and Decision review.
+
+### Randomization Check User Controls
+
+Randomization Check now includes reviewer controls for expected allocation, assignment method, balance variables, exposure interpretation, minimum group size, allocation/exposure/segment acceptability, and reviewer conclusion. Defaults match the `AB_WORKFLOW.csv` walkthrough.
+
+### Metrics Setup Preservation
+
+Metrics Setup remains data-driven around `converted`, binary conversion, `True`, 95% confidence, 1 pp practical significance, `total.ads`, guardrails, and Benjamini-Hochberg FDR. Helper text now explains practical significance and multiple-comparison policy.
+
+### Power and Sample Size Assumptions Panel
+
+Power and Sample Size now has an assumptions panel for baseline conversion, minimum detectable effect, confidence/alpha, desired power, test sidedness, allocation ratio, practical significance, and sample source. Results show required/current treatment and control samples, estimated power, detectable effect, and underpowered status.
+
+### Atlas Guide Context Cleanup
+
+The Atlas Guide right rail now stays A/B-specific for A/B Testing: Task, Dataset `AB_WORKFLOW.csv`, Unit ID `user.id`, Treatment `ad`, Control `psa`, Outcome `converted`, Primary metric `Conversion rate`, and the actual current page.
+
+### Tests Run
+
+Local workspace validation:
+
+- `npm run test:project-types` - passed
+- `npm run test:experimentation` - passed
+- `npm run test:persistence` - passed
+- `npm run test:regression` - passed
+- `npx tsc -b` - passed
+- `npm run build:modeling` - passed
+- `npm run build` - passed
+- `npm run sync:atlas` - passed after rerun with filesystem permission for the clean-copy destination
+
+Clean copy validation in `C:\Users\james\Projects\ATLAS\atlas-app`:
+
+- `npm run test:project-types` - passed
+- `npm run test:experimentation` - passed
+- `npm run build` - passed
+
+### Manual QA Results
+
+Manual browser QA passed on the local dev server:
+
+- `/workflow/ab-testing/1` through `/workflow/ab-testing/8` show canonical route and active left-rail labels.
+- `/workflow/ab-testing/2` confirms `AB_WORKFLOW.csv` through the visible Data Acquisition and Mapping controls.
+- Completing Data Acquisition navigates to `/workflow/ab-testing/3`.
+- After completion, `/workflow/ab-testing/3` through `/workflow/ab-testing/8` render the expected controls and A/B-specific Atlas Guide context.
+- The browser initially held one stale hot-reload tab on the route fallback; a fresh tab rendered correctly and no console errors were present.
+
+### Clean-Copy Sync Confirmation
+
+The validated workspace changes were synced to `C:\Users\james\Projects\ATLAS\atlas-app`. Clean-copy tests and build passed after sync.
+
+### Known Limitations
+
+Power calculations still use the local deterministic browser workflow math rather than a backend statistical power service. `AB_WORKFLOW.csv` is intentionally a tiny workflow test dataset and must not be interpreted as production-ready evidence.
+
+### Recommended Next Build
+
+Connect A/B Testing to a persisted Dataset Library artifact and add backend-powered balance diagnostics, statistical power, and downloadable evidence tables once the workflow path is stable.
