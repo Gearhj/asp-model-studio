@@ -16,6 +16,7 @@ from ..security.security_store import (
     require_role,
     require_user,
 )
+from ..sharing.sharing_service import SharingService
 from .db import PersistenceUnavailableError, now_iso
 from .service import PersistenceService, get_persistence_service
 
@@ -57,6 +58,47 @@ def _execute(operation: Callable[[], Any]) -> Any:
 
 def _service() -> PersistenceService:
     return get_persistence_service()
+
+
+def _sharing_service() -> SharingService:
+    return SharingService(_service())
+
+
+def _authorize_project(
+    project_id: str,
+    user: Dict[str, Any],
+    permission: str,
+    *,
+    allow_missing: bool = False,
+) -> Optional[Dict[str, Any]]:
+    """Enforce resource-level authorization on a project before a persistence
+    operation (on the project itself or a project-scoped nested resource)
+    proceeds.
+
+    Returns the existing project record, or ``None`` when the project does
+    not yet exist and ``allow_missing`` permits the caller to implicitly
+    create it (the existing ``ensure_project``/upsert-as-create behavior of
+    several endpoints is preserved unchanged; a not-yet-existing project has
+    no owner to violate, so there is nothing to authorize against).
+    """
+    existing = _service().projects.get(project_id)
+    if existing is None:
+        if allow_missing:
+            return None
+        raise HTTPException(status_code=404, detail="ATLAS project was not found in the persistence database.")
+    check = _sharing_service().check_permission(user, "project", project_id, permission)
+    if not check.get("allowed"):
+        audit_event(
+            "access.denied",
+            "project",
+            project_id,
+            "denied",
+            user_id=user.get("userId"),
+            reason=f"Insufficient '{permission}' permission on project.",
+            metadata={"projectId": project_id, "requiredPermission": permission},
+        )
+        raise HTTPException(status_code=403, detail="You do not have permission to perform this action on this project.")
+    return existing
 
 
 def _id(prefix: str, payload: Dict[str, Any], *keys: str) -> str:
@@ -107,9 +149,11 @@ def persistence_health() -> Dict[str, Any]:
 
 
 @router.get("/projects")
-def list_projects(_user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+def list_projects(user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     items = _execute(lambda: _service().projects.list())
-    return {"ok": True, "projects": [_api_record(item) for item in items], "count": len(items)}
+    sharing = _sharing_service()
+    visible = [item for item in items if sharing.check_permission(user, "project", item["project_id"], "view").get("allowed")]
+    return {"ok": True, "projects": [_api_record(item) for item in visible], "count": len(visible)}
 
 
 @router.post("/projects")
@@ -142,9 +186,7 @@ def create_project(payload: Dict[str, Any], user: Dict[str, Any] = Depends(requi
 
 @router.get("/projects/{project_id}")
 def get_project(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
-    record = _execute(lambda: _service().projects.get(project_id))
-    if record is None:
-        raise HTTPException(status_code=404, detail="ATLAS project was not found in the persistence database.")
+    record = _authorize_project(project_id, user, "view")
     audit_event(
         "project.opened",
         "project",
@@ -158,6 +200,11 @@ def get_project(project_id: str, user: Dict[str, Any] = Depends(require_user)) -
 
 @router.put("/projects/{project_id}")
 def update_project(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    # A PUT to a project_id that doesn't exist yet implicitly creates it, owned
+    # by the caller (existing behavior, relied on by sqlite_persistence_backend_test.py).
+    # A PUT to an existing project the caller doesn't have edit access to is denied.
+    _authorize_project(project_id, user, "edit", allow_missing=True)
+
     def operation() -> Dict[str, Any]:
         service = _service()
         service.sync_user(user)
@@ -191,6 +238,8 @@ def update_project(project_id: str, payload: Dict[str, Any], user: Dict[str, Any
 
 @router.delete("/projects/{project_id}")
 def delete_project(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    _authorize_project(project_id, user, "admin")
+
     def operation() -> bool:
         service = _service()
         service.sync_user(user)
@@ -214,7 +263,8 @@ def delete_project(project_id: str, user: Dict[str, Any] = Depends(require_user)
 
 
 @router.get("/projects/{project_id}/workflow-state")
-def get_workflow_state(project_id: str, _user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+def get_workflow_state(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    _authorize_project(project_id, user, "view")
     record = _execute(lambda: _service().projects.get_workflow_state(project_id))
     if record is None:
         raise HTTPException(status_code=404, detail="Workflow state has not been saved for this project.")
@@ -223,6 +273,7 @@ def get_workflow_state(project_id: str, _user: Dict[str, Any] = Depends(require_
 
 @router.put("/projects/{project_id}/workflow-state")
 def save_workflow_state(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    _authorize_project(project_id, user, "edit", allow_missing=True)
     previous_completed = set()
 
     def operation() -> Dict[str, Any]:
@@ -259,7 +310,8 @@ def save_workflow_state(project_id: str, payload: Dict[str, Any], user: Dict[str
 
 
 @router.get("/projects/{project_id}/evidence")
-def list_evidence(project_id: str, _user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+def list_evidence(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    _authorize_project(project_id, user, "view")
     items = _execute(lambda: _service().evidence.list_for_project(project_id))
     return {"ok": True, "evidence": [_api_record(item) for item in items], "count": len(items)}
 
@@ -295,6 +347,7 @@ def _evidence_record(project_id: str, evidence_id: str, payload: Dict[str, Any],
 
 @router.post("/projects/{project_id}/evidence")
 def create_evidence(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    _authorize_project(project_id, user, "edit", allow_missing=True)
     evidence_id = _id("evidence", payload, "evidenceId", "evidence_id")
 
     def operation() -> Dict[str, Any]:
@@ -310,9 +363,15 @@ def create_evidence(project_id: str, payload: Dict[str, Any], user: Dict[str, An
 
 @router.put("/projects/{project_id}/evidence/{evidence_id}")
 def update_evidence(project_id: str, evidence_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    _authorize_project(project_id, user, "edit")
+
     def operation() -> Dict[str, Any]:
         service = _service()
         existing = service.evidence.get(evidence_id) or {}
+        # An evidence_id that exists but belongs to a different project must not be
+        # readable, mergeable, or re-parented via an update scoped to this project_id.
+        if existing and existing.get("project_id") != project_id:
+            raise HTTPException(status_code=404, detail="ATLAS evidence record was not found under this project.")
         merged = {**(existing.get("payload_json") or {}), **payload}
         return service.evidence.upsert(_evidence_record(project_id, evidence_id, merged, user))
 
@@ -329,7 +388,8 @@ def _child_list(project_id: str, repository_name: str) -> Dict[str, Any]:
 
 
 @router.get("/projects/{project_id}/runs")
-def list_runs(project_id: str, _user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+def list_runs(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    _authorize_project(project_id, user, "view")
     payload = _child_list(project_id, "runs")
     items = payload.pop("items")
     return {**payload, "runs": items}
@@ -337,6 +397,7 @@ def list_runs(project_id: str, _user: Dict[str, Any] = Depends(require_user)) ->
 
 @router.post("/projects/{project_id}/runs")
 def create_run(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    _authorize_project(project_id, user, "edit", allow_missing=True)
     run_id = _id("run", payload, "runId", "run_id")
 
     def operation() -> Dict[str, Any]:
@@ -378,7 +439,8 @@ def create_run(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = 
 
 
 @router.get("/projects/{project_id}/decisions")
-def list_decisions(project_id: str, _user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+def list_decisions(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    _authorize_project(project_id, user, "view")
     payload = _child_list(project_id, "decisions")
     items = payload.pop("items")
     return {**payload, "decisions": items}
@@ -386,6 +448,7 @@ def list_decisions(project_id: str, _user: Dict[str, Any] = Depends(require_user
 
 @router.post("/projects/{project_id}/decisions")
 def create_decision(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    _authorize_project(project_id, user, "edit", allow_missing=True)
     decision_id = _id("decision", payload, "decisionId", "decision_id")
 
     def operation() -> Dict[str, Any]:
@@ -416,7 +479,8 @@ def create_decision(project_id: str, payload: Dict[str, Any], user: Dict[str, An
 
 
 @router.get("/projects/{project_id}/documentation")
-def list_documentation(project_id: str, _user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+def list_documentation(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    _authorize_project(project_id, user, "view")
     payload = _child_list(project_id, "documentation")
     items = payload.pop("items")
     return {**payload, "documentation": items}
@@ -424,6 +488,7 @@ def list_documentation(project_id: str, _user: Dict[str, Any] = Depends(require_
 
 @router.post("/projects/{project_id}/documentation")
 def create_documentation(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    _authorize_project(project_id, user, "edit", allow_missing=True)
     package_id = _id("package", payload, "packageId", "package_id", "documentId")
 
     def operation() -> Dict[str, Any]:
@@ -452,7 +517,8 @@ def create_documentation(project_id: str, payload: Dict[str, Any], user: Dict[st
 
 
 @router.get("/projects/{project_id}/exports")
-def list_exports(project_id: str, _user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+def list_exports(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    _authorize_project(project_id, user, "view")
     payload = _child_list(project_id, "exports")
     items = payload.pop("items")
     return {**payload, "exports": items}
@@ -460,6 +526,7 @@ def list_exports(project_id: str, _user: Dict[str, Any] = Depends(require_user))
 
 @router.post("/projects/{project_id}/exports")
 def create_export(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    _authorize_project(project_id, user, "edit", allow_missing=True)
     export_id = _id("export", payload, "exportId", "export_id")
 
     def operation() -> Dict[str, Any]:

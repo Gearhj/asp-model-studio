@@ -208,18 +208,16 @@ def get_project_access(project_id: str, user: Dict[str, Any] = Depends(require_u
 
 @router.post("/projects/{project_id}/access/grant")
 def grant_project(project_id: str, payload: ProjectGrantRequest, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
-    existing = list_project_access(project_id)
-    first_owner_claim = not existing and payload.userId == user.get("userId") and payload.permission == "owner"
-    if user.get("role") != "admin" and not first_owner_claim and not any(entry.get("user_id") == user.get("userId") and entry.get("permission") == "owner" for entry in existing):
-        raise HTTPException(status_code=403, detail="Only project owner or admin can grant access.")
-    return {"ok": True, "grant": grant_project_access(project_id, payload.userId, payload.permission, user.get("userId"))}
+    # Authorization (owner/admin-only, with a first-owner bootstrap exception for
+    # a brand-new project) is now enforced inside grant_project_access() itself,
+    # via SharingService.assert_can_manage -- the single authoritative check for
+    # project access (FND-002). It raises HTTPException(403) on denial.
+    return {"ok": True, "grant": grant_project_access(project_id, payload.userId, payload.permission, user)}
 
 
 @router.post("/projects/{project_id}/access/revoke")
 def revoke_project(project_id: str, payload: ProjectGrantRequest, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
-    if user.get("role") != "admin" and not any(entry.get("user_id") == user.get("userId") and entry.get("permission") == "owner" for entry in list_project_access(project_id)):
-        raise HTTPException(status_code=403, detail="Only project owner or admin can revoke access.")
-    return revoke_project_access(project_id, payload.userId)
+    return revoke_project_access(project_id, payload.userId, user)
 
 
 @router.get("/audit/events")

@@ -345,6 +345,39 @@ class ValidationService:
     def approve(self, validation_id: str, payload: Mapping[str, Any], user: Mapping[str, Any]) -> Dict[str, Any]:
         _require_role(user, VALIDATOR_ROLES, "Approving validation case")
         case = self._case(validation_id)
+        # FND-005 (segregation of duties): the identity of record for "who
+        # submitted this case" is validation_cases.submitted_by, set once in
+        # create_or_submit_case() and never overwritten thereafter. The
+        # project owner is a separate identity (projects.owner_user_id), but
+        # the required rule only restricts the owner "if they are also the
+        # submitter" -- i.e. exactly the case already covered by comparing
+        # the approver against submitted_by. No separate owner lookup or
+        # ownership field is needed. This check applies uniformly regardless
+        # of role (including admin/validator/manager): there is no existing
+        # policy that lets any role bypass being a different person from the
+        # submitter, so none is introduced here -- only role-based access to
+        # approve() at all is unchanged, per existing policy.
+        approver_id = _user_id(user)
+        submitter_id = case.get("submitted_by")
+        if approver_id and submitter_id and approver_id == submitter_id:
+            self._event(
+                case,
+                user,
+                "validation.self_approval_denied",
+                "Self-approval denied",
+                "Approval was attempted by the same person who submitted this validation case.",
+            )
+            self._audit(
+                case,
+                user,
+                "validation.self_approval_denied",
+                "Self-approval denied",
+                "Approval was attempted by the same person who submitted this validation case.",
+            )
+            raise HTTPException(
+                status_code=403,
+                detail="This validation case must be approved by another qualified validator.",
+            )
         decision = str(payload.get("decision") or "approved")
         status = "approved_with_conditions" if decision == "approved_with_conditions" else "approved" if decision == "approved" else "rejected"
         timestamp = now_iso()

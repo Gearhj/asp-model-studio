@@ -43,6 +43,22 @@ ACTIVE_USER: contextvars.ContextVar[Optional[Dict[str, Any]]] = contextvars.Cont
 ROLES = {"admin", "data_steward", "model_owner", "model_manager", "data_scientist", "validator", "manager", "auditor", "viewer"}
 DATASET_ACCESS_ROLES = {"owner", "editor", "viewer", "auditor"}
 PROJECT_ACCESS_ROLES = {"owner", "editor", "viewer", "approver", "auditor"}
+# FND-002: server/sharing/sharing_service.py is the single authoritative store for
+# project access (resource_permissions / project_collaborators). This maps the
+# legacy project-ACL permission vocabulary (still used by the /projects/{id}/access
+# request payloads and the frontend) onto SharingService.PERMISSION_LEVELS so grants
+# made through the legacy endpoints are recorded in, and evaluated against, the same
+# permission table as every other resource type. "editor"/"approver" both map to
+# levels at or above "edit" so user_can_access_project(write=True) keeps admitting
+# exactly the same principals it did before ({"owner", "editor", "approver"}), via
+# SharingService's permission ranking rather than a second set-membership check.
+LEGACY_TO_SHARING_PERMISSION = {
+    "owner": "admin",
+    "editor": "edit",
+    "approver": "approve",
+    "viewer": "view",
+    "auditor": "view",
+}
 ADMIN_ROLES = {"admin"}
 AUDIT_ROLES = {"admin", "auditor", "model_manager", "validator", "manager"}
 DEFAULT_SESSION_SECRET = "atlas-local-dev-default-session-secret"
@@ -370,53 +386,74 @@ def unlock_user(user_id: str) -> Dict[str, Any]:
 def authenticate(email: str, password: str, request: Request | None = None) -> Dict[str, Any]:
     init_security_store()
     generic = HTTPException(status_code=401, detail="Email or password is not valid.")
+    # Every branch below determines its outcome and performs its writes and
+    # audit events *inside* this transaction, but none of them raise while
+    # still inside the `with` block: sqlite3's connection context manager
+    # rolls back the transaction when the block exits via an exception, so
+    # raising here (as this function previously did) silently discarded the
+    # failed_login_count/locked_until update and the audit event for every
+    # failed, disabled, or locked login attempt. Denial is instead recorded
+    # in `denied`, the block is left normally so the transaction commits,
+    # and `generic` is raised only after that commit has happened.
+    denied = False
+    result: Dict[str, Any] | None = None
     with connect() as conn:
         user_row = conn.execute("SELECT * FROM users WHERE email = ?", (normalize_email(email),)).fetchone()
         user = row_to_user(user_row)
         if not user:
             audit_event("auth.login.failure", "auth", None, "failure", reason="Invalid credentials", metadata={"emailHash": hash_observable(normalize_email(email))}, conn=conn)
-            raise generic
-        if user["status"] != "active":
+            denied = True
+        elif user["status"] != "active":
             audit_event("auth.login.failure", "auth", user["userId"], "denied", reason="Inactive user", conn=conn)
-            raise generic
-        locked_until = user.get("lockedUntil")
-        if locked_until and locked_until > now_iso():
-            audit_event("auth.login.failure", "auth", user["userId"], "denied", reason="Account locked", conn=conn)
-            raise generic
-        cred = conn.execute("SELECT * FROM credentials WHERE user_id = ?", (user["userId"],)).fetchone()
-        if not cred or not verify_password(password, cred["password_hash"]):
-            next_failed = int(user.get("failedLoginCount") or 0) + 1
-            locked_until_value = None
-            if next_failed >= LOCKOUT_THRESHOLD:
-                locked_until_value = datetime.fromtimestamp(epoch() + LOCKOUT_SECONDS, tz=timezone.utc).isoformat()
-            conn.execute(
-                "UPDATE users SET failed_login_count = ?, locked_until = ?, updated_at = ? WHERE user_id = ?",
-                (next_failed, locked_until_value, now_iso(), user["userId"]),
-            )
-            audit_event("auth.login.failure", "auth", user["userId"], "failure", reason="Invalid credentials", conn=conn)
-            raise generic
-        timestamp = now_iso()
-        session_id = secrets.token_urlsafe(32)
-        expires = datetime.fromtimestamp(epoch() + SESSION_TTL_SECONDS, tz=timezone.utc).isoformat()
-        conn.execute(
-            """
-            INSERT INTO sessions (session_id, user_id, created_at, expires_at, last_seen_at, ip_address_hash, user_agent_hash)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                session_id,
-                user["userId"],
-                timestamp,
-                expires,
-                timestamp,
-                hash_observable(request.client.host if request and request.client else None),
-                hash_observable(request.headers.get("user-agent") if request else None),
-            ),
-        )
-        conn.execute("UPDATE users SET failed_login_count = 0, locked_until = NULL, last_login_at = ?, updated_at = ? WHERE user_id = ?", (timestamp, timestamp, user["userId"]))
-        audit_event("auth.login.success", "auth", user["userId"], "success", conn=conn)
-        updated = row_to_user(conn.execute("SELECT * FROM users WHERE user_id = ?", (user["userId"],)).fetchone()) or user
-        return {"sessionId": session_id, "expiresAt": expires, "user": public_user(updated)}
+            denied = True
+        else:
+            locked_until = user.get("lockedUntil")
+            if locked_until and locked_until > now_iso():
+                audit_event("auth.login.failure", "auth", user["userId"], "denied", reason="Account locked", conn=conn)
+                denied = True
+            else:
+                cred = conn.execute("SELECT * FROM credentials WHERE user_id = ?", (user["userId"],)).fetchone()
+                if not cred or not verify_password(password, cred["password_hash"]):
+                    next_failed = int(user.get("failedLoginCount") or 0) + 1
+                    locked_until_value = None
+                    if next_failed >= LOCKOUT_THRESHOLD:
+                        locked_until_value = datetime.fromtimestamp(epoch() + LOCKOUT_SECONDS, tz=timezone.utc).isoformat()
+                    conn.execute(
+                        "UPDATE users SET failed_login_count = ?, locked_until = ?, updated_at = ? WHERE user_id = ?",
+                        (next_failed, locked_until_value, now_iso(), user["userId"]),
+                    )
+                    audit_event("auth.login.failure", "auth", user["userId"], "failure", reason="Invalid credentials", conn=conn)
+                    denied = True
+                else:
+                    timestamp = now_iso()
+                    session_id = secrets.token_urlsafe(32)
+                    expires = datetime.fromtimestamp(epoch() + SESSION_TTL_SECONDS, tz=timezone.utc).isoformat()
+                    conn.execute(
+                        """
+                        INSERT INTO sessions (session_id, user_id, created_at, expires_at, last_seen_at, ip_address_hash, user_agent_hash)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            session_id,
+                            user["userId"],
+                            timestamp,
+                            expires,
+                            timestamp,
+                            hash_observable(request.client.host if request and request.client else None),
+                            hash_observable(request.headers.get("user-agent") if request else None),
+                        ),
+                    )
+                    conn.execute(
+                        "UPDATE users SET failed_login_count = 0, locked_until = NULL, last_login_at = ?, updated_at = ? WHERE user_id = ?",
+                        (timestamp, timestamp, user["userId"]),
+                    )
+                    audit_event("auth.login.success", "auth", user["userId"], "success", conn=conn)
+                    updated = row_to_user(conn.execute("SELECT * FROM users WHERE user_id = ?", (user["userId"],)).fetchone()) or user
+                    result = {"sessionId": session_id, "expiresAt": expires, "user": public_user(updated)}
+    if denied:
+        raise generic
+    assert result is not None
+    return result
 
 
 def user_for_session(session_id: str | None) -> Optional[Dict[str, Any]]:
@@ -504,11 +541,24 @@ def _track_user_activity(user: Dict[str, Any], *, dev_context: bool = False) -> 
         )
 
 
-def require_user(request: Request) -> Dict[str, Any]:
+def _resolve_authenticated_user(request: Request, *, allow_dev_bootstrap: bool) -> Optional[Dict[str, Any]]:
+    """Single source of truth for "which user does this request belong to".
+
+    Shared by require_user() (which layers rejection, status checks, audit
+    events, and the dev-user auto-bootstrap side effect on top of this) and
+    ActiveUserContextMiddleware (which calls this read-only, with
+    allow_dev_bootstrap=False, purely to populate ACTIVE_USER for the
+    request's ambient contextvars.Context before routing/dependency
+    resolution runs -- see that class's docstring for why that matters).
+
+    Never raises and never triggers side effects beyond the one gated by
+    allow_dev_bootstrap. Returns None when no user can be resolved this way;
+    callers decide what "no user" means for them.
+    """
     requested_dev_user = (request.headers.get(LOCAL_DEV_USER_HEADER) or "").strip()
     if development_user_header_enabled() and requested_dev_user:
         user = get_user(requested_dev_user)
-        if user is None and requested_dev_user == LOCAL_DEV_USER_ID:
+        if user is None and requested_dev_user == LOCAL_DEV_USER_ID and allow_dev_bootstrap:
             user = get_user_by_email(DEFAULT_ADMIN_EMAIL)
             if user is None:
                 user = create_user(
@@ -520,6 +570,17 @@ def require_user(request: Request) -> Dict[str, Any]:
                     status="active",
                     audit=False,
                 )
+        return user
+    if not ATLAS_AUTH_ENABLED:
+        return get_user("local-user") or get_user_by_email(DEFAULT_ADMIN_EMAIL)
+    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    return user_for_session(session_id)
+
+
+def require_user(request: Request) -> Dict[str, Any]:
+    requested_dev_user = (request.headers.get(LOCAL_DEV_USER_HEADER) or "").strip()
+    if development_user_header_enabled() and requested_dev_user:
+        user = _resolve_authenticated_user(request, allow_dev_bootstrap=True)
         if user is None:
             raise AtlasUserContextError(
                 {
@@ -544,13 +605,12 @@ def require_user(request: Request) -> Dict[str, Any]:
         _track_user_activity(user, dev_context=True)
         return public_user(user)
     if not ATLAS_AUTH_ENABLED:
-        user = get_user("local-user") or get_user_by_email(DEFAULT_ADMIN_EMAIL)
+        user = _resolve_authenticated_user(request, allow_dev_bootstrap=False)
         set_active_user(user)
         if user:
             _track_user_activity(user)
         return public_user(user or {})
-    session_id = request.cookies.get(SESSION_COOKIE_NAME)
-    user = user_for_session(session_id)
+    user = _resolve_authenticated_user(request, allow_dev_bootstrap=False)
     if not user:
         audit_event("access.denied", "auth", None, "denied", reason="Authentication required")
         payload: Dict[str, Any] = {
@@ -571,6 +631,55 @@ def require_user(request: Request) -> Dict[str, Any]:
     set_active_user(user)
     _track_user_activity(user)
     return public_user(user)
+
+
+class ActiveUserContextMiddleware(BaseHTTPMiddleware):
+    """Fixes ACTIVE_USER propagation for ordinary synchronous FastAPI routes.
+
+    Root cause: require_user() is a FastAPI *dependency*
+    (Depends(require_user)). FastAPI/Starlette resolves each synchronous
+    dependency via its own run_in_threadpool call, which runs the function
+    against a private copy of the caller's contextvars.Context (via
+    anyio.to_thread.run_sync -> contextvars.copy_context().run(...)).
+    require_user()'s call to set_active_user(user) mutates only that
+    private copy; the mutation is discarded when the dependency call
+    returns and is never merged back into the request's ambient context.
+    The route handler body -- and anything it calls, including
+    DATASTORE/RESULTS's proxy classes, which read active_user() to decide
+    which per-user store instance to use -- runs in a SEPARATE
+    run_in_threadpool call with its own fresh copy of the (unmutated)
+    ambient context, so active_user() reads back None there. In practice
+    this meant every authenticated request resolved DATASTORE/RESULTS to
+    the shared "anonymous" scope, for every user, always -- confirmed by
+    tests/modeling_state_characterization_test.py and independently against
+    a live uvicorn process.
+
+    Fix: resolve the user once, here, in the middleware's own dispatch()
+    coroutine -- which runs directly in the request's ambient async task,
+    not inside a nested run_in_threadpool call -- and set ACTIVE_USER
+    *before* calling `call_next(request)`. Every run_in_threadpool call
+    downstream of this point (every dependency, including require_user()
+    itself, and the route handler body) copies its context from this
+    already-mutated ambient context, so they all correctly see the same
+    resolved user from here on. Verified empirically before use (see the
+    delivery report) -- this is not assumed to work merely because it reads
+    plausibly.
+
+    This middleware never rejects a request and performs no side effects
+    (in particular, it never auto-creates the local-dev bootstrap user --
+    see _resolve_authenticated_user's allow_dev_bootstrap parameter);
+    actual authentication enforcement remains exactly where it already was,
+    in each route's own Depends(require_user). A request that
+    require_user() would reject is simply left with ACTIVE_USER unset here
+    too, and is rejected downstream as before.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        token = ACTIVE_USER.set(_resolve_authenticated_user(request, allow_dev_bootstrap=False))
+        try:
+            return await call_next(request)
+        finally:
+            ACTIVE_USER.reset(token)
 
 
 def require_role(user: Dict[str, Any], roles: Iterable[str]) -> None:
@@ -699,34 +808,126 @@ def audit_row(row: sqlite3.Row) -> Dict[str, Any]:
     }
 
 
-def grant_project_access(project_id: str, user_id: str, permission: str, granted_by: Optional[str]) -> Dict[str, Any]:
+def _sharing_service():
+    from ..sharing.sharing_service import SharingService
+
+    return SharingService()
+
+
+def _sync_user_into_persistence(user_id: Optional[str]) -> None:
+    """Best-effort sync so project_collaborators' FK on users(user_id) is satisfied.
+
+    require_user() already syncs the *calling* user on every authenticated
+    request; this covers the case where a grant/revoke targets a different
+    user_id that has not made a request (and therefore not been synced) yet.
+    """
+    if not user_id:
+        return
+    try:
+        target = get_user(user_id)
+        if target:
+            from ..persistence.service import get_persistence_service
+
+            get_persistence_service().sync_user(public_user(target))
+    except Exception:
+        pass
+
+
+def grant_project_access(project_id: str, user_id: str, permission: str, granted_by_user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     if permission not in PROJECT_ACCESS_ROLES:
         raise HTTPException(status_code=400, detail="Unsupported project permission.")
-    timestamp = now_iso()
-    with connect() as conn:
-        conn.execute(
-            """
-            INSERT INTO project_access (project_id, user_id, permission, granted_by_user_id, granted_at)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(project_id, user_id) DO UPDATE SET permission = excluded.permission, granted_by_user_id = excluded.granted_by_user_id, granted_at = excluded.granted_at
-            """,
-            (project_id, user_id, permission, granted_by, timestamp),
+    service = _sharing_service()
+    granter_id = (granted_by_user or {}).get("userId")
+    mapped_permission = LEGACY_TO_SHARING_PERMISSION[permission]
+    _sync_user_into_persistence(user_id)
+
+    # Bootstrap case: a brand-new project's owner self-granting "owner" before
+    # any permission record exists for it. This mirrors the previous router-level
+    # first_owner_claim check, but against the authoritative permission table
+    # instead of the legacy ACL table. It has to be handled explicitly because
+    # the frontend queues the project's own persistence-layer row asynchronously,
+    # so SharingService.assert_can_manage's owner-of-record lookup can race ahead
+    # of it and would otherwise reject the very first grant on a new project.
+    existing = service.persistence.access.list_permissions_for_resource("project", project_id)
+    first_owner_claim = not existing and user_id == granter_id and permission == "owner"
+
+    if first_owner_claim:
+        record = service.persistence.access.grant_permission(
+            {
+                "permission_id": f"perm_{uuid.uuid4().hex}",
+                "resource_type": "project",
+                "resource_id": project_id,
+                "principal_type": "user",
+                "principal_id": user_id,
+                "permission_level": mapped_permission,
+                "granted_by_user_id": granter_id,
+                "metadata_json": {"source": "project_bootstrap_self_owner", "legacyPermission": permission},
+            }
         )
-        audit_event("project.shared", "project", project_id, "success", metadata={"targetUserId": user_id, "permission": permission}, conn=conn)
-    return {"projectId": project_id, "userId": user_id, "permission": permission, "grantedAt": timestamp}
+        try:
+            service.persistence.access.upsert_project_collaborator(
+                {
+                    "collaborator_id": f"collab_{uuid.uuid4().hex}",
+                    "project_id": project_id,
+                    "user_id": user_id,
+                    "project_role": mapped_permission,
+                    "added_by_user_id": granter_id,
+                    "metadata_json": {"source": "project_bootstrap_self_owner"},
+                }
+            )
+        except Exception:
+            # The project's own persistence-layer row has not landed yet (see
+            # above); the collaborator table is a denormalized convenience view,
+            # not the authoritative permission record, so this is safe to skip.
+            pass
+    else:
+        result = service.share_resource(
+            granted_by_user or {},
+            "project",
+            project_id,
+            {"principalType": "user", "principalId": user_id, "permissionLevel": mapped_permission},
+        )
+        record = result["permission"]
+
+    audit_event(
+        "project.shared",
+        "project",
+        project_id,
+        "success",
+        metadata={"targetUserId": user_id, "permission": permission},
+        user_id=granter_id,
+    )
+    return {"projectId": project_id, "userId": user_id, "permission": permission, "grantedAt": record.get("granted_at")}
 
 
-def revoke_project_access(project_id: str, user_id: str) -> Dict[str, Any]:
-    with connect() as conn:
-        cursor = conn.execute("DELETE FROM project_access WHERE project_id = ? AND user_id = ?", (project_id, user_id))
-        audit_event("project.access.revoked", "project", project_id, "success", metadata={"targetUserId": user_id}, conn=conn)
-    return {"ok": True, "removed": cursor.rowcount}
+def revoke_project_access(project_id: str, user_id: str, revoked_by_user: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    service = _sharing_service()
+    result = service.revoke_share(revoked_by_user or {}, "project", project_id, "user", user_id)
+    audit_event(
+        "project.access.revoked",
+        "project",
+        project_id,
+        "success",
+        metadata={"targetUserId": user_id},
+        user_id=(revoked_by_user or {}).get("userId"),
+    )
+    return {"ok": True, "removed": result.get("revoked", 0)}
 
 
 def list_project_access(project_id: str) -> List[Dict[str, Any]]:
-    with connect() as conn:
-        rows = conn.execute("SELECT * FROM project_access WHERE project_id = ? ORDER BY granted_at DESC", (project_id,)).fetchall()
-        return [dict(row) for row in rows]
+    service = _sharing_service()
+    rows = service.persistence.access.list_permissions_for_resource("project", project_id)
+    return [
+        {
+            "project_id": row.get("resource_id"),
+            "user_id": row.get("principal_id"),
+            "permission": row.get("permission_level"),
+            "granted_by_user_id": row.get("granted_by_user_id"),
+            "granted_at": row.get("granted_at"),
+        }
+        for row in rows
+        if row.get("principal_type") == "user"
+    ]
 
 
 def user_can_access_project(project_id: str, user: Optional[Dict[str, Any]] = None, write: bool = False) -> bool:
@@ -735,18 +936,8 @@ def user_can_access_project(project_id: str, user: Optional[Dict[str, Any]] = No
         return False
     if active.get("role") == "admin":
         return True
-    allowed = {"owner", "editor", "approver"} if write else PROJECT_ACCESS_ROLES
-    with connect() as conn:
-        total = conn.execute("SELECT COUNT(*) AS n FROM project_access WHERE project_id = ?", (project_id,)).fetchone()["n"]
-        if total == 0 and active.get("userId"):
-            conn.execute(
-                "INSERT INTO project_access (project_id, user_id, permission, granted_by_user_id, granted_at) VALUES (?, ?, 'owner', ?, ?)",
-                (project_id, active.get("userId"), active.get("userId"), now_iso()),
-            )
-            audit_event("project.created", "project", project_id, "success", metadata={"implicitOwner": True}, conn=conn)
-            return True
-        row = conn.execute("SELECT permission FROM project_access WHERE project_id = ? AND user_id = ?", (project_id, active.get("userId"))).fetchone()
-        return bool(row and row["permission"] in allowed)
+    check = _sharing_service().check_permission(active, "project", project_id, "edit" if write else "view")
+    return bool(check.get("allowed"))
 
 
 def security_diagnostics() -> Dict[str, Any]:

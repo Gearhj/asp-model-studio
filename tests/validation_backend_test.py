@@ -13,6 +13,10 @@ from server.validation.validation_service import ValidationService
 
 
 ADMIN = {"userId": "user_eecc3a44ed694307", "displayName": "ATLAS Local Admin", "email": "admin@atlas.local", "role": "admin", "status": "active"}
+# FND-005: a validation case may not be approved by the same person who
+# submitted it, so the lifecycle test below (which submits as ADMIN) needs a
+# second, independent validator identity to perform the final approval.
+INDEPENDENT_VALIDATOR = {"userId": "user_independent_validator_fnd005", "displayName": "Independent Validator", "email": "independent.validator@atlas.local", "role": "validator", "status": "active"}
 PROJECT_ID = "validation-center-project"
 
 
@@ -26,6 +30,7 @@ class ValidationBackendTest(unittest.TestCase):
         self.database.initialize()
         self.persistence = PersistenceService(self.database)
         self.persistence.sync_user(ADMIN)
+        self.persistence.sync_user(INDEPENDENT_VALIDATOR)
         self._seed_project()
         self.service = ValidationService(self.persistence)
         self.registry = RegistryService(self.persistence)
@@ -104,7 +109,7 @@ class ValidationBackendTest(unittest.TestCase):
         response = self.service.add_response(validation_id, challenge_id, {"response_text": "Scenario evidence has been linked."}, ADMIN)
         self.assertEqual(len(response["challenges"][0]["responses"]), 1)
 
-        approved = self.service.approve(validation_id, {"decision": "approved_with_conditions", "final_score": 88, "decision_rationale": "Approved with monitoring evidence condition."}, ADMIN)
+        approved = self.service.approve(validation_id, {"decision": "approved_with_conditions", "final_score": 88, "decision_rationale": "Approved with monitoring evidence condition."}, INDEPENDENT_VALIDATOR)
         self.assertEqual(approved["case"]["status"], "approved_with_conditions")
         asset = self.registry.get_asset(PROJECT_ID)["asset"]
         self.assertEqual(asset["validation_status"], "Approved with conditions")
