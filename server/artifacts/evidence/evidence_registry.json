@@ -1,6 +1,135 @@
 {
   "items": [
     {
+      "evidenceId": "ev-governed-model-training-run-f5fe147fd28f89b0",
+      "projectId": "atlas-mrp3y4tx",
+      "projectName": "Credit Card Fraud TEST",
+      "evidenceType": "model_training",
+      "title": "Governed Model Training Run",
+      "summary": "6 model(s) completed under job train-job-f031f8561b3249ea9c8a5e0edf57fabb. The leading result is a candidate and has not been automatically approved as champion.",
+      "sourcePage": "Model Training",
+      "sourceRoute": "/step07",
+      "artifactType": "",
+      "artifactId": "",
+      "datasetIds": [
+        "ds_class_train_982c7a7d_98716"
+      ],
+      "modelIds": [
+        "sgd_log",
+        "logreg",
+        "dtree",
+        "ridge_clf",
+        "gnb",
+        "bernoulli_nb"
+      ],
+      "documentIds": [],
+      "notebookIds": [],
+      "supportsSections": [
+        "Candidate Models",
+        "Model Selection Rationale",
+        "Development Test and OOT Data"
+      ],
+      "tags": [
+        "predictive_modeling",
+        "training_job",
+        "candidate_models"
+      ],
+      "financialDomain": "",
+      "financialTechnique": "",
+      "regulatoryRelevance": {},
+      "creditRiskContext": {},
+      "status": "ready",
+      "importance": "high",
+      "qualityScore": 86,
+      "createdAt": "2026-07-17T18:15:07.105590+00:00",
+      "capturedAt": "2026-07-17T18:15:07.105590+00:00",
+      "updatedAt": "2026-07-20T21:13:06.283055+00:00",
+      "createdBy": "ATLAS",
+      "workflowStep": "",
+      "sourceRunReference": ""
+    },
+    {
+      "evidenceId": "ev-governed-feature-gate-and-validation-split-c70463e6923a2ea5",
+      "projectId": "atlas-mrp3y4tx",
+      "projectName": "Credit Card Fraud TEST",
+      "evidenceType": "feature_engineering",
+      "title": "Governed Feature Gate and Validation Split",
+      "summary": "30 predictors were approved for split split-30c41a8d4918731ff31d. Balancing was applied to training rows only.",
+      "sourcePage": "Balance & Split",
+      "sourceRoute": "/step06",
+      "artifactType": "",
+      "artifactId": "",
+      "datasetIds": [
+        "20260720204622-00c4161e"
+      ],
+      "modelIds": [],
+      "documentIds": [],
+      "notebookIds": [],
+      "supportsSections": [
+        "Feature Engineering",
+        "Development Test and OOT Data",
+        "Candidate Models"
+      ],
+      "tags": [
+        "predictive_modeling",
+        "feature_gate",
+        "validation_split"
+      ],
+      "financialDomain": "",
+      "financialTechnique": "",
+      "regulatoryRelevance": {},
+      "creditRiskContext": {},
+      "status": "ready",
+      "importance": "high",
+      "qualityScore": 86,
+      "createdAt": "2026-07-17T17:56:15.637881+00:00",
+      "capturedAt": "2026-07-17T17:56:15.637881+00:00",
+      "updatedAt": "2026-07-20T21:05:56.198125+00:00",
+      "createdBy": "ATLAS",
+      "workflowStep": "",
+      "sourceRunReference": ""
+    },
+    {
+      "evidenceId": "ev-governed-feature-manifest-9ca0996c6a6d56fb",
+      "projectId": "atlas-mrp3y4tx",
+      "projectName": "Credit Card Fraud TEST",
+      "evidenceType": "feature_engineering",
+      "title": "Governed Feature Manifest",
+      "summary": "0 deterministic engineered features and 0 training-only pipeline steps were recorded in manifest fm-ed6e7fd8facae35f.",
+      "sourcePage": "Feature Engineering",
+      "sourceRoute": "/step05",
+      "artifactType": "",
+      "artifactId": "",
+      "datasetIds": [
+        "20260720204622-00c4161e"
+      ],
+      "modelIds": [],
+      "documentIds": [],
+      "notebookIds": [],
+      "supportsSections": [
+        "Feature Engineering",
+        "Candidate Models"
+      ],
+      "tags": [
+        "predictive_modeling",
+        "feature_manifest",
+        "lineage"
+      ],
+      "financialDomain": "",
+      "financialTechnique": "",
+      "regulatoryRelevance": {},
+      "creditRiskContext": {},
+      "status": "ready",
+      "importance": "high",
+      "qualityScore": 86,
+      "createdAt": "2026-07-17T17:50:53.955523+00:00",
+      "capturedAt": "2026-07-17T17:50:53.955523+00:00",
+      "updatedAt": "2026-07-20T21:00:26.664152+00:00",
+      "createdBy": "ATLAS",
+      "workflowStep": "",
+      "sourceRunReference": ""
+    },
+    {
       "evidenceId": "ev-full-data-missing-value-treatment-6d5c8d16cfd2aeef",
       "projectId": "atlas-mrp3y4tx",
       "projectName": "Credit Card Fraud TEST",
@@ -78,135 +207,6 @@
       "createdAt": "2026-07-17T17:30:24.882719+00:00",
       "capturedAt": "2026-07-17T17:30:24.882719+00:00",
       "updatedAt": "2026-07-20T20:57:59.067347+00:00",
-      "createdBy": "ATLAS",
-      "workflowStep": "",
-      "sourceRunReference": ""
-    },
-    {
-      "evidenceId": "ev-governed-model-training-run-f5fe147fd28f89b0",
-      "projectId": "atlas-mrp3y4tx",
-      "projectName": "Credit Card Fraud TEST",
-      "evidenceType": "model_training",
-      "title": "Governed Model Training Run",
-      "summary": "7 model(s) completed under job train-job-7e3060ee2e9a442c8892fa5a153416fb. The leading result is a candidate and has not been automatically approved as champion.",
-      "sourcePage": "Model Training",
-      "sourceRoute": "/step07",
-      "artifactType": "",
-      "artifactId": "",
-      "datasetIds": [
-        "ds_class_train_982c7a7d_98716"
-      ],
-      "modelIds": [
-        "extra_trees",
-        "knn",
-        "xgb",
-        "logreg",
-        "gnb",
-        "dtree"
-      ],
-      "documentIds": [],
-      "notebookIds": [],
-      "supportsSections": [
-        "Candidate Models",
-        "Model Selection Rationale",
-        "Development Test and OOT Data"
-      ],
-      "tags": [
-        "predictive_modeling",
-        "training_job",
-        "candidate_models"
-      ],
-      "financialDomain": "",
-      "financialTechnique": "",
-      "regulatoryRelevance": {},
-      "creditRiskContext": {},
-      "status": "ready",
-      "importance": "high",
-      "qualityScore": 86,
-      "createdAt": "2026-07-17T18:15:07.105590+00:00",
-      "capturedAt": "2026-07-17T18:15:07.105590+00:00",
-      "updatedAt": "2026-07-19T21:22:25.745308+00:00",
-      "createdBy": "ATLAS",
-      "workflowStep": "",
-      "sourceRunReference": ""
-    },
-    {
-      "evidenceId": "ev-governed-feature-gate-and-validation-split-c70463e6923a2ea5",
-      "projectId": "atlas-mrp3y4tx",
-      "projectName": "Credit Card Fraud TEST",
-      "evidenceType": "feature_engineering",
-      "title": "Governed Feature Gate and Validation Split",
-      "summary": "30 predictors were approved for split split-52eeabf6ef7d842cb81b. Balancing was applied to training rows only.",
-      "sourcePage": "Balance & Split",
-      "sourceRoute": "/step06",
-      "artifactType": "",
-      "artifactId": "",
-      "datasetIds": [
-        "20260719185836-00c4161e"
-      ],
-      "modelIds": [],
-      "documentIds": [],
-      "notebookIds": [],
-      "supportsSections": [
-        "Feature Engineering",
-        "Development Test and OOT Data",
-        "Candidate Models"
-      ],
-      "tags": [
-        "predictive_modeling",
-        "feature_gate",
-        "validation_split"
-      ],
-      "financialDomain": "",
-      "financialTechnique": "",
-      "regulatoryRelevance": {},
-      "creditRiskContext": {},
-      "status": "ready",
-      "importance": "high",
-      "qualityScore": 86,
-      "createdAt": "2026-07-17T17:56:15.637881+00:00",
-      "capturedAt": "2026-07-17T17:56:15.637881+00:00",
-      "updatedAt": "2026-07-19T19:12:25.007534+00:00",
-      "createdBy": "ATLAS",
-      "workflowStep": "",
-      "sourceRunReference": ""
-    },
-    {
-      "evidenceId": "ev-governed-feature-manifest-9ca0996c6a6d56fb",
-      "projectId": "atlas-mrp3y4tx",
-      "projectName": "Credit Card Fraud TEST",
-      "evidenceType": "feature_engineering",
-      "title": "Governed Feature Manifest",
-      "summary": "0 deterministic engineered features and 0 training-only pipeline steps were recorded in manifest fm-853b64de21fee8c6.",
-      "sourcePage": "Feature Engineering",
-      "sourceRoute": "/step05",
-      "artifactType": "",
-      "artifactId": "",
-      "datasetIds": [
-        "20260719185836-00c4161e"
-      ],
-      "modelIds": [],
-      "documentIds": [],
-      "notebookIds": [],
-      "supportsSections": [
-        "Feature Engineering",
-        "Candidate Models"
-      ],
-      "tags": [
-        "predictive_modeling",
-        "feature_manifest",
-        "lineage"
-      ],
-      "financialDomain": "",
-      "financialTechnique": "",
-      "regulatoryRelevance": {},
-      "creditRiskContext": {},
-      "status": "ready",
-      "importance": "high",
-      "qualityScore": 86,
-      "createdAt": "2026-07-17T17:50:53.955523+00:00",
-      "capturedAt": "2026-07-17T17:50:53.955523+00:00",
-      "updatedAt": "2026-07-19T19:09:09.892674+00:00",
       "createdBy": "ATLAS",
       "workflowStep": "",
       "sourceRunReference": ""
