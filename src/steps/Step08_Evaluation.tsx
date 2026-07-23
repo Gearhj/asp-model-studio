@@ -276,7 +276,7 @@ export default function Step08Evaluation() {
 
   useEffect(() => {
     setComparison(loadInterpretationCandidates(projectId));
-    getJson<{ ok: boolean; summary?: { ranked?: RankedRow[] } }>(`${API_BASE}/train/last`)
+    getJson<{ ok: boolean; summary?: { ranked?: RankedRow[] } }>(`${API_BASE}/train/last?project_id=${encodeURIComponent(projectId)}`)
       .then((response) => {
         const rows = response.summary?.ranked ?? [];
         const actual = rows.length ? rows : loadLocalRanked();
@@ -303,11 +303,12 @@ export default function Step08Evaluation() {
     setTree(null);
     setKnn(null);
     const family = modelFamily(selectedModel);
+    const projectQuery = `project_id=${encodeURIComponent(projectId)}`;
     const common = Promise.allSettled([
-      getJson<Curves>(`${API_BASE}/eval/curves?model=${encodeURIComponent(selectedKey)}`),
-      getJson<DetailResponse>(`${API_BASE}/interpretation/details?model=${encodeURIComponent(selectedKey)}`),
-      getJson<ImportanceResponse>(`${API_BASE}/interpretation/importance?model=${encodeURIComponent(selectedKey)}`),
-      getJson<HyperparameterResponse>(`${API_BASE}/interpretation/hyperparameters?model=${encodeURIComponent(selectedKey)}`),
+      getJson<Curves>(`${API_BASE}/eval/curves?model=${encodeURIComponent(selectedKey)}&${projectQuery}`),
+      getJson<DetailResponse>(`${API_BASE}/interpretation/details?model=${encodeURIComponent(selectedKey)}&${projectQuery}`),
+      getJson<ImportanceResponse>(`${API_BASE}/interpretation/importance?model=${encodeURIComponent(selectedKey)}&${projectQuery}`),
+      getJson<HyperparameterResponse>(`${API_BASE}/interpretation/hyperparameters?model=${encodeURIComponent(selectedKey)}&${projectQuery}`),
     ]).then(([curveResult, detailResult, importanceResult, parameterResult]) => {
       setCurves(curveResult.status === "fulfilled" ? curveResult.value : { ok: false, error: String(curveResult.reason?.message ?? curveResult.reason) });
       setDetails(detailResult.status === "fulfilled" ? detailResult.value : { ok: false, error: String(detailResult.reason?.message ?? detailResult.reason) });
@@ -315,9 +316,9 @@ export default function Step08Evaluation() {
       setHyperparameters(parameterResult.status === "fulfilled" ? parameterResult.value : { ok: false, rows: [] });
     });
     const specific = family === "Decision Tree"
-      ? getJson<TreeResponse>(`${API_BASE}/eval/tree?model=${encodeURIComponent(selectedKey)}&max_depth=4`).then(setTree).catch((error) => setTree({ ok: false, error: String(error?.message ?? error) }))
+      ? getJson<TreeResponse>(`${API_BASE}/eval/tree?model=${encodeURIComponent(selectedKey)}&max_depth=4&${projectQuery}`).then(setTree).catch((error) => setTree({ ok: false, error: String(error?.message ?? error) }))
       : family === "K-Nearest Neighbors"
-        ? getJson<KnnResponse>(`${API_BASE}/eval/knn_clusters?model=${encodeURIComponent(selectedKey)}&max_points=900`).then(setKnn).catch((error) => setKnn({ ok: false, error: String(error?.message ?? error) }))
+        ? getJson<KnnResponse>(`${API_BASE}/eval/knn_clusters?model=${encodeURIComponent(selectedKey)}&max_points=900&${projectQuery}`).then(setKnn).catch((error) => setKnn({ ok: false, error: String(error?.message ?? error) }))
         : Promise.resolve();
     Promise.allSettled([common, specific]).finally(() => setLoadingDiagnostics(false));
   }, [projectId, selectedKey]);
@@ -328,12 +329,12 @@ export default function Step08Evaluation() {
       return;
     }
     const timer = window.setTimeout(() => {
-      getJson<CommandCenter>(`${API_BASE}/eval/command_center?model=${encodeURIComponent(selectedKey)}&threshold=${threshold}&review_capacity=${reviewCapacity / 100}`)
+      getJson<CommandCenter>(`${API_BASE}/eval/command_center?model=${encodeURIComponent(selectedKey)}&threshold=${threshold}&review_capacity=${reviewCapacity / 100}&project_id=${encodeURIComponent(projectId)}`)
         .then(setCommand)
         .catch((error) => setCommand({ ok: false, error: String(error?.message ?? error) }));
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [problemType, reviewCapacity, selectedKey, threshold]);
+  }, [problemType, projectId, reviewCapacity, selectedKey, threshold]);
 
   function selectForReview(model: RankedRow) {
     setSelectedKey(model.key);

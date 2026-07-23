@@ -1,0 +1,12 @@
+{
+  "status": 200,
+  "ready": true,
+  "warnings": [
+    "Rare-event target detected. Use PR-AUC, recall, lift, and calibration evidence rather than accuracy alone.",
+    "Training-only imputation will be fitted for 29 predictor(s) with missing values."
+  ],
+  "dataset_id": "upload-cdab7052",
+  "dataset_version": "20260723141700-cdab7052",
+  "split_id": "split-f0de622d19b69af05aa5",
+  "feature_manifest_version": "fm-011cbb169d13b020"
+}

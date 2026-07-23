@@ -15,6 +15,7 @@ class BureauMetadataInput(BaseModel):
 
 
 class BureauDetectionRequest(BaseModel):
+    project_id: str
     target: Optional[str] = None
     event_value: Optional[Any] = None
     manual_declaration: Literal["auto", "contains", "does_not_contain", "manual_review"] = "auto"

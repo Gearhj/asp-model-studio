@@ -103,12 +103,14 @@ function format(value: unknown) {
 
 async function uploadScore(
   file: File,
+  projectId: string,
   datasetType: "test" | "oot",
   options: { correctionMethod: string; originalPrior: string; modelPrior: string }
 ) {
   const body = new FormData();
   body.append("file", file);
   const params = new URLSearchParams({
+    project_id: projectId,
     dataset_type: datasetType,
     model: "final",
     correction_method: options.correctionMethod,
@@ -129,10 +131,12 @@ async function uploadScore(
 }
 
 async function scoreDevelopmentSplit(
+  projectId: string,
   datasetType: "train" | "test",
   options: { correctionMethod: string; originalPrior: string; modelPrior: string }
 ) {
   const params = new URLSearchParams({
+    project_id: projectId,
     dataset_type: datasetType,
     model: "final",
     correction_method: options.correctionMethod,
@@ -176,7 +180,7 @@ export default function Step10Scoring() {
       target: dataset?.target ?? "",
       problem_type: expectedProblemType ?? "",
     });
-    fetch(`${API_BASE}/model/final/status`, { credentials: "include" })
+    fetch(`${API_BASE}/model/final/status?project_id=${encodeURIComponent(projectId)}`, { credentials: "include" })
       .then(async (res) => {
         if (!res.ok) throw new Error(`Final-model status failed (${res.status}).`);
         return res.json();
@@ -216,7 +220,7 @@ export default function Step10Scoring() {
     setMessage("");
     setLoading(datasetType);
     try {
-      const data = await uploadScore(file, datasetType, { correctionMethod, originalPrior, modelPrior });
+      const data = await uploadScore(file, projectId, datasetType, { correctionMethod, originalPrior, modelPrior });
       if (!originalPrior && typeof data.probability_correction?.default_original_prior === "number") {
         setOriginalPrior(String(data.probability_correction.default_original_prior));
       }
@@ -236,7 +240,7 @@ export default function Step10Scoring() {
     setMessage("");
     setLoading(datasetType);
     try {
-      const data = await scoreDevelopmentSplit(datasetType, { correctionMethod, originalPrior, modelPrior });
+      const data = await scoreDevelopmentSplit(projectId, datasetType, { correctionMethod, originalPrior, modelPrior });
       setTrainResult(data);
     } catch (err: any) {
       setMessage(err?.message ?? "Development split scoring failed.");

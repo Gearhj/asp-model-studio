@@ -42,16 +42,19 @@ class PipelineStepInput(BaseModel):
 
 
 class FeatureManifestUpdateRequest(BaseModel):
+    project_id: str
     features: List[FeatureDefinitionInput] = Field(default_factory=list)
     pipeline_steps: List[PipelineStepInput] = Field(default_factory=list)
     dataset_version: str = ""
 
 
 class FeaturePreviewRequest(BaseModel):
+    project_id: str
     features: List[FeatureDefinitionInput] = Field(default_factory=list)
     preview_limit: int = Field(default=20, ge=1, le=100)
 
 
 class FeatureMaterializeRequest(BaseModel):
+    project_id: str
     manifest_version: str = ""
 

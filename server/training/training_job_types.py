@@ -15,7 +15,7 @@ class TrainingJobRequest(BaseModel):
     grid_search: bool = False
     grid_search_level: str = "quick"
     model_params: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
-    project_id: str = ""
+    project_id: str
     dataset_id: str = ""
     dataset_version: str = ""
     target: str = ""

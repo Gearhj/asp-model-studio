@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class EDAWorkspaceRequest(BaseModel):
+    project_id: str
     target: Optional[str] = None
     event_value: Optional[Any] = None
     problem_type: Optional[str] = None

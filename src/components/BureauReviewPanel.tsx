@@ -46,7 +46,7 @@ export default function BureauReviewPanel({ target, eventValue, enabled }: { tar
     setLoading(true);
     setError("");
     try {
-      const payload = await fetchBureauDetection({ target, eventValue, state, metadata: bureauMetadata(), signal });
+      const payload = await fetchBureauDetection({ projectId, target, eventValue, state, metadata: bureauMetadata(), signal });
       setResult(payload);
     } catch (cause) {
       if (cause instanceof DOMException && cause.name === "AbortError") return;

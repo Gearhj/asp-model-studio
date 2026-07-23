@@ -177,6 +177,7 @@ export default function Step04Outliers() {
       const payload = await requestJson<OutlierSummary>("/outliers/summary", {
         method: "POST",
         body: JSON.stringify({
+          project_id: projectId,
           target: localDataset?.target,
           event_value: localDataset?.event_value,
           problem_type: localDataset?.problem_type,
@@ -258,6 +259,7 @@ export default function Step04Outliers() {
       const payload = await requestJson<{ ok: true; scope: "full_dataset"; application: OutlierApplication }>("/outliers/apply", {
         method: "POST",
         body: JSON.stringify({
+          project_id: projectId,
           config: normalizedConfig(safeArray<OutlierFeature>(summary.features), config),
           global_method: globalMethod,
           target: summary.target,

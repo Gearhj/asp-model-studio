@@ -22,12 +22,14 @@ from typing import Dict, Any, List, Optional
 import re
 
 import pandas as pd
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 
 from .dataset_store import DATASTORE
+from .modeling_scope import authorize_modeling_scope
 from .result_store import RESULTS
 from .session_checkpoint import save_checkpoint
+from ..security.security_store import require_user
 
 router = APIRouter()
 
@@ -75,6 +77,7 @@ def _infer_target(df: pd.DataFrame) -> Optional[str]:
 # Pydantic model for /data/set_sample
 # -----------------------------------------------------------------------------
 class SetSamplePayload(BaseModel):
+    project_id: str
     headers: List[str] = Field(default_factory=list)
     rows: List[Dict[str, Any]] = Field(default_factory=list)
     target: Optional[str] = None
@@ -83,6 +86,7 @@ class SetSamplePayload(BaseModel):
 
 
 class SetTargetPayload(BaseModel):
+    project_id: str
     target: Optional[str] = None
     selected_columns: Optional[List[str]] = None
     dataset_version: Optional[str] = None
@@ -92,13 +96,14 @@ class SetTargetPayload(BaseModel):
 # POST /api/data/set_sample
 # -----------------------------------------------------------------------------
 @router.post("/data/set_sample")
-def set_sample(payload: SetSamplePayload) -> Dict[str, Any]:
+def set_sample(payload: SetSamplePayload, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     """
     Legacy-compatible endpoint used by Step01_DataAcquisition.tsx.
 
     Payload shape:
 
         {
+          "project_id": "...",
           "headers": [...],
           "rows": [ {col: val, ...}, ... ],
           "target": "TARGET" | null,
@@ -107,9 +112,10 @@ def set_sample(payload: SetSamplePayload) -> Dict[str, Any]:
 
     We:
       • Build a DataFrame from rows
-      • Store it into DATASTORE.raw_df
+      • Store it into DATASTORE.raw_df, scoped to (user, project_id)
       • Optionally set DATASTORE.target
     """
+    authorize_modeling_scope(user, payload.project_id, "edit")
     if not payload.rows:
         return {"ok": False, "error": "No rows provided."}
 
@@ -157,13 +163,14 @@ def set_sample(payload: SetSamplePayload) -> Dict[str, Any]:
 
 
 @router.post("/data/set_target")
-def set_target(payload: SetTargetPayload) -> Dict[str, Any]:
+def set_target(payload: SetTargetPayload, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     """
     Update target/selected feature metadata without replacing DATASTORE.raw_df.
 
     This is required after large backend CSV imports: the browser only keeps a
     preview sample, but the backend must retain the full imported dataset.
     """
+    authorize_modeling_scope(user, payload.project_id, "edit")
     df = DATASTORE.get_base_df()
     if df is None or df.empty:
         return {"ok": False, "error": "No backend dataset is loaded."}
@@ -217,7 +224,7 @@ def set_target(payload: SetTargetPayload) -> Dict[str, Any]:
 # GET /api/columns
 # -----------------------------------------------------------------------------
 @router.get("/columns")
-def get_columns() -> Dict[str, Any]:
+def get_columns(project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     """
     Column metadata used by several steps.
 
@@ -232,6 +239,7 @@ def get_columns() -> Dict[str, Any]:
           "target": "TARGET"
         }
     """
+    authorize_modeling_scope(user, project_id, "view")
     df = _current_df()
     if df is None or df.empty:
         return {"ok": True, "columns": [], "target": None}
@@ -260,7 +268,7 @@ def get_columns() -> Dict[str, Any]:
 # GET /api/data/get_sample
 # -----------------------------------------------------------------------------
 @router.get("/data/get_sample")
-def get_sample(max_rows: int = 5000) -> Dict[str, Any]:
+def get_sample(project_id: str = Query(...), max_rows: int = 5000, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     """
     Sample of the current dataset.
 
@@ -274,6 +282,7 @@ def get_sample(max_rows: int = 5000) -> Dict[str, Any]:
           "selected_columns": null
         }
     """
+    authorize_modeling_scope(user, project_id, "view")
     df = _current_df()
     if df is None or df.empty:
         return {

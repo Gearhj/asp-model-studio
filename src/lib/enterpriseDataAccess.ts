@@ -265,6 +265,7 @@ export function inferDataQuality(dataset: Pick<LocalDataset, "headers" | "rows" 
 }
 
 export async function fetchFullDataQualityProfile(input: {
+  projectId: string;
   target?: string | null;
   eventValue?: unknown;
   nonEventValue?: unknown;
@@ -278,6 +279,7 @@ export async function fetchFullDataQualityProfile(input: {
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      project_id: input.projectId,
       target: input.target,
       event_value: input.eventValue,
       non_event_value: input.nonEventValue,

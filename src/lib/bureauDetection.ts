@@ -113,6 +113,7 @@ export function bureauMetadata(): BureauMetadataRow[] {
 }
 
 export async function fetchBureauDetection(input: {
+  projectId: string;
   target?: string;
   eventValue?: unknown;
   state: BureauReviewState;
@@ -125,6 +126,7 @@ export async function fetchBureauDetection(input: {
     signal: input.signal,
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      project_id: input.projectId,
       target: input.target || undefined,
       event_value: input.eventValue,
       manual_declaration: input.state.declaration,

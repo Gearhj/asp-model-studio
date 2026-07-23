@@ -7,12 +7,14 @@ from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from ..core.dataset_store import DATASTORE
 from ..core.json_safety import json_safe
+from ..core.modeling_scope import authorize_modeling_scope
 from ..core.session_checkpoint import save_checkpoint
+from ..security.security_store import require_user
 from .outlier_service import outlier_service
 
 
@@ -26,6 +28,7 @@ class MissingRule(BaseModel):
 
 
 class MissingApplyRequest(BaseModel):
+    project_id: str
     config: Dict[str, MissingRule] = Field(default_factory=dict)
     event_value: Any = None
     problem_type: str | None = None
@@ -136,9 +139,12 @@ def _informative_missingness(
 
 @router.get("/summary")
 def missing_summary(
+    project_id: str = Query(...),
     event_value: Any = Query(default=None),
     problem_type: str | None = Query(default=None),
+    user: Dict[str, Any] = Depends(require_user),
 ) -> Dict[str, Any]:
+    authorize_modeling_scope(user, project_id, "view")
     work = _normalize_missing(_pre_missing_df())
     target = DATASTORE.target if DATASTORE.target in work.columns else None
     y = work[target] if target else None
@@ -180,7 +186,8 @@ def missing_summary(
 
 
 @router.post("/apply")
-def apply_missing_values(request: MissingApplyRequest) -> Dict[str, Any]:
+def apply_missing_values(request: MissingApplyRequest, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    authorize_modeling_scope(user, request.project_id, "edit")
     work = _normalize_missing(_pre_missing_df())
     before = int(work.isna().sum().sum())
     features = set(_feature_columns(work))

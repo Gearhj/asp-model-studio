@@ -1,0 +1,177 @@
+{
+  "projectId": "atlas-mrworh4c",
+  "projectName": "E2E Recon Stale",
+  "evidenceType": "missing_values",
+  "title": "Full-Data Missing-Value Treatment",
+  "summary": "0 treatments were applied to the full dataset. Missing cells changed from 5,681 to 5,681.",
+  "sourcePage": "Missing Values",
+  "sourceRoute": "/step04",
+  "datasetIds": [
+    "20260722230050-cdab7052"
+  ],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Missing Value Treatment",
+    "Data Quality",
+    "Feature Engineering"
+  ],
+  "tags": [
+    "predictive_modeling",
+    "missing_values",
+    "full_dataset"
+  ],
+  "status": "ready",
+  "importance": "high",
+  "lineage": {
+    "datasetVersion": "20260722230050-cdab7052",
+    "sourceStage": "outlier_treated",
+    "rowsBefore": 4000,
+    "rowsAfter": 4000,
+    "scope": "full_dataset"
+  },
+  "payload": {
+    "applied_at": "2026-07-22T23:01:28.192794+00:00",
+    "dataset_version": "20260722230050-cdab7052",
+    "config": {
+      "Amount": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "Time": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V1": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V10": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V11": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V12": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V13": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V14": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V15": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V16": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V17": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V18": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V19": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V2": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V20": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V21": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V22": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V23": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V24": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V25": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V26": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V27": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V28": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V3": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V4": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V5": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V6": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V7": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V8": {
+        "strategy": "None",
+        "constantValue": null
+      },
+      "V9": {
+        "strategy": "None",
+        "constantValue": null
+      }
+    },
+    "config_signature": "37a4e60d46e95b65",
+    "source_stage": "outlier_treated",
+    "rows_before": 4000,
+    "rows_after": 4000,
+    "missing_before": 5681,
+    "missing_after": 5681,
+    "dropped_rows": 0,
+    "treatments": []
+  },
+  "evidenceId": "ev-full-data-missing-value-treatment-05e2b5dd95c97f38",
+  "governance": {},
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-22T23:01:30.467070+00:00",
+  "capturedAt": "2026-07-22T23:01:30.467070+00:00",
+  "updatedAt": "2026-07-22T23:01:30.467070+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 86
+}

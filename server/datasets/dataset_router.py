@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 import pandas as pd
 
-from fastapi import APIRouter, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile
 from fastapi import Depends
 from pydantic import BaseModel
 
@@ -31,6 +31,7 @@ from .dataset_registry import (
     ARTIFACT_ROOT,
 )
 from ..core.dataset_store import DATASTORE
+from ..core.modeling_scope import authorize_modeling_scope
 from ..core.result_store import RESULTS
 from ..core.session_checkpoint import save_checkpoint
 from ..security.security_store import require_user, user_can_access_project, audit_event
@@ -150,7 +151,8 @@ def get_preview(dataset_id: str, version_id: str) -> Dict[str, Any]:
 
 
 @router.post("/datasets/{dataset_id}/versions/{version_id}/activate")
-def activate_dataset_version(dataset_id: str, version_id: str) -> Dict[str, Any]:
+def activate_dataset_version(dataset_id: str, version_id: str, project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    authorize_modeling_scope(user, project_id, "edit")
     dataset = require_dataset(dataset_id)
     version = next((item for item in dataset.get("versions", []) if item.get("versionId") == version_id), None)
     if not version:

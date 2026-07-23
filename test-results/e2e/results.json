@@ -1,0 +1,150 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\james\\ds-workflow-starter\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "--config=tests/e2e/playwright.config.ts",
+      "_recon.spec.ts"
+    ],
+    "configFile": "C:\\Users\\james\\ds-workflow-starter\\tests\\e2e\\playwright.config.ts",
+    "rootDir": "C:/Users/james/ds-workflow-starter/tests/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 1
+    },
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "C:/Users/james/ds-workflow-starter/test-results/e2e/artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 1
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "C:/Users/james/ds-workflow-starter/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 180000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "html",
+        {
+          "outputFolder": "../../test-results/e2e/html-report",
+          "open": "never"
+        }
+      ],
+      [
+        "json",
+        {
+          "outputFile": "../../test-results/e2e/results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "_recon.spec.ts",
+      "file": "_recon.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "clean-restart diagnostic: single preflight submission",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 360000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [
+                {
+                  "workerIndex": 0,
+                  "parallelIndex": 0,
+                  "status": "passed",
+                  "duration": 138669,
+                  "errors": [],
+                  "stdout": [
+                    {
+                      "text": "DIAG_USER: {\"email\":\"e2e-cleanrestart-diag-mrxlhivfduuj@atlas-e2e.local\",\"displayName\":\"E2E cleanrestart-diag mrxlhivfduuj\",\"password\":\"AtlasE2ePassw0rd!\"}\n"
+                    },
+                    {
+                      "text": "DIAG_PROJECT_URL: http://127.0.0.1:5174/step00\n"
+                    },
+                    {
+                      "text": "PREFLIGHT_STATUS: \u001b[33m200\u001b[39m\n"
+                    },
+                    {
+                      "text": "PREFLIGHT_KEY_FIELDS: {\"ready\":true,\"dataset_id\":\"upload-cdab7052\"}\n"
+                    },
+                    {
+                      "text": "CONSOLE_ERRORS: [\"Failed to load resource: the server responded with a status of 401 (Unauthorized)\",\"Failed to load resource: the server responded with a status of 401 (Unauthorized)\",\"Failed to load resource: the server responded with a status of 404 (Not Found)\",\"Failed to load resource: the server responded with a status of 404 (Not Found)\",\"Failed to load resource: the server responded with a status of 400 (Bad Request)\"]\n"
+                    },
+                    {
+                      "text": "FAILED_REQUESTS: [\"GET http://127.0.0.1:5174/api/notifications/unread-count -- net::ERR_ABORTED\",\"GET http://127.0.0.1:5174/api/train/last?project_id=atlas-mrxlhjl0 -- net::ERR_ABORTED\",\"GET http://127.0.0.1:5174/api/notifications/unread-count -- net::ERR_ABORTED\",\"GET http://127.0.0.1:5174/api/auth/me -- net::ERR_ABORTED\",\"GET http://127.0.0.1:5174/api/train/last?project_id=atlas-mrxlhjl0 -- net::ERR_ABORTED\",\"GET http://127.0.0.1:5174/api/train/last?project_id=atlas-mrxlhjl0 -- net::ERR_ABORTED\"]\n"
+                    },
+                    {
+                      "text": "FAILED_RESPONSES: [{\"url\":\"http://127.0.0.1:5174/api/auth/me\",\"status\":401,\"body\":\"{\\\"error\\\":\\\"no user selected\\\",\\\"hint\\\":\\\"For local API testing, pass X-ATLAS-USER-ID with an active user ID.\\\",\\\"example\\\":\\\"X-ATLAS-USER-ID: user_eecc3a44ed694307\\\",\\\"expected_local_header\\\":{\\\"name\\\":\\\"X-ATLAS-USER-ID\\\",\\\"example\\\":\\\"X-ATLAS-USER-ID: user_eecc3a44ed694307\\\"},\\\"available_dev_users\\\":[{\\\"user_id\\\":\\\"user_0be3f578dfd0495e\\\",\\\"display_name\\\":\\\"E2E cleanrestart-diag mrxlck6h1q22\\\",\\\"role\\\":\\\"data_scientist\\\"},{\\\"user_id\\\":\\\"user_3bfb0c7a519641a4\\\",\\\"display_name\\\":\\\"FND-002 Test stranger-f c2939bdbae\\\",\\\"role\\\":\\\"data_scientist\\\"},{\\\"user_id\\\":\\\"user_c4ed528dfb8746f3\\\",\\\"display_name\\\":\\\"FND-002 Test owner-e 7fa106d561\\\",\\\"role\\\":\\\"data_scientist\\\"},{\\\"user_id\\\":\\\"user_fd571607c88d4a46\\\",\\\"display_name\\\":\\\"FND-002 Test stranger-h 0fa3c0de6f\\\",\\\"role\\\":\\\"data_scientist\\\"},{\\\"user_id\\\":\\\"user_f8250d9088044f05\\\",\\\"display_name\\\":\\\"FND-002 Test owner-g 42d0c202ae\\\",\\\"role\\\":\\\"data_scientist\\\"},{\\\"user_id\\\":\\\"user_64fd8b6732fe43cc\\\",\\\"display_name\\\":\\\"FND-002 Test stranger-d cfc620f29e\\\",\\\"role\\\":\\\"data_scientist\\\"},{\\\"user_id\\\":\\\"user_2fef8d699add4374\\\",\\\"display_name\\\":\\\"FN\"},{\"url\":\"http://127.0.0.1:5174/api/auth/me\",\"status\":401,\"body\":\"{\\\"error\\\":\\\"no user selected\\\",\\\"hint\\\":\\\"For local API testing, pass X-ATLAS-USER-ID with an active user ID.\\\",\\\"example\\\":\\\"X-ATLAS-USER-ID: user_eecc3a44ed694307\\\",\\\"expected_local_header\\\":{\\\"name\\\":\\\"X-ATLAS-USER-ID\\\",\\\"example\\\":\\\"X-ATLAS-USER-ID: user_eecc3a44ed694307\\\"},\\\"available_dev_users\\\":[{\\\"user_id\\\":\\\"user_0be3f578dfd0495e\\\",\\\"display_name\\\":\\\"E2E cleanrestart-diag mrxlck6h1q22\\\",\\\"role\\\":\\\"data_scientist\\\"},{\\\"user_id\\\":\\\"user_3bfb0c7a519641a4\\\",\\\"display_name\\\":\\\"FND-002 Test stranger-f c2939bdbae\\\",\\\"role\\\":\\\"data_scientist\\\"},{\\\"user_id\\\":\\\"user_c4ed528dfb8746f3\\\",\\\"display_name\\\":\\\"FND-002 Test owner-e 7fa106d561\\\",\\\"role\\\":\\\"data_scientist\\\"},{\\\"user_id\\\":\\\"user_fd571607c88d4a46\\\",\\\"display_name\\\":\\\"FND-002 Test stranger-h 0fa3c0de6f\\\",\\\"role\\\":\\\"data_scientist\\\"},{\\\"user_id\\\":\\\"user_f8250d9088044f05\\\",\\\"display_name\\\":\\\"FND-002 Test owner-g 42d0c202ae\\\",\\\"role\\\":\\\"data_scientist\\\"},{\\\"user_id\\\":\\\"user_64fd8b6732fe43cc\\\",\\\"display_name\\\":\\\"FND-002 Test stranger-d cfc620f29e\\\",\\\"role\\\":\\\"data_scientist\\\"},{\\\"user_id\\\":\\\"user_2fef8d699add4374\\\",\\\"display_name\\\":\\\"FN\"},{\"url\":\"http://127.0.0.1:5174/api/train/last?project_id=atlas-mrxlhjl0\",\"status\":404,\"body\":\"{\\\"detail\\\":\\\"ATLAS project was not found in the persistence database.\\\"}\"},{\"url\":\"http://127.0.0.1:5174/api/train/last?project_id=atlas-mrxlhjl0\",\"status\":404,\"body\":\"{\\\"detail\\\":\\\"ATLAS project was not found in the persistence database.\\\"}\"},{\"url\":\"http://127.0.0.1:5174/api/data/bureau-detection\",\"status\":400,\"body\":\"{\\\"detail\\\":\\\"No full backend dataset is loaded.\\\"}\"}]\n"
+                    }
+                  ],
+                  "stderr": [],
+                  "retry": 0,
+                  "startTime": "2026-07-23T14:16:45.781Z",
+                  "annotations": [],
+                  "attachments": []
+                }
+              ],
+              "status": "expected"
+            }
+          ],
+          "id": "a880788eedbaeca4562f-8209999f36d3c4efba85",
+          "file": "_recon.spec.ts",
+          "line": 12,
+          "column": 1
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-07-23T14:16:41.553Z",
+    "duration": 164199.22,
+    "expected": 1,
+    "skipped": 0,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

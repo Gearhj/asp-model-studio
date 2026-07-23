@@ -1,0 +1,161 @@
+{
+  "projectId": "atlas-mrwpazrn",
+  "projectName": "E2E Recon Train Diag",
+  "evidenceType": "feature_engineering",
+  "title": "Governed Feature Gate and Validation Split",
+  "summary": "30 predictors were approved for split split-b36a1980d53c7ad88268. Balancing was applied to training rows only.",
+  "sourcePage": "Balance & Split",
+  "sourceRoute": "/step06",
+  "datasetIds": [
+    "20260722231558-cdab7052"
+  ],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Feature Engineering",
+    "Development Test and OOT Data",
+    "Candidate Models"
+  ],
+  "tags": [
+    "predictive_modeling",
+    "feature_gate",
+    "validation_split"
+  ],
+  "status": "ready",
+  "importance": "high",
+  "lineage": {
+    "datasetVersion": "20260722231558-cdab7052",
+    "manifestVersion": "fm-8837c95c005a8130",
+    "splitId": "split-b36a1980d53c7ad88268"
+  },
+  "payload": {
+    "ok": true,
+    "status": "current",
+    "ready": true,
+    "readiness_reason": "Ready for next step. Validation split is current.",
+    "has_split": true,
+    "split_id": "split-b36a1980d53c7ad88268",
+    "config_hash": "b36a1980d53c7ad88268",
+    "selected_feature_hash": "115c59101bfc0a5ce402",
+    "split_config_hash": "3be2903445ce74aff19f",
+    "balancing_config_hash": "aa6feced80dae8229624",
+    "created_at": "2026-07-22T23:17:15.070673+00:00",
+    "dataset_version": "20260722231558-cdab7052",
+    "target": "Class",
+    "event_value": 1,
+    "feature_manifest_version": "fm-8837c95c005a8130",
+    "selected_features": [
+      "Time",
+      "V1",
+      "V2",
+      "V3",
+      "V4",
+      "V5",
+      "V6",
+      "V7",
+      "V8",
+      "V9",
+      "V10",
+      "V11",
+      "V12",
+      "V13",
+      "V14",
+      "V15",
+      "V16",
+      "V17",
+      "V18",
+      "V19",
+      "V20",
+      "V21",
+      "V22",
+      "V23",
+      "V24",
+      "V25",
+      "V26",
+      "V27",
+      "V28",
+      "Amount"
+    ],
+    "feature_count": 30,
+    "config": {
+      "split_strategy": "holdout",
+      "test_size": 0.2,
+      "random_seed": 42,
+      "stratify": true,
+      "balance_method": "none",
+      "minority_share": 0.5,
+      "problem_type": "classification",
+      "event_value": 1,
+      "target": "Class"
+    },
+    "distributions": {
+      "full_dataset": {
+        "rows": 4000,
+        "valid_rows": 4000,
+        "missing_rows": 0,
+        "classes": {
+          "0": 3992,
+          "1": 8
+        },
+        "event_value": 1,
+        "events": 8,
+        "non_events": 3992,
+        "event_rate": 0.002
+      },
+      "train_before_balancing": {
+        "rows": 3200,
+        "valid_rows": 3200,
+        "missing_rows": 0,
+        "classes": {
+          "0": 3194,
+          "1": 6
+        },
+        "event_value": 1,
+        "events": 6,
+        "non_events": 3194,
+        "event_rate": 0.001875
+      },
+      "train_after_balancing": {
+        "rows": 3200,
+        "valid_rows": 3200,
+        "missing_rows": 0,
+        "classes": {
+          "0": 3194,
+          "1": 6
+        },
+        "event_value": 1,
+        "events": 6,
+        "non_events": 3194,
+        "event_rate": 0.001875
+      },
+      "holdout_untouched": {
+        "rows": 800,
+        "valid_rows": 800,
+        "missing_rows": 0,
+        "classes": {
+          "0": 798,
+          "1": 2
+        },
+        "event_value": 1,
+        "events": 2,
+        "non_events": 798,
+        "event_rate": 0.0025
+      }
+    },
+    "n_train": 3200,
+    "n_test": 800,
+    "original_train_rows": 3200,
+    "duration_ms": 14,
+    "execution_ms": 14
+  },
+  "evidenceId": "ev-governed-feature-gate-and-validation-split-1395e3b0ec75442e",
+  "governance": {},
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-22T23:17:23.350106+00:00",
+  "capturedAt": "2026-07-22T23:17:23.350106+00:00",
+  "updatedAt": "2026-07-22T23:17:23.350106+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 86
+}

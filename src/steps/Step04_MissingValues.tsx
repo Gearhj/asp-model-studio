@@ -124,6 +124,7 @@ export default function Step04MissingValues() {
     setError("");
     try {
       const query = new URLSearchParams();
+      query.set("project_id", projectId);
       if (localDataset?.event_value !== undefined && localDataset?.event_value !== null) query.set("event_value", String(localDataset.event_value));
       if (localDataset?.problem_type) query.set("problem_type", localDataset.problem_type);
       const payload = await requestJson<MissingSummary>(`/missing/summary?${query.toString()}`);
@@ -205,7 +206,7 @@ export default function Step04MissingValues() {
     try {
       const payload = await requestJson<{ ok: true; scope: "full_dataset"; application: MissingApplication }>("/missing/apply", {
         method: "POST",
-        body: JSON.stringify({ config: normalizeConfig(summary.columns, config), event_value: summary.event_value, problem_type: summary.problem_type }),
+        body: JSON.stringify({ project_id: projectId, config: normalizeConfig(summary.columns, config), event_value: summary.event_value, problem_type: summary.problem_type }),
       });
       setSummary((current) => current ? { ...current, application: payload.application } : current);
       setMessage(`Applied ${payload.application.treatments.length.toLocaleString()} full-data treatment decisions. Missing cells changed from ${payload.application.missing_before.toLocaleString()} to ${payload.application.missing_after.toLocaleString()}.`);

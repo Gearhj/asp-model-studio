@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 
 class DataProfileRequest(BaseModel):
+    project_id: str
     target: Optional[str] = None
     event_value: Optional[Any] = None
     non_event_value: Optional[Any] = None

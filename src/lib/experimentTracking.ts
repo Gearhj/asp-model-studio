@@ -62,6 +62,7 @@ type RankedModel = {
 
 type CaptureInput = {
   apiBase: string;
+  projectId: string;
   ranked: RankedModel[];
   selectedModelKeys: string[];
   trainingSettings: Record<string, unknown>;
@@ -171,7 +172,8 @@ function compactTimestamp() {
   return new Date().toISOString().replace(/\D/g, "").slice(0, 14);
 }
 
-async function captureDiagnostics(apiBase: string, modelKey: string) {
+async function captureDiagnostics(apiBase: string, projectId: string, modelKey: string) {
+  const projectQuery = `project_id=${encodeURIComponent(projectId)}`;
   const [curves, importance, deciles] = await Promise.all([
     getJson<{
       ok?: boolean;
@@ -179,12 +181,12 @@ async function captureDiagnostics(apiBase: string, modelKey: string) {
       confusion?: number[][];
       roc?: { fpr: number[]; tpr: number[] };
       pr?: { precision: number[]; recall: number[] };
-    }>(`${apiBase}/eval/curves?model=${encodeURIComponent(modelKey)}`),
+    }>(`${apiBase}/eval/curves?model=${encodeURIComponent(modelKey)}&${projectQuery}`),
     getJson<{ ok?: boolean; rows?: ExperimentRecord["featureImportance"] }>(
-      `${apiBase}/interpretation/importance?model=${encodeURIComponent(modelKey)}`
+      `${apiBase}/interpretation/importance?model=${encodeURIComponent(modelKey)}&${projectQuery}`
     ),
     getJson<{ ok?: boolean; rows?: { decile?: number; lift?: number }[] }>(
-      `${apiBase}/eval/deciles?model=${encodeURIComponent(modelKey)}`
+      `${apiBase}/eval/deciles?model=${encodeURIComponent(modelKey)}&${projectQuery}`
     ),
   ]);
 
@@ -208,7 +210,7 @@ export async function recordTrainingExperiments(input: CaptureInput) {
     input.ranked
       .filter((model) => input.selectedModelKeys.includes(model.key))
       .map(async (model) => {
-        const diagnostics = await captureDiagnostics(input.apiBase, model.key);
+        const diagnostics = await captureDiagnostics(input.apiBase, input.projectId, model.key);
         const curveMetrics = diagnostics.curves?.metrics ?? {};
         const metrics: ExperimentMetricSet = {
           auc: curveMetrics.auc ?? model.auc,

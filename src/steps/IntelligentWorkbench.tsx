@@ -86,6 +86,7 @@ function todayStamp() {
 
 export default function IntelligentWorkbench() {
   const steps = useWorkflowStore((state) => state.steps);
+  const projectId = useWorkflowStore((state) => state.projectId);
   const [ranked, setRanked] = useState<RankedModel[]>([]);
   const [experiments, setExperiments] = useState<Experiment[]>(() => readList<Experiment>(EXPERIMENT_KEY));
   const [decisions, setDecisions] = useState<Decision[]>(() => readList<Decision>(DECISION_KEY));
@@ -110,7 +111,11 @@ export default function IntelligentWorkbench() {
   const champion = ranked[0] ?? null;
 
   useEffect(() => {
-    fetch(`${API_BASE}/train/last`, { credentials: "include" })
+    if (!projectId) {
+      setRanked([]);
+      return;
+    }
+    fetch(`${API_BASE}/train/last?project_id=${encodeURIComponent(projectId)}`, { credentials: "include" })
       .then((res) => res.json())
       .then((data) => {
         const rows = data?.summary?.ranked;
@@ -128,7 +133,7 @@ export default function IntelligentWorkbench() {
         }
       })
       .catch(() => setRanked([]));
-  }, []);
+  }, [projectId]);
 
   useEffect(() => writeList(EXPERIMENT_KEY, experiments), [experiments]);
   useEffect(() => writeList(DECISION_KEY, decisions), [decisions]);

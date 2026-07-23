@@ -234,12 +234,13 @@ export function profileFeaturesInBrowser(
   };
 }
 
-export async function fetchFullFeatureProfile(dataset: LocalDataset): Promise<FeatureProfileResponse> {
+export async function fetchFullFeatureProfile(dataset: LocalDataset, projectId: string): Promise<FeatureProfileResponse> {
   const response = await fetch(`${API_BASE}/data/feature-profile`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
+      project_id: projectId,
       target: dataset.target,
       event_value: dataset.event_value,
       non_event_value: dataset.non_event_value,

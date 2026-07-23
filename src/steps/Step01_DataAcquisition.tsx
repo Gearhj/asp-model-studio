@@ -535,7 +535,7 @@ export default function Step01DataAcquisition() {
       completeBrowserDataset ? "complete_browser_dataset" : "preview_profile",
     );
     if (backendImportSynced) {
-      fetchFullFeatureProfile(profileDataset)
+      fetchFullFeatureProfile(profileDataset, projectId)
         .then((payload) => alive && setFeatureProfile(payload))
         .catch(() => alive && setFeatureProfile(browserProfile()));
     } else {
@@ -565,7 +565,7 @@ export default function Step01DataAcquisition() {
       };
     };
     if (backendImportSynced) {
-      fetchFullDataQualityProfile({ target, eventValue, nonEventValue, selectedColumns: selected })
+      fetchFullDataQualityProfile({ projectId, target, eventValue, nonEventValue, selectedColumns: selected })
         .then((payload) => alive && setQuality(payload))
         .catch(() => alive && setQuality(browserQuality()));
     } else {
@@ -691,6 +691,7 @@ export default function Step01DataAcquisition() {
     try {
       const formData = new FormData();
       formData.append("file", file);
+      formData.append("project_id", projectId);
       const response = await fetch(`${BASE}/data/upload_csv`, {
         method: "POST",
         credentials: "include",
@@ -880,8 +881,8 @@ export default function Step01DataAcquisition() {
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify(backendImportSynced
-          ? { target, selected_columns: localView.selectedColumns, dataset_version: meta?.version }
-          : { ...backendPayload, dataset_version: meta?.version }),
+          ? { project_id: projectId, target, selected_columns: localView.selectedColumns, dataset_version: meta?.version }
+          : { ...backendPayload, project_id: projectId, dataset_version: meta?.version }),
       });
       const backendJson = await backendRes.json().catch(() => null);
       if (!backendRes.ok || !backendJson?.ok) {
@@ -992,7 +993,7 @@ export default function Step01DataAcquisition() {
         try {
           const [preview, activation] = await Promise.all([
             getDatasetPreview(selectedLibraryDatasetId, selectedLibraryVersionId),
-            activateDatasetVersion(selectedLibraryDatasetId, selectedLibraryVersionId),
+            activateDatasetVersion(selectedLibraryDatasetId, selectedLibraryVersionId, projectId),
           ]);
           const normalized = {
             headers: preview.columns,

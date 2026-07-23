@@ -155,9 +155,9 @@ export async function getDatasetPreview(datasetId: string, versionId: string) {
   return payload.preview;
 }
 
-export async function activateDatasetVersion(datasetId: string, versionId: string) {
+export async function activateDatasetVersion(datasetId: string, versionId: string, projectId: string) {
   return jsonFetch<{ ok: true; datasetId: string; versionId: string; row_count: number; column_count: number; headers: string[]; selected_columns: string[] }>(
-    `/datasets/${datasetId}/versions/${versionId}/activate`,
+    `/datasets/${datasetId}/versions/${versionId}/activate?project_id=${encodeURIComponent(projectId)}`,
     { method: "POST" },
   );
 }

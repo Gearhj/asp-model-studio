@@ -2,47 +2,18 @@
 
 import io
 import hashlib
+from typing import Any, Dict
 
 import pandas as pd
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import Response
+from ..core.modeling_scope import authorize_modeling_scope
 from ..core.session_checkpoint import save_checkpoint
+from ..security.security_store import require_user
 from .eval_service import EVAL
 
 
 router = APIRouter()
-
-
-@router.get("/eval/curves")
-def get_curves(model: str):
-    """Return curves computed from the persisted governed holdout predictions."""
-    return EVAL.get_curves(model)
-
-
-@router.get("/eval/deciles")
-def get_deciles(model: str):
-    """Return deciles computed from the persisted governed holdout predictions."""
-    return EVAL.get_deciles(model)
-
-
-@router.get("/eval/command_center")
-def get_evaluation_command_center(model: str, threshold: float = 0.5, review_capacity: float = 0.1):
-    """Return real threshold, lift, gain, capture, and calibration diagnostics."""
-    return EVAL.get_evaluation_command_center(
-        model,
-        threshold=threshold,
-        review_capacity=review_capacity,
-    )
-
-
-@router.get("/eval/tree")
-def get_decision_tree(model: str, max_depth: int = 4, project_id: str = "", dataset_version: str = "", target: str = "", problem_type: str = ""):
-    return EVAL.decision_tree(model, max_depth=max_depth, context=_context(project_id, dataset_version, target, problem_type))
-
-
-@router.get("/eval/knn_clusters")
-def get_knn_clusters(model: str, max_points: int = 900):
-    return EVAL.knn_clusters(model, max_points=max_points)
 
 
 def _context(
@@ -59,58 +30,180 @@ def _context(
     }
 
 
+@router.get("/eval/curves")
+def get_curves(model: str, project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)):
+    """Return curves computed from the persisted governed holdout predictions."""
+    authorize_modeling_scope(user, project_id, "view")
+    return EVAL.get_curves(model)
+
+
+@router.get("/eval/deciles")
+def get_deciles(model: str, project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)):
+    """Return deciles computed from the persisted governed holdout predictions."""
+    authorize_modeling_scope(user, project_id, "view")
+    return EVAL.get_deciles(model)
+
+
+@router.get("/eval/command_center")
+def get_evaluation_command_center(
+    model: str,
+    project_id: str = Query(...),
+    threshold: float = 0.5,
+    review_capacity: float = 0.1,
+    user: Dict[str, Any] = Depends(require_user),
+):
+    """Return real threshold, lift, gain, capture, and calibration diagnostics."""
+    authorize_modeling_scope(user, project_id, "view")
+    return EVAL.get_evaluation_command_center(
+        model,
+        threshold=threshold,
+        review_capacity=review_capacity,
+    )
+
+
+@router.get("/eval/tree")
+def get_decision_tree(
+    model: str,
+    project_id: str = Query(...),
+    max_depth: int = 4,
+    dataset_version: str = "",
+    target: str = "",
+    problem_type: str = "",
+    user: Dict[str, Any] = Depends(require_user),
+):
+    authorize_modeling_scope(user, project_id, "view")
+    return EVAL.decision_tree(model, max_depth=max_depth, context=_context(project_id, dataset_version, target, problem_type))
+
+
+@router.get("/eval/knn_clusters")
+def get_knn_clusters(model: str, project_id: str = Query(...), max_points: int = 900, user: Dict[str, Any] = Depends(require_user)):
+    authorize_modeling_scope(user, project_id, "view")
+    return EVAL.knn_clusters(model, max_points=max_points)
+
+
 @router.get("/interpretation/importance")
-def get_feature_importance(model: str, project_id: str = "", dataset_version: str = "", target: str = "", problem_type: str = ""):
+def get_feature_importance(
+    model: str,
+    project_id: str = Query(...),
+    dataset_version: str = "",
+    target: str = "",
+    problem_type: str = "",
+    user: Dict[str, Any] = Depends(require_user),
+):
+    authorize_modeling_scope(user, project_id, "view")
     return EVAL.feature_importance(model, _context(project_id, dataset_version, target, problem_type))
 
 
 @router.get("/interpretation/details")
-def get_model_details(model: str, project_id: str = "", dataset_version: str = "", target: str = "", problem_type: str = ""):
+def get_model_details(
+    model: str,
+    project_id: str = Query(...),
+    dataset_version: str = "",
+    target: str = "",
+    problem_type: str = "",
+    user: Dict[str, Any] = Depends(require_user),
+):
+    authorize_modeling_scope(user, project_id, "view")
     return EVAL.model_details(model, _context(project_id, dataset_version, target, problem_type))
 
 
 @router.get("/interpretation/debug")
-def get_model_debug(model: str, project_id: str = "", dataset_version: str = "", target: str = "", problem_type: str = ""):
+def get_model_debug(
+    model: str,
+    project_id: str = Query(...),
+    dataset_version: str = "",
+    target: str = "",
+    problem_type: str = "",
+    user: Dict[str, Any] = Depends(require_user),
+):
+    authorize_modeling_scope(user, project_id, "view")
     return EVAL.model_details(model, _context(project_id, dataset_version, target, problem_type))
 
 
 @router.get("/interpretation/hyperparameters")
-def get_hyperparameters(model: str, project_id: str = "", dataset_version: str = "", target: str = "", problem_type: str = ""):
+def get_hyperparameters(
+    model: str,
+    project_id: str = Query(...),
+    dataset_version: str = "",
+    target: str = "",
+    problem_type: str = "",
+    user: Dict[str, Any] = Depends(require_user),
+):
+    authorize_modeling_scope(user, project_id, "view")
     return EVAL.hyperparameters(model, _context(project_id, dataset_version, target, problem_type))
 
 
 @router.get("/interpretation/pdp")
-def get_pdp(model: str, feature: str, project_id: str = "", dataset_version: str = "", target: str = "", problem_type: str = ""):
+def get_pdp(
+    model: str,
+    feature: str,
+    project_id: str = Query(...),
+    dataset_version: str = "",
+    target: str = "",
+    problem_type: str = "",
+    user: Dict[str, Any] = Depends(require_user),
+):
+    authorize_modeling_scope(user, project_id, "view")
     return EVAL.pdp(model, feature, _context(project_id, dataset_version, target, problem_type))
 
 
 @router.get("/interpretation/sensitivity")
-def get_sensitivity(model: str, feature: str, project_id: str = "", dataset_version: str = "", target: str = "", problem_type: str = ""):
+def get_sensitivity(
+    model: str,
+    feature: str,
+    project_id: str = Query(...),
+    dataset_version: str = "",
+    target: str = "",
+    problem_type: str = "",
+    user: Dict[str, Any] = Depends(require_user),
+):
+    authorize_modeling_scope(user, project_id, "view")
     return EVAL.sensitivity(model, feature, _context(project_id, dataset_version, target, problem_type))
 
 
 @router.get("/interpretation/sensitivity_summary")
-def get_sensitivity_summary(model: str, top_n: int = 12):
+def get_sensitivity_summary(model: str, project_id: str = Query(...), top_n: int = 12, user: Dict[str, Any] = Depends(require_user)):
+    authorize_modeling_scope(user, project_id, "view")
     return EVAL.sensitivity_summary(model, top_n=top_n)
 
 
 @router.get("/interpretation/vsi")
-def get_vsi_summary(model: str, top_n: int = 40):
+def get_vsi_summary(model: str, project_id: str = Query(...), top_n: int = 40, user: Dict[str, Any] = Depends(require_user)):
+    authorize_modeling_scope(user, project_id, "view")
     return EVAL.vsi_summary(model, top_n=top_n)
 
 
 @router.get("/interpretation/vif")
-def get_vif_summary(model: str = "final"):
+def get_vif_summary(project_id: str = Query(...), model: str = "final", user: Dict[str, Any] = Depends(require_user)):
+    authorize_modeling_scope(user, project_id, "view")
     return EVAL.vif_summary(model)
 
 
 @router.get("/interpretation/shap")
-def get_shap_summary(model: str, project_id: str = "", dataset_version: str = "", target: str = "", problem_type: str = ""):
+def get_shap_summary(
+    model: str,
+    project_id: str = Query(...),
+    dataset_version: str = "",
+    target: str = "",
+    problem_type: str = "",
+    user: Dict[str, Any] = Depends(require_user),
+):
+    authorize_modeling_scope(user, project_id, "view")
     return EVAL.shap_summary(model, _context(project_id, dataset_version, target, problem_type))
 
 
 @router.get("/interpretation/decision_boundary")
-def get_decision_boundary(model: str, x_feature: str = "", y_feature: str = "", project_id: str = "", dataset_version: str = "", target: str = "", problem_type: str = ""):
+def get_decision_boundary(
+    model: str,
+    project_id: str = Query(...),
+    x_feature: str = "",
+    y_feature: str = "",
+    dataset_version: str = "",
+    target: str = "",
+    problem_type: str = "",
+    user: Dict[str, Any] = Depends(require_user),
+):
+    authorize_modeling_scope(user, project_id, "view")
     return EVAL.decision_boundary(
         model_name=model,
         x_feature=x_feature,
@@ -120,17 +213,27 @@ def get_decision_boundary(model: str, x_feature: str = "", y_feature: str = "", 
 
 
 @router.get("/interpretation/rfe")
-def get_rfe(model: str = "", keep: int = 10, project_id: str = "", dataset_version: str = "", target: str = "", problem_type: str = ""):
+def get_rfe(
+    project_id: str = Query(...),
+    model: str = "",
+    keep: int = 10,
+    dataset_version: str = "",
+    target: str = "",
+    problem_type: str = "",
+    user: Dict[str, Any] = Depends(require_user),
+):
+    authorize_modeling_scope(user, project_id, "view")
     return EVAL.rfe(model_name=model, keep=keep, context=_context(project_id, dataset_version, target, problem_type))
 
 
 @router.post("/interpretation/rfe/save_final")
-def save_rfe_final_model(request: dict):
+def save_rfe_final_model(request: dict, user: Dict[str, Any] = Depends(require_user)):
+    project_id = authorize_modeling_scope(user, str(request.get("project_id") or ""), "edit")
     result = EVAL.save_rfe_model(
         model_name=str(request.get("model") or ""),
         keep=int(request.get("keep") or 10),
         context=_context(
-            str(request.get("project_id") or ""),
+            project_id,
             str(request.get("dataset_version") or ""),
             str(request.get("target") or ""),
             str(request.get("problem_type") or ""),
@@ -142,7 +245,8 @@ def save_rfe_final_model(request: dict):
 
 
 @router.post("/model/save_final")
-def save_selected_final_model(request: dict):
+def save_selected_final_model(request: dict, user: Dict[str, Any] = Depends(require_user)):
+    authorize_modeling_scope(user, str(request.get("project_id") or ""), "edit")
     result = EVAL.save_selected_model_as_final(
         model_name=str(request.get("model") or ""),
     )
@@ -152,12 +256,14 @@ def save_selected_final_model(request: dict):
 
 
 @router.get("/model/final/status")
-def get_final_model_status():
+def get_final_model_status(project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)):
+    authorize_modeling_scope(user, project_id, "view")
     return EVAL.final_model_status()
 
 
 @router.get("/model/export")
-def export_model(model: str = "final", format: str = "json"):
+def export_model(project_id: str = Query(...), model: str = "final", format: str = "json", user: Dict[str, Any] = Depends(require_user)):
+    authorize_modeling_scope(user, project_id, "view")
     if format.lower() not in {"json", "manifest"}:
         return {
             "ok": False,
@@ -174,12 +280,15 @@ def export_model(model: str = "final", format: str = "json"):
 @router.post("/score/upload")
 async def score_upload(
     file: UploadFile = File(...),
+    project_id: str = Query(...),
     dataset_type: str = "test",
     model: str = "final",
     correction_method: str = "none",
     original_prior: float | None = None,
     model_prior: float | None = None,
+    user: Dict[str, Any] = Depends(require_user),
 ):
+    authorize_modeling_scope(user, project_id, "edit")
     content = await file.read()
     df = pd.read_csv(io.BytesIO(content))
     result = EVAL.score_dataset(
@@ -212,12 +321,15 @@ async def score_upload(
 
 @router.post("/score/development-split")
 def score_development_split(
+    project_id: str = Query(...),
     dataset_type: str = "train",
     model: str = "final",
     correction_method: str = "none",
     original_prior: float | None = None,
     model_prior: float | None = None,
+    user: Dict[str, Any] = Depends(require_user),
 ):
+    authorize_modeling_scope(user, project_id, "edit")
     result = EVAL.score_development_split(
         dataset_type=dataset_type,
         model_name=model,

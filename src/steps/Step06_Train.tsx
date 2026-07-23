@@ -407,10 +407,10 @@ export default function Step07ModelTraining() {
       if (active) setRequestUser(response.user.email || response.user.displayName || response.user.userId);
     }).catch(() => undefined);
     Promise.all([
-      getFeatureManifest(),
-      requestJson<SplitStatus>("/balancing_split/status"),
-      requestJson<Availability>("/models/availability"),
-      requestJson<{ ok: boolean; summary?: { ranked?: RankedResult[] } | null }>("/train/last").catch(() => ({ ok: true, summary: null })),
+      getFeatureManifest(projectId),
+      requestJson<SplitStatus>(`/balancing_split/status?project_id=${encodeURIComponent(projectId)}`),
+      requestJson<Availability>(`/models/availability?project_id=${encodeURIComponent(projectId)}`),
+      requestJson<{ ok: boolean; summary?: { ranked?: RankedResult[] } | null }>(`/train/last?project_id=${encodeURIComponent(projectId)}`).catch(() => ({ ok: true, summary: null })),
     ]).then(([nextManifest, nextSplit, modelAvailability, last]) => {
       if (!active) return;
       setManifest(nextManifest);
@@ -424,7 +424,7 @@ export default function Step07ModelTraining() {
     }).catch((cause) => active && setError(cause instanceof Error ? cause.message : "Model Training could not load its governed contract."))
       .finally(() => active && setLoading(false));
     if (!activeJobId) {
-      requestJson<{ ok: boolean; jobs: TrainingJob[] }>("/model/train/jobs/active").then((response) => {
+      requestJson<{ ok: boolean; jobs: TrainingJob[] }>(`/model/train/jobs/active?project_id=${encodeURIComponent(projectId)}`).then((response) => {
         const latest = response.jobs?.[0];
         if (active && latest) {
           setActiveJobId(latest.job_id);
@@ -468,7 +468,7 @@ export default function Step07ModelTraining() {
     let timeout = 0;
     async function poll() {
       try {
-        const current = await requestJson<TrainingJob>(`/model/train/jobs/${encodeURIComponent(activeJobId)}`);
+        const current = await requestJson<TrainingJob>(`/model/train/jobs/${encodeURIComponent(activeJobId)}?project_id=${encodeURIComponent(projectId)}`);
         if (cancelled) return;
         setJob(current);
         setError("");
@@ -489,7 +489,7 @@ export default function Step07ModelTraining() {
               r2: row.r2 ?? undefined,
               adjusted_r2: row.adjusted_r2 ?? undefined,
             }));
-            void recordTrainingExperiments({ apiBase: API_BASE, ranked: trackingRows, selectedModelKeys: current.requested_models, trainingSettings: requestPayload, runtimeMs: current.runtime_ms, calibrated: calibrate }).catch(() => undefined);
+            void recordTrainingExperiments({ apiBase: API_BASE, projectId, ranked: trackingRows, selectedModelKeys: current.requested_models, trainingSettings: requestPayload, runtimeMs: current.runtime_ms, calibrated: calibrate }).catch(() => undefined);
           }
           return;
         }
@@ -504,7 +504,7 @@ export default function Step07ModelTraining() {
     }
     void poll();
     return () => { cancelled = true; window.clearTimeout(timeout); };
-  }, [activeJobId, calibrate, requestPayload]);
+  }, [activeJobId, calibrate, projectId, requestPayload]);
 
   async function startTraining() {
     if (!selectedModels.length) {
@@ -545,7 +545,7 @@ export default function Step07ModelTraining() {
   async function cancelTraining() {
     if (!activeJobId) return;
     try {
-      const current = await requestJson<TrainingJob>(`/model/train/jobs/${encodeURIComponent(activeJobId)}/cancel`, { method: "POST" });
+      const current = await requestJson<TrainingJob>(`/model/train/jobs/${encodeURIComponent(activeJobId)}/cancel?project_id=${encodeURIComponent(projectId)}`, { method: "POST" });
       setJob(current);
       if (["complete", "failed", "cancelled", "interrupted"].includes(current.overall_status)) {
         localStorage.removeItem(ACTIVE_JOB_KEY);

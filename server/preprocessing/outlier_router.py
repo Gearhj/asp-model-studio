@@ -1,14 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..core.dataset_store import DATASTORE
 from ..core.json_safety import json_safe
+from ..core.modeling_scope import authorize_modeling_scope
 from ..core.session_checkpoint import save_checkpoint
+from ..security.security_store import require_user
 from .outlier_service import outlier_service
 
 
@@ -16,6 +18,7 @@ router = APIRouter()
 
 
 class OutlierSummaryRequest(BaseModel):
+    project_id: str
     target: str | None = None
     event_value: Any = None
     problem_type: str | None = None
@@ -24,6 +27,7 @@ class OutlierSummaryRequest(BaseModel):
 
 
 class OutlierApplyRequest(BaseModel):
+    project_id: str
     config: dict[str, str] = Field(default_factory=dict)
     global_method: str = "IQR_1_5"
     target: str | None = None
@@ -39,7 +43,8 @@ def _source_df():
 
 
 @router.post("/summary")
-def outliers_summary(request: OutlierSummaryRequest):
+def outliers_summary(request: OutlierSummaryRequest, user: Dict[str, Any] = Depends(require_user)):
+    authorize_modeling_scope(user, request.project_id, "view")
     try:
         result = outlier_service.summary(
             _source_df(),
@@ -55,7 +60,8 @@ def outliers_summary(request: OutlierSummaryRequest):
 
 
 @router.post("/apply")
-def apply_outlier_treatments(request: OutlierApplyRequest):
+def apply_outlier_treatments(request: OutlierApplyRequest, user: Dict[str, Any] = Depends(require_user)):
+    authorize_modeling_scope(user, request.project_id, "edit")
     target = request.target or DATASTORE.target
     try:
         work, applied = outlier_service.apply(

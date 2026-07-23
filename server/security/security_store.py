@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
 from fastapi import HTTPException, Request
+from starlette.middleware.base import BaseHTTPMiddleware
 
 
 DEFAULT_SECURITY_ROOT = Path(__file__).resolve().parents[1] / "artifacts" / "security"

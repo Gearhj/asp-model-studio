@@ -1,0 +1,46 @@
+{
+  "projectId": "atlas-mrwo3z3b",
+  "projectName": "E2E Recon Full",
+  "evidenceType": "governance",
+  "title": "Predictive Modeling Project Context",
+  "summary": "Project Context completed with business objective, intended use, target definition, population definition, observation window, and performance window.",
+  "sourcePage": "Project Context",
+  "sourceRoute": "/step00",
+  "status": "needs_review",
+  "importance": "high",
+  "modelIds": [
+    "77777"
+  ],
+  "supportsSections": [
+    "1",
+    "3"
+  ],
+  "tags": [
+    "predictive_modeling",
+    "project_context",
+    "modeling_mission"
+  ],
+  "payload": {
+    "businessObjective": "Reduce confirmed card-fraud losses by flagging high-risk transactions for review before settlement.",
+    "intendedModelUse": "A fraud analyst reviews the model's risk score alongside case history and decides whether to hold, decline, or release the transaction; the model output does not auto-decline.",
+    "targetDefinition": "Whether a given transaction was later confirmed as fraudulent by the card network's chargeback and dispute process.",
+    "populationDefinition": "All card-present and card-not-present transactions processed through the authorization system during the observation period.",
+    "observationWindow": "Transaction attributes available at authorization time, including amount and the anonymized behavioral PCA components captured by the fraud data platform.",
+    "performanceWindow": "Fraud confirmation outcome finalized within 120 days after the transaction date via chargeback or dispute resolution.",
+    "deploymentMode": "Development",
+    "modelType": "Generic Binary Classification",
+    "modelingMissionSummary": ""
+  },
+  "evidenceId": "ev-predictive-modeling-project-context-45d2098dc80335d5",
+  "datasetIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "lineage": {},
+  "governance": {},
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-22T22:42:30.332904+00:00",
+  "updatedAt": "2026-07-22T22:42:30.332904+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 57
+}

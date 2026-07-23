@@ -116,7 +116,7 @@ export default function Step05FeatureEngineering() {
     setLoading(true);
     setError("");
     try {
-      const payload = await getFeatureManifest();
+      const payload = await getFeatureManifest(projectId);
       setManifest(payload);
       setDrafts(payload.features.filter((feature) => feature.origin !== "original").map(toDraft));
       setPipelineSteps(payload.pipeline_steps ?? []);
@@ -240,7 +240,7 @@ export default function Step05FeatureEngineering() {
     setSaving(true);
     setError("");
     try {
-      const payload = await saveFeatureManifest(drafts, pipelineSteps, manifest?.dataset_version ?? "");
+      const payload = await saveFeatureManifest(projectId, drafts, pipelineSteps, manifest?.dataset_version ?? "");
       setManifest(payload);
       setDrafts(payload.features.filter((feature) => feature.origin !== "original").map(toDraft));
       setPipelineSteps(payload.pipeline_steps ?? []);
@@ -260,7 +260,7 @@ export default function Step05FeatureEngineering() {
     setPreviewing(true);
     setError("");
     try {
-      const payload = await previewFeaturePlan(drafts, previewRowLimit, controller.signal);
+      const payload = await previewFeaturePlan(projectId, drafts, previewRowLimit, controller.signal);
       setPreview(payload);
       setMessage(`Preview generated from ${payload.preview_row_count} bounded rows. No full-data materialization occurred.`);
     } catch (cause) {
@@ -280,7 +280,7 @@ export default function Step05FeatureEngineering() {
     setMaterializing(true);
     setError("");
     try {
-      const payload = await materializeFeatureManifest(manifest.manifest_version);
+      const payload = await materializeFeatureManifest(projectId, manifest.manifest_version);
       await loadManifest();
       setMessage(`${payload.engineered_feature_count} engineered features materialized across ${payload.row_count.toLocaleString()} backend rows in ${payload.duration_ms.toLocaleString()} ms.`);
     } catch (cause) {
@@ -293,7 +293,7 @@ export default function Step05FeatureEngineering() {
   async function deleteDraft(draft: FeatureDraft) {
     if (draft.feature_id && manifest?.features.some((feature) => feature.feature_id === draft.feature_id)) {
       try {
-        const payload = await removeFeature(draft.feature_id);
+        const payload = await removeFeature(projectId, draft.feature_id);
         setManifest(payload);
         setDrafts(payload.features.filter((feature) => feature.origin !== "original").map(toDraft));
         setDirty(false);
@@ -323,7 +323,7 @@ export default function Step05FeatureEngineering() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ selected_features: vifCandidateNames }),
+        body: JSON.stringify({ project_id: projectId, selected_features: vifCandidateNames }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok || !payload?.ok) throw new Error(payload?.detail ?? "VIF analysis failed.");
@@ -351,7 +351,7 @@ export default function Step05FeatureEngineering() {
           exclusion_reason: selected ? "" : "Excluded after VIF review",
         };
       });
-      const payload = await saveFeatureManifest(featureUpdates, pipelineSteps, manifest.dataset_version);
+      const payload = await saveFeatureManifest(projectId, featureUpdates, pipelineSteps, manifest.dataset_version);
       setManifest(payload);
       setDrafts(payload.features.filter((feature) => feature.origin !== "original").map(toDraft));
       setPipelineSteps(payload.pipeline_steps ?? []);

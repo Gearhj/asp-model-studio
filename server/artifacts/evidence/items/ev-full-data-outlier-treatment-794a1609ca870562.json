@@ -1,0 +1,322 @@
+{
+  "projectId": "atlas-mrwpazrn",
+  "projectName": "E2E Recon Train Diag",
+  "evidenceType": "outliers",
+  "title": "Full-Data Outlier Treatment",
+  "summary": "5,332 values were treated across 30 numeric predictors using the governed full dataset.",
+  "sourcePage": "Outlier Analysis",
+  "sourceRoute": "/step03",
+  "datasetIds": [
+    "20260722231558-cdab7052"
+  ],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Outlier Treatment",
+    "Data Quality",
+    "Feature Engineering"
+  ],
+  "tags": [
+    "predictive_modeling",
+    "outliers",
+    "full_dataset"
+  ],
+  "status": "ready",
+  "importance": "high",
+  "lineage": {
+    "datasetVersion": "20260722231558-cdab7052",
+    "rowCount": 4000,
+    "scope": "full_dataset"
+  },
+  "payload": {
+    "applied_at": "2026-07-22T23:16:23.515702+00:00",
+    "dataset_version": "20260722231558-cdab7052",
+    "row_count": 4000,
+    "global_method": "IQR_1_5",
+    "config": {
+      "V2": "USE_GLOBAL",
+      "V14": "USE_GLOBAL",
+      "V10": "USE_GLOBAL",
+      "V22": "USE_GLOBAL",
+      "V17": "USE_GLOBAL",
+      "V20": "USE_GLOBAL",
+      "V28": "USE_GLOBAL",
+      "V24": "USE_GLOBAL",
+      "V23": "USE_GLOBAL",
+      "V1": "USE_GLOBAL",
+      "V3": "USE_GLOBAL",
+      "V7": "USE_GLOBAL",
+      "V8": "USE_GLOBAL",
+      "V18": "USE_GLOBAL",
+      "V12": "USE_GLOBAL",
+      "V13": "USE_GLOBAL",
+      "V11": "USE_GLOBAL",
+      "V4": "USE_GLOBAL",
+      "V27": "USE_GLOBAL",
+      "V6": "USE_GLOBAL",
+      "V26": "USE_GLOBAL",
+      "V25": "USE_GLOBAL",
+      "V9": "USE_GLOBAL",
+      "V21": "USE_GLOBAL",
+      "V16": "USE_GLOBAL",
+      "V5": "USE_GLOBAL",
+      "V15": "USE_GLOBAL",
+      "V19": "USE_GLOBAL",
+      "Amount": "USE_GLOBAL",
+      "Time": "USE_GLOBAL"
+    },
+    "treatments": [
+      {
+        "feature": "V2",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 195,
+        "lower_threshold": -2.557384881219599,
+        "upper_threshold": 2.8026338869362384
+      },
+      {
+        "feature": "V14",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 200,
+        "lower_threshold": -1.6238941502283744,
+        "upper_threshold": 1.8316589556647493
+      },
+      {
+        "feature": "V10",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 150,
+        "lower_threshold": -1.8613914797198607,
+        "upper_threshold": 1.7431433060623394
+      },
+      {
+        "feature": "V22",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 30,
+        "lower_threshold": -1.8785361592116312,
+        "upper_threshold": 1.7196592985654506
+      },
+      {
+        "feature": "V17",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 117,
+        "lower_threshold": -1.7183885528298113,
+        "upper_threshold": 1.7429612640102037
+      },
+      {
+        "feature": "V20",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 397,
+        "lower_threshold": -0.6905050818497127,
+        "upper_threshold": 0.6501212123997633
+      },
+      {
+        "feature": "V28",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 491,
+        "lower_threshold": -0.20229279642066658,
+        "upper_threshold": 0.24742054202333458
+      },
+      {
+        "feature": "V24",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 69,
+        "lower_threshold": -1.4317151763687286,
+        "upper_threshold": 1.5158993671530197
+      },
+      {
+        "feature": "V23",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 296,
+        "lower_threshold": -0.5890630654548176,
+        "upper_threshold": 0.5189261021029313
+      },
+      {
+        "feature": "V1",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 109,
+        "lower_threshold": -4.314802098954333,
+        "upper_threshold": 4.472393396594088
+      },
+      {
+        "feature": "V3",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 136,
+        "lower_threshold": -2.1226636709067987,
+        "upper_threshold": 3.3576219774631713
+      },
+      {
+        "feature": "V7",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 142,
+        "lower_threshold": -2.153086872984738,
+        "upper_threshold": 2.044213309472311
+      },
+      {
+        "feature": "V8",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 357,
+        "lower_threshold": -0.889983892808951,
+        "upper_threshold": 1.057014392952428
+      },
+      {
+        "feature": "V18",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 140,
+        "lower_threshold": -1.939156895263918,
+        "upper_threshold": 1.860470238815782
+      },
+      {
+        "feature": "V12",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 227,
+        "lower_threshold": -2.2350817279250244,
+        "upper_threshold": 2.3633665880347614
+      },
+      {
+        "feature": "V13",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 42,
+        "lower_threshold": -2.5752852023295763,
+        "upper_threshold": 2.6885086581417443
+      },
+      {
+        "feature": "V11",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 12,
+        "lower_threshold": -2.8466260463567967,
+        "upper_threshold": 3.283250156338359
+      },
+      {
+        "feature": "V4",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 74,
+        "lower_threshold": -3.3341374987313217,
+        "upper_threshold": 3.520626750930372
+      },
+      {
+        "feature": "V27",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 510,
+        "lower_threshold": -0.29850603824088096,
+        "upper_threshold": 0.32321506611243933
+      },
+      {
+        "feature": "V6",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 303,
+        "lower_threshold": -2.4149868180434737,
+        "upper_threshold": 2.1942612805514843
+      },
+      {
+        "feature": "V26",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 44,
+        "lower_threshold": -1.2349201815204236,
+        "upper_threshold": 1.1512552542779773
+      },
+      {
+        "feature": "V25",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 59,
+        "lower_threshold": -1.1045888170560638,
+        "upper_threshold": 1.301498520597788
+      },
+      {
+        "feature": "V9",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 119,
+        "lower_threshold": -2.6108837113104393,
+        "upper_threshold": 2.5604613266584444
+      },
+      {
+        "feature": "V21",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 253,
+        "lower_threshold": -0.760163774739488,
+        "upper_threshold": 0.660611371269928
+      },
+      {
+        "feature": "V16",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 84,
+        "lower_threshold": -2.0586930641455945,
+        "upper_threshold": 2.1021773617003214
+      },
+      {
+        "feature": "V5",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 209,
+        "lower_threshold": -2.6760971811270826,
+        "upper_threshold": 2.211676338498526
+      },
+      {
+        "feature": "V15",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 53,
+        "lower_threshold": -2.367151683628909,
+        "upper_threshold": 2.7006447702962433
+      },
+      {
+        "feature": "V19",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 97,
+        "lower_threshold": -1.980736273455583,
+        "upper_threshold": 1.9182297912946729
+      },
+      {
+        "feature": "Amount",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 417,
+        "lower_threshold": -102.89375000000001,
+        "upper_threshold": 189.57625000000002
+      },
+      {
+        "feature": "Time",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 0,
+        "lower_threshold": -15878.875,
+        "upper_threshold": 135422.125
+      }
+    ],
+    "changed_values": 5332
+  },
+  "evidenceId": "ev-full-data-outlier-treatment-794a1609ca870562",
+  "governance": {},
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-22T23:16:25.960192+00:00",
+  "capturedAt": "2026-07-22T23:16:25.960192+00:00",
+  "updatedAt": "2026-07-22T23:16:25.960192+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 86
+}

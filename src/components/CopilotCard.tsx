@@ -1247,6 +1247,7 @@ function buildFactorGuideSummary(rawFactors: string): ExperimentalGuideHealth["d
 export default function CopilotCard() {
   const location = useLocation();
   const steps = useWorkflowStore((state) => state.steps);
+  const projectId = useWorkflowStore((state) => state.projectId);
   const [trainingSummary, setTrainingSummary] = useState<TrainingSummary | null>(null);
   const [challengeMode, setChallengeMode] = useState(() => localStorage.getItem(CHALLENGE_MODE_KEY) === "true");
   const [overrideReasons, setOverrideReasons] = useState<Record<string, string>>({});
@@ -1256,11 +1257,15 @@ export default function CopilotCard() {
   const [projectContextGuideCollapsed, setProjectContextGuideCollapsed] = useState(() => localStorage.getItem(PROJECT_CONTEXT_GUIDE_COLLAPSED_KEY) === "true");
 
   useEffect(() => {
-    fetch(`${API_BASE}/train/last`, { credentials: "include" })
+    if (!projectId) {
+      setTrainingSummary(null);
+      return;
+    }
+    fetch(`${API_BASE}/train/last?project_id=${encodeURIComponent(projectId)}`, { credentials: "include" })
       .then((res) => res.json())
       .then((data) => setTrainingSummary(data?.summary ?? null))
       .catch(() => setTrainingSummary(null));
-  }, [location.pathname]);
+  }, [location.pathname, projectId]);
 
   useEffect(() => {
     const refresh = () => setWorkflowNodeVersion((version) => version + 1);

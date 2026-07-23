@@ -4,13 +4,15 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import time
-from typing import Any, Literal
+from typing import Any, Dict, Literal
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from ..core.dataset_store import DATASTORE
+from ..core.modeling_scope import authorize_modeling_scope
 from ..core.session_checkpoint import save_checkpoint
+from ..security.security_store import require_user
 from .split_service import split_service, target_distribution
 
 
@@ -18,6 +20,7 @@ router = APIRouter()
 
 
 class SplitConfigPayload(BaseModel):
+    project_id: str
     split_strategy: Literal["holdout"] = "holdout"
     test_size: float = Field(default=0.2, ge=0.1, le=0.5)
     random_seed: int = Field(default=42, ge=0, le=2_147_483_647)
@@ -131,12 +134,14 @@ def _current_status() -> dict[str, Any]:
 
 
 @router.get("/status")
-def balancing_split_status():
+def balancing_split_status(project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)):
+    authorize_modeling_scope(user, project_id, "view")
     return _current_status()
 
 
 @router.post("/config")
-def balancing_split_config(payload: SplitConfigPayload):
+def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = Depends(require_user)):
+    authorize_modeling_scope(user, payload.project_id, "edit")
     started = time.perf_counter()
     frame, target = _require_full_dataset()
     manifest = DATASTORE.meta.get("feature_manifest") if isinstance(DATASTORE.meta.get("feature_manifest"), dict) else {}
@@ -156,7 +161,7 @@ def balancing_split_config(payload: SplitConfigPayload):
     if target in selected:
         raise HTTPException(status_code=400, detail="The target cannot be included in the predictor manifest.")
 
-    config = payload.model_dump(exclude={"selected_features", "feature_manifest_version", "dataset_version"})
+    config = payload.model_dump(exclude={"project_id", "selected_features", "feature_manifest_version", "dataset_version"})
     config["target"] = target
     try:
         result = split_service.make_dev_split(frame, target, selected, config)

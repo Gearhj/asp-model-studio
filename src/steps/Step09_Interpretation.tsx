@@ -331,7 +331,7 @@ export default function Step09_Interpretation() {
       setMessage("JAR export is not available for the current Python/scikit-learn pipeline. Use the JSON manifest for governed review, or add an approved ONNX/skops export path for runtime scoring.");
       return;
     }
-    window.location.href = `${API_BASE}/model/export?model=final&format=json`;
+    window.location.href = `${API_BASE}/model/export?model=final&format=json&project_id=${encodeURIComponent(projectId)}`;
   };
 
   useEffect(() => {
@@ -350,7 +350,7 @@ export default function Step09_Interpretation() {
       })
       .catch((err) => setMessage(String(err?.message ?? err)))
       .finally(() => setModelsLoading(false));
-    getJson<{ ok: boolean; ready: boolean; metadata?: Record<string, unknown> }>(`${API_BASE}/model/final/status`)
+    getJson<{ ok: boolean; ready: boolean; metadata?: Record<string, unknown> }>(`${API_BASE}/model/final/status?project_id=${encodeURIComponent(projectId)}`)
       .then((data) => {
         const dataset = loadLocalDataset();
         const expectedVersion = dataset?.dataset_version || localDatasetVersion(dataset);
@@ -562,10 +562,10 @@ export default function Step09_Interpretation() {
   const loadFinalDiagnostics = async () => {
     const [sensitivityRes, vifRes] = await Promise.all([
       getJson<{ ok: boolean; rows?: SensitivitySummaryRow[]; error?: string }>(
-        `${API_BASE}/interpretation/sensitivity_summary?model=final&top_n=12`
+        `${API_BASE}/interpretation/sensitivity_summary?model=final&top_n=12&project_id=${encodeURIComponent(projectId)}`
       ),
       getJson<{ ok: boolean; rows?: VifRow[]; error?: string }>(
-        `${API_BASE}/interpretation/vif?model=final`
+        `${API_BASE}/interpretation/vif?model=final&project_id=${encodeURIComponent(projectId)}`
       ),
     ]);
     if (!sensitivityRes.ok) throw new Error(sensitivityRes.error ?? "Final-model sensitivity failed.");

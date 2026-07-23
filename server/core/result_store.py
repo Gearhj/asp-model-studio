@@ -1,6 +1,6 @@
 # server/core/result_store.py
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from datetime import datetime
 
 class ResultStore:
@@ -70,20 +70,50 @@ class ResultStore:
         return self.scoring_reference
 
 
-_RESULT_STORES: Dict[str, ResultStore] = {}
+# Stage 3 (ATLAS_MODELING_STATE_ISOLATION_PLAN.md): RESULTS is keyed the
+# same way DATASTORE was re-keyed in Stage 2B -- an explicit (user_id,
+# project_id) tuple, never a concatenated string (no delimiter-collision
+# risk). See server/core/dataset_store.py's matching comment and
+# server/core/modeling_scope.py for the ContextVar/authorization mechanism
+# both stores now share. No migration of old str-keyed entries is needed:
+# a fresh process always starts with an empty dict, and old str keys could
+# never collide with the new tuple keys even if they somehow coexisted.
+_RESULT_STORES: Dict[Tuple[str, str], ResultStore] = {}
+
+# Sentinel project component for scopes never routed through
+# authorize_modeling_scope (direct service/script callers, e.g.
+# tests/predictive_modeling_repair_test.py, and the still-unmodified
+# checkpoint-restore-at-startup path). A real HTTP request to an affected
+# endpoint can never reach RESULTS with this fallback -- authorize_modeling_
+# scope rejects it (400/403/404) first. Re-exported from dataset_store so
+# both stores use one literal sentinel, not two independently-typed ones.
+from .dataset_store import UNSCOPED_PROJECT  # noqa: E402
 
 
-def _scope_key() -> str:
+def _scope_key() -> Tuple[str, str]:
     try:
         from ..security.security_store import active_user
 
         user = active_user() or {}
-        return str(user.get("userId") or "anonymous")
+        user_id = str(user.get("userId") or "anonymous")
     except Exception:
-        return "anonymous"
+        user_id = "anonymous"
+    try:
+        from .modeling_scope import active_project_id
+
+        project_id = active_project_id() or UNSCOPED_PROJECT
+    except Exception:
+        project_id = UNSCOPED_PROJECT
+    return (user_id, project_id)
 
 
-def get_scoped_result_store(scope: Optional[str] = None) -> ResultStore:
+def get_scoped_result_store(scope: Optional[Tuple[str, str]] = None) -> ResultStore:
+    """Look up (creating if needed) the ResultStore for `scope`, or for the
+    ambient (user, project) scope if `scope` is omitted. Explicit `scope`
+    is used by tests that need to inspect a specific (user_id, project_id)
+    pair directly, bypassing ContextVar resolution -- mirrors
+    get_scoped_dataset_store's contract exactly.
+    """
     key = scope or _scope_key()
     if key not in _RESULT_STORES:
         _RESULT_STORES[key] = ResultStore()

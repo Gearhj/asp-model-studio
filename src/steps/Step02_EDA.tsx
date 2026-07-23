@@ -139,6 +139,7 @@ export default function Step02EDA() {
   const available = overview?.available_fields ?? {};
   const requestBody = useMemo(
     () => ({
+      project_id: projectId,
       target: overview?.target || confirmedDataset?.target || undefined,
       event_value: overview?.event_value,
       problem_type: overview?.problem_type,
@@ -149,7 +150,7 @@ export default function Step02EDA() {
       histogram_bins: histogramBins,
       rendered_sample_limit: 5000,
     }),
-    [confirmedDataset?.selected_columns, confirmedDataset?.target, dateField, histogramBins, overview?.event_value, overview?.problem_type, overview?.target, pairwiseFeatures, segmentField],
+    [confirmedDataset?.selected_columns, confirmedDataset?.target, dateField, histogramBins, overview?.event_value, overview?.problem_type, overview?.target, pairwiseFeatures, projectId, segmentField],
   );
 
   async function loadSection(section: EDATab, force = false, overrides: Record<string, unknown> = {}) {
@@ -370,6 +371,7 @@ export default function Step02EDA() {
             data={activeData}
             histogramBins={histogramBins}
             onHistogramBins={setHistogramBins}
+            projectId={projectId}
           />
         ) : null}
         {activeTab === "relationships" && activeData ? (
@@ -574,10 +576,12 @@ function PredictorsPanel({
   data,
   histogramBins,
   onHistogramBins,
+  projectId,
 }: {
   data: WorkspaceResponse;
   histogramBins: number;
   onHistogramBins: (value: number) => void;
+  projectId: string;
 }) {
   const [search, setSearch] = useState("");
   const [sortMode, setSortMode] = useState("signal");
@@ -627,7 +631,7 @@ function PredictorsPanel({
       error: undefined,
     }));
 
-    void fetch(`${API_BASE}/eda/histogram/${encodeURIComponent(selectedName)}?bins=${histogramBins}`, {
+    void fetch(`${API_BASE}/eda/histogram/${encodeURIComponent(selectedName)}?bins=${histogramBins}&project_id=${encodeURIComponent(projectId)}`, {
       credentials: "include",
       signal: controller.signal,
     })

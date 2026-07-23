@@ -10,13 +10,14 @@ import io
 import os
 
 import pandas as pd
-from fastapi import Depends, FastAPI, UploadFile, File, HTTPException, Request
+from fastapi import Depends, FastAPI, Form, UploadFile, File, HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.routing import APIRoute
 
 # Core in-memory store
 from .core.dataset_store import DATASTORE
+from .core.modeling_scope import authorize_modeling_scope
 from .core.session_checkpoint import load_checkpoint, save_checkpoint
 
 # Modular routers
@@ -38,7 +39,7 @@ from .security.security_router import router as security_router
 from .admin.router import router as admin_router
 from .sharing.router import router as sharing_router
 from .notifications.router import router as notifications_router
-from .security.security_store import AtlasUserContextError, init_security_store, list_users, require_user
+from .security.security_store import ActiveUserContextMiddleware, AtlasUserContextError, init_security_store, list_users, require_user
 from .analytics.analytics_router import router as analytics_router
 from .charts.chart_router import router as chart_router
 from .model_diagnostics.diagnostics_router import router as model_diagnostics_router
@@ -139,6 +140,12 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
+    # Restores ACTIVE_USER propagation into route handler bodies and their
+    # dependencies (Depends(require_user) alone cannot do this -- see
+    # ActiveUserContextMiddleware's docstring). Required for DATASTORE/
+    # RESULTS's per-user scoping to work at all during real requests.
+    app.add_middleware(ActiveUserContextMiddleware)
+
     # -------------------------------------------------------------------------
     # Health Check
     # -------------------------------------------------------------------------
@@ -163,13 +170,18 @@ def create_app() -> FastAPI:
     # Data Acquisition – optional CSV upload endpoint (Step01 alternative)
     # -------------------------------------------------------------------------
     @app.post("/api/data/upload_csv")
-    async def upload_csv(file: UploadFile = File(...), _user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    async def upload_csv(
+        file: UploadFile = File(...),
+        project_id: str = Form(...),
+        user: Dict[str, Any] = Depends(require_user),
+    ) -> Dict[str, Any]:
         """
         Upload a CSV file and store it as the RAW dataset in DATASTORE.
 
         NOTE: Your current Step01_DataAcquisition.tsx uses /api/data/set_sample
         with JSON rows. This endpoint is kept for compatibility / future use.
         """
+        authorize_modeling_scope(user, project_id, "edit")
         filename = file.filename or ""
         extension = os.path.splitext(filename)[1].lower()
         if extension not in ALLOWED_UPLOAD_EXTENSIONS:

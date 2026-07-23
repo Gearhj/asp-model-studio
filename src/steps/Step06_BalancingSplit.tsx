@@ -245,9 +245,9 @@ export default function Step06BalancingSplit() {
     setError("");
     try {
       const [nextManifest, nextProfile, nextStatus] = await Promise.all([
-        getFeatureManifest(),
-        fetchFullFeatureProfile(dataset),
-        requestJson<SplitStatus>("/balancing_split/status"),
+        getFeatureManifest(projectId),
+        fetchFullFeatureProfile(dataset, projectId),
+        requestJson<SplitStatus>(`/balancing_split/status?project_id=${encodeURIComponent(projectId)}`),
       ]);
       const governed = nextManifest.features
         .filter((row) => row.selected && row.eligibility_status === "eligible")
@@ -340,11 +340,11 @@ export default function Step06BalancingSplit() {
           ? row.exclusion_reason
           : selectedSet.has(row.feature_name) ? "" : "Excluded at Final Predictor Review",
       }));
-      const saved = await saveFeatureManifest(updated, manifest.pipeline_steps, manifest.dataset_version);
+      const saved = await saveFeatureManifest(projectId, updated, manifest.pipeline_steps, manifest.dataset_version);
       setManifest(saved);
       setSelected(saved.features.filter((row) => row.selected && row.eligibility_status === "eligible").map((row) => row.feature_name));
       setDirty(false);
-      const status = await requestJson<SplitStatus>("/balancing_split/status");
+      const status = await requestJson<SplitStatus>(`/balancing_split/status?project_id=${encodeURIComponent(projectId)}`);
       setSplitStatus(status);
       setMessage("Final predictor selection saved. Create or rebuild the holdout split to make it current.");
       logDecision({
@@ -379,6 +379,7 @@ export default function Step06BalancingSplit() {
       const status = await requestJson<SplitStatus>("/balancing_split/config", {
         method: "POST",
         body: JSON.stringify({
+          project_id: projectId,
           split_strategy: "holdout",
           test_size: testSize,
           random_seed: randomSeed,
@@ -412,7 +413,7 @@ export default function Step06BalancingSplit() {
   }
 
   async function completeStep() {
-    const status = await requestJson<SplitStatus>("/balancing_split/status");
+    const status = await requestJson<SplitStatus>(`/balancing_split/status?project_id=${encodeURIComponent(projectId)}`);
     setSplitStatus(status);
     const latestReadiness = splitReadiness(status, false, selected.length, unavailableSelected.length);
     if (!latestReadiness.ready) {

@@ -18,12 +18,41 @@ from server.preprocessing.feature_profile_service import profile_features
 from server.preprocessing.missing_router import MissingApplyRequest, MissingRule, apply_missing_values, missing_summary
 from server.preprocessing.outlier_router import OutlierApplyRequest, OutlierSummaryRequest, apply_outlier_treatments, outliers_summary
 from server.preprocessing.quality_profile_service import profile_active_dataset
+import server.preprocessing.missing_router as missing_router_module
+import server.preprocessing.outlier_router as outlier_router_module
+
+REPAIR_TEST_PROJECT_ID = "repair-test-project"
+REPAIR_TEST_OWNER_USER_ID = "repair-test-owner"
+
+
+def _skip_modeling_scope_authorization(user, project_id, permission):
+    """Stand-in for authorize_modeling_scope (server/core/modeling_scope.py),
+    installed for the duration of this script only.
+
+    This script calls outlier_router.py/missing_router.py's handler
+    functions directly as plain Python calls (not through FastAPI/HTTP), to
+    exercise their business logic and DATASTORE bookkeeping quickly without
+    a real session or persisted project. Since Stage 2B
+    (ATLAS_MODELING_STATE_ISOLATION_PLAN.md), those handlers open with a
+    real SharingService-backed authorize_modeling_scope(...) call, which
+    requires a genuine authenticated session and a genuine persisted
+    project -- neither of which this direct-call script has ever set up (it
+    manipulates DATASTORE directly instead, matching how it already treats
+    TRAINING_JOBS/RESULTS). Swapped in the same way this file already
+    monkeypatches job_module.train_models below, and restored afterward.
+
+    Stage 3 (RESULTS project-scoping) extended this same authorize_modeling_
+    scope gate to trainer_router.py's get_last_train(), which this script
+    also calls directly -- the same stand-in is reused there too.
+    """
+    return project_id
 from server.splitting.split_service import split_service
 from server.training.training_job_service import TRAINING_JOBS
 from server.training.training_job_types import TrainingJobRequest
 from server.training.training_preflight_service import training_preflight
 from server.training.trainer_router import get_last_train
 import server.training.training_job_service as job_module
+import server.training.trainer_router as trainer_router_module
 
 
 def build_frame(rows: int = 360) -> pd.DataFrame:
@@ -107,7 +136,7 @@ def wait_for_job(job_id: str, timeout: float = 30.0):
     deadline = time.time() + timeout
     observed = set()
     while time.time() < deadline:
-        job = TRAINING_JOBS.get(job_id)
+        job = TRAINING_JOBS.get(job_id, owner_user_id=REPAIR_TEST_OWNER_USER_ID, project_id=REPAIR_TEST_PROJECT_ID)
         assert job is not None
         observed.add(job["overall_status"])
         for history in job.get("per_model_history", {}).values():
@@ -119,49 +148,75 @@ def wait_for_job(job_id: str, timeout: float = 30.0):
 
 
 def main() -> None:
-    frame = build_frame()
+    original_outlier_authz = outlier_router_module.authorize_modeling_scope
+    original_missing_authz = missing_router_module.authorize_modeling_scope
+    original_trainer_authz = trainer_router_module.authorize_modeling_scope
+    outlier_router_module.authorize_modeling_scope = _skip_modeling_scope_authorization
+    missing_router_module.authorize_modeling_scope = _skip_modeling_scope_authorization
+    trainer_router_module.authorize_modeling_scope = _skip_modeling_scope_authorization
+    try:
+        frame = build_frame()
 
-    preprocessing_frame = frame.copy()
-    preprocessing_frame.loc[0, "amount"] = 10000.0
-    preprocessing_frame.loc[0:11, "velocity"] = None
-    configure_manifest(preprocessing_frame)
-    outlier_profile = outliers_summary(OutlierSummaryRequest(target="target", event_value=1, problem_type="classification"))
-    assert outlier_profile["scope"] == "full_dataset"
-    assert outlier_profile["row_count"] == len(preprocessing_frame)
-    amount_profile = next(row for row in outlier_profile["features"] if row["feature"] == "amount")
-    assert amount_profile["methods"]["IQR_1_5"]["outlier_count"] >= 1
-    assert amount_profile["signal_metric"] is not None
-    assert len(amount_profile["rendered_sample"]) <= 600
-    json.dumps(outlier_profile, allow_nan=False)
-    outlier_application = apply_outlier_treatments(OutlierApplyRequest(
-        target="target",
-        event_value=1,
-        problem_type="classification",
-        global_method="IQR_1_5",
-        config={"amount": "USE_GLOBAL", "velocity": "NONE", "amount_velocity": "NONE"},
-    ))
-    assert outlier_application["scope"] == "full_dataset"
-    assert outlier_application["application"]["changed_values"] >= 1
-    assert DATASTORE.meta["processed_stage"] == "outliers"
+        preprocessing_frame = frame.copy()
+        preprocessing_frame.loc[0, "amount"] = 10000.0
+        preprocessing_frame.loc[0:11, "velocity"] = None
+        configure_manifest(preprocessing_frame)
+        outlier_profile = outliers_summary(
+            OutlierSummaryRequest(project_id=REPAIR_TEST_PROJECT_ID, target="target", event_value=1, problem_type="classification"),
+            user={},
+        )
+        assert outlier_profile["scope"] == "full_dataset"
+        assert outlier_profile["row_count"] == len(preprocessing_frame)
+        amount_profile = next(row for row in outlier_profile["features"] if row["feature"] == "amount")
+        assert amount_profile["methods"]["IQR_1_5"]["outlier_count"] >= 1
+        assert amount_profile["signal_metric"] is not None
+        assert len(amount_profile["rendered_sample"]) <= 600
+        json.dumps(outlier_profile, allow_nan=False)
+        outlier_application = apply_outlier_treatments(
+            OutlierApplyRequest(
+                project_id=REPAIR_TEST_PROJECT_ID,
+                target="target",
+                event_value=1,
+                problem_type="classification",
+                global_method="IQR_1_5",
+                config={"amount": "USE_GLOBAL", "velocity": "NONE", "amount_velocity": "NONE"},
+            ),
+            user={},
+        )
+        assert outlier_application["scope"] == "full_dataset"
+        assert outlier_application["application"]["changed_values"] >= 1
+        assert DATASTORE.meta["processed_stage"] == "outliers"
 
-    missing_profile = missing_summary(event_value=1, problem_type="classification")
-    assert missing_profile["scope"] == "full_dataset"
-    assert missing_profile["rows"] == len(preprocessing_frame)
-    assert missing_profile["stats"]["velocity"]["missing"] == 12
-    assert missing_profile["source_stage"] == "outlier_treated"
-    json.dumps(missing_profile, allow_nan=False)
-    missing_application = apply_missing_values(MissingApplyRequest(
-        event_value=1,
-        problem_type="classification",
-        config={"velocity": MissingRule(strategy="Median")},
-    ))
-    assert missing_application["scope"] == "full_dataset"
-    assert missing_application["application"]["missing_before"] == 12
-    assert missing_application["application"]["missing_after"] == 0
-    assert missing_application["application"]["treatments"][0]["feature"] == "velocity"
-    assert DATASTORE.meta["processed_stage"] == "missing_values"
+        missing_profile = missing_summary(project_id=REPAIR_TEST_PROJECT_ID, event_value=1, problem_type="classification", user={})
+        assert missing_profile["scope"] == "full_dataset"
+        assert missing_profile["rows"] == len(preprocessing_frame)
+        assert missing_profile["stats"]["velocity"]["missing"] == 12
+        assert missing_profile["source_stage"] == "outlier_treated"
+        json.dumps(missing_profile, allow_nan=False)
+        missing_application = apply_missing_values(
+            MissingApplyRequest(
+                project_id=REPAIR_TEST_PROJECT_ID,
+                event_value=1,
+                problem_type="classification",
+                config={"velocity": MissingRule(strategy="Median")},
+            ),
+            user={},
+        )
+        assert missing_application["scope"] == "full_dataset"
+        assert missing_application["application"]["missing_before"] == 12
+        assert missing_application["application"]["missing_after"] == 0
+        assert missing_application["application"]["treatments"][0]["feature"] == "velocity"
+        assert DATASTORE.meta["processed_stage"] == "missing_values"
 
-    configure_manifest(frame)
+        configure_manifest(frame)
+        _run_remaining_checks(frame, outlier_profile, missing_profile)
+    finally:
+        outlier_router_module.authorize_modeling_scope = original_outlier_authz
+        missing_router_module.authorize_modeling_scope = original_missing_authz
+        trainer_router_module.authorize_modeling_scope = original_trainer_authz
+
+
+def _run_remaining_checks(frame: pd.DataFrame, outlier_profile: dict, missing_profile: dict) -> None:
 
     quality = profile_active_dataset("target", 1)
     assert quality["profileScope"] == "full_dataset"
@@ -175,11 +230,11 @@ def main() -> None:
 
     ten_bin_profile = eda_workspace_service.section(
         "predictors",
-        EDAWorkspaceRequest(target="target", event_value=1, problem_type="classification", histogram_bins=10),
+        EDAWorkspaceRequest(project_id=REPAIR_TEST_PROJECT_ID, target="target", event_value=1, problem_type="classification", histogram_bins=10),
     )
     forty_bin_profile = eda_workspace_service.section(
         "predictors",
-        EDAWorkspaceRequest(target="target", event_value=1, problem_type="classification", histogram_bins=40),
+        EDAWorkspaceRequest(project_id=REPAIR_TEST_PROJECT_ID, target="target", event_value=1, problem_type="classification", histogram_bins=40),
     )
     ten_bin_amount = next(row for row in ten_bin_profile["numeric"] if row["feature"] == "amount")
     forty_bin_amount = next(row for row in forty_bin_profile["numeric"] if row["feature"] == "amount")
@@ -200,7 +255,7 @@ def main() -> None:
     assert missing_split["ready"] is False
     assert any("validation split" in error.lower() for error in missing_split["blocking_errors"])
     try:
-        TRAINING_JOBS.create(request())
+        TRAINING_JOBS.create(request(), owner_user_id=REPAIR_TEST_OWNER_USER_ID)
         raise AssertionError("Job creation must fail when the explicit split is missing.")
     except ValueError as exc:
         assert "preflight blocked" in str(exc).lower()
@@ -216,7 +271,7 @@ def main() -> None:
     assert ready["split_id"] == "split-repair-test-v2"
 
     started = time.perf_counter()
-    created = TRAINING_JOBS.create(request())
+    created = TRAINING_JOBS.create(request(), owner_user_id=REPAIR_TEST_OWNER_USER_ID)
     assert time.perf_counter() - started < 2.0, "Job creation must return before model fitting finishes."
     assert created["status"] == "queued"
     assert created["creation_duration_ms"] >= 0
@@ -240,6 +295,7 @@ def main() -> None:
         dataset_version="repair-test-v2",
         target="target",
         problem_type="classification",
+        user={},
     )
     assert contextual_last["summary"]["project_id"] == "repair-test-project"
     mismatched_last = get_last_train(
@@ -247,6 +303,7 @@ def main() -> None:
         dataset_version="repair-test-v2",
         target="target",
         problem_type="classification",
+        user={},
     )
     assert mismatched_last["summary"] is None
     assert "current project" in mismatched_last["context_error"].lower()
@@ -300,7 +357,7 @@ def main() -> None:
     assert train_scoring["scoring_diagnostics"]["matched_feature_count"] == 2
     assert train_scoring["scoring_diagnostics"]["constant_prediction"] is False
 
-    diagnostic_created = TRAINING_JOBS.create(request(["gnb", "iso"]))
+    diagnostic_created = TRAINING_JOBS.create(request(["gnb", "iso"]), owner_user_id=REPAIR_TEST_OWNER_USER_ID)
     diagnostic_job, _ = wait_for_job(diagnostic_created["job_id"])
     assert diagnostic_job["overall_status"] == "complete", diagnostic_job
     diagnostic_results = {row["key"]: row for row in diagnostic_job["partial_results"]}
@@ -320,7 +377,7 @@ def main() -> None:
 
     job_module.train_models = fail_one_model
     try:
-        partial_created = TRAINING_JOBS.create(request())
+        partial_created = TRAINING_JOBS.create(request(), owner_user_id=REPAIR_TEST_OWNER_USER_ID)
         partial_job, _ = wait_for_job(partial_created["job_id"])
         assert partial_job["overall_status"] == "complete"
         assert partial_job["completed_count"] == 1
@@ -337,8 +394,8 @@ def main() -> None:
 
     job_module.train_models = slow_model
     try:
-        cancel_created = TRAINING_JOBS.create(request(["logreg", "dtree"]))
-        cancelled = TRAINING_JOBS.cancel(cancel_created["job_id"])
+        cancel_created = TRAINING_JOBS.create(request(["logreg", "dtree"]), owner_user_id=REPAIR_TEST_OWNER_USER_ID)
+        cancelled = TRAINING_JOBS.cancel(cancel_created["job_id"], owner_user_id=REPAIR_TEST_OWNER_USER_ID, project_id=REPAIR_TEST_PROJECT_ID)
         assert cancelled and cancelled["cancellation_requested"] is True
         cancelled_job, _ = wait_for_job(cancel_created["job_id"])
         assert cancelled_job["overall_status"] == "cancelled"

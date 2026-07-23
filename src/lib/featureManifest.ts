@@ -92,26 +92,26 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
-export function getFeatureManifest() {
-  return request<FeatureManifest>("/features/manifest");
+export function getFeatureManifest(projectId: string) {
+  return request<FeatureManifest>(`/features/manifest?project_id=${encodeURIComponent(projectId)}`);
 }
 
-export function saveFeatureManifest(features: FeatureDraft[], pipelineSteps: PipelineStep[], datasetVersion = "") {
+export function saveFeatureManifest(projectId: string, features: FeatureDraft[], pipelineSteps: PipelineStep[], datasetVersion = "") {
   return request<FeatureManifest>("/features/manifest", {
     method: "POST",
-    body: JSON.stringify({ features, pipeline_steps: pipelineSteps, dataset_version: datasetVersion }),
+    body: JSON.stringify({ project_id: projectId, features, pipeline_steps: pipelineSteps, dataset_version: datasetVersion }),
   });
 }
 
-export function previewFeaturePlan(features: FeatureDraft[], previewLimit = 20, signal?: AbortSignal) {
+export function previewFeaturePlan(projectId: string, features: FeatureDraft[], previewLimit = 20, signal?: AbortSignal) {
   return request<FeaturePreview>("/features/preview", {
     method: "POST",
     signal,
-    body: JSON.stringify({ features, preview_limit: previewLimit }),
+    body: JSON.stringify({ project_id: projectId, features, preview_limit: previewLimit }),
   });
 }
 
-export function materializeFeatureManifest(manifestVersion: string) {
+export function materializeFeatureManifest(projectId: string, manifestVersion: string) {
   return request<{
     ok: boolean;
     manifest_version: string;
@@ -124,11 +124,11 @@ export function materializeFeatureManifest(manifestVersion: string) {
     duration_ms: number;
   }>("/features/materialize", {
     method: "POST",
-    body: JSON.stringify({ manifest_version: manifestVersion }),
+    body: JSON.stringify({ project_id: projectId, manifest_version: manifestVersion }),
   });
 }
 
-export function removeFeature(featureId: string) {
-  return request<FeatureManifest>(`/features/${encodeURIComponent(featureId)}`, { method: "DELETE" });
+export function removeFeature(projectId: string, featureId: string) {
+  return request<FeatureManifest>(`/features/${encodeURIComponent(featureId)}?project_id=${encodeURIComponent(projectId)}`, { method: "DELETE" });
 }
 

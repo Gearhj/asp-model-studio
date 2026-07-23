@@ -7,6 +7,21 @@ from typing import Optional, Dict, Any, Tuple
 
 import pandas as pd
 
+# Only ever used for the project half of the scope key when no request has
+# gone through authorize_modeling_scope() (server/core/modeling_scope.py) at
+# all -- i.e. non-HTTP callers such as direct service-layer test scripts
+# (tests/predictive_modeling_repair_test.py), or (since Stage 6) a legacy,
+# pre-Stage-6 checkpoint file with no explicit scope of its own (server/
+# core/session_checkpoint.py's LEGACY_SCOPE). A real authenticated HTTP
+# request that reaches an affected endpoint without a valid project_id is
+# rejected by authorize_modeling_scope() with 400/403/404 before DATASTORE
+# is ever touched, so this sentinel never appears for a genuine project
+# workflow request -- see modeling_scope.py's module docstring. Since
+# Stage 6, a real (non-legacy) checkpoint restores every scope explicitly
+# by its own recorded (user_id, project_id) -- this sentinel is no longer
+# involved in ordinary restart restoration at all.
+UNSCOPED_PROJECT = "unscoped"
+
 
 @dataclass
 class DatasetStore:
@@ -223,20 +238,47 @@ class DatasetStore:
         return self.X_train, self.X_test, self.y_train, self.y_test
 
 
-_DATASTORES: Dict[str, DatasetStore] = {}
+# Keyed by an explicit (user_id, project_id) tuple -- not a concatenated
+# string -- so there is no possible delimiter-collision between a user_id
+# and a project_id that happened to contain the same separator character.
+# Stage 2B: previously keyed by user_id alone (a plain str); that scheme is
+# retired outright, not migrated -- see modeling_scope.py's module docstring
+# and the delivery report's "Backward compatibility" section. _DATASTORES is
+# a purely in-memory, process-lifetime cache (never persisted except via the
+# separate, unmodified checkpoint mechanism), so a deploy of this change
+# naturally starts every process with an empty dict; there is no old-format
+# data to migrate or that could leak into a new-format lookup, because a
+# 2-tuple key can never equal an old bare-string key.
+_DATASTORES: Dict[Tuple[str, str], DatasetStore] = {}
 
 
-def _scope_key() -> str:
+def _scope_key() -> Tuple[str, str]:
     try:
         from ..security.security_store import active_user
 
         user = active_user() or {}
-        return str(user.get("userId") or "anonymous")
+        user_id = str(user.get("userId") or "anonymous")
     except Exception:
-        return "anonymous"
+        user_id = "anonymous"
+    try:
+        from .modeling_scope import active_project_id
+
+        project_id = active_project_id() or UNSCOPED_PROJECT
+    except Exception:
+        project_id = UNSCOPED_PROJECT
+    return (user_id, project_id)
 
 
-def get_scoped_dataset_store(scope: Optional[str] = None) -> DatasetStore:
+def get_scoped_dataset_store(scope: Optional[Tuple[str, str]] = None) -> DatasetStore:
+    """Look up (or lazily create) the DatasetStore for a scope.
+
+    `scope`, when given, must be an explicit (user_id, project_id) tuple --
+    this is the "preserve explicit test helpers for inspecting a specific
+    scope" affordance; it bypasses contextvars entirely, which is exactly
+    why it's useful for tests and for the rare internal caller that already
+    knows precisely which scope it means. Real request handling always goes
+    through the default (ambient, contextvar-resolved) path.
+    """
     key = scope or _scope_key()
     if key not in _DATASTORES:
         _DATASTORES[key] = DatasetStore()

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import os
 from threading import Event, Lock, Thread
 import time
-from typing import Any
+from typing import Any, Tuple
 from uuid import uuid4
 
 from ..core.dataset_store import DATASTORE
@@ -22,6 +22,38 @@ from .training_preflight_service import training_preflight
 TERMINAL_STATES = {"complete", "failed", "cancelled", "interrupted"}
 ACTIVE_STATES = {"queued", "preparing", "running"}
 CANCELLED_MESSAGE = "Training stopped by user. Completed model results were preserved; unfinished models were cancelled."
+
+# Stage 4 (ATLAS_MODELING_STATE_ISOLATION_PLAN.md): TRAINING_JOBS project
+# isolation and authorization.
+#
+# Job ownership/scope is made EXPLICIT on the job record itself
+# (`owner_user_id`, `project_id`), not derived from ambient context, per
+# this stage's requirement that background execution not depend on
+# contextvars propagating into worker threads. Verified in Stage 2B/3 (and
+# unchanged here): a bare threading.Thread/ThreadPoolExecutor does NOT
+# inherit contextvars.Context. TRAINING_JOBS never actually relied on that
+# propagation for correctness -- create() already ran entirely on the
+# request thread (where authorize_modeling_scope's ContextVar mutation IS
+# visible), reading DATASTORE and capturing a RESULTS ResultStore INSTANCE
+# (`job["_result_store"] = RESULTS.current()`) before the background thread
+# ever starts; the background thread receives X_train/X_test/y_train/y_test
+# as plain function arguments and writes results through that already-
+# captured store INSTANCE, never re-deriving scope from ambient state. This
+# stage adds `owner_user_id`/`project_id` as the SAME kind of explicit,
+# immutable-once-set, request-thread-captured job-record fields -- not a
+# new propagation mechanism, the same one already proven to work.
+#
+# Storage: `_jobs` stays keyed by `job_id` (already a globally-unique
+# uuid4-derived string, addressed directly by the `/model/train/jobs/
+# {job_id}` URL) -- re-keying it by (user_id, project_id) would make direct
+# job_id lookups ambiguous. Instead, `_project_job_ids` is a SEPARATE,
+# explicitly structured `Dict[Tuple[str, str], list[str]]` index (never a
+# concatenated string) mapping (owner_user_id, project_id) -> ordered
+# job_ids, used for project-scoped listing (`active()`/history). Every
+# accessor that takes a job_id (`get`, `cancel`) ALSO requires the caller's
+# (owner_user_id, project_id) and checks it against the job record's own
+# fields -- authorization is never inferred from job_id possession alone.
+ScopeKey = Tuple[str, str]
 
 
 def _now() -> str:
@@ -49,12 +81,13 @@ class TrainingJobService:
     def __init__(self) -> None:
         self._jobs: dict[str, dict[str, Any]] = {}
         self._cancel_events: dict[str, Event] = {}
+        self._project_job_ids: dict[ScopeKey, list[str]] = {}
         self._lock = Lock()
 
     def preflight(self, request: TrainingJobRequest) -> dict[str, Any]:
         return training_preflight(request)
 
-    def create(self, request: TrainingJobRequest) -> dict[str, Any]:
+    def create(self, request: TrainingJobRequest, owner_user_id: str) -> dict[str, Any]:
         create_started = time.perf_counter()
         preflight = self.preflight(request)
         if not preflight["ready"]:
@@ -138,6 +171,7 @@ class TrainingJobService:
             "feature_manifest_version": preflight["feature_manifest_version"],
             "split_id": preflight["split_id"],
             "project_id": request.project_id,
+            "owner_user_id": owner_user_id,
             "problem_type": preflight["problem_type"],
             "target": preflight["target"],
             "event_value": preflight["event_value"],
@@ -170,9 +204,11 @@ class TrainingJobService:
             "_excluded_target_features": excluded,
         }
         cancel_event = Event()
+        scope_key: ScopeKey = (owner_user_id, request.project_id)
         with self._lock:
             self._jobs[job_id] = job
             self._cancel_events[job_id] = cancel_event
+            self._project_job_ids.setdefault(scope_key, []).append(job_id)
         DATASTORE.meta["active_training_job_id"] = job_id
 
         Thread(
@@ -192,9 +228,25 @@ class TrainingJobService:
             "creation_duration_ms": int((time.perf_counter() - create_started) * 1000),
         }
 
-    def get(self, job_id: str) -> dict[str, Any] | None:
+    def _owned_job_locked(self, job_id: str, owner_user_id: str, project_id: str) -> dict[str, Any] | None:
+        """Look up a job by job_id, requiring it to be locked already, and
+        return it ONLY if it belongs to (owner_user_id, project_id) -- never
+        infer authorization from job_id possession alone (this stage's
+        requirement 9/10). A job that exists but belongs to someone else, or
+        to a different project, is indistinguishable from a job that does
+        not exist at all: both return None here, both surface as 404 at the
+        router. This also defeats job_id guessing/enumeration: a correct
+        job_id for the WRONG owner or project is as useless as a random
+        string. Caller must hold self._lock.
+        """
+        job = self._jobs.get(job_id)
+        if not job or job["owner_user_id"] != owner_user_id or job["project_id"] != project_id:
+            return None
+        return job
+
+    def get(self, job_id: str, owner_user_id: str, project_id: str) -> dict[str, Any] | None:
         with self._lock:
-            job = self._jobs.get(job_id)
+            job = self._owned_job_locked(job_id, owner_user_id, project_id)
             if not job:
                 return None
             if job["overall_status"] in ACTIVE_STATES:
@@ -210,15 +262,21 @@ class TrainingJobService:
                     job["message"] = job["user_message"]
             return self._public_job(job)
 
-    def active(self) -> list[dict[str, Any]]:
+    def active(self, owner_user_id: str, project_id: str) -> list[dict[str, Any]]:
+        scope_key: ScopeKey = (owner_user_id, project_id)
         with self._lock:
-            jobs = [self._public_job(job) for job in self._jobs.values() if job["overall_status"] in ACTIVE_STATES]
+            job_ids = list(self._project_job_ids.get(scope_key, []))
+            jobs = [
+                self._public_job(self._jobs[job_id])
+                for job_id in job_ids
+                if job_id in self._jobs and self._jobs[job_id]["overall_status"] in ACTIVE_STATES
+            ]
         return sorted(jobs, key=lambda row: row["created_at"], reverse=True)
 
-    def cancel(self, job_id: str) -> dict[str, Any] | None:
+    def cancel(self, job_id: str, owner_user_id: str, project_id: str) -> dict[str, Any] | None:
         public_job: dict[str, Any] | None = None
         with self._lock:
-            job = self._jobs.get(job_id)
+            job = self._owned_job_locked(job_id, owner_user_id, project_id)
             event = self._cancel_events.get(job_id)
             if not job or not event:
                 return None
