@@ -18,7 +18,7 @@ from fastapi.routing import APIRoute
 # Core in-memory store
 from .core.dataset_store import DATASTORE
 from .core.modeling_scope import authorize_modeling_scope
-from .core.session_checkpoint import load_checkpoint, save_checkpoint
+from .core.session_checkpoint import load_checkpoint, schedule_checkpoint_save, shutdown_checkpoint_writer
 
 # Modular routers
 from .core.metadata_router import _infer_target, router as metadata_router
@@ -41,11 +41,14 @@ from .sharing.router import router as sharing_router
 from .notifications.router import router as notifications_router
 from .security.security_store import ActiveUserContextMiddleware, AtlasUserContextError, init_security_store, list_users, require_user
 from .analytics.analytics_router import router as analytics_router
+from .analytics.analytics_queries_router import router as analytics_queries_router
 from .charts.chart_router import router as chart_router
 from .model_diagnostics.diagnostics_router import router as model_diagnostics_router
 from .model_documentation.documentation_router import router as model_documentation_router
 from .notebooks.notebook_router import router as notebook_router
 from .scoring.scoring_router import router as scoring_router
+from .scoring_runs.scoring_runs_router import router as scoring_runs_router
+from .model_registry.model_registry_router import router as model_registry_router
 from .projects.project_router import router as project_registry_router
 from .sql_studio.sql_router import router as sql_studio_router
 from .evidence.evidence_router import router as evidence_router
@@ -166,6 +169,13 @@ def create_app() -> FastAPI:
             print(f"ATLAS SQLite persistence unavailable; local fallback remains active: {exc}")
         load_checkpoint()
 
+    @app.on_event("shutdown")
+    def flush_session_checkpoint() -> None:
+        # Stage 6.1: scheduled (debounced) checkpoint saves may still be
+        # pending when the process stops; flush them so the most recent
+        # draft mutations survive an ordinary shutdown.
+        shutdown_checkpoint_writer()
+
     # -------------------------------------------------------------------------
     # Data Acquisition – optional CSV upload endpoint (Step01 alternative)
     # -------------------------------------------------------------------------
@@ -219,7 +229,7 @@ def create_app() -> FastAPI:
             "target": target,
             "selected_columns": selected_columns,
         }
-        save_checkpoint()
+        schedule_checkpoint_save()
         sample_df = df.head(max(1, min(MAX_UPLOAD_SAMPLE_ROWS, int(df.shape[0]))))
 
         return {
@@ -275,8 +285,11 @@ def create_app() -> FastAPI:
     app.include_router(monitoring_router, tags=["Monitoring"], dependencies=authenticated)
     app.include_router(analytics_engine_router, tags=["Statistical & Analytical Engine"])
     app.include_router(analytics_router, prefix="/api", tags=["Analytics Workbench"], dependencies=authenticated)
+    app.include_router(analytics_queries_router, prefix="/api", tags=["Enterprise Analytical Data Plane"], dependencies=authenticated)
     app.include_router(chart_router, prefix="/api", tags=["Chart Studio"], dependencies=authenticated)
     app.include_router(scoring_router, prefix="/api", tags=["Scoring"], dependencies=authenticated)
+    app.include_router(scoring_runs_router, prefix="/api", tags=["Persistent Scoring Runs"], dependencies=authenticated)
+    app.include_router(model_registry_router, prefix="/api", tags=["Model Registry"], dependencies=authenticated)
     app.include_router(model_diagnostics_router, prefix="/api", tags=["Model Diagnostics"], dependencies=authenticated)
     app.include_router(model_documentation_router, prefix="/api", tags=["Model Documentation Studio"], dependencies=authenticated)
     app.include_router(notebook_router, prefix="/api", tags=["Notebook Studio"], dependencies=authenticated)

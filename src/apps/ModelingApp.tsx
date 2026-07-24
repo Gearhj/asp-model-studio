@@ -60,6 +60,9 @@ const Step11ModelDevelopmentDocument = lazy(() => import("../steps/Step11_ModelD
 const Step12ModelImplementation = lazy(() => import("../steps/Step12_ModelImplementation"));
 const Step13ModelMonitoring = lazy(() => import("../steps/Step13_ModelMonitoring"));
 const SystemDiagnostics = lazy(() => import("../steps/SystemDiagnostics"));
+// Visual Intelligence Foundation Phase 1: lazy-loaded so DuckDB-Wasm, ECharts, and D3
+// overlay code are absent from every unrelated page's startup bundle (Phase O requirement).
+const VisualIntelligenceLab = lazy(() => import("../steps/VisualIntelligenceLab"));
 const WorkflowTemplates = lazy(() => import("../steps/WorkflowTemplates"));
 
 export default function ModelingApp() {
@@ -232,6 +235,7 @@ export default function ModelingApp() {
                   <Route path="/projects/open" element={<OpenProject />} />
                   <Route path="/templates" element={<WorkflowTemplates />} />
                   <Route path="/datasets" element={<DatasetLibrary />} />
+                  <Route path="/visual-intelligence-lab" element={<VisualIntelligenceLab />} />
                   <Route path="/sql-data-studio" element={<SqlDataStudio />} />
                   <Route path="/notebook-studio" element={<NotebookStudio />} />
                   <Route path="/analytics" element={<AnalyticsWorkbench />} />

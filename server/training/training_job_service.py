@@ -12,7 +12,7 @@ from uuid import uuid4
 from ..core.dataset_store import DATASTORE
 from ..core.json_safety import json_safe
 from ..core.result_store import RESULTS
-from ..core.session_checkpoint import save_checkpoint
+from ..core.session_checkpoint import schedule_checkpoint_save
 from .trainer import MODEL_CATALOG, train_models
 from .trainer_service import TRAINER
 from .training_job_types import TrainingJobRequest
@@ -315,7 +315,7 @@ class TrainingJobService:
                 DATASTORE.meta.pop("active_training_job_id", None)
             public_job = self._public_job(job)
         try:
-            save_checkpoint()
+            schedule_checkpoint_save()
         except Exception:
             pass
         return public_job
@@ -367,7 +367,7 @@ class TrainingJobService:
                     if should_publish_partial:
                         try:
                             self._finalize(job_id, request, X_train, X_test, y_train, y_test)
-                            save_checkpoint()
+                            schedule_checkpoint_save()
                         except Exception as exc:
                             with self._lock:
                                 job = self._jobs[job_id]
@@ -399,7 +399,7 @@ class TrainingJobService:
             job["message"] = job["user_message"]
         try:
             self._finalize(job_id, request, X_train, X_test, y_train, y_test)
-            save_checkpoint()
+            schedule_checkpoint_save()
         except Exception as exc:
             with self._lock:
                 job = self._jobs[job_id]

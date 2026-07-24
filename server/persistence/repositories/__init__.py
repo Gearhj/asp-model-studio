@@ -9,8 +9,10 @@ from .evidence_repository import EvidenceRepository
 from .export_repository import ExportRepository
 from .project_repository import ProjectRepository
 from .run_repository import RunRepository
+from .scoring_run_repository import ScoringRunRepository
 from .sharing_repository import SharingRepository
 from .notification_repository import NotificationRepository
+from .model_registry_repository import ModelRepository, ModelVersionRepository
 from .monitoring_repository import MonitoringRepository
 from .user_repository import UserRepository
 from .validation_repository import ValidationRepository
@@ -28,8 +30,11 @@ __all__ = [
     "ExportRepository",
     "ProjectRepository",
     "RunRepository",
+    "ScoringRunRepository",
     "SharingRepository",
     "NotificationRepository",
+    "ModelRepository",
+    "ModelVersionRepository",
     "MonitoringRepository",
     "UserRepository",
     "ValidationRepository",

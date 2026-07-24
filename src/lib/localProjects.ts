@@ -11,6 +11,7 @@ import {
 } from "./projectPersistence";
 import { validateProjectImport } from "./projectImportValidation";
 import { queueProjectDatabaseSave } from "./serverPersistence";
+import { clearProjectDatasetEverywhere } from "./localDataset";
 
 export const LOCAL_PROJECTS_KEY = "atlas-local-projects";
 export const PROJECT_SNAPSHOT_KEY_PREFIX = "atlas-project-snapshot:";
@@ -286,6 +287,11 @@ function copyProjectScopedStorage(sourceProjectId: string, targetProjectId: stri
 }
 
 function deleteProjectScopedStorage(projectId: string) {
+  // Dataset browser cache lives in sessionStorage under a separate (user,
+  // project)-scoped key format (src/lib/localDataset.ts) -- swept here too,
+  // for every user, so a deleted project's cached rows/headers/target can
+  // never resurface (Predictive Modeling Repair Stage 6.2).
+  clearProjectDatasetEverywhere(projectId);
   if (typeof localStorage === "undefined") return;
   for (const prefix of PROJECT_SCOPED_STORAGE_PREFIXES) {
     const scopedPrefix = projectScopedPrefix(prefix, projectId);

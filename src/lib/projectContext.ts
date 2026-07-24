@@ -20,7 +20,8 @@ export type PredictiveModelTypeSelection =
   | "Credit Risk Classification"
   | "Customer Response Classification"
   | "Attrition Classification"
-  | "Other Binary Classification";
+  | "Other Binary Classification"
+  | "Regression";
 
 export type AcceptedProjectContextAiDraft = {
   field: string;
@@ -227,9 +228,16 @@ export const predictiveModelTypeOptions: PredictiveModelTypeSelection[] = [
   "Customer Response Classification",
   "Attrition Classification",
   "Other Binary Classification",
+  // Stage REG-A fix (REG-A-D1): the predictive-modeling Project Context could
+  // only describe a project as some flavor of classification -- the ModelType
+  // union has supported "regression" all along, but no selectable option
+  // mapped to it, so a continuous-target project was forced to carry a
+  // classification identity from Step00 onward.
+  "Regression",
 ];
 
 export function canonicalModelType(selection: PredictiveModelTypeSelection): ModelType {
+  if (/regression/i.test(selection)) return "regression";
   if (/credit risk/i.test(selection)) return "credit risk";
   if (/customer response/i.test(selection)) return "marketing response";
   if (/attrition/i.test(selection)) return "attrition";
@@ -241,6 +249,7 @@ export function professionalModelType(modelType: ModelType, subtype?: string): P
   if (predictiveModelTypeOptions.includes(subtype as PredictiveModelTypeSelection)) {
     return subtype as PredictiveModelTypeSelection;
   }
+  if (modelType === "regression") return "Regression";
   if (modelType === "fraud") return "Fraud Classification";
   if (modelType === "credit risk") return "Credit Risk Classification";
   if (modelType === "marketing response") return "Customer Response Classification";

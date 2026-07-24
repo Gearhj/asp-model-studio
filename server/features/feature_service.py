@@ -12,7 +12,7 @@ import numpy as np
 import pandas as pd
 
 from ..core.dataset_store import DATASTORE
-from ..core.session_checkpoint import save_checkpoint
+from ..core.session_checkpoint import schedule_checkpoint_save
 from .feature_types import FeatureDefinitionInput, FeatureManifestUpdateRequest
 
 
@@ -210,7 +210,7 @@ def update_manifest(request: FeatureManifestUpdateRequest) -> dict[str, Any]:
     if changed:
         DATASTORE.meta["split_status"] = "stale" if DATASTORE.X_train is not None else "not_created"
         DATASTORE.reset_splits()
-    save_checkpoint()
+    schedule_checkpoint_save()
     return manifest
 
 
@@ -368,7 +368,7 @@ def materialize_manifest(expected_version: str = "") -> dict[str, Any]:
     manifest["features"] = manifest["features"]
     manifest["split_status"] = "not_created"
     DATASTORE.meta["feature_manifest"] = manifest
-    save_checkpoint()
+    schedule_checkpoint_save()
     return {
         "ok": True,
         "manifest_version": manifest["manifest_version"],

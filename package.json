@@ -52,7 +52,11 @@
     "test:evaluation-scoring-command-center": "node tests/evaluationScoringCommandCenter.test.mjs && .\\.venv\\Scripts\\python.exe tests\\evaluation_scoring_command_center_test.py"
   },
   "dependencies": {
+    "@duckdb/duckdb-wasm": "^1.32.0",
+    "@types/d3": "^7.4.3",
     "d3": "^7.9.0",
+    "echarts": "^6.1.0",
+    "echarts-for-react": "^3.0.6",
     "lucide-react": "^0.460.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",

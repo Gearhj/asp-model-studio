@@ -257,9 +257,15 @@ assert.match(evaluationService, /full_train_rows/);
 assert.match(scoring, /model\/final\/status/);
 assert.match(scoring, /Verified final-model contract/);
 assert.match(scoring, /Confirm Scoring and Continue to Documentation/);
-assert.match(scoring, /projectMatches/);
-assert.match(scoring, /datasetMatches/);
-assert.match(scoring, /targetMatches/);
+// Stage B.6: context matching moved into the pure, unit-tested helper (symmetric skip
+// semantics mirroring the backend's _artifact_context_mismatch), and the status effect
+// must guard against out-of-order responses overwriting the current project's view.
+assert.match(scoring, /resolveFinalModelReadiness/);
+assert.match(scoring, /let stale = false/);
+assert.match(scoring, /stale = true/);
+const finalModelReadiness = await read("src/lib/finalModelReadiness.ts");
+assert.match(finalModelReadiness, /if \(!expected \|\| !actual\) return true/);
+assert.match(finalModelReadiness, /belongs to a different project, dataset version, or target/);
 assert.match(scoring, /nextDisabled=\{!scoredOutputCount\}/);
 assert.doesNotMatch(scoring, /import StepPythonPanel/);
 assert.doesNotMatch(scoring, /Mark Complete & Next Step/);

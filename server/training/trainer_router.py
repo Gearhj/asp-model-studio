@@ -10,7 +10,7 @@ from .training_job_types import TrainingJobRequest
 from ..core.json_safety import json_safe
 from ..core.modeling_scope import authorize_modeling_scope
 from ..core.result_store import RESULTS
-from ..core.session_checkpoint import save_checkpoint
+from ..core.session_checkpoint import schedule_checkpoint_save
 from ..security.security_store import require_user
 
 
@@ -201,7 +201,7 @@ def train_models(request: Dict[str, Any], user: Dict[str, Any] = Depends(require
 
         rows = summary.get("n_train")
         status = summary.get("status", "ok")
-        save_checkpoint()
+        schedule_checkpoint_save()
 
         return json_safe({
             "ok": True,

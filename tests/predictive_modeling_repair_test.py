@@ -1,13 +1,27 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import time
+import uuid
 from pathlib import Path
 import sys
 
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+# Isolate this suite's checkpoint writes from the real dev backend's file.
+# The checkpoint is a full-snapshot, last-writer-wins file (see
+# server/core/session_checkpoint.py): without this, the service calls below
+# (feature materialization, evaluation) schedule checkpoint saves that would
+# CLOBBER the live backend's .runtime/workflow_checkpoint.json from this
+# separate process, silently dropping the backend's resident scopes from disk.
+os.environ.setdefault(
+    "ATLAS_CHECKPOINT_PATH",
+    str(Path(tempfile.gettempdir()) / f"atlas_repair_test_checkpoint_{uuid.uuid4().hex[:8]}.json"),
+)
 
 from server.core.dataset_store import DATASTORE
 from server.eda.eda_service import eda_service
@@ -339,6 +353,20 @@ def _run_remaining_checks(frame: pd.DataFrame, outlier_profile: dict, missing_pr
     assert len(rfe["rows"]) == 3
     assert rfe["selected_count"] == 2
     assert rfe["curve"]
+    # Stage B.5 regression: save_rfe_model must reject a save whose context (dataset_version,
+    # target, problem_type, project_id) does not match the trained artifact's own recorded
+    # metadata -- this is the backend half of the guardrail that a stale frontend snapshot of
+    # dataset_version/target (fixed in Step09_Interpretation.tsx's interpretationContextQuery)
+    # must not be able to bypass. A save that slips a mismatched context through here would
+    # silently corrupt final-model identity; Scoring's own readiness check depends on this
+    # metadata being trustworthy.
+    mismatched_save = EVAL.save_rfe_model(
+        "dtree", keep=2,
+        context={**interpretation_context, "dataset_version": "wrong-version"},
+    )
+    assert mismatched_save["ok"] is False, mismatched_save
+    assert "dataset version" in mismatched_save["error"].lower()
+
     saved_final = EVAL.save_rfe_model("dtree", keep=2, context=interpretation_context)
     assert saved_final["ok"] is True, saved_final
     assert saved_final["metadata"]["source_model"] == "dtree"

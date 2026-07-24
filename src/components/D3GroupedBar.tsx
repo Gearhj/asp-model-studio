@@ -64,7 +64,7 @@ export default function D3GroupedBar({ data, feature, topK = 20, mode, height = 
     const x = d3.scaleBand().domain(categories).range([0, innerW]).padding(0.12);
 
     const labels = ["Non-Event", "Event"] as const;
-    const colors = d3.scaleOrdinal().domain(labels as unknown as string[]).range(["#60a5fa", "#f87171"]);
+    const colors = d3.scaleOrdinal<string, string>().domain(labels as unknown as string[]).range(["#60a5fa", "#f87171"]);
 
     const yMax = d3.max(prepared, (d: PreparedRow) => Math.max(d.event, d.nonevent)) || 1;
     const yStackMax = d3.max(prepared, (d: PreparedRow) => d.event + d.nonevent) || 1;

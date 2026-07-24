@@ -8,8 +8,11 @@ import pandas as pd
 from fastapi import APIRouter, Depends, File, Query, UploadFile
 from fastapi.responses import Response
 from ..core.modeling_scope import authorize_modeling_scope
-from ..core.session_checkpoint import save_checkpoint
+from ..core.result_store import RESULTS
+from ..core.session_checkpoint import schedule_checkpoint_save
 from ..security.security_store import require_user
+from ..scoring_runs.scoring_run_service import create_failed_scoring_run, create_scoring_run
+from ..model_registry.model_registry_service import create_model_version
 from .eval_service import EVAL
 
 
@@ -226,6 +229,55 @@ def get_rfe(
     return EVAL.rfe(model_name=model, keep=keep, context=_context(project_id, dataset_version, target, problem_type))
 
 
+def _register_model_version(user: Dict[str, Any], project_id: str, metadata: Dict[str, Any]) -> Dict[str, Any] | None:
+    """Durable Model Registry, Phase E: called after EVAL.save_selected_model_
+    as_final / EVAL.save_rfe_model succeed. Reads the just-set RESULTS.final_model
+    (the fitted object) plus the last training summary for hyperparameters/
+    dataset/feature-manifest context, and creates one immutable ModelVersion.
+    Returns None (never raises) on any failure -- durability is additive, never
+    fatal to the "Save Final Model" action that already worked before this
+    phase (Do-Not: "do not remove current scoring functionality")."""
+    try:
+        fitted_object = RESULTS.get_final_model()
+        if fitted_object is None:
+            return None
+        summary = RESULTS.get_last_summary() or {}
+        source_key = str(metadata.get("source_model") or metadata.get("model_key") or "")
+        ranked_row = next((row for row in (summary.get("ranked") or []) if row.get("key") == source_key), {})
+        is_rfe = str(metadata.get("model_key") or "").startswith("final_rfe")
+        interpretation_summary = (
+            {"selectedFeatures": metadata.get("features"), "featureCount": metadata.get("feature_count"), "method": "RFE"}
+            if is_rfe else {}
+        )
+        saved = create_model_version(
+            user, project_id,
+            model_name=str(metadata.get("name") or metadata.get("model_key") or "Final Model"),
+            problem_type=metadata.get("problem_type"),
+            algorithm=source_key or str(metadata.get("model_key") or ""),
+            algorithm_version=str(metadata.get("final_estimator_class") or metadata.get("source_estimator_class") or fitted_object.__class__.__name__),
+            fitted_object=fitted_object,
+            hyperparameters=ranked_row.get("best_params") or {},
+            training_parameters={
+                "kFolds": summary.get("k_folds"), "calibrate": summary.get("calibrate"),
+                "gridSearch": summary.get("grid_search"), "gridSearchLevel": summary.get("grid_search_level"),
+            },
+            metrics_summary=metadata.get("metrics") or {
+                key: metadata.get(key) for key in ("holdout_auc", "holdout_rmse", "holdout_r2", "holdout_adjusted_r2") if metadata.get(key) is not None
+            },
+            evaluation_summary={key: ranked_row.get(key) for key in ("auc", "pr_auc", "accuracy", "f1", "mae", "mse", "rmse", "r2", "adjusted_r2") if ranked_row.get(key) is not None},
+            interpretation_summary=interpretation_summary,
+            training_run_id=summary.get("training_job_id"),
+            dataset_id=summary.get("dataset_id"),
+            dataset_version_id=None,  # no registered Dataset Library version necessarily exists for a workspace-trained project
+            feature_manifest_version=summary.get("feature_manifest_version") or metadata.get("feature_manifest_version"),
+            training_timestamp=RESULTS.training_timestamp,
+            lineage={"datasetVersionLabel": summary.get("dataset_version"), "splitId": summary.get("split_id")},
+        )
+        return saved
+    except Exception:  # noqa: BLE001
+        return None
+
+
 @router.post("/interpretation/rfe/save_final")
 def save_rfe_final_model(request: dict, user: Dict[str, Any] = Depends(require_user)):
     project_id = authorize_modeling_scope(user, str(request.get("project_id") or ""), "edit")
@@ -240,18 +292,29 @@ def save_rfe_final_model(request: dict, user: Dict[str, Any] = Depends(require_u
         ),
     )
     if result.get("ok"):
-        save_checkpoint()
+        registered = _register_model_version(user, project_id, result["metadata"])
+        if registered:
+            result["metadata"]["modelId"] = registered["model"]["modelId"]
+            result["metadata"]["modelVersionId"] = registered["modelVersion"]["modelVersionId"]
+            RESULTS.final_model_metadata = result["metadata"]
+        schedule_checkpoint_save()
     return result
 
 
 @router.post("/model/save_final")
 def save_selected_final_model(request: dict, user: Dict[str, Any] = Depends(require_user)):
-    authorize_modeling_scope(user, str(request.get("project_id") or ""), "edit")
+    project_id = str(request.get("project_id") or "")
+    authorize_modeling_scope(user, project_id, "edit")
     result = EVAL.save_selected_model_as_final(
         model_name=str(request.get("model") or ""),
     )
     if result.get("ok"):
-        save_checkpoint()
+        registered = _register_model_version(user, project_id, result["metadata"])
+        if registered:
+            result["metadata"]["modelId"] = registered["model"]["modelId"]
+            result["metadata"]["modelVersionId"] = registered["modelVersion"]["modelVersionId"]
+            RESULTS.final_model_metadata = result["metadata"]
+        schedule_checkpoint_save()
     return result
 
 
@@ -315,7 +378,20 @@ async def score_upload(
                     "end": parsed.max().isoformat(),
                 }
                 break
-        save_checkpoint()
+        scoring_run = create_scoring_run(
+            user, project_id, dataset_type, result,
+            dataset_context={"datasetIdentity": result.get("dataset_identity"), "source": "csv_upload"},
+        )
+        if scoring_run:
+            result["scoringRunId"] = scoring_run["scoringRunId"]
+        schedule_checkpoint_save()
+    else:
+        failed_run = create_failed_scoring_run(
+            user, project_id, dataset_type, str(result.get("error") or "Scoring failed."),
+            dataset_context={"datasetIdentity": file.filename or f"{dataset_type.upper()} upload", "source": "csv_upload"},
+        )
+        if failed_run:
+            result["scoringRunId"] = failed_run["scoringRunId"]
     return result
 
 
@@ -338,5 +414,18 @@ def score_development_split(
         model_prior=model_prior,
     )
     if result.get("ok"):
-        save_checkpoint()
+        scoring_run = create_scoring_run(
+            user, project_id, result.get("dataset_type", dataset_type), result,
+            dataset_context={"datasetIdentity": result.get("dataset_identity"), "source": "development_split"},
+        )
+        if scoring_run:
+            result["scoringRunId"] = scoring_run["scoringRunId"]
+        schedule_checkpoint_save()
+    else:
+        failed_run = create_failed_scoring_run(
+            user, project_id, dataset_type, str(result.get("error") or "Scoring failed."),
+            dataset_context={"source": "development_split"},
+        )
+        if failed_run:
+            result["scoringRunId"] = failed_run["scoringRunId"]
     return result

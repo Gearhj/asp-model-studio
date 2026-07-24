@@ -8,6 +8,7 @@ import {
 } from "../config/workflows";
 import { upsertProjectSnapshot } from "../lib/localProjects";
 import { restoreProjectSnapshotArtifacts } from "../lib/projectPersistence";
+import { setCachedProjectId } from "../lib/activeProjectContext";
 
 type StepId =
   | "dashboard"
@@ -430,3 +431,10 @@ export const useWorkflowStore = create<WorkflowState>()(
     }
   )
 );
+
+// Keep the lightweight ambient projectId cache (src/lib/activeProjectContext.ts)
+// in sync so src/lib/localDataset.ts can resolve the active project for its
+// scoped sessionStorage key without importing this store module directly
+// (Predictive Modeling Repair Stage 6.2 -- see activeProjectContext.ts).
+setCachedProjectId(useWorkflowStore.getState().projectId);
+useWorkflowStore.subscribe((state) => setCachedProjectId(state.projectId));

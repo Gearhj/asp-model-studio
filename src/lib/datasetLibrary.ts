@@ -144,6 +144,27 @@ export async function registerDataset(input: { name: string; description?: strin
   return payload.dataset;
 }
 
+/** Registers the CURRENT project's already-uploaded workspace dataset (transformed
+ * or not) as a durable, versioned Dataset Library asset linked to this project. */
+export async function registerWorkspaceDataset(input: { projectId: string; name: string; description?: string; domain?: string; tags?: string[] }) {
+  const payload = await jsonFetch<{ ok: true; dataset: DatasetSummary }>("/datasets/register-workspace", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+  return payload.dataset;
+}
+
+/** Reviewable duplicate suggestions for the registration flow -- never used to
+ * silently substitute a different asset for the one being registered. */
+export async function findSimilarDatasets(input: { name: string; target?: string | null; rowCount?: number; columnCount?: number }) {
+  const params = new URLSearchParams({ name: input.name });
+  if (input.target) params.set("target", input.target);
+  if (input.rowCount != null) params.set("row_count", String(input.rowCount));
+  if (input.columnCount != null) params.set("column_count", String(input.columnCount));
+  const payload = await jsonFetch<{ ok: true; candidates: DatasetSummary[] }>(`/datasets/similar?${params.toString()}`);
+  return payload.candidates;
+}
+
 export async function getDatasetProfile(datasetId: string, versionId?: string) {
   const path = versionId ? `/datasets/${datasetId}/versions/${versionId}/profile` : `/datasets/${datasetId}/profile`;
   const payload = await jsonFetch<{ ok: true; profile: DatasetProfile; dataset?: DatasetSummary; versionId?: string }>(path);

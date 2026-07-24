@@ -77,6 +77,12 @@ async function compileTestModules() {
   await transpileSource("src/lib/projectPersistence.ts", path.join(TMP_DIR, "src/lib/projectPersistence.js"));
   await transpileSource("src/lib/api.ts", path.join(TMP_DIR, "src/lib/api.js"));
   await transpileSource("src/lib/serverPersistence.ts", path.join(TMP_DIR, "src/lib/serverPersistence.js"));
+  // localProjects.ts's project-deletion cleanup now sweeps the scoped
+  // dataset sessionStorage key (src/lib/localDataset.ts, Stage 6.2) -- its
+  // own two tiny ambient-cache deps must be transpiled alongside it.
+  await transpileSource("src/lib/activeProjectContext.ts", path.join(TMP_DIR, "src/lib/activeProjectContext.js"));
+  await transpileSource("src/lib/authSession.ts", path.join(TMP_DIR, "src/lib/authSession.js"));
+  await transpileSource("src/lib/localDataset.ts", path.join(TMP_DIR, "src/lib/localDataset.js"));
   await transpileSource("src/lib/localProjects.ts", path.join(TMP_DIR, "src/lib/localProjects.js"));
   return {
     artifactStorage: await import(pathToFileURL(path.join(TMP_DIR, "src/lib/artifactStorage.js")).href),

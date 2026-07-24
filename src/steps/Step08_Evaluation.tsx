@@ -18,6 +18,9 @@ import {
 import StepShell from "../components/StepShell";
 import { type AtlasWorkflowMetric } from "../components/ui/AtlasWorkflow";
 import { logDecision } from "../lib/decisionJournal";
+import VisualAnalysisPanel from "../visual-intelligence/production/VisualAnalysisPanel";
+import ClassificationDecisionExplorer from "../visual-intelligence/prototypes/ClassificationDecisionExplorer";
+import RegressionDiagnosticExplorer from "../visual-intelligence/prototypes/RegressionDiagnosticExplorer";
 import { inferLocalProblemType, loadLocalDataset } from "../lib/localDataset";
 import {
   loadInterpretationCandidates,
@@ -262,8 +265,17 @@ export default function Step08Evaluation() {
   const [comparison, setComparison] = useState<InterpretationCandidate[]>(() => loadInterpretationCandidates(projectId));
   const [message, setMessage] = useState("");
   const [loadingDiagnostics, setLoadingDiagnostics] = useState(false);
+  const [backendProblemType, setBackendProblemType] = useState<"classification" | "regression" | null>(null);
 
-  const problemType = inferLocalProblemType(loadLocalDataset()) ?? "classification";
+  // Backend truth (train/last's own problem_type) is authoritative and must win over the
+  // browser's local dataset cache, which is a convenience cache scoped to the current tab's
+  // session (Predictive Modeling Repair Stage 6.2) and is legitimately empty whenever this
+  // page is opened fresh -- e.g. a reviewer opening an already-trained project in a new
+  // session, or after a tab/browser restart. Falling back to loadLocalDataset() only when
+  // the backend hasn't answered yet previously caused every such session to silently default
+  // to "classification" and render the wrong analytical framing for a regression project
+  // (confirmed defect, Regression Stage B audit).
+  const problemType = backendProblemType ?? inferLocalProblemType(loadLocalDataset()) ?? "classification";
   const supervised = useMemo(() => (models ?? []).filter((model) => !isAnomaly(model)), [models]);
   const anomalyModels = useMemo(() => (models ?? []).filter(isAnomaly), [models]);
   const ordered = useMemo(
@@ -276,11 +288,13 @@ export default function Step08Evaluation() {
 
   useEffect(() => {
     setComparison(loadInterpretationCandidates(projectId));
-    getJson<{ ok: boolean; summary?: { ranked?: RankedRow[] } }>(`${API_BASE}/train/last?project_id=${encodeURIComponent(projectId)}`)
+    getJson<{ ok: boolean; summary?: { ranked?: RankedRow[]; problem_type?: string } }>(`${API_BASE}/train/last?project_id=${encodeURIComponent(projectId)}`)
       .then((response) => {
         const rows = response.summary?.ranked ?? [];
         const actual = rows.length ? rows : loadLocalRanked();
         setModels(actual);
+        const reportedProblemType = response.summary?.problem_type;
+        setBackendProblemType(reportedProblemType === "regression" || reportedProblemType === "classification" ? reportedProblemType : null);
         const saved = sessionStorage.getItem(`atlas-evaluation-review:${projectId}`) || "";
         setSelectedKey(actual.some((model) => model.key === saved && !isAnomaly(model)) ? saved : actual.find((model) => !isAnomaly(model))?.key ?? "");
       })
@@ -489,6 +503,7 @@ export default function Step08Evaluation() {
                 compared={comparisonKeys.has(model.key)}
                 testStatus="Available"
                 ootStatus="Not loaded"
+                problemType={problemType}
                 onReview={() => selectForReview(model)}
                 onCompare={() => toggleComparison(model)}
                 onInterpret={() => openInterpretation(model)}
@@ -509,9 +524,19 @@ export default function Step08Evaluation() {
           </div>
           <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <MetricTile label={metricLabel} value={formatMetric(metricValue)} />
-            <MetricTile label="ROC-AUC" value={formatMetric(active.auc)} />
-            <MetricTile label="Recall" value={formatMetric(curves?.metrics?.recall as number | undefined)} />
-            <MetricTile label="Precision" value={formatMetric(curves?.metrics?.precision as number | undefined)} />
+            {problemType === "regression" ? (
+              <>
+                <MetricTile label="MAE" value={formatMetric(active.mae)} />
+                <MetricTile label="R-squared" value={formatMetric(active.r2)} />
+                <MetricTile label="Adjusted R-squared" value={formatMetric(active.adjusted_r2)} />
+              </>
+            ) : (
+              <>
+                <MetricTile label="ROC-AUC" value={formatMetric(active.auc)} />
+                <MetricTile label="Recall" value={formatMetric(curves?.metrics?.recall as number | undefined)} />
+                <MetricTile label="Precision" value={formatMetric(curves?.metrics?.precision as number | undefined)} />
+              </>
+            )}
           </div>
           {loadingDiagnostics ? <LoadingPanel text={`Loading diagnostics for ${cleanModelName(active.name)}...`} /> : null}
           {!loadingDiagnostics && curves?.ok && problemType === "classification" ? (
@@ -523,6 +548,25 @@ export default function Step08Evaluation() {
           ) : null}
           {!loadingDiagnostics && curves && !curves.ok ? <Unavailable title="Common diagnostics unavailable" text={curves.error ?? "The backend did not return a fitted holdout artifact for this model."} /> : null}
           {!loadingDiagnostics ? <ModelSpecificDiagnostic model={active} details={details} importance={importance} hyperparameters={hyperparameters} tree={tree} knn={knn} /> : null}
+        </section>
+
+        <section className="rounded-md border border-slate-200 bg-white p-5" data-testid="visual-intelligence-evaluation">
+          <SectionHeading
+            eyebrow="C2. Visual Intelligence"
+            title={problemType === "regression" ? "Regression Diagnostic Explorer" : "Classification Decision Explorer"}
+            description="Select a durable TRAIN/TEST/OOT scoring run to explore threshold behavior, drift, and diagnostics against server-computed, bounded results."
+          />
+          <div className="mt-4">
+            {problemType === "regression" ? (
+              <VisualAnalysisPanel analysisType="regression" title="Regression Diagnostic Explorer" expectedProblemType="regression">
+                <RegressionDiagnosticExplorer />
+              </VisualAnalysisPanel>
+            ) : (
+              <VisualAnalysisPanel analysisType="classification" title="Classification Decision Explorer" expectedProblemType="classification">
+                <ClassificationDecisionExplorer />
+              </VisualAnalysisPanel>
+            )}
+          </div>
         </section>
 
         {problemType === "classification" ? (
@@ -599,9 +643,15 @@ export default function Step08Evaluation() {
           </div>
           <div className="mt-4 overflow-x-auto rounded-md border border-slate-200">
             <table className="min-w-[1120px] w-full text-sm">
-              <thead className="bg-slate-100 text-left text-[11px] font-semibold uppercase text-slate-600"><tr><th className="px-3 py-3">Rank</th><th className="px-3 py-3">Model</th><th className="px-3 py-3">Family</th><th className="px-3 py-3">PR-AUC</th><th className="px-3 py-3">ROC-AUC</th><th className="px-3 py-3">Recall</th><th className="px-3 py-3">Precision</th><th className="px-3 py-3">KS</th><th className="px-3 py-3">Calibration</th><th className="px-3 py-3">Actions</th></tr></thead>
+              <thead className="bg-slate-100 text-left text-[11px] font-semibold uppercase text-slate-600">
+                {problemType === "regression" ? (
+                  <tr><th className="px-3 py-3">Rank</th><th className="px-3 py-3">Model</th><th className="px-3 py-3">Family</th><th className="px-3 py-3">RMSE</th><th className="px-3 py-3">MAE</th><th className="px-3 py-3">R-squared</th><th className="px-3 py-3">Adjusted R-squared</th><th className="px-3 py-3">Actions</th></tr>
+                ) : (
+                  <tr><th className="px-3 py-3">Rank</th><th className="px-3 py-3">Model</th><th className="px-3 py-3">Family</th><th className="px-3 py-3">PR-AUC</th><th className="px-3 py-3">ROC-AUC</th><th className="px-3 py-3">Recall</th><th className="px-3 py-3">Precision</th><th className="px-3 py-3">KS</th><th className="px-3 py-3">Calibration</th><th className="px-3 py-3">Actions</th></tr>
+                )}
+              </thead>
               <tbody className="divide-y divide-slate-100">
-                {ordered.map((model, index) => <LeaderboardRow key={model.key} model={model} rank={index + 1} active={model.key === selectedKey} compared={comparisonKeys.has(model.key)} onReview={() => selectForReview(model)} onCompare={() => toggleComparison(model)} onInterpret={() => openInterpretation(model)} />)}
+                {ordered.map((model, index) => <LeaderboardRow key={model.key} model={model} rank={index + 1} active={model.key === selectedKey} compared={comparisonKeys.has(model.key)} problemType={problemType} onReview={() => selectForReview(model)} onCompare={() => toggleComparison(model)} onInterpret={() => openInterpretation(model)} />)}
               </tbody>
             </table>
           </div>
@@ -618,7 +668,7 @@ export default function Step08Evaluation() {
               const model = supervised.find((row) => row.key === candidate.key);
               if (!model) return null;
               const rank = ordered.findIndex((row) => row.key === model.key) + 1;
-              return <ComparisonRow key={model.key} model={model} rank={rank} onRemove={() => toggleComparison(model)} onOpen={() => openInterpretation(model)} />;
+              return <ComparisonRow key={model.key} model={model} rank={rank} problemType={problemType} onRemove={() => toggleComparison(model)} onOpen={() => openInterpretation(model)} />;
             })}
             {!comparison.length ? <div className="col-span-full rounded-md border border-dashed border-violet-300 bg-white p-8 text-center text-sm text-slate-600">Add candidates from the cards or leaderboard. No model will be automatically selected or approved.</div> : null}
           </div>
@@ -644,10 +694,14 @@ function MetricTile({ label, value }: { label: string; value: string }) {
   return <div className="min-w-0 rounded-md border border-slate-200 bg-white px-3 py-3"><div className="text-[10px] font-semibold uppercase text-slate-500">{label}</div><div className="mt-1 break-words text-base font-semibold text-slate-950">{value}</div></div>;
 }
 
-function CandidateCard({ model, rank, active, compared, testStatus, ootStatus, onReview, onCompare, onInterpret }: { model: RankedRow; rank: number; active: boolean; compared: boolean; testStatus: string; ootStatus: string; onReview: () => void; onCompare: () => void; onInterpret: () => void }) {
+function CandidateCard({ model, rank, active, compared, testStatus, ootStatus, problemType, onReview, onCompare, onInterpret }: { model: RankedRow; rank: number; active: boolean; compared: boolean; testStatus: string; ootStatus: string; problemType: "classification" | "regression"; onReview: () => void; onCompare: () => void; onInterpret: () => void }) {
   return <article className={`rounded-md border bg-white p-5 shadow-sm ${active ? "border-blue-500 ring-2 ring-blue-100" : "border-blue-200"}`} data-model-key={model.key}>
     <div className="flex items-start justify-between gap-3"><div><div className="text-[11px] font-semibold uppercase text-blue-700">Provisional rank {rank}</div><h3 className="mt-1 text-lg font-semibold text-slate-950">{cleanModelName(model.name)}</h3><div className="mt-1 text-xs text-slate-500">{modelFamily(model)} | Interpretability {interpretability(model)}</div></div>{rank === 1 ? statusPill("Metric Leader", "good") : statusPill("Interpretation Candidate")}</div>
-    <div className="mt-4 grid grid-cols-3 gap-2"><MetricTile label="PR-AUC" value={formatMetric(model.pr_auc)} /><MetricTile label="ROC-AUC" value={formatMetric(model.auc)} /><MetricTile label="KS" value={formatMetric(model.ks)} /><MetricTile label="Recall" value={formatMetric(model.recall)} /><MetricTile label="Precision" value={formatMetric(model.precision)} /><MetricTile label="F1" value={formatMetric(model.f1)} /></div>
+    {problemType === "regression" ? (
+      <div className="mt-4 grid grid-cols-3 gap-2"><MetricTile label="RMSE" value={formatMetric(model.rmse)} /><MetricTile label="MAE" value={formatMetric(model.mae)} /><MetricTile label="R-squared" value={formatMetric(model.r2)} /><MetricTile label="Adjusted R-squared" value={formatMetric(model.adjusted_r2)} /><MetricTile label="MSE" value={formatMetric(model.mse)} /></div>
+    ) : (
+      <div className="mt-4 grid grid-cols-3 gap-2"><MetricTile label="PR-AUC" value={formatMetric(model.pr_auc)} /><MetricTile label="ROC-AUC" value={formatMetric(model.auc)} /><MetricTile label="KS" value={formatMetric(model.ks)} /><MetricTile label="Recall" value={formatMetric(model.recall)} /><MetricTile label="Precision" value={formatMetric(model.precision)} /><MetricTile label="F1" value={formatMetric(model.f1)} /></div>
+    )}
     <div className="mt-3 grid grid-cols-2 gap-2 text-xs"><div className="rounded-md bg-slate-50 p-2"><span className="text-slate-500">Calibration</span><div className="mt-1 font-semibold">{model.calibration_method || (model.calibration_applied ? "Applied" : "Not applied")}</div></div><div className="rounded-md bg-slate-50 p-2"><span className="text-slate-500">Runtime</span><div className="mt-1 font-semibold">{model.runtime_ms != null ? `${(model.runtime_ms / 1000).toFixed(1)} s` : "Not recorded"}</div></div><div className="rounded-md bg-blue-50 p-2"><span className="text-blue-600">TEST</span><div className="mt-1 font-semibold text-blue-950">{testStatus}</div></div><div className="rounded-md bg-amber-50 p-2"><span className="text-amber-700">OOT</span><div className="mt-1 font-semibold text-amber-950">{ootStatus}</div></div></div>
     <div className="mt-4 flex flex-wrap gap-2"><button type="button" className="atlas-secondary-button" onClick={onReview}><Activity size={15} /> Review Model</button><button type="button" className="atlas-secondary-button" onClick={onCompare}>{compared ? <Check size={15} /> : <GitCompareArrows size={15} />}{compared ? "Remove from Comparison" : "Add to Comparison"}</button><button type="button" className="atlas-primary-button" onClick={onInterpret}>Open Interpretation <ArrowRight size={15} /></button></div>
   </article>;
@@ -885,16 +939,24 @@ function CalibrationChart({ rows }: { rows: Array<{ predicted: number; observed:
   return <CurveChart x={rows.map((row) => row.predicted)} y={rows.map((row) => row.observed)} xLabel="Mean predicted probability" yLabel="Observed event rate" color="#059669" diagonal />;
 }
 
-function LeaderboardRow({ model, rank, active, compared, onReview, onCompare, onInterpret }: { model: RankedRow; rank: number; active: boolean; compared: boolean; onReview: () => void; onCompare: () => void; onInterpret: () => void }) {
-  return <tr className={active ? "bg-blue-50" : "bg-white"}><td className="px-3 py-3 font-semibold">{rank}</td><td className="px-3 py-3"><div className="font-semibold text-slate-950">{cleanModelName(model.name)}</div>{rank === 1 ? <div className="mt-1 text-[10px] font-semibold uppercase text-emerald-700">Current metric leader</div> : null}</td><td className="px-3 py-3 text-slate-600">{modelFamily(model)}</td><td className="px-3 py-3 font-mono">{formatMetric(model.pr_auc)}</td><td className="px-3 py-3 font-mono">{formatMetric(model.auc)}</td><td className="px-3 py-3 font-mono">{formatMetric(model.recall)}</td><td className="px-3 py-3 font-mono">{formatMetric(model.precision)}</td><td className="px-3 py-3 font-mono">{formatMetric(model.ks)}</td><td className="px-3 py-3">{model.calibration_method || (model.calibration_applied ? "Applied" : "Not applied")}</td><td className="px-3 py-3"><div className="flex gap-1"><button type="button" className="atlas-icon-button" title="Review Model" onClick={onReview}><Activity size={15} /></button><button type="button" className={`atlas-icon-button ${compared ? "text-emerald-700" : ""}`} title={compared ? "Remove from Comparison" : "Add to Comparison"} onClick={onCompare}>{compared ? <Check size={15} /> : <GitCompareArrows size={15} />}</button><button type="button" className="atlas-icon-button" title="Open Interpretation" onClick={onInterpret}><ArrowRight size={15} /></button></div></td></tr>;
+function LeaderboardRow({ model, rank, active, compared, problemType, onReview, onCompare, onInterpret }: { model: RankedRow; rank: number; active: boolean; compared: boolean; problemType: "classification" | "regression"; onReview: () => void; onCompare: () => void; onInterpret: () => void }) {
+  const actions = <div className="flex gap-1"><button type="button" className="atlas-icon-button" title="Review Model" onClick={onReview}><Activity size={15} /></button><button type="button" className={`atlas-icon-button ${compared ? "text-emerald-700" : ""}`} title={compared ? "Remove from Comparison" : "Add to Comparison"} onClick={onCompare}>{compared ? <Check size={15} /> : <GitCompareArrows size={15} />}</button><button type="button" className="atlas-icon-button" title="Open Interpretation" onClick={onInterpret}><ArrowRight size={15} /></button></div>;
+  const nameCell = <td className="px-3 py-3"><div className="font-semibold text-slate-950">{cleanModelName(model.name)}</div>{rank === 1 ? <div className="mt-1 text-[10px] font-semibold uppercase text-emerald-700">Current metric leader</div> : null}</td>;
+  if (problemType === "regression") {
+    return <tr className={active ? "bg-blue-50" : "bg-white"}><td className="px-3 py-3 font-semibold">{rank}</td>{nameCell}<td className="px-3 py-3 text-slate-600">{modelFamily(model)}</td><td className="px-3 py-3 font-mono">{formatMetric(model.rmse)}</td><td className="px-3 py-3 font-mono">{formatMetric(model.mae)}</td><td className="px-3 py-3 font-mono">{formatMetric(model.r2)}</td><td className="px-3 py-3 font-mono">{formatMetric(model.adjusted_r2)}</td><td className="px-3 py-3">{actions}</td></tr>;
+  }
+  return <tr className={active ? "bg-blue-50" : "bg-white"}><td className="px-3 py-3 font-semibold">{rank}</td>{nameCell}<td className="px-3 py-3 text-slate-600">{modelFamily(model)}</td><td className="px-3 py-3 font-mono">{formatMetric(model.pr_auc)}</td><td className="px-3 py-3 font-mono">{formatMetric(model.auc)}</td><td className="px-3 py-3 font-mono">{formatMetric(model.recall)}</td><td className="px-3 py-3 font-mono">{formatMetric(model.precision)}</td><td className="px-3 py-3 font-mono">{formatMetric(model.ks)}</td><td className="px-3 py-3">{model.calibration_method || (model.calibration_applied ? "Applied" : "Not applied")}</td><td className="px-3 py-3">{actions}</td></tr>;
 }
 
 function AnomalyDiagnostics({ models }: { models: RankedRow[] }) {
   return <div className="mt-5 rounded-md border border-amber-200 bg-amber-50 p-4" data-testid="supplemental-anomaly-diagnostics"><div className="flex items-center gap-2"><ShieldCheck size={17} className="text-amber-700" /><div><div className="text-xs font-semibold uppercase text-amber-700">Supplemental Anomaly Diagnostics</div><h3 className="text-base font-semibold text-slate-950">Targetless models remain separate and are never champion-eligible</h3></div></div><div className="mt-3 grid gap-3 md:grid-cols-2">{models.map((model) => <div key={model.key} className="rounded-md border border-amber-200 bg-white p-3"><div className="font-semibold">{cleanModelName(model.name)}</div><div className="mt-1 text-xs text-slate-600">Supervised benchmark metrics are shown only when recorded. This model cannot enter the Interpretation comparison tray or be treated as a provisional leader.</div><div className="mt-2 flex gap-2">{statusPill("Diagnostic only", "warn")}{statusPill(`ROC-AUC ${formatMetric(model.auc)}`)}</div></div>)}</div></div>;
 }
 
-function ComparisonRow({ model, rank, onRemove, onOpen }: { model: RankedRow; rank: number; onRemove: () => void; onOpen: () => void }) {
-  return <article className="rounded-md border border-violet-200 bg-white p-4"><div className="flex items-start justify-between gap-2"><div><div className="text-[10px] font-semibold uppercase text-violet-700">Provisional rank {rank}</div><h3 className="mt-1 font-semibold text-slate-950">{cleanModelName(model.name)}</h3></div><button type="button" className="atlas-icon-button" title="Remove from Comparison" onClick={onRemove}><Trash2 size={15} /></button></div><div className="mt-3 grid grid-cols-4 gap-2 text-xs"><MiniMetric label="PR-AUC" value={formatMetric(model.pr_auc)} /><MiniMetric label="ROC-AUC" value={formatMetric(model.auc)} /><MiniMetric label="Recall" value={formatMetric(model.recall)} /><MiniMetric label="Precision" value={formatMetric(model.precision)} /><MiniMetric label="KS" value={formatMetric(model.ks)} /><MiniMetric label="Calibration" value={model.calibration_method || "Not applied"} /><MiniMetric label="TEST" value="Available" /><MiniMetric label="OOT" value="Not loaded" /></div><button type="button" className="atlas-primary-button mt-3" onClick={onOpen}>Open Interpretation <ArrowRight size={15} /></button></article>;
+function ComparisonRow({ model, rank, problemType, onRemove, onOpen }: { model: RankedRow; rank: number; problemType: "classification" | "regression"; onRemove: () => void; onOpen: () => void }) {
+  const metricTiles = problemType === "regression"
+    ? <><MiniMetric label="RMSE" value={formatMetric(model.rmse)} /><MiniMetric label="MAE" value={formatMetric(model.mae)} /><MiniMetric label="R-squared" value={formatMetric(model.r2)} /><MiniMetric label="Adjusted R-squared" value={formatMetric(model.adjusted_r2)} /><MiniMetric label="TEST" value="Available" /><MiniMetric label="OOT" value="Not loaded" /></>
+    : <><MiniMetric label="PR-AUC" value={formatMetric(model.pr_auc)} /><MiniMetric label="ROC-AUC" value={formatMetric(model.auc)} /><MiniMetric label="Recall" value={formatMetric(model.recall)} /><MiniMetric label="Precision" value={formatMetric(model.precision)} /><MiniMetric label="KS" value={formatMetric(model.ks)} /><MiniMetric label="Calibration" value={model.calibration_method || "Not applied"} /><MiniMetric label="TEST" value="Available" /><MiniMetric label="OOT" value="Not loaded" /></>;
+  return <article className="rounded-md border border-violet-200 bg-white p-4"><div className="flex items-start justify-between gap-2"><div><div className="text-[10px] font-semibold uppercase text-violet-700">Provisional rank {rank}</div><h3 className="mt-1 font-semibold text-slate-950">{cleanModelName(model.name)}</h3></div><button type="button" className="atlas-icon-button" title="Remove from Comparison" onClick={onRemove}><Trash2 size={15} /></button></div><div className="mt-3 grid grid-cols-4 gap-2 text-xs">{metricTiles}</div><button type="button" className="atlas-primary-button mt-3" onClick={onOpen}>Open Interpretation <ArrowRight size={15} /></button></article>;
 }
 
 function MiniMetric({ label, value }: { label: string; value: string }) {

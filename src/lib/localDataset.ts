@@ -1,3 +1,6 @@
+import { getCachedProjectId } from "./activeProjectContext";
+import { getCachedUserId } from "./authSession";
+
 export type LocalDataset = {
   headers: string[];
   rows: Record<string, unknown>[];
@@ -27,8 +30,55 @@ export type LocalDataset = {
   data_quality?: import("./enterpriseDataAccess").DataQualitySummary;
 };
 
-const STORAGE_KEY = "modeling-tool-dataset";
+// Browser dataset storage contract (Predictive Modeling Repair Stage 6.2 --
+// ATLAS_MODELING_STATE_ISOLATION_PLAN.md documents the equivalent backend
+// problem for DATASTORE/RESULTS; this is the frontend counterpart for the
+// one piece of modeling state the browser itself caches).
+//
+// Root cause fixed here: the dataset cache used to live under one single,
+// unscoped sessionStorage key ("modeling-tool-dataset"). Any project opened
+// in the same browser tab -- including a brand-new project, which never
+// wrote anything for the prior project to be overwritten -- would read
+// whatever the previous project last wrote there. Scoping the key by
+// (userId, projectId) makes that structurally impossible: a new/different
+// project resolves a key that was never written, so it naturally sees an
+// honest empty state instead of another project's cached rows.
+//
+// sessionStorage is already scoped to one browsing context (tab) by the
+// browser itself, so this key format is not trying to solve cross-tab
+// leakage (the browser already prevents that) -- it solves same-tab,
+// sequential project/user switching within one SPA session.
+const KEY_PREFIX = "atlas:modeling-dataset";
+const LEGACY_STORAGE_KEY = "modeling-tool-dataset";
 const MAX_LOCAL_ROWS = 5000;
+const FALLBACK_USER_ID = "anonymous";
+
+let legacyKeyQuarantined = false;
+
+export function buildProjectDatasetStorageKey(userId: string, projectId: string): string {
+  const safeUserId = userId || FALLBACK_USER_ID;
+  const safeProjectId = projectId || "unassigned";
+  return `${KEY_PREFIX}:${safeUserId}:${safeProjectId}`;
+}
+
+/**
+ * Discard the legacy unscoped key on first use after the Stage 6.2 upgrade.
+ * Never maps its contents into any project -- a stale unscoped snapshot has
+ * no reliable (user, project) identity, so the only safe move is to drop it.
+ */
+export function clearLegacyUnscopedDatasetState() {
+  if (typeof sessionStorage === "undefined") return;
+  const hadLegacyState = sessionStorage.getItem(LEGACY_STORAGE_KEY) !== null;
+  if (!hadLegacyState) return;
+  sessionStorage.removeItem(LEGACY_STORAGE_KEY);
+  if (!legacyKeyQuarantined) {
+    legacyKeyQuarantined = true;
+    // eslint-disable-next-line no-console
+    console.debug(
+      "[ATLAS] Discarded an obsolete unscoped modeling-dataset cache from before the browser dataset-state isolation repair. It was not applied to any project."
+    );
+  }
+}
 
 function uniqueStrings(values: unknown[]) {
   const seen = new Set<string>();
@@ -83,7 +133,8 @@ function normalizeSelectedDataset(dataset: Partial<LocalDataset>): LocalDataset 
   };
 }
 
-export function saveLocalDataset(dataset: LocalDataset) {
+export function saveProjectDataset(userId: string, projectId: string, dataset: LocalDataset) {
+  clearLegacyUnscopedDatasetState();
   const normalizedDataset = normalizeSelectedDataset(dataset) ?? dataset;
   const compactDataset = {
     ...normalizedDataset,
@@ -95,15 +146,17 @@ export function saveLocalDataset(dataset: LocalDataset) {
   };
 
   try {
-    sessionStorage.setItem(STORAGE_KEY, JSON.stringify(compactDataset));
+    sessionStorage.setItem(buildProjectDatasetStorageKey(userId, projectId), JSON.stringify(compactDataset));
     return compactDataset.rows.length === dataset.rows.length ? "full" : "sample";
   } catch {
     return "failed";
   }
 }
 
-export function loadLocalDataset(): LocalDataset | null {
-  const raw = sessionStorage.getItem(STORAGE_KEY);
+export function loadProjectDataset(userId: string, projectId: string): LocalDataset | null {
+  clearLegacyUnscopedDatasetState();
+  if (typeof sessionStorage === "undefined") return null;
+  const raw = sessionStorage.getItem(buildProjectDatasetStorageKey(userId, projectId));
   if (!raw) return null;
 
   try {
@@ -112,6 +165,55 @@ export function loadLocalDataset(): LocalDataset | null {
   } catch {
     return null;
   }
+}
+
+export function clearProjectDataset(userId: string, projectId: string) {
+  if (typeof sessionStorage === "undefined") return;
+  sessionStorage.removeItem(buildProjectDatasetStorageKey(userId, projectId));
+}
+
+/** Sweep every user's scoped snapshot for one project -- used on project deletion, where the deleting caller's identity isn't necessarily the only identity that ever cached this project's data (e.g. a collaborator). */
+export function clearProjectDatasetEverywhere(projectId: string) {
+  if (typeof sessionStorage === "undefined" || !projectId) return;
+  const suffix = `:${projectId}`;
+  const keys = Array.from({ length: sessionStorage.length }, (_, index) => sessionStorage.key(index)).filter(
+    (key): key is string => Boolean(key?.startsWith(`${KEY_PREFIX}:`) && key.endsWith(suffix))
+  );
+  keys.forEach((key) => sessionStorage.removeItem(key));
+}
+
+/** Clear every project snapshot cached under one user -- used on sign-out so the next signed-in identity in this tab can never read a prior user's cache. */
+export function clearUserDatasetState(userId: string) {
+  if (typeof sessionStorage === "undefined" || !userId) return;
+  const prefix = `${KEY_PREFIX}:${userId}:`;
+  const keys = Array.from({ length: sessionStorage.length }, (_, index) => sessionStorage.key(index)).filter(
+    (key): key is string => Boolean(key?.startsWith(prefix))
+  );
+  keys.forEach((key) => sessionStorage.removeItem(key));
+}
+
+function ambientUserId(): string {
+  return getCachedUserId() || FALLBACK_USER_ID;
+}
+
+function ambientProjectId(): string {
+  return getCachedProjectId();
+}
+
+/**
+ * Ambient-scope convenience wrappers -- resolve the current (userId,
+ * projectId) the same way the backend's authorize_modeling_scope() resolves
+ * ACTIVE_PROJECT_ID (server/core/modeling_scope.py), so the ~20 existing
+ * Predictive Modeling call sites that read loadLocalDataset() do not each
+ * need to be rewritten to thread userId/projectId through manually. Nothing
+ * outside this module touches sessionStorage's raw key directly either way.
+ */
+export function saveLocalDataset(dataset: LocalDataset) {
+  return saveProjectDataset(ambientUserId(), ambientProjectId(), dataset);
+}
+
+export function loadLocalDataset(): LocalDataset | null {
+  return loadProjectDataset(ambientUserId(), ambientProjectId());
 }
 
 export function inferLocalProblemType(dataset: LocalDataset | null): "classification" | "regression" | null {

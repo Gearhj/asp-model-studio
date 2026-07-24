@@ -23,7 +23,8 @@ import { AB_WORKFLOW_DEFAULTS } from "../lib/abTestingWorkflow";
 import { logDecision } from "../lib/decisionJournal";
 import { loadExperiments, type ExperimentRecord } from "../lib/experimentTracking";
 import { deriveSuggestedFactors, treatmentCellCount } from "../lib/experimentalDesign";
-import { inferLocalProblemType, loadLocalDataset } from "../lib/localDataset";
+import { loadLocalDataset } from "../lib/localDataset";
+import { deriveTaskContext } from "../lib/taskContext";
 import { loadModelingMode, type ModelingMode } from "../lib/modelingMode";
 import { hasGovernanceRegulation, loadProjectContext, type ProjectContext } from "../lib/projectContext";
 import { deriveOptimizationEvidenceSummary, loadTransportationOptimizationSnapshot } from "../lib/transportationOptimizationEvidence";
@@ -195,7 +196,13 @@ function buildContext(route: string, completedSteps: number, trainingSummary: Tr
   const workflowNodeState = readWorkflowNodeState(workflowState.projectId, activeStep?.id);
   const optimizationTemplateId = readStoredOptimizationTemplateId(workflowState.projectId);
   const isOptimization = workflowState.projectType === "optimization";
-  const target = isOptimization ? null : datasetTarget;
+  // Backend training truth (already fetched by this component for the champion-model
+  // summary) must win over the local dataset cache -- see src/lib/taskContext.ts for why
+  // the cache-only derivation this used to be silently defaulted regression projects to
+  // "classification" whenever the browser cache was empty (confirmed defect, Regression
+  // Stage B audit).
+  const resolvedTask = isOptimization ? null : deriveTaskContext(trainingSummary, dataset);
+  const target = isOptimization ? null : resolvedTask?.target ?? datasetTarget;
 
   return {
     projectId: workflowState.projectId,
@@ -206,7 +213,7 @@ function buildContext(route: string, completedSteps: number, trainingSummary: Tr
     workflowStepLabel: activeStep?.label ?? routeLabel(route),
     mode: loadModelingMode(),
     completedSteps,
-    problemType: isOptimization ? null : inferLocalProblemType(dataset),
+    problemType: isOptimization ? null : resolvedTask?.problemType ?? null,
     rowCount: rows.length,
     target,
     eventRate: eventRateForTarget(rows, target),

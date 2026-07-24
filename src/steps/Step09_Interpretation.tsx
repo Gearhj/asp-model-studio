@@ -312,7 +312,17 @@ export default function Step09_Interpretation() {
   const rfeSelectedCount = rfeRows.filter((row) => row.rank <= rfeKeep).length;
   const rfeRemovedCount = Math.max(0, rfeRows.length - rfeSelectedCount);
   const canRunRfe = Boolean(selectedModel) && !rfeRunning && !rfeUnsupportedMessage && !artifactContextError;
-  const interpretationContextQuery = useMemo(() => {
+  // Deliberately NOT memoized: loadLocalDataset() reads mutable sessionStorage that this
+  // component does not otherwise track as React state, so a useMemo keyed only on [projectId]
+  // (as this used to be) would silently freeze dataset_version/target at whatever they were on
+  // first render and never notice a later change -- e.g. after Feature Engineering materializes
+  // a new dataset version. Save as Final Model spreads this same query into its request body, so
+  // a stale snapshot here was landing directly in the saved final-model metadata, causing Scoring
+  // (which recomputes these fresh from the same loadLocalDataset() on every render, see
+  // Step10_Scoring.tsx) to reject the saved model as belonging to "a different project, dataset
+  // version, or target." Recomputing on every render keeps this in sync with Scoring by
+  // construction, matching Scoring's own (already-correct) unmemoized pattern.
+  const interpretationContextQuery = (() => {
     const dataset = loadLocalDataset();
     const params = new URLSearchParams();
     params.set("project_id", projectId);
@@ -320,7 +330,7 @@ export default function Step09_Interpretation() {
     params.set("target", dataset?.target ?? "");
     params.set("problem_type", inferLocalProblemType(dataset) ?? "");
     return params.toString();
-  }, [projectId]);
+  })();
   const rfeCacheScope = useMemo(
     () => `${projectId}:${interpretationContextQuery}:${selectedModel}`,
     [interpretationContextQuery, projectId, selectedModel]

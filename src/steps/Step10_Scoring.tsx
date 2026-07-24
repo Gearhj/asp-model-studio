@@ -8,6 +8,11 @@ import { createEvidence } from "../lib/evidenceGraph";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { registerScoredDataset } from "../lib/modelDiagnostics";
 import { inferLocalProblemType, loadLocalDataset, localDatasetVersion } from "../lib/localDataset";
+import { resolveFinalModelReadiness } from "../lib/finalModelReadiness";
+import { archiveScoringRun, listScoringRuns, type ScoringRunSummary } from "../scoring-runs/scoringRunClient";
+import { getCachedUserId } from "../lib/authSession";
+import RunComparePanel from "../visual-intelligence/production/RunComparePanel";
+import RegisterScoredDatasetButton from "../visual-intelligence/production/RegisterScoredDatasetButton";
 
 const QUERY_API_BASE =
   typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("apiBase")?.replace(/\/$/, "") : undefined;
@@ -76,6 +81,10 @@ type ScoreResult = {
   scored_columns?: string[];
   scored_row_scope?: "full_scored_output" | "scoring_response_preview" | string;
   preview?: { row: number; score: number; adjusted_score?: number; prediction: number; actual?: number | string | null; [key: string]: unknown }[];
+  /** Persistent Scoring Runs, Phase G: present when this score action was durably
+   *  persisted server-side. Absent (undefined) means persistence failed silently
+   *  behind the scenes -- the scoring result itself is still shown, unaffected. */
+  scoringRunId?: string;
 };
 type LiftRow = {
   decile: number;
@@ -99,6 +108,134 @@ function statusClass(status?: Status) {
 
 function format(value: unknown) {
   return typeof value === "number" && Number.isFinite(value) ? value.toFixed(4) : "-";
+}
+
+/** Persistent Scoring Runs, Phase G/Phase F: a read-only history panel proving
+ *  scoring results now survive a browser refresh -- unlike testResult/trainResult/
+ *  ootResult above (plain React state, still lost on refresh, unchanged this
+ *  phase per "Do not redesign Predictive Modeling pages"), this list is fetched
+ *  fresh from the durable backend on every mount, so it is refresh-proof by
+ *  construction. Each row links into the Visual Intelligence Lab pinned to that
+ *  run (Phase G integration). */
+function ScoringHistoryPanel({ projectId }: { projectId: string }) {
+  const [runs, setRuns] = useState<ScoringRunSummary[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [showArchived, setShowArchived] = useState(false);
+  const [compareIds, setCompareIds] = useState<string[]>([]);
+  const [showCompare, setShowCompare] = useState(false);
+  const [busyRunId, setBusyRunId] = useState<string | null>(null);
+  const userId = getCachedUserId() ?? "anonymous";
+
+  function refresh() {
+    if (!projectId) return;
+    setLoading(true);
+    listScoringRuns(projectId, { limit: 20, includeArchived: showArchived })
+      .then((result) => setRuns(result))
+      .catch(() => setRuns([]))
+      .finally(() => setLoading(false));
+  }
+
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, showArchived]);
+
+  async function handleArchive(scoringRunId: string) {
+    setBusyRunId(scoringRunId);
+    try {
+      await archiveScoringRun(scoringRunId);
+      refresh();
+    } finally {
+      setBusyRunId(null);
+    }
+  }
+
+  if (!loading && runs.length === 0 && !showArchived) return null;
+
+  return (
+    <section className="rounded-md border border-slate-200 bg-white p-4" data-testid="scoring-history-panel">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-slate-900">Scoring History (durable)</h3>
+        <label className="flex items-center gap-1.5 text-xs text-slate-600">
+          <input type="checkbox" checked={showArchived} onChange={(event) => setShowArchived(event.target.checked)} /> Show archived
+        </label>
+      </div>
+      <p className="mt-1 text-xs text-slate-600">
+        Every scoring run above is persisted the moment it completes -- including failed attempts, with an honest reason. This list
+        survives a refresh and reopening the project because it is read from the server, not from this page's session state.
+      </p>
+      {runs.length === 0 ? (
+        <p className="mt-3 text-xs text-slate-500">
+          No scoring runs {showArchived ? "" : "(non-archived) "}exist yet for this project. Score TRAIN, TEST, or OOT above to create one.
+        </p>
+      ) : (
+        <ul className="mt-3 divide-y divide-slate-100 text-sm">
+          {runs.map((run) => {
+            const context = {
+              authenticatedUserId: userId,
+              projectId,
+              problemType: run.problemType,
+              target: run.target,
+              datasetId: run.datasetId ?? undefined,
+              datasetVersionId: run.datasetVersionId ?? undefined,
+              modelId: run.modelId ?? undefined,
+              featureManifestVersion: undefined,
+              scoringRunId: run.scoringRunId,
+              partition: run.partition,
+              sourceType: "scoring-session" as const,
+              readOnly: false,
+              evidenceEnabled: true,
+              registrationEnabled: run.status === "completed",
+            };
+            return (
+              <li key={run.scoringRunId} className="flex flex-wrap items-center justify-between gap-2 py-2" data-testid="scoring-history-row">
+                <span className="flex flex-wrap items-center gap-2">
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${run.scoringRunId} for comparison`}
+                    checked={compareIds.includes(run.scoringRunId)}
+                    onChange={(event) => setCompareIds(event.target.checked ? [...compareIds, run.scoringRunId] : compareIds.filter((id) => id !== run.scoringRunId))}
+                  />
+                  <span className="font-semibold uppercase text-slate-800">{run.partition}</span>
+                  <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase ${run.status === "completed" ? "bg-emerald-100 text-emerald-800" : run.status === "failed" ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-700"}`}>{run.status}</span>
+                  {run.archivedAt ? <span className="rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-600">archived</span> : null}
+                  {run.registrationStatus === "registered" ? <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-indigo-800">registered</span> : null}
+                  <span className="text-slate-500">
+                    {run.modelId ?? "model"} -- {run.rowCount?.toLocaleString() ?? "-"} rows -- {new Date(run.createdAt).toLocaleString()}
+                  </span>
+                  {run.status === "failed" ? <span className="text-rose-700" data-testid="scoring-run-failure-reason">{run.errorMessage ?? "Scoring failed for an unspecified reason."}</span> : null}
+                </span>
+                <span className="flex flex-wrap items-center gap-2">
+                  {run.status === "completed" ? (
+                    <>
+                      <Link className="text-xs font-semibold text-blue-700 hover:underline" to={`/step08?scoringRunId=${encodeURIComponent(run.scoringRunId)}`}>
+                        Open Analysis
+                      </Link>
+                      <Link className="text-xs font-semibold text-blue-700 hover:underline" to={`/visual-intelligence-lab?scoringRunId=${encodeURIComponent(run.scoringRunId)}`}>
+                        View in Lab
+                      </Link>
+                      <RegisterScoredDatasetButton context={context} />
+                    </>
+                  ) : null}
+                  {!run.archivedAt ? (
+                    <button type="button" className="text-xs font-semibold text-slate-600 hover:underline disabled:opacity-40" disabled={busyRunId === run.scoringRunId} onClick={() => handleArchive(run.scoringRunId)}>
+                      Archive
+                    </button>
+                  ) : null}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      <div className="mt-3 flex items-center gap-2">
+        <button type="button" className="atlas-secondary-button text-xs" onClick={() => setShowCompare((v) => !v)} disabled={compareIds.length < 2}>
+          Compare {compareIds.length > 0 ? `(${compareIds.length})` : ""} Selected Runs
+        </button>
+      </div>
+      {showCompare ? <div className="mt-3"><RunComparePanel projectId={projectId} anchorRunId={compareIds[0] ?? null} /></div> : null}
+    </section>
+  );
 }
 
 async function uploadScore(
@@ -171,6 +308,9 @@ export default function Step10Scoring() {
   const [registeredScoredDataset, setRegisteredScoredDataset] = useState<{ datasetId: string; versionId?: string; split: ScoredSplit } | null>(null);
 
   useEffect(() => {
+    // Ignore responses that resolve after projectId changed or the component unmounted, so an
+    // out-of-order response for a previous project can never overwrite the current view.
+    let stale = false;
     const dataset = loadLocalDataset();
     const expectedDatasetVersion = dataset?.dataset_version || localDatasetVersion(dataset);
     const expectedProblemType = inferLocalProblemType(dataset);
@@ -186,26 +326,29 @@ export default function Step10Scoring() {
         return res.json();
       })
       .then((data) => {
-        const metadata = (data?.metadata ?? {}) as FinalModelMetadata;
-        const projectMatches = !metadata.project_id || metadata.project_id === projectId;
-        const datasetMatches = !metadata.dataset_version || metadata.dataset_version === expectedDatasetVersion;
-        const targetMatches = !metadata.target || metadata.target === (dataset?.target ?? "");
-        const contextMatches = projectMatches && datasetMatches && targetMatches;
-        setFinalModelReady(Boolean(data?.ready && contextMatches));
-        setFinalModelMetadata(contextMatches ? metadata : {});
-        setFinalModelError(data?.ready && !contextMatches ? "The saved final model belongs to a different project, dataset version, or target. Return to Interpretation and save the current final model." : "");
-        if (contextMatches && metadata.problem_type === "regression") {
+        if (stale) return;
+        const view = resolveFinalModelReadiness<FinalModelMetadata>(data, {
+          projectId,
+          datasetVersion: expectedDatasetVersion,
+          target: dataset?.target ?? "",
+        });
+        setFinalModelReady(view.ready);
+        setFinalModelMetadata(view.metadata);
+        setFinalModelError(view.error);
+        if (view.metadata.problem_type === "regression") {
           setProblemType("regression");
           setCorrectionMethod("none");
         }
       })
       .catch((error) => {
+        if (stale) return;
         setFinalModelReady(false);
         setFinalModelError(error instanceof Error ? error.message : "Final-model status is unavailable.");
       });
     fetch(`${API_BASE}/train/last?${trainingContext.toString()}`, { credentials: "include" })
       .then((res) => res.json())
       .then((data) => {
+        if (stale) return;
         const ranked = data?.summary?.ranked ?? [];
         if (data?.summary?.problem_type === "regression" || ranked.some((row: any) => row.task === "regression")) {
           setProblemType("regression");
@@ -213,6 +356,9 @@ export default function Step10Scoring() {
         }
       })
       .catch(() => {});
+    return () => {
+      stale = true;
+    };
   }, [projectId]);
 
   async function handleFile(file: File | undefined, datasetType: "test" | "oot") {
@@ -292,6 +438,9 @@ export default function Step10Scoring() {
           ? ["Residual Diagnostics", "Actual vs Predicted", "Prediction Distribution", "Segment Performance"]
           : ["Lift / Decile", "Calibration", "Score Distribution", "Segment Performance"],
       },
+      // Visual Intelligence Production Integration, Phase K: cross-links this
+      // registration back to its durable ScoringRun, when this result came from one.
+      scoringRunId: result.scoringRunId,
     });
     const versionId = payload.dataset.latestVersion?.versionId;
     setRegisteredScoredDataset({ datasetId: payload.dataset.datasetId, versionId, split: datasetType });
@@ -430,6 +579,8 @@ export default function Step10Scoring() {
         </section>
 
         {message && <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">{message}</div>}
+
+        <ScoringHistoryPanel key={scoredOutputCount} projectId={projectId} />
 
         {problemType === "classification" ? (
           <section className="border-l-4 border-indigo-500 bg-indigo-50/60 px-5 py-4">
@@ -658,7 +809,16 @@ function ScoreDistributionComparison({ trainResult, testResult, ootResult, probl
   ], [trainResult, testResult, ootResult]);
   const all = series.flatMap((item) => item.values);
   if (!all.length) return null;
-  const min = Math.min(...all), max = Math.max(...all), span = Math.max(max - min, 1e-9), bins = 18;
+  // Linear scan instead of Math.min(...all)/Math.max(...all): spreading the
+  // full scored output (100k+ values per population) as arguments overflows
+  // the JS call stack (RangeError) and white-screened the whole Scoring page
+  // for real-sized datasets (Stage B.7 defect B7-D1).
+  let min = Infinity, max = -Infinity;
+  for (const value of all) {
+    if (value < min) min = value;
+    if (value > max) max = value;
+  }
+  const span = Math.max(max - min, 1e-9), bins = 18;
   const distributions = series.map((item) => {
     const counts = Array.from({ length: bins }, () => 0);
     item.values.forEach((value) => { counts[Math.min(bins - 1, Math.max(0, Math.floor(((value - min) / span) * bins)))] += 1; });

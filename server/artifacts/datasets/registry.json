@@ -1788,6 +1788,174 @@
           ]
         }
       ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "user_7591b60a2b4b4447"
+        }
+      ],
+      "archived": true,
+      "createdAt": "2026-07-24T03:05:57.514676+00:00",
+      "datasetId": "ds_e2e-class-train-registered-asset_e55eb298",
+      "datasetRole": "development",
+      "description": "",
+      "domain": "General",
+      "linkedProjects": [],
+      "name": "E2E CLASS TRAIN Registered Asset",
+      "ownerDisplayName": "E2E dsLifecycle mrycy0ji5pzy",
+      "ownerUserId": "user_7591b60a2b4b4447",
+      "sourceInfo": {
+        "originalSource": {},
+        "projectId": "atlas-mrycy50e",
+        "tags": [],
+        "target": "Class"
+      },
+      "sourceType": "workspace_upload",
+      "updatedAt": "2026-07-24T03:22:18.418892+00:00",
+      "versions": [
+        {
+          "columnCount": 31,
+          "createdAt": "2026-07-24T03:05:57.513676+00:00",
+          "createdBy": "user_7591b60a2b4b4447",
+          "fullDataPath": "ds_e2e-class-train-registered-asset_e55eb298\\versions\\v_1784862355002_e55eb298\\data_full.csv",
+          "hash": "e55eb2983289815ec6035d27c4df3f6141e93098ce1380d58a33f889d6e510df",
+          "originalFilename": "e2e-class-train-registered-asset.csv",
+          "previewPath": "ds_e2e-class-train-registered-asset_e55eb298\\versions\\v_1784862355002_e55eb298\\preview.json",
+          "profilePath": "ds_e2e-class-train-registered-asset_e55eb298\\versions\\v_1784862355002_e55eb298\\profile.json",
+          "rowCount": 4000,
+          "samplePath": "ds_e2e-class-train-registered-asset_e55eb298\\versions\\v_1784862355002_e55eb298\\data_sample.csv",
+          "versionId": "v_1784862355002_e55eb298",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "user_fda25e7d06a94c33"
+        }
+      ],
+      "archived": true,
+      "createdAt": "2026-07-24T03:08:47.081932+00:00",
+      "datasetId": "ds_e2e-class-train-registered-asset_e55eb298_25609",
+      "datasetRole": "development",
+      "description": "",
+      "domain": "General",
+      "linkedProjects": [],
+      "name": "E2E CLASS TRAIN Registered Asset",
+      "ownerDisplayName": "E2E dsLifecycle mryd1q36m63y",
+      "ownerUserId": "user_fda25e7d06a94c33",
+      "sourceInfo": {
+        "originalSource": {},
+        "projectId": "atlas-mryd1uko",
+        "tags": [],
+        "target": "Class"
+      },
+      "sourceType": "workspace_upload",
+      "updatedAt": "2026-07-24T03:22:20.400089+00:00",
+      "versions": [
+        {
+          "columnCount": 31,
+          "createdAt": "2026-07-24T03:08:47.080936+00:00",
+          "createdBy": "user_fda25e7d06a94c33",
+          "fullDataPath": "ds_e2e-class-train-registered-asset_e55eb298_25609\\versions\\v_1784862525609_e55eb298\\data_full.csv",
+          "hash": "e55eb2983289815ec6035d27c4df3f6141e93098ce1380d58a33f889d6e510df",
+          "originalFilename": "e2e-class-train-registered-asset.csv",
+          "previewPath": "ds_e2e-class-train-registered-asset_e55eb298_25609\\versions\\v_1784862525609_e55eb298\\preview.json",
+          "profilePath": "ds_e2e-class-train-registered-asset_e55eb298_25609\\versions\\v_1784862525609_e55eb298\\profile.json",
+          "rowCount": 4000,
+          "samplePath": "ds_e2e-class-train-registered-asset_e55eb298_25609\\versions\\v_1784862525609_e55eb298\\data_sample.csv",
+          "versionId": "v_1784862525609_e55eb298",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "user_80258f1cb5af4f61"
+        }
+      ],
+      "archived": true,
+      "createdAt": "2026-07-24T03:12:17.648546+00:00",
+      "datasetId": "ds_e2e-class-train-registered-asset_e55eb298_33705",
+      "datasetRole": "development",
+      "description": "",
+      "domain": "General",
+      "linkedProjects": [],
+      "name": "E2E CLASS TRAIN Registered Asset",
+      "ownerDisplayName": "E2E dsLifecycle mryd6460yayu",
+      "ownerUserId": "user_80258f1cb5af4f61",
+      "sourceInfo": {
+        "originalSource": {},
+        "projectId": "atlas-mryd69qe",
+        "tags": [],
+        "target": "Class"
+      },
+      "sourceType": "workspace_upload",
+      "updatedAt": "2026-07-24T03:22:22.088206+00:00",
+      "versions": [
+        {
+          "columnCount": 31,
+          "createdAt": "2026-07-24T03:12:17.648546+00:00",
+          "createdBy": "user_80258f1cb5af4f61",
+          "fullDataPath": "ds_e2e-class-train-registered-asset_e55eb298_33705\\versions\\v_1784862733705_e55eb298\\data_full.csv",
+          "hash": "e55eb2983289815ec6035d27c4df3f6141e93098ce1380d58a33f889d6e510df",
+          "originalFilename": "e2e-class-train-registered-asset.csv",
+          "previewPath": "ds_e2e-class-train-registered-asset_e55eb298_33705\\versions\\v_1784862733705_e55eb298\\preview.json",
+          "profilePath": "ds_e2e-class-train-registered-asset_e55eb298_33705\\versions\\v_1784862733705_e55eb298\\profile.json",
+          "rowCount": 4000,
+          "samplePath": "ds_e2e-class-train-registered-asset_e55eb298_33705\\versions\\v_1784862733705_e55eb298\\data_sample.csv",
+          "versionId": "v_1784862733705_e55eb298",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "user_0450d226159147ff"
+        }
+      ],
+      "archived": true,
+      "createdAt": "2026-07-24T13:06:53.993767+00:00",
+      "datasetId": "ds_e2e-class-train-registered-asset_e55eb298_11610",
+      "datasetRole": "development",
+      "description": "",
+      "domain": "General",
+      "linkedProjects": [],
+      "name": "E2E CLASS TRAIN Registered Asset",
+      "ownerDisplayName": "E2E dsLifecycle mryyew0h7ncv",
+      "ownerUserId": "user_0450d226159147ff",
+      "sourceInfo": {
+        "originalSource": {},
+        "projectId": "atlas-mryyf01i",
+        "tags": [],
+        "target": "Class"
+      },
+      "sourceType": "workspace_upload",
+      "updatedAt": "2026-07-24T13:20:54.546901+00:00",
+      "versions": [
+        {
+          "columnCount": 31,
+          "createdAt": "2026-07-24T13:06:53.978075+00:00",
+          "createdBy": "user_0450d226159147ff",
+          "fullDataPath": "ds_e2e-class-train-registered-asset_e55eb298_11610\\versions\\v_1784898411610_e55eb298\\data_full.csv",
+          "hash": "e55eb2983289815ec6035d27c4df3f6141e93098ce1380d58a33f889d6e510df",
+          "originalFilename": "e2e-class-train-registered-asset.csv",
+          "previewPath": "ds_e2e-class-train-registered-asset_e55eb298_11610\\versions\\v_1784898411610_e55eb298\\preview.json",
+          "profilePath": "ds_e2e-class-train-registered-asset_e55eb298_11610\\versions\\v_1784898411610_e55eb298\\profile.json",
+          "rowCount": 4000,
+          "samplePath": "ds_e2e-class-train-registered-asset_e55eb298_11610\\versions\\v_1784898411610_e55eb298\\data_sample.csv",
+          "versionId": "v_1784898411610_e55eb298",
+          "warnings": []
+        }
+      ]
     }
   ]
 }

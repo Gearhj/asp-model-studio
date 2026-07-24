@@ -81,6 +81,9 @@ async function compileTestModules() {
   await transpileSource("src/lib/api.ts", path.join(TMP_DIR, "src/lib/api.js"));
   await transpileSource("src/config/optimizationTemplates.ts", path.join(TMP_DIR, "src/config/optimizationTemplates.js"));
   await transpileSource("src/lib/serverPersistence.ts", path.join(TMP_DIR, "src/lib/serverPersistence.js"));
+  await transpileSource("src/lib/activeProjectContext.ts", path.join(TMP_DIR, "src/lib/activeProjectContext.js"));
+  await transpileSource("src/lib/authSession.ts", path.join(TMP_DIR, "src/lib/authSession.js"));
+  await transpileSource("src/lib/localDataset.ts", path.join(TMP_DIR, "src/lib/localDataset.js"));
   await transpileSource("src/lib/localProjects.ts", path.join(TMP_DIR, "src/lib/localProjects.js"));
   return {
     localProjects: await import(pathToFileURL(path.join(TMP_DIR, "src/lib/localProjects.js")).href),

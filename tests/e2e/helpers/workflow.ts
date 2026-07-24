@@ -21,6 +21,9 @@ const GATING_ACTION_LABELS = [
   "Save predictor selections",
   "Create Validation Split",
   "Rebuild Validation Split",
+  // Interpretation (step09): final model must be RFE-selected and saved before Scoring unlocks.
+  "Run RFE",
+  "Save as Final Model",
 ];
 
 export async function clickGatingActionsIfPresent(page: Page): Promise<void> {
@@ -36,7 +39,7 @@ export async function clickGatingActionsIfPresent(page: Page): Promise<void> {
           // (e.g. "applying" -> "applied"); a lost race here just means the Next-button's
           // own disabled-state check still gates correctly, so we don't fail the whole flow.
           await btn.click({ timeout: 5000 }).catch(() => undefined);
-          await page.waitForTimeout(1200);
+          await page.waitForTimeout(2500);
         }
       }
     }
@@ -47,7 +50,7 @@ export async function clickGatingActionsIfPresent(page: Page): Promise<void> {
 export async function goNext(page: Page, expectedUrlPattern?: RegExp): Promise<void> {
   const before = page.url();
   const button = page.locator(NEXT_BUTTON);
-  const deadline = Date.now() + 60_000;
+  const deadline = Date.now() + 90_000;
   await clickGatingActionsIfPresent(page);
   while (Date.now() < deadline) {
     if (await button.isEnabled().catch(() => false)) break;

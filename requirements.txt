@@ -9,6 +9,11 @@ pandas==2.1.4
 scipy==1.13.1
 joblib==1.4.2
 
+# --- Enterprise Analytical Data Plane (server-side execution engines) ---
+duckdb==1.5.5
+polars==1.43.0
+pyarrow==25.0.0
+
 # --- Visualization ---
 matplotlib==3.8.4
 seaborn==0.13.2

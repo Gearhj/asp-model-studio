@@ -1,0 +1,12 @@
+{
+  "datasetId": "ds_e2e-class-train-registered-asset_e55eb298_25609",
+  "datasetRole": "development",
+  "originalFilename": "e2e-class-train-registered-asset.csv",
+  "sourceInfo": {
+    "originalSource": {},
+    "projectId": "atlas-mryd1uko",
+    "tags": [],
+    "target": "Class"
+  },
+  "versionId": "v_1784862525609_e55eb298"
+}

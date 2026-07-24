@@ -1,0 +1,46 @@
+{
+  "projectId": "atlas-mryydh3a",
+  "projectName": "Browser State Tab B",
+  "evidenceType": "governance",
+  "title": "Predictive Modeling Project Context",
+  "summary": "Project Context completed with business objective, intended use, target definition, population definition, observation window, and performance window.",
+  "sourcePage": "Project Context",
+  "sourceRoute": "/step00",
+  "status": "needs_review",
+  "importance": "high",
+  "modelIds": [
+    "tabB-1784898316693"
+  ],
+  "supportsSections": [
+    "1",
+    "3"
+  ],
+  "tags": [
+    "predictive_modeling",
+    "project_context",
+    "modeling_mission"
+  ],
+  "payload": {
+    "businessObjective": "Support appraisal review by estimating median home value for a census block group from public housing-census attributes.",
+    "intendedModelUse": "An appraisal analyst uses the estimated value as a reference point alongside comparable sales; the model output does not replace a licensed appraisal.",
+    "targetDefinition": "The median home value (in hundreds of thousands of dollars) for owner-occupied housing units in a census block group.",
+    "populationDefinition": "All California census block groups with complete housing and demographic attributes reported in the source housing census extract.",
+    "observationWindow": "Block-group housing and demographic attributes (income, age of housing stock, occupancy, location) available at the census extract date.",
+    "performanceWindow": "The median home value as reported in the same census extract; there is no separate outcome-maturation delay for this attribute.",
+    "deploymentMode": "Development",
+    "modelType": "Generic Binary Classification",
+    "modelingMissionSummary": ""
+  },
+  "evidenceId": "ev-predictive-modeling-project-context-d31335422d079c2b",
+  "datasetIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "lineage": {},
+  "governance": {},
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-24T13:05:22.529128+00:00",
+  "updatedAt": "2026-07-24T13:05:22.529128+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 57
+}

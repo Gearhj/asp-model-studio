@@ -543,6 +543,12 @@ _PERSISTENCE_DB_PATH = _TEST_DATA_ROOT / f"atlas_modeling_state_persistence_{_RU
 os.environ["ATLAS_SECURITY_DB_PATH"] = str(_SECURITY_DB_PATH)
 os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH)
 os.environ.setdefault("ATLAS_AUTH_ENABLED", "true")
+# Stage 6.1: isolate this suite's checkpoint writes. The checkpoint is a
+# full-snapshot last-writer-wins file; without this, any test class that does
+# not monkeypatch CHECKPOINT_PATH would clobber the real dev backend's
+# .runtime/workflow_checkpoint.json from a second process.
+_CHECKPOINT_PATH = _TEST_DATA_ROOT / f"atlas_modeling_state_checkpoint_{_RUN_ID}.json"
+os.environ["ATLAS_CHECKPOINT_PATH"] = str(_CHECKPOINT_PATH)
 
 import pandas as pd  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
@@ -567,6 +573,10 @@ from server.splitting.split_service import split_service  # noqa: E402
 
 
 def _cleanup_db_files() -> None:
+    try:
+        _CHECKPOINT_PATH.unlink(missing_ok=True)
+    except PermissionError:
+        pass
     for base in (_SECURITY_DB_PATH, _PERSISTENCE_DB_PATH):
         for suffix in ("", "-wal", "-shm"):
             target = Path(f"{base}{suffix}")
@@ -1681,9 +1691,16 @@ class CheckpointRestoreTests(unittest.TestCase, _DatastoreDictIsolationMixin):
         saved the data. Since load_checkpoint() now restores each record
         into its own explicit (user_id, project_id) from the file itself,
         User B's data lands under User B's own real identity.
+
+        Stage 6.1 update: the user and project must now genuinely EXIST --
+        save/load filter out scopes whose owner or project was deleted (or
+        never existed), so this test registers them for real instead of
+        fabricating ids (see tests/checkpoint_lifecycle_test.py for the
+        filtering behavior itself).
         """
-        user_b = {"userId": f"checkpoint-restart-b-{uuid.uuid4().hex[:8]}"}
-        project_id = f"checkpoint-restart-project-{uuid.uuid4().hex[:8]}"
+        client_b, user_b_id = _register("checkpoint-restart-b")
+        project_id = _create_project(client_b, "Checkpoint Restart B Project")
+        user_b = {"userId": user_b_id}
         set_active_user(user_b)
         try:
             from server.core.modeling_scope import set_active_project_id
@@ -1752,12 +1769,15 @@ class CheckpointRestoreTests(unittest.TestCase, _DatastoreDictIsolationMixin):
 
     def test_checkpoint_save_triggered_by_a_real_request_now_saves_the_real_users_scope(self) -> None:
         """PASSING BASELINE. server/core/metadata_router.py's `set_sample()`
-        calls `save_checkpoint()` synchronously on the request thread.
-        Since ActiveUserContextMiddleware (Stage 2A) fixes ambient user
-        resolution for the request thread, a checkpoint saved during a real
-        authenticated request captures that user's own state -- and, since
-        Stage 6, restores into that SAME real (user_id, project_id) scope,
-        not the shared anonymous/unscoped bucket.
+        marks the checkpoint dirty via `schedule_checkpoint_save()` (Stage
+        6.1: routine mutations coalesce in a background writer instead of
+        rewriting the whole file on the request thread -- flush_checkpoint()
+        makes the pending state durable on demand). Since
+        ActiveUserContextMiddleware (Stage 2A) fixes ambient user
+        resolution for the request thread, the checkpointed state captures
+        that user's own scope -- and, since Stage 6, restores into that
+        SAME real (user_id, project_id) scope, not the shared
+        anonymous/unscoped bucket.
         """
         client, user_id = _register("checkpoint-real-request")
         project_id = _create_project(client, "Checkpoint Real Request Project")
@@ -1767,6 +1787,9 @@ class CheckpointRestoreTests(unittest.TestCase, _DatastoreDictIsolationMixin):
         )
         self.assertEqual(set_a.status_code, 200, set_a.text)
 
+        # Stage 6.1: the request only SCHEDULED the save; force the pending
+        # write before inspecting the file (shutdown does the same flush).
+        self.assertTrue(session_checkpoint_module.flush_checkpoint())
         raw_contents = session_checkpoint_module.CHECKPOINT_PATH.read_text(encoding="utf-8")
         self.assertIn("777", raw_contents)
         self.assertIn(user_id, raw_contents)
@@ -1916,6 +1939,9 @@ class CheckpointMultiScopeRestartTests(unittest.TestCase, _DatastoreDictIsolatio
         self.assertEqual(set_a.status_code, 200, set_a.text)
         self.assertEqual(set_b.status_code, 200, set_b.text)
 
+        # Stage 6.1: set_sample schedules a debounced save; flush the pending
+        # write before simulating the restart (a real shutdown also flushes).
+        self.assertTrue(session_checkpoint_module.flush_checkpoint())
         self.assertTrue(_simulate_restart())
 
         self.assertEqual(int(get_scoped_dataset_store((user_id, project_a)).raw_df["amount"].iloc[0]), 111)
@@ -1935,6 +1961,9 @@ class CheckpointMultiScopeRestartTests(unittest.TestCase, _DatastoreDictIsolatio
 
         client.post("/api/data/set_sample", json={"project_id": project_b, "headers": ["amount", "target"], "rows": [{"amount": 6006, "target": 0}], "target": "target"})
 
+        # Stage 6.1: set_sample schedules a debounced save; flush the pending
+        # write before simulating the restart (a real shutdown also flushes).
+        self.assertTrue(session_checkpoint_module.flush_checkpoint())
         self.assertTrue(_simulate_restart())
 
         after_restart = client.get("/api/data/get_sample", params={"project_id": project_a})
@@ -2270,6 +2299,19 @@ class CheckpointSubprocessRestartTests(unittest.TestCase):
     live verification).
     """
 
+    @classmethod
+    def setUpClass(cls) -> None:
+        # Stage 6.1: this class now registers real users/projects (see the
+        # test body), so it needs initialized security/persistence stores of
+        # its own -- sibling classes delete the DB files in tearDownClass.
+        _cleanup_db_files()
+        init_security_store()
+        initialize_persistence()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        _cleanup_db_files()
+
     def setUp(self) -> None:
         self._temp_dir = Path(tempfile.mkdtemp(prefix="atlas_checkpoint_subprocess_test_"))
         self._checkpoint_path = self._temp_dir / "workflow_checkpoint.json"
@@ -2290,6 +2332,16 @@ class CheckpointSubprocessRestartTests(unittest.TestCase):
         )
 
     def test_two_users_two_projects_survive_a_genuine_fresh_process_restart(self) -> None:
+        # Stage 6.1: save/load now filter out scopes whose owner or project
+        # does not exist (deleted-scope garbage collection), so the two
+        # identities must be REAL registered users and REAL persisted
+        # projects -- created here in the parent against the same isolated
+        # security/persistence databases the subprocesses inherit via env.
+        client_a, user_a_id = _register("subproc-a")
+        client_b, user_b_id = _register("subproc-b")
+        project_a = _create_project(client_a, "Checkpoint Subprocess Project A")
+        project_b = _create_project(client_b, "Checkpoint Subprocess Project B")
+
         writer_script = f"""
 import os, sys
 sys.path.insert(0, {str(ROOT)!r})
@@ -2300,10 +2352,10 @@ from server.core.dataset_store import get_scoped_dataset_store
 from server.core.result_store import get_scoped_result_store
 import pandas as pd
 
-get_scoped_dataset_store(("user-subprocess-a", "project-subprocess-a")).set_raw(pd.DataFrame({{"marker": ["SUBPROC-A"]}}))
-get_scoped_dataset_store(("user-subprocess-b", "project-subprocess-b")).set_raw(pd.DataFrame({{"marker": ["SUBPROC-B"]}}))
-get_scoped_result_store(("user-subprocess-a", "project-subprocess-a")).set_last_summary({{"marker": "SUBPROC-A-RESULT"}})
-get_scoped_result_store(("user-subprocess-b", "project-subprocess-b")).set_last_summary({{"marker": "SUBPROC-B-RESULT"}})
+get_scoped_dataset_store(({user_a_id!r}, {project_a!r})).set_raw(pd.DataFrame({{"marker": ["SUBPROC-A"]}}))
+get_scoped_dataset_store(({user_b_id!r}, {project_b!r})).set_raw(pd.DataFrame({{"marker": ["SUBPROC-B"]}}))
+get_scoped_result_store(({user_a_id!r}, {project_a!r})).set_last_summary({{"marker": "SUBPROC-A-RESULT"}})
+get_scoped_result_store(({user_b_id!r}, {project_b!r})).set_last_summary({{"marker": "SUBPROC-B-RESULT"}})
 ok = ckpt.save_checkpoint()
 print("SAVE_OK" if ok else "SAVE_FAILED")
 """
@@ -2322,17 +2374,17 @@ from server.core.dataset_store import get_scoped_dataset_store
 from server.core.result_store import get_scoped_result_store
 
 ok = ckpt.load_checkpoint()
-a_df = get_scoped_dataset_store(("user-subprocess-a", "project-subprocess-a")).raw_df
-b_df = get_scoped_dataset_store(("user-subprocess-b", "project-subprocess-b")).raw_df
-a_result = get_scoped_result_store(("user-subprocess-a", "project-subprocess-a")).get_last_summary()
-b_result = get_scoped_result_store(("user-subprocess-b", "project-subprocess-b")).get_last_summary()
+a_df = get_scoped_dataset_store(({user_a_id!r}, {project_a!r})).raw_df
+b_df = get_scoped_dataset_store(({user_b_id!r}, {project_b!r})).raw_df
+a_result = get_scoped_result_store(({user_a_id!r}, {project_a!r})).get_last_summary()
+b_result = get_scoped_result_store(({user_b_id!r}, {project_b!r})).get_last_summary()
 report = {{
     "load_ok": ok,
     "a_marker": list(a_df["marker"]) if a_df is not None else None,
     "b_marker": list(b_df["marker"]) if b_df is not None else None,
     "a_result_marker": (a_result or {{}}).get("marker"),
     "b_result_marker": (b_result or {{}}).get("marker"),
-    "cross_a_in_b_scope": get_scoped_dataset_store(("user-subprocess-a", "project-subprocess-b")).raw_df is not None,
+    "cross_a_in_b_scope": get_scoped_dataset_store(({user_a_id!r}, {project_b!r})).raw_df is not None,
 }}
 print(json.dumps(report))
 """

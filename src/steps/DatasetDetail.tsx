@@ -356,6 +356,49 @@ export default function DatasetDetail() {
         </div>
       </section>
 
+      <section className="grid gap-5 xl:grid-cols-2">
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" data-testid="linked-projects-panel">
+          <div className="flex items-center gap-2">
+            <Link2 size={18} className="text-indigo-700" />
+            <h2 className="text-base font-semibold text-slate-950">Linked Projects</h2>
+          </div>
+          <p className="mt-1 text-xs text-slate-500">Projects currently referencing this asset. Deleting a linked project removes only its link, never this asset.</p>
+          {!dataset?.linkedProjects?.length ? (
+            <div className="mt-3 text-sm text-slate-500">No projects are currently linked to this asset.</div>
+          ) : (
+            <ul className="mt-3 divide-y divide-slate-100">
+              {dataset.linkedProjects.map((link) => (
+                <li key={`${link.projectId}-${link.datasetRole}`} className="flex items-center justify-between py-2 text-sm">
+                  <span className="font-mono text-xs text-slate-700">{link.projectId}</span>
+                  <span className="text-xs text-slate-500">{link.datasetRole} &middot; v{link.versionId}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm" data-testid="versions-panel">
+          <h2 className="text-base font-semibold text-slate-950">Versions</h2>
+          <p className="mt-1 text-xs text-slate-500">Every version is immutable once created; a new upload always creates a new version rather than overwriting one.</p>
+          {!dataset?.versions?.length ? (
+            <div className="mt-3 text-sm text-slate-500">No versions recorded.</div>
+          ) : (
+            <ul className="mt-3 divide-y divide-slate-100">
+              {[...dataset.versions].reverse().map((version) => (
+                <li key={version.versionId} className={`flex items-center justify-between py-2 text-sm ${version.versionId === selectedVersion ? "font-semibold text-slate-950" : "text-slate-700"}`}>
+                  <button type="button" className="text-left underline decoration-dotted" onClick={() => void refresh(version.versionId)}>
+                    {version.versionId}
+                  </button>
+                  <span className="text-xs text-slate-500">
+                    {version.rowCount.toLocaleString()} rows &middot; {version.columnCount} cols &middot; {version.createdAt ? new Date(version.createdAt).toLocaleDateString() : "-"}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </section>
+
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>

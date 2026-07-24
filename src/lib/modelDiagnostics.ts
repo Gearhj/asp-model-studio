@@ -81,6 +81,9 @@ export type RegisterScoredDatasetInput = {
   decileColumn?: string;
   rows: Array<Record<string, unknown>>;
   metadata?: Record<string, unknown>;
+  /** Visual Intelligence Production Integration, Phase K: cross-links this
+   *  registration back to its originating durable ScoringRun. */
+  scoringRunId?: string;
 };
 
 export async function registerScoredDataset(input: RegisterScoredDatasetInput) {

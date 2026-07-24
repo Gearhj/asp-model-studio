@@ -120,6 +120,15 @@ def get_scoped_result_store(scope: Optional[Tuple[str, str]] = None) -> ResultSt
     return _RESULT_STORES[key]
 
 
+def discard_scoped_result_store(scope: Tuple[str, str]) -> bool:
+    """Drop one (user_id, project_id) scope from the in-memory registry.
+    Mirrors dataset_store.discard_scoped_dataset_store -- see its docstring
+    for the Stage 6.1 lifecycle rationale. Callers should go through
+    session_checkpoint.discard_modeling_scopes().
+    """
+    return _RESULT_STORES.pop(scope, None) is not None
+
+
 class ResultStoreProxy:
     def current(self) -> ResultStore:
         return get_scoped_result_store()

@@ -81,7 +81,7 @@ export default function D3GroupedHistogram({
 
     const byLabel = d3.group(cleaned, (d: CleanedRow) => d.lbl);
     const labels = ["Non-Event", "Event"] as const;
-    const colors = d3.scaleOrdinal().domain(labels as unknown as string[]).range(["#60a5fa", "#f87171"]);
+    const colors = d3.scaleOrdinal<string, string>().domain(labels as unknown as string[]).range(["#60a5fa", "#f87171"]);
 
     const series = labels.map((lbl): HistogramSeries => {
       const arr = byLabel.get(lbl) ?? [];

@@ -16,6 +16,12 @@ from ..security.security_store import (
     require_role,
     require_user,
 )
+from ..core.session_checkpoint import discard_modeling_scopes, flush_checkpoint
+from ..datasets.dataset_registry import unlink_all_project_datasets
+from ..analytics.result_cache import RESULT_CACHE
+from ..analytics.resource_governance import CONCURRENCY
+from ..scoring_runs.scoring_run_service import archive_scoring_runs_for_project
+from ..model_registry.model_registry_service import archive_registry_for_project
 from ..sharing.sharing_service import SharingService
 from .db import PersistenceUnavailableError, now_iso
 from .service import PersistenceService, get_persistence_service
@@ -240,6 +246,16 @@ def update_project(project_id: str, payload: Dict[str, Any], user: Dict[str, Any
 def delete_project(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "admin")
 
+    # Persistent Scoring Runs, Phase I: archive this project's scoring runs
+    # BEFORE the project row is deleted -- scoring_runs.project_id uses
+    # ON DELETE SET NULL, so archiving must happen while project_id is still
+    # a valid foreign key value, exactly like the Dataset Library's
+    # unlink-before-delete ordering below.
+    _execute(lambda: archive_scoring_runs_for_project(project_id))
+    # Durable Model Registry, Phase L: same archive-before-delete ordering as
+    # scoring runs -- model_versions.project_id also uses ON DELETE SET NULL.
+    _execute(lambda: archive_registry_for_project(project_id))
+
     def operation() -> bool:
         service = _service()
         service.sync_user(user)
@@ -248,6 +264,24 @@ def delete_project(project_id: str, user: Dict[str, Any] = Depends(require_user)
     deleted = _execute(operation)
     if not deleted:
         raise HTTPException(status_code=404, detail="ATLAS project was not found in the persistence database.")
+    # Stage 6.1 lifecycle repair: drop every resident in-memory modeling scope
+    # for this project (all owners, including collaborator-private scopes) and
+    # rewrite the checkpoint immediately, so the deleted project can neither
+    # keep inflating future saves nor be resurrected at the next restart.
+    discard_modeling_scopes(project_id=project_id)
+    flush_checkpoint()
+    # Dataset lifecycle audit fix: project deletion never removed this project's
+    # Dataset Library links, leaving project_links.json entries (and each asset's
+    # linkedProjects list) pointing at a project_id that no longer exists forever.
+    # The Library asset itself is NEVER deleted here -- only this project's link to
+    # it -- see docs/architecture/DATASET_LIFECYCLE_ADR.md's deletion rules table.
+    unlink_all_project_datasets(project_id)
+    # Enterprise Analytical Data Plane: drop any cached analytical results and
+    # release concurrency counters scoped to this project (Phase J requirement 10 /
+    # Phase L requirement 12) so a deleted project's cached aggregates can never be
+    # served again and its query slots don't leak.
+    RESULT_CACHE.invalidate_project(project_id)
+    CONCURRENCY.release(str(user.get("userId") or ""), project_id)
     audit_event(
         "project.deleted",
         "project",

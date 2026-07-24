@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field
 
 from ..core.dataset_store import DATASTORE
 from ..core.modeling_scope import authorize_modeling_scope
-from ..core.session_checkpoint import save_checkpoint
+from ..core.session_checkpoint import schedule_checkpoint_save
 from ..security.security_store import require_user
 from .split_service import split_service, target_distribution
 
@@ -218,7 +218,7 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
     if manifest:
         manifest["split_status"] = "current"
         DATASTORE.meta["feature_manifest"] = manifest
-    save_checkpoint()
+    schedule_checkpoint_save()
     return {
         "ok": True,
         "status": "current",

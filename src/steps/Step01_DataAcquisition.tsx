@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import StepShell from "../components/StepShell";
 import BureauReviewPanel from "../components/BureauReviewPanel";
 import { AtlasStatusStrip, type AtlasStatusItem, type AtlasWorkflowMetric } from "../components/ui/AtlasWorkflow";
@@ -33,9 +34,11 @@ import {
 import { loadLocalDataset, saveLocalDataset, type LocalDataset } from "../lib/localDataset";
 import {
   activateDatasetVersion,
+  findSimilarDatasets,
   getDatasetPreview,
   linkDatasetToProject,
   listDatasets,
+  registerWorkspaceDataset,
   type DatasetSummary,
 } from "../lib/datasetLibrary";
 import { useWorkflowStore } from "../state/useWorkflowStore";
@@ -393,6 +396,19 @@ export default function Step01DataAcquisition() {
   const [libraryLoading, setLibraryLoading] = useState(false);
   const datasetVersions = loadDatasetVersions();
   const projectId = useWorkflowStore((state) => state.projectId);
+  const projectName = useWorkflowStore((state) => state.projectName);
+
+  // Dataset Persistence (dataset lifecycle audit): explicit workspace-only vs
+  // register-to-Library choice, defaulting to workspace-only per the ADR.
+  const [persistenceChoice, setPersistenceChoice] = useState<"workspace" | "register">("workspace");
+  const [registerName, setRegisterName] = useState("");
+  const [registerDescription, setRegisterDescription] = useState("");
+  const [registerTags, setRegisterTags] = useState("");
+  const [registering, setRegistering] = useState(false);
+  const [registrationResult, setRegistrationResult] = useState<DatasetSummary | null>(null);
+  const [registrationError, setRegistrationError] = useState("");
+  const [duplicateCandidates, setDuplicateCandidates] = useState<DatasetSummary[]>([]);
+  const [checkingDuplicates, setCheckingDuplicates] = useState(false);
 
   useEffect(() => {
     const saved = loadLocalDataset();
@@ -961,6 +977,77 @@ export default function Step01DataAcquisition() {
     if (rows.length) setQuality(inferDataQuality({ headers, rows: rows.slice(0, 5000), target: next || null }));
   };
 
+  // Debounced on registerName changes (NOT on the name field's onBlur): blurring that
+  // field is also the first event a click on "Register Development Dataset" fires, so
+  // triggering an async state update from onBlur raced the click itself -- the
+  // duplicate-check's re-render could land between the button's mousedown and mouseup
+  // and silently swallow the click. Typing-driven debounce has no such coupling.
+  useEffect(() => {
+    if (persistenceChoice !== "register" || !registerName.trim()) {
+      setDuplicateCandidates([]);
+      return;
+    }
+    const timer = setTimeout(() => void checkForSimilarDatasets(registerName), 500);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registerName, persistenceChoice]);
+
+  async function checkForSimilarDatasets(name: string) {
+    if (!name.trim()) {
+      setDuplicateCandidates([]);
+      return;
+    }
+    setCheckingDuplicates(true);
+    try {
+      const candidates = await findSimilarDatasets({
+        name,
+        target: target || undefined,
+        rowCount: registeredRowCount || undefined,
+        columnCount: headers.length || undefined,
+      });
+      setDuplicateCandidates(candidates);
+    } catch {
+      setDuplicateCandidates([]);
+    } finally {
+      setCheckingDuplicates(false);
+    }
+  }
+
+  async function handleRegisterDevelopmentDataset() {
+    if (!registerName.trim()) {
+      setRegistrationError("Enter a Dataset Library name before registering.");
+      return;
+    }
+    setRegistering(true);
+    setRegistrationError("");
+    try {
+      // The backend DATASTORE for this project is only synced when the user advances
+      // past this step (persistDataset, normally StepShell's onNext) -- registration can
+      // happen before that, so ensure the sync has actually happened first, without
+      // navigating away from this page.
+      await persistDataset();
+      const dataset = await registerWorkspaceDataset({
+        projectId,
+        name: registerName.trim(),
+        description: registerDescription.trim(),
+        tags: registerTags.split(",").map((tag) => tag.trim()).filter(Boolean),
+      });
+      setRegistrationResult(dataset);
+      logDecision({
+        workflowStep: "Data Acquisition",
+        actionType: "workflow_setting_changed",
+        subject: "Dataset Library registration",
+        newValue: dataset.datasetId,
+        systemRecommendation: "Registered datasets are governed, versioned, and reusable across authorized projects.",
+        followStatus: "followed",
+      });
+    } catch (error) {
+      setRegistrationError(error instanceof Error ? error.message : "ATLAS could not register this dataset to the Dataset Library.");
+    } finally {
+      setRegistering(false);
+    }
+  }
+
   const existingDatasetPicker = (
     <ExistingDatasetPanel
       versions={datasetVersions}
@@ -1104,6 +1191,31 @@ export default function Step01DataAcquisition() {
                 problemType={targetInfo.kind === "continuous" ? "regression" : "classification"}
               />
             </div>
+            {headers.length > 0 && target && (
+              <DatasetPersistenceCard
+                projectName={projectName}
+                target={target}
+                rowCount={registeredRowCount}
+                columnCount={headers.length}
+                choice={persistenceChoice}
+                onChoice={setPersistenceChoice}
+                registerName={registerName}
+                onRegisterNameChange={(value) => {
+                  setRegisterName(value);
+                  setRegistrationResult(null);
+                }}
+                registerDescription={registerDescription}
+                onRegisterDescriptionChange={setRegisterDescription}
+                registerTags={registerTags}
+                onRegisterTagsChange={setRegisterTags}
+                registering={registering}
+                registrationResult={registrationResult}
+                registrationError={registrationError}
+                duplicateCandidates={duplicateCandidates}
+                checkingDuplicates={checkingDuplicates}
+                onRegister={() => void handleRegisterDevelopmentDataset()}
+              />
+            )}
             {(sourceType === "sql" || sourceType === "cloud" || sourceType === "python") && (
               <details className="rounded-xl border border-slate-200 bg-slate-50 p-3" open>
                 <summary className="cursor-pointer text-sm font-semibold text-slate-900">Configure {sourceCards.find((card) => card.id === sourceType)?.title}</summary>
@@ -1342,6 +1454,123 @@ function CurrentDatasetSummary(props: {
         <Stat label="Browser data" value={props.browserDataComplete ? "Complete dataset" : "Preview only"} />
         <Stat label="Dataset version" value={props.datasetVersion || "Not registered"} />
       </div>
+    </section>
+  );
+}
+
+function DatasetPersistenceCard(props: {
+  projectName: string;
+  target: string;
+  rowCount: number;
+  columnCount: number;
+  choice: "workspace" | "register";
+  onChoice: (choice: "workspace" | "register") => void;
+  registerName: string;
+  onRegisterNameChange: (value: string) => void;
+  registerDescription: string;
+  onRegisterDescriptionChange: (value: string) => void;
+  registerTags: string;
+  onRegisterTagsChange: (value: string) => void;
+  registering: boolean;
+  registrationResult: DatasetSummary | null;
+  registrationError: string;
+  duplicateCandidates: DatasetSummary[];
+  checkingDuplicates: boolean;
+  onRegister: () => void;
+}) {
+  return (
+    <section className="mt-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm" data-testid="dataset-persistence-card">
+      <h2 className="text-base font-semibold text-slate-950">Dataset Persistence</h2>
+      <p className="mt-1 text-sm text-slate-500">
+        Choose how ATLAS should store this dataset. Status: <span className="font-semibold text-slate-800">{props.registrationResult ? "Registered Asset" : "Workspace Upload"}</span>
+      </p>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <button
+          type="button"
+          onClick={() => props.onChoice("workspace")}
+          aria-pressed={props.choice === "workspace"}
+          className={`rounded-xl border p-4 text-left shadow-sm transition ${props.choice === "workspace" ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white hover:bg-slate-50"}`}
+        >
+          <div className={`text-sm font-semibold ${props.choice === "workspace" ? "text-white" : "text-slate-950"}`}>Project Workspace Only</div>
+          <p className={`mt-2 text-xs leading-5 ${props.choice === "workspace" ? "text-slate-200" : "text-slate-500"}`}>
+            Use this dataset only in the current project. It will not appear in the Dataset Library unless you register it later. Deleting this project deletes this workspace copy.
+          </p>
+        </button>
+        <button
+          type="button"
+          onClick={() => props.onChoice("register")}
+          aria-pressed={props.choice === "register"}
+          className={`rounded-xl border p-4 text-left shadow-sm transition ${props.choice === "register" ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white hover:bg-slate-50"}`}
+        >
+          <div className={`text-sm font-semibold ${props.choice === "register" ? "text-white" : "text-slate-950"}`}>Register in Dataset Library</div>
+          <p className={`mt-2 text-xs leading-5 ${props.choice === "register" ? "text-slate-200" : "text-slate-500"}`}>
+            Create a governed, versioned data asset that authorized projects can reuse. If this project is later deleted, the registered asset and its Library link to other projects remain.
+          </p>
+        </button>
+      </div>
+
+      {props.choice === "register" && !props.registrationResult && (
+        <div className="mt-5 space-y-3 rounded-lg border border-blue-100 bg-blue-50/60 p-4">
+          <div className="grid gap-3 md:grid-cols-2">
+            <label className="grid gap-1 text-xs font-semibold text-slate-700">
+              Dataset Library name
+              <input
+                className="atlas-input"
+                value={props.registerName}
+                placeholder={`${props.projectName || "ATLAS Project"} - Development Dataset`}
+                onChange={(event) => props.onRegisterNameChange(event.target.value)}
+              />
+            </label>
+            <label className="grid gap-1 text-xs font-semibold text-slate-700">
+              Tags (comma-separated)
+              <input className="atlas-input" value={props.registerTags} onChange={(event) => props.onRegisterTagsChange(event.target.value)} placeholder="development, governed" />
+            </label>
+          </div>
+          <label className="grid gap-1 text-xs font-semibold text-slate-700">
+            Description / business purpose
+            <textarea className="atlas-input" rows={2} value={props.registerDescription} onChange={(event) => props.onRegisterDescriptionChange(event.target.value)} placeholder="What this dataset is and how it should be used." />
+          </label>
+          <div className="text-xs text-slate-500">Target <strong>{props.target}</strong>, {props.rowCount.toLocaleString()} rows, {props.columnCount} columns, and the current project owner will be recorded automatically.</div>
+
+          {props.checkingDuplicates && <div className="text-xs text-slate-500">Checking for similar existing assets...</div>}
+          {!props.checkingDuplicates && props.duplicateCandidates.length > 0 && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950" data-testid="duplicate-suggestions">
+              <div className="font-semibold">Possibly similar assets already exist. Review before registering a new one:</div>
+              <ul className="mt-2 space-y-1">
+                {props.duplicateCandidates.map((candidate) => (
+                  <li key={candidate.datasetId}>
+                    <Link className="underline" to={`/datasets/${candidate.datasetId}`} target="_blank" rel="noreferrer">
+                      {candidate.name}
+                    </Link>{" "}
+                    ({candidate.latestVersion?.rowCount?.toLocaleString() ?? "-"} rows, owner {candidate.ownerDisplayName ?? candidate.ownerUserId})
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-2">This is a suggestion only -- registering below always creates your own new asset.</div>
+            </div>
+          )}
+
+          {props.registrationError && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-900">{props.registrationError}</div>}
+
+          <button type="button" onClick={props.onRegister} disabled={props.registering} className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:opacity-60">
+            {props.registering ? "Registering..." : "Register Development Dataset"}
+          </button>
+        </div>
+      )}
+
+      {props.registrationResult && (
+        <div className="mt-5 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950" data-testid="registration-success">
+          <div className="font-semibold">Registered to the Dataset Library</div>
+          <div className="mt-2 grid gap-1 text-xs">
+            <div>Asset ID: <span className="font-mono">{props.registrationResult.datasetId}</span></div>
+            <div>Version ID: <span className="font-mono">{props.registrationResult.latestVersion?.versionId ?? "-"}</span></div>
+            <div>This project is now linked to this asset.</div>
+          </div>
+          <Link className="mt-3 inline-block rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-semibold text-emerald-900" to={`/datasets/${props.registrationResult.datasetId}`}>
+            Open in Dataset Library
+          </Link>
+        </div>
+      )}
     </section>
   );
 }

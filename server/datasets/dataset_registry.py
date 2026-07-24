@@ -24,7 +24,11 @@ from ..security.security_store import (
 )
 
 
-ARTIFACT_ROOT = Path(__file__).resolve().parents[1] / "artifacts" / "datasets"
+# ATLAS_DATASET_LIBRARY_ROOT (dataset lifecycle audit): lets standalone test/script
+# processes point at an isolated artifact root instead of the shared dev backend's
+# real server/artifacts/datasets/registry.json -- same cross-process clobbering risk
+# ATLAS_CHECKPOINT_PATH (Stage 6.1) exists to avoid, applied here for the same reason.
+ARTIFACT_ROOT = Path(os.getenv("ATLAS_DATASET_LIBRARY_ROOT", str(Path(__file__).resolve().parents[1] / "artifacts" / "datasets")))
 REGISTRY_PATH = ARTIFACT_ROOT / "registry.json"
 USERS_PATH = ARTIFACT_ROOT / "users.json"
 PROJECT_LINKS_PATH = ARTIFACT_ROOT / "project_links.json"
@@ -706,6 +710,100 @@ def unlink_project_dataset(project_id: str, dataset_id: str) -> Dict[str, Any]:
             item["updatedAt"] = now_iso()
     save_registry(registry)
     return {"ok": True, "removed": before - len(links.get("links", []))}
+
+
+def unlink_all_project_datasets(project_id: str) -> Dict[str, int]:
+    """Remove every dataset link for `project_id` -- the project-deletion half of the
+    Phase 7 retention rule (dataset lifecycle audit): deleting a project must remove
+    ITS links, never the shared Library assets or other projects' links to them.
+    Mirrors session_checkpoint.discard_modeling_scopes's "GC on delete" pattern.
+    """
+    links = load_links()
+    remaining = [item for item in links.get("links", []) if item.get("projectId") != project_id]
+    removed = len(links.get("links", [])) - len(remaining)
+    links["links"] = remaining
+    save_links(links)
+    if removed:
+        registry = load_registry()
+        for item in registry.get("datasets", []):
+            linked = item.get("linkedProjects") or []
+            if any(link.get("projectId") == project_id for link in linked):
+                item["linkedProjects"] = [link for link in linked if link.get("projectId") != project_id]
+                item["updatedAt"] = now_iso()
+        save_registry(registry)
+        audit_event("dataset.project_links.removed", "project", project_id, "success", metadata={"removedLinks": removed})
+    return {"removedLinks": removed}
+
+
+def find_similar_datasets(
+    name: str,
+    target: Optional[str] = None,
+    row_count: Optional[int] = None,
+    column_count: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    """Reviewable duplicate suggestions for the Data Acquisition registration flow
+    (Phase 4 item 9): candidates the CALLER can already see, ranked by how many of
+    name/target/row-count/column-count match -- never auto-selected, never used to
+    silently substitute a different asset for the one the user is registering."""
+    candidates = list_accessible_datasets()
+    needle = (name or "").strip().lower()
+    scored: List[tuple[int, Dict[str, Any]]] = []
+    for dataset in candidates:
+        latest = dataset.get("latestVersion") or {}
+        score = 0
+        if needle and needle == str(dataset.get("name") or "").strip().lower():
+            score += 2
+        elif needle and needle in str(dataset.get("name") or "").strip().lower():
+            score += 1
+        if target and target == (dataset.get("sourceInfo") or {}).get("target"):
+            score += 1
+        if row_count is not None and latest.get("rowCount") == row_count:
+            score += 1
+        if column_count is not None and latest.get("columnCount") == column_count:
+            score += 1
+        if score > 0:
+            scored.append((score, dataset))
+    scored.sort(key=lambda pair: pair[0], reverse=True)
+    return [dataset for _, dataset in scored[:5]]
+
+
+def register_workspace_dataset(
+    df: pd.DataFrame,
+    name: str,
+    project_id: str,
+    description: str = "",
+    domain: str = "General",
+    tags: Optional[List[str]] = None,
+    target: Optional[str] = None,
+    source_meta: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Register the CURRENT project workspace dataset (already-uploaded DATASTORE
+    state, transformed or not) as a durable, versioned Dataset Library asset, and
+    link it to the originating project. This is the previously-missing path the
+    dataset lifecycle audit exists to add: `create_metadata_only_dataset` (the old
+    `/datasets/register`) never attached real data, so nothing an analyst uploaded
+    into a project workspace could become a reusable asset without going through
+    the separate, unrelated direct-to-Library upload endpoint.
+    """
+    source_info = {
+        "projectId": project_id,
+        "target": target,
+        "tags": tags or [],
+        "originalSource": source_meta or {},
+    }
+    dataset = create_dataset_from_dataframe(
+        df,
+        name=name,
+        description=description,
+        domain=domain,
+        source_type="workspace_upload",
+        source_info=source_info,
+        dataset_role="development",
+    )
+    version_id = (dataset.get("latestVersion") or {}).get("versionId")
+    if version_id:
+        link_project(project_id, dataset["datasetId"], version_id, "development")
+    return dataset
 
 
 def diagnostics() -> Dict[str, Any]:

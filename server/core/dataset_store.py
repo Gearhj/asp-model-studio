@@ -285,6 +285,19 @@ def get_scoped_dataset_store(scope: Optional[Tuple[str, str]] = None) -> Dataset
     return _DATASTORES[key]
 
 
+def discard_scoped_dataset_store(scope: Tuple[str, str]) -> bool:
+    """Drop one (user_id, project_id) scope from the in-memory registry.
+
+    Stage 6.1 lifecycle repair: scopes used to live for the whole process
+    lifetime even after their project was deleted, and save_checkpoint()
+    re-serialized every resident scope on every save -- deleted projects
+    therefore kept growing the checkpoint forever. Callers should go through
+    session_checkpoint.discard_modeling_scopes(), which removes the matching
+    DATASTORE and RESULTS scopes together.
+    """
+    return _DATASTORES.pop(scope, None) is not None
+
+
 class DatasetStoreProxy:
     def current(self) -> DatasetStore:
         return get_scoped_dataset_store()

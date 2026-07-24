@@ -27,6 +27,8 @@ import { logDecision } from "../lib/decisionJournal";
 import { loadLocalDataset } from "../lib/localDataset";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { formatNullableMetric, getDatasetScopeLabel, safeArray, safeObject } from "../lib/workflowSafety";
+import VisualAnalysisPanel from "../visual-intelligence/production/VisualAnalysisPanel";
+import DistributionExplorer from "../visual-intelligence/prototypes/DistributionExplorer";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
@@ -756,6 +758,16 @@ function PredictorsPanel({
             </div>
           )}
         </div>
+      </AtlasWorkflowSection>
+      <AtlasWorkflowSection
+        eyebrow="Advanced analysis"
+        title="Interactive Distribution Explorer (Visual Intelligence)"
+        description="Server-side histogram, quantile, and segment aggregation for enterprise-scale datasets -- brush a range or enter numeric cutoffs to see bounded aggregate statistics without loading full columns into the browser."
+        tone="neutral"
+      >
+        <VisualAnalysisPanel analysisType="distribution" title="Interactive Distribution Explorer" description="Explore development data or a durable TRAIN/TEST/OOT scoring run's distribution.">
+          <DistributionExplorer />
+        </VisualAnalysisPanel>
       </AtlasWorkflowSection>
       <DataTable
         title="Numeric predictors"

@@ -28,7 +28,7 @@ from pydantic import BaseModel, Field
 from .dataset_store import DATASTORE
 from .modeling_scope import authorize_modeling_scope
 from .result_store import RESULTS
-from .session_checkpoint import save_checkpoint
+from .session_checkpoint import schedule_checkpoint_save
 from ..security.security_store import require_user
 
 router = APIRouter()
@@ -150,7 +150,7 @@ def set_sample(payload: SetSamplePayload, user: Dict[str, Any] = Depends(require
         DATASTORE.meta["dataset_version"] = payload.dataset_version
     RESULTS.clear_model_artifacts()
 
-    save_checkpoint()
+    schedule_checkpoint_save()
 
     return {
         "ok": True,
@@ -205,7 +205,7 @@ def set_target(payload: SetTargetPayload, user: Dict[str, Any] = Depends(require
         DATASTORE.meta["dataset_version"] = payload.dataset_version
     DATASTORE.reset_splits()
     RESULTS.clear_model_artifacts()
-    save_checkpoint()
+    schedule_checkpoint_save()
 
     active_df = DATASTORE.get_active_df()
     active_columns = [str(col) for col in active_df.columns] if active_df is not None else columns

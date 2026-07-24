@@ -1,4 +1,6 @@
 import { DATASET_API_BASE, type AtlasUser } from "./datasetLibrary";
+import { getCachedUserId, setCachedUserId } from "./authSession";
+import { clearUserDatasetState } from "./localDataset";
 
 async function authFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${DATASET_API_BASE}${path}`, {
@@ -23,25 +25,39 @@ export type AuthResponse = {
 };
 
 export async function login(email: string, password: string) {
-  return authFetch<AuthResponse>("/auth/login", {
+  const response = await authFetch<AuthResponse>("/auth/login", {
     method: "POST",
     body: JSON.stringify({ email, password }),
   });
+  setCachedUserId(response.user?.userId ?? null);
+  return response;
 }
 
 export async function register(email: string, displayName: string, password: string, role = "data_scientist") {
-  return authFetch<AuthResponse>("/auth/register", {
+  const response = await authFetch<AuthResponse>("/auth/register", {
     method: "POST",
     body: JSON.stringify({ email, displayName, password, role }),
   });
+  setCachedUserId(response.user?.userId ?? null);
+  return response;
 }
 
 export async function logout() {
-  return authFetch<{ ok: true }>("/auth/logout", { method: "POST" });
+  // Clear this user's scoped browser dataset state BEFORE dropping the
+  // cached identity -- clearUserDatasetState needs the outgoing userId to
+  // know which sessionStorage keys belong to them (dataset lifecycle /
+  // browser state isolation repair, Stage 6.2).
+  const outgoingUserId = getCachedUserId();
+  const response = await authFetch<{ ok: true }>("/auth/logout", { method: "POST" });
+  if (outgoingUserId) clearUserDatasetState(outgoingUserId);
+  setCachedUserId(null);
+  return response;
 }
 
 export async function me() {
-  return authFetch<AuthResponse>("/auth/me");
+  const response = await authFetch<AuthResponse>("/auth/me");
+  setCachedUserId(response.user?.userId ?? null);
+  return response;
 }
 
 export async function changePassword(currentPassword: string, newPassword: string) {

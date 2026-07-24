@@ -90,6 +90,8 @@ async function compileModules() {
     "export const useWorkflowStore = { getState: () => ({ projectId: null }) };\n",
     "utf8"
   );
+  await transpileSource("src/lib/activeProjectContext.ts", path.join(TMP_DIR, "src/lib/activeProjectContext.js"));
+  await transpileSource("src/lib/authSession.ts", path.join(TMP_DIR, "src/lib/authSession.js"));
   await transpileSource("src/lib/localDataset.ts", path.join(TMP_DIR, "src/lib/localDataset.js"));
   await transpileSource("src/lib/projectContext.ts", path.join(TMP_DIR, "src/lib/projectContext.js"));
   await transpileSource("src/lib/decisionJournal.ts", path.join(TMP_DIR, "src/lib/decisionJournal.js"));

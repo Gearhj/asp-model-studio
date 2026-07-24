@@ -54,6 +54,12 @@ async function transpileSource(sourcePath, outputPath) {
 
 async function importLocalDatasetModule() {
   await rm(TMP_DIR, { recursive: true, force: true });
+  // localDataset.ts's project/user scoping (Stage 6.2) pulls in two tiny
+  // ambient-cache modules -- transpile them alongside it so the isolated
+  // import graph resolves without dragging in the full zustand store/auth
+  // API surface this lightweight harness doesn't set up.
+  await transpileSource("src/lib/activeProjectContext.ts", path.join(TMP_DIR, "src/lib/activeProjectContext.js"));
+  await transpileSource("src/lib/authSession.ts", path.join(TMP_DIR, "src/lib/authSession.js"));
   await transpileSource("src/lib/localDataset.ts", path.join(TMP_DIR, "src/lib/localDataset.js"));
   return import(pathToFileURL(path.join(TMP_DIR, "src/lib/localDataset.js")).href);
 }

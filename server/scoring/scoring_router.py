@@ -3,10 +3,13 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
-from ..datasets.dataset_registry import create_dataset_from_dataframe, link_project
+from ..core.modeling_scope import authorize_modeling_scope
+from ..datasets.dataset_registry import create_dataset_from_dataframe, link_project, require_dataset
+from ..persistence.service import get_persistence_service
+from ..security.security_store import require_user
 
 
 router = APIRouter()
@@ -29,10 +32,39 @@ class RegisterScoredDatasetRequest(BaseModel):
     decileColumn: Optional[str] = None
     rows: List[Dict[str, Any]] = Field(default_factory=list)
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    # Visual Intelligence Production Integration, Phase K: the durable ScoringRun
+    # this registration originates from, if any -- optional so the pre-existing
+    # unattributed-registration path keeps working unchanged.
+    scoringRunId: Optional[str] = None
 
 
 @router.post("/scoring/register-scored-dataset")
-def register_scored_dataset(payload: RegisterScoredDatasetRequest) -> Dict[str, Any]:
+def register_scored_dataset(payload: RegisterScoredDatasetRequest, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    # Dataset lifecycle audit fix: this endpoint called link_project() directly with a
+    # client-supplied projectId and no check that the caller can edit that project --
+    # any authenticated user could link fabricated scored content into a project they
+    # do not own. Registration without a project link is still permitted (unattributed
+    # Library asset); only the LINK step requires edit access to that specific project.
+    if payload.projectId:
+        authorize_modeling_scope(user, payload.projectId, "edit")
+
+    scoring_run = None
+    if payload.scoringRunId:
+        service = get_persistence_service()
+        scoring_run = service.scoring_runs.get(payload.scoringRunId)
+        if scoring_run is None:
+            raise HTTPException(status_code=404, detail="Scoring run not found.")
+        if scoring_run.get("project_id") and payload.projectId and scoring_run["project_id"] != payload.projectId:
+            raise HTTPException(status_code=403, detail="This scoring run does not belong to the requested project.")
+        # Idempotency (Phase K requirement 3/4): a run already registered reports/returns
+        # its existing asset rather than creating a duplicate Dataset Library entry.
+        if scoring_run.get("registration_status") == "registered" and scoring_run.get("output_dataset_id"):
+            try:
+                existing = require_dataset(scoring_run["output_dataset_id"])
+                return {"ok": True, "dataset": existing, "columnRoles": {}, "alreadyRegistered": True}
+            except HTTPException:
+                pass  # underlying asset vanished (e.g. archived+purged) -- fall through and re-register
+
     if not payload.rows:
         raise HTTPException(status_code=400, detail="No scored rows were provided. Score a dataset before registration.")
     df = pd.DataFrame(payload.rows)
@@ -53,6 +85,19 @@ def register_scored_dataset(payload: RegisterScoredDatasetRequest) -> Dict[str, 
         "limitation": (payload.metadata or {}).get("limitation") or "Registered from full scored rows returned by the ATLAS scoring response. Original feature columns, target values when present, predictions, residuals, and split metadata are preserved.",
         **(payload.metadata or {}),
     }
+    if scoring_run:
+        # Phase K: bidirectional lineage -- the Dataset Library side of the cross-link.
+        source_info.update({
+            "sourceScoringRunId": scoring_run["scoring_run_id"],
+            "sourceModelId": scoring_run.get("model_id"),
+            "sourceDatasetId": scoring_run.get("dataset_id"),
+            "sourceDatasetVersionId": scoring_run.get("dataset_version_id"),
+            "sourcePartition": scoring_run.get("partition"),
+            "scoringTimestamp": scoring_run.get("completed_at"),
+            "predictionColumn": scoring_run.get("prediction_column"),
+            "probabilityColumn": scoring_run.get("probability_column"),
+            "residualColumn": scoring_run.get("residual_column"),
+        })
     dataset = create_dataset_from_dataframe(
         df,
         name=dataset_name,
@@ -65,6 +110,12 @@ def register_scored_dataset(payload: RegisterScoredDatasetRequest) -> Dict[str, 
     version_id = dataset.get("latestVersion", {}).get("versionId")
     if payload.projectId and version_id:
         link_project(payload.projectId, dataset["datasetId"], version_id, "scored_output")
+    if scoring_run and version_id:
+        # Phase K: the ScoringRun side of the cross-link.
+        get_persistence_service().scoring_runs.mark_registered(
+            scoring_run["scoring_run_id"], dataset_id=dataset["datasetId"], version_id=version_id,
+            registered_by=str(user.get("userId") or ""),
+        )
     return {"ok": True, "dataset": dataset, "columnRoles": columns}
 
 
