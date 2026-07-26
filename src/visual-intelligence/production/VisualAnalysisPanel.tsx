@@ -28,10 +28,15 @@ export type VisualAnalysisPanelProps = {
   /** Restricts the embedded explorer to one problem type -- e.g. Step08 only
    *  mounts the Classification panel when problemType === "classification". */
   expectedProblemType?: ProblemType;
+  /** EDA-EXPLORER-001 / Part E: "development" suppresses Scoring Run controls
+   *  (partition, run status, archived runs, run comparison) that are invalid
+   *  before any split or durable run exists. Defaults to the scoring context so
+   *  existing Evaluation/Scoring usage is unchanged. */
+  analysisContext?: "development" | "scoring";
   children: ReactNode;
 };
 
-function ActionBar({ analysisType }: { analysisType: VisualAnalysisPanelProps["analysisType"] }) {
+function ActionBar({ analysisType, analysisContext }: { analysisType: VisualAnalysisPanelProps["analysisType"]; analysisContext: "development" | "scoring" }) {
   const { baseReference, scoringRunId, selectScoringRun } = useVisualIntelligenceContext();
   const [showCompare, setShowCompare] = useState(false);
   const [showRunDetails, setShowRunDetails] = useState(false);
@@ -105,9 +110,14 @@ function ActionBar({ analysisType }: { analysisType: VisualAnalysisPanelProps["a
             {showRunDetails ? "Hide Run Details" : "Open Scoring Run"}
           </button>
         ) : null}
-        <button type="button" data-testid="va-compare-runs" className="atlas-secondary-button text-xs" onClick={() => setShowCompare((v) => !v)}>
-          {showCompare ? "Hide Comparison" : "Compare Runs"}
-        </button>
+        {/* EDA-EXPLORER-001 / Part E: Scoring Run comparison is meaningless on
+            development EDA, where no split has been created and no durable run
+            exists. It belongs to Evaluation and Scoring. */}
+        {analysisContext !== "development" ? (
+          <button type="button" data-testid="va-compare-runs" className="atlas-secondary-button text-xs" onClick={() => setShowCompare((v) => !v)}>
+            {showCompare ? "Hide Comparison" : "Compare Runs"}
+          </button>
+        ) : null}
         {scoringRunId && analysisType !== "distribution" ? (
           <RegisterScoredDatasetButton context={context} />
         ) : null}
@@ -222,14 +232,20 @@ function Badge({ label, value, tone }: { label: string; value: string; tone?: "d
   );
 }
 
-function PanelBody({ analysisType, children }: { analysisType: VisualAnalysisPanelProps["analysisType"]; children: ReactNode }) {
+function PanelBody({ analysisType, analysisContext, children }: { analysisType: VisualAnalysisPanelProps["analysisType"]; analysisContext: "development" | "scoring"; children: ReactNode }) {
   const projectId = useWorkflowStore((state) => state.projectId);
   const { scoringRunId, selectScoringRun, problemType } = useVisualIntelligenceContext();
   return (
     <div className="space-y-3">
       <IdentityBadges analysisType={analysisType} />
-      <ScoringRunSelector projectId={projectId} value={scoringRunId} onChange={selectScoringRun} problemType={problemType} />
-      <ActionBar analysisType={analysisType} />
+      {/* EDA-EXPLORER-001: the Scoring Run selector carries Partition
+          (All/TRAIN/TEST/OOT), Status, archived runs, and prev/next controls.
+          None of those exist on development EDA, where no split has been
+          created and no durable run is expected. */}
+      {analysisContext !== "development" ? (
+        <ScoringRunSelector projectId={projectId} value={scoringRunId} onChange={selectScoringRun} problemType={problemType} />
+      ) : null}
+      <ActionBar analysisType={analysisType} analysisContext={analysisContext} />
       {children}
     </div>
   );
@@ -239,7 +255,7 @@ function PanelBody({ analysisType, children }: { analysisType: VisualAnalysisPan
  *  `expectedProblemType`, when given, is an EARLY, honest refusal (never a
  *  silently-wrong chart) when the active project's resolved problemType does
  *  not match what this panel is built to show. */
-export default function VisualAnalysisPanel({ analysisType, title, description, expectedProblemType, children }: VisualAnalysisPanelProps) {
+export default function VisualAnalysisPanel({ analysisType, title, description, expectedProblemType, analysisContext = "scoring", children }: VisualAnalysisPanelProps) {
   return (
     <VisualIntelligenceProvider>
       <section className="space-y-3 rounded-lg border border-slate-200 bg-white p-4" data-testid={`visual-analysis-panel-${analysisType}`} aria-label={title}>
@@ -248,7 +264,7 @@ export default function VisualAnalysisPanel({ analysisType, title, description, 
           {description ? <p className="mt-0.5 text-xs text-slate-600">{description}</p> : null}
         </header>
         <ProblemTypeGate expectedProblemType={expectedProblemType} analysisType={analysisType}>
-          <PanelBody analysisType={analysisType}>{children}</PanelBody>
+          <PanelBody analysisType={analysisType} analysisContext={analysisContext}>{children}</PanelBody>
         </ProblemTypeGate>
       </section>
     </VisualIntelligenceProvider>

@@ -1,0 +1,12 @@
+{
+  "datasetId": "ds_scope-governed-asset-1785035263878_e55eb298",
+  "datasetRole": "development",
+  "originalFilename": "scope-governed-asset-1785035263878.csv",
+  "sourceInfo": {
+    "originalSource": {},
+    "projectId": "atlas-ms17ue7y",
+    "tags": [],
+    "target": "Class"
+  },
+  "versionId": "v_1785035272162_e55eb298"
+}

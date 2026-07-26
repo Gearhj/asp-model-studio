@@ -3,8 +3,10 @@ import { useLocation } from "react-router-dom";
 import { Code2 } from "lucide-react";
 import { CodeWorkspacePanel } from "./code/CodeWorkspacePanel";
 import {
+  fetchPythonCapability,
   fetchSasDiagnostics,
   runUserPython,
+  type PythonCapability,
   runUserSas,
   runUserSasCompatible,
   type CodeRunResult,
@@ -55,26 +57,26 @@ function generatedPythonForRoute(route: string, sections: NotebookSection[]) {
     .filter((column) => column !== target);
   let accessCode = metadata?.generatedPython || combinedGeneratedCode(sections);
 
+  // CODE-DATAACQ-002: a registered Dataset Library version is bound by the
+  // governed runtime, which provides df/TARGET/SELECTED_FEATURES directly. The
+  // generated code therefore carries no dataset path at all -- the previous
+  // placeholder export path could never resolve and would fail once execution
+  // was enabled.
   if (dataset?.dataset_library) {
     const library = dataset.dataset_library;
-    accessCode = `import pandas as pd
-from pathlib import Path
+    return `# ATLAS provides df from the authorized project dataset and version.
+# Runtime objects: df, TARGET, SELECTED_FEATURES, ATLAS_DATASET_PATH
+# Dataset: ${library.datasetName} (${library.datasetId})
+# Version: ${library.versionId}
 
-# Governed ATLAS Dataset Library asset.
-DATASET_ID = ${JSON.stringify(library.datasetId)}
-DATASET_VERSION = ${JSON.stringify(library.versionId)}
-DATASET_NAME = ${JSON.stringify(library.datasetName)}
-
-# Export or mount the confirmed Dataset Library version in the governed runtime.
-path = Path("path/to/dataset-library-export.csv")
-df = pd.read_csv(path)`;
+print("Dataset shape:", df.shape)
+print("Target:", TARGET or "Not selected")
+print("Selected predictors:", len(SELECTED_FEATURES))`;
   }
 
   return `${accessCode}
 
-TARGET = ${JSON.stringify(target)}
-SELECTED_FEATURES = ${JSON.stringify(selectedFeatures)}
-
+# ATLAS provides df, TARGET, and SELECTED_FEATURES at runtime.
 if TARGET:
     if TARGET not in df.columns:
         raise KeyError(f"Target column {TARGET!r} is not present in the loaded dataset.")
@@ -85,7 +87,7 @@ if TARGET:
 else:
     modeling_df = df.copy()
 
-print("Registered rows:", len(df))
+print("Rows available to this runtime:", len(df))
 print("Modeling columns:", len(modeling_df.columns))
 print("Target:", TARGET or "Not selected")`;
 }
@@ -94,10 +96,48 @@ function combinedSavedCode(sections: NotebookSection[], saved: Record<string, st
   return sections.map((section) => saved[section.sectionKey] ?? "").filter(Boolean).join("\n\n");
 }
 
+/**
+ * The one authoritative SAS table identity for the active dataset.
+ *
+ * CODE-DATAACQ-003: this must be derived from the active registered dataset, and
+ * must match what the backend registers in the SAS-compatible work library. The
+ * backend lowercases via its own `_safe_name`, and table lookup is
+ * case-insensitive, so `work.CLASS_TRAIN` and `work.class_train` both resolve to
+ * the same table. Never a stale regression-era default.
+ */
 function sasDatasetName() {
   const dataset = loadLocalDataset();
   const sourceName = dataset?.dataset_library?.datasetName || loadDataAccessMetadata()?.fileName || "atlas_modeling_data";
   return sourceName.replace(/\.[^.]+$/, "").replace(/[^A-Za-z0-9_]+/g, "_").replace(/^([^A-Za-z_])/, "atlas_$1").slice(0, 28) || "atlas_modeling_data";
+}
+
+/**
+ * Part H: under SAS-compatible execution only statements the compatibility
+ * engine actually supports are generated, so the starter program cannot be
+ * guaranteed to fail. Data-access statements (PROC IMPORT, LIBNAME, SET) are
+ * outside the subset and belong to the export-oriented templates.
+ */
+function generatedSasCompatibleProgram(route: string) {
+  const dataset = loadLocalDataset();
+  const table = sasDatasetName();
+  const target = dataset?.target || "";
+  const lines = [
+    `proc contents data=work.${table} varnum;`,
+    "run;",
+    "",
+  ];
+  if (target) {
+    lines.push(`proc freq data=work.${table};`, `    tables ${target} / missing;`, "run;", "");
+  }
+  const numericCandidates = (dataset?.selected_columns ?? [])
+    .filter((column) => column !== target)
+    .slice(0, 12);
+  lines.push(
+    `proc means data=work.${table} n nmiss mean std min median max;`,
+    numericCandidates.length ? `    var ${numericCandidates.join(" ")};` : "",
+    "run;",
+  );
+  return lines.filter((line) => line !== "").join("\n") + (route === "/step01" ? "\n" : "\n");
 }
 
 function generatedSasForRoute(route: string) {
@@ -153,6 +193,9 @@ export default function StepPythonPanel() {
   const [sasRunning, setSasRunning] = useState(false);
   const [sasDiagnostics, setSasDiagnostics] = useState<SasDiagnostics | null>(null);
   const [sasMode, setSasMode] = useState<SasRunMode>("template");
+  // CODE-DATAACQ-001: capability comes from the backend, never from a hard-coded
+  // badge. Until it resolves the panel reports "Checking runtime", not "Executable".
+  const [pythonCapability, setPythonCapability] = useState<PythonCapability | null>(null);
 
   useEffect(() => {
     const pythonSaved = readCode(USER_STEP_PYTHON_CODE_KEY);
@@ -162,6 +205,24 @@ export default function StepPythonPanel() {
     setPythonDraft(combinedSavedCode(sections, pythonSaved));
     setSasDraft(combinedSavedCode(sections, sasSaved) || generatedSasForRoute(location.pathname));
   }, [location.pathname, sections]);
+
+  useEffect(() => {
+    if (!expanded) return;
+    let alive = true;
+    fetchPythonCapability()
+      .then((capability) => alive && setPythonCapability(capability))
+      .catch(() =>
+        alive &&
+        setPythonCapability({
+          state: "not_configured",
+          available: false,
+          reason: "Python execution capability could not be determined for this ATLAS environment.",
+        })
+      );
+    return () => {
+      alive = false;
+    };
+  }, [expanded]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -181,7 +242,8 @@ export default function StepPythonPanel() {
   if (!sections.length) return null;
   const sectionKey = sections[0].sectionKey;
   const generatedPython = generatedPythonForRoute(location.pathname, sections);
-  const generatedSas = generatedSasForRoute(location.pathname);
+  const generatedSas =
+    sasMode === "compatible" ? generatedSasCompatibleProgram(location.pathname) : generatedSasForRoute(location.pathname);
   const pageTitle = sections.map((section) => section.title).join(" / ");
   const persist = (language: "python" | "sas") => {
     const key = language === "python" ? USER_STEP_PYTHON_CODE_KEY : USER_STEP_SAS_CODE_KEY;
@@ -201,11 +263,29 @@ export default function StepPythonPanel() {
     });
   };
 
+  const activeDataset = loadLocalDataset();
+  const activeLibrary = activeDataset?.dataset_library;
+  // The governed identity travels with every execution request so the backend can
+  // resolve the exact authorized artifact rather than trusting a client path.
   const context = {
-    previewRows: loadLocalDataset()?.rows.slice(0, 500) ?? [],
+    previewRows: activeDataset?.rows.slice(0, 500) ?? [],
     datasetName: sasDatasetName(),
-    target: loadLocalDataset()?.target,
+    datasetId: activeLibrary?.datasetId ?? "",
+    versionId: activeLibrary?.versionId ?? "",
+    target: activeDataset?.target ?? "",
+    selectedFeatures: activeDataset?.selected_columns ?? [],
   };
+
+  const pythonBadge = !pythonCapability
+    ? "Checking runtime"
+    : pythonCapability.state === "executable"
+      ? "Executable"
+      : pythonCapability.state === "misconfigured"
+        ? "Runtime misconfigured"
+        : pythonCapability.state === "disabled"
+          ? "Runtime disabled"
+          : "Runtime not configured";
+  const pythonRunnable = pythonCapability?.available === true;
 
   return (
     <section className="atlas-card overflow-hidden p-0">
@@ -242,13 +322,15 @@ export default function StepPythonPanel() {
               {
                 language: "python",
                 label: "Python",
-                supportBadge: "Executable",
+                supportBadge: pythonBadge,
                 generatedCode: generatedPython,
                 userCode: pythonDraft,
                 setUserCode: setPythonDraft,
-                note: "Generated and user-edited Python execute through the governed local Python runtime.",
+                note: pythonRunnable
+                  ? `Runtime objects available: df (authorized dataset version${activeLibrary?.versionId ? ` ${activeLibrary.versionId}` : ""}), TARGET (selected target column), SELECTED_FEATURES (approved predictor list).`
+                  : (pythonCapability?.reason ?? "Checking whether the governed code sandbox is available for this ATLAS environment."),
                 runLabel: "Run Python",
-                canRun: Boolean(pythonDraft.trim()),
+                canRun: pythonRunnable && Boolean(pythonDraft.trim()),
                 running: pythonRunning,
                 result: pythonResult,
                 onRun: async () => {

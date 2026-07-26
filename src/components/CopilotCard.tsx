@@ -83,7 +83,9 @@ type CopilotItem = {
   title: string;
   body: string;
   why: string;
-  confidence: number;
+  /** Decorative legacy field. Never rendered: the guide is rule-based and
+   *  reports detected conditions, not a fabricated confidence score. */
+  confidence?: number;
 };
 
 type ChallengeItem = {
@@ -93,7 +95,9 @@ type ChallengeItem = {
   body: string;
   recommendation: string;
   why: string;
-  confidence: number;
+  /** Decorative legacy field. Never rendered: the guide is rule-based and
+   *  reports detected conditions, not a fabricated confidence score. */
+  confidence?: number;
 };
 
 function readOutlierConfig() {
@@ -988,10 +992,19 @@ function kindClass(kind: CopilotItem["kind"]) {
   return "border-emerald-200 bg-emerald-50 text-emerald-900";
 }
 
-function confidenceScore(items: CopilotItem[]) {
-  if (!items.length) return 0;
-  const average = items.reduce((sum, item) => sum + item.confidence, 0) / items.length;
-  return Math.round(average * 100);
+/**
+ * Truthful basis label for the guide's recommendations.
+ *
+ * This replaces a `confidence` percentage that averaged per-item constants
+ * hardcoded at each recommendation site (0.97, 0.88, 0.9, ...). Those numbers
+ * were decorative -- nothing measured them, and no input could change them --
+ * so presenting them as a confidence score to a regulated user was misleading.
+ * The guide is rule-based, and the honest thing to report is how many
+ * conditions the rules actually detected.
+ */
+export function guideBasisLabel(items: CopilotItem[]): string {
+  if (!items.length) return "Rule-based";
+  return `Rule-based - ${items.length} detected condition${items.length === 1 ? "" : "s"}`;
 }
 
 function AbTestingGuideContext({ context }: { context: CopilotContext }) {
@@ -1077,7 +1090,7 @@ type ExperimentalGuideHealth = {
   governanceRisk: "Low" | "Medium" | "High";
   statisticalRisk: "Low" | "Medium" | "High";
   operationalRisk: "Low" | "Medium" | "High";
-  confidence: number;
+  detectedConditions: number;
   nextAction: string;
   estimatedTime: string;
   difficulty: "Easy" | "Moderate" | "Advanced";
@@ -1093,7 +1106,7 @@ function metricList(value: unknown) {
   return Array.isArray(value) ? value.map(String).filter(Boolean) : [];
 }
 
-function buildExperimentalGuideHealth(context: CopilotContext, confidence: number): ExperimentalGuideHealth | null {
+function buildExperimentalGuideHealth(context: CopilotContext, detectedConditions: number): ExperimentalGuideHealth | null {
   if (context.projectType !== "experimental-design") return null;
   const node = context.workflowNodeState ?? {};
   const objective = textValue(node.objective);
@@ -1216,7 +1229,7 @@ function buildExperimentalGuideHealth(context: CopilotContext, confidence: numbe
     governanceRisk: validation ? "Low" : "Medium",
     statisticalRisk: metrics.length && watchList.length <= 2 ? "Low" : "Medium",
     operationalRisk: assumptions || decision ? "Medium" : "High",
-    confidence,
+    detectedConditions,
     nextAction: nextActionByStep[context.workflowStepLabel] ?? "Complete current workflow evidence",
     estimatedTime: context.workflowStepLabel === "Project Context" ? "2-3 minutes" : "3-5 minutes",
     difficulty: context.workflowStepLabel === "ANOVA" || context.workflowStepLabel === "Monte Carlo Simulation" ? "Advanced" : "Easy",
@@ -1309,7 +1322,8 @@ export default function CopilotCard() {
   const items = location.pathname === "/step01"
     ? builtItems.filter((item) => item.title === "Confirm source, target, and lineage").slice(0, 1)
     : [...adaptiveItems, ...builtItems].slice(0, isCompactPrimaryGuide ? 1 : 9);
-  const confidence = confidenceScore(items);
+  const basisLabel = guideBasisLabel(items);
+  const detectedConditionCount = items.length;
 
   const toggleProjectContextGuide = () => {
     const next = !projectContextGuideCollapsed;
@@ -1360,7 +1374,7 @@ export default function CopilotCard() {
     explanation: items.filter((item) => item.kind === "explanation"),
     default: items.filter((item) => item.kind === "default"),
   };
-  const experimentalHealth = buildExperimentalGuideHealth(context, confidence);
+  const experimentalHealth = buildExperimentalGuideHealth(context, detectedConditionCount);
   const hideRecommendedNextSteps =
     context.projectType === "experimental-design" &&
     (context.workflowStepLabel === "Blocking" || context.route.toLowerCase().includes("blocking"));
@@ -1376,8 +1390,12 @@ export default function CopilotCard() {
           <p className="mt-1 text-xs leading-5 text-slate-500">Rule-based guide. LLM-ready interface.</p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <div className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700">
-            {confidence}% confidence
+          <div
+            className="rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-700"
+            data-testid="guide-basis-badge"
+            title="ATLAS guidance is rule-based. This badge reports how many conditions the rules detected; it is not a model confidence score."
+          >
+            {basisLabel}
           </div>
           {isProjectContextGuide ? (
             <button type="button" className="rounded-lg border border-slate-200 bg-white p-1.5 text-slate-700 hover:bg-slate-50" onClick={toggleProjectContextGuide} aria-label={projectContextGuideCollapsed ? "Expand Atlas Guide" : "Collapse Atlas Guide"}>
@@ -1479,7 +1497,7 @@ function ExperimentalGuideHealthPanel({ health }: { health: ExperimentalGuideHea
         <div className="mt-3 grid grid-cols-2 gap-2">
           <MiniMetric label="Readiness" value={`${health.readiness}%`} />
           <MiniMetric label={health.qualityLabel} value={String(health.designQuality)} />
-          <MiniMetric label="Confidence" value={`${health.confidence}%`} />
+          <MiniMetric label="Basis" value={`${health.detectedConditions} conditions`} />
           <MiniMetric label="Difficulty" value={health.difficulty} />
         </div>
         <div className="mt-3 grid gap-2">
@@ -1596,7 +1614,7 @@ function ChallengeSection({
                   </p>
                 </div>
                 <span className="shrink-0 rounded-full bg-white/70 px-2 py-0.5 text-[11px] font-semibold">
-                  {Math.round(challenge.confidence * 100)}%
+                  {Math.round((challenge.confidence ?? 0) * 100)}%
                 </span>
               </div>
 

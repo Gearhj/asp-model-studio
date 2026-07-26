@@ -16,7 +16,7 @@ from ..core.modeling_scope import authorize_modeling_scope
 from ..security.security_store import require_user
 from .eda_service import eda_service
 from .workspace_service import eda_workspace_service
-from .workspace_types import EDAWorkspaceRequest
+from .workspace_types import EDAWorkspaceRequest, TargetByPredictorRequest
 
 router = APIRouter()
 logger = logging.getLogger("atlas.eda")
@@ -56,6 +56,32 @@ def eda_workspace_section(section: str, request: EDAWorkspaceRequest, user: Dict
                 "code": "backend_dataset_missing" if status == 409 else "eda_request_invalid",
                 "message": detail,
                 "recovery": "Return to Data Acquisition and re-register the dataset, or retry after confirming the backend is running.",
+            },
+        ) from exc
+
+
+@router.post("/target-by-predictor")
+def eda_target_by_predictor(request: TargetByPredictorRequest, user: Dict[str, Any] = Depends(require_user)):
+    """On-demand Target-by-Predictor over the full in-memory backend population.
+
+    A distinct path (not a `/workspace/{section}` value) so it cannot be reached
+    accidentally by the section catch-all. Used only when the project has no
+    registered Dataset Library version; a registered project uses
+    POST /api/analytics/target-by-predictor, which scans the immutable artifact.
+    """
+    authorize_modeling_scope(user, request.project_id, "view")
+    try:
+        return eda_workspace_service.target_by_predictor(request)
+    except ValueError as exc:
+        detail = str(exc)
+        status = 409 if "no full backend dataset" in detail.lower() else 400
+        raise HTTPException(
+            status_code=status,
+            detail={
+                "ok": False,
+                "code": "backend_dataset_missing" if status == 409 else "eda_request_invalid",
+                "message": detail,
+                "recovery": "Confirm a target and a valid predictor, or return to Data Acquisition and re-register the dataset.",
             },
         ) from exc
 

@@ -19,6 +19,7 @@ from .repositories import (
     RunRepository,
     ScoringRunRepository,
     SharingRepository,
+    TargetFindingRepository,
     NotificationRepository,
     MonitoringRepository,
     UserRepository,
@@ -44,6 +45,7 @@ class PersistenceService:
         self.audit = AuditRepository(database)
         self.access = AccessRepository(database)
         self.sharing = SharingRepository(database)
+        self.target_findings = TargetFindingRepository(database)
         self.notifications = NotificationRepository(database)
         self.monitoring = MonitoringRepository(database)
         self.collaboration = CollaborationRepository(database)

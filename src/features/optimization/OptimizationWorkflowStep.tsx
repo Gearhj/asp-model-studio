@@ -56,7 +56,6 @@ import {
   type OptimizationVariable,
   type TransportationDatasetReference,
 } from "../../lib/optimizationWorkflow";
-import { getSelectionGuidance } from "../../lib/selectDecisionSupport";
 import { getProjectFromDatabase, saveProjectTemplateToDatabase } from "../../lib/serverPersistence";
 import { useWorkflowStore } from "../../state/useWorkflowStore";
 import TransportationOptimizationWorkflow, { invalidateTransportationOptimizationState, type OptimizationInputStrategy } from "./TransportationOptimizationWorkflow";
@@ -1140,9 +1139,7 @@ function MetaBlock({ label, value }: { label: string; value: ReactNode }) {
 }
 
 function GuidedSelect({ label, value, options, onChange, placeholder = "Select option", optionLabels }: { label: string; value: string; options: string[]; onChange: (value: string) => void; placeholder?: string; optionLabels?: Record<string, string> }) {
-  const selectedLabel = optionLabels?.[value] ?? value;
-  const guidance = getSelectionGuidance({ label, value: selectedLabel, options: options.map((option) => optionLabels?.[option] ?? option) });
-  return <label className="grid content-start gap-1.5"><span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</span><select data-guidance-label={label} className={fieldClass()} value={value} onChange={(event) => onChange(event.target.value)}><option value="">{placeholder}</option>{options.map((option) => <option key={option} value={option}>{optionLabels?.[option] ?? option}</option>)}</select>{guidance && <span className="text-[11px] leading-4 text-slate-500"><span className="font-semibold text-slate-700">Best used when:</span> {guidance.useWhen}</span>}</label>;
+  return <label className="grid content-start gap-1.5"><span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</span><select className={fieldClass()} value={value} onChange={(event) => onChange(event.target.value)}><option value="">{placeholder}</option>{options.map((option) => <option key={option} value={option}>{optionLabels?.[option] ?? option}</option>)}</select></label>;
 }
 
 function ColumnSelect({ label, value, columns, onChange, required = false }: { label: string; value: string; columns: string[]; onChange: (value: string) => void; required?: boolean }) {

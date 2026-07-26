@@ -67,6 +67,19 @@ def _legitimate_date_range(name: str, series: pd.Series) -> dict[str, str] | Non
     }
 
 
+def governed_time_field(name: str, series: pd.Series) -> dict[str, str] | None:
+    """Public name for the governed date-field rule used across ATLAS.
+
+    A field only qualifies as a time field when it genuinely IS one: a real
+    datetime dtype, or text that both carries a date-like name and parses at a
+    high rate. Numeric columns are never inferred as dates -- that rule is what
+    stops a "Time" column holding elapsed seconds from being charted as a
+    calendar axis. Exposed so the EDA Target workspace enforces exactly the same
+    rule as the data-quality profile rather than inventing a second one.
+    """
+    return _legitimate_date_range(name, series)
+
+
 def profile_active_dataset(target: str | None = None, event_value: Any = None) -> dict[str, Any]:
     df = DATASTORE.get_base_df()
     if df is None or df.empty:

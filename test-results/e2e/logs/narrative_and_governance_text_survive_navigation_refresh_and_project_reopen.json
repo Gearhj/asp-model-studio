@@ -1,0 +1,27 @@
+{
+  "consoleErrors": [
+    "[error] Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "[error] Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+    "[error] Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "[error] Failed to load resource: the server responded with a status of 404 (Not Found)",
+    "[error] Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "consoleWarnings": [],
+  "pageErrors": [],
+  "failedRequests": [
+    "GET http://127.0.0.1:5174/api/notifications/unread-count -- net::ERR_ABORTED",
+    "GET http://127.0.0.1:5174/api/notifications/unread-count -- net::ERR_ABORTED",
+    "GET http://127.0.0.1:5174/api/train/last?project_id=atlas-ms0q0fw2 -- net::ERR_ABORTED",
+    "GET http://127.0.0.1:5174/src/lib/modelMonitoring.ts?t=1784899017526 -- net::ERR_ABORTED",
+    "GET http://127.0.0.1:5174/api/train/last?project_id=atlas-ms0q0fw2 -- net::ERR_ABORTED",
+    "GET http://127.0.0.1:5174/api/projects -- net::ERR_ABORTED",
+    "GET http://127.0.0.1:5174/api/projects -- net::ERR_ABORTED"
+  ],
+  "failedResponses": [
+    "401 GET http://127.0.0.1:5174/api/auth/me",
+    "401 GET http://127.0.0.1:5174/api/auth/me",
+    "404 GET http://127.0.0.1:5174/api/train/last?project_id=atlas-ms0q0fw2",
+    "404 GET http://127.0.0.1:5174/api/train/last?project_id=atlas-ms0q0fw2",
+    "404 GET http://127.0.0.1:5174/api/train/last?project_id=atlas-ms0q0jxd"
+  ]
+}

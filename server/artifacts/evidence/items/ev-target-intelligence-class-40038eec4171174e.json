@@ -1,0 +1,246 @@
+{
+  "projectId": "atlas-ms0ysdus",
+  "projectName": "E2E Target Intelligence",
+  "evidenceType": "eda",
+  "title": "Target Intelligence -- Class",
+  "summary": "8 events in 4,000 rows (0.20%); Extreme rare event.",
+  "sourcePage": "Exploratory Data Analysis -- Target Intelligence",
+  "sourceRoute": "/step02",
+  "datasetIds": [
+    "20260725225236-cdab7052"
+  ],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Exploratory Data Analysis",
+    "Data Quality",
+    "Model Development"
+  ],
+  "tags": [
+    "predictive_modeling",
+    "eda",
+    "target_intelligence",
+    "full_dataset"
+  ],
+  "status": "needs_review",
+  "importance": "high",
+  "workflowStep": "Exploratory Data Analysis",
+  "lineage": {
+    "datasetId": null,
+    "versionId": "20260725225236-cdab7052",
+    "target": "Class",
+    "problemType": "classification",
+    "eventValue": "1",
+    "resolution": "exact"
+  },
+  "payload": {
+    "datasetIdentity": {
+      "datasetId": "",
+      "versionId": "20260725225236-cdab7052",
+      "datasetName": ""
+    },
+    "targetDefinition": {
+      "target": "Class",
+      "eventValue": null,
+      "nonEventValue": null,
+      "governance": [
+        {
+          "key": "targetDefinition",
+          "label": "Business target definition",
+          "value": "Whether a given transaction was later confirmed as fraudulent by the card network's chargeback and dispute process."
+        },
+        {
+          "key": "populationDefinition",
+          "label": "Population definition",
+          "value": "All card-present and card-not-present transactions processed through the authorization system during the observation period."
+        },
+        {
+          "key": "observationWindow",
+          "label": "Observation window",
+          "value": "Transaction attributes available at authorization time, including amount and the anonymized behavioral PCA components captured by the fraud data platform."
+        },
+        {
+          "key": "performanceWindow",
+          "label": "Performance window",
+          "value": "Fraud confirmation outcome finalized within 120 days after the transaction date via chargeback or dispute resolution."
+        },
+        {
+          "key": "businessObjective",
+          "label": "Business objective",
+          "value": "Reduce confirmed card-fraud losses by flagging high-risk transactions for review before settlement."
+        },
+        {
+          "key": "intendedModelUse",
+          "label": "Intended model use",
+          "value": "A fraud analyst reviews the model's risk score alongside case history and decides whether to hold, decline, or release the transaction; the model output does not auto-decline."
+        },
+        {
+          "key": "humanReviewRequired",
+          "label": "Human review required",
+          "value": "To be determined"
+        }
+      ],
+      "unresolvedGaps": []
+    },
+    "classCounts": {
+      "eventCount": null,
+      "nonEventCount": null,
+      "missingTargetCount": null,
+      "totalModelingPopulation": null
+    },
+    "eventRate": null,
+    "imbalanceAssessment": null,
+    "confidenceInterval": null,
+    "selectedPredictorAnalysis": {
+      "predictor": "V4",
+      "analysisType": "numeric_quantile",
+      "rows": [
+        {
+          "group": "Q1",
+          "population": 380,
+          "eventCount": 0,
+          "eventRate": 0,
+          "smallGroup": true
+        },
+        {
+          "group": "Q2",
+          "population": 380,
+          "eventCount": 0,
+          "eventRate": 0,
+          "smallGroup": true
+        },
+        {
+          "group": "Q3",
+          "population": 380,
+          "eventCount": 0,
+          "eventRate": 0,
+          "smallGroup": true
+        },
+        {
+          "group": "Q4",
+          "population": 380,
+          "eventCount": 0,
+          "eventRate": 0,
+          "smallGroup": true
+        },
+        {
+          "group": "Q5",
+          "population": 380,
+          "eventCount": 1,
+          "eventRate": 0.002631578947368421,
+          "smallGroup": true
+        },
+        {
+          "group": "Q6",
+          "population": 380,
+          "eventCount": 0,
+          "eventRate": 0,
+          "smallGroup": true
+        },
+        {
+          "group": "Q7",
+          "population": 380,
+          "eventCount": 0,
+          "eventRate": 0,
+          "smallGroup": true
+        },
+        {
+          "group": "Q8",
+          "population": 380,
+          "eventCount": 0,
+          "eventRate": 0,
+          "smallGroup": true
+        },
+        {
+          "group": "Q9",
+          "population": 380,
+          "eventCount": 1,
+          "eventRate": 0.002631578947368421,
+          "smallGroup": true
+        },
+        {
+          "group": "Q10",
+          "population": 380,
+          "eventCount": 6,
+          "eventRate": 0.015789473684210527,
+          "smallGroup": false
+        }
+      ],
+      "truncatedRows": false,
+      "missingGroup": {
+        "population": 200,
+        "eventCount": 0,
+        "eventRate": 0
+      },
+      "summary": {
+        "highest": {
+          "label": "Q10",
+          "eventRate": 0.015789473684210527,
+          "eventCount": 6,
+          "population": 380
+        },
+        "lowest": {
+          "label": "Q10",
+          "eventRate": 0.015789473684210527,
+          "eventCount": 6,
+          "population": 380
+        },
+        "eventRateSpread": 0,
+        "eventRateRatio": 1,
+        "monotonicity": "Non-monotonic",
+        "eventConcentration": 0.75,
+        "missingEffect": {
+          "missingPopulation": 200,
+          "missingEventCount": 0,
+          "missingEventRate": 0,
+          "presentEventRate": 0.002105263157894737,
+          "difference": -0.002105263157894737,
+          "materialDifference": false
+        },
+        "smallGroupCount": 9,
+        "limitations": [
+          "9 group(s) hold fewer than 30 rows or 5 events and are excluded from the highest/lowest ranking.",
+          "The population event rate is below 1%, so per-group rates carry wide uncertainty even at large group sizes."
+        ],
+        "interpretation": "Event rate ranges from 1.5789% in Q10 to 1.5789% in Q10 (spread 0.0000%). A spread alone does not establish predictive value; confirm it survives out-of-sample and is not a leakage artifact."
+      }
+    },
+    "timeAndSegmentSelection": {
+      "timeField": null,
+      "segmentField": null
+    },
+    "resolution": {
+      "state": "unsupported",
+      "exact": false,
+      "sampling": null
+    },
+    "chartSpecification": {
+      "classBalanceChart": {
+        "library": "echarts",
+        "type": "bar",
+        "modes": [
+          "population",
+          "rare-event"
+        ]
+      },
+      "targetByPredictorChart": {
+        "library": "echarts",
+        "type": "bar+line",
+        "predictor": "V4",
+        "analysisType": "numeric_quantile",
+        "groups": 10
+      }
+    },
+    "capturedBy": "user_6d100b6329204eeb",
+    "capturedAt": "2026-07-25T22:53:06.368Z"
+  },
+  "evidenceId": "ev-target-intelligence-class-40038eec4171174e",
+  "governance": {},
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-25T22:53:06.600949+00:00",
+  "updatedAt": "2026-07-25T22:53:06.600949+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 86
+}

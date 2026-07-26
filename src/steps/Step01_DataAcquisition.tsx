@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { Check, Loader2, ShieldCheck } from "lucide-react";
 import StepShell from "../components/StepShell";
 import BureauReviewPanel from "../components/BureauReviewPanel";
 import { AtlasStatusStrip, type AtlasStatusItem, type AtlasWorkflowMetric } from "../components/ui/AtlasWorkflow";
@@ -43,6 +44,51 @@ import {
 } from "../lib/datasetLibrary";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { fetchFullFeatureProfile, predictorEligibility, profileFeaturesInBrowser, type FeatureProfileResponse } from "../lib/featureProfiling";
+import {
+  formatEventRatePrecise,
+  ivCellText,
+  formatIvExact,
+  planWeakSignalExclusion,
+  IV_STATUS_LABELS,
+  WEAK_SIGNAL_IV_THRESHOLD,
+  type PredictorProfile,
+  signalStrength,
+  leakageScreen,
+  LEAKAGE_SCREEN_LABELS,
+  predictorEvaluationCounts,
+  HIGH_IV_EXPLANATION,
+} from "../lib/governedProfile";
+import { useTargetProfile } from "../lib/useTargetProfile";
+import {
+  deriveDataAcquisitionStatus,
+  projectLinkLabel,
+  registrationLabel,
+} from "../lib/dataAcquisitionStatus";
+import {
+  DATASET_SOURCE_LABELS,
+  EVENT_RATE_SCOPE_LABELS,
+  DATASET_LOAD_STAGES,
+  IDLE_LOAD_PROGRESS,
+  READINESS_LABELS,
+  READINESS_TONES,
+  buildTargetDistribution,
+  computeClassDistributionFromRows,
+  computeReadinessStatus,
+  formatEventRate,
+  isAlreadyLinked,
+  resolveAuthoritativeEventRate,
+  resolveDatasetSourceKind,
+  resolvePersistenceMode,
+  resolveRegistrationActionLabel,
+  type DatasetLibraryLink,
+  type DatasetLoadProgress,
+  type DatasetSourceKind,
+  type PersistenceMode,
+  type ReadinessStatus,
+} from "../lib/dataAcquisitionLifecycle";
+import DatasetLoadProgressPanel from "../components/dataAcquisition/DatasetLoadProgressPanel";
+import TargetDistributionPanel from "../components/dataAcquisition/TargetDistributionPanel";
+import { useTargetDistribution } from "../lib/useTargetDistribution";
 
 const BASE =
   (import.meta.env?.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
@@ -385,6 +431,7 @@ export default function Step01DataAcquisition() {
   const [pythonCode, setPythonCode] = useState("import pandas as pd\n\n# Assign final dataframe to df\n# df = pd.read_sql(...)\n");
   const [metadata, setMetadata] = useState<DataAccessMetadata | null>(() => loadDataAccessMetadata());
   const [quality, setQuality] = useState<DataQualitySummary | null>(null);
+  const [qualityLoading, setQualityLoading] = useState(false);
   const [featureProfile, setFeatureProfile] = useState<FeatureProfileResponse | null>(null);
   const [isImporting, setIsImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
@@ -394,6 +441,16 @@ export default function Step01DataAcquisition() {
   const [selectedLibraryDatasetId, setSelectedLibraryDatasetId] = useState("");
   const [selectedLibraryVersionId, setSelectedLibraryVersionId] = useState("");
   const [libraryLoading, setLibraryLoading] = useState(false);
+  // Part A/H1: which dataset+version was actually loaded, plus the real load
+  // milestones. Identity is tracked by datasetId/versionId (never by display
+  // name or filename) so changing either selector honestly resets the action.
+  const [loadedLibraryIdentity, setLoadedLibraryIdentity] = useState<{ datasetId: string; versionId: string } | null>(null);
+  // Governed target-dependent profiling. The analytical identity includes the
+  // dataset version AND the event mapping, so changing either invalidates every
+  // target-dependent result rather than leaving stale IV on screen.
+  const [weakSignalUndo, setWeakSignalUndo] = useState<Record<string, boolean> | null>(null);
+  const [weakSignalNotice, setWeakSignalNotice] = useState("");
+  const [loadProgress, setLoadProgress] = useState<DatasetLoadProgress>(IDLE_LOAD_PROGRESS);
   const datasetVersions = loadDatasetVersions();
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
@@ -476,9 +533,180 @@ export default function Step01DataAcquisition() {
   );
   const targetAnalysisRows = completeBrowserDataset ? fullSourceRows : profilingRows;
   const targetInfo = useMemo(() => targetMeta(targetAnalysisRows, target), [targetAnalysisRows, target]);
+
+  // UX-DATAACQ-004 / Part C: the active source's governed identity decides which
+  // persistence UI applies. `datasetLibraryLink` is the authoritative signal --
+  // it is only ever written with a real datasetId/versionId pair.
+  const datasetLibraryLink = useMemo(() => loadLocalDataset()?.dataset_library ?? null, [headers, fileName, backendImportSynced, loadedLibraryIdentity]);
+  const datasetSourceKind: DatasetSourceKind = useMemo(
+    () =>
+      resolveDatasetSourceKind({
+        sourceType,
+        libraryLink: datasetLibraryLink,
+        registeredDatasetId: registrationResult?.datasetId ?? null,
+      }),
+    [sourceType, datasetLibraryLink, registrationResult]
+  );
+  const persistenceMode = resolvePersistenceMode(datasetSourceKind);
+
+  // Part F: the Target Profile must not report a rare-event rate computed from a
+  // ~100-row browser preview. Backend full-population profiling wins when present.
+  const governedProfileRequest = useMemo(
+    () =>
+      target
+        ? {
+            projectId,
+            datasetId: loadedLibraryIdentity?.datasetId ?? null,
+            versionId: loadedLibraryIdentity?.versionId ?? null,
+            target,
+            eventValue,
+            nonEventValue,
+            problemType: (targetInfo.kind === "continuous" ? "regression" : "classification") as
+              | "regression"
+              | "classification",
+          }
+        : null,
+    [projectId, loadedLibraryIdentity, target, eventValue, nonEventValue, targetInfo.kind]
+  );
+  const governedProfile = useTargetProfile(governedProfileRequest);
+  const governedPredictors = useMemo(() => {
+    const map = new Map<string, PredictorProfile>();
+    for (const row of governedProfile.profile?.predictors ?? []) map.set(row.predictor, row);
+    return map;
+  }, [governedProfile.profile]);
+
+  const authoritativeEventRate = useMemo(
+    () => {
+      // Part I: the governed profile is the source of truth for the event rate.
+      // Only when no authoritative profile exists does the previous resolver run.
+      const governed = governedProfile.quality ?? governedProfile.profile;
+      if (governed && governed.quality.eventRate !== null) {
+        return {
+          rate: governed.quality.eventRate,
+          scope: "full_population" as const,
+          isAuthoritative: governed.analysisScope.mode !== "preview_only",
+        };
+      }
+      return resolveAuthoritativeEventRate({ quality, previewEventRate: targetInfo.eventRate, completeBrowserDataset });
+    },
+    [governedProfile.quality, governedProfile.profile, quality, targetInfo.eventRate, completeBrowserDataset]
+  );
+
+  // Target Distribution performance: for a registered Dataset Library version the
+  // counts come from a dedicated bounded server aggregate that loads independently
+  // of quality profiling. Reading them out of the full quality profile cost ~4s of
+  // server compute on the 170,884-row CLASS_TRAIN asset just to obtain two rows.
+  const targetDistributionRequest = useMemo(() => {
+    if (!target || targetInfo.kind === "continuous") return null;
+    if (!datasetLibraryLink?.datasetId || !datasetLibraryLink?.versionId) return null;
+    return {
+      projectId,
+      datasetId: datasetLibraryLink.datasetId,
+      versionId: datasetLibraryLink.versionId,
+      target,
+      eventValue,
+      nonEventValue,
+    };
+  }, [target, targetInfo.kind, datasetLibraryLink?.datasetId, datasetLibraryLink?.versionId, projectId, eventValue, nonEventValue]);
+
+  const serverDistribution = useTargetDistribution(targetDistributionRequest);
+
+  // A workspace dataset the browser already holds in full needs no server round
+  // trip -- those counts are already exact and instant.
+  const localDistribution = useMemo(
+    () =>
+      targetDistributionRequest
+        ? null
+        : buildTargetDistribution({
+            target,
+            classDistribution: quality?.classDistribution,
+            eventValue: quality?.targetEventValue ?? eventValue,
+            nonEventValue,
+          }),
+    [targetDistributionRequest, target, quality?.classDistribution, quality?.targetEventValue, eventValue, nonEventValue]
+  );
+
+  const targetDistribution = useMemo(() => {
+    if (!targetDistributionRequest) return localDistribution;
+    if (!serverDistribution.result?.supported) return null;
+    return buildTargetDistribution({
+      target,
+      classDistribution: serverDistribution.result.classDistribution,
+      eventValue,
+      nonEventValue,
+    });
+  }, [targetDistributionRequest, localDistribution, serverDistribution.result, target, eventValue, nonEventValue]);
+
+  const targetDistributionState = useMemo(() => {
+    if (!target) return "empty" as const;
+    if (targetInfo.kind === "continuous") return "unsupported" as const;
+    if (targetDistributionRequest) {
+      if (serverDistribution.phase === "queued" || serverDistribution.phase === "running") return "loading" as const;
+      if (serverDistribution.phase === "failed") return "error" as const;
+      if (serverDistribution.phase === "unsupported") return "unsupported" as const;
+      return targetDistribution ? ("ready" as const) : ("empty" as const);
+    }
+    if (qualityLoading || !quality) return "loading" as const;
+    return targetDistribution ? ("ready" as const) : ("empty" as const);
+  }, [target, targetInfo.kind, targetDistributionRequest, serverDistribution.phase, qualityLoading, quality, targetDistribution]);
   const continuousTargetSummary = useMemo(() => targetSummary(targetAnalysisRows, target), [targetAnalysisRows, target]);
   const selectable = headers.filter((header) => header !== target);
   const selected = selectable.filter((header) => kept[header]);
+  // Part D: a single readiness status derived only from findings ATLAS already computes.
+
+  // Part B: ONE derivation feeds every Data Acquisition status. Previously the
+  // hero used `nextDisabledReason`, the strip used `readiness.status`, and the
+  // checkpoint used READINESS_LABELS -- three answers to one question.
+  const [dataAcquisitionReviewed, setDataAcquisitionReviewed] = useState(false);
+  const acquisitionStatus = useMemo(
+    () =>
+      deriveDataAcquisitionStatus({
+        hasSelectedVersion: Boolean(loadedLibraryIdentity?.versionId || selectedLibraryVersionId || headers.length),
+        isRegisteredAsset: Boolean(loadedLibraryIdentity?.datasetId || selectedLibraryDatasetId || datasetLibraryLink?.datasetId),
+        isLinkedToProject: Boolean(datasetLibraryLink?.datasetId || loadedLibraryIdentity?.datasetId),
+        isLoaded: Boolean(headers.length && backendImportSynced),
+        isLoading: isImporting,
+        loadError: importError,
+        target,
+        eventValue,
+        nonEventValue,
+        selectedPredictorCount: selected.length,
+        profilePhase: governedProfile.phase,
+        profileError: governedProfile.error,
+        authoritativeEventCount: governedProfile.profile?.quality.eventCount ?? governedProfile.quality?.quality.eventCount ?? null,
+        authoritativeNonEventCount: governedProfile.profile?.quality.nonEventCount ?? governedProfile.quality?.quality.nonEventCount ?? null,
+        duplicateRows: governedProfile.quality?.quality.duplicateRows ?? governedProfile.profile?.quality.duplicateRows ?? null,
+        columnsWithMissingValues:
+          governedProfile.quality?.quality.columnsWithMissingValues ?? governedProfile.profile?.quality.columnsWithMissingValues ?? null,
+        unusuallyStrongPredictorCount: (governedProfile.profile?.predictors ?? []).filter(
+          (row) => row.ivStatus === "available" && (row.iv ?? 0) >= 0.5
+        ).length,
+        isRareEvent: Boolean(
+          (governedProfile.quality?.quality.eventRate ?? governedProfile.profile?.quality.eventRate ?? 0) > 0 &&
+            (governedProfile.quality?.quality.eventRate ?? governedProfile.profile?.quality.eventRate ?? 1) < 0.01
+        ),
+        reviewCompleted: dataAcquisitionReviewed,
+      }),
+    [
+      loadedLibraryIdentity, selectedLibraryVersionId, selectedLibraryDatasetId, datasetLibraryLink,
+      headers.length, backendImportSynced, isImporting, importError, target, eventValue, nonEventValue,
+      selected.length, governedProfile.phase, governedProfile.error, governedProfile.profile,
+      governedProfile.quality, dataAcquisitionReviewed,
+    ]
+  );
+
+  const readiness = useMemo(
+    () =>
+      computeReadinessStatus({
+        quality,
+        target,
+        registeredRowCount,
+        selectedPredictorCount: selected.length,
+        profileScopeMode: governedProfile.profile?.analysisScope.mode ?? governedProfile.quality?.analysisScope.mode ?? null,
+        authoritativeEventCount: governedProfile.quality?.quality.eventCount ?? governedProfile.profile?.quality.eventCount ?? null,
+      }),
+    [quality, target, registeredRowCount, selected.length, governedProfile.profile, governedProfile.quality]
+  );
   const sqlWarnings = useMemo(() => validateSql(sql), [sql]);
   const generatedMetadata = useMemo(() => {
     if (!headers.length) return null;
@@ -511,6 +739,25 @@ export default function Step01DataAcquisition() {
     });
   }, [headers, fullSourceRows, profilingRows, completeBrowserDataset, target, sourceType, provider, cloudProvider, fileName, connectionName, database, schema, sql, cloudPath, pythonCode, registeredRowCount, libraryDatasets, selectedLibraryDatasetId]);
 
+
+  /** IV for one predictor from the authoritative profile. While the profile is
+   *  still running every eligible predictor reports `pending` ("Calculating"),
+   *  never a zero placeholder. */
+  function governedIv(column: string): Pick<PredictorProfile, "iv" | "ivStatus"> {
+    const row = governedPredictors.get(column);
+    if (row) return { iv: row.iv, ivStatus: row.ivStatus };
+    if (governedProfile.phase === "artifact_missing") return { iv: null, ivStatus: "unavailable_not_eligible" };
+    if (governedProfile.phase === "failed") return { iv: null, ivStatus: "failed" };
+    return { iv: null, ivStatus: "pending" };
+  }
+
+  // Part F: counts by analytical role. The target is never counted as an
+  // unavailable predictor.
+  const predictorCounts = useMemo(
+    () => predictorEvaluationCounts(governedProfile.profile, target),
+    [governedProfile.profile, target]
+  );
+
   const variableSummary = useMemo(
     () => (featureProfile?.features ?? []).map((row) => ({
       column: row.predictor,
@@ -520,6 +767,9 @@ export default function Step01DataAcquisition() {
       mean: row.mean,
       min: row.minimum,
       max: row.maximum,
+      // Root causes 1-3: IV now comes from the authoritative server profile and
+      // carries an explicit status. `null` stays `null` -- it is never coerced
+      // to a number, and therefore never rendered as a misleading 0.0000.
       iv: row.iv,
       corr: row.correlationWithTarget,
       role: row.role,
@@ -551,10 +801,18 @@ export default function Step01DataAcquisition() {
       completeBrowserDataset ? "complete_browser_dataset" : "preview_profile",
     );
     if (backendImportSynced) {
+      // Root cause 2: this used to `.catch(() => setFeatureProfile(browserProfile()))`,
+      // silently replacing a failed governed profile with a 100-row preview
+      // computation that still reported itself as full_dataset. A failure is now
+      // a failure: the authoritative profile hook surfaces it, and the browser
+      // profile is never substituted for target-dependent statistics.
       fetchFullFeatureProfile(profileDataset, projectId)
         .then((payload) => alive && setFeatureProfile(payload))
-        .catch(() => alive && setFeatureProfile(browserProfile()));
+        .catch(() => alive && setFeatureProfile(null));
     } else {
+      // No backend population at all: the browser profile is retained ONLY for
+      // its non-target-dependent inspection columns. Its scope says preview, and
+      // IV comes from the authoritative profile (or reports why it cannot).
       setFeatureProfile(browserProfile());
     }
     return () => {
@@ -572,6 +830,14 @@ export default function Step01DataAcquisition() {
       const base = inferDataQuality({ headers, rows: completeBrowserDataset ? fullSourceRows : profilingRows, target: target || null });
       return {
         ...base,
+        // Part H3/2: class counts are only supplied when the browser genuinely holds
+        // the complete registered dataset. For a bounded preview they are omitted, so
+        // the distribution chart shows an honest empty state rather than preview-derived
+        // proportions that would misrepresent a rare-event population.
+        classDistribution: completeBrowserDataset
+          ? computeClassDistributionFromRows(fullSourceRows, target) ?? undefined
+          : undefined,
+        targetEventValue: completeBrowserDataset ? eventValue : undefined,
         profileScope: completeBrowserDataset ? "complete_browser_dataset" as const : "preview_profile" as const,
         profiledRowCount: completeBrowserDataset ? fullSourceRows.length : profilingRows.length,
         registeredRowCount,
@@ -581,16 +847,37 @@ export default function Step01DataAcquisition() {
       };
     };
     if (backendImportSynced) {
+      // Part H3/10: reject stale asynchronous results. `alive` is flipped by this
+      // effect's own cleanup, so a response that arrives after the project,
+      // dataset/version, or target changed is discarded instead of overwriting
+      // the newer selection's profile.
+      setQualityLoading(true);
       fetchFullDataQualityProfile({ projectId, target, eventValue, nonEventValue, selectedColumns: selected })
-        .then((payload) => alive && setQuality(payload))
-        .catch(() => alive && setQuality(browserQuality()));
+        .then((payload) => {
+          if (!alive) return;
+          setQuality(payload);
+        })
+        .catch((error) => {
+          if (!alive) return;
+          // No silent downgrade. The page shows that governed quality profiling
+          // failed rather than presenting preview statistics as registered-
+          // population findings.
+          setQuality(null);
+          setMessage(
+            error instanceof Error
+              ? `Full-population data quality profiling failed: ${error.message}`
+              : "Full-population data quality profiling failed."
+          );
+        })
+        .finally(() => alive && setQualityLoading(false));
     } else {
+      setQualityLoading(false);
       setQuality(browserQuality());
     }
     return () => {
       alive = false;
     };
-  }, [headers, target, profilingRows, fullSourceRows, completeBrowserDataset, registeredRowCount, backendImportSynced, eventValue, nonEventValue, selected.join("|")]);
+  }, [headers, target, profilingRows, fullSourceRows, completeBrowserDataset, registeredRowCount, backendImportSynced, eventValue, nonEventValue, selected.join("|"), projectId, loadedLibraryIdentity]);
 
   function saveKeptSelection(nextKept: Record<string, boolean>) {
     setKept(nextKept);
@@ -621,25 +908,73 @@ export default function Step01DataAcquisition() {
     window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
   }
 
+  // Part H: automatic weak-signal exclusion, hardened.
+  //
+  // The previous implementation did `Number(row.iv) < threshold`. With
+  // `row.iv === null` that is `0 < 0.01`, so every predictor whose IV was merely
+  // UNAVAILABLE was silently deselected. The plan below never treats null,
+  // pending, preview-only, or failed as zero, and it is computed before the user
+  // confirms so the affected count can be shown up front.
+  const weakSignalPlan = useMemo(
+    () =>
+      planWeakSignalExclusion({
+        profile: governedProfile.profile,
+        loading: governedProfile.phase === "quality" || governedProfile.phase === "iv",
+        error: governedProfile.phase === "failed" || governedProfile.phase === "artifact_missing" ? governedProfile.error : null,
+        problemType: targetInfo.kind === "continuous" ? "regression" : "classification",
+        selected: headers.filter((header) => kept[header] !== false && header !== target),
+      }),
+    [governedProfile.profile, governedProfile.phase, governedProfile.error, targetInfo.kind, headers, kept, target]
+  );
+
   function applyWeakSignalFilter() {
+    if (!weakSignalPlan.eligible) {
+      setWeakSignalNotice(weakSignalPlan.blockedReason ?? "Automatic weak-signal exclusion is unavailable.");
+      return;
+    }
+    const previous = { ...kept };
     const nextKept = { ...kept };
-    variableSummary.forEach((row) => {
-      const leakageRole = row.role === "eligible" ? "" : row.role;
-      if (leakageRole) {
-        nextKept[row.column] = false;
-        return;
-      }
-      const metric = targetInfo.kind === "continuous" ? Math.abs(Number(row.corr)) : Number(row.iv);
-      const threshold = targetInfo.kind === "continuous" ? WEAK_CORRELATION_THRESHOLD : WEAK_IV_THRESHOLD;
-      if (Number.isFinite(metric) && metric < threshold) nextKept[row.column] = false;
+    // Only predictors with a genuinely computed, genuinely weak IV are removed.
+    weakSignalPlan.affected.forEach((column) => {
+      nextKept[column] = false;
     });
     saveKeptSelection(nextKept);
+    setWeakSignalUndo(previous);
+    setWeakSignalNotice(
+      `${weakSignalPlan.affected.length} predictor(s) deselected. ${weakSignalPlan.protectedFromRemoval.length} predictor(s) with unavailable Information Value were kept.`
+    );
     logDecision({
       workflowStep: "Data Acquisition",
       actionType: "feature_inclusion_changed",
-      subject: "Weak signal global filter",
-      previousValue: kept,
-      newValue: nextKept,
+      subject: "Automatic weak-signal exclusion",
+      previousValue: Object.keys(previous).filter((key) => previous[key] !== false),
+      newValue: Object.keys(nextKept).filter((key) => nextKept[key] !== false),
+      systemRecommendation: `Configured ATLAS weak-signal threshold ${weakSignalPlan.threshold}`,
+      userReason: JSON.stringify({
+        scopeMode: governedProfile.profile?.analysisScope.mode,
+        datasetId: governedProfile.profile?.datasetId,
+        datasetVersionId: governedProfile.profile?.datasetVersionId,
+        target,
+        eventValue,
+        nonEventValue,
+        calculationVersion: governedProfile.profile?.calculationVersion,
+        affected: weakSignalPlan.affected,
+        keptBecauseUnavailable: weakSignalPlan.protectedFromRemoval,
+      }),
+    });
+  }
+
+  function undoWeakSignalFilter() {
+    if (!weakSignalUndo) return;
+    saveKeptSelection(weakSignalUndo);
+    setWeakSignalUndo(null);
+    setWeakSignalNotice("Automatic weak-signal exclusion was undone.");
+    logDecision({
+      workflowStep: "Data Acquisition",
+      actionType: "feature_inclusion_changed",
+      subject: "Automatic weak-signal exclusion undone",
+      previousValue: "applied",
+      newValue: "reverted",
     });
   }
 
@@ -683,12 +1018,8 @@ export default function Step01DataAcquisition() {
       dataset_library: options.datasetLibrary,
     });
     window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
-    const dq = inferDataQuality({ headers: normalized.headers, rows: normalized.previewRows.slice(0, 5000), target: guessedTarget || null });
-    setQuality({
-      ...dq,
-      rowCount: normalized.rowCount,
-      memoryEstimateMb: normalized.rowCount * Math.max(1, normalized.headers.length) * 16 / 1024 / 1024,
-    });
+    // The profiling effect recomputes quality (with correct scope and aggregates) as
+    // soon as the new headers/rows land, so no interim profile is written here.
     logDecision({
       workflowStep: "Data Acquisition",
       actionType: "workflow_setting_changed",
@@ -938,12 +1269,16 @@ export default function Step01DataAcquisition() {
     hasTarget: !!target,
     importError,
   }) || (!selected.length ? "Select at least one eligible predictor before continuing." : "");
+  // Part D: a successful load is GREEN. The previous default painted the
+  // "Loaded CLASS_TRAIN..." confirmation amber, so success read as a warning.
   const messageClass =
     importError && !headers.length
       ? "border-red-200 bg-red-50 text-red-900"
       : isImporting
         ? "border-blue-200 bg-blue-50 text-blue-900"
-        : "border-amber-200 bg-amber-50 text-amber-900";
+        : /^(Loaded|Registered|Cached|Linked|Saved)/i.test(message)
+          ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+          : "border-amber-200 bg-amber-50 text-amber-900";
   const updateTarget = (next: string) => {
     logDecision({
       workflowStep: "Data Acquisition",
@@ -974,7 +1309,10 @@ export default function Step01DataAcquisition() {
       dataset_library: currentDataset?.dataset_library,
     });
     window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
-    if (rows.length) setQuality(inferDataQuality({ headers, rows: rows.slice(0, 5000), target: next || null }));
+    // Quality is recomputed by the profiling effect, which is the single source of
+    // truth for profile scope, registered row counts, and class aggregates. Writing a
+    // bare inferDataQuality() result here raced that effect and could leave a preview
+    // profile mislabelled as a complete-dataset profile with no class distribution.
   };
 
   // Debounced on registerName changes (NOT on the name field's onBlur): blurring that
@@ -1033,6 +1371,32 @@ export default function Step01DataAcquisition() {
         tags: registerTags.split(",").map((tag) => tag.trim()).filter(Boolean),
       });
       setRegistrationResult(dataset);
+      // Record the governed link locally.
+      //
+      // Without this, registering an UPLOADED workspace dataset left
+      // `dataset_library` unset (it was only written when picking an already
+      // registered asset), so downstream steps had no immutable
+      // (datasetId, versionId) to analyze against and EDA stayed a Workspace
+      // Draft Analysis forever -- the draft-to-governed transition could never
+      // complete for the most common flow.
+      const registeredVersion = dataset.latestVersion ?? null;
+      const existing = loadLocalDataset();
+      if (existing && dataset.datasetId && registeredVersion?.versionId) {
+        saveLocalDataset({
+          ...existing,
+          dataset_library: {
+            datasetId: dataset.datasetId,
+            versionId: registeredVersion.versionId,
+            datasetName: dataset.name ?? registerName.trim(),
+            datasetRole: "modeling",
+            sourceType: "dataset-library",
+            rowCount: registeredVersion.rowCount ?? existing.registered_row_count,
+            columnCount: registeredVersion.columnCount ?? existing.headers.length,
+            linkedAt: new Date().toISOString(),
+          },
+        });
+        window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
+      }
       logDecision({
         workflowStep: "Data Acquisition",
         actionType: "workflow_setting_changed",
@@ -1055,12 +1419,19 @@ export default function Step01DataAcquisition() {
       selectedDatasetId={selectedLibraryDatasetId}
       selectedVersionId={selectedLibraryVersionId}
       loading={libraryLoading}
+      loadProgress={loadProgress}
+      isLoaded={isAlreadyLinked(loadedLibraryIdentity, { datasetId: selectedLibraryDatasetId, versionId: selectedLibraryVersionId })}
       onDatasetChange={(datasetId) => {
         const dataset = libraryDatasets.find((item) => item.datasetId === datasetId);
         setSelectedLibraryDatasetId(datasetId);
         setSelectedLibraryVersionId(dataset?.latestVersion?.versionId ?? "");
+        // Part A/5 + H1/8: a different selection is not the loaded version.
+        setLoadProgress(IDLE_LOAD_PROGRESS);
       }}
-      onVersionChange={setSelectedLibraryVersionId}
+      onVersionChange={(versionId) => {
+        setSelectedLibraryVersionId(versionId);
+        setLoadProgress(IDLE_LOAD_PROGRESS);
+      }}
       onRefresh={async () => {
         setLibraryLoading(true);
         try {
@@ -1077,20 +1448,42 @@ export default function Step01DataAcquisition() {
         }
         const dataset = libraryDatasets.find((item) => item.datasetId === selectedLibraryDatasetId);
         setIsImporting(true);
+        // Part H1: stages advance only at real observable boundaries. The two
+        // backend calls run sequentially (rather than in parallel) precisely so
+        // each milestone corresponds to work that actually completed.
+        const advance = (activeStageIndex: number) =>
+          setLoadProgress({ phase: "loading", activeStageIndex, failedStageIndex: null, error: null });
+        let stageIndex = 0;
         try {
-          const [preview, activation] = await Promise.all([
-            getDatasetPreview(selectedLibraryDatasetId, selectedLibraryVersionId),
-            activateDatasetVersion(selectedLibraryDatasetId, selectedLibraryVersionId, projectId),
-          ]);
+          advance(0); // Authorizing dataset access
+          const activation = await activateDatasetVersion(selectedLibraryDatasetId, selectedLibraryVersionId, projectId);
+
+          stageIndex = 1;
+          advance(1); // Resolving dataset version
+          const resolvedRowCount = activation.row_count ?? dataset?.latestVersion?.rowCount ?? 0;
+
+          stageIndex = 2;
+          advance(2); // Reading governed schema
+          const preview = await getDatasetPreview(selectedLibraryDatasetId, selectedLibraryVersionId);
+
+          stageIndex = 3;
+          advance(3); // Profiling target and predictors
+          const guessedTarget = preferredTarget(preview.columns);
           const normalized = {
             headers: preview.columns,
             previewRows: preview.rows,
-            rowCount: activation.row_count ?? dataset?.latestVersion?.rowCount ?? preview.rows.length,
+            rowCount: resolvedRowCount || preview.rows.length,
             columnCount: preview.columns.length,
-            target: preferredTarget(preview.columns),
-            selectedColumns: preview.columns.filter((header) => header !== preferredTarget(preview.columns)),
+            target: guessedTarget,
+            selectedColumns: preview.columns.filter((header) => header !== guessedTarget),
             filename: dataset?.name ?? selectedLibraryDatasetId,
           };
+
+          stageIndex = 4;
+          advance(4); // Evaluating data quality (the quality effect refetches on the new dataset)
+
+          stageIndex = 5;
+          advance(5); // Preparing browser preview
           applyLoadedDataset(normalized, {
             sourceLabel: `Dataset Library: ${dataset?.name ?? selectedLibraryDatasetId} (${selectedLibraryVersionId})`,
             backendSynced: true,
@@ -1107,9 +1500,16 @@ export default function Step01DataAcquisition() {
             },
           });
           setFileName(dataset?.name ?? "Dataset Library asset");
-          setMessage(`Loaded ${dataset?.name ?? "Dataset Library asset"} version ${selectedLibraryVersionId} into Data Acquisition.`);
+          setLoadedLibraryIdentity({ datasetId: selectedLibraryDatasetId, versionId: selectedLibraryVersionId });
+          setLoadProgress({ phase: "loaded", activeStageIndex: DATASET_LOAD_STAGES.length - 1, failedStageIndex: null, error: null });
+          // Part A/6: identity, not display name, is what the analyst is told was loaded.
+          setMessage(`Loaded ${dataset?.name ?? "Dataset Library asset"}, version ${selectedLibraryVersionId}, into this project.`);
         } catch (error) {
-          setMessage(error instanceof Error ? error.message : "ATLAS could not load the selected dataset version.");
+          const detail = error instanceof Error ? error.message : "ATLAS could not load the selected dataset version.";
+          // Part H1/7: completed milestones survive, the failed stage is named, no green completion.
+          setLoadProgress({ phase: "failed", activeStageIndex: stageIndex, failedStageIndex: stageIndex, error: detail });
+          setLoadedLibraryIdentity(null);
+          setMessage(detail);
         } finally {
           setIsImporting(false);
         }
@@ -1124,14 +1524,22 @@ export default function Step01DataAcquisition() {
       variant="data"
       heroMetrics={[
         { label: "Source Type", value: sourceCards.find((card) => card.id === sourceType)?.title ?? "Not selected" },
-        { label: "Dataset", value: fileName || "Not registered", tone: fileName ? "neutral" : "warning" },
+        // Part C: registration is a fact about the Library asset, not about
+        // whether an upload filename exists.
+        { label: "Dataset", value: datasetLibraryLink?.datasetName || fileName || "Not selected", tone: "neutral" },
+        { label: "Registration", value: registrationLabel(acquisitionStatus.registrationState), tone: acquisitionStatus.registrationState === "registered" ? "success" : "neutral" },
+        { label: "Project link", value: projectLinkLabel(acquisitionStatus.linkState), tone: acquisitionStatus.linkState === "linked" ? "success" : "neutral" },
+        { label: "Load state", value: acquisitionStatus.loadLabel, tone: acquisitionStatus.loadTone },
         { label: "Registered Rows", value: registeredRowCount ? registeredRowCount.toLocaleString() : "Not available" },
         { label: "Columns", value: headers.length ? headers.length.toLocaleString() : "Not available" },
         { label: "Target", value: target || "Not confirmed", tone: target ? "neutral" : "warning" },
-        { label: "Modeling Readiness", value: nextDisabledReason ? "Needs review" : "Ready", tone: nextDisabledReason ? "warning" : "success" },
+        // Part B: the same derivation the strip and checkpoint use.
+        { label: "Modeling Readiness", value: acquisitionStatus.readinessLabel, tone: acquisitionStatus.readinessTone },
+        { label: "Quality Review", value: acquisitionStatus.reviewLabel, tone: acquisitionStatus.reviewTone },
       ] satisfies AtlasWorkflowMetric[]}
-      nextDisabled={!!nextDisabledReason}
-      nextDisabledReason={nextDisabledReason}
+      nextDisabled={!acquisitionStatus.canContinue}
+      nextDisabledReason={acquisitionStatus.blockingReasons[0] ?? ""}
+      nextLabel={acquisitionStatus.continueLabel}
       nextPath="/step02"
       onNext={async () => {
         await persistDataset();
@@ -1139,26 +1547,72 @@ export default function Step01DataAcquisition() {
     >
       <div className="space-y-5">
         {message && (
-          <div className={`rounded-lg border px-4 py-3 text-sm ${messageClass}`}>
+          <div
+            className={`rounded-lg border px-4 py-3 text-sm ${messageClass}`}
+            role="status"
+            aria-live="polite"
+            data-testid="data-acquisition-message"
+            data-tone={
+              importError && !headers.length
+                ? "danger"
+                : isImporting
+                  ? "info"
+                  : /^(Loaded|Registered|Cached|Linked|Saved)/i.test(message)
+                    ? "success"
+                    : "warning"
+            }
+          >
             {message}
           </div>
         )}
 
+        {/* Part H2: every state below is derived from real workflow state. Amber
+            marks a warning the analyst can proceed past; red is reserved for a
+            genuine blocker. Each item carries a text detail so the track is
+            understandable without color. */}
         <AtlasStatusStrip
           items={[
             { label: "Source selected", state: fileName || generatedMetadata ? "complete" : "current", detail: fileName || "Choose or configure a source" },
             { label: "Import completed", state: headers.length ? "complete" : "pending", detail: headers.length ? `${headers.length.toLocaleString()} columns available` : "Awaiting source import" },
-            { label: "Dataset registered", state: registeredRowCount && backendImportSynced ? "complete" : registeredRowCount ? "warning" : "pending", detail: registeredRowCount ? `${registeredRowCount.toLocaleString()} modeling rows` : "No registered population" },
+            {
+              label: "Dataset registered or linked",
+              state: datasetLibraryLink?.datasetId ? "complete" : registeredRowCount && backendImportSynced ? "complete" : registeredRowCount ? "warning" : "pending",
+              detail: datasetLibraryLink?.datasetId
+                ? `Linked to ${datasetLibraryLink.datasetName ?? datasetLibraryLink.datasetId}`
+                : registeredRowCount
+                  ? `${registeredRowCount.toLocaleString()} modeling rows`
+                  : "No registered population",
+            },
             { label: "Target confirmed", state: target ? "complete" : "pending", detail: target || "Select the governed outcome" },
-            { label: "Quality reviewed", state: quality ? "complete" : "pending", detail: quality ? `${quality.profileScope?.replace(/_/g, " ") ?? "Profile available"}` : "Run data quality review" },
+            {
+              label: "Quality reviewed",
+              // Review is a user action: "review required" is amber, never the
+              // red "blocked" that previously appeared beside a green "Ready".
+              state:
+                acquisitionStatus.readiness === "blocked"
+                  ? "blocked"
+                  : acquisitionStatus.reviewState === "completed"
+                    ? "complete"
+                    : acquisitionStatus.readiness === "unavailable"
+                      ? "pending"
+                      : "warning",
+              detail:
+                acquisitionStatus.readiness === "blocked"
+                  ? acquisitionStatus.blockingReasons[0] ?? "Blocked"
+                  : `${acquisitionStatus.readinessLabel} - ${acquisitionStatus.reviewLabel}`,
+            },
             { label: "Predictors approved", state: selected.length ? "complete" : "pending", detail: selected.length ? `${selected.length.toLocaleString()} selected` : "Approve eligible inputs" },
           ] satisfies AtlasStatusItem[]}
         />
 
-        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+        {/* Part H6: the source-and-load command section carries a strong slate
+            identity so the page reads as a sequence of sections rather than a
+            uniform white sheet. */}
+        <section className="rounded-xl border-2 border-slate-400 bg-slate-100 p-5 shadow-sm" data-testid="source-command-section">
           <div>
-            <h2 className="text-base font-semibold text-slate-950">Source Selection, File Upload, and Target Setup</h2>
-            <p className="mt-1 text-sm text-slate-500">Start here: load the source file and confirm the target column before reviewing summaries or downstream settings.</p>
+            <div className="text-[11px] font-bold uppercase tracking-wide text-slate-600">Source and load</div>
+            <h2 className="mt-1 text-base font-semibold text-slate-950">Source Selection, File Upload, and Target Setup</h2>
+            <p className="mt-1 text-sm text-slate-700">Start here: load the source file and confirm the target column before reviewing summaries or downstream settings.</p>
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-5">
             {sourceCards.map((card) => (
@@ -1191,6 +1645,36 @@ export default function Step01DataAcquisition() {
                 problemType={targetInfo.kind === "continuous" ? "regression" : "classification"}
               />
             </div>
+            {/* Part H3: appears once a classification target is confirmed. */}
+            {!!target && targetInfo.kind !== "continuous" && (
+              <div className="mt-5">
+                <TargetDistributionPanel
+                  distribution={targetDistribution}
+                  state={targetDistributionState}
+                  scopeLabel={
+                    targetDistributionRequest
+                      ? "full registered population"
+                      : quality?.profileScope === "full_dataset"
+                        ? "full registered population"
+                        : quality?.profileScope === "complete_browser_dataset"
+                          ? "complete browser dataset"
+                          : "registered population"
+                  }
+                  query={
+                    targetDistributionRequest
+                      ? {
+                          phase: serverDistribution.phase,
+                          elapsedMs: serverDistribution.elapsedMs,
+                          error: serverDistribution.error,
+                          sampling: serverDistribution.result?.sampling,
+                          retry: serverDistribution.retry,
+                          calculateExact: serverDistribution.calculateExact,
+                        }
+                      : undefined
+                  }
+                />
+              </div>
+            )}
             {headers.length > 0 && target && (
               <DatasetPersistenceCard
                 projectName={projectName}
@@ -1214,6 +1698,11 @@ export default function Step01DataAcquisition() {
                 duplicateCandidates={duplicateCandidates}
                 checkingDuplicates={checkingDuplicates}
                 onRegister={() => void handleRegisterDevelopmentDataset()}
+                persistenceMode={persistenceMode}
+                sourceKindLabel={DATASET_SOURCE_LABELS[datasetSourceKind]}
+                registrationActionLabel={resolveRegistrationActionLabel(datasetSourceKind, Boolean(datasetLibraryLink?.datasetId))}
+                libraryLink={datasetLibraryLink}
+                assetOwner={libraryDatasets.find((item) => item.datasetId === datasetLibraryLink?.datasetId)?.ownerDisplayName}
               />
             )}
             {(sourceType === "sql" || sourceType === "cloud" || sourceType === "python") && (
@@ -1258,10 +1747,12 @@ export default function Step01DataAcquisition() {
           sourceType={sourceType}
           target={target}
           registeredRowCount={registeredRowCount}
+          previewRowCount={previewRows.length}
           columnCount={headers.length}
           selectedCount={selected.length}
           browserDataComplete={completeBrowserDataset}
           datasetVersion={selectedLibraryVersionId || generatedMetadata?.version || metadata?.version}
+          sourceKindLabel={DATASET_SOURCE_LABELS[datasetSourceKind]}
         />
 
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)] xl:items-start">
@@ -1274,18 +1765,39 @@ export default function Step01DataAcquisition() {
             effectiveModelingRowCount={registeredRowCount}
             previewRowCount={previewRows.length}
             backendImportSynced={backendImportSynced}
+            eventRate={authoritativeEventRate.rate}
+            eventRateScopeLabel={EVENT_RATE_SCOPE_LABELS[authoritativeEventRate.scope]}
+            eventRateIsAuthoritative={authoritativeEventRate.isAuthoritative}
           />
         </section>
 
-        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+        {/* UX-DATAACQ-003 / Part D: this is a readiness checkpoint, not a grey
+            appendix. Light-teal identity, stronger border, explicit readiness
+            status, and white internal metric cards. */}
+        <section
+          className="rounded-xl border-2 border-teal-300 bg-teal-50 p-5 shadow-sm"
+          data-testid="data-quality-readiness"
+          id="data-quality-readiness"
+        >
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-base font-semibold text-slate-950">Data Quality & Modeling Readiness</h2>
-              <p className="mt-1 text-sm text-slate-500">Quality findings identify their actual profiling scope and registered row count.</p>
+              <div className="text-[11px] font-bold uppercase tracking-wide text-teal-700">Readiness checkpoint</div>
+              <h2 className="mt-1 text-base font-semibold text-teal-950">Data Quality & Modeling Readiness</h2>
+              <p className="mt-1 text-sm text-slate-700">Quality findings identify their actual profiling scope and registered row count.</p>
             </div>
-            <ProfileScopeBadge quality={quality} />
+            <div className="flex flex-wrap items-center gap-2">
+              <ReadinessBadge status={readiness.status} />
+              <ProfileScopeBadge quality={quality} />
+            </div>
           </div>
-          <div className="mt-4">
+          <ReadinessSummary
+            quality={quality}
+            readiness={readiness}
+            registeredRowCount={registeredRowCount}
+            eventRateDisplay={formatEventRatePrecise(authoritativeEventRate.rate)}
+            eventRateScopeLabel={EVENT_RATE_SCOPE_LABELS[authoritativeEventRate.scope]}
+          />
+          <div className="mt-4 rounded-xl border border-teal-200 bg-white p-4">
             <DataQualityPanel quality={quality} metadata={generatedMetadata ?? metadata} />
           </div>
         </section>
@@ -1305,15 +1817,37 @@ export default function Step01DataAcquisition() {
                     className="mt-1"
                     type="checkbox"
                     checked={autoExcludeWeakSignals}
-                    onChange={(event) => {
-                      setAutoExcludeWeakSignals(event.target.checked);
-                      if (event.target.checked) applyWeakSignalFilter();
-                    }}
+                    disabled={!weakSignalPlan.eligible}
+                    onChange={(event) => setAutoExcludeWeakSignals(event.target.checked)}
+                    data-testid="weak-signal-toggle" 
                   />
                   <span>
-                    Uncheck weak-signal features automatically. Classification uses IV &lt; {WEAK_IV_THRESHOLD.toFixed(2)}; regression uses absolute correlation &lt; {WEAK_CORRELATION_THRESHOLD.toFixed(2)}.
+                    Uncheck weak-signal features automatically. Classification uses the configured ATLAS weak-signal
+                    threshold IV &lt; {WEAK_SIGNAL_IV_THRESHOLD}; regression uses absolute correlation &lt;{" "}
+                    {WEAK_CORRELATION_THRESHOLD.toFixed(2)}. Predictors whose Information Value is unavailable are never
+                    removed.
                   </span>
                 </label>
+                {autoExcludeWeakSignals && weakSignalPlan.eligible ? (
+                  <button
+                    type="button"
+                    className="rounded-lg border border-amber-400 bg-white px-3 py-2 text-sm font-semibold text-amber-900"
+                    data-testid="weak-signal-apply"
+                    onClick={applyWeakSignalFilter}
+                  >
+                    Apply to {weakSignalPlan.affected.length} predictor(s)
+                  </button>
+                ) : null}
+                {weakSignalUndo ? (
+                  <button
+                    type="button"
+                    className="rounded-lg border px-3 py-2 text-sm"
+                    data-testid="weak-signal-undo"
+                    onClick={undoWeakSignalFilter}
+                  >
+                    Undo
+                  </button>
+                ) : null}
                 <button
                   className="rounded-lg border px-3 py-2 text-sm"
                   onClick={() => {
@@ -1334,6 +1868,97 @@ export default function Step01DataAcquisition() {
                 </button>
               </div>
             </div>
+            {!weakSignalPlan.eligible && weakSignalPlan.blockedReason ? (
+              <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950" data-testid="weak-signal-blocked-reason">
+                {weakSignalPlan.blockedReason}
+              </p>
+            ) : null}
+            {weakSignalNotice ? (
+              <p className="mt-2 text-xs font-semibold text-slate-700" role="status" aria-live="polite" data-testid="weak-signal-notice">
+                {weakSignalNotice}
+              </p>
+            ) : null}
+            <p className="mt-3 text-xs text-slate-600" data-testid="variable-summary-scope">
+              {governedProfile.profile
+                ? `Scope: ${governedProfile.profile.analysisScope.label} - ${governedProfile.profile.quality.populationRows.toLocaleString()} rows - calculated ${new Date(governedProfile.profile.generatedAt).toLocaleString()}.`
+                : governedProfile.phase === "artifact_missing"
+                  ? "Legacy Dataset Version: Full Artifact Unavailable. Information Value cannot be calculated for this version."
+                  : governedProfile.phase === "failed"
+                    ? `Authoritative predictor profiling failed: ${governedProfile.error}`
+                    : "Calculating the authoritative predictor profile..."}
+            </p>
+            {governedProfile.profile ? (
+              <div
+                className="mt-2 grid gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs sm:grid-cols-2 xl:grid-cols-4"
+                data-testid="predictor-evaluation-summary"
+              >
+                <div>
+                  <span className="font-semibold text-slate-900" data-testid="predictors-evaluated">
+                    {predictorCounts.evaluated} predictors evaluated
+                  </span>
+                  <div className="text-slate-600" data-testid="target-exclusion-note">
+                    Target excluded from predictor IV{predictorCounts.targetExcluded ? ` (${predictorCounts.targetExcluded})` : ""}
+                  </div>
+                </div>
+                <div>
+                  <span className="font-semibold text-amber-900" data-testid="unusually-strong-count">
+                    {predictorCounts.unusuallyStrong} unusually strong
+                  </span>
+                  <div className="text-slate-600">Require human review</div>
+                </div>
+                <div>
+                  <span className="font-semibold text-slate-900" data-testid="leakage-review-count">
+                    {predictorCounts.leakageReview} automated leakage signals
+                  </span>
+                  <div className="text-slate-600">Review recommended, not confirmed</div>
+                </div>
+                <div>
+                  <span className="font-semibold text-slate-900" data-testid="unavailable-predictor-count">
+                    {predictorCounts.unavailable.length} predictors unavailable
+                  </span>
+                  {predictorCounts.unavailable.length ? (
+                    <details className="text-slate-600">
+                      <summary className="cursor-pointer">Show details</summary>
+                      <ul className="mt-1 list-disc pl-4" data-testid="unavailable-predictor-list">
+                        {predictorCounts.unavailable.slice(0, 10).map((item) => (
+                          <li key={item.predictor}>
+                            {item.predictor}: {item.reason}
+                          </li>
+                        ))}
+                      </ul>
+                      {predictorCounts.unavailable.length > 10 ? (
+                        <p className="mt-1">{predictorCounts.unavailable.length - 10} more not listed.</p>
+                      ) : null}
+                    </details>
+                  ) : (
+                    <div className="text-slate-600">All selected predictors evaluated</div>
+                  )}
+                </div>
+              </div>
+            ) : null}
+            {predictorCounts.unusuallyStrong ? (
+              <p
+                className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950"
+                data-testid="high-iv-explanation"
+              >
+                <strong>Why unusually high Information Value matters:</strong> {HIGH_IV_EXPLANATION} These predictors are
+                not deselected automatically and do not block Data Acquisition.
+              </p>
+            ) : null}
+            {governedProfile.phase === "artifact_missing" && governedProfile.artifactMissing ? (
+              <div className="mt-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950" data-testid="legacy-artifact-missing">
+                <p className="font-semibold">Legacy Dataset Version: Full Artifact Unavailable</p>
+                <p className="mt-1">{governedProfile.artifactMissing.disclosure}</p>
+                <ul className="mt-1 list-disc pl-5">
+                  {governedProfile.artifactMissing.recovery.map((item) => (<li key={item}>{item}</li>))}
+                </ul>
+              </div>
+            ) : null}
+            {governedProfile.phase === "failed" ? (
+              <button type="button" className="mt-2 rounded-lg border px-3 py-1.5 text-xs" data-testid="profile-retry" onClick={governedProfile.retry}>
+                Retry profiling
+              </button>
+            ) : null}
             <div className="mt-4 max-h-[560px] overflow-auto rounded-lg border border-slate-200">
               <table className="min-w-full text-sm">
                 <thead className="sticky top-0 bg-slate-50 text-xs uppercase text-slate-500">
@@ -1343,6 +1968,8 @@ export default function Step01DataAcquisition() {
                     <th className="px-3 py-2 text-left">Role</th>
                     <th className="px-3 py-2 text-left">Type</th>
                     <th className="px-3 py-2 text-right">{targetInfo.kind === "continuous" ? "Corr(Target)" : "IV"}</th>
+                    <th className="px-3 py-2 text-left">Signal strength</th>
+                    <th className="px-3 py-2 text-left">Calculation status</th>
                     <th className="px-3 py-2 text-right">Missing %</th>
                     <th className="px-3 py-2 text-right">Distinct</th>
                     <th className="px-3 py-2 text-right">Mean</th>
@@ -1382,15 +2009,75 @@ export default function Step01DataAcquisition() {
                         <td className="px-3 py-2 font-medium">{row.column}</td>
                         <td className="px-3 py-2 text-xs font-semibold text-slate-700">{role}</td>
                         <td className="px-3 py-2">{row.type}</td>
-                        <td className={`px-3 py-2 text-right ${targetInfo.kind === "continuous" ? signalStatusClass(row.corr) : ivStatusClass(row.iv)}`}>
-                          {formatNumber(targetInfo.kind === "continuous" ? row.corr : row.iv)}
+                        {targetInfo.kind === "continuous" ? (
+                          <td className={`px-3 py-2 text-right ${signalStatusClass(row.corr)}`}>{formatNumber(row.corr)}</td>
+                        ) : (
+                          <td className="px-3 py-2 text-right" data-testid="iv-cell" data-iv-status={governedIv(row.column).ivStatus}>
+                            <span
+                              className={governedIv(row.column).ivStatus === "available" ? ivStatusClass(governedIv(row.column).iv) : "text-slate-500"}
+                              title={
+                                governedIv(row.column).ivStatus === "available"
+                                  ? `Exact Information Value: ${formatIvExact(governedIv(row.column).iv)}`
+                                  : IV_STATUS_LABELS[governedIv(row.column).ivStatus]
+                              }
+                            >
+                              {ivCellText(governedIv(row.column))}
+                            </span>
+                          </td>
+                        )}
+                        <td className="px-3 py-2 text-xs" data-testid="signal-strength-cell">
+                          {(() => {
+                            const strength = signalStrength(governedIv(row.column));
+                            if (!strength) return <span className="text-slate-400">Not available</span>;
+                            return (
+                              <span
+                                data-signal-strength={strength.key}
+                                className={
+                                  strength.tone === "warning"
+                                    ? "rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 font-semibold text-amber-900"
+                                    : "text-slate-700"
+                                }
+                                title={strength.reviewRecommended ? HIGH_IV_EXPLANATION : undefined}
+                              >
+                                {strength.label}
+                                {strength.reviewRecommended ? " - review recommended" : ""}
+                              </span>
+                            );
+                          })()}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-slate-600" data-testid="iv-status-cell">
+                          {targetInfo.kind === "continuous" ? "Correlation" : IV_STATUS_LABELS[governedIv(row.column).ivStatus]}
                         </td>
                         <td className="px-3 py-2 text-right">{formatPercent(row.missingPct)}</td>
                         <td className="px-3 py-2 text-right">{row.distinct.toLocaleString()}</td>
                         <td className="px-3 py-2 text-right">{formatNumber(row.mean)}</td>
                         <td className="px-3 py-2 text-right">{formatNumber(row.min)}</td>
                         <td className="px-3 py-2 text-right">{formatNumber(row.max)}</td>
-                        <td className={`px-3 py-2 text-xs font-semibold ${leakageRole ? "text-rose-700" : "text-emerald-700"}`}>{leakageRole ? "Excluded" : "Eligible"}</td>
+                        <td className="px-3 py-2 text-xs font-semibold" data-testid="leakage-screen-cell">
+                          {(() => {
+                            const state = leakageScreen({
+                              iv: governedIv(row.column).iv,
+                              ivStatus: governedIv(row.column).ivStatus,
+                              role: row.role,
+                              eligible: !leakageRole,
+                            });
+                            const label = leakageRole ? "Excluded" : LEAKAGE_SCREEN_LABELS[state];
+                            return (
+                              <span
+                                data-leakage-state={leakageRole ? "excluded" : state}
+                                className={
+                                  leakageRole
+                                    ? "text-rose-700"
+                                    : state === "review_recommended"
+                                      ? "text-amber-800"
+                                      : "text-slate-700"
+                                }
+                              >
+                                {label}
+                              </span>
+                            );
+                          })()}
+                        </td>
                         <td className="px-3 py-2 text-xs text-slate-600">{row.exclusionReason || "Eligible predictor."}</td>
                       </tr>
                     );
@@ -1435,25 +2122,38 @@ function CurrentDatasetSummary(props: {
   sourceType: DataSourceType;
   target: string;
   registeredRowCount: number;
+  previewRowCount: number;
   columnCount: number;
   selectedCount: number;
   browserDataComplete: boolean;
   datasetVersion?: string;
+  sourceKindLabel: string;
 }) {
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
       <h2 className="text-base font-semibold text-slate-950">Current Dataset Summary</h2>
       <p className="mt-1 text-sm text-slate-500">Registered modeling data and governed selection state.</p>
+      {/* Part E: modeling rows, browser preview rows, and source type are named
+          explicitly so the preview limit is never mistaken for the modeling
+          population. */}
       <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Stat label="Dataset" value={props.fileName || "Source metadata only"} />
-        <Stat label="Source" value={sourceCards.find((card) => card.id === props.sourceType)?.title ?? props.sourceType} />
-        <Stat label="Registered rows" value={props.registeredRowCount} />
-        <Stat label="Columns" value={props.columnCount} />
+        <Stat label="Source Type" value={props.sourceKindLabel} />
+        <Stat label="Modeling Rows" value={props.registeredRowCount} />
+        <Stat label="Browser Preview Rows" value={props.previewRowCount} />
+        <Stat label="Dataset Columns" value={props.columnCount} />
         <Stat label="Target" value={props.target || "Not selected"} />
-        <Stat label="Selected predictors" value={props.selectedCount} />
-        <Stat label="Browser data" value={props.browserDataComplete ? "Complete dataset" : "Preview only"} />
-        <Stat label="Dataset version" value={props.datasetVersion || "Not registered"} />
+        <Stat label="Selected Predictors" value={props.selectedCount} />
+        {/* Part C: an absent version id means none is SELECTED. It never means
+            the Library asset is unregistered. */}
+        <Stat label="Dataset Version" value={props.datasetVersion || "Not selected"} />
       </div>
+      <p className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900" data-testid="modeling-vs-preview-note">
+        {props.registeredRowCount.toLocaleString()} rows are available for backend modeling.{" "}
+        {props.browserDataComplete
+          ? "The browser holds the complete dataset."
+          : `Only ${props.previewRowCount.toLocaleString()} rows are loaded for the browser preview; the preview limit does not reduce the modeling population.`}
+      </p>
     </section>
   );
 }
@@ -1477,13 +2177,74 @@ function DatasetPersistenceCard(props: {
   duplicateCandidates: DatasetSummary[];
   checkingDuplicates: boolean;
   onRegister: () => void;
+  /** Part C: which persistence UI applies for the current source state. */
+  persistenceMode: PersistenceMode;
+  sourceKindLabel: string;
+  registrationActionLabel: string;
+  libraryLink: DatasetLibraryLink | null;
+  assetOwner?: string;
 }) {
+  // UX-DATAACQ-004 / Part C1: data that is already a registered governed asset gets
+  // a read-only status panel. Offering "Project Workspace Only" vs "Register in
+  // Dataset Library" here implied a duplicate-registration or overwrite risk that
+  // does not exist, and invited the analyst to re-register their own source.
+  if (props.persistenceMode === "registered-status") {
+    return (
+      <section className="mt-5 rounded-xl border-2 border-emerald-300 bg-emerald-50 p-5 shadow-sm" data-testid="dataset-persistence-card" data-persistence-mode="registered-status">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-wide text-emerald-700">Dataset persistence</div>
+            <h2 className="mt-1 flex items-center gap-2 text-base font-semibold text-emerald-950">
+              <ShieldCheck size={16} aria-hidden="true" />
+              Registered Dataset Library Asset
+            </h2>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-700">
+              This project is linked to {props.libraryLink?.datasetName ?? "this dataset"}, version{" "}
+              <span className="font-mono">{props.libraryLink?.versionId ?? "unknown"}</span>. The source asset remains in the
+              Dataset Library if this project is deleted.
+            </p>
+          </div>
+          <span className="rounded-full border border-emerald-300 bg-white px-3 py-1 text-xs font-semibold text-emerald-800" data-testid="already-linked-badge">
+            Already linked
+          </span>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <Stat label="Dataset ID" value={props.libraryLink?.datasetId ?? "-"} />
+          <Stat label="Version ID" value={props.libraryLink?.versionId ?? "-"} />
+          <Stat label="Owner" value={props.assetOwner || "-"} />
+          <Stat label="Linked project status" value="Linked to this project" />
+          <Stat label="Source type" value={props.sourceKindLabel} />
+          <Stat label="Registration status" value="Registered in Dataset Library" />
+        </div>
+        <p className="mt-3 text-xs leading-5 text-slate-600">
+          Registration is not offered for a source asset that is already registered, so the same asset cannot be duplicated
+          or its immutable version overwritten from this page.
+        </p>
+        {props.libraryLink?.datasetId && (
+          <Link
+            className="mt-3 inline-block rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-semibold text-emerald-900"
+            to={`/datasets/${props.libraryLink.datasetId}`}
+          >
+            Open in Dataset Library
+          </Link>
+        )}
+      </section>
+    );
+  }
+
+  const isDerived = props.persistenceMode === "derived-choice";
   return (
-    <section className="mt-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm" data-testid="dataset-persistence-card">
+    <section className="mt-5 rounded-xl border border-slate-200 bg-white p-5 shadow-sm" data-testid="dataset-persistence-card" data-persistence-mode={props.persistenceMode}>
       <h2 className="text-base font-semibold text-slate-950">Dataset Persistence</h2>
       <p className="mt-1 text-sm text-slate-500">
-        Choose how ATLAS should store this dataset. Status: <span className="font-semibold text-slate-800">{props.registrationResult ? "Registered Asset" : "Workspace Upload"}</span>
+        Choose how ATLAS should store this dataset. Status: <span className="font-semibold text-slate-800" data-testid="persistence-source-label">{props.sourceKindLabel}</span>
       </p>
+      {isDerived && (
+        <p className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900" data-testid="derived-dataset-notice">
+          This is a {props.sourceKindLabel.toLowerCase()}. Registering it creates a new governed record; it never modifies or
+          overwrites the immutable source version it was derived from.
+        </p>
+      )}
       <div className="mt-4 grid gap-3 md:grid-cols-2">
         <button
           type="button"
@@ -1552,8 +2313,8 @@ function DatasetPersistenceCard(props: {
 
           {props.registrationError && <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-900">{props.registrationError}</div>}
 
-          <button type="button" onClick={props.onRegister} disabled={props.registering} className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800 disabled:opacity-60">
-            {props.registering ? "Registering..." : "Register Development Dataset"}
+          <button type="button" onClick={props.onRegister} disabled={props.registering} data-testid="register-dataset-action" className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:opacity-60">
+            {props.registering ? "Registering..." : props.registrationActionLabel}
           </button>
         </div>
       )}
@@ -1770,6 +2531,8 @@ function ExistingDatasetPanel({
   selectedDatasetId,
   selectedVersionId,
   loading,
+  loadProgress,
+  isLoaded,
   onDatasetChange,
   onVersionChange,
   onRefresh,
@@ -1780,6 +2543,8 @@ function ExistingDatasetPanel({
   selectedDatasetId: string;
   selectedVersionId: string;
   loading: boolean;
+  loadProgress: DatasetLoadProgress;
+  isLoaded: boolean;
   onDatasetChange: (datasetId: string) => void;
   onVersionChange: (versionId: string) => void;
   onRefresh: () => void;
@@ -1787,6 +2552,25 @@ function ExistingDatasetPanel({
 }) {
   const selectedDataset = libraryDatasets.find((dataset) => dataset.datasetId === selectedDatasetId);
   const selectedVersions = selectedDataset?.latestVersion ? [selectedDataset.latestVersion] : [];
+  const isLoading = loadProgress.phase === "loading";
+  const failed = loadProgress.phase === "failed";
+  // Part A/5: a successful load only counts for the selection that produced it.
+  const showLoaded = isLoaded && loadProgress.phase === "loaded";
+  const canLoad = Boolean(selectedDatasetId && selectedVersionId) && !isLoading;
+
+  const buttonLabel = isLoading
+    ? "Loading Selected Version..."
+    : showLoaded
+      ? "Version Loaded"
+      : failed
+        ? "Retry Load"
+        : "Load Selected Version";
+  const buttonClass = isLoading
+    ? "border-blue-300 bg-blue-100 text-blue-800"
+    : showLoaded
+      ? "border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700"
+      : "border-blue-700 bg-blue-700 text-white hover:bg-blue-800";
+
   return (
     <div>
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
@@ -1800,24 +2584,48 @@ function ExistingDatasetPanel({
           {loading ? "Refreshing..." : "Refresh Library"}
         </button>
       </div>
-      <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(240px,360px)_auto] lg:items-end">
-        <Select
-          label="Dataset"
-          value={selectedDatasetId}
-          onChange={onDatasetChange}
-          options={libraryDatasets.map((dataset) => dataset.datasetId)}
-          optionLabels={Object.fromEntries(libraryDatasets.map((dataset) => [dataset.datasetId, `${dataset.name} (${dataset.latestVersion?.rowCount?.toLocaleString() ?? 0} rows)`]))}
-        />
-        <Select
-          label="Version"
-          value={selectedVersionId}
-          onChange={onVersionChange}
-          options={selectedVersions.map((version) => version.versionId)}
-        />
-        <button type="button" onClick={onLoad} className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-slate-800">
-          Load Selected Version
-        </button>
+
+      {/* UX-DATAACQ-001: the load action is a primary command directly beneath its
+          own selectors, not a weak control at the far-right edge of the row. */}
+      <div className="mt-4 rounded-xl border-2 border-blue-300 bg-blue-50 p-4" data-testid="dataset-load-command">
+        <div className="grid gap-3 md:grid-cols-2">
+          <Select
+            label="Dataset"
+            value={selectedDatasetId}
+            onChange={onDatasetChange}
+            options={libraryDatasets.map((dataset) => dataset.datasetId)}
+            optionLabels={Object.fromEntries(libraryDatasets.map((dataset) => [dataset.datasetId, `${dataset.name} (${dataset.latestVersion?.rowCount?.toLocaleString() ?? 0} rows)`]))}
+          />
+          <Select
+            label="Version"
+            value={selectedVersionId}
+            onChange={onVersionChange}
+            options={selectedVersions.map((version) => version.versionId)}
+          />
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={onLoad}
+            disabled={!canLoad}
+            aria-busy={isLoading}
+            data-testid="load-selected-version"
+            data-load-state={isLoading ? "loading" : showLoaded ? "loaded" : failed ? "failed" : "unloaded"}
+            className={`inline-flex items-center gap-2 rounded-lg border-2 px-5 py-2.5 text-sm font-semibold shadow-sm transition disabled:cursor-not-allowed disabled:opacity-60 ${buttonClass}`}
+          >
+            {isLoading && <Loader2 size={16} className="motion-safe:animate-spin" aria-hidden="true" />}
+            {showLoaded && <Check size={16} aria-hidden="true" />}
+            {buttonLabel}
+          </button>
+          {showLoaded && (
+            <span className="text-xs font-semibold text-emerald-800" data-testid="dataset-loaded-identity">
+              {selectedDataset?.name ?? selectedDatasetId}, version <span className="font-mono">{selectedVersionId}</span>, loaded into this project.
+            </span>
+          )}
+        </div>
+        <DatasetLoadProgressPanel progress={loadProgress} />
       </div>
+
       {selectedDataset && (
         <div className="mt-4 grid gap-3 md:grid-cols-4">
           <Stat label="Library Dataset" value={selectedDataset.name} />
@@ -1831,18 +2639,25 @@ function ExistingDatasetPanel({
           No reusable datasets are registered yet. Open Dataset Library to upload or register governed datasets.
         </div>
       )}
-      <div className="mt-5">
-        <h3 className="text-sm font-semibold text-slate-950">Browser Session Dataset History</h3>
-        <div className="mt-2 overflow-auto rounded-lg border border-slate-200">
-          <table className="min-w-full text-sm">
-            <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-              <tr><th className="px-3 py-2 text-left">Version</th><th className="px-3 py-2 text-left">Source</th><th className="px-3 py-2 text-right">Rows</th><th className="px-3 py-2 text-right">Columns</th><th className="px-3 py-2 text-left">Imported</th></tr>
-            </thead>
-            <tbody>{versions.map((row) => <tr key={row.version} className="border-t"><td className="px-3 py-2 font-mono text-xs">{row.version}</td><td className="px-3 py-2">{row.sourceLabel}</td><td className="px-3 py-2 text-right">{row.rows}</td><td className="px-3 py-2 text-right">{row.columns}</td><td className="px-3 py-2">{new Date(row.importedAt).toLocaleString()}</td></tr>)}</tbody>
-          </table>
-          {!versions.length && <div className="p-6 text-center text-sm text-slate-500">No browser-session dataset versions captured yet.</div>}
-        </div>
-      </div>
+
+      {/* UX-DATAACQ-002: browser-session import records are lineage diagnostics, not
+          analyst workflow input. They stay available (and keep flowing into project
+          snapshots) but are collapsed, and never render an empty placeholder table. */}
+      {versions.length > 0 && (
+        <details className="mt-5 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2" data-testid="advanced-session-details">
+          <summary className="cursor-pointer text-xs font-semibold text-slate-700">
+            Advanced session details ({versions.length} browser import record{versions.length === 1 ? "" : "s"})
+          </summary>
+          <div className="mt-2 overflow-auto rounded-lg border border-slate-200 bg-white">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+                <tr><th className="px-3 py-2 text-left">Version</th><th className="px-3 py-2 text-left">Source</th><th className="px-3 py-2 text-right">Rows</th><th className="px-3 py-2 text-right">Columns</th><th className="px-3 py-2 text-left">Imported</th></tr>
+              </thead>
+              <tbody>{versions.map((row) => <tr key={row.version} className="border-t"><td className="px-3 py-2 font-mono text-xs">{row.version}</td><td className="px-3 py-2">{row.sourceLabel}</td><td className="px-3 py-2 text-right">{row.rows}</td><td className="px-3 py-2 text-right">{row.columns}</td><td className="px-3 py-2">{new Date(row.importedAt).toLocaleString()}</td></tr>)}</tbody>
+            </table>
+          </div>
+        </details>
+      )}
     </div>
   );
 }
@@ -1866,6 +2681,10 @@ function DataPreview(props: {
   effectiveModelingRowCount: number;
   previewRowCount: number;
   backendImportSynced: boolean;
+  /** Part F: authoritative event rate plus the population it describes. */
+  eventRate: number | null;
+  eventRateScopeLabel: string;
+  eventRateIsAuthoritative: boolean;
 }) {
   return (
     <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -1883,17 +2702,23 @@ function DataPreview(props: {
               ? `Selected ${props.target}. Detected target type: ${props.targetInfo.kind}.`
               : "Select the dependent variable in Target Setup before continuing to EDA and model training."}
           </p>
-          {props.targetInfo.kind === "binary" && props.targetInfo.eventRate !== null && props.targetInfo.eventRate < 0.01 && (
+          {props.targetInfo.kind === "binary" && props.eventRate !== null && props.eventRate > 0 && props.eventRate < 0.01 && (
             <div className="mt-3 rounded-lg border border-amber-300 bg-amber-100 px-3 py-2 text-xs leading-5 text-amber-950">
-              <span className="font-semibold">Rare-event target detected:</span> event rate is {formatPercent(props.targetInfo.eventRate)}.
+              <span className="font-semibold">Rare-event target detected:</span> event rate is {formatEventRate(props.eventRate)}.
               Use PR-AUC, recall, lift, KS, and calibration in addition to ROC-AUC; accuracy will be misleading.
             </div>
+          )}
+          {props.targetInfo.kind === "binary" && !props.eventRateIsAuthoritative && (
+            <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950" data-testid="preview-only-event-rate-warning">
+              The event rate below is derived from the browser preview only and can under-report rare events. Full-population
+              profiling supplies the authoritative rate once the backend profile is available.
+            </p>
           )}
         </div>
       )}
       <div className="mt-5 grid gap-3 md:grid-cols-4">
-        <Stat label="Rows for Modeling" value={props.effectiveModelingRowCount} />
-        <Stat label="Rows Cached for UI" value={props.previewRowCount} />
+        <Stat label="Modeling Rows" value={props.effectiveModelingRowCount} />
+        <Stat label="Browser Preview Rows" value={props.previewRowCount} />
         <Stat label="Columns" value={props.headers.length} />
         <Stat label="Target Type" value={props.targetInfo.kind} />
         {props.targetInfo.kind === "continuous" ? (
@@ -1904,7 +2729,14 @@ function DataPreview(props: {
             <Stat label="Target Min / Max" value={`${formatNumber(props.targetSummary?.min)} / ${formatNumber(props.targetSummary?.max)}`} />
           </>
         ) : (
-          <Stat label="Event Rate" value={props.targetInfo.eventRate === null ? "-" : formatPercent(props.targetInfo.eventRate)} />
+          // Part F: the authoritative full-population rate, explicitly scoped. The
+          // previous implementation computed this from the ~100-row browser preview,
+          // which reported 0.00% for a genuinely 0.21% rare-event target.
+          <Stat
+            label={`Event Rate (${props.eventRateScopeLabel})`}
+            value={formatEventRate(props.eventRate)}
+            testId="target-profile-event-rate"
+          />
         )}
       </div>
       {props.backendImportSynced && (
@@ -1947,40 +2779,138 @@ function DataQualityPanel({ quality, metadata }: { quality: DataQualitySummary |
           {(quality.datasetHash || metadata?.hash) && <Stat label="Dataset hash" value={quality.datasetHash ?? metadata?.hash ?? ""} />}
         </div>
       </div>
+      {/* Part D: the five findings groups are visually separated and semantically
+          toned -- green when a check is clean, amber when it needs attention. Grey
+          is reserved for genuinely neutral information. */}
       <div className="grid gap-4 lg:grid-cols-2">
-        <div className="atlas-inset-section">
-          <h3 className="atlas-section-title">Row and column health</h3>
-          <div className="mt-3 grid gap-3 text-sm">
-            <QualityLine label="Duplicate rows" value={quality.duplicateRows.toLocaleString()} />
-            <QualityLine label="Duplicate ID candidates" value={actualOr(quality.duplicateIdCandidates)} />
-            <QualityLine label="Constant columns" value={actualOr(quality.constantColumns)} />
-            <QualityLine label="Near-zero variance" value={actualOr(quality.nearZeroVarianceColumns)} />
-          </div>
-        </div>
-        <div className="atlas-inset-section">
-          <h3 className="atlas-section-title">Missingness and duplicates</h3>
-          <div className="mt-3 grid gap-3 text-sm">
-            <QualityLine label="Highest missing fields" value={quality.missing.slice(0, 5).map((row) => `${row.column} ${formatPercent(row.percent)}`).join(", ") || "None detected"} />
-            <QualityLine label="High-cardinality categoricals" value={actualOr(quality.highCardinalityCategoricals)} />
-            <QualityLine label="Unexpected datatypes" value={actualOr(quality.unexpectedDatatypeColumns)} />
-          </div>
-        </div>
-        <div className="atlas-inset-section">
-          <h3 className="atlas-section-title">Predictor readiness</h3>
-          <div className="mt-3 grid gap-3 text-sm">
-            <QualityLine label="Outlier prevalence" value={quality.outlierPrevalence.length ? quality.outlierPrevalence.slice(0, 5).map((row) => `${row.column} ${formatPercent(row.percent)}`).join(", ") : "None detected"} />
-            <QualityLine label="Legitimate date ranges" value={quality.dateRanges.length ? quality.dateRanges.map((row) => `${row.column}: ${row.min} to ${row.max}`).join(", ") : "None detected"} />
-          </div>
-        </div>
-        <div className="atlas-inset-section">
-          <h3 className="atlas-section-title">Leakage and target health</h3>
-          <div className="mt-3 grid gap-3 text-sm">
-            <QualityLine label="Potential leakage candidates" value={actualOr(quality.potentialLeakageColumns)} />
-            <QualityLine label="Event rate" value={quality.classBalance?.eventRate === null || quality.classBalance?.eventRate === undefined ? "Not evaluated" : formatPercent(quality.classBalance.eventRate)} />
-            <QualityLine label="Majority class" value={quality.classBalance?.majorityClassPercent === null || quality.classBalance?.majorityClassPercent === undefined ? "Not evaluated" : formatPercent(quality.classBalance.majorityClassPercent)} />
-          </div>
-        </div>
+        <QualityGroup title="Row and column health" tone={quality.duplicateRows || quality.constantColumns.length || quality.nearZeroVarianceColumns.length ? "warning" : "success"}>
+          <QualityLine label="Duplicate rows" value={quality.duplicateRows.toLocaleString()} />
+          <QualityLine label="Duplicate ID candidates" value={actualOr(quality.duplicateIdCandidates)} />
+          <QualityLine label="Constant columns" value={actualOr(quality.constantColumns)} />
+          <QualityLine label="Near-zero variance" value={actualOr(quality.nearZeroVarianceColumns)} />
+        </QualityGroup>
+        <QualityGroup title="Missingness and duplicates" tone={quality.missing.some((row) => row.percent > 0) || quality.unexpectedDatatypeColumns.length ? "warning" : "success"}>
+          <QualityLine label="Highest missing fields" value={quality.missing.slice(0, 5).map((row) => `${row.column} ${formatPercent(row.percent)}`).join(", ") || "None detected"} />
+          <QualityLine label="High-cardinality categoricals" value={actualOr(quality.highCardinalityCategoricals)} />
+          <QualityLine label="Unexpected datatypes" value={actualOr(quality.unexpectedDatatypeColumns)} />
+        </QualityGroup>
+        <QualityGroup title="Predictor readiness" tone={quality.outlierPrevalence.length ? "warning" : "success"}>
+          <QualityLine label="Outlier prevalence" value={quality.outlierPrevalence.length ? quality.outlierPrevalence.slice(0, 5).map((row) => `${row.column} ${formatPercent(row.percent)}`).join(", ") : "None detected"} />
+          <QualityLine label="Legitimate date ranges" value={quality.dateRanges.length ? quality.dateRanges.map((row) => `${row.column}: ${row.min} to ${row.max}`).join(", ") : "None detected"} />
+        </QualityGroup>
+        <QualityGroup title="Leakage and target health" tone={quality.potentialLeakageColumns.length ? "warning" : "success"}>
+          <QualityLine label="Potential leakage candidates" value={actualOr(quality.potentialLeakageColumns)} />
+          {/* Rare-event-safe precision: formatEventRate keeps two significant digits
+              below 1%, so a genuine 0.21% rate never renders as 0.00%. */}
+          <QualityLine label="Event rate" value={formatEventRate(quality.classBalance?.eventRate)} />
+          <QualityLine label="Majority class" value={formatEventRate(quality.classBalance?.majorityClassPercent)} />
+        </QualityGroup>
       </div>
+    </div>
+  );
+}
+
+function QualityGroup({
+  title,
+  tone,
+  children,
+}: {
+  title: string;
+  tone: "success" | "warning";
+  children: React.ReactNode;
+}) {
+  const toneClass = tone === "warning" ? "border-amber-300 bg-amber-50" : "border-emerald-200 bg-emerald-50";
+  const headingClass = tone === "warning" ? "text-amber-900" : "text-emerald-900";
+  return (
+    <div className={`rounded-xl border p-4 ${toneClass}`} data-quality-group={title} data-quality-tone={tone}>
+      <div className="flex items-center justify-between gap-2">
+        <h3 className={`text-xs font-bold uppercase tracking-wide ${headingClass}`}>{title}</h3>
+        {/* Text status, so the group is readable without relying on color. */}
+        <span className={`text-[10px] font-semibold uppercase tracking-wide ${headingClass}`}>
+          {tone === "warning" ? "Review" : "Clear"}
+        </span>
+      </div>
+      <div className="mt-3 grid gap-2 rounded-lg bg-white p-3 text-sm">{children}</div>
+    </div>
+  );
+}
+
+const readinessBadgeClass: Record<ReadinessStatus, string> = {
+  ready: "border-emerald-300 bg-emerald-100 text-emerald-900",
+  ready_with_warnings: "border-amber-300 bg-amber-100 text-amber-900",
+  review_required: "border-amber-400 bg-amber-100 text-amber-950",
+  blocked: "border-red-300 bg-red-100 text-red-900",
+};
+
+function ReadinessBadge({ status }: { status: ReadinessStatus }) {
+  return (
+    <span
+      className={`rounded-full border px-3 py-1 text-xs font-bold ${readinessBadgeClass[status]}`}
+      data-testid="readiness-status-badge"
+      data-readiness-status={status}
+    >
+      {READINESS_LABELS[status]}
+    </span>
+  );
+}
+
+/**
+ * Part H4: concise readiness reveal shown above the detailed findings. Every
+ * value is read straight from the current authoritative profiling result -- there
+ * are no placeholder or animated-from-zero numbers, so the summary is correct
+ * the first time it paints and stays readable with motion disabled.
+ */
+function ReadinessSummary({
+  quality,
+  readiness,
+  registeredRowCount,
+  eventRateDisplay,
+  eventRateScopeLabel,
+}: {
+  quality: DataQualitySummary | null;
+  readiness: { status: ReadinessStatus; reasons: string[] };
+  registeredRowCount: number;
+  eventRateDisplay: string;
+  eventRateScopeLabel: string;
+}) {
+  if (!quality) {
+    return (
+      <p className="mt-4 rounded-lg border border-teal-200 bg-white px-3 py-2 text-sm text-slate-600" data-testid="readiness-summary">
+        Load a dataset and confirm a target to generate the readiness profile.
+      </p>
+    );
+  }
+  const columnsWithMissing = quality.missing.filter((row) => row.percent > 0).length;
+  const facts: { label: string; value: string; tone: "info" | "warning" | "success" }[] = [
+    { label: "Modeling rows", value: registeredRowCount.toLocaleString(), tone: "info" },
+    { label: "Columns", value: quality.columnCount.toLocaleString(), tone: "info" },
+    { label: "Duplicate rows", value: quality.duplicateRows.toLocaleString(), tone: quality.duplicateRows ? "warning" : "success" },
+    { label: "Columns with missing values", value: columnsWithMissing.toLocaleString(), tone: columnsWithMissing ? "warning" : "success" },
+    { label: "Leakage candidates", value: quality.potentialLeakageColumns.length.toLocaleString(), tone: quality.potentialLeakageColumns.length ? "warning" : "success" },
+    { label: `Event rate (${eventRateScopeLabel})`, value: eventRateDisplay, tone: "info" },
+  ];
+  const toneClass = {
+    info: "border-blue-200 text-blue-900",
+    warning: "border-amber-300 text-amber-900",
+    success: "border-emerald-200 text-emerald-900",
+  } as const;
+
+  return (
+    <div className="mt-4" data-testid="readiness-summary">
+      <div className="text-sm font-semibold text-teal-950">{READINESS_LABELS[readiness.status]}</div>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+        {facts.map((fact) => (
+          <div key={fact.label} className={`rounded-lg border bg-white px-3 py-2 ${toneClass[fact.tone]}`}>
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{fact.label}</div>
+            <div className="mt-0.5 text-sm font-semibold">{fact.value}</div>
+          </div>
+        ))}
+      </div>
+      {readiness.reasons.length > 0 && (
+        <ul className="mt-3 list-disc space-y-1 pl-5 text-xs leading-5 text-slate-700" data-testid="readiness-reasons">
+          {readiness.reasons.map((reason) => <li key={reason}>{reason}</li>)}
+        </ul>
+      )}
     </div>
   );
 }
@@ -2046,11 +2976,11 @@ function Input({ label, value, onChange, placeholder }: { label: string; value: 
   );
 }
 
-function Stat({ label, value }: { label: string; value: unknown }) {
+function Stat({ label, value, testId }: { label: string; value: unknown; testId?: string }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+    <div className="rounded-lg border border-slate-200 bg-white px-3 py-2" data-testid={testId}>
       <div className="text-xs font-semibold uppercase text-slate-500">{label}</div>
-      <div className="mt-1 truncate text-sm font-semibold text-slate-950">{String(value)}</div>
+      <div className="mt-1 truncate text-sm font-semibold text-slate-950" title={String(value)}>{String(value)}</div>
     </div>
   );
 }

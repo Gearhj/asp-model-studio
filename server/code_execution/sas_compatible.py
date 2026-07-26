@@ -24,17 +24,31 @@ def run_sas_compatible(code: str, context: dict[str, Any]) -> dict[str, Any]:
     stdout: list[str] = []
     unsupported: list[str] = []
     result_tables: list[SasTable] = []
+    #: Per-statement outcome report (CODE-DATAACQ-004). Every submitted statement
+    #: appears exactly once with an explicit outcome, so "partial" is explainable.
+    statement_report: list[dict[str, Any]] = []
+    active_table = active_table_identity(context)
     translated: list[str] = [
         "# ATLAS SAS-Compatible translated Python",
         "import pandas as pd",
-        "# work.reg_train is loaded from ATLAS preview rows",
+        f"# work.{active_table} is loaded from the active ATLAS dataset",
     ]
+
+    def record(statement: str, outcome: str, detail: str = "") -> None:
+        statement_report.append({
+            "statement": _statement_label(statement),
+            "outcome": outcome,
+            "detail": detail,
+        })
 
     try:
         work = _build_work_library(context)
         statements = _split_sas_blocks(code or "")
         if not statements:
-            return _response("error", stdout="", stderr="No SAS-compatible code was submitted.", tables=[], unsupported=[], translated=translated, started=started)
+            return _response(
+                "failed", stdout="", stderr="No SAS-compatible code was submitted.", tables=[],
+                unsupported=[], translated=translated, started=started, report=[], active_table=active_table,
+            )
 
         for statement in statements:
             normalized = statement.strip()
@@ -70,29 +84,105 @@ def run_sas_compatible(code: str, context: dict[str, Any]) -> dict[str, Any]:
                 elif lower.startswith("data "):
                     table_name = _data_step(normalized, work, translated)
                     stdout.append(f"DATA step completed. Output table: {table_name}.")
+                elif _is_nonmaterial(lower):
+                    # TITLE/OPTIONS/comments carry no analytical result; accepted,
+                    # but they must not count as "material work completed".
+                    record(normalized, "translated", "Accepted with no analytical output.")
+                    continue
                 else:
-                    unsupported.append(_statement_label(normalized))
+                    unsupported.append(_unsupported_label(normalized))
+                    record(normalized, "skipped_unsupported", "This statement is outside the SAS-compatible subset.")
+                    continue
+                record(normalized, "executed")
+            except InputUnavailable as exc:
+                unsupported.append(str(exc))
+                record(normalized, "input_unavailable", str(exc))
             except UnsupportedSasStatement as exc:
                 unsupported.append(str(exc))
+                record(normalized, "skipped_unsupported", str(exc))
             except Exception as exc:
-                unsupported.append(f"{_statement_label(normalized)}: {exc}")
+                unsupported.append(f"{_unsupported_label(normalized)}: {exc}")
+                record(normalized, "failed", str(exc))
 
-        status = "partial" if unsupported else "success"
-        if not result_tables and unsupported:
-            status = "partial"
-        return _response(status, stdout="\n".join(stdout), stderr="", tables=result_tables, unsupported=unsupported, translated=translated, started=started)
+        return _response(
+            _derive_status(statement_report), stdout="\n".join(stdout), stderr="", tables=result_tables,
+            unsupported=unsupported, translated=translated, started=started,
+            report=statement_report, active_table=active_table,
+        )
     except Exception as exc:
-        return _response("error", stdout="\n".join(stdout), stderr=f"ATLAS SAS-Compatible execution failed: {exc}", tables=result_tables, unsupported=unsupported, translated=translated, started=started)
+        return _response(
+            "failed", stdout="\n".join(stdout), stderr=f"ATLAS SAS-Compatible execution failed: {exc}",
+            tables=result_tables, unsupported=unsupported, translated=translated, started=started,
+            report=statement_report, active_table=active_table,
+        )
 
 
 class UnsupportedSasStatement(Exception):
-    pass
+    """A statement outside the supported SAS-compatible subset."""
 
 
-def _response(status: str, stdout: str, stderr: str, tables: list[SasTable], unsupported: list[str], translated: list[str], started: float) -> dict[str, Any]:
+class InputUnavailable(UnsupportedSasStatement):
+    """A referenced input table is not registered for the active dataset."""
+
+
+#: Accepted for compatibility but producing no analytical result.
+_NONMATERIAL_PREFIXES = ("title", "footnote", "options", "ods ", "%let", "run;", "quit;", "*")
+
+
+def _is_nonmaterial(lower_statement: str) -> bool:
+    return lower_statement.startswith(_NONMATERIAL_PREFIXES)
+
+
+def _derive_status(report: list[dict[str, Any]]) -> str:
+    """Honest status semantics (CODE-DATAACQ-004).
+
+    completed -- every material statement executed or translated successfully
+    partial   -- at least one material statement succeeded AND at least one was
+                 skipped, failed, or had unavailable input
+    failed    -- no material analytical statement completed
+    """
+    material = [row for row in report if row["outcome"] != "translated"]
+    executed = [row for row in material if row["outcome"] == "executed"]
+    problems = [row for row in material if row["outcome"] in {"skipped_unsupported", "failed", "input_unavailable"}]
+
+    if not material:
+        # Only non-material statements ran: nothing analytical completed.
+        return "failed"
+    if executed and problems:
+        return "partial"
+    if executed:
+        return "completed"
+    return "failed"
+
+
+def _response(
+    status: str,
+    stdout: str,
+    stderr: str,
+    tables: list[SasTable],
+    unsupported: list[str],
+    translated: list[str],
+    started: float,
+    report: list[dict[str, Any]] | None = None,
+    active_table: str = "",
+) -> dict[str, Any]:
+    report = report or []
+    counts = {
+        outcome: sum(1 for row in report if row["outcome"] == outcome)
+        for outcome in ("executed", "translated", "skipped_unsupported", "failed", "input_unavailable")
+    }
+    # A partial run is NOT an unqualified success: return code 0 is reserved for
+    # a fully completed program (CODE-DATAACQ-004).
+    return_code = 0 if status == "completed" else 1
     return {
-        "ok": status in {"success", "partial"},
+        # `ok` means the request was serviced; `status` carries the analytical outcome.
+        "ok": status in {"completed", "partial"},
         "status": status,
+        "statementReport": report,
+        "statementCounts": counts,
+        "activeTable": active_table,
+        "executionKind": "sas_compatible_translated",
+        "engineNote": "ATLAS translated a supported subset of SAS to pandas. This is not a SASPy session or a licensed SAS runtime.",
         "stdout": stdout,
         "stderr": stderr,
         "tables": [{"title": table.title, "columns": table.columns, "rows": table.rows} for table in tables],
@@ -100,26 +190,42 @@ def _response(status: str, stdout: str, stderr: str, tables: list[SasTable], uns
         "translatedPython": "\n".join(translated),
         "unsupportedStatements": unsupported,
         "runtimeMs": int((time.perf_counter() - started) * 1000),
-        "returnCode": 0 if status in {"success", "partial"} else 1,
+        "returnCode": return_code,
     }
+
+
+def active_table_identity(context: dict[str, Any]) -> str:
+    """The one authoritative SAS table name for the active dataset.
+
+    CODE-DATAACQ-003 root cause: this module used to register a hard-coded
+    `work.reg_train` (a regression-era name) as an always-present alias, use it
+    as the fallback dataset name, and name it in every "table not available"
+    message -- so a classification project was told to use `work.reg_train`
+    regardless of which dataset was actually active. The identity is now derived
+    solely from the active dataset, keyed by the caller's dataset/version.
+    """
+    raw = str(context.get("datasetName") or "").strip()
+    if not raw:
+        raw = str(context.get("datasetId") or "").strip()
+    if not raw:
+        # No active dataset identity at all -- use a neutral placeholder rather
+        # than _safe_name("")'s degenerate "atlas_" output.
+        return "atlas_dataset"
+    return _safe_name(raw) or "atlas_dataset"
 
 
 def _build_work_library(context: dict[str, Any]) -> dict[str, pd.DataFrame]:
     rows = context.get("previewRows") or context.get("preview_rows") or []
     df = pd.DataFrame(rows if isinstance(rows, list) else [])
-    dataset_name = _safe_name(str(context.get("datasetName") or "reg_train"))
-    work = {
-        "work.reg_train": df.copy(),
-        "reg_train": df.copy(),
-        "atlas.reg_train": df.copy(),
-        "work.atlas_preview": df.copy(),
-        "atlas_preview": df.copy(),
+    dataset_name = active_table_identity(context)
+    # Only the active dataset's identity is registered. Lookups are
+    # case-insensitive (see _resolve_table), so work.CLASS_TRAIN and
+    # work.class_train both resolve to this one table.
+    return {
+        dataset_name: df.copy(),
+        f"work.{dataset_name}": df.copy(),
+        f"atlas.{dataset_name}": df.copy(),
     }
-    if dataset_name:
-        work[dataset_name] = df.copy()
-        work[f"work.{dataset_name}"] = df.copy()
-        work[f"atlas.{dataset_name}"] = df.copy()
-    return work
 
 
 def _split_sas_blocks(code: str) -> list[str]:
@@ -309,7 +415,11 @@ def _resolve_table(name: str, work: dict[str, pd.DataFrame]) -> tuple[str, pd.Da
     for alias in aliases:
         if alias in work:
             return alias, work[alias]
-    raise UnsupportedSasStatement(f"Table {name} is not available. Use work.reg_train for the selected ATLAS preview dataset.")
+    # The guidance names the table that is actually registered for this project,
+    # never a hard-coded regression-era default.
+    available = sorted({key for key in work if key.startswith("work.")}) or sorted(work)
+    suggestion = available[0] if available else "the active ATLAS dataset"
+    raise InputUnavailable(f"Table {name} is not available. Use {suggestion} for the active ATLAS dataset.")
 
 
 def _normalize_table_name(name: str) -> str:
@@ -403,5 +513,10 @@ def _safe_name(value: str) -> str:
 
 
 def _statement_label(statement: str) -> str:
-    first = " ".join(statement.strip().split())[:140]
-    return f"Unsupported statement detected: {first}"
+    """Plain excerpt of the statement. The outcome is carried by the report's
+    `outcome` field, so the label must not assert that it was unsupported."""
+    return " ".join(statement.strip().split())[:140]
+
+
+def _unsupported_label(statement: str) -> str:
+    return f"Unsupported statement detected: {_statement_label(statement)}"

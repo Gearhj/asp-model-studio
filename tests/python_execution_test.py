@@ -25,7 +25,12 @@ class PythonExecutionTests(unittest.TestCase):
         )
         self.assertFalse(result["ok"], result)
         self.assertEqual(result["status"], "unavailable")
-        self.assertIn("ATLAS_CODE_SANDBOX_COMMAND", result["stderr"])
+        self.assertEqual(result["runtimeState"], "not_configured")
+        # CODE-DATAACQ-001: the user-facing message explains the situation without
+        # leaking the server configuration key. Operators see the key through
+        # /python/capability (admin view) and /python/diagnostics instead.
+        self.assertIn("governed code sandbox has not been configured", result["stderr"])
+        self.assertNotIn("ATLAS_CODE_SANDBOX_COMMAND", result["stderr"])
         self.assertIsInstance(result["runtimeMs"], int)
 
     def test_python_exception_is_not_executed_without_sandbox(self) -> None:

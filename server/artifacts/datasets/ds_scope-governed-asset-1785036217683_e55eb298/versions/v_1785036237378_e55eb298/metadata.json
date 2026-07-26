@@ -1,0 +1,12 @@
+{
+  "datasetId": "ds_scope-governed-asset-1785036217683_e55eb298",
+  "datasetRole": "development",
+  "originalFilename": "scope-governed-asset-1785036217683.csv",
+  "sourceInfo": {
+    "originalSource": {},
+    "projectId": "atlas-ms18eofr",
+    "tags": [],
+    "target": "Class"
+  },
+  "versionId": "v_1785036237378_e55eb298"
+}

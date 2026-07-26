@@ -28,6 +28,7 @@ from .preprocessing.outlier_router import router as outlier_router
 from .preprocessing.missing_router import router as missing_router
 from .preprocessing.quality_profile_router import router as quality_profile_router
 from .preprocessing.feature_profile_router import router as feature_profile_router
+from .preprocessing.governed_profile_router import router as governed_profile_router
 from .preprocessing.bureau_detection_router import router as bureau_detection_router
 from .splitting.split_router import router as split_router
 from .training.trainer_router import router as trainer_router
@@ -42,6 +43,7 @@ from .notifications.router import router as notifications_router
 from .security.security_store import ActiveUserContextMiddleware, AtlasUserContextError, init_security_store, list_users, require_user
 from .analytics.analytics_router import router as analytics_router
 from .analytics.analytics_queries_router import router as analytics_queries_router
+from .analytics.target_intelligence_router import router as target_intelligence_router
 from .charts.chart_router import router as chart_router
 from .model_diagnostics.diagnostics_router import router as model_diagnostics_router
 from .model_documentation.documentation_router import router as model_documentation_router
@@ -267,6 +269,7 @@ def create_app() -> FastAPI:
     app.include_router(missing_router, prefix="/api/missing", tags=["Missing Values"], dependencies=authenticated)
     app.include_router(quality_profile_router, prefix="/api", tags=["Data Quality"], dependencies=authenticated)
     app.include_router(feature_profile_router, prefix="/api", tags=["Feature Profiling"], dependencies=authenticated)
+    app.include_router(governed_profile_router, prefix="/api", tags=["Governed Target Profiling"], dependencies=authenticated)
     app.include_router(bureau_detection_router, prefix="/api", tags=["Bureau Detection"], dependencies=authenticated)
     app.include_router(split_router, prefix="/api/balancing_split", tags=["Splitting & Balancing"], dependencies=authenticated)
     app.include_router(trainer_router, prefix="/api", tags=["Training"], dependencies=authenticated)
@@ -286,6 +289,7 @@ def create_app() -> FastAPI:
     app.include_router(analytics_engine_router, tags=["Statistical & Analytical Engine"])
     app.include_router(analytics_router, prefix="/api", tags=["Analytics Workbench"], dependencies=authenticated)
     app.include_router(analytics_queries_router, prefix="/api", tags=["Enterprise Analytical Data Plane"], dependencies=authenticated)
+    app.include_router(target_intelligence_router, prefix="/api", tags=["EDA Target Intelligence"], dependencies=authenticated)
     app.include_router(chart_router, prefix="/api", tags=["Chart Studio"], dependencies=authenticated)
     app.include_router(scoring_router, prefix="/api", tags=["Scoring"], dependencies=authenticated)
     app.include_router(scoring_runs_router, prefix="/api", tags=["Persistent Scoring Runs"], dependencies=authenticated)

@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import LLMWritingAssist, { type WritingAssistAction } from "../components/LLMWritingAssist";
 import StepShell from "../components/StepShell";
+import AtlasStatusBadge from "../components/ui/AtlasStatusBadge";
 import {
   type AtlasWorkflowMetric,
 } from "../components/ui/AtlasWorkflow";
@@ -24,6 +25,7 @@ import {
   type PredictiveModelTypeSelection,
 } from "../lib/projectContext";
 import { savePredictiveProjectContextToDatabase } from "../lib/serverPersistence";
+import { useProjectContextAutosave } from "../lib/useProjectContextAutosave";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const inputClass = "atlas-input";
@@ -105,6 +107,15 @@ export default function Step00ProjectContext() {
   const [context, setContext] = useState<ProjectContext>(() => loadProjectContext());
   const [validated, setValidated] = useState(false);
   const [saveState, setSaveState] = useState("Draft not saved in this session.");
+  // Durable autosave: the backend project record is authoritative. Hydration
+  // runs before the form is editable so an empty form can never overwrite
+  // stored content.
+  const autosave = useProjectContextAutosave({
+    projectId,
+    context,
+    validationStatus: getMissing(context).length ? "incomplete" : context.completionStatus === "complete" ? "complete" : "ready",
+    onHydrated: (hydrated) => setContext(hydrated),
+  });
   const [summaryDraft, setSummaryDraft] = useState("");
   const [currentUserId, setCurrentUserId] = useState("");
 
@@ -266,6 +277,13 @@ export default function Step00ProjectContext() {
   };
 
   const continueToDataAcquisition = async () => {
+    // Flush before navigating away, and do not pretend success if the required
+    // save failed -- the draft stays local and the user is told.
+    const flushed = await autosave.flush();
+    if (!flushed) {
+      setSaveState("Project Context could not be saved. Your draft is kept locally. Retry before continuing.");
+      return false;
+    }
     if (!isComplete) {
       setValidated(true);
       setSaveState(`Complete or clarify ${missing.length} required item${missing.length === 1 ? "" : "s"} before continuing.`);
@@ -351,19 +369,22 @@ export default function Step00ProjectContext() {
     >
       <div className="space-y-5" id="project-context-top">
         <div className="grid gap-5 xl:grid-cols-[468px_minmax(0,1fr)]">
-          <section id="model-identity" className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <section id="model-identity" data-testid="model-identity-card" className="rounded-xl border-2 border-blue-400 bg-blue-100 p-5 shadow-sm">
             <div className="flex h-full flex-col gap-5">
               <div>
-                <div className="text-[11px] font-bold uppercase tracking-wide text-blue-700">Model identity</div>
-                <h2 className="mt-1 text-xl font-semibold text-slate-950">Project Setup</h2>
-                <p className="mt-2 text-sm leading-6 text-slate-600">Confirm the project identity created on the New Project screen. Dataset, target column, split, and validation evidence are captured later.</p>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-[11px] font-bold uppercase tracking-wide text-blue-700">Model identity</div>
+                  <AtlasStatusBadge tone="info">Governed Identity</AtlasStatusBadge>
+                </div>
+                <h2 className="mt-1 text-xl font-semibold text-blue-950">Project Setup</h2>
+                <p className="mt-2 text-sm leading-6 text-slate-700">Confirm the project identity created on the New Project screen. Dataset, target column, split, and validation evidence are captured later.</p>
               </div>
               <div className="grid gap-3">
                 <Field label="Model ID" required help="Assigned when the project is created."><input className={inputClass} value={context.modelId} readOnly aria-readonly="true" /></Field>
                 <Field label="Project Name" required><input className={inputClass} value={context.projectName} onChange={(event) => update("projectName", event.target.value)} placeholder="Card transaction fraud model" /></Field>
                 <Field label="Project Type"><input className={inputClass} value="Predictive Modeling" readOnly aria-readonly="true" /></Field>
                 <Field label="Model Type" required><select className={inputClass} value={context.modelTypeSelection} onChange={(event) => updateModelType(event.target.value as PredictiveModelTypeSelection)}>{predictiveModelTypeOptions.map((option) => <option key={option}>{option}</option>)}</select></Field>
-                <Field label="Deployment Mode"><select className={inputClass} value={context.fraudDetails.deploymentMode} onChange={(event) => updateDetail("deploymentMode", event.target.value)}>{deploymentModes.map((option) => <option key={option}>{option}</option>)}</select></Field>
+                <Field label="Deployment Mode" help="Development is used while the model is being built and evaluated. Select a later lifecycle mode only when the model has reached that stage."><select className={inputClass} value={context.fraudDetails.deploymentMode} onChange={(event) => updateDetail("deploymentMode", event.target.value)}>{deploymentModes.map((option) => <option key={option}>{option}</option>)}</select></Field>
               </div>
             </div>
           </section>
@@ -465,9 +486,92 @@ export default function Step00ProjectContext() {
           <div className="mt-4 rounded-lg border border-slate-200 bg-white px-4 py-3 text-xs text-slate-600"><b>Documentation mapping:</b> Business purpose and intended use support the model overview. Target, population, and time windows support the outcome-definition sections. Dataset and model evidence are assembled later.</div>
         </section>
 
-        <div className="rounded-lg border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700" aria-live="polite"><span className="font-semibold">Save status:</span> {saveState}</div>
+        <ProjectContextSaveStatus autosave={autosave} fallbackMessage={saveState} />
       </div>
     </StepShell>
+  );
+}
+
+/**
+ * Truthful Project Context save status.
+ *
+ * "Saved" appears only after the backend acknowledges the write -- the previous
+ * indicator was a local string set optimistically before any request completed.
+ * Status is carried by text (not colour alone) and announced via aria-live.
+ */
+function ProjectContextSaveStatus({
+  autosave,
+  fallbackMessage,
+}: {
+  autosave: ReturnType<typeof useProjectContextAutosave>;
+  fallbackMessage: string;
+}) {
+  const { status, lastSavedAt, message } = autosave;
+  const label =
+    status === "saving"
+      ? "Saving..."
+      : status === "saved"
+        ? `Saved${lastSavedAt ? ` at ${new Date(lastSavedAt).toLocaleTimeString()}` : ""}`
+        : status === "unsaved"
+          ? "Unsaved changes"
+          : status === "failed"
+            ? "Save failed"
+            : status === "offline"
+              ? "Backend unavailable"
+              : status === "conflict"
+                ? "Conflict detected"
+                : fallbackMessage;
+
+  const tone =
+    status === "saved"
+      ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+      : status === "failed" || status === "conflict"
+        ? "border-red-300 bg-red-50 text-red-900"
+        : status === "offline"
+          ? "border-amber-300 bg-amber-50 text-amber-900"
+          : "border-slate-200 bg-white text-slate-700";
+
+  return (
+    <div
+      className={`rounded-lg border px-4 py-3 text-sm ${tone}`}
+      role="status"
+      aria-live="polite"
+      data-testid="project-context-save-status"
+      data-save-status={status}
+    >
+      <span className="font-semibold">Save status:</span> {label}
+      {message ? <span className="ml-1">{message}</span> : null}
+      {(status === "failed" || status === "offline") && (
+        <button
+          type="button"
+          onClick={autosave.retry}
+          data-testid="retry-project-context-save"
+          className="ml-3 rounded-lg border border-current bg-white px-3 py-1 text-xs font-semibold"
+        >
+          Retry Save
+        </button>
+      )}
+      {status === "conflict" && (
+        <span className="ml-3 inline-flex gap-2">
+          <button
+            type="button"
+            onClick={() => void autosave.reloadLatest()}
+            data-testid="reload-latest-project-context"
+            className="rounded-lg border border-current bg-white px-3 py-1 text-xs font-semibold"
+          >
+            Reload latest
+          </button>
+          <button
+            type="button"
+            onClick={() => void autosave.keepMyDraft()}
+            data-testid="keep-my-project-context-draft"
+            className="rounded-lg border border-current bg-white px-3 py-1 text-xs font-semibold"
+          >
+            Keep my draft
+          </button>
+        </span>
+      )}
+    </div>
   );
 }
 

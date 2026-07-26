@@ -18,16 +18,81 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, Literal
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 
+from .core.modeling_scope import authorize_modeling_scope
+from .security.security_store import require_user
+
 from .code_execution.sas_compatible import SUPPORTED_PROCS, run_sas_compatible
+from .code_execution import sandbox_policy
+from .code_execution.dataset_binding import (
+    build_runtime_prelude,
+    resolve_bound_dataset,
+    runtime_contract_description,
+    stage_dataset_for_sandbox,
+)
 
 
 router = APIRouter()
 
+#: Bound on captured stream text so a runaway loop cannot flood the response.
+MAX_STREAM_CHARS = int(os.getenv("ATLAS_PYTHON_RUN_MAX_OUTPUT_CHARS", "200000"))
+
+
+def _bounded(text: str) -> tuple[str, bool]:
+    if len(text) <= MAX_STREAM_CHARS:
+        return text, False
+    return text[:MAX_STREAM_CHARS], True
+
+
+def _describe_failure(stderr: str) -> Dict[str, Any] | None:
+    """Extracts the exception type, message, and failing source line from a
+    traceback so the UI can report what stopped execution.
+
+    Derived generically from the traceback -- nothing is special-cased for any
+    particular program or assertion.
+    """
+    if not stderr.strip():
+        return None
+    lines = [line for line in stderr.strip().splitlines() if line.strip()]
+    exception_line = lines[-1] if lines else ""
+    exception_type, _, exception_message = exception_line.partition(":")
+    exception_type = exception_type.strip()
+    exception_message = exception_message.strip()
+
+    failed_line_number: int | None = None
+    failed_source = ""
+    for index, line in enumerate(lines):
+        marker = re.search(r'File "(?:[^"]*)", line (\d+)', line)
+        if marker:
+            failed_line_number = int(marker.group(1))
+            # The source excerpt follows its File/line header when available.
+            if index + 1 < len(lines) and not lines[index + 1].lstrip().startswith('File "'):
+                failed_source = lines[index + 1].strip()
+
+    explanation = ""
+    if exception_type == "AssertionError":
+        explanation = (
+            "The program ran and produced output, but a user assertion did not hold. "
+            "The computed value did not match the value the assertion expected."
+        )
+    return {
+        "exceptionType": exception_type or "Error",
+        "exceptionMessage": exception_message,
+        "failedLineNumber": failed_line_number,
+        "failedSource": failed_source,
+        "explanation": explanation,
+    }
+
 MAX_CODE_CHARS = int(os.getenv("ATLAS_PYTHON_RUN_MAX_CHARS", "120000"))
-TIMEOUT_SECONDS = float(os.getenv("ATLAS_PYTHON_RUN_TIMEOUT_SECONDS", "5"))
+# The governed prelude imports pandas and loads the staged dataset before user
+# code runs; a cold `import pandas` alone measures ~8 s on a developer machine,
+# so a 5 s budget made every dataframe program time out. Still bounded and still
+# enforced by subprocess timeout + process termination.
+TIMEOUT_SECONDS = float(os.getenv("ATLAS_PYTHON_RUN_TIMEOUT_SECONDS", "60"))
+#: Separate, shorter budget for the diagnostics probes, which must stay responsive.
+DIAGNOSTIC_TIMEOUT_SECONDS = float(os.getenv("ATLAS_PYTHON_DIAGNOSTIC_TIMEOUT_SECONDS", "30"))
 RUNTIME_ROOT = Path(os.getenv("ATLAS_PYTHON_RUNTIME_DIR", ".tmp/python-execution")).resolve()
 HOSTED_MODE = os.getenv("ATLAS_HOSTED_MODE", "").strip().lower() in {"1", "true", "yes"}
 EXECUTION_ENABLED = os.getenv("ATLAS_ENABLE_PYTHON_RUN", "1").strip().lower() not in {"0", "false", "no"} and not HOSTED_MODE
@@ -88,26 +153,29 @@ def execution_env() -> Dict[str, str]:
 
 
 def sandbox_command(script_path: Path, workdir: Path) -> list[str] | None:
-    if not SANDBOX_COMMAND:
+    """Legacy helper retained for the R path. Delegates to the approved-command
+    policy so R execution inherits the same allowlist and argument-vector rules
+    as Python -- it no longer splits an arbitrary shell string."""
+    try:
+        return sandbox_policy.resolve_sandbox_command(
+            os.getenv("ATLAS_CODE_SANDBOX_COMMAND", "").strip(), script_path, workdir
+        )
+    except sandbox_policy.SandboxPolicyError:
         return None
-    replacements = {
-        "{script}": str(script_path),
-        "{script_name}": script_path.name,
-        "{workdir}": str(workdir),
-    }
-    command = SANDBOX_COMMAND
-    for token, value in replacements.items():
-        command = command.replace(token, value)
-    return shlex.split(command)
 
 
 def run_python_request(request: PythonRunRequest) -> Dict[str, Any]:
-    if not EXECUTION_ENABLED or not SANDBOX_COMMAND:
+    # Capability is resolved per request (not at import time) so a deployment can
+    # configure the sandbox without restarting, and so the UI and the executor
+    # always agree about what is possible.
+    capability = sandbox_policy.describe_capability()
+    if not capability.available:
         return {
             "ok": False,
             "status": "unavailable",
+            "runtimeState": capability.state,
             "stdout": "",
-            "stderr": "Python execution is disabled until ATLAS_CODE_SANDBOX_COMMAND points to an approved OS/container sandbox. Code will still be included in notebook export.",
+            "stderr": capability.reason,
             "runtimeMs": 0,
         }
 
@@ -129,33 +197,27 @@ def run_python_request(request: PythonRunRequest) -> Dict[str, Any]:
     temp_dir.mkdir(parents=True, exist_ok=False)
     try:
         script_path = temp_dir / "atlas_step_code.py"
-        context_code = ""
-        if request.context:
-            context_code = (
-                "# ATLAS execution context injected for local development.\n"
-                f"ATLAS_CONTEXT = {json.dumps(request.context)}\n"
-                "preview_rows = ATLAS_CONTEXT.get('preview_rows', [])\n"
-                "primary_preview_rows = ATLAS_CONTEXT.get('primary_preview_rows', preview_rows)\n"
-                "secondary_preview_rows = ATLAS_CONTEXT.get('secondary_preview_rows', [])\n"
-                "dataset_name = ATLAS_CONTEXT.get('dataset_name', '')\n"
-                "version_id = ATLAS_CONTEXT.get('version_id', '')\n\n"
-                "try:\n"
-                "    import pandas as pd\n"
-                "    df = pd.DataFrame(preview_rows)\n"
-                "except BaseException as ATLAS_PANDAS_ERROR:\n"
-                "    pd = None\n"
-                "    class ATLASPreviewFrame(list):\n"
-                "        @property\n"
-                "        def shape(self):\n"
-                "            cols = len(self[0].keys()) if self and isinstance(self[0], dict) else 0\n"
-                "            return (len(self), cols)\n"
-                "        def head(self, n=5):\n"
-                "            return list(self[:n])\n"
-                "        def describe(self, *args, **kwargs):\n"
-                "            return {'rows': len(self), 'columns': self.shape[1]}\n"
-                "    df = ATLASPreviewFrame(preview_rows)\n"
-                "    print(f'ATLAS warning: pandas is unavailable or failed to initialize: {ATLAS_PANDAS_ERROR}')\n\n"
-            )
+        context = request.context or {}
+
+        # CODE-DATAACQ-002: bind to the exact authorized dataset version instead
+        # of emitting an unresolvable placeholder path. The artifact is resolved
+        # server-side and staged read-only inside this run's isolated workdir.
+        bound = resolve_bound_dataset(
+            dataset_id=str(context.get("datasetId") or ""),
+            version_id=str(context.get("versionId") or ""),
+            target=str(context.get("target") or ""),
+            selected_features=list(context.get("selectedFeatures") or []),
+        )
+        staged_path = stage_dataset_for_sandbox(bound, temp_dir) if bound else None
+        preview_rows = context.get("previewRows") or context.get("preview_rows") or []
+        context_code = build_runtime_prelude(
+            bound,
+            staged_path,
+            preview_rows=preview_rows if isinstance(preview_rows, list) else [],
+            target=str(context.get("target") or ""),
+            selected_features=list(context.get("selectedFeatures") or []),
+            context=context,
+        )
         capture_images = bool(request.captureImages or request.page == "Notebook Studio")
         plot_prelude = ""
         plot_postlude = ""
@@ -208,13 +270,18 @@ def run_python_request(request: PythonRunRequest) -> Dict[str, Any]:
             )
         script_path.write_text(context_code + plot_prelude + code + plot_postlude, encoding="utf-8")
         try:
-            command = sandbox_command(script_path, temp_dir)
-            if not command:
+            try:
+                command = sandbox_policy.resolve_sandbox_command(
+                    os.getenv("ATLAS_CODE_SANDBOX_COMMAND", "").strip(), script_path, temp_dir
+                )
+            except sandbox_policy.SandboxPolicyError as exc:
                 return {
                     "ok": False,
                     "status": "unavailable",
+                    "runtimeState": "misconfigured",
                     "stdout": "",
-                    "stderr": "Python execution is disabled because no approved sandbox command is configured.",
+                    "stderr": "Python execution is unavailable because the configured code sandbox is not approved for this ATLAS environment.",
+                    "detail": str(exc),
                     "runtimeMs": int((time.perf_counter() - started) * 1000),
                 }
             completed = subprocess.run(
@@ -251,13 +318,32 @@ def run_python_request(request: PythonRunRequest) -> Dict[str, Any]:
                 stdout = "\n".join(cleaned_lines)
                 if completed.stdout.endswith("\n") and stdout:
                     stdout += "\n"
+            bounded_stdout, stdout_truncated = _bounded(stdout)
+            bounded_stderr, stderr_truncated = _bounded(completed.stderr or "")
+            failure = _describe_failure(bounded_stderr) if completed.returncode != 0 else None
+            # PYTHON-TEST-001 / Part J: valid stdout must never imply success.
+            # A program that printed results and then failed is reported as
+            # "failed after producing output", with the failing line isolated.
+            produced_output = bool(bounded_stdout.strip())
             return {
                 "ok": completed.returncode == 0,
                 "status": "success" if completed.returncode == 0 else "error",
-                "stdout": stdout,
-                "stderr": completed.stderr,
+                "failurePhase": "user_code" if completed.returncode != 0 else None,
+                "outcome": (
+                    "completed"
+                    if completed.returncode == 0
+                    else "failed_after_output" if produced_output else "failed"
+                ),
+                "failure": failure,
+                "runtimeState": "executable",
+                "stdout": bounded_stdout,
+                "stderr": bounded_stderr,
+                "truncated": stdout_truncated or stderr_truncated,
                 "runtimeMs": runtime_ms,
                 "returnCode": completed.returncode,
+                "runtimeContract": runtime_contract_description(bound),
+                "datasetId": bound.dataset_id if bound else "",
+                "versionId": bound.version_id if bound else "",
                 "images": images[:5],
                 "tables": tables[:5],
                 "rows": (tables[0].get("rows") if tables and isinstance(tables[0], dict) else []),
@@ -277,8 +363,38 @@ def run_python_request(request: PythonRunRequest) -> Dict[str, Any]:
 
 
 @router.post("/python/run")
-def run_python(request: PythonRunRequest) -> Dict[str, Any]:
+def run_python(request: PythonRunRequest, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    # Execution is scoped to a project the caller may actually view. Without this
+    # an authenticated user could run code bound to another project's dataset.
+    if request.projectId:
+        authorize_modeling_scope(user, request.projectId, "view")
     return run_python_request(request)
+
+
+@router.get("/python/environment")
+def python_environment(user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    """Read-only inventory of the governed analytical environment (PYENV-001).
+
+    Versions are read from the live interpreter, so a package is never claimed
+    installed without being present. No filesystem paths or secrets are exposed.
+    """
+    from .code_execution.environment_inventory import build_environment_inventory
+
+    return build_environment_inventory()
+
+
+@router.get("/python/capability")
+def python_capability(user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    """Authoritative Python execution capability for the UI.
+
+    Ordinary users receive the state and a non-sensitive explanation. Admins
+    additionally receive the missing configuration key and approved interpreters,
+    so operators can diagnose without leaking server command detail to everyone.
+    """
+    capability = sandbox_policy.describe_capability()
+    is_admin = str(user.get("role") or "").lower() == "admin"
+    payload = capability.admin_dict() if is_admin else capability.public_dict()
+    return {"ok": True, **payload}
 
 
 @router.post("/llm/cleanup-question")
@@ -601,7 +717,7 @@ def python_diagnostics() -> Dict[str, Any]:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=TIMEOUT_SECONDS,
+            timeout=DIAGNOSTIC_TIMEOUT_SECONDS,
             env=execution_env(),
         )
         can_start_python = completed.returncode == 0
@@ -621,7 +737,7 @@ def python_diagnostics() -> Dict[str, Any]:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=TIMEOUT_SECONDS,
+            timeout=DIAGNOSTIC_TIMEOUT_SECONDS,
             env=execution_env(),
         )
         can_import_pandas = pandas_probe.returncode == 0
@@ -646,8 +762,14 @@ def python_diagnostics() -> Dict[str, Any]:
         except Exception as exc:
             warnings.append(f"Rscript probe failed: {exc}")
 
+    capability = sandbox_policy.describe_capability()
     return {
         "ok": True,
+        "pythonExecutionState": capability.state,
+        "pythonExecutionAvailable": capability.available,
+        "pythonExecutionReason": capability.reason,
+        "pythonSandboxConfigurationKey": capability.configuration_key,
+        "pythonSandboxDetail": capability.detail,
         "pythonExecutable": sys.executable,
         "pythonVersion": sys.version,
         "platform": platform.platform(),

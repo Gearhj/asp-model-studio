@@ -11,8 +11,10 @@ import threading
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 
 from ..security.security_store import audit_event, require_user, user_can_access_project
+from .target_distribution_service import compute_target_distribution
 from .distributed_engine_interface import list_configured_engines
 from .parquet_service import materialize_parquet_for_version
 from .query_contract import AnalyticalQueryRequest, AnalyticalQueryResponse, QueryStatus
@@ -69,6 +71,38 @@ def _run_and_release(user: Dict[str, Any], payload: AnalyticalQueryRequest, user
         run_async(user, payload)
     finally:
         CONCURRENCY.release(user_id, payload.projectId)
+
+
+class TargetDistributionRequest(BaseModel):
+    projectId: str
+    datasetId: str
+    versionId: str | None = None
+    target: str
+    eventValue: Any = None
+    nonEventValue: Any = None
+    # Set by the "Calculate Exact Distribution" action to override a sampled estimate.
+    forceExact: bool = False
+
+
+@router.post("/analytics/target-distribution")
+def target_distribution(payload: TargetDistributionRequest, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
+    """Bounded grouped count for one immutable (dataset, version, target).
+
+    Deliberately separate from `/api/data/quality-profile`: the chart must not
+    wait on full-column profiling, predictor profiling, missingness analysis, or
+    browser preview preparation to render class counts.
+    """
+    _check_project_access(user, payload.projectId)
+    return compute_target_distribution(
+        user_scope=str(user.get("userId") or "anonymous"),
+        project_id=payload.projectId,
+        dataset_id=payload.datasetId,
+        version_id=payload.versionId,
+        target=payload.target,
+        event_value=payload.eventValue,
+        non_event_value=payload.nonEventValue,
+        force_exact=payload.forceExact,
+    )
 
 
 @router.get("/analytics/queries/{query_id}")

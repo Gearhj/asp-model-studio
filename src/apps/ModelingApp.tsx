@@ -5,11 +5,11 @@ import ModeSwitcher from "../components/ModeSwitcher";
 import ProjectSaveStatus from "../components/ProjectSaveStatus";
 import PrivateDemoBanner from "../components/PrivateDemoBanner";
 import Sidebar from "../components/Sidebar";
-import AtlasSelectDecisionSupport from "../components/AtlasSelectDecisionSupport";
 import AtlasProgressBar from "../components/ui/AtlasProgressBar";
 import { ExportsPage, OpenProject, SettingsPage } from "../steps/ProjectUtilityPages";
 import { AccountPage, AdminUsersPage, AuditPage, LoginPage, RegisterPage } from "../steps/AuthPages";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { buildBreadcrumbs, breadcrumbText } from "../lib/breadcrumbs";
 import { logout, me } from "../lib/auth";
 import type { AtlasUser } from "../lib/datasetLibrary";
 import { getUnreadNotificationCount } from "../lib/adminSharing";
@@ -79,6 +79,13 @@ export default function ModelingApp() {
   const completed = workflowSteps.filter((step) => step.status === "complete").length;
   const progress = Math.round((completed / Math.max(1, workflowSteps.length)) * 100);
   const currentStep = workflowSteps.find((step) => step.status !== "complete" && step.status !== "skipped") ?? workflowSteps[workflowSteps.length - 1];
+  // Breadcrumbs follow the route the user is on. `currentStep` above remains the
+  // workflow's next-incomplete step and is used for progress, NOT for location.
+  const breadcrumbs = buildBreadcrumbs({
+    pathname: location.pathname,
+    projectName,
+    workflowLabel: workflowId.replace(/-/g, " ").split(" ").map((word) => (word ? word[0].toUpperCase() + word.slice(1) : word)).join(" "),
+  });
   const isFullWidthStudioRoute = ["/sql-data-studio", "/notebook-studio", "/model-evidence-center", "/evidence-graph", "/credit-risk-studio", "/management-dashboard", "/registry", "/validation", "/monitoring", "/admin", "/sharing", "/notifications"].includes(location.pathname)
     || location.pathname.startsWith("/registry/")
     || location.pathname.startsWith("/validation/")
@@ -139,7 +146,6 @@ export default function ModelingApp() {
 
   return (
     <div className="atlas-app-bg min-h-screen">
-      <AtlasSelectDecisionSupport />
       <div className="flex min-h-screen">
         <Sidebar />
 
@@ -148,14 +154,38 @@ export default function ModelingApp() {
             <div className="flex min-h-[68px] flex-col gap-3 px-4 py-3 sm:px-5 lg:px-6 xl:px-8 2xl:flex-row 2xl:items-center 2xl:justify-between">
               <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
                 <div className="min-w-0">
-                  <div className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500">ATLAS / Current Project / Current Workflow</div>
-                  <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                    <span className="truncate font-semibold text-slate-950">{projectName}</span>
-                    <span className="text-slate-300">/</span>
-                    <span className="truncate text-slate-600">{workflowId.replace(/-/g, " ")}</span>
-                    <span className="text-slate-300">/</span>
-                    <span className="truncate text-slate-600" title={currentStep?.description}>{currentStep?.shortLabel ?? currentStep?.label ?? "Workflow"}</span>
-                  </div>
+                  {/* Derived from the ACTIVE ROUTE, never from workflow completion
+                      state -- see src/lib/breadcrumbs.ts for the defect this
+                      replaced (a completed Data Acquisition made every page
+                      display ".../ EDA"). */}
+                  <nav
+                    aria-label="Breadcrumb"
+                    data-testid="atlas-breadcrumb"
+                    data-breadcrumb={breadcrumbText(breadcrumbs)}
+                  >
+                    <ol className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+                      {breadcrumbs.map((crumb, index) => (
+                        <li key={`${crumb.label}-${index}`} className="flex min-w-0 items-center gap-2">
+                          {index > 0 ? <span aria-hidden="true" className="text-slate-300">/</span> : null}
+                          {crumb.current ? (
+                            <span
+                              aria-current="page"
+                              data-testid="atlas-breadcrumb-current"
+                              className="truncate font-semibold text-slate-950"
+                            >
+                              {crumb.label}
+                            </span>
+                          ) : crumb.href ? (
+                            <Link to={crumb.href} className="truncate text-slate-600 hover:text-slate-900">
+                              {crumb.label}
+                            </Link>
+                          ) : (
+                            <span className="truncate text-slate-600">{crumb.label}</span>
+                          )}
+                        </li>
+                      ))}
+                    </ol>
+                  </nav>
                 </div>
                 <ProjectSaveStatus />
               </div>

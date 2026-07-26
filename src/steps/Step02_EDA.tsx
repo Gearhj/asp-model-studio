@@ -29,6 +29,8 @@ import { useWorkflowStore } from "../state/useWorkflowStore";
 import { formatNullableMetric, getDatasetScopeLabel, safeArray, safeObject } from "../lib/workflowSafety";
 import VisualAnalysisPanel from "../visual-intelligence/production/VisualAnalysisPanel";
 import DistributionExplorer from "../visual-intelligence/prototypes/DistributionExplorer";
+import TargetIntelligenceWorkspace from "../components/eda/TargetIntelligenceWorkspace";
+import type { PredictorOption } from "../components/eda/TargetByPredictorPanel";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
@@ -139,6 +141,36 @@ export default function Step02EDA() {
 
   const overview = sections.overview;
   const available = overview?.available_fields ?? {};
+
+  // Target Intelligence inputs. The predictor list comes from the governed
+  // overview field inventory; IV is only attached when the Predictors section
+  // has already computed it, so the Target tab never triggers a second IV pass.
+  const predictorOptions: PredictorOption[] = useMemo(() => {
+    const ivByFeature = new Map<string, number | null>();
+    for (const row of safeArray<any>(sections.predictors?.numeric)) ivByFeature.set(String(row.feature), row.iv ?? null);
+    for (const row of safeArray<any>(sections.predictors?.categorical)) ivByFeature.set(String(row.feature), row.iv ?? null);
+    const numeric: PredictorOption[] = (available.numeric ?? []).map((feature: string) => ({
+      feature,
+      kind: "numeric" as const,
+      iv: ivByFeature.get(feature) ?? null,
+    }));
+    const categorical: PredictorOption[] = (available.categorical ?? []).map((feature: string) => ({
+      feature,
+      kind: "categorical" as const,
+      iv: ivByFeature.get(feature) ?? null,
+    }));
+    return [...numeric, ...categorical].filter((item) => item.feature !== overview?.target);
+  }, [available.numeric, available.categorical, sections.predictors, overview?.target]);
+
+  const datasetIdentity = useMemo(() => {
+    const library = confirmedDataset?.dataset_library;
+    if (!library?.datasetId || !library?.versionId) return null;
+    return {
+      datasetId: library.datasetId,
+      versionId: library.versionId,
+      datasetName: library.datasetName ?? "",
+    };
+  }, [confirmedDataset?.dataset_library]);
   const requestBody = useMemo(
     () => ({
       project_id: projectId,
@@ -357,15 +389,26 @@ export default function Step02EDA() {
           </AtlasAttentionPanel>
         ) : null}
         {activeTab === "target" && activeData ? (
-          <TargetPanel
+          <TargetIntelligenceWorkspace
             data={activeData}
-            dateFields={available.date_candidates ?? []}
-            segmentFields={available.segment_candidates ?? []}
-            dateField={dateField}
+            projectId={projectId}
+            projectName={projectName}
+            datasetIdentity={datasetIdentity}
+            eventValue={activeData.event_value ?? confirmedDataset?.event_value}
+            nonEventValue={confirmedDataset?.non_event_value}
+            predictorOptions={predictorOptions}
+            timeField={dateField}
             segmentField={segmentField}
-            onDateField={setDateField}
-            onSegmentField={setSegmentField}
-            onRun={() => void refreshActiveSection()}
+            segmentCandidates={available.segment_candidates ?? []}
+            onTimeField={(value) => {
+              setDateField(value);
+              void refreshActiveSection({ date_field: value || undefined });
+            }}
+            onSegmentField={(value) => {
+              setSegmentField(value);
+              void refreshActiveSection({ segment_field: value || undefined });
+            }}
+            onRunConditional={() => void refreshActiveSection()}
           />
         ) : null}
         {activeTab === "predictors" && activeData ? (
@@ -523,57 +566,6 @@ function OverviewPanel({ data }: { data: WorkspaceResponse }) {
   );
 }
 
-function TargetPanel(props: {
-  data: WorkspaceResponse;
-  dateFields: string[];
-  segmentFields: string[];
-  dateField: string;
-  segmentField: string;
-  onDateField: (value: string) => void;
-  onSegmentField: (value: string) => void;
-  onRun: () => void;
-}) {
-  const profile = safeObject(props.data.profile);
-  const classes = safeArray<any>(profile.class_distribution);
-  return (
-    <div className="space-y-4">
-      <AtlasWorkflowSection eyebrow="Full-data outcome" title={`${props.data.target} Target Profile`} description="Class and distribution metrics use all registered rows available to the backend." tone="info">
-        <MetricGrid items={props.data.problem_type === "classification"
-          ? [
-              ["Event", formatNumber(profile.event_count, 0)],
-              ["Non-event", formatNumber(profile.non_event_count, 0)],
-              ["Event rate", formatPercent(profile.event_rate, 3)],
-              ["Event ratio", formatNumber(profile.event_to_non_event_ratio, 4)],
-              ["Positive value", String(profile.positive_class ?? "Not defined")],
-              ["Missing target", formatNumber(profile.missing_count, 0)],
-            ]
-          : [
-              ["Count", formatNumber(profile.valid_count, 0)],
-              ["Mean", formatNumber(profile.mean)],
-              ["Std. deviation", formatNumber(profile.standard_deviation)],
-              ["Median", formatNumber(profile.median)],
-              ["Skewness", formatNumber(profile.skewness)],
-              ["Extreme rate", formatPercent(profile.extreme_value_prevalence)],
-            ]} />
-        {classes.length ? <ClassDistributionChart rows={classes} scope="Full Dataset Aggregation" /> : null}
-        {profile.rare_event ? (
-          <div className="mt-4 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
-            <div className="font-semibold">Rare-event target detected</div>
-            <div className="mt-1">Use {safeArray<string>(profile.recommended_metrics).join(", ")} and validate that every split and cross-validation fold contains events.</div>
-          </div>
-        ) : null}
-      </AtlasWorkflowSection>
-      <AtlasWorkflowSection eyebrow="Conditional views" title="Time and Segment Target Analysis" description="Select only fields with a defensible business or temporal meaning. ATLAS does not infer dates from arbitrary numeric values." tone="neutral">
-        <AnalysisSelectors {...props} />
-        <div className="mt-4 grid gap-4 xl:grid-cols-2">
-          <CompactGroupTable title="Target by time" rows={props.data.event_rate_by_time ?? []} empty="Select a governed time field in Stability & Segments to evaluate event-rate movement over time." />
-          <CompactGroupTable title="Target by segment" rows={props.data.target_by_segment ?? []} />
-        </div>
-      </AtlasWorkflowSection>
-    </div>
-  );
-}
-
 function PredictorsPanel({
   data,
   histogramBins,
@@ -597,9 +589,19 @@ function PredictorsPanel({
     const key = sortMode === "missing" ? "missing_rate" : sortMode === "outliers" ? "outlier_rate" : signalKey;
     return Math.abs(Number(right?.[key] ?? 0)) - Math.abs(Number(left?.[key] ?? 0));
   });
-  const numeric = sortRows(safeArray<any>(data.numeric).filter((row: any) => String(row.feature).toLowerCase().includes(search.toLowerCase()))).slice(0, rowLimit);
-  const categorical = sortRows(safeArray<any>(data.categorical).filter((row: any) => String(row.feature).toLowerCase().includes(search.toLowerCase()))).slice(0, rowLimit);
-  const missing = sortRows(safeArray<any>(data.missingness).filter((row: any) => row.missing_count > 0)).slice(0, rowLimit);
+  // EDA-UX-004: the inventory tables are filtered by the shared "Search
+  // predictors" box. Typing a feature name to locate it legitimately reduces the
+  // table to one row, but the section still claimed to be the full inventory
+  // with no result count and no sign that a filter was active -- so it read as
+  // "the inventory collapsed to the selected predictor". Matched/total counts and
+  // an explicit filter notice are now surfaced for each table.
+  const numericMatches = sortRows(safeArray<any>(data.numeric).filter((row: any) => String(row.feature).toLowerCase().includes(search.toLowerCase())));
+  const categoricalMatches = sortRows(safeArray<any>(data.categorical).filter((row: any) => String(row.feature).toLowerCase().includes(search.toLowerCase())));
+  const missingMatches = sortRows(safeArray<any>(data.missingness).filter((row: any) => row.missing_count > 0));
+  const numeric = numericMatches.slice(0, rowLimit);
+  const categorical = categoricalMatches.slice(0, rowLimit);
+  const missing = missingMatches.slice(0, rowLimit);
+  const searchActive = Boolean(search.trim());
   const selected =
     allNumeric.find((row: any) => row.feature === selectedFeature) ??
     allCategorical.find((row: any) => row.feature === selectedFeature) ??
@@ -678,7 +680,17 @@ function PredictorsPanel({
   const histogramPending = selectedIsNumeric && (!dedicatedHistogramCurrent || histogramState.loading);
   return (
     <div className="space-y-4">
-      <AtlasWorkflowSection eyebrow="Predictor diagnostics" title="Full-Data Feature Profile" description="Numeric, categorical, and missingness diagnostics are computed by the backend. Treatment remains on later workflow steps." tone="info" action={<AtlasDataScopeBadge scope="full_dataset" rows={data.row_count} />}>
+      {/* EDA-PREDICTORS-001: the instructional block (heading, explanatory
+          paragraph, and four-step workflow) was removed at James's request --
+          it did not perform an analytical function. Not replaced with another
+          instructional card; the controls below are self-describing. */}
+      <AtlasWorkflowSection
+        eyebrow="Predictors"
+        title="Predictor Inventory and Investigation"
+        description="Full-dataset numeric, categorical, and missingness diagnostics. Treatment remains on later workflow steps."
+        tone="info"
+        action={<AtlasDataScopeBadge scope="full_dataset" rows={data.row_count} />}
+      >
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
           <label className="relative block max-w-sm flex-1">
             <Search size={15} className="pointer-events-none absolute left-3 top-2.5 text-slate-400" />
@@ -765,12 +777,24 @@ function PredictorsPanel({
         description="Server-side histogram, quantile, and segment aggregation for enterprise-scale datasets -- brush a range or enter numeric cutoffs to see bounded aggregate statistics without loading full columns into the browser."
         tone="neutral"
       >
-        <VisualAnalysisPanel analysisType="distribution" title="Interactive Distribution Explorer" description="Explore development data or a durable TRAIN/TEST/OOT scoring run's distribution.">
+        {/* EDA-EXPLORER-001 / Part E: development EDA is explicitly a
+            development-context analysis. TRAIN/TEST/OOT partitions and durable
+            Scoring Runs do not exist yet, so those controls are suppressed. */}
+        <VisualAnalysisPanel
+          analysisType="distribution"
+          analysisContext="development"
+          title="Interactive Distribution Explorer"
+          description="Explore how a predictor is distributed across the governed development dataset, and how a selected value range relates to the target."
+        >
           <DistributionExplorer />
         </VisualAnalysisPanel>
       </AtlasWorkflowSection>
       <DataTable
-        title="Numeric predictors"
+        title="All numeric predictors"
+        inventoryCount={{ shown: numeric.length, matched: numericMatches.length, total: allNumeric.length }}
+        searchTerm={searchActive ? search : ""}
+        onClearSearch={() => setSearch("")}
+        highlightFeature={selectedName}
         columns={[
           ["feature", "Feature"], ["count", "Count"], ["missing_rate", "Missing", "percent"], ["mean", "Mean"],
           ["standard_deviation", "Std. dev."], ["median", "Median"], ["skewness", "Skew"], ["outlier_rate", "Outliers", "percent"],
@@ -780,7 +804,11 @@ function PredictorsPanel({
         empty="No numeric predictors match the current search."
       />
       <DataTable
-        title="Categorical predictors"
+        title="All categorical predictors"
+        inventoryCount={{ shown: categorical.length, matched: categoricalMatches.length, total: allCategorical.length }}
+        searchTerm={searchActive ? search : ""}
+        onClearSearch={() => setSearch("")}
+        highlightFeature={selectedName}
         columns={[
           ["feature", "Feature"], ["count", "Count"], ["missing_rate", "Missing", "percent"], ["cardinality", "Cardinality"],
           ["rare_level_count", "Rare levels"], ["iv", "IV"], ["high_cardinality", "High cardinality", "boolean"], ["inconsistent_labels", "Label cleanup", "boolean"],
@@ -1387,8 +1415,8 @@ function CompactGroupTable({ title, rows, empty }: { title: string; rows: any[];
 }
 
 const dataTableDescriptions: Record<string, string> = {
-  "Numeric predictors": "Distribution shape, data quality, and target signal across the governed modeling population.",
-  "Categorical predictors": "Cardinality, rare-level, and label-quality diagnostics for categorical candidates.",
+  "All numeric predictors": "Every numeric predictor in the governed modeling population. Search narrows this list; the selected predictor is highlighted in place.",
+  "All categorical predictors": "Every categorical predictor in the governed modeling population. Search narrows this list; the selected predictor is highlighted in place.",
   "Missingness diagnostics": "Missing-volume and target-rate differences used to identify informative missingness.",
   "Strong correlated pairs": "Predictor pairs above the governed correlation review threshold.",
   "Variance inflation factor": "Multicollinearity risk among eligible numeric predictors.",
@@ -1413,7 +1441,29 @@ function statusClasses(value: string) {
   return "border-slate-200 bg-slate-100 text-slate-700";
 }
 
-function DataTable({ title, columns, rows, empty }: { title: string; columns: string[][]; rows: any[]; empty: string }) {
+function DataTable({
+  title,
+  columns,
+  rows,
+  empty,
+  inventoryCount,
+  searchTerm = "",
+  onClearSearch,
+  highlightFeature = "",
+}: {
+  title: string;
+  columns: string[][];
+  rows: any[];
+  empty: string;
+  /** EDA-UX-004: shown/matched/total so a filtered table never looks like the
+   *  complete inventory. */
+  inventoryCount?: { shown: number; matched: number; total: number };
+  searchTerm?: string;
+  onClearSearch?: () => void;
+  /** The predictor selected in Selected Predictor Visualization, highlighted in
+   *  place rather than filtering the inventory down to it. */
+  highlightFeature?: string;
+}) {
   const safeRows = safeArray<any>(rows);
   const safeColumns = safeArray<string[]>(columns);
   const scaleByKey = Object.fromEntries(safeColumns.map(([key]) => {
@@ -1432,9 +1482,29 @@ function DataTable({ title, columns, rows, empty }: { title: string; columns: st
           </div>
           <p className="mt-1 text-xs leading-5 text-slate-500">{description}</p>
         </div>
-        <span className="inline-flex w-fit items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600">
-          {safeRows.length.toLocaleString()} {safeRows.length === 1 ? "record" : "records"}
-        </span>
+        <div className="flex w-fit flex-col items-start gap-1 sm:items-end">
+          <span
+            className="inline-flex w-fit items-center rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[11px] font-semibold text-slate-600"
+            data-testid="data-table-count"
+          >
+            {inventoryCount
+              ? `Showing ${inventoryCount.shown.toLocaleString()} of ${inventoryCount.matched.toLocaleString()} matching (${inventoryCount.total.toLocaleString()} total)`
+              : `${safeRows.length.toLocaleString()} ${safeRows.length === 1 ? "record" : "records"}`}
+          </span>
+          {searchTerm ? (
+            <span
+              className="inline-flex w-fit items-center gap-2 rounded-full border border-amber-300 bg-amber-50 px-2.5 py-1 text-[11px] font-semibold text-amber-900"
+              data-testid="data-table-filter-notice"
+            >
+              Filtered by search "{searchTerm}"
+              {onClearSearch ? (
+                <button type="button" onClick={onClearSearch} className="underline" data-testid="data-table-clear-search">
+                  Show all
+                </button>
+              ) : null}
+            </span>
+          ) : null}
+        </div>
       </div>
       {!safeRows.length ? <div className="flex min-h-28 items-center justify-center px-4 py-6 text-sm text-slate-500">{empty}</div> : (
         <div className="max-h-[460px] overflow-auto">
@@ -1451,7 +1521,15 @@ function DataTable({ title, columns, rows, empty }: { title: string; columns: st
             </thead>
             <tbody>
               {safeRows.map((row, rowIndex) => (
-                <tr key={`${row.feature ?? row.feature_a ?? row.group ?? rowIndex}-${rowIndex}`} className="group even:bg-slate-50/70 hover:bg-blue-50/70">
+                <tr
+                  key={`${row.feature ?? row.feature_a ?? row.group ?? rowIndex}-${rowIndex}`}
+                  data-selected-predictor={highlightFeature && row.feature === highlightFeature ? "true" : undefined}
+                  className={`group even:bg-slate-50/70 hover:bg-blue-50/70 ${
+                    highlightFeature && row.feature === highlightFeature
+                      ? "bg-blue-100/80 ring-2 ring-inset ring-blue-400 even:bg-blue-100/80"
+                      : ""
+                  }`}
+                >
                   {safeColumns.map(([key, , type], columnIndex) => {
                     const display = tableValue(row, key, type);
                     const numeric = Number(row?.[key]);

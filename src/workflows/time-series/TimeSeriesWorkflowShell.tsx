@@ -174,7 +174,7 @@ function TimeSeriesVisualCenter({ page }: { page: TimeSeriesPageDefinition }) {
           {["Naive baseline", "Seasonal naive", "Exponential smoothing", "ARIMA/SARIMA-style template", "Gradient boosting with lag features", "Anomaly detection baseline"].map((model) => (
             <section key={model} className="rounded-2xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
               <div className="text-base font-semibold text-slate-950">{model}</div>
-              <p className="mt-2 text-sm text-slate-600">Best used when its assumptions match the history length, seasonality, and interpretability requirements.</p>
+              <p className="mt-2 text-sm text-slate-600">Fits well when its assumptions match the history length, seasonality, and interpretability requirements.</p>
             </section>
           ))}
         </div>

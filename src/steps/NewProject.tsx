@@ -19,8 +19,6 @@ import {
   Trash2,
 } from "lucide-react";
 import AtlasCard from "../components/ui/AtlasCard";
-import AtlasMetricCard from "../components/ui/AtlasMetricCard";
-import AtlasPageHero from "../components/ui/AtlasPageHero";
 import AtlasStatusBadge from "../components/ui/AtlasStatusBadge";
 import {
   createCustomWorkflow,
@@ -29,6 +27,7 @@ import {
   type ProjectType,
   type WorkflowStep,
 } from "../config/workflows";
+import { computeSetupGuidance, isProjectSetupComplete, resolveProjectSetupFormConfig, type ProjectSetupFormConfig } from "../config/projectSetupForms";
 import { logDecision } from "../lib/decisionJournal";
 import { grantProjectAccess, me } from "../lib/auth";
 import { upsertProjectFromState } from "../lib/localProjects";
@@ -58,7 +57,13 @@ export default function NewProject() {
   const navigate = useNavigate();
   const startProjectFromWorkflow = useWorkflowStore((state) => state.startProjectFromWorkflow);
   const [modelId, setModelId] = useState("");
-  const [projectName, setProjectName] = useState("Untitled ATLAS Project");
+  // UX-NEWPROJECT-001: this field previously started pre-filled with "Untitled
+  // ATLAS Project" -- real content sitting in the input, not a placeholder --
+  // which meant the "required" check was always satisfied without the user
+  // ever typing anything. It now starts empty for every workflow type, and a
+  // workflow-appropriate placeholder (ghost text, never saved) guides input
+  // instead.
+  const [projectName, setProjectName] = useState("");
   const [projectType, setProjectType] = useState<ProjectType>("predictive-modeling");
   const [customWorkflowName, setCustomWorkflowName] = useState("Custom Workflow");
   const [customSteps, setCustomSteps] = useState(["Project Context", "Data Review", "Analysis", "Documentation"]);
@@ -67,8 +72,19 @@ export default function NewProject() {
     if (projectType === "custom-workflow") return createCustomWorkflow(customWorkflowName, customSteps);
     return getWorkflowForProjectType(projectType);
   }, [customSteps, customWorkflowName, projectType]);
-  const requiresModelId = projectType === "predictive-modeling";
-  const canStartProject = Boolean(projectName.trim()) && (!requiresModelId || Boolean(modelId.trim()));
+
+  // UX-NEWPROJECT-001 (generalization): one shared, schema-driven setup config
+  // per workflow type -- see src/config/projectSetupForms.ts. Field labels,
+  // helper text, required-ness, button label, and guidance all come from this
+  // config; no per-workflow JSX forks or duplicated validation logic below.
+  const setupConfig = useMemo(
+    () => resolveProjectSetupFormConfig(projectType, selectedWorkflow.label),
+    [projectType, selectedWorkflow.label]
+  );
+  const setupValues = { name: projectName, modelId };
+  const canStartProject = isProjectSetupComplete(setupConfig, setupValues);
+  const setupGuidance = computeSetupGuidance(setupConfig, setupValues);
+
   const analysisPatterns = [
     ["Population Segmentation", "Cluster, profile, compare, and label customer, account, merchant, or transaction populations. Use this when segmentation supports another modeling, experimentation, monitoring, or decisioning workflow rather than becoming a governed asset by itself."],
     ["Cohort Analysis", "Compare populations over origination period, campaign cohort, vintage, onboarding date, or policy change window."],
@@ -122,129 +138,237 @@ export default function NewProject() {
 
   return (
     <div className="atlas-page-shell">
-      <AtlasPageHero
-        eyebrow="Project setup"
-        title="Start a governed ATLAS project"
-        subtitle="Choose the analytical objective first. ATLAS will configure the workflow, evidence expectations, and documentation structure without changing the underlying project logic."
-        aside={
-          <div className="grid gap-2">
-            <AtlasMetricCard label="Selected workflow" value={selectedWorkflow.label} tone="info" />
-            <AtlasMetricCard label="Steps" value={selectedWorkflow.steps.length} />
-          </div>
-        }
+      <UnifiedProjectSetupSection
+        config={setupConfig}
+        selectedWorkflow={selectedWorkflow}
+        projectName={projectName}
+        onProjectNameChange={setProjectName}
+        modelId={modelId}
+        onModelIdChange={setModelId}
+        setupGuidance={setupGuidance}
+        canStartProject={canStartProject}
+        onSubmit={startProject}
       />
 
-      <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_390px] xl:items-start">
-        <div className="grid gap-5">
-          <AtlasCard title="Choose Project Type" eyebrow="Workflow library">
-            <div className="grid gap-3 md:grid-cols-2">
-              {projectTypeOptions.map((option) => {
-                const visual = projectTypeVisuals[option.value];
-                const selected = projectType === option.value;
-                return (
-                  <button
-                    key={option.value}
-                    type="button"
-                    className={`rounded-2xl border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 ${
-                      selected ? "border-blue-300 bg-blue-50 ring-2 ring-blue-100" : "border-slate-200 bg-white"
-                    }`}
-                    onClick={() => setProjectType(option.value)}
-                    aria-pressed={selected}
-                  >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className={`grid h-10 w-10 place-items-center rounded-xl ${selected ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-700"}`}>
-                        {visual.icon}
-                      </div>
-                      <AtlasStatusBadge tone={selected ? "info" : visual.tone}>{visual.maturity}</AtlasStatusBadge>
+      <div className="grid gap-5">
+        <AtlasCard title="Choose Project Type" eyebrow="Workflow library">
+          <div className="grid gap-3 md:grid-cols-2">
+            {projectTypeOptions.map((option) => {
+              const visual = projectTypeVisuals[option.value];
+              const selected = projectType === option.value;
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={`rounded-2xl border p-4 text-left shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:bg-blue-50 ${
+                    selected ? "border-blue-300 bg-blue-50 ring-2 ring-blue-100" : "border-slate-200 bg-white"
+                  }`}
+                  onClick={() => {
+                    // UX-NEWPROJECT-001 (generalization): switching workflow types must
+                    // not carry a stale value typed under a different field label/
+                    // requirement (e.g. a Model Name typed for Predictive Modeling
+                    // reappearing as "Project Name" for another workflow, or a Model ID
+                    // typed while visible silently persisting after switching to a
+                    // workflow where that field is hidden).
+                    setProjectType(option.value);
+                    setProjectName("");
+                    setModelId("");
+                  }}
+                  aria-pressed={selected}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className={`grid h-10 w-10 place-items-center rounded-xl ${selected ? "bg-blue-600 text-white" : "bg-slate-100 text-slate-700"}`}>
+                      {visual.icon}
                     </div>
-                    <div className="mt-4 text-[11px] font-semibold uppercase tracking-wide text-slate-500">{visual.category}</div>
-                    <div className="mt-1 text-sm font-semibold text-slate-950">{option.label}</div>
-                    <p className="mt-1 text-xs leading-5 text-slate-600">{option.description}</p>
-                  </button>
-                );
-              })}
-            </div>
-          </AtlasCard>
-
-          {projectType === "custom-workflow" && (
-            <CustomWorkflowEditor
-              name={customWorkflowName}
-              steps={customSteps}
-              onNameChange={setCustomWorkflowName}
-              onStepsChange={setCustomSteps}
-            />
-          )}
-
-          <AtlasCard title={selectedWorkflow.label} eyebrow="Configured workflow">
-            <p className="text-sm leading-6 text-slate-600">{selectedWorkflow.description}</p>
-            <div className="mt-5 grid gap-2">
-              {selectedWorkflow.steps.map((step, index) => (
-                <div key={`${step.id}-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
-                  <div className="flex items-start gap-3">
-                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-white text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
-                      {index + 1}
-                    </span>
-                    <span>
-                      <span className="block text-sm font-semibold text-slate-950">{step.label}</span>
-                      <span className="block text-xs leading-5 text-slate-500">{step.description}</span>
-                    </span>
+                    <AtlasStatusBadge tone={selected ? "info" : visual.tone}>{visual.maturity}</AtlasStatusBadge>
                   </div>
-                </div>
-              ))}
-            </div>
-          </AtlasCard>
+                  <div className="mt-4 text-[11px] font-semibold uppercase tracking-wide text-slate-500">{visual.category}</div>
+                  <div className="mt-1 text-sm font-semibold text-slate-950">{option.label}</div>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">{option.description}</p>
+                </button>
+              );
+            })}
+          </div>
+        </AtlasCard>
 
-          <AtlasCard title="Analysis Patterns Available Inside Analytics Workbench" eyebrow="Reusable analytical patterns">
-            <div className="grid gap-3 md:grid-cols-2">
-              {analysisPatterns.map(([title, description]) => (
-                <div key={title} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                  <div className="text-sm font-semibold text-slate-950">{title}</div>
-                  <p className="mt-1 text-xs leading-5 text-slate-600">{description}</p>
-                </div>
-              ))}
-            </div>
-          </AtlasCard>
-        </div>
+        {projectType === "custom-workflow" && (
+          <CustomWorkflowEditor
+            name={customWorkflowName}
+            steps={customSteps}
+            onNameChange={setCustomWorkflowName}
+            onStepsChange={setCustomSteps}
+          />
+        )}
 
-        <aside className="sticky top-24 grid gap-5">
-          <AtlasCard title="Project Details" eyebrow="Required setup">
-            <label className="grid gap-1.5">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Project name</span>
-              <input className={inputClass} value={projectName} onChange={(event) => setProjectName(event.target.value)} />
+        <AtlasCard title={selectedWorkflow.label} eyebrow="Configured workflow">
+          <p className="text-sm leading-6 text-slate-600">{selectedWorkflow.description}</p>
+          <div className="mt-5 grid gap-2">
+            {selectedWorkflow.steps.map((step, index) => (
+              <div key={`${step.id}-${index}`} className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-3">
+                <div className="flex items-start gap-3">
+                  <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-white text-xs font-semibold text-slate-600 ring-1 ring-slate-200">
+                    {index + 1}
+                  </span>
+                  <span>
+                    <span className="block text-sm font-semibold text-slate-950">{step.label}</span>
+                    <span className="block text-xs leading-5 text-slate-500">{step.description}</span>
+                  </span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </AtlasCard>
+
+        <AtlasCard title="Analysis Patterns Available Inside Analytics Workbench" eyebrow="Reusable analytical patterns">
+          <div className="grid gap-3 md:grid-cols-2">
+            {analysisPatterns.map(([title, description]) => (
+              <div key={title} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                <div className="text-sm font-semibold text-slate-950">{title}</div>
+                <p className="mt-1 text-xs leading-5 text-slate-600">{description}</p>
+              </div>
+            ))}
+          </div>
+        </AtlasCard>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * UX-NEWPROJECT-001 (generalized): the ONE shared, unified Project Setup
+ * section used by every workflow type. Content (heading, description, field
+ * labels/placeholders/helper text, required-ness, button label, and the
+ * Required/Optional summary chips) is entirely driven by `config`
+ * (ProjectSetupFormConfig) -- this component contains no per-workflow
+ * branching of its own. It renders above the Workflow Library for every
+ * workflow, replacing the old light hero + narrow right-column form.
+ */
+function UnifiedProjectSetupSection({
+  config,
+  selectedWorkflow,
+  projectName,
+  onProjectNameChange,
+  modelId,
+  onModelIdChange,
+  setupGuidance,
+  canStartProject,
+  onSubmit,
+}: {
+  config: ProjectSetupFormConfig;
+  selectedWorkflow: { label: string; steps: WorkflowStep[] };
+  projectName: string;
+  onProjectNameChange: (value: string) => void;
+  modelId: string;
+  onModelIdChange: (value: string) => void;
+  setupGuidance: string;
+  canStartProject: boolean;
+  onSubmit: () => void;
+}) {
+  const nameFieldId = "new-project-name-field";
+  const modelIdFieldId = "new-project-model-id-field";
+  const nameInvalid = !projectName.trim();
+
+  return (
+    <section
+      className="rounded-lg border border-blue-900/60 bg-blue-950 p-6 text-white shadow-sm sm:p-8"
+      data-testid="unified-setup-section"
+    >
+      <div className="text-xs font-semibold uppercase tracking-[0.16em] text-sky-200">Project setup</div>
+      <h1 className="mt-2 max-w-4xl text-3xl font-semibold tracking-tight sm:text-4xl">Start a governed ATLAS project</h1>
+      <p className="mt-3 max-w-3xl text-sm leading-6 text-blue-100">
+        Choose the analytical objective first. ATLAS will configure the workflow, evidence expectations, and documentation
+        structure without changing the underlying project logic.
+      </p>
+
+      <div className="mt-5 flex flex-wrap gap-3" aria-label="Selected workflow summary">
+        <SetupSummaryChip label="Selected Workflow" value={selectedWorkflow.label} />
+        <SetupSummaryChip label="Steps" value={String(selectedWorkflow.steps.length)} />
+        <SetupSummaryChip label="Required Setup" value={config.requiredSummary} />
+        {config.optionalSummary && <SetupSummaryChip label="Optional" value={config.optionalSummary} />}
+      </div>
+
+      <form
+        className="mt-6 rounded-lg border border-white/15 bg-white/5 p-5"
+        onSubmit={(event) => {
+          event.preventDefault();
+          onSubmit();
+        }}
+      >
+        <h2 className="text-lg font-semibold text-white" data-testid="unified-setup-title">
+          {config.heading}
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-blue-100">{config.description}</p>
+
+        <div className={`mt-5 grid gap-4 ${config.modelIdField ? "sm:grid-cols-3" : ""}`}>
+          <div className={`grid gap-1.5 ${config.modelIdField ? "sm:col-span-2" : ""}`}>
+            <label htmlFor={nameFieldId} className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-blue-50">
+              {config.nameField.label}
+              <AtlasStatusBadge tone="neutral" className="normal-case tracking-normal">Required</AtlasStatusBadge>
             </label>
+            <input
+              id={nameFieldId}
+              className={inputClass}
+              value={projectName}
+              onChange={(event) => onProjectNameChange(event.target.value)}
+              placeholder={config.nameField.placeholder}
+              required
+              aria-required="true"
+              aria-invalid={nameInvalid}
+              aria-describedby={`${nameFieldId}-helper`}
+            />
+            <span id={`${nameFieldId}-helper`} className="text-xs leading-5 text-blue-100">
+              {config.nameField.helperText}
+            </span>
+          </div>
 
-            <label className="mt-4 grid gap-1.5">
-              <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Model ID #</span>
+          {config.modelIdField && (
+            <div className="grid gap-1.5">
+              <label htmlFor={modelIdFieldId} className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-blue-50">
+                {config.modelIdField.label}
+                <AtlasStatusBadge tone="neutral" className="normal-case tracking-normal">
+                  {config.modelIdField.required ? "Required" : "Optional"}
+                </AtlasStatusBadge>
+              </label>
               <input
+                id={modelIdFieldId}
                 className={inputClass}
                 value={modelId}
-                onChange={(event) => setModelId(event.target.value)}
-                placeholder="15211"
-                aria-required={requiresModelId ? "true" : "false"}
+                onChange={(event) => onModelIdChange(event.target.value)}
+                placeholder={config.modelIdField.placeholder}
+                required={config.modelIdField.required}
+                aria-required={config.modelIdField.required}
+                aria-invalid={config.modelIdField.required && !modelId.trim()}
+                aria-describedby={`${modelIdFieldId}-helper`}
               />
-              <span className="text-xs leading-5 text-slate-500">
-                {requiresModelId ? "Required for Predictive Modeling. Example: 15211 Portfolio Attrition Model." : `Optional for ${selectedWorkflow.label}. ATLAS will create a project identifier if left blank.`}
+              <span id={`${modelIdFieldId}-helper`} className="text-xs leading-5 text-blue-100">
+                {config.modelIdField.helperText}
               </span>
-            </label>
-
-            <div className="atlas-info-panel mt-4 text-sm">
-              <div className="font-semibold">{selectedWorkflow.label}</div>
-              <p className="mt-1 text-xs leading-5">The selected type controls the workflow map, recommendations, and documentation sections for this project.</p>
             </div>
+          )}
+        </div>
 
-            <button
-              type="button"
-              onClick={startProject}
-              disabled={!canStartProject}
-              title={!canStartProject ? (requiresModelId ? "Model ID # is required" : "Project name is required") : "Start Project"}
-              className="atlas-primary-button mt-5 w-full justify-center disabled:cursor-not-allowed disabled:bg-slate-400 disabled:text-white"
-            >
-              Start Project
-              <ArrowRight size={15} />
-            </button>
-          </AtlasCard>
-        </aside>
-      </section>
+        <p className="mt-4 text-xs leading-5 text-blue-100" role="status" aria-live="polite" data-testid="setup-guidance">
+          {setupGuidance}
+        </p>
+
+        <button
+          type="submit"
+          disabled={!canStartProject}
+          className="atlas-primary-button mt-3 w-full justify-center sm:w-auto disabled:cursor-not-allowed disabled:bg-slate-400 disabled:text-white"
+        >
+          {config.buttonLabel}
+          <ArrowRight size={15} />
+        </button>
+      </form>
+    </section>
+  );
+}
+
+function SetupSummaryChip({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-white/15 bg-white/10 px-3 py-2" data-testid={`setup-chip-${label}`}>
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-blue-200">{label}</div>
+      <div className="mt-0.5 text-sm font-semibold text-white" data-testid={`setup-chip-${label}-value`}>{value}</div>
     </div>
   );
 }

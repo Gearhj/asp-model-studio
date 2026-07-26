@@ -27,6 +27,8 @@ export type EChartsPanelProps = {
   emptyMessage?: string;
   errorMessage?: string;
   unsupportedMessage?: string;
+  /** Overrides the generic "Loading..." text so a caller can name the work in flight. */
+  loadingMessage?: string;
   height?: number;
   ariaLabel: string;
   /** Large data (>25k rows per largeDataPolicy.ts) forces Canvas; small data may use SVG
@@ -41,6 +43,7 @@ export type EChartsPanelProps = {
 export default function EChartsPanel({
   option, state = "ready", emptyMessage = "No data available for this view.",
   errorMessage = "This chart could not be rendered.", unsupportedMessage = "This visualization is not supported for the current selection.",
+  loadingMessage = "Loading...",
   height = 320, ariaLabel, renderer = "canvas", onChartReady, className,
 }: EChartsPanelProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -74,7 +77,7 @@ export default function EChartsPanel({
   }, []);
 
   if (state === "loading") {
-    return <div role="status" aria-live="polite" aria-label={`${ariaLabel}: loading`} className={`flex items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-sm text-slate-600 ${className ?? ""}`} style={{ height }}>Loading...</div>;
+    return <div role="status" aria-live="polite" aria-label={`${ariaLabel}: loading`} className={`flex items-center justify-center rounded-md border border-slate-200 bg-slate-50 text-sm text-slate-600 ${className ?? ""}`} style={{ height }}>{loadingMessage}</div>;
   }
   if (state === "empty") {
     return <div role="status" aria-label={`${ariaLabel}: empty`} className={`flex items-center justify-center rounded-md border border-dashed border-slate-300 bg-white text-sm text-slate-500 ${className ?? ""}`} style={{ height }}>{emptyMessage}</div>;

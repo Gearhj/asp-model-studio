@@ -1,0 +1,46 @@
+{
+  "projectId": "atlas-mrzpau4t",
+  "projectName": "Credit Card Transaction Fraud Model - TEST",
+  "evidenceType": "governance",
+  "title": "Predictive Modeling Project Context",
+  "summary": "Project Context completed with business objective, intended use, target definition, population definition, observation window, and performance window.",
+  "sourcePage": "Project Context",
+  "sourceRoute": "/step00",
+  "status": "needs_review",
+  "importance": "high",
+  "modelIds": [
+    "00001"
+  ],
+  "supportsSections": [
+    "1",
+    "3"
+  ],
+  "tags": [
+    "predictive_modeling",
+    "project_context",
+    "modeling_mission"
+  ],
+  "payload": {
+    "businessObjective": "Develop a predictive model that identifies credit card transactions with a high likelihood of fraud so that suspicious activity can be prioritized for investigation and intervention. The model should improve fraud detection while controlling false positives, unnecessary customer friction, and operational review volume.",
+    "intendedModelUse": "The model will be used by fraud strategy and operations teams to assign a fraud-risk score to eligible credit card transactions. The score may support transaction review, case prioritization, step-up authentication, or other fraud-prevention actions. The model will support, not replace, established business rules, operational procedures, and human judgment. Final customer-impacting actions must remain subject to approved policies, controls, and applicable review requirements.",
+    "targetDefinition": "The target outcome is whether a credit card transaction is subsequently confirmed as fraudulent. A positive outcome represents a transaction determined to be fraud through the approved fraud-confirmation process. A negative outcome represents a transaction not identified as fraud within the defined performance window.",
+    "populationDefinition": "The eligible population includes credit card purchase transactions for which the required transaction, account, customer, merchant, channel, and authorization-time attributes are available when the fraud-risk score is generated. Transactions outside the intended product scope, records with invalid or unusable identifiers, and transaction types governed by separate fraud strategies are excluded.",
+    "observationWindow": "Predictor information must be available at or before the time the transaction is evaluated. The observation window includes transaction characteristics, account and customer history, merchant behavior, channel information, prior fraud indicators, and other approved attributes available as of the authorization or scoring timestamp. No information generated after the scoring decision may be used as a predictor.",
+    "performanceWindow": "The performance window begins at the transaction scoring timestamp and continues for 90 days, allowing sufficient time for fraud confirmation, customer reporting, dispute processing, investigation, and final outcome assignment. The final target should be based on the approved fraud outcome available at the end of this window.",
+    "deploymentMode": "Development",
+    "modelType": "Generic Binary Classification",
+    "modelingMissionSummary": ""
+  },
+  "evidenceId": "ev-predictive-modeling-project-context-5efbecec2140a207",
+  "datasetIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "lineage": {},
+  "governance": {},
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-25T14:29:44.606773+00:00",
+  "updatedAt": "2026-07-25T14:29:44.606773+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 57
+}

@@ -11,6 +11,7 @@ from .project_repository import ProjectRepository
 from .run_repository import RunRepository
 from .scoring_run_repository import ScoringRunRepository
 from .sharing_repository import SharingRepository
+from .target_finding_repository import TargetFindingRepository
 from .notification_repository import NotificationRepository
 from .model_registry_repository import ModelRepository, ModelVersionRepository
 from .monitoring_repository import MonitoringRepository
@@ -32,6 +33,7 @@ __all__ = [
     "RunRepository",
     "ScoringRunRepository",
     "SharingRepository",
+    "TargetFindingRepository",
     "NotificationRepository",
     "ModelRepository",
     "ModelVersionRepository",

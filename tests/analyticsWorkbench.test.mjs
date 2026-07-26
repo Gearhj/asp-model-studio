@@ -76,7 +76,12 @@ assert(codeWorkspacePanel.includes("activeLanguage") && codeWorkspacePanel.inclu
 assert(workbench.includes("Run User Python") && codeExecutionLib.includes("/python/run"), "Workbench Python integration is missing.");
 assert(workbench.includes("context:") && workbench.includes("preview_rows") && workbench.includes("primary_preview_rows"), "Workbench does not pass dataset preview rows into Python execution context.");
 assert(workbench.includes("ATLAS Analytics Workbench Python smoke test passed."), "Workbench Python smoke test text is missing.");
-assert(pythonExecution.includes("ATLAS_CODE_SANDBOX_COMMAND") && pythonExecution.includes("execution_env()") && pythonExecution.includes("pd.DataFrame(preview_rows)"), "Python execution must require a sandbox and create df from preview_rows.");
+// The preview-row DataFrame construction moved into the governed runtime prelude
+// (server/code_execution/dataset_binding.py) when dataset binding was repaired;
+// the contract is unchanged -- df is still built from preview rows when the
+// project has no registered Dataset Library version.
+const datasetBinding = read("server/code_execution/dataset_binding.py");
+assert(pythonExecution.includes("ATLAS_CODE_SANDBOX_COMMAND") && pythonExecution.includes("execution_env()") && datasetBinding.includes("df = pd.DataFrame(ATLAS_PREVIEW_ROWS)"), "Python execution must require a sandbox and create df from preview rows.");
 assert(pythonExecution.includes('@router.get("/python/diagnostics")') && codeExecutionLib.includes("/python/diagnostics"), "Python diagnostics endpoint/client is missing.");
 assert(pythonExecution.includes("rscriptDetected") && pythonExecution.includes("saspyInstalled"), "R/SAS execution diagnostics are missing.");
 assert(pythonExecution.includes('@router.post("/code/r/run")') && codeExecutionLib.includes("/code/r/run"), "R execution endpoint/client is missing.");
@@ -137,7 +142,10 @@ assert(!workbench.includes("Export pivot analysis"), "Pivot module must not expo
 assert(workbench.includes("downloadExport") && workbench.includes('downloadExport("excel"') || workbench.includes('onExport("excel")'), "Analytics Workbench Excel export action is missing.");
 assert(workbench.includes("pivotRows") && workbench.includes("sqlResult") && workbench.includes("sasResult") && workbench.includes("pythonResult") && workbench.includes("rResult"), "Office export payload must include pivot, SQL, SAS-compatible, Python, and R outputs.");
 
-assert(pythonExecution.includes("context: Dict[str, Any]") && pythonExecution.includes("preview_rows = ATLAS_CONTEXT.get"), "Python execution endpoint does not inject preview_rows context.");
+// The context injection moved into the governed runtime prelude; the legacy
+// `preview_rows` / `ATLAS_CONTEXT` names are still emitted so previously-saved
+// Workbench and Notebook code keeps working.
+assert(pythonExecution.includes("context: Dict[str, Any]") && datasetBinding.includes("preview_rows = ATLAS_CONTEXT.get"), "Python execution must still inject preview_rows context.");
 
 assert(workbenchLib.includes("/analytics/insights") && workbenchLib.includes("/analytics/audit-run"), "Analytics frontend API client is incomplete.");
 assert(datasetDetail.includes("Saved Analytics Insights") && datasetDetail.includes("listAnalyticsInsights"), "Dataset Detail must show saved analytics insights.");

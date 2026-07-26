@@ -1758,18 +1758,12 @@
       "datasetId": "ds_class_train_982c7a7d_98716",
       "description": "",
       "domain": "General",
-      "linkedProjects": [
-        {
-          "datasetRole": "modeling",
-          "projectId": "atlas-mrp3y4tx",
-          "versionId": "v_1784336298716_982c7a7d"
-        }
-      ],
+      "linkedProjects": [],
       "name": "CLASS_TRAIN",
       "ownerDisplayName": "Local ATLAS User",
       "ownerUserId": "local-user",
       "sourceType": "upload",
-      "updatedAt": "2026-07-20T20:48:31.859063+00:00",
+      "updatedAt": "2026-07-24T21:06:05.008663+00:00",
       "versions": [
         {
           "columnCount": 31,
@@ -1793,40 +1787,129 @@
       "access": [
         {
           "role": "owner",
-          "userId": "user_7591b60a2b4b4447"
+          "userId": "user_d8bbe3ff73a84fb5"
         }
       ],
-      "archived": true,
-      "createdAt": "2026-07-24T03:05:57.514676+00:00",
-      "datasetId": "ds_e2e-class-train-registered-asset_e55eb298",
+      "archived": false,
+      "createdAt": "2026-07-25T14:31:10.936587+00:00",
+      "datasetId": "ds_class_train_982c7a7d_35930",
+      "description": "",
+      "domain": "General",
+      "linkedProjects": [
+        {
+          "datasetRole": "modeling",
+          "projectId": "atlas-mrzpau4t",
+          "versionId": "v_1784989835930_982c7a7d"
+        },
+        {
+          "datasetRole": "modeling",
+          "projectId": "atlas-ms26batt",
+          "versionId": "v_1784989835930_982c7a7d"
+        },
+        {
+          "datasetRole": "modeling",
+          "projectId": "atlas-ms26dxtg",
+          "versionId": "v_1784989835930_982c7a7d"
+        },
+        {
+          "datasetRole": "modeling",
+          "projectId": "atlas-ms26g185",
+          "versionId": "v_1784989835930_982c7a7d"
+        },
+        {
+          "datasetRole": "modeling",
+          "projectId": "atlas-ms26ke17",
+          "versionId": "v_1784989835930_982c7a7d"
+        },
+        {
+          "datasetRole": "modeling",
+          "projectId": "atlas-ms2ak10j",
+          "versionId": "v_1784989835930_982c7a7d"
+        },
+        {
+          "datasetRole": "modeling",
+          "projectId": "atlas-ms2aovvg",
+          "versionId": "v_1784989835930_982c7a7d"
+        },
+        {
+          "datasetRole": "modeling",
+          "projectId": "atlas-ms2aqqal",
+          "versionId": "v_1784989835930_982c7a7d"
+        },
+        {
+          "datasetRole": "modeling",
+          "projectId": "atlas-ms2atkdd",
+          "versionId": "v_1784989835930_982c7a7d"
+        }
+      ],
+      "name": "CLASS_TRAIN",
+      "ownerDisplayName": "James",
+      "ownerUserId": "user_d8bbe3ff73a84fb5",
+      "sourceType": "upload",
+      "updatedAt": "2026-07-26T21:17:20.507725+00:00",
+      "versions": [
+        {
+          "columnCount": 31,
+          "createdAt": "2026-07-25T14:31:10.935587+00:00",
+          "createdBy": "user_d8bbe3ff73a84fb5",
+          "fullDataPath": "ds_class_train_982c7a7d_35930\\versions\\v_1784989835930_982c7a7d\\data_full.csv",
+          "hash": "982c7a7d79677dbc2497c7191182f5bd9a4fae89ffd18238ed1202e96999193c",
+          "originalFilename": "CLASS_TRAIN.csv",
+          "previewPath": "ds_class_train_982c7a7d_35930\\versions\\v_1784989835930_982c7a7d\\preview.json",
+          "profilePath": "ds_class_train_982c7a7d_35930\\versions\\v_1784989835930_982c7a7d\\profile.json",
+          "rowCount": 170884,
+          "samplePath": "ds_class_train_982c7a7d_35930\\versions\\v_1784989835930_982c7a7d\\data_sample.csv",
+          "versionId": "v_1784989835930_982c7a7d",
+          "warnings": [
+            "35 duplicate rows detected in the profiled sample."
+          ]
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "user_b9f5ef0ba0a64588"
+        }
+      ],
+      "archived": false,
+      "createdAt": "2026-07-26T02:46:36.634989+00:00",
+      "datasetId": "ds_scope-governed-asset-1785033974581_e55eb298",
       "datasetRole": "development",
       "description": "",
       "domain": "General",
-      "linkedProjects": [],
-      "name": "E2E CLASS TRAIN Registered Asset",
-      "ownerDisplayName": "E2E dsLifecycle mrycy0ji5pzy",
-      "ownerUserId": "user_7591b60a2b4b4447",
+      "linkedProjects": [
+        {
+          "datasetRole": "development",
+          "projectId": "atlas-ms172xrs",
+          "versionId": "v_1785033982873_e55eb298"
+        }
+      ],
+      "name": "Scope Governed Asset 1785033974581",
+      "ownerDisplayName": "E2E scope ms172t67mq3g",
+      "ownerUserId": "user_b9f5ef0ba0a64588",
       "sourceInfo": {
         "originalSource": {},
-        "projectId": "atlas-mrycy50e",
+        "projectId": "atlas-ms172xrs",
         "tags": [],
         "target": "Class"
       },
       "sourceType": "workspace_upload",
-      "updatedAt": "2026-07-24T03:22:18.418892+00:00",
+      "updatedAt": "2026-07-26T02:46:39.194362+00:00",
       "versions": [
         {
           "columnCount": 31,
-          "createdAt": "2026-07-24T03:05:57.513676+00:00",
-          "createdBy": "user_7591b60a2b4b4447",
-          "fullDataPath": "ds_e2e-class-train-registered-asset_e55eb298\\versions\\v_1784862355002_e55eb298\\data_full.csv",
+          "createdAt": "2026-07-26T02:46:36.633990+00:00",
+          "createdBy": "user_b9f5ef0ba0a64588",
+          "fullDataPath": "ds_scope-governed-asset-1785033974581_e55eb298\\versions\\v_1785033982873_e55eb298\\data_full.csv",
           "hash": "e55eb2983289815ec6035d27c4df3f6141e93098ce1380d58a33f889d6e510df",
-          "originalFilename": "e2e-class-train-registered-asset.csv",
-          "previewPath": "ds_e2e-class-train-registered-asset_e55eb298\\versions\\v_1784862355002_e55eb298\\preview.json",
-          "profilePath": "ds_e2e-class-train-registered-asset_e55eb298\\versions\\v_1784862355002_e55eb298\\profile.json",
+          "originalFilename": "scope-governed-asset-1785033974581.csv",
+          "previewPath": "ds_scope-governed-asset-1785033974581_e55eb298\\versions\\v_1785033982873_e55eb298\\preview.json",
+          "profilePath": "ds_scope-governed-asset-1785033974581_e55eb298\\versions\\v_1785033982873_e55eb298\\profile.json",
           "rowCount": 4000,
-          "samplePath": "ds_e2e-class-train-registered-asset_e55eb298\\versions\\v_1784862355002_e55eb298\\data_sample.csv",
-          "versionId": "v_1784862355002_e55eb298",
+          "samplePath": "ds_scope-governed-asset-1785033974581_e55eb298\\versions\\v_1785033982873_e55eb298\\data_sample.csv",
+          "versionId": "v_1785033982873_e55eb298",
           "warnings": []
         }
       ]
@@ -1835,40 +1918,46 @@
       "access": [
         {
           "role": "owner",
-          "userId": "user_fda25e7d06a94c33"
+          "userId": "user_e98983df1f814b99"
         }
       ],
-      "archived": true,
-      "createdAt": "2026-07-24T03:08:47.081932+00:00",
-      "datasetId": "ds_e2e-class-train-registered-asset_e55eb298_25609",
+      "archived": false,
+      "createdAt": "2026-07-26T02:52:23.121088+00:00",
+      "datasetId": "ds_scope-governed-asset-1785034322618_e55eb298",
       "datasetRole": "development",
       "description": "",
       "domain": "General",
-      "linkedProjects": [],
-      "name": "E2E CLASS TRAIN Registered Asset",
-      "ownerDisplayName": "E2E dsLifecycle mryd1q36m63y",
-      "ownerUserId": "user_fda25e7d06a94c33",
+      "linkedProjects": [
+        {
+          "datasetRole": "development",
+          "projectId": "atlas-ms17a9yu",
+          "versionId": "v_1785034328713_e55eb298"
+        }
+      ],
+      "name": "Scope Governed Asset 1785034322618",
+      "ownerDisplayName": "E2E scope ms17a5vh0zmw",
+      "ownerUserId": "user_e98983df1f814b99",
       "sourceInfo": {
         "originalSource": {},
-        "projectId": "atlas-mryd1uko",
+        "projectId": "atlas-ms17a9yu",
         "tags": [],
         "target": "Class"
       },
       "sourceType": "workspace_upload",
-      "updatedAt": "2026-07-24T03:22:20.400089+00:00",
+      "updatedAt": "2026-07-26T02:52:24.241781+00:00",
       "versions": [
         {
           "columnCount": 31,
-          "createdAt": "2026-07-24T03:08:47.080936+00:00",
-          "createdBy": "user_fda25e7d06a94c33",
-          "fullDataPath": "ds_e2e-class-train-registered-asset_e55eb298_25609\\versions\\v_1784862525609_e55eb298\\data_full.csv",
+          "createdAt": "2026-07-26T02:52:23.120089+00:00",
+          "createdBy": "user_e98983df1f814b99",
+          "fullDataPath": "ds_scope-governed-asset-1785034322618_e55eb298\\versions\\v_1785034328713_e55eb298\\data_full.csv",
           "hash": "e55eb2983289815ec6035d27c4df3f6141e93098ce1380d58a33f889d6e510df",
-          "originalFilename": "e2e-class-train-registered-asset.csv",
-          "previewPath": "ds_e2e-class-train-registered-asset_e55eb298_25609\\versions\\v_1784862525609_e55eb298\\preview.json",
-          "profilePath": "ds_e2e-class-train-registered-asset_e55eb298_25609\\versions\\v_1784862525609_e55eb298\\profile.json",
+          "originalFilename": "scope-governed-asset-1785034322618.csv",
+          "previewPath": "ds_scope-governed-asset-1785034322618_e55eb298\\versions\\v_1785034328713_e55eb298\\preview.json",
+          "profilePath": "ds_scope-governed-asset-1785034322618_e55eb298\\versions\\v_1785034328713_e55eb298\\profile.json",
           "rowCount": 4000,
-          "samplePath": "ds_e2e-class-train-registered-asset_e55eb298_25609\\versions\\v_1784862525609_e55eb298\\data_sample.csv",
-          "versionId": "v_1784862525609_e55eb298",
+          "samplePath": "ds_scope-governed-asset-1785034322618_e55eb298\\versions\\v_1785034328713_e55eb298\\data_sample.csv",
+          "versionId": "v_1785034328713_e55eb298",
           "warnings": []
         }
       ]
@@ -1877,40 +1966,46 @@
       "access": [
         {
           "role": "owner",
-          "userId": "user_80258f1cb5af4f61"
+          "userId": "user_1317404232404b98"
         }
       ],
-      "archived": true,
-      "createdAt": "2026-07-24T03:12:17.648546+00:00",
-      "datasetId": "ds_e2e-class-train-registered-asset_e55eb298_33705",
+      "archived": false,
+      "createdAt": "2026-07-26T03:08:06.660947+00:00",
+      "datasetId": "ds_scope-governed-asset-1785035263878_e55eb298",
       "datasetRole": "development",
       "description": "",
       "domain": "General",
-      "linkedProjects": [],
-      "name": "E2E CLASS TRAIN Registered Asset",
-      "ownerDisplayName": "E2E dsLifecycle mryd6460yayu",
-      "ownerUserId": "user_80258f1cb5af4f61",
+      "linkedProjects": [
+        {
+          "datasetRole": "development",
+          "projectId": "atlas-ms17ue7y",
+          "versionId": "v_1785035272162_e55eb298"
+        }
+      ],
+      "name": "Scope Governed Asset 1785035263878",
+      "ownerDisplayName": "E2E scope ms17ua1x5jn1",
+      "ownerUserId": "user_1317404232404b98",
       "sourceInfo": {
         "originalSource": {},
-        "projectId": "atlas-mryd69qe",
+        "projectId": "atlas-ms17ue7y",
         "tags": [],
         "target": "Class"
       },
       "sourceType": "workspace_upload",
-      "updatedAt": "2026-07-24T03:22:22.088206+00:00",
+      "updatedAt": "2026-07-26T03:08:09.208153+00:00",
       "versions": [
         {
           "columnCount": 31,
-          "createdAt": "2026-07-24T03:12:17.648546+00:00",
-          "createdBy": "user_80258f1cb5af4f61",
-          "fullDataPath": "ds_e2e-class-train-registered-asset_e55eb298_33705\\versions\\v_1784862733705_e55eb298\\data_full.csv",
+          "createdAt": "2026-07-26T03:08:06.659947+00:00",
+          "createdBy": "user_1317404232404b98",
+          "fullDataPath": "ds_scope-governed-asset-1785035263878_e55eb298\\versions\\v_1785035272162_e55eb298\\data_full.csv",
           "hash": "e55eb2983289815ec6035d27c4df3f6141e93098ce1380d58a33f889d6e510df",
-          "originalFilename": "e2e-class-train-registered-asset.csv",
-          "previewPath": "ds_e2e-class-train-registered-asset_e55eb298_33705\\versions\\v_1784862733705_e55eb298\\preview.json",
-          "profilePath": "ds_e2e-class-train-registered-asset_e55eb298_33705\\versions\\v_1784862733705_e55eb298\\profile.json",
+          "originalFilename": "scope-governed-asset-1785035263878.csv",
+          "previewPath": "ds_scope-governed-asset-1785035263878_e55eb298\\versions\\v_1785035272162_e55eb298\\preview.json",
+          "profilePath": "ds_scope-governed-asset-1785035263878_e55eb298\\versions\\v_1785035272162_e55eb298\\profile.json",
           "rowCount": 4000,
-          "samplePath": "ds_e2e-class-train-registered-asset_e55eb298_33705\\versions\\v_1784862733705_e55eb298\\data_sample.csv",
-          "versionId": "v_1784862733705_e55eb298",
+          "samplePath": "ds_scope-governed-asset-1785035263878_e55eb298\\versions\\v_1785035272162_e55eb298\\data_sample.csv",
+          "versionId": "v_1785035272162_e55eb298",
           "warnings": []
         }
       ]
@@ -1919,40 +2014,299 @@
       "access": [
         {
           "role": "owner",
-          "userId": "user_0450d226159147ff"
+          "userId": "user_d4436d2bbab5478e"
         }
       ],
-      "archived": true,
-      "createdAt": "2026-07-24T13:06:53.993767+00:00",
-      "datasetId": "ds_e2e-class-train-registered-asset_e55eb298_11610",
+      "archived": false,
+      "createdAt": "2026-07-26T03:18:19.861448+00:00",
+      "datasetId": "ds_scope-governed-asset-1785035873801_e55eb298",
       "datasetRole": "development",
       "description": "",
       "domain": "General",
-      "linkedProjects": [],
-      "name": "E2E CLASS TRAIN Registered Asset",
-      "ownerDisplayName": "E2E dsLifecycle mryyew0h7ncv",
-      "ownerUserId": "user_0450d226159147ff",
+      "linkedProjects": [
+        {
+          "datasetRole": "development",
+          "projectId": "atlas-ms187hsr",
+          "versionId": "v_1785035880587_e55eb298"
+        }
+      ],
+      "name": "Scope Governed Asset 1785035873801",
+      "ownerDisplayName": "E2E scope ms187dqskez7",
+      "ownerUserId": "user_d4436d2bbab5478e",
       "sourceInfo": {
         "originalSource": {},
-        "projectId": "atlas-mryyf01i",
+        "projectId": "atlas-ms187hsr",
         "tags": [],
         "target": "Class"
       },
       "sourceType": "workspace_upload",
-      "updatedAt": "2026-07-24T13:20:54.546901+00:00",
+      "updatedAt": "2026-07-26T03:18:21.229419+00:00",
       "versions": [
         {
           "columnCount": 31,
-          "createdAt": "2026-07-24T13:06:53.978075+00:00",
-          "createdBy": "user_0450d226159147ff",
-          "fullDataPath": "ds_e2e-class-train-registered-asset_e55eb298_11610\\versions\\v_1784898411610_e55eb298\\data_full.csv",
+          "createdAt": "2026-07-26T03:18:19.860449+00:00",
+          "createdBy": "user_d4436d2bbab5478e",
+          "fullDataPath": "ds_scope-governed-asset-1785035873801_e55eb298\\versions\\v_1785035880587_e55eb298\\data_full.csv",
           "hash": "e55eb2983289815ec6035d27c4df3f6141e93098ce1380d58a33f889d6e510df",
-          "originalFilename": "e2e-class-train-registered-asset.csv",
-          "previewPath": "ds_e2e-class-train-registered-asset_e55eb298_11610\\versions\\v_1784898411610_e55eb298\\preview.json",
-          "profilePath": "ds_e2e-class-train-registered-asset_e55eb298_11610\\versions\\v_1784898411610_e55eb298\\profile.json",
+          "originalFilename": "scope-governed-asset-1785035873801.csv",
+          "previewPath": "ds_scope-governed-asset-1785035873801_e55eb298\\versions\\v_1785035880587_e55eb298\\preview.json",
+          "profilePath": "ds_scope-governed-asset-1785035873801_e55eb298\\versions\\v_1785035880587_e55eb298\\profile.json",
           "rowCount": 4000,
-          "samplePath": "ds_e2e-class-train-registered-asset_e55eb298_11610\\versions\\v_1784898411610_e55eb298\\data_sample.csv",
-          "versionId": "v_1784898411610_e55eb298",
+          "samplePath": "ds_scope-governed-asset-1785035873801_e55eb298\\versions\\v_1785035880587_e55eb298\\data_sample.csv",
+          "versionId": "v_1785035880587_e55eb298",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "user_d52a8a81359b4b8f"
+        }
+      ],
+      "archived": false,
+      "createdAt": "2026-07-26T03:24:10.609048+00:00",
+      "datasetId": "ds_scope-governed-asset-1785036217683_e55eb298",
+      "datasetRole": "development",
+      "description": "",
+      "domain": "General",
+      "linkedProjects": [
+        {
+          "datasetRole": "development",
+          "projectId": "atlas-ms18eofr",
+          "versionId": "v_1785036237378_e55eb298"
+        }
+      ],
+      "name": "Scope Governed Asset 1785036217683",
+      "ownerDisplayName": "E2E scope ms18ek7sk3f6",
+      "ownerUserId": "user_d52a8a81359b4b8f",
+      "sourceInfo": {
+        "originalSource": {},
+        "projectId": "atlas-ms18eofr",
+        "tags": [],
+        "target": "Class"
+      },
+      "sourceType": "workspace_upload",
+      "updatedAt": "2026-07-26T03:24:11.910612+00:00",
+      "versions": [
+        {
+          "columnCount": 31,
+          "createdAt": "2026-07-26T03:24:10.608040+00:00",
+          "createdBy": "user_d52a8a81359b4b8f",
+          "fullDataPath": "ds_scope-governed-asset-1785036217683_e55eb298\\versions\\v_1785036237378_e55eb298\\data_full.csv",
+          "hash": "e55eb2983289815ec6035d27c4df3f6141e93098ce1380d58a33f889d6e510df",
+          "originalFilename": "scope-governed-asset-1785036217683.csv",
+          "previewPath": "ds_scope-governed-asset-1785036217683_e55eb298\\versions\\v_1785036237378_e55eb298\\preview.json",
+          "profilePath": "ds_scope-governed-asset-1785036217683_e55eb298\\versions\\v_1785036237378_e55eb298\\profile.json",
+          "rowCount": 4000,
+          "samplePath": "ds_scope-governed-asset-1785036217683_e55eb298\\versions\\v_1785036237378_e55eb298\\data_sample.csv",
+          "versionId": "v_1785036237378_e55eb298",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "user_ba0b20bd9f124cbd"
+        }
+      ],
+      "archived": false,
+      "createdAt": "2026-07-26T03:27:41.561812+00:00",
+      "datasetId": "ds_scope-perf-4deb0d0fe0_b1521ff8",
+      "description": "perf",
+      "domain": "general",
+      "linkedProjects": [
+        {
+          "datasetRole": "modeling",
+          "projectId": "project_6d9167e1c7f24d3f8a6277d83558d923",
+          "versionId": "v_1785036447284_b1521ff8"
+        }
+      ],
+      "name": "scope-perf-4deb0d0fe0",
+      "ownerDisplayName": "ScopePerf 4deb0d0fe0",
+      "ownerUserId": "user_ba0b20bd9f124cbd",
+      "sourceType": "upload",
+      "updatedAt": "2026-07-26T03:27:45.999637+00:00",
+      "versions": [
+        {
+          "columnCount": 31,
+          "createdAt": "2026-07-26T03:27:41.560817+00:00",
+          "createdBy": "user_ba0b20bd9f124cbd",
+          "fullDataPath": "ds_scope-perf-4deb0d0fe0_b1521ff8\\versions\\v_1785036447284_b1521ff8\\data_full.csv",
+          "hash": "b1521ff8018c40257d3c9be8dc0713f483c0411cb20858c71d524bb06dbfd2a8",
+          "originalFilename": "e2e_audit_classification_dev.csv",
+          "previewPath": "ds_scope-perf-4deb0d0fe0_b1521ff8\\versions\\v_1785036447284_b1521ff8\\preview.json",
+          "profilePath": "ds_scope-perf-4deb0d0fe0_b1521ff8\\versions\\v_1785036447284_b1521ff8\\profile.json",
+          "rowCount": 4000,
+          "samplePath": "ds_scope-perf-4deb0d0fe0_b1521ff8\\versions\\v_1785036447284_b1521ff8\\data_sample.csv",
+          "versionId": "v_1785036447284_b1521ff8",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "user_5665e5ab3eaf493f"
+        }
+      ],
+      "archived": false,
+      "createdAt": "2026-07-26T03:37:57.281788+00:00",
+      "datasetId": "ds_scope-perf-87e6a9e45d_b1521ff8",
+      "description": "perf",
+      "domain": "general",
+      "linkedProjects": [
+        {
+          "datasetRole": "modeling",
+          "projectId": "project_b85131e14aa945c6ba8045ad83ca3740",
+          "versionId": "v_1785037075160_b1521ff8"
+        }
+      ],
+      "name": "scope-perf-87e6a9e45d",
+      "ownerDisplayName": "ScopePerf 87e6a9e45d",
+      "ownerUserId": "user_5665e5ab3eaf493f",
+      "sourceType": "upload",
+      "updatedAt": "2026-07-26T03:38:10.445064+00:00",
+      "versions": [
+        {
+          "columnCount": 31,
+          "createdAt": "2026-07-26T03:37:57.280788+00:00",
+          "createdBy": "user_5665e5ab3eaf493f",
+          "fullDataPath": "ds_scope-perf-87e6a9e45d_b1521ff8\\versions\\v_1785037075160_b1521ff8\\data_full.csv",
+          "hash": "b1521ff8018c40257d3c9be8dc0713f483c0411cb20858c71d524bb06dbfd2a8",
+          "originalFilename": "e2e_audit_classification_dev.csv",
+          "previewPath": "ds_scope-perf-87e6a9e45d_b1521ff8\\versions\\v_1785037075160_b1521ff8\\preview.json",
+          "profilePath": "ds_scope-perf-87e6a9e45d_b1521ff8\\versions\\v_1785037075160_b1521ff8\\profile.json",
+          "rowCount": 4000,
+          "samplePath": "ds_scope-perf-87e6a9e45d_b1521ff8\\versions\\v_1785037075160_b1521ff8\\data_sample.csv",
+          "versionId": "v_1785037075160_b1521ff8",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "user_bffd448c47a8414a"
+        }
+      ],
+      "archived": false,
+      "createdAt": "2026-07-26T03:39:15.559962+00:00",
+      "datasetId": "ds_perf-c45d2f61_b1521ff8",
+      "description": "d",
+      "domain": "general",
+      "linkedProjects": [
+        {
+          "datasetRole": "modeling",
+          "projectId": "project_29b86b7cd9104e40a41e67f32052da5c",
+          "versionId": "v_1785037153520_b1521ff8"
+        }
+      ],
+      "name": "perf-c45d2f61",
+      "ownerDisplayName": "P",
+      "ownerUserId": "user_bffd448c47a8414a",
+      "sourceType": "upload",
+      "updatedAt": "2026-07-26T03:39:15.745028+00:00",
+      "versions": [
+        {
+          "columnCount": 31,
+          "createdAt": "2026-07-26T03:39:15.558962+00:00",
+          "createdBy": "user_bffd448c47a8414a",
+          "fullDataPath": "ds_perf-c45d2f61_b1521ff8\\versions\\v_1785037153520_b1521ff8\\data_full.csv",
+          "hash": "b1521ff8018c40257d3c9be8dc0713f483c0411cb20858c71d524bb06dbfd2a8",
+          "originalFilename": "f.csv",
+          "previewPath": "ds_perf-c45d2f61_b1521ff8\\versions\\v_1785037153520_b1521ff8\\preview.json",
+          "profilePath": "ds_perf-c45d2f61_b1521ff8\\versions\\v_1785037153520_b1521ff8\\profile.json",
+          "rowCount": 4000,
+          "samplePath": "ds_perf-c45d2f61_b1521ff8\\versions\\v_1785037153520_b1521ff8\\data_sample.csv",
+          "versionId": "v_1785037153520_b1521ff8",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "user_cde6b0997444498f"
+        }
+      ],
+      "archived": false,
+      "createdAt": "2026-07-26T03:39:43.847369+00:00",
+      "datasetId": "ds_scope-perf-d502f4b5a9_b1521ff8",
+      "description": "perf",
+      "domain": "general",
+      "linkedProjects": [
+        {
+          "datasetRole": "modeling",
+          "projectId": "project_e98fd0a83e4b468d99cad4a3ba6589a9",
+          "versionId": "v_1785037182132_b1521ff8"
+        }
+      ],
+      "name": "scope-perf-d502f4b5a9",
+      "ownerDisplayName": "ScopePerf d502f4b5a9",
+      "ownerUserId": "user_cde6b0997444498f",
+      "sourceType": "upload",
+      "updatedAt": "2026-07-26T03:39:57.362535+00:00",
+      "versions": [
+        {
+          "columnCount": 31,
+          "createdAt": "2026-07-26T03:39:43.846824+00:00",
+          "createdBy": "user_cde6b0997444498f",
+          "fullDataPath": "ds_scope-perf-d502f4b5a9_b1521ff8\\versions\\v_1785037182132_b1521ff8\\data_full.csv",
+          "hash": "b1521ff8018c40257d3c9be8dc0713f483c0411cb20858c71d524bb06dbfd2a8",
+          "originalFilename": "e2e_audit_classification_dev.csv",
+          "previewPath": "ds_scope-perf-d502f4b5a9_b1521ff8\\versions\\v_1785037182132_b1521ff8\\preview.json",
+          "profilePath": "ds_scope-perf-d502f4b5a9_b1521ff8\\versions\\v_1785037182132_b1521ff8\\profile.json",
+          "rowCount": 4000,
+          "samplePath": "ds_scope-perf-d502f4b5a9_b1521ff8\\versions\\v_1785037182132_b1521ff8\\data_sample.csv",
+          "versionId": "v_1785037182132_b1521ff8",
+          "warnings": []
+        }
+      ]
+    },
+    {
+      "access": [
+        {
+          "role": "owner",
+          "userId": "user_dfba9c9e612449ff"
+        }
+      ],
+      "archived": false,
+      "createdAt": "2026-07-26T03:40:47.569513+00:00",
+      "datasetId": "ds_scope-perf-e2e51e72e8_b1521ff8",
+      "description": "perf",
+      "domain": "general",
+      "linkedProjects": [
+        {
+          "datasetRole": "modeling",
+          "projectId": "project_fd7175ec1d8e4a62b161c4b8fc544a79",
+          "versionId": "v_1785037246006_b1521ff8"
+        }
+      ],
+      "name": "scope-perf-e2e51e72e8",
+      "ownerDisplayName": "ScopePerf e2e51e72e8",
+      "ownerUserId": "user_dfba9c9e612449ff",
+      "sourceType": "upload",
+      "updatedAt": "2026-07-26T03:41:00.312459+00:00",
+      "versions": [
+        {
+          "columnCount": 31,
+          "createdAt": "2026-07-26T03:40:47.569513+00:00",
+          "createdBy": "user_dfba9c9e612449ff",
+          "fullDataPath": "ds_scope-perf-e2e51e72e8_b1521ff8\\versions\\v_1785037246006_b1521ff8\\data_full.csv",
+          "hash": "b1521ff8018c40257d3c9be8dc0713f483c0411cb20858c71d524bb06dbfd2a8",
+          "originalFilename": "e2e_audit_classification_dev.csv",
+          "previewPath": "ds_scope-perf-e2e51e72e8_b1521ff8\\versions\\v_1785037246006_b1521ff8\\preview.json",
+          "profilePath": "ds_scope-perf-e2e51e72e8_b1521ff8\\versions\\v_1785037246006_b1521ff8\\profile.json",
+          "rowCount": 4000,
+          "samplePath": "ds_scope-perf-e2e51e72e8_b1521ff8\\versions\\v_1785037246006_b1521ff8\\data_sample.csv",
+          "versionId": "v_1785037246006_b1521ff8",
           "warnings": []
         }
       ]

@@ -70,7 +70,6 @@ import {
   type SuggestedFactor,
 } from "../lib/experimentalDesign";
 import { useWorkflowStore } from "../state/useWorkflowStore";
-import { getSelectionGuidance } from "../lib/selectDecisionSupport";
 import { saveExportToDatabase } from "../lib/serverPersistence";
 import OptimizationWorkflowStep from "../features/optimization/OptimizationWorkflowStep";
 
@@ -1842,7 +1841,6 @@ function GovernanceDocumentationPanel({
               <option key={method} value={method}>{method}</option>
             ))}
           </select>
-          <DropdownDefinition value={state.method} />
         </label>
         <MetricPicker options={config.metrics} selected={state.metrics} onChange={(metrics) => setState({ ...state, metrics })} />
         <button
@@ -1905,194 +1903,6 @@ function InlineSuccess({ message }: { message: string }) {
   );
 }
 
-type DropdownGuidance = {
-  definition: string;
-  useWhen: string;
-  example?: string;
-};
-
-const dropdownDefinitions: Record<string, DropdownGuidance> = {
-  "Dataset Library": {
-    definition: "Links an immutable, governed ATLAS dataset version with row count, schema, owner, and lineage metadata.",
-    useWhen: "Use when historical, pilot, or completed-experiment observations already exist in ATLAS.",
-    example: "Link the approved pilot dataset to estimate baseline variance before finalizing sample size.",
-  },
-  "File upload": {
-    definition: "Registers an uploaded file as a versioned Dataset Library artifact before it is used by the design.",
-    useWhen: "Use when source observations exist locally but have not yet been governed in ATLAS.",
-    example: "Upload a completed field-test extract and map its unit, factor, and response columns.",
-  },
-  "SQL / warehouse": {
-    definition: "Documents a governed warehouse table or query as the source of experimental observations.",
-    useWhen: "Use when the system of record is a database and extraction logic must be reproducible.",
-    example: "Capture the approved analytics schema and query version used to assemble experiment outcomes.",
-  },
-  "API / event stream": {
-    definition: "Collects assignment, exposure, or response events from an application API or event stream.",
-    useWhen: "Use for online experiments or operational systems where observations arrive continuously.",
-    example: "Join assignment events to conversion events using experiment unit ID and response window.",
-  },
-  "Operational capture plan": {
-    definition: "Defines a prospective dataset before records exist, including schema, cadence, lineage, and quality controls.",
-    useWhen: "Use for a new field experiment whose observations will be generated after launch.",
-    example: "Capture treatment assignment, customer ID, activation response, campaign wave, and observation timestamp daily.",
-  },
-  "Survey / instrument": {
-    definition: "Collects structured responses from an approved survey, measurement instrument, or assessment.",
-    useWhen: "Use when the response is measured directly from participants rather than an operational event system.",
-    example: "Collect a validated satisfaction scale at baseline and after treatment.",
-  },
-  "Lab instrument": {
-    definition: "Captures controlled measurements from laboratory or technical equipment.",
-    useWhen: "Use when instrument calibration, run order, and batch provenance are part of experimental validity.",
-    example: "Record instrument ID, calibration version, run ID, factor settings, and measured response.",
-  },
-  "Manual controlled collection": {
-    definition: "Uses a controlled operator-entered collection process with explicit reconciliation and sign-off.",
-    useWhen: "Use only when automated capture is unavailable and the operational control can be audited.",
-    example: "A reviewer records treatment delivery and response using a locked run sheet with dual approval.",
-  },
-  "Full factorial": {
-    definition: "Tests all combinations of selected factors and levels so main effects and interactions can be estimated.",
-    useWhen: "Use when treatment-cell count and sample size are manageable.",
-    example: "2 pricing levels x 2 contact channels = 4 treatment cells.",
-  },
-  "Fractional factorial": {
-    definition: "Tests a structured subset of combinations to screen important drivers.",
-    useWhen: "Use when a full factorial design creates too many treatment cells.",
-    example: "Screen eight offer variables without launching all 256 combinations.",
-  },
-  "Randomized block": {
-    definition: "Compares treatments while controlling one known nuisance source of variation.",
-    useWhen: "Use when a variable shifts outcomes but is not itself a treatment.",
-    example: "Block by campaign wave before assigning pricing treatments.",
-  },
-  "Randomized block design": {
-    definition: "Compares treatments while controlling one known source of variation.",
-    useWhen: "Use when assignment should stay balanced within a known subgroup.",
-    example: "Randomize treatments separately within credit risk tiers.",
-  },
-  "Screening Experiment": {
-    definition: "Tests many factors quickly to identify which factors likely matter.",
-    useWhen: "Use early in discovery when the factor list is broad.",
-    example: "Screen pricing, channel, timing, and message factors before optimization.",
-  },
-  "Factorial Experiment": {
-    definition: "Tests multiple factors and their interactions in one integrated design.",
-    useWhen: "Use when main effects and combined effects both matter.",
-    example: "Estimate whether personalized pricing works differently by channel.",
-  },
-  "Response surface": {
-    definition: "Optimizes continuous inputs after important factors are known.",
-    useWhen: "Use when the goal is finding an optimal setting, not just comparing fixed options.",
-    example: "Optimize APR discount and contact frequency after screening.",
-  },
-  "Response Surface": {
-    definition: "Optimizes continuous inputs after important factors are known.",
-    useWhen: "Use when the objective is a best setting under constraints.",
-    example: "Find the pricing point that maximizes activation while controlling complaints.",
-  },
-  Taguchi: {
-    definition: "Robust design focused on consistent performance under noise or operating variation.",
-    useWhen: "Use when the treatment must be stable across hard-to-control conditions.",
-    example: "Test offer strategy robustness across region, staffing, and timing noise.",
-  },
-  "Taguchi Design": {
-    definition: "Robust design focused on performance under noise.",
-    useWhen: "Use when variability reduction is as important as average lift.",
-    example: "Choose a treatment that performs consistently across customer segments.",
-  },
-  "Simple randomization": {
-    definition: "Randomly assigns records across treatments without subgroup controls.",
-    useWhen: "Use when covariates are balanced by design or sample size is large.",
-    example: "Randomly split 100,000 eligible customers into two offers.",
-  },
-  "Stratified randomization": {
-    definition: "Random assignment within defined subgroups.",
-    useWhen: "Use when known segments may affect the outcome.",
-    example: "Randomize separately within credit score bands or customer risk tiers.",
-  },
-  "Blocked randomization": {
-    definition: "Assigns treatments within fixed operational blocks or waves.",
-    useWhen: "Use when assignments occur by branch, batch, time period, or launch wave.",
-    example: "Assign all treatments within each weekly campaign batch.",
-  },
-  "Cluster randomization": {
-    definition: "Randomizes groups rather than individual records.",
-    useWhen: "Use when individual-level randomization is impractical or creates contamination.",
-    example: "Randomize branches, call centers, or geographic markets.",
-  },
-  "Covariate-adaptive randomization": {
-    definition: "Adapts assignment to maintain balance across important covariates.",
-    useWhen: "Use when several covariates need tight balance and assignment can be computed centrally.",
-    example: "Balance risk tier, tenure, and prior response while assigning offers.",
-  },
-  "Power simulation": {
-    definition: "Simulates repeated experiments to estimate detection probability and launch risk.",
-    useWhen: "Use when closed-form power may understate interaction or operational risk.",
-    example: "Run 1,000 simulated launches before approving the design.",
-  },
-  "Treatment selection simulation": {
-    definition: "Estimates how often the experiment chooses the correct winning treatment.",
-    useWhen: "Use when selecting the wrong treatment creates material business risk.",
-    example: "Estimate wrong-winner risk across four pricing-channel cells.",
-  },
-  "Interaction sensitivity simulation": {
-    definition: "Stress-tests how interaction effects change power and treatment choice.",
-    useWhen: "Use when factor combinations may behave differently than individual factors.",
-    example: "Check whether pricing lift depends on contact channel.",
-  },
-  "Missingness stress test": {
-    definition: "Tests whether missing outcomes or attrition could invalidate conclusions.",
-    useWhen: "Use when response measurement may be incomplete or delayed.",
-    example: "Stress test delayed activation reporting in the performance window.",
-  },
-  "Operational imbalance simulation": {
-    definition: "Tests assignment imbalance and sparse-cell risk before launch.",
-    useWhen: "Use when exclusions, blocking, or operations may create uneven cells.",
-    example: "Simulate assignment after opt-out and recent-offer exclusions.",
-  },
-  "Base Scenario": {
-    definition: "Expected assumptions.",
-    useWhen: "Use for the most likely baseline case.",
-    example: "Current response rate and planned sample size.",
-  },
-  "Conservative Scenario": {
-    definition: "More cautious assumptions.",
-    useWhen: "Use when leadership wants a margin of safety.",
-    example: "Lower baseline response, higher missingness, or smaller lift.",
-  },
-  "Stress Test": {
-    definition: "Worst-case or high-risk assumptions.",
-    useWhen: "Use to test whether the design remains defensible under adverse conditions.",
-    example: "Reduced sample, higher opt-outs, or weaker treatment effect.",
-  },
-  "Launch Readiness Simulation": {
-    definition: "Final pre-launch validation.",
-    useWhen: "Use immediately before execution approval.",
-    example: "Confirm launch recommendation after sample size and assignment logic are final.",
-  },
-};
-
-function DropdownDefinition({ value }: { value: string }) {
-  if (!value) return <span className="text-[11px] leading-4 text-slate-400">Select an option to see how ATLAS will use it.</span>;
-  const guidance = dropdownDefinitions[value] ?? getSelectionGuidance({ label: "Experimental design selection", value });
-  if (!guidance) {
-    return (
-      <span className="text-[11px] leading-4 text-slate-500">
-        <span className="font-semibold text-slate-600">Definition:</span> Review this choice against the page objective before locking it.{" "}
-        <span className="font-semibold text-slate-600">Use when:</span> It matches the data grain, decision owner, and evidence standard for this project.
-      </span>
-    );
-  }
-  return (
-    <span className="text-[11px] leading-4 text-slate-500">
-      <span className="font-semibold text-slate-600">Definition:</span> {guidance.definition}{" "}
-      <span className="font-semibold text-slate-600">Use when:</span> {guidance.useWhen}
-      {guidance.example ? <> <span className="font-semibold text-slate-600">Example:</span> {guidance.example}</> : null}
-    </span>
-  );
-}
 
 function draftGovernanceText(label: string, value: string, suggestion?: string, mode: "draft" | "clarity" | "audit" | "shorten" | "expand" | "regenerate" = "draft") {
   const base = value.trim() || suggestion?.trim() || `${label}: document the decision, supporting evidence, assumptions, and governance rationale for this stage.`;
@@ -2190,7 +2000,6 @@ function LevelsGovernanceConfirmation({ config, state, setState }: { config: Exp
               <option key={method} value={method}>{method}</option>
             ))}
           </select>
-          <DropdownDefinition value={state.method} />
         </label>
           <MetricPicker options={config.metrics} selected={state.metrics} onChange={(metrics) => setState({ ...state, metrics })} />
         </div>
@@ -2858,7 +2667,6 @@ function ExperimentalDataStrategyPanel({ projectId, state, setState }: { project
                 <option value="">Select source</option>
                 {(needsDataset ? ["Dataset Library", "File upload", "SQL / warehouse", "API / event stream"] : ["Operational capture plan", "API / event stream", "Survey / instrument", "Lab instrument", "Manual controlled collection"]).map((option) => <option key={option} value={option}>{option}</option>)}
               </select>
-              <DropdownDefinition value={data.sourceType ?? ""} />
             </label>
             <label className="grid gap-1.5">
               <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">Collection frequency / response window</span>
@@ -6408,7 +6216,6 @@ function BlockingGovernanceConfirmation({ config, state, setState }: { config: E
                 <option key={method} value={method}>{method}</option>
               ))}
             </select>
-            <DropdownDefinition value={state.method} />
           </label>
           <TextArea
             label="Decision / Recommendation"
@@ -6469,7 +6276,6 @@ function RandomizationGovernanceConfirmation({ config, state, setState }: { conf
                 <option key={method} value={method}>{method}</option>
               ))}
             </select>
-            <DropdownDefinition value={state.method} />
           </label>
           <TextArea
             label="Rationale for Governance"
@@ -6523,7 +6329,6 @@ function SampleSizeGovernanceConfirmation({ config, state, setState }: { config:
                 <option key={method} value={method}>{method}</option>
               ))}
             </select>
-            <DropdownDefinition value={state.method} />
           </label>
           <MetricPicker options={config.metrics} selected={state.metrics} onChange={(metrics) => setState({ ...state, metrics })} />
         </div>
@@ -8256,18 +8061,6 @@ function AbDatasetMapping({ projectId, state, setState, confirmed }: { projectId
           <button type="button" className="atlas-primary-button" disabled={busy || !mappingReady} onClick={() => void confirmFullDataset()}>{busy ? "Validating full artifact..." : "Confirm Data Acquisition and Mapping"}</button>
         </div>
       </div>
-      <div className="mt-4">
-        <AbSelectionGuide
-          title="How to choose field mappings"
-          items={[
-            { label: "Unit ID", body: "Choose the column that uniquely identifies the experimental unit, such as user ID, customer ID, account ID, device ID, branch ID, market ID, or session ID. The unit should match the level at which treatment was assigned or analyzed." },
-            { label: "Treatment column", body: "Choose the column that identifies treatment assignment. It should distinguish treatment and control conditions, such as ad vs psa, treatment vs control, variant A vs B, or exposed vs holdout." },
-            { label: "Outcome column", body: "Choose the column that records the success event or metric outcome. For binary tests this is often converted, clicked, purchased, approved, retained, or responded." },
-            { label: "Exposure", body: "Exposure or intensity columns describe how much treatment the user received, such as total ads, impressions, emails, visits, or contacts. These are often post-assignment measures and should not automatically be treated as baseline covariates." },
-            { label: "Segments", body: "Segment columns help test whether treatment effects differ across subgroups such as day, hour, geography, product, channel, tenure, customer segment, or device type." },
-          ]}
-        />
-      </div>
       <div className="mt-4 grid gap-3 rounded-xl border border-blue-200 bg-white p-4 lg:grid-cols-[minmax(0,1fr)_auto]">
         <label className="grid min-w-0 gap-1">
           <span className="text-xs font-semibold uppercase tracking-wide text-slate-500">Governed dataset source</span>
@@ -8346,22 +8139,6 @@ function AbProjectContextNextStepPreview() {
   );
 }
 
-function AbSelectionGuide({ title = "How to choose", items }: { title?: string; items: Array<{ label: string; body: string }> }) {
-  return (
-    <details className="rounded-xl border border-blue-200 bg-white px-4 py-3 text-sm text-slate-700" open>
-      <summary className="cursor-pointer font-semibold text-slate-950">{title}</summary>
-      <div className="mt-3 grid gap-3 md:grid-cols-2">
-        {items.map((item) => (
-          <div key={item.label} className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
-            <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">{item.label}</div>
-            <p className="mt-1 text-xs leading-5 text-slate-700">{item.body}</p>
-          </div>
-        ))}
-      </div>
-    </details>
-  );
-}
-
 function AbInput({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
     <label className="grid gap-1">
@@ -8437,17 +8214,6 @@ function AbExperimentSetupControls({ state, setState, defaults, dataReady }: { s
     <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Experiment Setup Controls</div>
       {!dataReady && <InlineError message="Complete Data Acquisition and Experiment Mapping before confirming experiment setup." />}
-      <div className="mt-4">
-        <AbSelectionGuide
-          title="Selection Guide"
-          items={[
-            { label: "Experiment Type", body: "Choose the experiment type based on what decision the test supports. Marketing A/B test compares marketing messages, ads, offers, emails, pages, or campaign treatments; Product / UX experiment compares app, web, checkout, onboarding, or interface changes; Pricing experiment compares price, fee, discount, or incentive levels; Policy experiment compares business rules, eligibility criteria, servicing treatments, or operational policies; Content experiment compares copy, creative, imagery, subject lines, or educational content; Operational experiment tests process changes, queue routing, contact strategies, or service interventions." },
-            { label: "Experiment Design", body: "Choose the design that best matches how treatment assignment was created. User-level randomized A/B test means users were randomly assigned; User-level randomized holdout keeps a control group held out; Cluster randomized assigns branches, stores, markets, or teams; Geo or market test varies by geography; Before/after tests need caution because time effects can bias results; Quasi-experimental and observational comparisons require stronger bias review." },
-            { label: "Assignment, Randomization, Analysis Unit", body: "Assignment unit is the entity assigned to treatment. Randomization unit is the entity randomized. Analysis unit is used in metric calculation. If users are assigned to ad or PSA, use user.id for all three. If stores are randomized but users convert, assignment unit is store and analysis unit is user. If campaigns are assigned by geography, randomization unit may be market or region." },
-            { label: "Outcome and Exposure Windows", body: "Outcome window defines when success is counted after exposure. Exposure window defines the treatment delivery period. Keep these aligned with the business decision and avoid counting outcomes that happened before assignment." },
-          ]}
-        />
-      </div>
       <div className="mt-4 grid gap-3 md:grid-cols-3">
         <AbSelect label="Experiment type" value={ab.experimentType || "Marketing A/B test"} options={["Marketing A/B test", "Product / UX experiment", "Pricing experiment", "Policy experiment", "Content experiment", "Operational experiment"]} onChange={(value) => update({ experimentType: value })} />
         <AbSelect label="Experiment design" value={ab.experimentDesign || "User-level randomized holdout"} options={["User-level randomized A/B test", "User-level randomized holdout", "Cluster randomized test", "Geo or market test", "Before/after test", "Quasi-experimental test", "Observational comparison"]} onChange={(value) => update({ experimentDesign: value })} />
@@ -8478,16 +8244,6 @@ function AbPopulationControls({ state, setState, profile, analysisStatus }: { st
         <MiniEvidence label="Analysis source" value={analysisStatus.fullDatasetAvailable ? "Full dataset artifact" : "Preview only, not full experiment analysis"} tone={analysisStatus.fullDatasetAvailable ? "good" : "warning"} />
         <MiniEvidence label="Full dataset row count" value={analysisStatus.rowCount.toLocaleString()} tone={analysisStatus.fullDatasetAvailable ? "good" : "warning"} />
         <MiniEvidence label="Valid analysis records" value={analysisStatus.validAnalysisRecords.toLocaleString()} tone={analysisStatus.fullDatasetAvailable ? "good" : "warning"} />
-      </div>
-      <div className="mt-3">
-        <AbSelectionGuide
-          title="How to choose population rules"
-          items={[
-            { label: "Eligibility population", body: "Keep only units that were eligible to receive either treatment or control during the experiment. Excluding ineligible records before analysis prevents distorted treatment effects." },
-            { label: "Duplicate handling", body: "Use Keep first unit record when the source already represents the analysis unit. Use Exclude duplicate units for ambiguous records. Use Aggregate by unit only when repeated events should roll up to one experimental unit." },
-            { label: "Missing treatment or outcome", body: "Missing treatment usually cannot be analyzed as treatment/control. Missing outcome can be excluded or treated as non-success only if that rule matches the experiment design and is documented before interpreting lift." },
-          ]}
-        />
       </div>
       <div className="mt-3 grid gap-3 md:grid-cols-4">
         <MiniEvidence label="Total rows" value={profile.rows.toLocaleString()} />
@@ -8526,17 +8282,6 @@ function AbTreatmentControlControls({ state, setState, defaults, profile, analys
         <MiniEvidence label="Analysis source" value={analysisStatus.fullDatasetAvailable ? "Full dataset artifact" : "Preview only, not full experiment analysis"} tone={analysisStatus.fullDatasetAvailable ? "good" : "warning"} />
         <MiniEvidence label="Full dataset row count" value={analysisStatus.rowCount.toLocaleString()} tone={analysisStatus.fullDatasetAvailable ? "good" : "warning"} />
         <MiniEvidence label="Valid analysis records" value={analysisStatus.validAnalysisRecords.toLocaleString()} tone={analysisStatus.fullDatasetAvailable ? "good" : "warning"} />
-      </div>
-      <div className="mt-3">
-        <AbSelectionGuide
-          title="How to choose treatment/control settings"
-          items={[
-            { label: "Treatment value", body: "Select the condition that received the new experience, offer, policy, creative, or rollout. This is the group whose effect will be estimated against control." },
-            { label: "Control value", body: "Select the holdout, baseline, PSA, current policy, or original experience. Control should represent the counterfactual decision baseline." },
-            { label: "Expected allocation ratio", body: "Use 1:1 for balanced experiments. Use another ratio only if the test intentionally assigned more users to treatment or control." },
-            { label: "Assignment method", body: "Choose randomized assignment only when the assignment process is documented. If the dataset only records treatment status, use observed assignment and carry bias review forward." },
-          ]}
-        />
       </div>
       <div className="mt-3 grid gap-3 md:grid-cols-4">
         <MiniEvidence label="Treatment group count" value={profile.treatmentGroupCount.toLocaleString()} />
@@ -8694,18 +8439,6 @@ function AbRandomizationAndMetrics({
         <MiniEvidence label="Full dataset row count" value={analysisStatus.rowCount.toLocaleString()} tone="good" />
         <MiniEvidence label="Valid analysis records" value={analysisStatus.validAnalysisRecords.toLocaleString()} tone="good" />
       </div>
-      <div className="mt-3">
-        <AbSelectionGuide
-          title="How to choose randomization review settings"
-          items={[
-            { label: "What this page decides", body: "Randomization Check determines whether treatment and control groups look reasonably comparable before interpreting treatment effects." },
-            { label: "Expected allocation ratio", body: "Use 1:1 for balanced experiments. Use another ratio if the test intentionally assigned more users to treatment or control." },
-            { label: "Randomization / assignment method", body: "Choose User-level randomized only if treatment was actually randomized at the user level. Choose Observed assignment only when the dataset records treatment status but the assignment process is not documented." },
-            { label: "Exposure interpretation", body: "Use post-assignment exposure intensity when the field measures treatment delivery after assignment, such as total.ads. Do not use post-assignment exposure as proof of baseline balance." },
-            { label: "Reviewer conclusion", body: "Proceed only means the analysis can continue. It does not mean the experiment is launch-ready." },
-          ]}
-        />
-      </div>
       <div className="mt-3 grid gap-3 md:grid-cols-4">
         <MiniEvidence label="Treatment/control counts" value={`${summary.treatmentCount} / ${summary.controlCount}`} />
         <MiniEvidence label="Allocation ratio" value={`${imbalance.ratio.toFixed(2)} : 1`} tone={imbalance.warning ? "warning" : "good"} />
@@ -8755,17 +8488,6 @@ function AbMetricsSetup({ state, setState, defaults, analysisStatus }: { state: 
           Preview only, not full experiment analysis. Final decisioning is blocked until the full dataset artifact is loaded.
         </div>
       )}
-      <div className="mt-4">
-        <AbSelectionGuide
-          title="How to choose metrics"
-          items={[
-            { label: "Primary metric", body: "The primary metric is the main outcome used for the decision. Choose one metric before interpreting the experiment to avoid cherry-picking." },
-            { label: "Practical significance", body: "Practical significance is the smallest lift that matters for the business. A result can be statistically significant but too small to matter, or directionally promising but not statistically proven." },
-            { label: "Multiple-comparison policy", body: "Use a multiple-comparison policy when reviewing many segments or secondary metrics. This reduces false-positive risk." },
-            { label: "Guardrail metrics", body: "Guardrails are metrics that should not worsen even if the primary metric improves, such as complaints, opt-outs, missing outcomes, latency, or operational cost." },
-          ]}
-        />
-      </div>
       <div className="mt-4 grid gap-3 md:grid-cols-3">
         <AbSelect label="Primary metric column" value={defaults.outcomeColumn} options={abDatasetColumns(state)} onChange={(value) => update({ outcomeColumn: value })} />
         <AbSelect label="Metric type" value={ab.metricType || "Binary conversion"} options={["Binary conversion", "Rate", "Continuous mean"]} onChange={(value) => update({ metricType: value })} />
@@ -8817,17 +8539,6 @@ function AbPowerAnalysis({
         <MiniEvidence label="Analysis source" value="Full dataset artifact" tone="good" />
         <MiniEvidence label="Full dataset row count" value={analysisStatus.rowCount.toLocaleString()} tone="good" />
         <MiniEvidence label="Valid analysis records" value={analysisStatus.validAnalysisRecords.toLocaleString()} tone="good" />
-      </div>
-      <div className="mt-4">
-        <AbSelectionGuide
-          title="How to choose power assumptions"
-          items={[
-            { label: "Baseline conversion rate", body: "Usually the control conversion rate. If the experiment has not run yet, use historical conversion rate." },
-            { label: "Minimum detectable relative lift", body: "The smallest proportional improvement over the control rate that the experiment should detect. For example, a 5% relative lift on a 2% baseline is 2.10%, an absolute increase of 0.10 percentage points. Smaller effects require much larger samples." },
-            { label: "Desired power", body: "Power is the chance of detecting a real effect if it exists. 80% is common; 90% is stricter." },
-            { label: "One-sided vs two-sided", body: "Use two-sided unless the decision was explicitly designed to test only whether treatment improves the outcome." },
-          ]}
-        />
       </div>
       <div className="mt-4 rounded-xl border border-blue-200 bg-white p-4">
         <div className="text-sm font-semibold text-slate-950">Power Assumptions</div>
@@ -8961,16 +8672,6 @@ function AbExperimentEda({
 
       <section className="rounded-xl border border-emerald-200 bg-white p-4">
         <div className="text-sm font-semibold text-slate-950">Experiment EDA Controls</div>
-        <div className="mt-3">
-          <AbSelectionGuide
-            title="How to choose EDA settings"
-            items={[
-              { label: "Chart grouping", body: "Use Treatment vs Control first to confirm group sizes, conversion rates, and exposure patterns before looking at segments." },
-              { label: "Segment size warning threshold", body: "Use a production threshold such as 30 per group for decision evidence. Lower thresholds are useful only for workflow testing or early diagnostics." },
-              { label: "Valid analysis records", body: "Keep this on when reviewing decision evidence so missing unit IDs, missing treatment, or missing outcome records do not distort treatment-effect estimates." },
-            ]}
-          />
-        </div>
         <div className="mt-3 grid gap-3 md:grid-cols-3">
           <AbInput label="Dataset" value={defaults.dataset} onChange={() => undefined} />
           <AbSelect label="Treatment column" value={defaults.treatmentColumn} options={abDatasetColumns(state)} onChange={(value) => update({ treatmentColumn: value })} />
@@ -9165,16 +8866,7 @@ function AbExperimentAnalysis({
         <MiniEvidence label="Full dataset row count" value={analysisStatus.rowCount.toLocaleString()} tone="good" />
         <MiniEvidence label="Valid analysis records" value={analysisStatus.validAnalysisRecords.toLocaleString()} tone="good" />
       </div>
-      <AbSelectionGuide
-        title="How to interpret the result"
-        items={[
-          { label: "Result guidance", body: "A positive observed lift does not prove the treatment works. Review p-value, confidence interval, power, randomization quality, and practical significance together." },
-          { label: "Directionally favorable", body: "Treatment is better than control in the observed sample, but may still be uncertain or underpowered." },
-          { label: "Statistically significant", body: "The p-value and confidence interval support a non-zero treatment effect at the selected confidence level." },
-          { label: "Practically meaningful", body: "The lift is large enough to matter for the business, not just large enough to pass a statistical test." },
-          { label: "Underpowered / Not launch-ready", body: "Underpowered tests and confidence intervals crossing zero should not support immediate launch, even when observed lift is positive." },
-        ]}
-      />
+      
 
       <section className="rounded-xl border border-emerald-200 bg-white p-4">
         <div className="text-sm font-semibold text-slate-950">Experiment Analysis Controls</div>
@@ -9376,14 +9068,7 @@ function AbSegmentAnalysis({
         <MiniEvidence label="Treatment count" value={summary.treatmentCount.toLocaleString()} tone="good" />
         <MiniEvidence label="Control count" value={summary.controlCount.toLocaleString()} tone="good" />
       </div>
-      <AbSelectionGuide
-        title="How to choose segment settings"
-        items={[
-          { label: "Exploratory status", body: "Segment analysis is exploratory unless segment hypotheses were pre-specified and sample sizes are adequate. Small segment wins should not override an underpowered overall test." },
-          { label: "Minimum segment size", body: "Minimum segment size protects against over-interpreting tiny segments. Lower thresholds may be useful for workflow testing, but not for production decisions." },
-          { label: "Multiple-comparison correction", body: "Use Bonferroni for strict family-wise control or Benjamini-Hochberg FDR for exploratory segment review with lower false-positive risk." },
-        ]}
-      />
+      
 
       <section className="rounded-xl border border-blue-200 bg-white p-4">
         <div className="text-sm font-semibold text-slate-950">Segment Analysis Controls</div>
@@ -9633,14 +9318,7 @@ function AbBusinessImpact({
         <MiniEvidence label="Full dataset row count" value={analysisStatus.rowCount.toLocaleString()} tone={analysisStatus.fullDatasetAvailable ? "good" : "warning"} />
         <MiniEvidence label="Valid analysis records" value={analysisStatus.validAnalysisRecords.toLocaleString()} tone={analysisStatus.fullDatasetAvailable ? "good" : "warning"} />
       </div>
-      <AbSelectionGuide
-        title="How to choose business assumptions"
-        items={[
-          { label: "Business impact", body: "Business impact translates lift into dollars or value. It should use actual campaign economics before a production decision." },
-          { label: "Lift estimate selection", body: "Observed lift is optimistic when the experiment is underpowered. Conservative lift or lower confidence bound is safer for launch decisions." },
-          { label: "Rollout population", body: "Use the number of users expected to receive the treatment after launch or rollout." },
-        ]}
-      />
+      
 
       <section className="rounded-xl border border-blue-200 bg-white p-4">
         <div className="text-sm font-semibold text-slate-950">Business Impact Assumptions</div>
@@ -9808,14 +9486,7 @@ function AbDecisionRecommendation({
         <MiniEvidence label="Full dataset row count" value={analysisStatus.rowCount.toLocaleString()} tone="good" />
         <MiniEvidence label="Valid analysis records" value={analysisStatus.validAnalysisRecords.toLocaleString()} tone="good" />
       </div>
-      <AbSelectionGuide
-        title="How to choose a decision recommendation"
-        items={[
-          { label: "Decision logic", body: "Decision Recommendation combines statistical evidence, practical lift, power, randomization quality, segment reliability, business impact, and governance readiness. The recommendation should not rely on p-value alone." },
-          { label: "Run Longer", body: "Run longer means continue collecting experiment observations until the sample is large enough for the selected power, confidence level, and minimum detectable effect. If the test uses an already-completed file, load a larger dataset or append additional records." },
-          { label: "Launch or keep control", body: "Launch only when lift is reliable, practical, powered, and governance-ready. Keep control or do not launch when treatment is negative, risky, not meaningful, or unsupported by evidence." },
-        ]}
-      />
+      
 
       <section className="rounded-2xl border border-amber-300 bg-slate-950 p-5 text-white shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-4">
@@ -10092,14 +9763,7 @@ function AbDocumentationReview({
         <h2 className="mt-1 text-lg font-semibold text-slate-950">Documentation Review</h2>
         <p className="mt-1 text-sm leading-6 text-slate-600">Confirm the A/B testing evidence trail, Model Evidence Center package, Model Documentation Studio mapping, documentation gaps, and final reviewer decision.</p>
       </div>
-      <AbSelectionGuide
-        title="How to choose documentation readiness"
-        items={[
-          { label: "Ready for review", body: "Use when evidence is saved and limitations are explicit, but a reviewer still needs to approve the experiment record." },
-          { label: "Needs more evidence", body: "Use when data, randomization, power, business assumptions, or post-decision planning are incomplete." },
-          { label: "Ready for final approval", body: "Use only when the decision, evidence, limitations, monitoring plan, and governance owner are complete." },
-        ]}
-      />
+      
 
       <section className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
         <div className="text-sm font-semibold text-blue-950">A/B Testing Documentation Readiness</div>
@@ -10410,16 +10074,7 @@ function AbMonitoringFollowUp({
       </div>
 
       <section className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-        <AbSelectionGuide
-          title="How to choose a post-decision strategy"
-          items={[
-            { label: "Post-decision purpose", body: "This page defines what happens after the experiment decision. The plan changes depending on whether the decision is launch, keep control, run longer, segmented rollout, slow rollout, or do not launch." },
-            { label: "Run Longer", body: "Focus on sample-size targets, data collection, re-analysis trigger, and next review date." },
-            { label: "Launch", body: "Focus on rollout monitoring, guardrail metrics, rollback criteria, and post-launch review." },
-            { label: "Slow Rollout", body: "Define phased rollout checkpoints such as 5%, 10%, 25%, 50%, and 100%, with stop/go criteria at each stage." },
-            { label: "Segmented / holdout / no launch", body: "Use segmented rollout for approved subgroups, continue holdout when the test must keep collecting randomized evidence, keep control or do not launch when current evidence does not support release." },
-          ]}
-        />
+        
         <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
           <AbSelect label="Post-Decision Strategy" value={strategy} options={strategyOptions} onChange={(value) => update({ postDecisionStrategy: value, postDecisionStrategyTouched: true })} />
           <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm leading-6 text-slate-700">
@@ -10751,7 +10406,7 @@ const timeSeriesExperienceByStep: Record<string, AdvancedWorkflowExperience> = {
     ],
     diagnostics: [["Baseline", "Required", "success"], ["Intervals", "Configured", "info"], ["Data requirements", "Review short series", "warning"], ["Tuning", "Standard depth", "info"]],
     visuals: [
-      { title: "Candidate model cards", body: "Compare naive baseline, seasonal naive, moving average, exponential smoothing, ARIMA/SARIMA-style template, linear regression with lag/calendar features, gradient boosting with lag features, random forest with lag features, and anomaly detection baseline.", rows: [["Best used when", "Shows which model fits trend, seasonality, sparse history, or nonlinear lag effects"], ["Limitations", "Flags short history, nonstationarity, and explainability concerns"]] },
+      { title: "Candidate model cards", body: "Compare naive baseline, seasonal naive, moving average, exponential smoothing, ARIMA/SARIMA-style template, linear regression with lag/calendar features, gradient boosting with lag features, random forest with lag features, and anomaly detection baseline.", rows: [["Model fit signal", "Shows which model fits trend, seasonality, sparse history, or nonlinear lag effects"], ["Limitations", "Flags short history, nonstationarity, and explainability concerns"]] },
       { title: "Baseline recommendation", body: "ATLAS keeps naive and seasonal-naive baselines so complex models must beat a transparent reference.", rows: [["Naive baseline", "Required for scale-free benchmark"], ["Seasonal naive", "Required when seasonality is detected"]] },
       { title: "Modeling readiness panel", body: "Checks entity count, history length, missing timestamps, exogenous-driver availability, interval requirements, and refit policy.", rows: [["Readiness", "Backtest design must be locked"], ["Warning", "Sparse series may require aggregate or global modeling"]] },
     ],

@@ -101,6 +101,33 @@ export type CodeRunResult = PythonExecutionResult | AnalyticsSqlRunResult | {
   unsupportedStatements?: string[];
 };
 
+/** Authoritative Python execution capability, as reported by the backend.
+ *  CODE-DATAACQ-001: the UI must never assert "Executable" on its own. */
+export type PythonCapabilityState = "executable" | "not_configured" | "misconfigured" | "disabled";
+
+export type PythonCapability = {
+  state: PythonCapabilityState;
+  available: boolean;
+  reason: string;
+  /** Admin/diagnostics only; absent for ordinary users. */
+  detail?: string;
+  configurationKey?: string;
+  approvedInterpreters?: string[];
+};
+
+export async function fetchPythonCapability(): Promise<PythonCapability> {
+  const response = await fetch(`${DATASET_API_BASE}/python/capability`, { credentials: "include" });
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload) {
+    return {
+      state: "not_configured",
+      available: false,
+      reason: "Python execution capability could not be determined for this ATLAS environment.",
+    };
+  }
+  return payload as PythonCapability;
+}
+
 export async function fetchPythonDiagnostics(): Promise<PythonDiagnostics> {
   const response = await fetch(`${DATASET_API_BASE}/python/diagnostics`, { credentials: "include" });
   const payload = await response.json().catch(() => null);

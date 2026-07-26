@@ -54,6 +54,10 @@ export type DataQualitySummary = {
   potentialLeakageColumns: string[];
   outlierPrevalence: { column: string; percent: number }[];
   classBalance?: { eventRate: number | null; majorityClassPercent: number | null };
+  /** Authoritative full-population class counts, when backend profiling produced them.
+   *  The Target Distribution chart aggregates from these rather than the browser preview. */
+  classDistribution?: { value: unknown; count: number; percent: number }[];
+  targetEventValue?: unknown;
   dateRanges: { column: string; min: string; max: string }[];
   missing: { column: string; percent: number }[];
   memoryEstimateMb: number;
@@ -311,6 +315,8 @@ export async function fetchFullDataQualityProfile(input: {
         ? Math.max(...payload.targetHealth.classDistribution.map((row: { percent?: number }) => Number(row.percent) || 0), 0)
         : null,
     } : undefined,
+    classDistribution: Array.isArray(payload.targetHealth?.classDistribution) ? payload.targetHealth.classDistribution : undefined,
+    targetEventValue: payload.targetHealth?.eventValue,
     dateRanges: payload.dateRanges ?? [],
     missing: (payload.missingness ?? []).map((row: { column: string; percent: number }) => ({ column: row.column, percent: row.percent })),
     memoryEstimateMb: payload.memoryEstimateMb ?? 0,

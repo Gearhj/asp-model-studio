@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 const workflows = fs.readFileSync("src/config/workflows.ts", "utf8");
 const placeholderStep = fs.readFileSync("src/steps/WorkflowPlaceholderStep.tsx", "utf8");
 const newProject = fs.readFileSync("src/steps/NewProject.tsx", "utf8");
+const projectSetupForms = fs.readFileSync("src/config/projectSetupForms.ts", "utf8");
 const overview = fs.readFileSync("src/steps/ProjectOverview.tsx", "utf8");
 const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
 
@@ -41,7 +42,12 @@ for (const label of expectedAbSteps) {
 assert.match(newProject, /getWorkflowForProjectType\(projectType\)/);
 assert.match(newProject, /workflowId: selectedWorkflow\.id/);
 assert.match(newProject, /projectType/);
-assert.match(newProject, /requiresModelId = projectType === "predictive-modeling"/);
+// UX-NEWPROJECT-001 (generalization): Model ID's required-ness for Predictive
+// Modeling now lives in the shared, schema-driven config (one entry per
+// workflow type), not a NewProject.tsx-local boolean -- this still asserts
+// the SAME product behavior (Model ID required only for Predictive Modeling),
+// just via its new, generalized home.
+assert.match(projectSetupForms, /"predictive-modeling":\s*\{[\s\S]{0,1300}?modelIdField:\s*\{[\s\S]{0,150}?required: true/);
 assert.match(newProject, /projectIdentifier = modelId\.trim\(\) \|\| `\$\{selectedWorkflow\.id\}-\$\{Date\.now\(\)\}`/);
 assert.match(newProject, /disabled=\{!canStartProject\}/);
 assert.match(placeholderStep, /projectType === "ab-testing"/);

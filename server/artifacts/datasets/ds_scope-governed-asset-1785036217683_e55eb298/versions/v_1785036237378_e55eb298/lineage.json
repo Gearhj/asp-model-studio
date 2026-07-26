@@ -1,0 +1,13 @@
+{
+  "datasetRole": "development",
+  "hash": "e55eb2983289815ec6035d27c4df3f6141e93098ce1380d58a33f889d6e510df",
+  "registeredAt": "2026-07-26T03:24:06.733699+00:00",
+  "registeredBy": "user_d52a8a81359b4b8f",
+  "sourceInfo": {
+    "originalSource": {},
+    "projectId": "atlas-ms18eofr",
+    "tags": [],
+    "target": "Class"
+  },
+  "sourceType": "workspace_upload"
+}
