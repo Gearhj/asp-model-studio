@@ -1,8 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { BarChart3, Database, Download, FilePlus2, FolderOpen, LineChart, Link2, RefreshCw, Search, Share2, ShieldCheck, Table2, Trash2, UploadCloud } from "lucide-react";
+import { Database, FilePlus2, RefreshCw, Search, ShieldCheck, Table2, UploadCloud } from "lucide-react";
 import BrandLogo from "../components/BrandLogo";
 import ShareResourceDialog from "../components/sharing/ShareResourceDialog";
+import {
+  DatasetActionIconControl,
+  DatasetActionMenu,
+  DatasetActionPrimaryControl,
+} from "../components/datasets/DatasetActionControls";
+import {
+  buildDatasetActions,
+  overflowDatasetActions,
+  primaryDatasetActions,
+  type DatasetAction,
+} from "../lib/datasetActions";
 import {
   archiveDataset,
   linkDatasetToProject,
@@ -12,6 +23,7 @@ import {
   type DatasetSummary,
 } from "../lib/datasetLibrary";
 import { isScoredOutputDataset } from "../lib/modelDiagnostics";
+import { listProjectsFromDatabase } from "../lib/serverPersistence";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const DATASET_LIBRARY_VIEW_MODE_KEY = "atlas-dataset-library-view-mode";
@@ -38,6 +50,10 @@ export default function DatasetLibrary() {
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [shareDataset, setShareDataset] = useState<DatasetSummary | null>(null);
+  /** Guards one-action-one-mutation across both views. */
+  const [pendingActions, setPendingActions] = useState<Set<string>>(new Set());
+  /** null = not yet determined; false = server proved this caller cannot reach it. */
+  const [canAccessCurrentProject, setCanAccessCurrentProject] = useState<boolean | null>(null);
   const currentProjectId = useWorkflowStore((state) => state.projectId);
 
   const ownerOptions = useMemo(() => {
@@ -107,9 +123,13 @@ export default function DatasetLibrary() {
     }));
   };
 
-  async function refresh() {
+  // `preserveMessage` exists because a mutation's outcome message was being
+  // erased by the refresh that followed it: link/archive set a success message,
+  // then `refresh()` immediately cleared it, so the action silently succeeded
+  // with no confirmation. A refresh FAILURE still reports itself (see catch).
+  async function refresh(options?: { preserveMessage?: boolean }) {
     setLoading(true);
-    setMessage("");
+    if (!options?.preserveMessage) setMessage("");
     try {
       const payload = await listDatasets();
       setDatasets(payload.datasets);
@@ -122,14 +142,14 @@ export default function DatasetLibrary() {
     }
   }
 
+  // Confirmation is NOT here -- it lives in `invokeDatasetAction` so Card View
+  // and Detailed View cannot diverge on whether a destructive action prompts.
   async function deleteDataset(dataset: DatasetSummary) {
-    const confirmed = window.confirm(`Delete "${dataset.name}" from the Dataset Library? ATLAS will archive the record so governance history remains intact.`);
-    if (!confirmed) return;
     setMessage(`Deleting ${dataset.name}...`);
     try {
       await archiveDataset(dataset.datasetId);
       setMessage(`Deleted "${dataset.name}" from active Dataset Library views.`);
-      await refresh();
+      await refresh({ preserveMessage: true });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "ATLAS could not delete this dataset.");
     }
@@ -144,7 +164,7 @@ export default function DatasetLibrary() {
     try {
       await linkDatasetToProject(currentProjectId, dataset.datasetId, versionId, dataset.datasetRole || "modeling");
       setMessage(`Linked "${dataset.name}" to the current project.`);
-      await refresh();
+      await refresh({ preserveMessage: true });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "ATLAS could not link this dataset to the current project.");
     }
@@ -161,9 +181,106 @@ export default function DatasetLibrary() {
     setMessage(`Exported metadata for "${dataset.name}".`);
   }
 
+  /** Durable, non-transient evidence that the link exists. A toast disappears;
+   *  this reflects the persisted `linkedProjects` returned by the server. */
+  function isLinkedToCurrentProject(dataset: DatasetSummary): boolean {
+    return Boolean(currentProjectId && dataset.linkedProjects?.some((link) => link.projectId === currentProjectId));
+  }
+
+  /** The one authorized action set for a dataset. Both views call this. */
+  function actionsFor(dataset: DatasetSummary): DatasetAction[] {
+    return buildDatasetActions(dataset, {
+      currentUser,
+      currentProjectId: currentProjectId || null,
+      isScoredOutput: isScoredOutputDataset(dataset),
+      canAccessCurrentProject,
+    });
+  }
+
+  /**
+   * The one place a dataset action is executed, from either view.
+   *
+   * Confirmation, the in-flight guard, and handler dispatch all live here, so
+   * invoking an action from a card and from a table row is literally the same
+   * code path -- which is what makes the two views behave identically.
+   */
+  async function invokeDatasetAction(dataset: DatasetSummary, action: DatasetAction) {
+    if (!action.enabled || !action.handlerId) return;
+
+    // One action, one mutation: a double-click or a repeated keyboard
+    // activation while the request is in flight must not fire twice.
+    const inFlightKey = `${dataset.datasetId}:${action.id}`;
+    if (pendingActions.has(inFlightKey)) return;
+
+    if (action.requiresConfirmation && action.confirmationMessage) {
+      if (!window.confirm(action.confirmationMessage)) return;
+    }
+
+    setPendingActions((current) => new Set(current).add(inFlightKey));
+    try {
+      switch (action.handlerId) {
+        case "link-project":
+          await linkToCurrentProject(dataset);
+          break;
+        case "share":
+          setShareDataset(dataset);
+          break;
+        case "export-metadata":
+          exportMetadata(dataset);
+          break;
+        case "archive":
+          await deleteDataset(dataset);
+          break;
+        default:
+          break;
+      }
+    } finally {
+      setPendingActions((current) => {
+        const next = new Set(current);
+        next.delete(inFlightKey);
+        return next;
+      });
+    }
+  }
+
   useEffect(() => {
     refresh();
   }, []);
+
+  // Ask the SERVER which projects this caller can reach, so "Link to Project"
+  // can state the real authorization reason instead of offering an action that
+  // will be refused. `GET /api/projects` filters per row, so a current project
+  // missing from the result is one this caller provably cannot link to.
+  //
+  // This only ever DISABLES. It never grants: the backend still enforces
+  // `user_can_access_project(project_id, write=True)` on every link, and an
+  // undetermined result (null) leaves the action enabled so the server answers.
+  useEffect(() => {
+    let cancelled = false;
+    if (!currentProjectId) {
+      setCanAccessCurrentProject(null);
+      return () => {
+        cancelled = true;
+      };
+    }
+    listProjectsFromDatabase()
+      .then((projects) => {
+        if (cancelled) return;
+        const reachable = projects.some((project) => {
+          const id = (project as { projectId?: string; project_id?: string }).projectId
+            ?? (project as { project_id?: string }).project_id;
+          return id === currentProjectId;
+        });
+        setCanAccessCurrentProject(reachable);
+      })
+      .catch(() => {
+        // Undetermined -- never block on a probe failure.
+        if (!cancelled) setCanAccessCurrentProject(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProjectId]);
 
   async function onUpload(file: File) {
     setUploading(true);
@@ -209,7 +326,7 @@ export default function DatasetLibrary() {
               <FilePlus2 size={16} />
               Register Metadata
             </Link>
-            <button type="button" onClick={refresh} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
+            <button type="button" onClick={() => void refresh()} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">
               <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
               Refresh
             </button>
@@ -276,7 +393,7 @@ export default function DatasetLibrary() {
       </section>
 
       {viewMode === "detail" ? (
-        <DatasetDetailTable datasets={filtered} sort={sort} onSort={toggleDatasetSort} onDelete={deleteDataset} onExportMetadata={exportMetadata} onLinkToProject={linkToCurrentProject} onShareDataset={setShareDataset} />
+        <DatasetDetailTable datasets={filtered} sort={sort} onSort={toggleDatasetSort} actionsFor={actionsFor} isLinkedToCurrent={isLinkedToCurrentProject} onInvokeAction={(dataset, action) => void invokeDatasetAction(dataset, action)} />
       ) : (
       <section className="grid gap-4 xl:grid-cols-3">
         {filtered.map((dataset) => (
@@ -308,11 +425,28 @@ export default function DatasetLibrary() {
                 )}
               </div>
             </Link>
-            <div className="mt-4 flex items-center justify-between border-t border-slate-100 pt-3">
-              <Link to={`/datasets/${dataset.datasetId}`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-slate-800 hover:text-blue-700"><FolderOpen size={15} /> Open</Link>
-              <div className="flex items-center gap-1">
-                <button type="button" title="Share Dataset" aria-label={`Share Dataset: ${dataset.name}`} onClick={() => setShareDataset(dataset)} className="rounded-md border border-blue-200 bg-blue-50 p-2 text-blue-800 hover:bg-blue-100"><Share2 size={15} /></button>
-                <button type="button" title="Archive dataset" aria-label={`Archive ${dataset.name}`} onClick={() => void deleteDataset(dataset)} className="rounded-md border border-red-200 bg-white p-2 text-red-700 hover:bg-red-50"><Trash2 size={15} /></button>
+            {/* Same action model as Detailed View: three primary actions with
+                visible text labels, the rest in an accessible More Actions menu.
+                No capability is reachable only by switching views. */}
+            <div
+              className="mt-4 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3"
+              data-testid={`dataset-card-actions-${dataset.datasetId}`}
+              data-linked-to-current-project={isLinkedToCurrentProject(dataset) ? "true" : "false"}
+            >
+              {isLinkedToCurrentProject(dataset) && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-800" data-testid="dataset-linked-badge">
+                  Linked to this project
+                </span>
+              )}
+              {primaryDatasetActions(actionsFor(dataset)).map((action) => (
+                <DatasetActionPrimaryControl key={action.id} action={action} onInvoke={(selected) => void invokeDatasetAction(dataset, selected)} />
+              ))}
+              <div className="ml-auto">
+                <DatasetActionMenu
+                  actions={overflowDatasetActions(actionsFor(dataset))}
+                  datasetName={dataset.name}
+                  onInvoke={(selected) => void invokeDatasetAction(dataset, selected)}
+                />
               </div>
             </div>
           </article>
@@ -346,18 +480,17 @@ function DatasetDetailTable({
   datasets,
   sort,
   onSort,
-  onDelete,
-  onExportMetadata,
-  onLinkToProject,
-  onShareDataset,
+  actionsFor,
+  isLinkedToCurrent,
+  onInvokeAction,
 }: {
   datasets: DatasetSummary[];
   sort: { key: DatasetSortKey; direction: SortDirection };
   onSort: (key: DatasetSortKey) => void;
-  onDelete: (dataset: DatasetSummary) => void;
-  onExportMetadata: (dataset: DatasetSummary) => void;
-  onLinkToProject: (dataset: DatasetSummary) => void;
-  onShareDataset: (dataset: DatasetSummary) => void;
+  /** The shared action model, injected so this table cannot build its own. */
+  actionsFor: (dataset: DatasetSummary) => DatasetAction[];
+  isLinkedToCurrent: (dataset: DatasetSummary) => boolean;
+  onInvokeAction: (dataset: DatasetSummary, action: DatasetAction) => void;
 }) {
   return (
     <section className="min-w-0 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -400,18 +533,22 @@ function DatasetDetailTable({
                 </span>
               </td>
               <td className="sticky right-0 z-10 border-l border-slate-200 bg-white px-3 py-2 shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)]">
-                <div className="flex items-center justify-end gap-1">
-                  <Link to={`/datasets/${dataset.datasetId}`} title="Open dataset" aria-label={`Open ${dataset.name}`} className="rounded-md bg-slate-950 p-2 text-white hover:bg-slate-800"><FolderOpen size={15} /></Link>
-                  <Link to={`/analytics?datasetId=${dataset.datasetId}`} title="Open in Analytics" aria-label={`Open ${dataset.name} in Analytics`} className="rounded-md border border-slate-300 bg-white p-2 text-slate-700 hover:bg-slate-50"><Table2 size={15} /></Link>
-                  <Link to={`/chart-studio?datasetId=${dataset.datasetId}`} title="Open in Chart Studio" aria-label={`Open ${dataset.name} in Chart Studio`} className="rounded-md border border-slate-300 bg-white p-2 text-slate-700 hover:bg-slate-50"><BarChart3 size={15} /></Link>
-                  <Link to={`/sql-data-studio?datasetId=${dataset.datasetId}`} title="Open in SQL Data Studio" aria-label={`Open ${dataset.name} in SQL Data Studio`} className="rounded-md border border-indigo-200 bg-indigo-50 p-2 text-indigo-800 hover:bg-indigo-100">SQL</Link>
-                  {isScoredOutputDataset(dataset) && (
-                    <Link to={`/model-diagnostics?datasetId=${dataset.datasetId}`} title="Open in Model Diagnostics" aria-label={`Open ${dataset.name} in Model Diagnostics`} className="rounded-md border border-emerald-200 bg-emerald-50 p-2 text-emerald-800 hover:bg-emerald-100"><LineChart size={15} /></Link>
+                {/* Same `DatasetAction` objects Card View renders -- only the
+                    presentation differs. Tooltips, accessible names, disabled
+                    reasons, handlers, and confirmation are all shared. */}
+                <div
+                  className="flex items-center justify-end gap-1"
+                  data-testid={`dataset-row-actions-${dataset.datasetId}`}
+                  data-linked-to-current-project={isLinkedToCurrent(dataset) ? "true" : "false"}
+                >
+                  {isLinkedToCurrent(dataset) && (
+                    <span className="mr-1 rounded-full bg-emerald-50 px-2 py-1 text-[11px] font-semibold text-emerald-800" data-testid="dataset-linked-badge">
+                      Linked
+                    </span>
                   )}
-                  <button type="button" title="Link to current project" aria-label={`Link ${dataset.name} to the current project`} onClick={() => onLinkToProject(dataset)} className="rounded-md border border-slate-300 bg-white p-2 text-slate-700 hover:bg-slate-50"><Link2 size={15} /></button>
-                  <button type="button" title="Share Dataset" aria-label={`Share Dataset: ${dataset.name}`} onClick={() => onShareDataset(dataset)} className="rounded-md border border-blue-200 bg-blue-50 p-2 text-blue-800 hover:bg-blue-100"><Share2 size={15} /></button>
-                  <button type="button" title="Export metadata" aria-label={`Export ${dataset.name} metadata`} onClick={() => onExportMetadata(dataset)} className="rounded-md border border-slate-300 bg-white p-2 text-slate-700 hover:bg-slate-50"><Download size={15} /></button>
-                  <button type="button" title="Archive dataset" aria-label={`Archive ${dataset.name}`} onClick={() => void onDelete(dataset)} className="rounded-md border border-red-200 bg-white p-2 text-red-700 hover:bg-red-50"><Trash2 size={15} /></button>
+                  {actionsFor(dataset).map((action) => (
+                    <DatasetActionIconControl key={action.id} action={action} onInvoke={(selected) => onInvokeAction(dataset, selected)} />
+                  ))}
                 </div>
               </td>
             </tr>

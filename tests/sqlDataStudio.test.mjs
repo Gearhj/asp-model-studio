@@ -13,7 +13,10 @@ const main = read("server/main.py");
 const router = read("server/sql_studio/sql_router.py");
 const engine = read("server/sql_studio/sql_engine.py");
 const store = read("server/sql_studio/sql_store.py");
-const datasetLibrary = read("src/steps/DatasetLibrary.tsx");
+// The SQL Data Studio hand-off is now defined once in the shared dataset action
+// model and rendered by BOTH Card View and Detailed View (it was previously
+// reachable only from Detailed View).
+const datasetLibrary = read("src/steps/DatasetLibrary.tsx") + "\n" + read("src/lib/datasetActions.ts");
 const datasetDetail = read("src/steps/DatasetDetail.tsx");
 const packageJson = JSON.parse(read("package.json"));
 

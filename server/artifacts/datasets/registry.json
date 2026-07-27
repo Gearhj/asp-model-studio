@@ -1840,13 +1840,23 @@
           "datasetRole": "modeling",
           "projectId": "atlas-ms2atkdd",
           "versionId": "v_1784989835930_982c7a7d"
+        },
+        {
+          "datasetRole": "modeling",
+          "projectId": "atlas-ms2clfqo",
+          "versionId": "v_1784989835930_982c7a7d"
+        },
+        {
+          "datasetRole": "modeling",
+          "projectId": "atlas-ms3n3psc",
+          "versionId": "v_1784989835930_982c7a7d"
         }
       ],
       "name": "CLASS_TRAIN",
       "ownerDisplayName": "James",
       "ownerUserId": "user_d8bbe3ff73a84fb5",
       "sourceType": "upload",
-      "updatedAt": "2026-07-26T21:17:20.507725+00:00",
+      "updatedAt": "2026-07-27T19:48:41.147527+00:00",
       "versions": [
         {
           "columnCount": 31,

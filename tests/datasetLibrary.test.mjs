@@ -50,7 +50,16 @@ assert(dataAcquisition.includes("getDatasetPreview"), "Data Acquisition Existing
 assert(dataAcquisition.includes("linkDatasetToProject"), "Data Acquisition does not link selected datasets to projects.");
 assert(localDataset.includes("dataset_library"), "LocalDataset does not preserve Dataset Library references.");
 
-const datasetLibraryPage = read("src/steps/DatasetLibrary.tsx");
+// Card View and Detailed View no longer duplicate their action JSX -- both
+// render one shared action model (src/lib/datasetActions.ts) through shared
+// controls. The action labels, tooltips, and confirmation text therefore live
+// in those modules rather than inline in the page. The assertions below are
+// unchanged: every string must still be present in the Dataset Library feature.
+const datasetLibraryPage = [
+  read("src/steps/DatasetLibrary.tsx"),
+  read("src/lib/datasetActions.ts"),
+  read("src/components/datasets/DatasetActionControls.tsx"),
+].join("\n");
 [
   "DATASET_LIBRARY_VIEW_MODE_KEY",
   "atlas-dataset-library-view-mode",

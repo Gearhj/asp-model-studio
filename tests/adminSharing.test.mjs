@@ -43,7 +43,10 @@ const [
   read("src/components/Sidebar.tsx"),
   read("src/steps/ProjectOverview.tsx"),
   read("src/steps/RegistryAssetDetail.tsx"),
-  read("src/steps/DatasetLibrary.tsx"),
+  // Dataset Library actions (incl. "Share Dataset") now come from one shared
+  // action model rendered by BOTH Card View and Detailed View, so the page and
+  // its action model are read together as the Dataset Library surface.
+  Promise.all([read("src/steps/DatasetLibrary.tsx"), read("src/lib/datasetActions.ts")]).then((parts) => parts.join("\n")),
   read("src/steps/EvidenceGraph.tsx"),
   read("src/steps/ModelDocumentationStudio.tsx"),
 ]);
