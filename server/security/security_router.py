@@ -6,8 +6,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 
 from .security_store import (
-    ATLAS_LOCAL_DEV,
-    ATLAS_HOSTED_MODE,
     AUDIT_ROLES,
     SESSION_COOKIE_NAME,
     SESSION_TTL_SECONDS,
@@ -21,11 +19,13 @@ from .security_store import (
     list_project_access,
     list_users,
     public_user,
+    public_registration_enabled,
     require_role,
     require_user,
     revoke_project_access,
     revoke_session,
     security_diagnostics,
+    secure_cookie_enabled,
     set_user_role,
     set_user_status,
     unlock_user,
@@ -40,7 +40,9 @@ class RegisterRequest(BaseModel):
     email: str
     displayName: str
     password: str
-    role: str = "data_scientist"
+    # Deprecated compatibility input. It is deliberately ignored and can
+    # never influence the effective role.
+    role: Any = None
 
 
 class LoginRequest(BaseModel):
@@ -62,8 +64,10 @@ class CreateUserRequest(BaseModel):
 
 class UpdateUserRequest(BaseModel):
     displayName: Optional[str] = None
-    role: Optional[str] = None
     status: Optional[str] = None
+
+    class Config:
+        extra = "forbid"
 
 
 class RoleRequest(BaseModel):
@@ -81,14 +85,21 @@ def set_session_cookie(response: Response, session_id: str, expires_at: str) -> 
         session_id,
         max_age=SESSION_TTL_SECONDS,
         httponly=True,
-        secure=not ATLAS_LOCAL_DEV or ATLAS_HOSTED_MODE,
+        secure=secure_cookie_enabled(),
         samesite="lax",
     )
 
 
 @router.post("/auth/register")
 def register(payload: RegisterRequest, response: Response, request: Request) -> Dict[str, Any]:
-    user = create_user(email=payload.email, display_name=payload.displayName, password=payload.password, role=payload.role)
+    if not public_registration_enabled():
+        raise HTTPException(status_code=403, detail="Public registration is not enabled.")
+    user = create_user(
+        email=payload.email,
+        display_name=payload.displayName,
+        password=payload.password,
+        role="data_scientist",
+    )
     login = authenticate(payload.email, payload.password, request)
     set_session_cookie(response, login["sessionId"], login["expiresAt"])
     return {"ok": True, "user": user, "sessionExpiresAt": login["expiresAt"]}
@@ -165,27 +176,40 @@ def admin_user(user_id: str, user: Dict[str, Any] = Depends(require_user)) -> Di
 @router.post("/admin/users")
 def admin_create_user(payload: CreateUserRequest, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     require_role(user, {"admin"})
-    created = create_user(email=payload.email, display_name=payload.displayName, password=payload.password, role=payload.role)
+    created = create_user(
+        email=payload.email,
+        display_name=payload.displayName,
+        password=payload.password,
+        role=payload.role,
+        actor_user_id=user["userId"],
+    )
     return {"ok": True, "user": created}
 
 
 @router.patch("/admin/users/{user_id}")
 def admin_update_user(user_id: str, payload: UpdateUserRequest, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     require_role(user, {"admin"})
-    return {"ok": True, "user": update_user(user_id, {key: value for key, value in payload.dict().items() if value is not None})}
+    return {
+        "ok": True,
+        "user": update_user(
+            user_id,
+            {key: value for key, value in payload.dict().items() if value is not None},
+            actor_user_id=user["userId"],
+        ),
+    }
 
 
 @router.post("/admin/users/{user_id}/disable")
 def admin_disable_user(user_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     require_role(user, {"admin"})
-    result = set_user_status(user_id, "inactive")
+    result = set_user_status(user_id, "inactive", actor_user_id=user["userId"])
     return {"ok": True, "user": {key: value for key, value in result.items() if key != "auditAction"}}
 
 
 @router.post("/admin/users/{user_id}/enable")
 def admin_enable_user(user_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     require_role(user, {"admin"})
-    result = set_user_status(user_id, "active")
+    result = set_user_status(user_id, "active", actor_user_id=user["userId"])
     return {"ok": True, "user": {key: value for key, value in result.items() if key != "auditAction"}}
 
 
@@ -197,8 +221,44 @@ def admin_unlock_user(user_id: str, user: Dict[str, Any] = Depends(require_user)
 
 @router.post("/admin/users/{user_id}/role")
 def admin_role_user(user_id: str, payload: RoleRequest, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
-    require_role(user, {"admin"})
-    return {"ok": True, "user": set_user_role(user_id, payload.role)}
+    if user.get("role") != "admin":
+        from .security_store import audit_event
+
+        audit_event(
+            "user.role.changed",
+            "user",
+            user_id,
+            "denied",
+            reason="Administrator role required",
+            metadata={"requestedRole": payload.role},
+            user_id=user.get("userId"),
+        )
+        raise HTTPException(status_code=403, detail="Insufficient permissions.")
+    try:
+        changed = set_user_role(user_id, payload.role, actor_user_id=user["userId"])
+    except HTTPException as exc:
+        from .security_store import audit_event
+
+        audit_event(
+            "user.role.changed",
+            "user",
+            user_id,
+            "denied",
+            reason="Role change rejected",
+            metadata={"requestedRole": payload.role},
+            user_id=user["userId"],
+        )
+        raise exc
+    return {
+        "ok": True,
+        "user": changed,
+        "audit": {
+            "actorUserId": user["userId"],
+            "selectedRole": payload.role,
+            "impact": "The user's effective permissions change immediately; existing sessions are revoked.",
+            "recorded": True,
+        },
+    }
 
 
 @router.get("/projects/{project_id}/access")

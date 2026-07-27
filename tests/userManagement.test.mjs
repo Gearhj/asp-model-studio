@@ -27,7 +27,7 @@ const assertions = [
   ["audit logging", securityStore.includes("audit_events") && datasetRegistry.includes("audit_event(")],
   ["enterprise roles", ["validator", "manager", "viewer"].every((role) => securityStore.includes(`"${role}"`))],
   ["demo users", ["demo_ds_1", "demo_validator", "demo_manager"].every((userId) => securityStore.includes(userId))],
-  ["local dev user header", securityStore.includes("X-ATLAS-USER-ID") && securityStore.includes("For local API testing, pass")],
+  ["development header is explicit and fail closed", securityStore.includes("ATLAS_ENABLE_DEV_USER_HEADER") && securityStore.includes('os.getenv("ATLAS_ENABLE_DEV_USER_HEADER", "false")')],
   ["user activity metrics", [">Projects<", ">Evidence<", ">Validations<", ">Exports<", "Last active"].every((label) => authPages.includes(label))],
   ["login routes", modelingApp.includes('path="/login"') && modelingApp.includes('path="/register"')],
   ["account routes", modelingApp.includes('path="/account"') && modelingApp.includes('path="/admin/users"') && modelingApp.includes('path="/audit"')],

@@ -11,6 +11,7 @@ import sqlite3
 import time
 import uuid
 from datetime import datetime, timezone
+from ipaddress import ip_address
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional
 
@@ -23,13 +24,30 @@ SECURITY_ROOT = Path(os.getenv("ATLAS_SECURITY_ROOT", str(DEFAULT_SECURITY_ROOT)
 DB_PATH = Path(os.getenv("ATLAS_SECURITY_DB_PATH", str(SECURITY_ROOT / "atlas_security.db"))).expanduser().resolve()
 SESSION_COOKIE_NAME = "atlas_session"
 ATLAS_AUTH_ENABLED = os.getenv("ATLAS_AUTH_ENABLED", "true").lower() not in {"0", "false", "no"}
-ATLAS_LOCAL_DEV = os.getenv("ATLAS_LOCAL_DEV", "true").lower() in {"1", "true", "yes"}
+ATLAS_LOCAL_DEV = os.getenv("ATLAS_LOCAL_DEV", "false").lower() in {"1", "true", "yes"}
 ATLAS_HOSTED_MODE = os.getenv("ATLAS_HOSTED_MODE", "false").lower() in {"1", "true", "yes"}
+ATLAS_ALLOW_PUBLIC_REGISTRATION = os.getenv("ATLAS_ALLOW_PUBLIC_REGISTRATION", "false").lower() in {"1", "true", "yes"}
+ATLAS_ENABLE_DEV_USER_HEADER = os.getenv("ATLAS_ENABLE_DEV_USER_HEADER", "false").lower() in {"1", "true", "yes"}
+ATLAS_ENABLE_LOCAL_USER_BOOTSTRAP = os.getenv("ATLAS_ENABLE_LOCAL_USER_BOOTSTRAP", "false").lower() in {"1", "true", "yes"}
 ATLAS_DEV_AUTH_TOOLS = os.getenv("ATLAS_DEV_AUTH_TOOLS", "false").lower() in {"1", "true", "yes"}
 ATLAS_DEV_MODE = os.getenv(
     "ATLAS_DEV_MODE",
-    "true" if ATLAS_LOCAL_DEV and not ATLAS_HOSTED_MODE else "false",
+    "false",
 ).lower() in {"1", "true", "yes"}
+ATLAS_COOKIE_SECURE = os.getenv(
+    "ATLAS_COOKIE_SECURE",
+    "true" if ATLAS_HOSTED_MODE else "false",
+).lower() in {"1", "true", "yes"}
+ATLAS_CORS_ORIGINS = tuple(
+    origin.strip()
+    for origin in os.getenv("ATLAS_CORS_ORIGINS", "").split(",")
+    if origin.strip()
+)
+ATLAS_TRUSTED_PROXY_IPS = frozenset(
+    address.strip()
+    for address in os.getenv("ATLAS_TRUSTED_PROXY_IPS", "").split(",")
+    if address.strip()
+)
 SESSION_TTL_SECONDS = int(os.getenv("ATLAS_SESSION_TTL_SECONDS", str(8 * 60 * 60)))
 LOCKOUT_THRESHOLD = int(os.getenv("ATLAS_LOCKOUT_THRESHOLD", "5"))
 LOCKOUT_SECONDS = int(os.getenv("ATLAS_LOCKOUT_SECONDS", "900"))
@@ -87,9 +105,21 @@ def now_iso() -> str:
 
 
 def development_user_header_enabled() -> bool:
-    """Allow the explicit dev-user header only for non-hosted local/dev processes."""
+    """Return whether configuration permits considering the development header."""
 
-    return not ATLAS_HOSTED_MODE and (ATLAS_DEV_MODE or ATLAS_LOCAL_DEV)
+    return (
+        ATLAS_ENABLE_DEV_USER_HEADER
+        and ATLAS_LOCAL_DEV
+        and not ATLAS_HOSTED_MODE
+    )
+
+
+def public_registration_enabled() -> bool:
+    return ATLAS_ALLOW_PUBLIC_REGISTRATION
+
+
+def secure_cookie_enabled() -> bool:
+    return ATLAS_COOKIE_SECURE
 
 
 def epoch() -> int:
@@ -105,19 +135,87 @@ def connect() -> sqlite3.Connection:
     return conn
 
 
-def enforce_hosted_security_configuration() -> None:
-    if not ATLAS_HOSTED_MODE:
-        return
+def security_configuration_summary() -> Dict[str, Any]:
+    """Machine-readable, secret-free security configuration for administrators."""
+
+    warnings = []
     if not ATLAS_AUTH_ENABLED:
-        raise RuntimeError("ATLAS_AUTH_ENABLED must be true in hosted mode.")
+        warnings.append("authentication disabled")
+    if ATLAS_ALLOW_PUBLIC_REGISTRATION:
+        warnings.append("public registration enabled")
+    if development_user_header_enabled():
+        warnings.append("development user header enabled")
+    if ATLAS_ENABLE_LOCAL_USER_BOOTSTRAP:
+        warnings.append("local-user bootstrap enabled")
     if SESSION_SECRET == DEFAULT_SESSION_SECRET:
-        raise RuntimeError("ATLAS_SESSION_SECRET must be configured in hosted mode.")
+        warnings.append("default local session secret in use")
     if DEFAULT_ADMIN_PASSWORD == DEFAULT_LOCAL_ADMIN_PASSWORD:
-        raise RuntimeError("ATLAS_DEFAULT_ADMIN_PASSWORD must be changed in hosted mode.")
+        warnings.append("default local administrator password in use")
+    return {
+        "hostedMode": ATLAS_HOSTED_MODE,
+        "localDevelopment": ATLAS_LOCAL_DEV,
+        "authenticationEnabled": ATLAS_AUTH_ENABLED,
+        "publicRegistrationEnabled": ATLAS_ALLOW_PUBLIC_REGISTRATION,
+        "developmentUserHeaderEnabled": development_user_header_enabled(),
+        "localUserBootstrapEnabled": ATLAS_ENABLE_LOCAL_USER_BOOTSTRAP,
+        "sessionSecretConfigured": SESSION_SECRET != DEFAULT_SESSION_SECRET,
+        "bootstrapPasswordConfigured": DEFAULT_ADMIN_PASSWORD != DEFAULT_LOCAL_ADMIN_PASSWORD,
+        "secureCookies": ATLAS_COOKIE_SECURE,
+        "allowedOrigins": list(ATLAS_CORS_ORIGINS),
+        "trustedProxyCount": len(ATLAS_TRUSTED_PROXY_IPS),
+        "warnings": warnings,
+    }
+
+
+def validate_security_configuration() -> Dict[str, Any]:
+    """Validate security-sensitive startup settings, failing closed when hosted."""
+
+    invalid_proxy_ips = []
+    for address in ATLAS_TRUSTED_PROXY_IPS:
+        try:
+            ip_address(address)
+        except ValueError:
+            invalid_proxy_ips.append(address)
+    if invalid_proxy_ips:
+        raise RuntimeError("trusted proxy configuration contains an invalid IP address.")
+
+    if not ATLAS_HOSTED_MODE:
+        return security_configuration_summary()
+
+    unsafe = []
+    if not ATLAS_AUTH_ENABLED:
+        unsafe.append("authentication disabled")
+    if ATLAS_LOCAL_DEV or ATLAS_DEV_MODE:
+        unsafe.append("local development mode enabled")
+    if ATLAS_ENABLE_DEV_USER_HEADER:
+        unsafe.append("development header enabled")
+    if ATLAS_ENABLE_LOCAL_USER_BOOTSTRAP:
+        unsafe.append("local-user bootstrap enabled")
+    if SESSION_SECRET == DEFAULT_SESSION_SECRET or len(SESSION_SECRET) < 32:
+        unsafe.append("default session secret or insufficient hosted secret")
+    if DEFAULT_ADMIN_PASSWORD == DEFAULT_LOCAL_ADMIN_PASSWORD:
+        unsafe.append("default administrator password")
+    if not ATLAS_COOKIE_SECURE:
+        unsafe.append("insecure cookies")
+    if not ATLAS_CORS_ORIGINS:
+        unsafe.append("missing allowed origins")
+    elif "*" in ATLAS_CORS_ORIGINS:
+        unsafe.append("wildcard allowed origin")
+    elif any(not origin.lower().startswith("https://") for origin in ATLAS_CORS_ORIGINS):
+        unsafe.append("insecure allowed origin")
+    if unsafe:
+        raise RuntimeError("Unsafe ATLAS hosted security configuration: " + "; ".join(unsafe) + ".")
+    return security_configuration_summary()
+
+
+def enforce_hosted_security_configuration() -> None:
+    """Backward-compatible entry point retained for existing callers/tests."""
+
+    validate_security_configuration()
 
 
 def init_security_store() -> None:
-    enforce_hosted_security_configuration()
+    validate_security_configuration()
     SECURITY_ROOT.mkdir(parents=True, exist_ok=True)
     with connect() as conn:
         conn.executescript(
@@ -172,9 +270,9 @@ def init_security_store() -> None:
             """
         )
         admin_count = conn.execute("SELECT COUNT(*) AS n FROM users WHERE role = 'admin'").fetchone()["n"]
-        if admin_count == 0:
+        if admin_count == 0 and ATLAS_ENABLE_LOCAL_USER_BOOTSTRAP and ATLAS_LOCAL_DEV and not ATLAS_HOSTED_MODE:
             create_user(
-                user_id=SEEDED_LOCAL_ADMIN_USER_ID if ATLAS_LOCAL_DEV and not ATLAS_HOSTED_MODE else None,
+                user_id=SEEDED_LOCAL_ADMIN_USER_ID,
                 email=DEFAULT_ADMIN_EMAIL,
                 display_name="ATLAS Local Admin",
                 password=DEFAULT_ADMIN_PASSWORD,
@@ -183,7 +281,7 @@ def init_security_store() -> None:
                 conn=conn,
             )
         legacy = conn.execute("SELECT user_id FROM users WHERE user_id = 'local-user'").fetchone()
-        if legacy is None:
+        if legacy is None and ATLAS_ENABLE_LOCAL_USER_BOOTSTRAP and ATLAS_LOCAL_DEV and not ATLAS_HOSTED_MODE:
             create_user(
                 email="local.user@atlas.local",
                 display_name="Local ATLAS User",
@@ -193,7 +291,7 @@ def init_security_store() -> None:
                 conn=conn,
                 user_id="local-user",
             )
-        if ATLAS_LOCAL_DEV and not ATLAS_HOSTED_MODE:
+        if ATLAS_ENABLE_LOCAL_USER_BOOTSTRAP and ATLAS_LOCAL_DEV and not ATLAS_HOSTED_MODE:
             for user_id, email, display_name, role in DEMO_USERS:
                 exists = conn.execute(
                     "SELECT user_id FROM users WHERE user_id = ? OR email = ?",
@@ -281,6 +379,7 @@ def create_user(
     audit: bool = True,
     conn: sqlite3.Connection | None = None,
     user_id: Optional[str] = None,
+    actor_user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     validate_password(password)
     if role not in ROLES:
@@ -304,7 +403,15 @@ def create_user(
             (user_id, hash_password(password), PASSWORD_ALGORITHM, timestamp),
         )
         if audit:
-            audit_event("user.created", "user", user_id, "success", metadata={"email": normalize_email(email), "role": role}, conn=active_conn)
+            audit_event(
+                "user.created",
+                "user",
+                user_id,
+                "success",
+                metadata={"email": normalize_email(email), "role": role},
+                user_id=actor_user_id,
+                conn=active_conn,
+            )
         if owns_conn:
             active_conn.commit()
         row = active_conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
@@ -334,7 +441,12 @@ def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
         return row_to_user(conn.execute("SELECT * FROM users WHERE email = ?", (normalize_email(email),)).fetchone())
 
 
-def update_user(user_id: str, fields: Dict[str, Any]) -> Dict[str, Any]:
+def update_user(
+    user_id: str,
+    fields: Dict[str, Any],
+    *,
+    actor_user_id: Optional[str] = None,
+) -> Dict[str, Any]:
     allowed = {"displayName": "display_name", "role": "role", "status": "status"}
     updates = []
     params = []
@@ -356,21 +468,41 @@ def update_user(user_id: str, fields: Dict[str, Any]) -> Dict[str, Any]:
     params.append(user_id)
     with connect() as conn:
         conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE user_id = ?", params)
-        audit_event("user.updated", "user", user_id, "success", metadata={"fields": list(fields.keys())}, conn=conn)
+        if "role" in fields or "status" in fields:
+            conn.execute(
+                "UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL",
+                (now_iso(), user_id),
+            )
+        audit_event(
+            "user.updated",
+            "user",
+            user_id,
+            "success",
+            metadata={"fields": list(fields.keys())},
+            user_id=actor_user_id,
+            conn=conn,
+        )
         row = conn.execute("SELECT * FROM users WHERE user_id = ?", (user_id,)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="User not found.")
         return public_user(row_to_user(row) or {})
 
 
-def set_user_status(user_id: str, status: str) -> Dict[str, Any]:
+def set_user_status(user_id: str, status: str, *, actor_user_id: Optional[str] = None) -> Dict[str, Any]:
     action = "user.inactivated" if status in {"disabled", "inactive"} else "user.activated"
-    return update_user(user_id, {"status": status}) | {"auditAction": action}
+    return update_user(user_id, {"status": status}, actor_user_id=actor_user_id) | {"auditAction": action}
 
 
-def set_user_role(user_id: str, role: str) -> Dict[str, Any]:
-    user = update_user(user_id, {"role": role})
-    audit_event("user.role.changed", "user", user_id, "success", metadata={"role": role})
+def set_user_role(user_id: str, role: str, *, actor_user_id: str) -> Dict[str, Any]:
+    user = update_user(user_id, {"role": role}, actor_user_id=actor_user_id)
+    audit_event(
+        "user.role.changed",
+        "user",
+        user_id,
+        "success",
+        metadata={"role": role},
+        user_id=actor_user_id,
+    )
     return user
 
 
@@ -507,21 +639,6 @@ def set_active_user(user: Optional[Dict[str, Any]]) -> None:
     ACTIVE_USER.set(user)
 
 
-def _available_dev_users() -> List[Dict[str, Any]]:
-    return [
-        {"user_id": row.get("userId"), "display_name": row.get("displayName"), "role": row.get("role")}
-        for row in list_users()
-        if row.get("status") == "active"
-    ]
-
-
-def _local_header_help() -> Dict[str, str]:
-    return {
-        "name": LOCAL_DEV_USER_HEADER,
-        "example": f"{LOCAL_DEV_USER_HEADER}: {SEEDED_LOCAL_ADMIN_USER_ID}",
-    }
-
-
 def _track_user_activity(user: Dict[str, Any], *, dev_context: bool = False) -> None:
     try:
         from ..persistence.service import get_persistence_service
@@ -542,6 +659,35 @@ def _track_user_activity(user: Dict[str, Any], *, dev_context: bool = False) -> 
         )
 
 
+def _is_loopback(value: str | None) -> bool:
+    if not value:
+        return False
+    try:
+        return ip_address(value.strip("[]")).is_loopback
+    except ValueError:
+        return False
+
+
+def _request_allows_dev_header(request: Request) -> bool:
+    if not development_user_header_enabled():
+        return False
+    client_host = request.client.host if request.client else None
+    if not _is_loopback(client_host):
+        return False
+    forwarded_for = request.headers.get("x-forwarded-for")
+    forwarded = request.headers.get("forwarded")
+    if not forwarded_for and not forwarded:
+        return True
+    if client_host not in ATLAS_TRUSTED_PROXY_IPS:
+        return False
+    if forwarded:
+        # The standardized Forwarded syntax is intentionally not interpreted
+        # for this password-free development path.
+        return False
+    origin = (forwarded_for or "").split(",", 1)[0].strip()
+    return _is_loopback(origin)
+
+
 def _resolve_authenticated_user(request: Request, *, allow_dev_bootstrap: bool) -> Optional[Dict[str, Any]]:
     """Single source of truth for "which user does this request belong to".
 
@@ -557,9 +703,18 @@ def _resolve_authenticated_user(request: Request, *, allow_dev_bootstrap: bool) 
     callers decide what "no user" means for them.
     """
     requested_dev_user = (request.headers.get(LOCAL_DEV_USER_HEADER) or "").strip()
-    if development_user_header_enabled() and requested_dev_user:
+    session_id = request.cookies.get(SESSION_COOKIE_NAME)
+    session_user = user_for_session(session_id)
+    if _request_allows_dev_header(request) and requested_dev_user:
+        if session_user:
+            return session_user if session_user.get("userId") == requested_dev_user else None
         user = get_user(requested_dev_user)
-        if user is None and requested_dev_user == LOCAL_DEV_USER_ID and allow_dev_bootstrap:
+        if (
+            user is None
+            and requested_dev_user == LOCAL_DEV_USER_ID
+            and allow_dev_bootstrap
+            and ATLAS_ENABLE_LOCAL_USER_BOOTSTRAP
+        ):
             user = get_user_by_email(DEFAULT_ADMIN_EMAIL)
             if user is None:
                 user = create_user(
@@ -573,35 +728,35 @@ def _resolve_authenticated_user(request: Request, *, allow_dev_bootstrap: bool) 
                 )
         return user
     if not ATLAS_AUTH_ENABLED:
-        return get_user("local-user") or get_user_by_email(DEFAULT_ADMIN_EMAIL)
-    session_id = request.cookies.get(SESSION_COOKIE_NAME)
-    return user_for_session(session_id)
+        if ATLAS_ENABLE_LOCAL_USER_BOOTSTRAP and ATLAS_LOCAL_DEV and not ATLAS_HOSTED_MODE:
+            return get_user("local-user") or get_user_by_email(DEFAULT_ADMIN_EMAIL)
+        return None
+    return session_user
 
 
 def require_user(request: Request) -> Dict[str, Any]:
     requested_dev_user = (request.headers.get(LOCAL_DEV_USER_HEADER) or "").strip()
-    if development_user_header_enabled() and requested_dev_user:
+    if _request_allows_dev_header(request) and requested_dev_user:
+        session_user = user_for_session(request.cookies.get(SESSION_COOKIE_NAME))
+        if session_user and session_user.get("userId") != requested_dev_user:
+            audit_event(
+                "auth.identity.conflict",
+                "auth",
+                None,
+                "denied",
+                reason="Session and development-header identities conflict",
+                user_id=session_user.get("userId"),
+            )
+            raise HTTPException(status_code=400, detail="Conflicting authentication identities.")
+        if session_user:
+            set_active_user(session_user)
+            _track_user_activity(session_user)
+            return public_user(session_user)
         user = _resolve_authenticated_user(request, allow_dev_bootstrap=True)
         if user is None:
-            raise AtlasUserContextError(
-                {
-                    "error": "no user selected",
-                    "hint": f"The {LOCAL_DEV_USER_HEADER} header did not match a user in the local security database.",
-                    "example": f"{LOCAL_DEV_USER_HEADER}: {SEEDED_LOCAL_ADMIN_USER_ID}",
-                    "expected_local_header": _local_header_help(),
-                    "received_user_id": requested_dev_user,
-                    "available_dev_users": _available_dev_users(),
-                }
-            )
+            raise AtlasUserContextError({"error": "authentication required"})
         if user.get("status") != "active":
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "error": "user is not active",
-                    "hint": f"Use an active local account with {LOCAL_DEV_USER_HEADER}.",
-                    "received_user_id": requested_dev_user,
-                },
-            )
+            raise HTTPException(status_code=403, detail="User is not active.")
         set_active_user(user)
         _track_user_activity(user, dev_context=True)
         return public_user(user)
@@ -614,18 +769,7 @@ def require_user(request: Request) -> Dict[str, Any]:
     user = _resolve_authenticated_user(request, allow_dev_bootstrap=False)
     if not user:
         audit_event("access.denied", "auth", None, "denied", reason="Authentication required")
-        payload: Dict[str, Any] = {
-            "error": "no user selected",
-            "hint": "Authenticate through the login endpoint.",
-        }
-        if development_user_header_enabled():
-            payload["hint"] = (
-                f"For local API testing, pass {LOCAL_DEV_USER_HEADER} with an active user ID."
-            )
-            payload["example"] = f"{LOCAL_DEV_USER_HEADER}: {SEEDED_LOCAL_ADMIN_USER_ID}"
-            payload["expected_local_header"] = _local_header_help()
-            payload["available_dev_users"] = _available_dev_users()
-        raise AtlasUserContextError(payload)
+        raise AtlasUserContextError({"error": "authentication required"})
     if user.get("status") != "active":
         audit_event("access.denied", "auth", user.get("userId"), "denied", reason="User is not active")
         raise HTTPException(status_code=403, detail="User is not active.")
@@ -946,14 +1090,19 @@ def security_diagnostics() -> Dict[str, Any]:
     users = list_users()
     checks = []
     checks.append({"id": "auth_enabled", "label": "Authentication enabled", "status": "pass" if ATLAS_AUTH_ENABLED else "warning", "detail": f"ATLAS_AUTH_ENABLED={ATLAS_AUTH_ENABLED}"})
-    checks.append({"id": "user_db", "label": "User database reachable", "status": "pass" if DB_PATH.exists() else "fail", "detail": str(DB_PATH)})
+    checks.append({"id": "user_db", "label": "User database reachable", "status": "pass" if DB_PATH.exists() else "fail", "detail": "Security store availability checked."})
     checks.append({"id": "hashing", "label": "Password hashing configured", "status": "warning", "detail": f"{PASSWORD_ALGORITHM} with per-user random salt. Install argon2id/bcrypt for production-grade hosted deployment."})
     checks.append({"id": "admin_exists", "label": "Admin user exists", "status": "pass" if any(user.get("role") == "admin" for user in users) else "fail", "detail": f"{len(users)} user records."})
     checks.append({"id": "session_secret", "label": "Security secret configured", "status": "warning" if SESSION_SECRET == DEFAULT_SESSION_SECRET else "pass", "detail": "Default local secret is in use." if SESSION_SECRET == DEFAULT_SESSION_SECRET else "Custom session secret configured."})
-    checks.append({"id": "cookie_policy", "label": "Session cookie policy", "status": "pass" if ATLAS_LOCAL_DEV or ATLAS_HOSTED_MODE else "warning", "detail": "Secure cookies are required when not running local development."})
+    checks.append({"id": "cookie_policy", "label": "Session cookie policy", "status": "pass" if not ATLAS_HOSTED_MODE or ATLAS_COOKIE_SECURE else "fail", "detail": "Hosted deployments require Secure cookies."})
     checks.append({"id": "dataset_acl", "label": "Dataset ACL enforcement available", "status": "pass", "detail": "Dataset endpoints require authenticated user context and owner/grant/admin access."})
     checks.append({"id": "project_acl", "label": "Project ACL enforcement available", "status": "pass", "detail": "Project access grants and project-dataset link checks are available."})
     checks.append({"id": "audit_writable", "label": "Audit logging writable", "status": "pass", "detail": "Audit events are stored in SQLite."})
     checks.append({"id": "hosted_python", "label": "Hosted mode Python execution disabled", "status": "pass" if not ATLAS_HOSTED_MODE or os.getenv("ATLAS_ENABLE_PYTHON_RUN", "1") in {"0", "false"} else "warning", "detail": f"ATLAS_HOSTED_MODE={ATLAS_HOSTED_MODE}, ATLAS_ENABLE_PYTHON_RUN={os.getenv('ATLAS_ENABLE_PYTHON_RUN', '1')}"})
     audit_event("diagnostics.run", "system", "security", "success", metadata={"checks": len(checks)})
-    return {"ok": True, "generatedAt": now_iso(), "checks": checks, "currentUser": public_user(active_user() or get_user("local-user") or {}), "authEnabled": ATLAS_AUTH_ENABLED}
+    return {
+        "ok": True,
+        "generatedAt": now_iso(),
+        "checks": checks,
+        "configuration": security_configuration_summary(),
+    }

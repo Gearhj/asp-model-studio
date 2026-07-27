@@ -33,10 +33,10 @@ export async function login(email: string, password: string) {
   return response;
 }
 
-export async function register(email: string, displayName: string, password: string, role = "data_scientist") {
+export async function register(email: string, displayName: string, password: string) {
   const response = await authFetch<AuthResponse>("/auth/register", {
     method: "POST",
-    body: JSON.stringify({ email, displayName, password, role }),
+    body: JSON.stringify({ email, displayName, password }),
   });
   setCachedUserId(response.user?.userId ?? null);
   return response;

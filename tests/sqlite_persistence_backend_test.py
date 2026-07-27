@@ -546,8 +546,12 @@ class SqlitePersistenceBackendTest(unittest.TestCase):
         self.assertEqual(updated_feedback["notes"], "Updated without a duplicate.")
         self.assertEqual(len(self.service.feedback.list(project_id="project-1")), 1)
 
-    def test_dev_user_header_resolves_and_missing_context_is_actionable(self) -> None:
-        request_with_header = SimpleNamespace(headers={"X-ATLAS-USER-ID": "local-dev-user"}, cookies={})
+    def test_dev_user_header_requires_explicit_loopback_and_missing_context_is_generic(self) -> None:
+        request_with_header = SimpleNamespace(
+            headers={"X-ATLAS-USER-ID": "local-dev-user"},
+            cookies={},
+            client=SimpleNamespace(host="127.0.0.1"),
+        )
         local_user = {
             "userId": "local-dev-user",
             "displayName": "Local Dev User",
@@ -556,7 +560,11 @@ class SqlitePersistenceBackendTest(unittest.TestCase):
             "status": "active",
         }
         with (
-            patch.object(security_store, "ATLAS_DEV_MODE", True),
+            patch.object(security_store, "ATLAS_ENABLE_DEV_USER_HEADER", True),
+            patch.object(security_store, "ATLAS_LOCAL_DEV", True),
+            patch.object(security_store, "ATLAS_HOSTED_MODE", False),
+            patch.object(security_store, "ATLAS_ENABLE_LOCAL_USER_BOOTSTRAP", True),
+            patch.object(security_store, "user_for_session", return_value=None),
             patch.object(security_store, "get_user", return_value=None),
             patch.object(security_store, "get_user_by_email", return_value=None),
             patch.object(security_store, "create_user", return_value=local_user) as create_user,
@@ -573,35 +581,33 @@ class SqlitePersistenceBackendTest(unittest.TestCase):
             "role": "admin",
             "status": "active",
         }
-        seeded_request = SimpleNamespace(headers={"X-ATLAS-USER-ID": SEEDED_ADMIN_USER_ID}, cookies={})
+        seeded_request = SimpleNamespace(
+            headers={"X-ATLAS-USER-ID": SEEDED_ADMIN_USER_ID},
+            cookies={},
+            client=SimpleNamespace(host="::1"),
+        )
         with (
-            patch.object(security_store, "ATLAS_DEV_MODE", False),
+            patch.object(security_store, "ATLAS_ENABLE_DEV_USER_HEADER", True),
             patch.object(security_store, "ATLAS_LOCAL_DEV", True),
             patch.object(security_store, "ATLAS_HOSTED_MODE", False),
+            patch.object(security_store, "user_for_session", return_value=None),
             patch.object(security_store, "get_user", return_value=seeded_admin),
             patch.object(security_store, "set_active_user"),
         ):
             resolved_admin = security_store.require_user(seeded_request)
         self.assertEqual(resolved_admin["userId"], SEEDED_ADMIN_USER_ID)
 
-        request_without_context = SimpleNamespace(headers={}, cookies={})
+        request_without_context = SimpleNamespace(headers={}, cookies={}, client=SimpleNamespace(host="127.0.0.1"))
         with (
-            patch.object(security_store, "ATLAS_DEV_MODE", True),
             patch.object(security_store, "ATLAS_AUTH_ENABLED", True),
             patch.object(security_store, "user_for_session", return_value=None),
             patch.object(security_store, "audit_event"),
-            patch.object(security_store, "list_users", return_value=[local_user]),
         ):
             with self.assertRaises(security_store.AtlasUserContextError) as context:
                 security_store.require_user(request_without_context)
         payload = context.exception.detail
-        self.assertEqual(payload["error"], "no user selected")
-        self.assertIn("X-ATLAS-USER-ID", payload["hint"])
-        self.assertEqual(
-            payload["expected_local_header"]["example"],
-            f"X-ATLAS-USER-ID: {SEEDED_ADMIN_USER_ID}",
-        )
-        self.assertEqual(payload["available_dev_users"][0]["user_id"], "local-dev-user")
+        self.assertEqual(payload, {"error": "authentication required"})
+        self.assertNotIn("X-ATLAS-USER-ID", str(payload))
 
     def test_http_health_and_projects_accept_seeded_admin_header(self) -> None:
         repository_root = Path(__file__).resolve().parents[1]
@@ -626,6 +632,8 @@ class SqlitePersistenceBackendTest(unittest.TestCase):
                 "ATLAS_DEV_MODE": "true",
                 "ATLAS_LOCAL_DEV": "true",
                 "ATLAS_HOSTED_MODE": "false",
+                "ATLAS_ENABLE_DEV_USER_HEADER": "true",
+                "ATLAS_ENABLE_LOCAL_USER_BOOTSTRAP": "true",
                 "ATLAS_LOCAL_ADMIN_USER_ID": SEEDED_ADMIN_USER_ID,
                 "ATLAS_SECURITY_DB_PATH": str(security_database),
                 "ATLAS_SQLITE_PATH": str(persistence_database),
@@ -675,18 +683,11 @@ class SqlitePersistenceBackendTest(unittest.TestCase):
                 self.fail("Package-aware ATLAS backend did not become healthy within 75 seconds.")
 
             self.assertEqual(health_status, 200)
-            self.assertTrue(health_payload["ok"])
-            self.assertEqual(health_payload["service"], "atlas-backend")
-            self.assertFalse(health_payload["requiresUserContext"])
-            self.assertTrue(health_payload["devUserHeaderEnabled"])
-            self.assertEqual(
-                health_payload["localUserHeader"]["example"],
-                f"X-ATLAS-USER-ID: {SEEDED_ADMIN_USER_ID}",
-            )
+            self.assertEqual(health_payload, {"ok": True, "status": "running"})
 
             public_health_status, public_health_payload = _request_json(health_url)
             self.assertEqual(public_health_status, 200)
-            self.assertEqual(public_health_payload["service"], "atlas-backend")
+            self.assertEqual(public_health_payload, {"ok": True, "status": "running"})
 
             current_user_status, current_user_payload = _request_json(
                 f"http://127.0.0.1:{port}/api/auth/me",
@@ -710,8 +711,7 @@ class SqlitePersistenceBackendTest(unittest.TestCase):
                 {"X-ATLAS-USER-ID": "user-does-not-exist"},
             )
             self.assertEqual(invalid_status, 401)
-            self.assertEqual(invalid_payload["error"], "no user selected")
-            self.assertIn("did not match", invalid_payload["hint"])
+            self.assertEqual(invalid_payload, {"error": "authentication required"})
 
             timestamp = "2026-07-15T00:00:00+00:00"
             with sqlite3.connect(security_database) as connection:
@@ -724,16 +724,11 @@ class SqlitePersistenceBackendTest(unittest.TestCase):
                 {"X-ATLAS-USER-ID": "inactive-test-user"},
             )
             self.assertEqual(inactive_status, 403)
-            self.assertEqual(inactive_payload["detail"]["error"], "user is not active")
+            self.assertEqual(inactive_payload["detail"], "User is not active.")
 
             missing_status, missing_payload = _request_json(project_url)
             self.assertEqual(missing_status, 401)
-            self.assertEqual(missing_payload["error"], "no user selected")
-            self.assertIn("X-ATLAS-USER-ID", missing_payload["hint"])
-            self.assertEqual(
-                missing_payload["expected_local_header"]["example"],
-                f"X-ATLAS-USER-ID: {SEEDED_ADMIN_USER_ID}",
-            )
+            self.assertEqual(missing_payload, {"error": "authentication required"})
         finally:
             if process.poll() is None:
                 process.terminate()

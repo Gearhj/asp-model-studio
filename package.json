@@ -63,7 +63,8 @@
     "test:analysis-scope": "node tests/analysisScope.test.mjs && .\\.venv\\Scripts\\python.exe tests\\analysis_scope_test.py",
     "test:governed-profile": "node tests/governedProfile.test.mjs && .\\.venv\\Scripts\\python.exe tests\\governed_profile_test.py",
     "test:entry-pages": "node tests/entryPageIntegrity.test.mjs",
-    "test:data-acquisition-status": "node tests/dataAcquisitionStatus.test.mjs"
+    "test:data-acquisition-status": "node tests/dataAcquisitionStatus.test.mjs",
+    "test:security": "python scripts/run_security_tests.py"
   },
   "dependencies": {
     "@duckdb/duckdb-wasm": "^1.32.0",

@@ -40,7 +40,16 @@ from .security.security_router import router as security_router
 from .admin.router import router as admin_router
 from .sharing.router import router as sharing_router
 from .notifications.router import router as notifications_router
-from .security.security_store import ActiveUserContextMiddleware, AtlasUserContextError, init_security_store, list_users, require_user
+from .security.security_store import (
+    ATLAS_CORS_ORIGINS,
+    ATLAS_HOSTED_MODE,
+    ActiveUserContextMiddleware,
+    AtlasUserContextError,
+    init_security_store,
+    list_users,
+    require_user,
+    validate_security_configuration,
+)
 from .analytics.analytics_router import router as analytics_router
 from .analytics.analytics_queries_router import router as analytics_queries_router
 from .analytics.target_intelligence_router import router as target_intelligence_router
@@ -126,7 +135,7 @@ def create_app() -> FastAPI:
     # -------------------------------------------------------------------------
     # CORS – support local Vite dev + fall back to permissive for now
     # -------------------------------------------------------------------------
-    origins: List[str] = [
+    local_origins: List[str] = [
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://localhost:5174",
@@ -134,8 +143,7 @@ def create_app() -> FastAPI:
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ]
-    extra_origins = [origin.strip() for origin in os.getenv("ATLAS_CORS_ORIGINS", "").split(",") if origin.strip()]
-    origins.extend(extra_origins)
+    origins = list(ATLAS_CORS_ORIGINS) if ATLAS_HOSTED_MODE else [*local_origins, *ATLAS_CORS_ORIGINS]
 
     app.add_middleware(
         CORSMiddleware,
@@ -160,6 +168,9 @@ def create_app() -> FastAPI:
 
     @app.on_event("startup")
     def restore_session_checkpoint() -> None:
+        summary = validate_security_configuration()
+        if summary["warnings"]:
+            print("ATLAS local security settings: " + "; ".join(summary["warnings"]))
         init_security_store()
         try:
             initialize_persistence()

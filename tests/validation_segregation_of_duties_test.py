@@ -41,12 +41,13 @@ _PERSISTENCE_DB_PATH = _TEST_DATA_ROOT / f"atlas_validation_sod_persistence_{_RU
 os.environ["ATLAS_SECURITY_DB_PATH"] = str(_SECURITY_DB_PATH)
 os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH)
 os.environ.setdefault("ATLAS_AUTH_ENABLED", "true")
+os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
 
 from fastapi.testclient import TestClient  # noqa: E402
 
 from server.main import app  # noqa: E402
 from server.persistence import initialize_persistence  # noqa: E402
-from server.security.security_store import init_security_store  # noqa: E402
+from server.security.security_store import create_user, init_security_store  # noqa: E402
 
 
 def _cleanup_db_files() -> None:
@@ -78,17 +79,19 @@ class ValidationSegregationOfDutiesTest(unittest.TestCase):
     def _register(self, label: str, role: str = "validator") -> tuple[TestClient, str]:
         client = TestClient(app)
         suffix = uuid.uuid4().hex[:10]
+        email = f"{label}-{suffix}@atlas-fnd005-test.local"
+        created = create_user(
+            email=email,
+            display_name=f"FND-005 Test {label} {suffix}",
+            password="AuthFnd005TestPass!",
+            role=role,
+        )
         response = client.post(
-            "/api/auth/register",
-            json={
-                "email": f"{label}-{suffix}@atlas-fnd005-test.local",
-                "displayName": f"FND-005 Test {label} {suffix}",
-                "password": "AuthFnd005TestPass!",
-                "role": role,
-            },
+            "/api/auth/login",
+            json={"email": email, "password": "AuthFnd005TestPass!"},
         )
         self.assertEqual(response.status_code, 200, response.text)
-        return client, response.json()["user"]["userId"]
+        return client, created["userId"]
 
     def _create_project(self, client: TestClient, name: str) -> str:
         response = client.post("/api/projects", json={"projectName": name, "projectType": "predictive-modeling"})

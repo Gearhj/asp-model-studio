@@ -8,11 +8,8 @@ from typing import Any, Callable, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from ..security.security_store import (
-    LOCAL_DEV_USER_HEADER,
-    SEEDED_LOCAL_ADMIN_USER_ID,
     AUDIT_ROLES,
     audit_event,
-    development_user_header_enabled,
     require_role,
     require_user,
 )
@@ -134,24 +131,11 @@ def _project_record(project_id: str, payload: Dict[str, Any], user: Dict[str, An
 
 @router.get("/persistence/health")
 def persistence_health() -> Dict[str, Any]:
-    service = _service()
-    health = service.database.health()
-    dev_header_enabled = development_user_header_enabled()
-    return {
-        **health,
-        "service": "atlas-backend",
-        "component": "sqlite-persistence",
-        "engine": "sqlite",
-        "schemaVersion": "0003",
-        "requiresUserContext": False,
-        "devUserHeaderEnabled": dev_header_enabled,
-        "localUserHeader": {
-            "name": LOCAL_DEV_USER_HEADER,
-            "example": f"{LOCAL_DEV_USER_HEADER}: {SEEDED_LOCAL_ADMIN_USER_ID}",
-        }
-        if dev_header_enabled
-        else None,
-    }
+    try:
+        _service().database.health()
+    except (PersistenceUnavailableError, sqlite3.Error, OSError) as exc:
+        raise HTTPException(status_code=503, detail="Service unavailable.") from exc
+    return {"ok": True, "status": "running"}
 
 
 @router.get("/projects")

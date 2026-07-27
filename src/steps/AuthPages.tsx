@@ -212,6 +212,10 @@ export function AdminUsersPage() {
       <Header title="User Administration" icon={<Users size={21} />} description="Admin-only ATLAS user management for local authentication, role assignment, status controls, and lockout remediation." />
       {message && <Banner message={message} />}
       <Card title="Create User">
+        <p className="mb-3 text-sm text-slate-600">
+          The selected role changes this user&apos;s permissions. ATLAS records the signed-in administrator,
+          selected role, and outcome in the security audit trail.
+        </p>
         <div className="grid gap-3 lg:grid-cols-4">
           <Input label="Display Name" value={newUser.displayName} onChange={(value) => setNewUser({ ...newUser, displayName: value })} />
           <Input label="Email" value={newUser.email} onChange={(value) => setNewUser({ ...newUser, email: value })} />

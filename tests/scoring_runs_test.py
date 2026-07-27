@@ -38,6 +38,7 @@ os.environ["ATLAS_CHECKPOINT_PATH"] = str(_CHECKPOINT_PATH)
 os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(_LIBRARY_ROOT)
 os.environ["ATLAS_SCORING_RUN_ARTIFACT_ROOT"] = str(_ARTIFACT_ROOT)
 os.environ.setdefault("ATLAS_AUTH_ENABLED", "true")
+os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
 
 import pandas as pd  # noqa: E402
 import shutil  # noqa: E402

@@ -41,6 +41,7 @@ os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH)
 os.environ["ATLAS_CHECKPOINT_PATH"] = str(_CHECKPOINT_PATH)
 os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(_LIBRARY_ROOT)
 os.environ.setdefault("ATLAS_AUTH_ENABLED", "true")
+os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
 
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402

@@ -11,7 +11,6 @@ from __future__ import annotations
 import os
 import shutil
 import sys
-import tempfile
 import unittest
 import uuid
 from pathlib import Path
@@ -22,7 +21,10 @@ sys.path.insert(0, str(ROOT))
 # Isolated persistence store, set before importing the service. Constructing
 # Database(path) directly creates the schema (same approach as
 # tests/sqlite_persistence_backend_test.py).
-_TMP = Path(tempfile.mkdtemp(prefix="atlas-pc-persistence-"))
+_TEST_TMP_ROOT = ROOT / ".tmp"
+_TEST_TMP_ROOT.mkdir(exist_ok=True)
+_TMP = _TEST_TMP_ROOT / f"atlas-pc-persistence-{uuid.uuid4().hex}"
+_TMP.mkdir()
 _DB_PATH = _TMP / "atlas_test.db"
 os.environ["ATLAS_SQLITE_PATH"] = str(_DB_PATH)
 os.environ["ATLAS_SECURITY_DB_PATH"] = str(_TMP / "atlas_test_security.db")
@@ -68,6 +70,10 @@ class ProjectContextPersistenceTests(unittest.TestCase):
         shutil.rmtree(_TMP, ignore_errors=True)
 
     def setUp(self) -> None:
+        # The JavaScript half of the combined npm command and external temp
+        # cleanup can run before this process begins its first test. Recreate
+        # the disposable parent defensively; no production path is involved.
+        _TMP.mkdir(parents=True, exist_ok=True)
         database = Database(_DB_PATH)
         database.initialize()  # creates the schema in the isolated database
         self.service = PersistenceService(database)

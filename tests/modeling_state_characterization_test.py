@@ -543,6 +543,7 @@ _PERSISTENCE_DB_PATH = _TEST_DATA_ROOT / f"atlas_modeling_state_persistence_{_RU
 os.environ["ATLAS_SECURITY_DB_PATH"] = str(_SECURITY_DB_PATH)
 os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH)
 os.environ.setdefault("ATLAS_AUTH_ENABLED", "true")
+os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
 # Stage 6.1: isolate this suite's checkpoint writes. The checkpoint is a
 # full-snapshot last-writer-wins file; without this, any test class that does
 # not monkeypatch CHECKPOINT_PATH would clobber the real dev backend's

@@ -1,0 +1,45 @@
+{
+  "schemaVersion": 1,
+  "behavioral": [
+    {
+      "path": "tests/security_containment_test.py",
+      "description": "Registration, identity resolution, disclosure, diagnostics, startup configuration, and session containment"
+    },
+    {
+      "path": "tests/security_lockout_test.py",
+      "description": "Password verification, failed-login persistence, lockout, and generic authentication errors"
+    },
+    {
+      "path": "tests/persistence_authorization_test.py",
+      "description": "Router-level project and persistence resource authorization"
+    },
+    {
+      "path": "tests/project_access_consolidation_test.py",
+      "description": "Project access grants and consolidated permission enforcement"
+    },
+    {
+      "path": "tests/validation_segregation_of_duties_test.py",
+      "description": "Validation role enforcement and submitter/approver segregation of duties"
+    },
+    {
+      "path": "tests/sqlite_persistence_backend_test.py",
+      "description": "Persistence behavior plus explicit loopback development identity integration"
+    }
+  ],
+  "structural": [
+    {
+      "path": "tests/userManagement.test.mjs",
+      "runner": "node",
+      "description": "Structural authentication, cookie, route, and public-registration UI checks"
+    }
+  ],
+  "requiredFiles": [
+    "tests/security_containment_test.py",
+    "tests/security_lockout_test.py",
+    "tests/persistence_authorization_test.py",
+    "tests/project_access_consolidation_test.py",
+    "tests/validation_segregation_of_duties_test.py",
+    "tests/sqlite_persistence_backend_test.py",
+    "tests/userManagement.test.mjs"
+  ]
+}

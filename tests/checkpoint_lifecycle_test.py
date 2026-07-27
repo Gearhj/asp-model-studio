@@ -38,6 +38,7 @@ _PERSISTENCE_DB_PATH = _TEST_DATA_ROOT / f"atlas_checkpoint_lifecycle_persistenc
 os.environ["ATLAS_SECURITY_DB_PATH"] = str(_SECURITY_DB_PATH)
 os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH)
 os.environ.setdefault("ATLAS_AUTH_ENABLED", "true")
+os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
 # Isolate this suite's checkpoint writes from the real dev backend's file
 # (full-snapshot last-writer-wins; see session_checkpoint.py). Individual
 # tests additionally monkeypatch CHECKPOINT_PATH to per-test temp files.
