@@ -63,6 +63,7 @@ import {
   deriveDataAcquisitionStatus,
   projectLinkLabel,
   registrationLabel,
+  type DataAcquisitionStatus,
 } from "../lib/dataAcquisitionStatus";
 import {
   DATASET_SOURCE_LABELS,
@@ -1263,12 +1264,10 @@ export default function Step01DataAcquisition() {
     });
   }
 
-  const nextDisabledReason = dataAcquisitionDisabledReason({
-    isImporting,
-    hasHeaders: headers.length > 0,
-    hasTarget: !!target,
-    importError,
-  }) || (!selected.length ? "Select at least one eligible predictor before continuing." : "");
+  // `dataAcquisitionDisabledReason` no longer gates this page: progression is
+  // decided by `acquisitionStatus.canContinue`, which considers the governed
+  // profile as well as the import state. The helper remains exported for other
+  // callers and its own tests.
   // Part D: a successful load is GREEN. The previous default painted the
   // "Loaded CLASS_TRAIN..." confirmation amber, so success read as a warning.
   const messageClass =
@@ -1457,6 +1456,12 @@ export default function Step01DataAcquisition() {
         try {
           advance(0); // Authorizing dataset access
           const activation = await activateDatasetVersion(selectedLibraryDatasetId, selectedLibraryVersionId, projectId);
+          // Loading a governed version INTO this project's modeling workspace is
+          // the act of using it here, so the project-dataset link is established
+          // now rather than only when the page is finally saved. Governed
+          // profiling requires the link (server-side `_require_linked`), so
+          // deferring it left the authoritative profile unavailable after load.
+          await linkDatasetToProject(projectId, selectedLibraryDatasetId, selectedLibraryVersionId, "modeling").catch(() => undefined);
 
           stageIndex = 1;
           advance(1); // Resolving dataset version
@@ -1622,6 +1627,7 @@ export default function Step01DataAcquisition() {
                 className={`rounded-xl border p-4 text-left shadow-sm transition ${sourceType === card.id ? "border-slate-950 bg-slate-950 text-white" : "border-slate-200 bg-white/80 text-slate-900 hover:bg-white"}`}
                 onClick={() => setSourceType(card.id)}
                 aria-pressed={sourceType === card.id}
+                data-testid={`source-card-${card.id}`}
               >
                 <div className={`text-sm font-semibold ${sourceType === card.id ? "text-white" : "text-slate-950"}`}>{card.title}</div>
                 <p className={`mt-2 text-xs leading-5 ${sourceType === card.id ? "text-slate-200" : "text-slate-500"}`}>{card.body}</p>
@@ -1786,13 +1792,14 @@ export default function Step01DataAcquisition() {
               <p className="mt-1 text-sm text-slate-700">Quality findings identify their actual profiling scope and registered row count.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <ReadinessBadge status={readiness.status} />
+              <ReadinessBadge status={acquisitionStatus} />
               <ProfileScopeBadge quality={quality} />
             </div>
           </div>
           <ReadinessSummary
             quality={quality}
             readiness={readiness}
+            acquisitionStatus={acquisitionStatus}
             registeredRowCount={registeredRowCount}
             eventRateDisplay={formatEventRatePrecise(authoritativeEventRate.rate)}
             eventRateScopeLabel={EVENT_RATE_SCOPE_LABELS[authoritativeEventRate.scope]}
@@ -2842,14 +2849,31 @@ const readinessBadgeClass: Record<ReadinessStatus, string> = {
   blocked: "border-red-300 bg-red-100 text-red-900",
 };
 
-function ReadinessBadge({ status }: { status: ReadinessStatus }) {
+/**
+ * Lifecycle badge for the readiness checkpoint.
+ *
+ * Part A closure: this used to take `readiness.status` from
+ * `computeReadinessStatus` -- a SECOND lifecycle derivation that could report
+ * "Blocked" while the hero reported "Ready with warnings". It now renders the
+ * one shared `acquisitionStatus`, so the checkpoint cannot disagree with the
+ * rest of the page.
+ */
+function ReadinessBadge({ status }: { status: DataAcquisitionStatus }) {
+  const toneClass: Record<string, string> = {
+    success: "border-emerald-300 bg-emerald-50 text-emerald-900",
+    warning: "border-amber-300 bg-amber-50 text-amber-900",
+    danger: "border-red-300 bg-red-50 text-red-900",
+    info: "border-blue-200 bg-blue-50 text-blue-900",
+    neutral: "border-slate-200 bg-slate-50 text-slate-700",
+  };
   return (
     <span
-      className={`rounded-full border px-3 py-1 text-xs font-bold ${readinessBadgeClass[status]}`}
+      className={`rounded-full border px-3 py-1 text-xs font-bold ${toneClass[status.readinessTone]}`}
       data-testid="readiness-status-badge"
-      data-readiness-status={status}
+      data-readiness-status={status.readiness}
+      data-review-state={status.reviewState}
     >
-      {READINESS_LABELS[status]}
+      {status.readinessLabel}
     </span>
   );
 }
@@ -2863,12 +2887,15 @@ function ReadinessBadge({ status }: { status: ReadinessStatus }) {
 function ReadinessSummary({
   quality,
   readiness,
+  acquisitionStatus,
   registeredRowCount,
   eventRateDisplay,
   eventRateScopeLabel,
 }: {
   quality: DataQualitySummary | null;
+  /** FINDINGS ONLY. Its `.status` is never rendered as a lifecycle state. */
   readiness: { status: ReadinessStatus; reasons: string[] };
+  acquisitionStatus: DataAcquisitionStatus;
   registeredRowCount: number;
   eventRateDisplay: string;
   eventRateScopeLabel: string;
@@ -2897,7 +2924,11 @@ function ReadinessSummary({
 
   return (
     <div className="mt-4" data-testid="readiness-summary">
-      <div className="text-sm font-semibold text-teal-950">{READINESS_LABELS[readiness.status]}</div>
+      {/* Part A closure: the lifecycle sentence comes from the shared model.
+          `readiness` below contributes FINDINGS ONLY. */}
+      <div className="text-sm font-semibold text-teal-950" data-testid="readiness-summary-status">
+        Analytical readiness: {acquisitionStatus.readinessLabel} - User review: {acquisitionStatus.reviewLabel}
+      </div>
       <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
         {facts.map((fact) => (
           <div key={fact.label} className={`rounded-lg border bg-white px-3 py-2 ${toneClass[fact.tone]}`}>

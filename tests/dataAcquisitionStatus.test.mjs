@@ -288,3 +288,56 @@ test("the high-IV explanation is shown and is conservative", () => {
   assert.match(step01, /data-testid="signal-strength-cell"/);
   assert.match(step01, /data-testid="predictor-evaluation-summary"/);
 });
+
+// --- Part A closure: ONE source of truth, proven by invariant ---------------
+
+test("invariant: the readiness checkpoint renders the shared lifecycle state", () => {
+  // The badge and the summary header used to read `readiness.status` from
+  // computeReadinessStatus -- a second lifecycle derivation.
+  assert.match(step01, /<ReadinessBadge status=\{acquisitionStatus\} \/>/,
+    "the checkpoint badge must take the shared status object");
+  assert.doesNotMatch(step01, /<ReadinessBadge status=\{readiness\.status\}/,
+    "the checkpoint badge must not take the legacy status");
+  assert.match(step01, /data-testid="readiness-summary-status"/);
+  assert.match(step01, /Analytical readiness: \{acquisitionStatus\.readinessLabel\}/,
+    "the checkpoint sentence must come from the shared model");
+  assert.match(step01, /User review: \{acquisitionStatus\.reviewLabel\}/);
+});
+
+test("invariant: no visible component renders a legacy lifecycle label", () => {
+  // READINESS_LABELS may still be imported for the findings helper, but it must
+  // never be indexed by `readiness.status` to paint a lifecycle state.
+  assert.doesNotMatch(step01, /READINESS_LABELS\[readiness\.status\]/,
+    "the legacy label lookup must be gone");
+  assert.doesNotMatch(step01, /READINESS_LABELS\[status\]/);
+  // `readiness` survives only as findings text.
+  assert.match(step01, /readiness\.reasons\.map/, "findings text may still come from the legacy helper");
+});
+
+test("invariant: progression uses only acquisitionStatus", () => {
+  assert.match(step01, /nextDisabled=\{!acquisitionStatus\.canContinue\}/);
+  assert.match(step01, /nextLabel=\{acquisitionStatus\.continueLabel\}/);
+  assert.match(step01, /nextDisabledReason=\{acquisitionStatus\.blockingReasons\[0\]/);
+  // The dead independent gate is gone.
+  assert.doesNotMatch(step01, /const nextDisabledReason = dataAcquisitionDisabledReason\(/,
+    "the independent progression gate must be removed");
+});
+
+test("invariant: a Ready-with-Warnings state cannot render as Blocked anywhere", () => {
+  const state = classTrain();
+  // One field holds the answer, so no second renderer can contradict it.
+  assert.equal(state.readinessLabel, "Ready with warnings");
+  assert.notEqual(state.readinessLabel, "Blocked");
+  assert.equal(state.readinessTone, "warning");
+  // Review Required is a distinct dimension, not a blocked lifecycle state.
+  assert.equal(state.reviewLabel, "Review required");
+  assert.notEqual(state.reviewLabel, state.readinessLabel);
+  assert.equal(state.canContinue, true);
+});
+
+test("invariant: the legacy helper is documented as findings-only", async () => {
+  const lifecycleSource = await readFile(new URL("src/lib/dataAcquisitionLifecycle.ts", ROOT), "utf8");
+  assert.match(lifecycleSource, /QUALITY FINDINGS ONLY -- NOT the page lifecycle state/);
+  assert.match(lifecycleSource, /deriveDataAcquisitionStatus\(\)/,
+    "the doc must name the single lifecycle authority");
+});

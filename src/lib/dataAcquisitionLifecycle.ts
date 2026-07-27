@@ -131,9 +131,21 @@ export const READINESS_TONES: Record<ReadinessStatus, ReadinessTone> = {
 };
 
 /**
- * Derives a single readiness status from the profiling findings ATLAS already
- * computes. No new quality rules are introduced: every branch below keys off a
- * field that quality profiling (browser or backend) already populates.
+ * QUALITY FINDINGS ONLY -- NOT the page lifecycle state.
+ *
+ * Part A closure: this function used to be a SECOND lifecycle derivation. Its
+ * `.status` was rendered by the readiness checkpoint while the hero rendered a
+ * different derivation, so "Ready with warnings" and "Blocked" could describe
+ * one state at once. The single lifecycle authority is now
+ * `deriveDataAcquisitionStatus()` in src/lib/dataAcquisitionStatus.ts.
+ *
+ * What survives here is the FINDINGS list (`reasons`) and a coarse severity used
+ * only to order those findings. Nothing in Data Acquisition may render `.status`
+ * as a lifecycle label or use it to gate progression -- an invariant asserted by
+ * tests/dataAcquisitionStatus.test.mjs.
+ *
+ * No new quality rules are introduced: every branch below keys off a field that
+ * quality profiling (browser or backend) already populates.
  *
  * Blocked is reserved for conditions that genuinely prevent modeling -- no
  * profile, no rows, no target, or a target with no usable variation. Leakage
