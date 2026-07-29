@@ -508,10 +508,29 @@ export const LEAKAGE_SCREEN_LABELS: Record<LeakageScreenState, string> = {
  * `likely_leakage` or `confirmed_leakage` -- those require a structural rule or
  * an explicit reviewer decision, neither of which this function has.
  */
+/**
+ * AUTOMATED LEAKAGE EVIDENCE ONLY -- deliberately independent of IV.
+ *
+ * PROVEN DEFECT this replaces: this function previously returned
+ * `review_recommended` whenever `iv >= UNUSUALLY_STRONG_IV`, so association
+ * strength WAS the leakage verdict. On the governed CLASS_TRAIN population that
+ * marked ~23 of 30 predictors as leakage-review candidates purely because the
+ * PCA components V1-V28 separate the target well -- which an independent
+ * reference implementation confirmed is real signal, not leakage.
+ *
+ * A high IV is reported by `signalStrength()` as "Unusually strong" with
+ * `reviewRecommended: true`. That is the review channel. THIS function answers a
+ * different question -- "did an automated check find leakage evidence?" -- and a
+ * strong predictor with no such evidence must answer "no automated signal".
+ *
+ * Real evidence comes from server-side checks surfaced via `row.role` (e.g.
+ * target duplication, deterministic target transformation, post-outcome
+ * timestamps, fields unavailable at scoring time). IV is not evidence.
+ */
 export function leakageScreen(row: Pick<PredictorProfile, "iv" | "ivStatus" | "role" | "eligible">): LeakageScreenState {
   if (!row.eligible) return row.role === "potential_leakage" ? "review_recommended" : "not_applicable";
-  if (row.ivStatus !== "available" || row.iv === null) return "no_automated_signal";
-  return row.iv >= UNUSUALLY_STRONG_IV ? "review_recommended" : "no_automated_signal";
+  if (row.role === "potential_leakage") return "review_recommended";
+  return "no_automated_signal";
 }
 
 export type PredictorEvaluationCounts = {

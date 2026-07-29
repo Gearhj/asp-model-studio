@@ -83,8 +83,31 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
     dataset_version = str(DATASTORE.meta.get("dataset_version") or manifest.get("dataset_version") or "in-memory")
     source = DATASTORE.meta.get("source") if isinstance(DATASTORE.meta.get("source"), dict) else {}
     dataset_id = str(source.get("datasetId") or source.get("dataset_id") or DATASTORE.meta.get("dataset_id") or request.dataset_id or "")
-    manifest_version = str(manifest.get("manifest_version") or "")
+    manifest_version = str(
+        manifest.get("manifest_hash") or manifest.get("manifest_version") or ""
+    )
     split_id = str(split_record.get("split_id") or "")
+    validation_design = (
+        split_record.get("validation_design")
+        if isinstance(split_record.get("validation_design"), dict)
+        else {}
+    )
+    validation_design_id = str(
+        validation_design.get("validation_design_id") or ""
+    )
+    validation_design_version = str(
+        validation_design.get("design_version") or ""
+    )
+    cv_design = (
+        split_record.get("cv_design")
+        if isinstance(split_record.get("cv_design"), dict)
+        else {}
+    )
+    cv_execution_splits = (
+        split_record.get("cv_execution_splits")
+        if isinstance(split_record.get("cv_execution_splits"), list)
+        else []
+    )
     target = str(DATASTORE.target or "")
 
     if split_status != "current" or any(part is None for part in (X_train, X_test, y_train, y_test)):
@@ -97,6 +120,30 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         blocking.append("Feature manifest version mismatch. Refresh Model Training after saving Final Predictor Review.")
     if request.split_id and request.split_id != split_id:
         blocking.append("Split ID mismatch. The approved validation split changed.")
+    if validation_design and validation_design.get("status") != "approved":
+        blocking.append(
+            "The Validation Design is not approved. Return to Balance & Split."
+        )
+    completion_gates = split_record.get("completion_gates") or {}
+    failed_validation_gates = [
+        str(name) for name, passed in completion_gates.items() if passed is not True
+    ]
+    if validation_design and failed_validation_gates:
+        blocking.append(
+            "Validation Design completion gates are no longer satisfied: "
+            + ", ".join(failed_validation_gates)
+        )
+    if request.validation_design_id and request.validation_design_id != validation_design_id:
+        blocking.append(
+            "Validation Design ID mismatch. Refresh Model Training from the approved handoff."
+        )
+    if (
+        request.validation_design_version
+        and request.validation_design_version != validation_design_version
+    ):
+        blocking.append(
+            "Validation Design version mismatch. The approved validation contract changed."
+        )
     if request.target and target and request.target != target:
         blocking.append(f"Target mismatch: request '{request.target}', active '{target}'.")
     if not target:
@@ -112,6 +159,17 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         for row in manifest.get("features", [])
         if isinstance(row, dict) and row.get("selected") and row.get("eligibility_status") == "eligible" and row.get("origin") != "original"
     ]
+    if validation_design and engineered and (
+        manifest.get("validation_status") != "passed"
+        or manifest.get("materialization_status") != "current"
+        or manifest.get("materialized_manifest_hash") != manifest_version
+        or manifest.get("confirmation_status") != "confirmed"
+        or manifest.get("confirmed_manifest_hash") != manifest_version
+    ):
+        blocking.append(
+            "The engineered feature contract is not validated, materialized, "
+            "and confirmed current. Return to Feature Engineering."
+        )
     originals = [name for name in manifest_selected if name not in engineered]
     trained_columns = [str(column) for column in X_train.columns] if X_train is not None else []
     missing_features = [name for name in manifest_selected if name not in trained_columns]
@@ -163,12 +221,97 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
     min_class_count = 0
     if y_train is not None and problem_type == "classification" and len(y_train.value_counts()) >= 2:
         min_class_count = int(y_train.value_counts().min())
-    effective_folds = min(max(2, request.k_folds), max(2, min_class_count)) if problem_type == "classification" else min(max(2, request.k_folds), max(2, len(y_train) if y_train is not None else 2))
+    design_fold_method = str(cv_design.get("method") or "none")
+    design_folds = int(cv_design.get("fold_count") or 0)
+    cv_owned_by_design = bool(
+        validation_design and design_fold_method != "none" and design_folds >= 2
+    )
+    execution_fold_count = (
+        len(cv_execution_splits)
+        if cv_owned_by_design and cv_execution_splits
+        else design_folds
+        if cv_owned_by_design
+        else 0
+    )
+    if cv_owned_by_design and request.k_folds != design_folds:
+        blocking.append(
+            f"Cross-validation is locked by Validation Design at {design_folds} folds; "
+            f"the training request attempted {request.k_folds}."
+        )
+    if request.grid_search and validation_design and not cv_owned_by_design:
+        blocking.append(
+            "Hyperparameter search requires an approved cross-validation design in Balance & Split."
+        )
+    if cv_owned_by_design and not cv_execution_splits:
+        blocking.append(
+            "The approved Validation Design does not contain executable fold "
+            "bindings. Return to Balance & Split and rebuild the design."
+        )
+    if (
+        cv_owned_by_design
+        and design_fold_method == "nested_cv"
+        and request.grid_search
+    ):
+        blocking.append(
+            "Nested-CV outer-loop execution is not available in the current "
+            "trainer. Select a non-nested governed fold architecture or disable "
+            "hyperparameter search."
+        )
+    invalid_execution_folds: list[int] = []
+    if cv_owned_by_design and X_train is not None:
+        for index, fold in enumerate(cv_execution_splits, start=1):
+            if not isinstance(fold, dict):
+                invalid_execution_folds.append(index)
+                continue
+            train_positions = fold.get("train_positions")
+            validation_positions = fold.get("validation_positions")
+            if (
+                not isinstance(train_positions, list)
+                or not isinstance(validation_positions, list)
+                or not train_positions
+                or not validation_positions
+                or min([*train_positions, *validation_positions]) < 0
+                or max([*train_positions, *validation_positions])
+                >= len(X_train)
+                or set(train_positions).intersection(validation_positions)
+            ):
+                invalid_execution_folds.append(index)
+                continue
+            if problem_type == "classification":
+                validation_target = y_train.iloc[validation_positions]
+                if int(validation_target.nunique(dropna=True)) != 2:
+                    invalid_execution_folds.append(index)
+        if invalid_execution_folds:
+            blocking.append(
+                "Executable Validation Design folds are invalid or lack both "
+                "target classes: "
+                + ", ".join(str(value) for value in invalid_execution_folds)
+                + ". Return to Balance & Split."
+            )
+    requested_folds = design_folds if cv_owned_by_design else request.k_folds
+    effective_folds = (
+        execution_fold_count
+        if cv_owned_by_design and execution_fold_count
+        else min(max(2, requested_folds), max(2, min_class_count))
+        if problem_type == "classification"
+        else min(
+            max(2, requested_folds),
+            max(2, len(y_train) if y_train is not None else 2),
+        )
+    )
     cv_compatible = problem_type == "regression" or min_class_count >= 2
     if request.grid_search and not cv_compatible:
         blocking.append("Grid search requires at least two observations in every target class.")
-    elif request.grid_search and effective_folds < request.k_folds:
-        warnings.append(f"Cross-validation folds will be reduced from {request.k_folds} to {effective_folds} for event-count safety.")
+    if cv_owned_by_design and min_class_count < requested_folds:
+        blocking.append(
+            f"The approved {requested_folds}-fold design is not event-count compatible "
+            f"with the current training population; return to Balance & Split."
+        )
+    elif request.grid_search and effective_folds < requested_folds:
+        blocking.append(
+            f"The requested {requested_folds}-fold search is not event-count compatible "
+            f"with the current training population; return to Balance & Split."
+        )
 
     library_status: dict[str, Any] = {}
     compatibility: dict[str, Any] = {}
@@ -227,16 +370,38 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         "feature_manifest_version": manifest_version,
         "split_id": split_id,
         "split_status": split_status,
+        "validation_design": validation_design,
+        "validation_design_id": validation_design_id,
+        "validation_design_version": validation_design_version,
+        "cv_design": cv_design,
+        "fold_architecture": split_record.get("fold_architecture") or {},
+        "evaluation_population_role": split_record.get(
+            "evaluation_population_role"
+        ),
+        "completion_gates": split_record.get("completion_gates") or {},
+        "validation_risks": split_record.get("validation_risks") or [],
+        "test_reference": split_record.get("test_reference"),
+        "oot_reference": split_record.get("oot_reference"),
         "split_configuration": split_record.get("config") or {},
-        "balancing_configuration": (split_record.get("config") or {}).get("balance_method", "none"),
+        "balancing_configuration": split_record.get("balancing_policy")
+        or {
+            "method": (split_record.get("config") or {}).get(
+                "balance_method", "none"
+            )
+        },
         "optional_library_status": library_status,
         "model_compatibility": compatibility,
         "calibration_compatibility": calibration_compatibility,
         "cross_validation_compatibility": {
             "compatible": cv_compatible,
-            "requested_folds": request.k_folds,
+            "owned_by_validation_design": cv_owned_by_design,
+            "method": design_fold_method,
+            "requested_folds": requested_folds,
             "effective_folds": effective_folds,
+            "execution_fold_count": execution_fold_count,
+            "exact_fold_bindings": bool(cv_execution_splits),
             "minimum_class_count": min_class_count if problem_type == "classification" else None,
+            "read_only": bool(validation_design),
         },
         "missing_value_columns": missing_value_columns,
         "infinite_value_columns": infinite,

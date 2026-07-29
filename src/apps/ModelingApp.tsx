@@ -223,18 +223,38 @@ export default function ModelingApp() {
                   </div>
                 )}
                 {restoreWarnings.length > 0 && (
-                  <section className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">
-                    <div className="font-semibold">Project restored with compact artifacts.</div>
-                    <p className="mt-1">
-                      Workflow decisions and summaries were restored. Some large artifacts are intentionally not stored
-                      in browser persistence.
-                    </p>
-                    <ul className="mt-2 list-disc space-y-1 pl-5">
-                      {restoreWarnings.map((warning) => (
-                        <li key={warning}>{warning}</li>
-                      ))}
-                    </ul>
-                  </section>
+                  location.pathname === "/step02" ? (
+                    <details
+                      className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950"
+                      data-testid="eda-compact-restoration-details"
+                    >
+                      <summary className="cursor-pointer font-semibold">
+                        Restored project context · {restoreWarnings.length} compact-artifact note{restoreWarnings.length === 1 ? "" : "s"}
+                      </summary>
+                      <p className="mt-2 leading-5">
+                        Workflow decisions and summaries were restored. Some large artifacts are intentionally not stored
+                        in browser persistence.
+                      </p>
+                      <ul className="mt-2 list-disc space-y-1 pl-5">
+                        {restoreWarnings.map((warning) => (
+                          <li key={warning}>{warning}</li>
+                        ))}
+                      </ul>
+                    </details>
+                  ) : (
+                    <section className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 shadow-sm">
+                      <div className="font-semibold">Project restored with compact artifacts.</div>
+                      <p className="mt-1">
+                        Workflow decisions and summaries were restored. Some large artifacts are intentionally not stored
+                        in browser persistence.
+                      </p>
+                      <ul className="mt-2 list-disc space-y-1 pl-5">
+                        {restoreWarnings.map((warning) => (
+                          <li key={warning}>{warning}</li>
+                        ))}
+                      </ul>
+                    </section>
+                  )
                 )}
                 <Suspense
                   fallback={

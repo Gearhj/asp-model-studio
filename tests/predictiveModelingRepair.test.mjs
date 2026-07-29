@@ -4,6 +4,18 @@ import { readFile } from "node:fs/promises";
 const read = (path) => readFile(new URL(`../${path}`, import.meta.url), "utf8");
 
 const [
+  predictorDistributionExplorer,
+  correlationExplorer,
+  vifExplorer,
+  findingsDecisionWorkspace,
+] = await Promise.all([
+  read("src/components/eda/visual/PredictorDistributionExplorer.tsx"),
+  read("src/components/eda/visual/CorrelationExplorer.tsx"),
+  read("src/components/eda/visual/VifExplorer.tsx"),
+  read("src/components/eda/FindingsDecisionWorkspace.tsx"),
+]);
+
+const [
   acquisition,
   enterprise,
   codePanel,
@@ -76,7 +88,8 @@ assert.match(codePanel, /language: "python"/);
 assert.match(codePanel, /language: "sas"/);
 assert.match(codePanel, /runUserSasCompatible/);
 assert.match(codePanel, /runUserSas/);
-assert.match(codePanel, /DATASET_VERSION/);
+assert.match(codePanel, /ATLAS_DATASET_PATH/);
+assert.match(codePanel, /SELECTED_FEATURES/);
 assert.match(codePanel, /dataset_library/);
 assert.match(languageTabs, /languages\.map/);
 assert.doesNotMatch(languageTabs, /Object\.keys\(LABELS\).*map/s);
@@ -86,7 +99,13 @@ assert.match(eda, /getNextStepPath\("step02"\)/);
 assert.match(eda, /onNext=\{completeEDA\}/);
 assert.doesNotMatch(eda, /markCompleteAndNext\("step02"\)/);
 assert.doesNotMatch(eda, /import StepPythonPanel/);
-assert.match(eda, /nextDisabledReason=\{!overview \? "Load the full registered dataset/);
+assert.match(eda, /const nextDisabledReason = !overview[\s\S]*"Load the full registered dataset before completing EDA\."/);
+assert.match(eda, /nextDisabledReason=\{nextDisabledReason\}/);
+assert.match(
+  eda,
+  /const nextDisabled =[\s\S]*confirmationPending[\s\S]*findings\.status !== "accepted"[\s\S]*!duplicateDecisionComplete;/,
+  "EDA navigation must preserve dataset/loading gates and require governed reviewer and duplicate decisions."
+);
 assert.match(eda, /EDAUnavailablePanel/);
 assert.match(eda, /Go to Data Acquisition/);
 assert.match(eda, /EDA service route is unavailable/);
@@ -101,33 +120,34 @@ assert.match(eda, /histogramBins/);
 assert.match(eda, /loadLocalDataset/);
 assert.match(eda, /target: overview\?\.target \|\| confirmedDataset\?\.target \|\| undefined/);
 assert.match(eda, /selected_features: confirmedDataset\?\.selected_columns \?\? \[\]/);
-assert.match(eda, /Histogram bins/);
-assert.match(eda, /eda\/histogram\/\$\{encodeURIComponent\(selectedName\)\}\?bins=\$\{histogramBins\}/);
-assert.match(eda, /edges\.length !== counts\.length \+ 1/);
 assert.match(eda, /requestSequence/);
-assert.match(eda, /Requested \{requestedBins\} bins/);
 assert.doesNotMatch(eda, /Showing a quantile-based distribution view/);
-assert.match(eda, /Refresh histogram/);
-assert.match(eda, /Distribution Explorer/);
-assert.match(eda, /Mean \{formatNumber\(mean/);
-assert.match(eda, /Median \{formatNumber\(median/);
-assert.match(eda, /Selected Predictor Visualization/);
-assert.match(eda, /Predictor diagnostics/);
+assert.match(eda, /<PredictorDistributionExplorer/);
+assert.doesNotMatch(eda, /eda\/histogram\/\$\{/);
+assert.match(predictorDistributionExplorer, /eda\/workspace\/distribution/);
+assert.match(predictorDistributionExplorer, /method: "POST"/);
+assert.match(predictorDistributionExplorer, /Predictor Distribution Explorer/);
+assert.match(predictorDistributionExplorer, /Linked quantile view/);
+assert.match(predictorDistributionExplorer, /Mean \$\{formatNumber\(displayData\?\.markers\.mean/);
+assert.match(predictorDistributionExplorer, /Median \$\{formatNumber\(displayData\?\.markers\.median/);
 assert.match(eda, /dataTableDescriptions/);
 assert.match(eda, /safeRows\.length === 1 \? "record" : "records"/);
 assert.match(eda, /sticky left-0/);
 assert.match(eda, /scaleByKey/);
-assert.match(eda, /EventRateByQuantile/);
 assert.match(eda, /PairwiseMatrix/);
 assert.match(eda, /Pairwise Plot Builder/);
 assert.match(eda, /Generate pairwise plot/);
 assert.match(eda, /Target association ranking/);
-assert.match(eda, /VifBarChart/);
-assert.match(eda, /VIF Risk Map/);
+assert.match(eda, /<CorrelationExplorer/);
+assert.match(eda, /<VifExplorer/);
+assert.doesNotMatch(eda, /<CorrelationGrid/);
+assert.doesNotMatch(eda, /<VifBarChart/);
+assert.match(correlationExplorer, /Correlation explorer/);
+assert.match(vifExplorer, /review thresholds, not automatic removal/);
 assert.match(eda, /No governed time or segment field has been selected/);
 assert.match(eda, /No governed time or segment fields were detected/);
-assert.match(eda, /Duplicate Row Decision/);
-assert.match(eda, /Exclude duplicate rows before downstream modeling/);
+assert.match(findingsDecisionWorkspace, /Duplicate Row Decision/);
+assert.match(findingsDecisionWorkspace, /Exclude duplicate rows before downstream modeling/);
 assert.match(eda, /Full Dataset Aggregation/);
 
 assert.match(split, /Final Predictor Review/);
@@ -140,12 +160,12 @@ assert.match(split, /Included for training/);
 assert.match(split, /Signal evidence/);
 assert.match(split, /Training readiness/);
 assert.match(split, /balancing_split\/config/);
-assert.match(split, /splitReadiness/);
-assert.match(split, /hasUsableSplit/);
-assert.match(split, /hasOutcomePopulations/);
-assert.match(split, /Ready for next step\. Validation split is current/);
-assert.match(split, /title="Validation Split"/);
-assert.match(split, /Holdout policy/);
+assert.match(split, /readinessItems/);
+assert.match(split, /nextReady/);
+assert.match(split, /previewDistributions/);
+assert.match(split, /Ready\. One action will validate, persist, create evidence, update MDD, and continue/);
+assert.match(split, /title="Holdout and CV Configuration"/);
+assert.match(split, /Holdout size/);
 assert.match(split, /Training population only/);
 assert.match(split, /Holdout untouched/);
 assert.doesNotMatch(split, /Planned future validation designs/);
@@ -167,7 +187,7 @@ assert.match(training, /\/model\/train\/jobs\/active/);
 assert.match(training, /dataset_id: dataset\?\.dataset_library\?\.datasetId/);
 assert.match(training, /non_event_value: dataset\?\.non_event_value/);
 assert.match(training, /user: requestUser/);
-assert.match(training, /Cancel Training/);
+assert.match(training, /Kill unfinished/);
 assert.match(training, /Queued|Training|Complete|Failed|Cancelled/);
 assert.match(training, /Not approved until Evaluation and governance review/);
 assert.match(training, /No champion is approved automatically/);
@@ -227,8 +247,8 @@ assert.match(workflowStore, /version:\s*6/);
 assert.match(featureEngineering, /Partial<FeatureManifestRow>/);
 assert.match(featureEngineering, /source_features:\s*Array\.isArray\(row\.source_features\)/);
 assert.match(evaluation, /useNavigate/);
-assert.match(evaluation, /Confirm Evaluation and Continue/);
-assert.match(evaluation, /navigate\("\/step09"\)/);
+assert.match(evaluation, /Continue to Interpretation Review/);
+assert.match(evaluation, /navigate\(`\/step09\?model=/);
 
 assert.match(interpretation, /dataset\?\.dataset_version \|\| localDatasetVersion\(dataset\)/);
 assert.match(interpretation, /Promise\.allSettled/);
@@ -255,7 +275,8 @@ assert.match(evaluationService, /permutation_importance/);
 assert.match(evaluationService, /def final_model_status/);
 assert.match(evaluationService, /full_train_rows/);
 assert.match(scoring, /model\/final\/status/);
-assert.match(scoring, /Verified final-model contract/);
+assert.match(scoring, /data-testid="final-model-scoring-contract"/);
+assert.match(scoring, /Verified artifact/);
 assert.match(scoring, /Confirm Scoring and Continue to Documentation/);
 // Stage B.6: context matching moved into the pure, unit-tested helper (symmetric skip
 // semantics mirroring the backend's _artifact_context_mismatch), and the status effect
@@ -267,17 +288,20 @@ const finalModelReadiness = await read("src/lib/finalModelReadiness.ts");
 assert.match(finalModelReadiness, /if \(!expected \|\| !actual\) return true/);
 assert.match(finalModelReadiness, /belongs to a different project, dataset version, or target/);
 assert.match(scoring, /nextDisabled=\{!scoredOutputCount\}/);
-assert.doesNotMatch(scoring, /import StepPythonPanel/);
+assert.match(scoring, /import StepPythonPanel/);
+assert.match(scoring, /<StepPythonPanel \/>/);
 assert.doesNotMatch(scoring, /Mark Complete & Next Step/);
 
 const trainerRouter = await read("server/training/trainer_router.py");
-assert.match(trainerRouter, /def get_last_train\([\s\S]*project_id: str = ""/);
+assert.match(trainerRouter, /def get_last_train\([\s\S]*project_id: str = Query\(\.\.\.\)/);
+assert.match(trainerRouter, /authorize_modeling_scope\(user, project_id, "view"\)/);
 assert.match(trainerRouter, /The last training run does not match the current/);
 
 const edaRouter = await read("server/eda/eda_router.py");
 assert.match(edaRouter, /@router\.post\("\/workspace\/\{section\}"\)/);
 assert.match(edaRouter, /@router\.post\("\/profile"\)/);
 assert.match(edaRouter, /@router\.post\("\/analyze"\)/);
+assert.match(edaRouter, /@router\.post\("\/vif-simulation"\)/);
 assert.match(edaRouter, /backend_dataset_missing/);
 assert.match(edaRouter, /status_code=status/);
 assert.match(edaRouter, /EDA request received/);
@@ -287,7 +311,14 @@ assert.match(edaWorkspaceService, /def _histogram_bins/);
 assert.match(edaWorkspaceService, /"histogram": _histogram_bins/);
 assert.match(edaWorkspaceService, /request\.histogram_bins/);
 assert.match(edaWorkspaceService, /pairwise_event_rows/);
+assert.match(edaWorkspaceService, /def _predictor_authorization/);
+assert.match(edaWorkspaceService, /"distribution": self\._distribution/);
+assert.match(edaWorkspaceService, /def vif_simulation/);
+assert.match(edaWorkspaceService, /"non_mutating": True/);
 assert.match(edaWorkspaceTypes, /histogram_bins/);
+assert.match(edaWorkspaceTypes, /feature: Optional\[str\]/);
+assert.match(edaWorkspaceTypes, /selection_min: Optional\[float\]/);
+assert.match(edaWorkspaceTypes, /class EDAVifSimulationRequest/);
 
 const splitRouter = await read("server/splitting/split_router.py");
 assert.match(splitRouter, /"has_split": has_split/);

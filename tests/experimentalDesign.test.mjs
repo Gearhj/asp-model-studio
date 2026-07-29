@@ -17,8 +17,11 @@ async function importTypeScriptModule(path) {
 const design = await importTypeScriptModule(new URL("../src/lib/experimentalDesign.ts", import.meta.url));
 const workflows = await importTypeScriptModule(new URL("../src/config/workflows.ts", import.meta.url));
 const workflowSource = await readFile(new URL("../src/config/workflows.ts", import.meta.url), "utf8");
-const experimentalWorkflowSource = await readFile(new URL("../src/steps/WorkflowPlaceholderStep.tsx", import.meta.url), "utf8");
-const copilotSource = await readFile(new URL("../src/components/CopilotCard.tsx", import.meta.url), "utf8");
+const experimentalWorkflowSource = await readFile(new URL("../src/features/experimental-design/pages/ExperimentalDesignWorkflowPage.tsx", import.meta.url), "utf8");
+const experimentalApiSource = await readFile(new URL("../src/lib/experimentalDesignApi.ts", import.meta.url), "utf8");
+const experimentalVisualsSource = await readFile(new URL("../src/features/experimental-design/components/ExperimentalDesignVisuals.tsx", import.meta.url), "utf8");
+const experimentalBackendSource = await readFile(new URL("../server/experimental_design/service.py", import.meta.url), "utf8");
+const experimentalRouterSource = await readFile(new URL("../server/experimental_design/router.py", import.meta.url), "utf8");
 
 const twoByTwoText = `
 Pricing Strategy
@@ -134,115 +137,105 @@ test("run plan analysis carries forward Monte Carlo summary evidence", () => {
 
 test("experimental design workflow routes progress to the correct next step", () => {
   const workflow = workflows.getWorkflowDefinition("experimental-design");
-  assert.equal(workflow.steps.find((step) => step.label === "Monte Carlo Simulation")?.route, "/workflow/experimental-design/8");
-  assert.equal(workflow.steps[7].label, "Monte Carlo Simulation");
-  assert.equal(workflow.steps[8].label, "Experiment Run Plan");
-  assert.equal(workflow.steps[9].label, "ANOVA");
-  assert.equal(workflow.steps[10].label, "Optimization");
-  assert.equal(workflow.steps[11].label, "Documentation");
+  assert.equal(workflow.steps.find((step) => step.label === "Simulation & Operating Characteristics")?.route, "/workflow/experimental-design/9");
+  assert.equal(workflow.steps[4].label, "Design Selection");
+  assert.equal(workflow.steps[5].label, "Power & Sample Size");
+  assert.equal(workflow.steps[6].label, "Design Matrix & Alias Review");
+  assert.equal(workflow.steps[7].label, "Randomization & Run Plan");
+  assert.equal(workflow.steps[9].label, "Execution & Analysis");
+  assert.equal(workflow.steps[10].label, "Optimization & Recommendation");
+  assert.equal(workflow.steps[11].label, "Documentation & Evidence");
   assert.equal(workflow.steps[11].route, "/workflow/experimental-design/12");
   assert.equal(workflow.steps[12], undefined);
-  assert.match(workflowSource, /question: "How will we execute and monitor the experiment\?"/);
+  assert.match(workflowSource, /nextQuestion: "What exact runs and effects does the design support\?"/);
 });
 
-test("experimental design pages keep planning assumptions separate from observed evidence", () => {
-  assert.match(experimentalWorkflowSource, /ATLAS suggestions remain optional and are never treated as user-confirmed evidence/);
-  assert.match(experimentalWorkflowSource, /Analysis specification/);
-  assert.match(experimentalWorkflowSource, /It does not invent F statistics, p-values, effect sizes, or residual diagnostics/);
-  assert.match(experimentalWorkflowSource, /Planning scenario only/);
-  assert.match(experimentalWorkflowSource, /Decision State" value="Evidence required/);
-  assert.doesNotMatch(experimentalWorkflowSource, /const autosaveLabels = new Set/);
+test("active route uses a dedicated backend-authoritative workspace", () => {
+  assert.match(experimentalWorkflowSource, /if \(workflowId === "experimental-design"\) return <ExperimentalDesignWorkspace \/>/);
+  assert.match(experimentalWorkflowSource, /getExperimentalStudy\(projectId\)/);
+  assert.match(experimentalWorkflowSource, /saveExperimentalStudy\(projectId, contract/);
+  assert.match(experimentalWorkflowSource, /Study v\{study\.currentVersion\}/);
+  assert.match(experimentalWorkflowSource, /Backend current/);
+  assert.doesNotMatch(experimentalWorkflowSource, /localStorage|sessionStorage/);
+  assert.match(experimentalApiSource, /credentials: "same-origin"/);
 });
 
-test("project context requires an explicit experimental data strategy and never invents acquisition evidence", () => {
+test("workflow exposes compact identity, blockers, and a permanently available progression action", () => {
   for (const expected of [
-    "Data Strategy and Acquisition",
-    "Prospective collection",
-    "Existing data",
-    "Hybrid",
-    "Completed experiment",
-    "Dataset Library version",
-    "Upload dataset",
-    "Required analytical schema",
-    "Experimental unit ID",
-    "Primary response",
-    "Data lineage and provenance",
-    "Data quality and reconciliation plan",
-    "Confirm Data Strategy",
-    "Designed experiments often begin before a dataset exists.",
-    "Best used for:",
-    "Confirmed evidence only",
-    "Confirm a prospective capture plan or governed dataset strategy before continuing to Research Question.",
-    "Complete the confirmed Project Context before continuing.",
-    "population and experimental unit",
-    "operational constraints",
-    "governance and approval requirements",
-    "experiment family",
-    "primary response or evidence metric",
+    "Experimental Design",
+    "Step {activeStepNumber} of 12",
+    "Open blockers",
+    "Contract blockers through this step",
+    "What this page changes",
+    "Version history",
+    "Save draft",
+    "Save & continue",
+    "Save final study",
   ]) {
     assert.match(experimentalWorkflowSource, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Missing Experimental Design data-strategy artifact: ${expected}`);
   }
-
-  const projectContextStart = experimentalWorkflowSource.indexOf("function ProjectContextPage");
-  const projectContextEnd = experimentalWorkflowSource.indexOf("function ResearchQuestionPage", projectContextStart);
-  const projectContextSource = experimentalWorkflowSource.slice(projectContextStart, projectContextEnd);
-  assert.doesNotMatch(projectContextSource, /\|\| 25000/);
-  assert.doesNotMatch(projectContextSource, /const population = Math\.max\(1, Math\.round\(state\.numeric\.sampleSize/);
+  assert.match(experimentalWorkflowSource, /fixed inset-x-0 bottom-0/);
+  assert.match(experimentalWorkflowSource, /setWorkflowStepStatus\(journeyStep\.id, "complete"\)/);
 });
 
-test("experimental design does not silently create a factor hierarchy", () => {
-  const normalizeStart = experimentalWorkflowSource.indexOf("function normalizeDesignFactors");
-  const normalizeEnd = experimentalWorkflowSource.indexOf("function factorComplexity", normalizeStart);
-  const normalizeSource = experimentalWorkflowSource.slice(normalizeStart, normalizeEnd);
-  assert.match(normalizeSource, /return factors\.slice\(0, 5\)\.map/);
-  assert.doesNotMatch(normalizeSource, /Pricing Strategy|Contact Channel/);
-
-  const levelsStart = experimentalWorkflowSource.indexOf("function levelsFactors");
-  const levelsEnd = experimentalWorkflowSource.indexOf("function LevelsDesignBuilder", levelsStart);
-  const levelsSource = experimentalWorkflowSource.slice(levelsStart, levelsEnd);
-  assert.match(levelsSource, /return sharedParseFactorHierarchy\(state\.objective\)/);
-  assert.doesNotMatch(levelsSource, /sharedDeriveSuggestedFactors/);
-  assert.doesNotMatch(levelsSource, /Current Pricing|Personalized Pricing|Email|SMS/);
+test("design choice is advisory and requires attributable analyst confirmation", () => {
+  assert.match(experimentalWorkflowSource, /ATLAS narrows the eligible choices but never selects a design on the analyst’s behalf/);
+  assert.match(experimentalWorkflowSource, /analystConfirmed: false/);
+  assert.match(experimentalWorkflowSource, /I confirm this design family and its stated estimability tradeoffs/);
+  assert.match(experimentalBackendSource, /analystDecisionRequired/);
+  assert.match(experimentalBackendSource, /experimental_design_family_selection/);
+  assert.match(experimentalBackendSource, /design_confirmation_required/);
 });
 
-test("incomplete experimental designs never publish default study results", () => {
-  const analysis = design.buildExperimentalDesignAnalysis({
-    stepLabel: "Factors",
-    currentState: { numeric: { factorCount: 3, averageLevels: 2, sampleSize: 1000, power: 80 } },
-    nodeStates: {},
-  });
-  assert.equal(analysis.kpis.find((kpi) => kpi.label === "Factors")?.value, "TBD");
-  assert.equal(analysis.kpis.find((kpi) => kpi.label === "Treatment Cells")?.value, "TBD");
-  assert.equal(analysis.kpis.find((kpi) => kpi.label === "Total Sample")?.value, "TBD");
-  assert.equal(analysis.kpis.find((kpi) => kpi.label === "Power")?.value, "TBD");
-  assert.match(analysis.warnings.join(" "), /Confirmed factors and levels are required/);
-
-  const levelsOnly = design.buildExperimentalDesignAnalysis({
-    stepLabel: "Levels",
-    currentState: { objective: twoByTwoText },
-    nodeStates: { Levels: { objective: twoByTwoText } },
-  });
-  assert.equal(levelsOnly.kpis.find((kpi) => kpi.label === "Treatment Cells")?.value, "4");
-  assert.equal(levelsOnly.kpis.find((kpi) => kpi.label === "Sample Per Cell")?.value, "TBD");
-  assert.equal(levelsOnly.kpis.find((kpi) => kpi.label === "Power")?.value, "TBD");
+test("analytical operations are backend-generated, version-bound, and invalidated downstream", () => {
+  for (const expected of [
+    "calculateExperimentalPower",
+    "generateExperimentalDesign",
+    "randomizeExperimentalDesign",
+    "createExperimentalSimulation",
+    "analyzeExperimentalObservations",
+    "captureExperimentalDocumentation",
+  ]) assert.match(experimentalWorkflowSource, new RegExp(expected));
+  assert.match(experimentalBackendSource, /contract_hash/);
+  assert.match(experimentalBackendSource, /designVersion/);
+  assert.match(experimentalBackendSource, /invalidatedArtifacts/);
+  assert.match(experimentalBackendSource, /MAX_DESIGN_RUNS = 1024/);
+  assert.match(experimentalBackendSource, /MAX_SIMULATION_ITERATIONS = 20_000/);
+  assert.match(experimentalBackendSource, /interrupt_active_jobs/);
 });
 
-test("downstream experimental tools block on missing confirmed levels", () => {
-  assert.match(experimentalWorkflowSource, /Randomization requires a confirmed treatment matrix/);
-  assert.match(experimentalWorkflowSource, /Power planning requires confirmed factors and levels/);
-  assert.match(experimentalWorkflowSource, /Monte Carlo simulation requires a confirmed design/);
-  assert.match(experimentalWorkflowSource, /ANOVA specification requires confirmed factors and levels/);
+test("simulation and analysis never confuse planned, simulated, and observed evidence", () => {
+  assert.match(experimentalWorkflowSource, /SYNTHETIC TEST INPUT — not operational experiment evidence/);
+  assert.match(experimentalWorkflowSource, /ATLAS will not infer observed results from simulations/);
+  assert.match(experimentalWorkflowSource, /No observed analysis exists\. ATLAS will not fabricate/);
+  assert.match(experimentalBackendSource, /scope": "simulated_operating_characteristics"/);
+  assert.match(experimentalBackendSource, /status": "observed_analysis"/);
+  assert.match(experimentalBackendSource, /At least four finite observed responses/);
+});
 
-  const anovaStart = experimentalWorkflowSource.indexOf("function generatedAnovaPlan");
-  const anovaEnd = experimentalWorkflowSource.indexOf("function journeyForLabel", anovaStart);
-  const anovaSource = experimentalWorkflowSource.slice(anovaStart, anovaEnd);
-  assert.match(anovaSource, /Response ~ \[confirm factors and levels first\]/);
-  assert.doesNotMatch(anovaSource, /factorName: String\.fromCharCode/);
-  assert.doesNotMatch(anovaSource, /Level \$\{levelIndex \+ 1\}/);
+test("D3 visuals have semantic table counterparts and accessible SVG labels", () => {
+  assert.match(experimentalVisualsSource, /import \* as d3 from "d3"/);
+  for (const visual of ["FactorStructureMap", "PowerCurveChart", "DesignMatrixChart", "AliasMap", "EffectParetoChart", "ResidualPlot"]) {
+    assert.match(experimentalVisualsSource, new RegExp(`function ${visual}`));
+  }
+  assert.match(experimentalVisualsSource, /role="img"/);
+  assert.match(experimentalVisualsSource, /useReducedMotion/);
+  assert.match(experimentalWorkflowSource, /function ExactTable/);
+  assert.match(experimentalWorkflowSource, /Semantic design matrix/);
+  assert.match(experimentalWorkflowSource, /Exact randomized execution order/);
+  assert.match(experimentalWorkflowSource, /ANOVA table/);
+  assert.match(experimentalWorkflowSource, /Exact power sensitivity results/);
+  assert.match(experimentalWorkflowSource, /type="search"/);
+  assert.match(experimentalWorkflowSource, /aria-sort=/);
+  assert.match(experimentalWorkflowSource, /Export CSV/);
+  assert.match(experimentalWorkflowSource, /URL\.createObjectURL/);
+});
 
-  const guideStart = copilotSource.indexOf("function buildFactorGuideSummary");
-  const guideEnd = copilotSource.indexOf("export default function CopilotCard", guideStart);
-  const guideSource = copilotSource.slice(guideStart, guideEnd);
-  assert.match(guideSource, /value: "TBD"/);
-  assert.doesNotMatch(guideSource, /Pricing Strategy|Contact Channel/);
+test("every Experimental Design endpoint requires authenticated project scope authorization", () => {
+  const endpointCount = (experimentalRouterSource.match(/@router\./g) || []).length;
+  const authorizationCount = (experimentalRouterSource.match(/authorize_modeling_scope/g) || []).length - 1;
+  assert.equal(endpointCount, 12);
+  assert.equal(authorizationCount, endpointCount);
+  assert.match(experimentalRouterSource, /Depends\(require_user\)/);
+  assert.doesNotMatch(experimentalRouterSource, /anonymous|allow_missing/);
 });

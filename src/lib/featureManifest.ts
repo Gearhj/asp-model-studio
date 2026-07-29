@@ -23,7 +23,7 @@ export type FeatureManifestRow = {
   formula_or_rule: string;
   output_datatype: string;
   creation_status: "available" | "planned" | "created" | "failed";
-  materialization_status: "source" | "not_materialized" | "materialized" | "failed";
+  materialization_status: "source" | "not_materialized" | "materialized" | "stale" | "failed";
   pipeline_status: string;
   eligibility_status: "eligible" | "excluded";
   leakage_status: string;
@@ -53,12 +53,38 @@ export type PipelineStep = {
 export type FeatureManifest = {
   ok: boolean;
   manifest_version: string;
+  manifest_hash: string;
   dataset_version: string;
   features: FeatureManifestRow[];
   pipeline_steps: PipelineStep[];
   created_at: string;
   updated_at: string;
+  validation_status: "required" | "passed" | "failed";
+  validated_at?: string | null;
+  materialization_status: "not_materialized" | "current" | "stale" | "failed";
+  materialization_hash: string;
+  materialized_manifest_hash: string;
+  materialized_at?: string | null;
+  confirmation_status: "required" | "confirmed";
+  confirmed_manifest_hash: string;
+  confirmed_at?: string | null;
+  preview_hash: string;
+  execution_history: Array<{
+    stage: string;
+    status: string;
+    manifest_hash: string;
+    detail: string;
+    recorded_at: string;
+    [key: string]: unknown;
+  }>;
   split_status: "not_created" | "current" | "stale";
+  predictor_authorization?: {
+    target?: string | null;
+    authorized_predictors: string[];
+    excluded_predictors: Record<string, string>;
+    target_source_excluded: string[];
+    selected_predictors?: string[];
+  };
 };
 
 export type FeatureDraft = Pick<FeatureManifestRow,
@@ -72,6 +98,8 @@ export type FeatureDraft = Pick<FeatureManifestRow,
 export type FeaturePreview = {
   ok: boolean;
   scope: "rendered_sample";
+  manifest_hash: string;
+  preview_hash: string;
   registered_row_count: number;
   preview_row_count: number;
   columns: string[];
@@ -103,18 +131,33 @@ export function saveFeatureManifest(projectId: string, features: FeatureDraft[],
   });
 }
 
-export function previewFeaturePlan(projectId: string, features: FeatureDraft[], previewLimit = 20, signal?: AbortSignal) {
+export function previewFeaturePlan(
+  projectId: string,
+  features: FeatureDraft[],
+  previewLimit = 20,
+  signal?: AbortSignal,
+  manifestVersion = "",
+) {
   return request<FeaturePreview>("/features/preview", {
     method: "POST",
     signal,
-    body: JSON.stringify({ project_id: projectId, features, preview_limit: previewLimit }),
+    body: JSON.stringify({
+      project_id: projectId,
+      features,
+      preview_limit: previewLimit,
+      manifest_version: manifestVersion,
+    }),
   });
 }
 
-export function materializeFeatureManifest(projectId: string, manifestVersion: string) {
+export function materializeFeatureManifest(projectId: string, manifestVersion: string, previewHash = "") {
   return request<{
     ok: boolean;
     manifest_version: string;
+    manifest_hash: string;
+    materialization_hash: string;
+    materialized_manifest_hash: string;
+    materialization_status: "current";
     dataset_version: string;
     row_count: number;
     original_feature_count: number;
@@ -124,11 +167,29 @@ export function materializeFeatureManifest(projectId: string, manifestVersion: s
     duration_ms: number;
   }>("/features/materialize", {
     method: "POST",
-    body: JSON.stringify({ project_id: projectId, manifest_version: manifestVersion }),
+    body: JSON.stringify({
+      project_id: projectId,
+      manifest_version: manifestVersion,
+      preview_hash: previewHash,
+    }),
+  });
+}
+
+export function confirmFeatureManifest(
+  projectId: string,
+  manifestVersion: string,
+  materializationHash: string,
+) {
+  return request<FeatureManifest>("/features/confirm", {
+    method: "POST",
+    body: JSON.stringify({
+      project_id: projectId,
+      manifest_version: manifestVersion,
+      materialization_hash: materializationHash,
+    }),
   });
 }
 
 export function removeFeature(projectId: string, featureId: string) {
   return request<FeatureManifest>(`/features/${encodeURIComponent(featureId)}?project_id=${encodeURIComponent(projectId)}`, { method: "DELETE" });
 }
-

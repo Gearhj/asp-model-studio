@@ -9,6 +9,14 @@ import { BRAND } from "../config/brand";
 import { getWorkflowDefinition } from "../config/workflows";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { loadWorkflowNodeEvidence } from "./workflowNodeEvidence";
+import {
+  buildCurrentCodeContext,
+  codeContextSummary,
+  evaluateCodeDraftContext,
+  loadCodeDraft,
+  type CodeContextLanguage,
+  type CodeDraftEnvelope,
+} from "./codeContextSafety";
 
 export const USER_PYTHON_CODE_KEY = "modeling-tool-user-python-code";
 export const USER_STEP_PYTHON_CODE_KEY = "modeling-tool-user-python-code-by-step";
@@ -687,6 +695,43 @@ export function getNotebookSections() {
   return buildSections();
 }
 
+function contextSummaryMarkdown(title: string, draft: CodeDraftEnvelope, currentContext: ReturnType<typeof buildCurrentCodeContext>) {
+  return `### ${title}
+
+#### Draft context
+${codeContextSummary(draft.context).map((line) => `- ${line}`).join("\n")}
+
+#### Current context at export
+${codeContextSummary(currentContext).map((line) => `- ${line}`).join("\n")}`;
+}
+
+function loadSectionCodeDraft({
+  language,
+  projectId,
+  workflowPage,
+  sectionKey,
+  legacyCode,
+}: {
+  language: CodeContextLanguage;
+  projectId: string;
+  workflowPage: string;
+  sectionKey: string;
+  legacyCode: string;
+}) {
+  const currentContext = buildCurrentCodeContext({ workflowPage, language, projectId });
+  const draft = loadCodeDraft({
+    scope: { projectId, workflowPage, language },
+    legacyStorageKey: language === "python" ? USER_STEP_PYTHON_CODE_KEY : USER_STEP_SAS_CODE_KEY,
+    legacySectionKey: sectionKey,
+    legacyCode,
+  }).draft;
+  return {
+    currentContext,
+    draft,
+    evaluation: evaluateCodeDraftContext(draft, currentContext, draft?.code),
+  };
+}
+
 export function buildWorkflowNotebook(): Notebook {
   const entries = loadDecisionJournal();
   const legacyUserCode = customPythonCode().trim();
@@ -720,25 +765,92 @@ ${formatDecisionNotes(entries, section.decisionMatchers)}`),
     );
 
     const userStepCode = (userCodeByStep[section.sectionKey] ?? "").trim();
-    const userCode = userStepCode || (section.includeUserCode ? legacyUserCode : "");
-    if (userCode.trim()) {
-      cells.push(
-        markdown(`### User-Edited Python Code
+    const workflowPage = section.routes[0] || `notebook-section:${section.sectionKey}`;
+    const pythonDraft = loadSectionCodeDraft({
+      language: "python",
+      projectId: workflowState.projectId,
+      workflowPage,
+      sectionKey: section.sectionKey,
+      legacyCode: userStepCode || (section.includeUserCode ? legacyUserCode : ""),
+    });
+    const userCode = pythonDraft.draft?.code.trim() ?? "";
+    if (userCode) {
+      if (!pythonDraft.evaluation.canUseAsCurrent && pythonDraft.draft) {
+        cells.push(
+          markdown(`${contextSummaryMarkdown(
+            "Historical User-Edited Python Code Omitted",
+            pythonDraft.draft,
+            pythonDraft.currentContext,
+          )}
 
-This cell contains Python code edited in the platform for this workflow section.`),
-        code(userCode)
-      );
+**${pythonDraft.evaluation.warning}**
+
+The historical source was intentionally omitted. It was not exported as current workflow code because no exact draft/current-context acknowledgement was recorded.`),
+        );
+      } else if (pythonDraft.evaluation.acknowledged && pythonDraft.draft) {
+        cells.push(
+          markdown(`${contextSummaryMarkdown(
+            "Acknowledged Historical User-Edited Python Code",
+            pythonDraft.draft,
+            pythonDraft.currentContext,
+          )}
+
+This source is historical. An explicit acknowledgement for this exact draft/current-context pair was recorded before export.`),
+          code(userCode),
+        );
+      } else {
+        cells.push(
+          markdown(`### User-Edited Python Code
+
+This cell contains context-matched Python code edited in the platform for this workflow section.`),
+          code(userCode),
+        );
+      }
     }
 
     const userSasCode = (userSasCodeByStep[section.sectionKey] ?? "").trim();
-    if (userSasCode) {
-      cells.push(markdown(`### User-Edited SAS Code
+    const sasDraft = loadSectionCodeDraft({
+      language: "sas",
+      projectId: workflowState.projectId,
+      workflowPage,
+      sectionKey: section.sectionKey,
+      legacyCode: userSasCode,
+    });
+    const sasCode = sasDraft.draft?.code.trim() ?? "";
+    if (sasCode) {
+      if (!sasDraft.evaluation.canUseAsCurrent && sasDraft.draft) {
+        cells.push(
+          markdown(`${contextSummaryMarkdown(
+            "Historical User-Edited SAS Code Omitted",
+            sasDraft.draft,
+            sasDraft.currentContext,
+          )}
+
+**${sasDraft.evaluation.warning}**
+
+The historical SAS source was intentionally omitted. It was not exported as current workflow code because no exact draft/current-context acknowledgement was recorded.`),
+        );
+      } else if (sasDraft.evaluation.acknowledged && sasDraft.draft) {
+        cells.push(markdown(`${contextSummaryMarkdown(
+          "Acknowledged Historical User-Edited SAS Code",
+          sasDraft.draft,
+          sasDraft.currentContext,
+        )}
+
+This source is historical. An explicit acknowledgement for this exact draft/current-context pair was recorded before export.
+
+\`\`\`sas
+${sasCode}
+\`\`\``));
+      } else {
+        cells.push(markdown(`### User-Edited SAS Code
 
 The SAS program below is preserved for SASPy execution, SAS-compatible local execution, or external SAS export.
 
 \`\`\`sas
-${userSasCode}
+${sasCode}
 \`\`\``));
+      }
     }
 
     cells.push(markdown(`### Output Placeholder

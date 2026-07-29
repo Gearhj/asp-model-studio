@@ -69,6 +69,33 @@ const inFlight = new Map<string, Promise<TargetDistributionResult>>();
 // produces a different key and therefore never reads a stale entry.
 const resultCache = new Map<string, TargetDistributionResult>();
 
+function abortError(): DOMException {
+  return new DOMException("The target distribution request was cancelled.", "AbortError");
+}
+
+/**
+ * Cancellation belongs to one caller, not to the shared analytical query.
+ *
+ * React StrictMode intentionally mounts, cleans up, and remounts effects. If the
+ * first caller's AbortSignal is passed into the de-duplicated network request,
+ * that cleanup aborts the promise the remount is about to join. Keep the single
+ * underlying aggregate alive and race only this caller's wait against its own
+ * signal instead.
+ */
+function waitForSharedResult(
+  promise: Promise<TargetDistributionResult>,
+  signal?: AbortSignal
+): Promise<TargetDistributionResult> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(abortError());
+
+  return new Promise<TargetDistributionResult>((resolve, reject) => {
+    const onAbort = () => reject(abortError());
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
 export function peekCachedTargetDistribution(request: TargetDistributionRequest): TargetDistributionResult | null {
   return resultCache.get(buildTargetDistributionKey(request)) ?? null;
 }
@@ -88,9 +115,9 @@ export async function fetchTargetDistribution(
   if (cached) return cached;
 
   const existing = inFlight.get(key);
-  if (existing) return existing;
+  if (existing) return waitForSharedResult(existing, options.signal);
 
-  const promise = (async () => {
+  const networkPromise = (async () => {
     const response = await fetch(`${API_BASE}/analytics/target-distribution`, {
       method: "POST",
       credentials: "include",
@@ -104,7 +131,6 @@ export async function fetchTargetDistribution(
         nonEventValue: request.nonEventValue ?? null,
         forceExact: Boolean(request.forceExact),
       }),
-      signal: options.signal,
     });
     const payload = await response.json().catch(() => null);
     if (!response.ok || !payload?.ok) {
@@ -115,10 +141,14 @@ export async function fetchTargetDistribution(
     return result;
   })();
 
-  inFlight.set(key, promise);
-  try {
-    return await promise;
-  } finally {
-    inFlight.delete(key);
-  }
+  let sharedPromise: Promise<TargetDistributionResult>;
+  sharedPromise = networkPromise.finally(() => {
+    if (inFlight.get(key) === sharedPromise) inFlight.delete(key);
+  });
+  // A StrictMode cleanup can cancel every current caller while the shared
+  // aggregate is still completing. Attach a rejection observer so a later
+  // network failure is not reported as an unhandled promise rejection.
+  void sharedPromise.catch(() => undefined);
+  inFlight.set(key, sharedPromise);
+  return waitForSharedResult(sharedPromise, options.signal);
 }

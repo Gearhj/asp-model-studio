@@ -12,6 +12,7 @@ from .repositories import (
     DemoFeedbackRepository,
     DocumentationRepository,
     EvidenceRepository,
+    ExperimentalDesignRepository,
     ExportRepository,
     ModelRepository,
     ModelVersionRepository,
@@ -34,6 +35,7 @@ class PersistenceService:
         self.projects = ProjectRepository(database)
         self.datasets = DatasetRepository(database)
         self.evidence = EvidenceRepository(database)
+        self.experimental_design = ExperimentalDesignRepository(database)
         self.runs = RunRepository(database)
         self.scoring_runs = ScoringRunRepository(database)
         self.models = ModelRepository(database)

@@ -16,6 +16,12 @@ from ..core.modeling_scope import authorize_modeling_scope
 from ..core.session_checkpoint import save_checkpoint
 from ..security.security_store import require_user
 from .outlier_service import outlier_service
+from .feature_profile_service import information_value
+from .predictor_authorization import (
+    bureau_special_mask,
+    bureau_special_summary,
+    governed_predictor_authorization,
+)
 
 
 router = APIRouter()
@@ -34,6 +40,12 @@ class MissingApplyRequest(BaseModel):
     problem_type: str | None = None
 
 
+class MissingValidateRequest(BaseModel):
+    project_id: str
+    event_value: Any = None
+    problem_type: str | None = None
+
+
 def _normalize_missing(df: pd.DataFrame) -> pd.DataFrame:
     work = df.copy()
     for col in work.columns:
@@ -44,7 +56,42 @@ def _normalize_missing(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _feature_columns(df: pd.DataFrame) -> List[str]:
-    return [str(col) for col in df.columns if not DATASTORE.target or str(col) != str(DATASTORE.target)]
+    return list(
+        governed_predictor_authorization(
+            df,
+            target=DATASTORE.target,
+            selected_columns=DATASTORE.get_selected_columns(),
+        )["authorized_predictors"]
+    )
+
+
+def _authorization_with_full_source_exclusions(
+    frame: pd.DataFrame,
+) -> dict[str, Any]:
+    authorization = governed_predictor_authorization(
+        frame,
+        target=DATASTORE.target,
+        selected_columns=DATASTORE.get_selected_columns(),
+    )
+    raw = DATASTORE.raw_df
+    if raw is None or raw.empty:
+        return authorization
+    full = governed_predictor_authorization(
+        raw,
+        target=DATASTORE.target,
+        selected_columns=DATASTORE.get_selected_columns(),
+    )
+    return {
+        **authorization,
+        "target_source_excluded": sorted(
+            set(authorization.get("target_source_excluded", []))
+            | set(full.get("target_source_excluded", []))
+        ),
+        "excluded_predictors": {
+            **full.get("excluded_predictors", {}),
+            **authorization.get("excluded_predictors", {}),
+        },
+    }
 
 
 def _is_numeric_like(series: pd.Series) -> bool:
@@ -90,6 +137,7 @@ def _pre_missing_df() -> pd.DataFrame:
                 config=prior["config"],
                 global_method=str(prior.get("global_method") or "IQR_1_5"),
                 target=DATASTORE.target,
+                selected_columns=DATASTORE.get_selected_columns(),
             )
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=f"The saved outlier treatment could not be reconstructed: {exc}") from exc
@@ -137,6 +185,103 @@ def _informative_missingness(
     }
 
 
+def _number_label(value: float) -> str:
+    magnitude = abs(float(value))
+    if magnitude >= 1000:
+        return f"{value:,.0f}"
+    if magnitude >= 10:
+        return f"{value:.1f}"
+    return f"{value:.2f}"
+
+
+def _distribution_profile(values: pd.Series) -> dict[str, Any]:
+    """Return a bounded, full-population distribution for the Missing Values UI.
+
+    The histogram is aggregated on the backend rather than reconstructed from a
+    browser sample. Bureau special values are deliberately removed from the
+    ordinary-value bins and reported as their own governed population.
+    """
+
+    special_mask = bureau_special_mask(values)
+    ordinary_source = values.mask(special_mask)
+    missing_count = int(values.isna().sum())
+    special_count = int(special_mask.sum())
+    observed_count = int((values.notna() & ~special_mask).sum())
+
+    if _is_numeric_like(values):
+        numeric = pd.to_numeric(ordinary_source, errors="coerce")
+        clean = numeric.dropna().astype(float)
+        parse_failure_count = int((ordinary_source.notna() & numeric.isna()).sum())
+        if clean.empty:
+            return {
+                "kind": "numeric",
+                "bins": [],
+                "observed_count": observed_count,
+                "ordinary_numeric_count": 0,
+                "missing_count": missing_count,
+                "special_value_count": special_count,
+                "parse_failure_count": parse_failure_count,
+                "reference_cutoffs": None,
+                "cutoff_semantics": "Ordinary-value cutoffs are unavailable because no numeric ordinary values were observed.",
+            }
+
+        distinct = int(clean.nunique())
+        bin_count = max(1, min(14, distinct))
+        counts, edges = np.histogram(clean.to_numpy(), bins=bin_count)
+        bins = [
+            {
+                "label": f"{_number_label(float(edges[index]))} to {_number_label(float(edges[index + 1]))}",
+                "lower": float(edges[index]),
+                "upper": float(edges[index + 1]),
+                "count": int(counts[index]),
+            }
+            for index in range(len(counts))
+        ]
+        first_quartile = float(clean.quantile(0.25))
+        third_quartile = float(clean.quantile(0.75))
+        spread = third_quartile - first_quartile
+        return {
+            "kind": "numeric",
+            "bins": bins,
+            "observed_count": observed_count,
+            "ordinary_numeric_count": int(len(clean)),
+            "missing_count": missing_count,
+            "special_value_count": special_count,
+            "parse_failure_count": parse_failure_count,
+            "reference_cutoffs": {
+                "lower": first_quartile - (1.5 * spread),
+                "upper": third_quartile + (1.5 * spread),
+                "method": "1.5 IQR ordinary-value reference",
+            },
+            "cutoff_semantics": (
+                "Reference cutoffs describe the ordinary-value distribution inherited from the "
+                "Outliers step. They are not missing-value treatments."
+            ),
+        }
+
+    ordinary = ordinary_source.dropna().astype(str)
+    counts = ordinary.value_counts(dropna=False).head(12)
+    return {
+        "kind": "categorical",
+        "bins": [
+            {
+                "label": str(label),
+                "lower": None,
+                "upper": None,
+                "count": int(count),
+            }
+            for label, count in counts.items()
+        ],
+        "observed_count": observed_count,
+        "ordinary_numeric_count": None,
+        "missing_count": missing_count,
+        "special_value_count": special_count,
+        "parse_failure_count": 0,
+        "reference_cutoffs": None,
+        "cutoff_semantics": "Low/high numeric cutoffs are not applicable to categorical predictors.",
+    }
+
+
 @router.get("/summary")
 def missing_summary(
     project_id: str = Query(...),
@@ -158,13 +303,79 @@ def missing_summary(
     stats: Dict[str, Any] = {}
     columns: List[Dict[str, Any]] = []
     total = int(len(work))
-    for col in _feature_columns(work):
-        missing = int(work[col].isna().sum())
-        relationship = _informative_missingness(work[col], y, resolved_problem, resolved_event)
+    feature_columns = _feature_columns(work)
+    authorization = _authorization_with_full_source_exclusions(work)
+    for col in feature_columns:
+        feature = work[col]
+        missing = int(feature.isna().sum())
+        relationship = _informative_missingness(feature, y, resolved_problem, resolved_event)
+        special_mask = bureau_special_mask(feature)
+        numeric = pd.to_numeric(feature.mask(special_mask), errors="coerce")
+        ordinary_numeric = numeric.dropna().astype(float)
+        ordinary = feature.notna() & ~special_mask
+        ordinary_mode = feature.loc[ordinary].mode(dropna=True)
+        mode_value = ordinary_mode.iloc[0] if len(ordinary_mode) else None
+        quantiles = (
+            ordinary_numeric.quantile([0.25, 0.5, 0.75])
+            if len(ordinary_numeric)
+            else None
+        )
+        signal_metric = None
+        association_status = "not_applicable"
+        if y is not None:
+            if resolved_problem == "classification":
+                try:
+                    signal_metric, resolved_event = information_value(
+                        feature, y, resolved_event
+                    )
+                    association_status = "evaluated"
+                except ValueError:
+                    association_status = "target_definition_required"
+            elif len(ordinary_numeric) >= 3:
+                pairs = pd.DataFrame(
+                    {
+                        "feature": numeric,
+                        "target": pd.to_numeric(y, errors="coerce"),
+                    }
+                ).dropna()
+                if len(pairs) >= 3:
+                    correlation = pairs["feature"].corr(pairs["target"])
+                    if pd.notna(correlation):
+                        signal_metric = float(correlation)
+                        association_status = "evaluated"
+        special_summary = bureau_special_summary(feature)
         stats[col] = {
             "missing": missing,
             "missingPct": float((missing / total) * 100) if total else 0.0,
             "total": total,
+            "nonmissing_count": int(feature.notna().sum()),
+            "observed_count": int(ordinary.sum()),
+            "distinct_count": int(feature.nunique(dropna=True)),
+            "mean": float(ordinary_numeric.mean()) if len(ordinary_numeric) else None,
+            "mode": mode_value,
+            "standard_deviation": (
+                float(ordinary_numeric.std(ddof=0))
+                if len(ordinary_numeric)
+                else None
+            ),
+            "minimum": float(ordinary_numeric.min()) if len(ordinary_numeric) else None,
+            "first_quartile": (
+                float(quantiles.loc[0.25]) if quantiles is not None else None
+            ),
+            "median": float(quantiles.loc[0.5]) if quantiles is not None else None,
+            "third_quartile": (
+                float(quantiles.loc[0.75]) if quantiles is not None else None
+            ),
+            "maximum": float(ordinary_numeric.max()) if len(ordinary_numeric) else None,
+            "information_value": (
+                signal_metric if resolved_problem == "classification" else None
+            ),
+            "correlation_with_target": (
+                signal_metric if resolved_problem == "regression" else None
+            ),
+            "association_status": association_status,
+            "distribution": _distribution_profile(feature),
+            **special_summary,
             **relationship,
         }
         columns.append({"name": col, "dtype": _display_dtype(work[col]), "role": "feature"})
@@ -182,15 +393,61 @@ def missing_summary(
         "source_stage": "outlier_treated" if DATASTORE.meta.get("outlier_application") else "registered_dataset",
         "dataset_version": DATASTORE.meta.get("dataset_version") or "unversioned",
         "application": DATASTORE.meta.get("missing_application"),
+        "validation": DATASTORE.meta.get("missing_validation"),
+        "predictor_authorization": authorization,
     })
+
+
+@router.post("/validate")
+def validate_missing_values(
+    request: MissingValidateRequest,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    """Record a governed no-treatment decision without materializing a frame."""
+
+    authorize_modeling_scope(user, request.project_id, "edit")
+    work = _normalize_missing(_pre_missing_df())
+    features = _feature_columns(work)
+    missing_cells = int(work[features].isna().sum().sum()) if features else 0
+    if missing_cells:
+        raise HTTPException(
+            status_code=409,
+            detail="Null values are present. Select and apply a governed treatment or explicitly preserve them.",
+        )
+    validation = {
+        "validated_at": datetime.now(timezone.utc).isoformat(),
+        "dataset_version": DATASTORE.meta.get("dataset_version") or "unversioned",
+        "source_stage": "outlier_treated" if DATASTORE.meta.get("outlier_application") else "registered_dataset",
+        "row_count": int(len(work)),
+        "predictor_count": len(features),
+        "missing_cells": 0,
+        "strategy": "None",
+        "status": "validated_no_treatment_required",
+        "backend_materialization": False,
+        "statement": "Validated, no treatment required.",
+    }
+    DATASTORE.meta["missing_validation"] = validation
+    DATASTORE.meta.pop("missing_application", None)
+    DATASTORE.meta.pop("missing_config", None)
+    if not save_checkpoint():
+        raise HTTPException(
+            status_code=500,
+            detail="Missing-value validation completed, but ATLAS could not persist the workflow checkpoint.",
+        )
+    return json_safe({"ok": True, "scope": "full_dataset", "validation": validation})
 
 
 @router.post("/apply")
 def apply_missing_values(request: MissingApplyRequest, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     authorize_modeling_scope(user, request.project_id, "edit")
     work = _normalize_missing(_pre_missing_df())
-    before = int(work.isna().sum().sum())
     features = set(_feature_columns(work))
+    before = int(work[list(features)].isna().sum().sum()) if features else 0
+    if before == 0:
+        raise HTTPException(
+            status_code=409,
+            detail="No null imputation is required for the current modeling population. Use validation instead of materialization.",
+        )
     dropped_rows = 0
     applied: List[Dict[str, Any]] = []
 
@@ -245,7 +502,7 @@ def apply_missing_values(request: MissingApplyRequest, user: Dict[str, Any] = De
         "rows_before": int(len(_pre_missing_df())),
         "rows_after": int(len(work)),
         "missing_before": before,
-        "missing_after": int(work.isna().sum().sum()),
+        "missing_after": int(work[list(features)].isna().sum().sum()) if features else 0,
         "dropped_rows": int(dropped_rows),
         "treatments": applied,
     }
@@ -253,6 +510,7 @@ def apply_missing_values(request: MissingApplyRequest, user: Dict[str, Any] = De
     DATASTORE.meta["processed_stage"] = "missing_values"
     DATASTORE.meta["missing_config"] = payload
     DATASTORE.meta["missing_application"] = application
+    DATASTORE.meta.pop("missing_validation", None)
     DATASTORE.meta["split_status"] = "stale"
     manifest = DATASTORE.meta.get("feature_manifest")
     if isinstance(manifest, dict):

@@ -1,20 +1,43 @@
 # server/training/trainer_router.py
 
-from typing import Dict, Any
+from datetime import datetime, timezone
+import hashlib
+import json
+from typing import Dict, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 
 from .trainer_service import TRAINER
 from .training_job_service import TRAINING_JOBS
 from .training_job_types import TrainingJobRequest
 from ..core.json_safety import json_safe
+from ..core.dataset_store import DATASTORE
 from ..core.modeling_scope import authorize_modeling_scope
 from ..core.result_store import RESULTS
 from ..core.session_checkpoint import schedule_checkpoint_save
-from ..security.security_store import require_user
+from ..security.security_store import audit_event, require_user
 
 
 router = APIRouter()
+
+
+class ModelSelectionDecisionRequest(BaseModel):
+    project_id: str
+    training_job_id: str
+    validation_design_id: str = ""
+    validation_design_version: str = ""
+    champion_model: str
+    challenger_models: list[str] = Field(default_factory=list)
+    status: Literal["proposed", "approved", "rejected"] = "proposed"
+    primary_metric: str = ""
+    rationale: str = Field(min_length=10, max_length=4000)
+    metric_justification: str = Field(default="", max_length=4000)
+    interpretability_justification: str = Field(default="", max_length=4000)
+    calibration_considerations: str = Field(default="", max_length=4000)
+    fairness_validation_prerequisites: str = Field(default="", max_length=4000)
+    deployment_constraints: str = Field(default="", max_length=4000)
+    reviewer_notes: str = Field(default="", max_length=4000)
 
 
 # Stage 4 (ATLAS_MODELING_STATE_ISOLATION_PLAN.md): TRAINING_JOBS project
@@ -33,7 +56,26 @@ router = APIRouter()
 def create_training_job(request: TrainingJobRequest, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     authorize_modeling_scope(user, request.project_id, "edit")
     try:
-        return json_safe({"ok": True, **TRAINING_JOBS.create(request, owner_user_id=str(user.get("userId") or ""))})
+        result = TRAINING_JOBS.create(
+            request,
+            owner_user_id=str(user.get("userId") or ""),
+        )
+        audit_event(
+            "modeling.training_job.created",
+            "project",
+            request.project_id,
+            "success",
+            metadata={
+                "projectId": request.project_id,
+                "trainingJobId": result.get("job_id"),
+                "models": request.models,
+                "validationDesignId": request.validation_design_id,
+                "validationDesignVersion": request.validation_design_version,
+                "candidateStrategy": request.candidate_strategy,
+            },
+            user_id=user.get("userId"),
+        )
+        return json_safe({"ok": True, **result})
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -68,7 +110,180 @@ def cancel_training_job(job_id: str, project_id: str = Query(...), user: Dict[st
     job = TRAINING_JOBS.cancel(job_id, owner_user_id=str(user.get("userId") or ""), project_id=project_id)
     if not job:
         raise HTTPException(status_code=404, detail="Training job was not found or is no longer available.")
+    audit_event(
+        "modeling.training_job.cancelled",
+        "project",
+        project_id,
+        "success",
+        metadata={"projectId": project_id, "trainingJobId": job_id},
+        user_id=user.get("userId"),
+    )
     return json_safe({"ok": True, **job})
+
+
+@router.post("/model/train/jobs/{job_id}/cancel-queued")
+def cancel_queued_training_models(
+    job_id: str,
+    project_id: str = Query(...),
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    authorize_modeling_scope(user, project_id, "edit")
+    job = TRAINING_JOBS.cancel_queued(
+        job_id,
+        owner_user_id=str(user.get("userId") or ""),
+        project_id=project_id,
+    )
+    if not job:
+        raise HTTPException(
+            status_code=404,
+            detail="Training job was not found or is no longer available.",
+        )
+    audit_event(
+        "modeling.training_job.queued_models_cancelled",
+        "project",
+        project_id,
+        "success",
+        metadata={
+            "projectId": project_id,
+            "trainingJobId": job_id,
+            "cancelledModels": job.get("cancelled_models") or [],
+        },
+        user_id=user.get("userId"),
+    )
+    return json_safe({"ok": True, **job})
+
+
+@router.get("/model/train/decision")
+def get_model_selection_decision(
+    project_id: str = Query(...),
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    authorize_modeling_scope(user, project_id, "view")
+    decision = DATASTORE.meta.get("model_selection_decision")
+    return json_safe(
+        {
+            "ok": True,
+            "decision": decision if isinstance(decision, dict) else None,
+        }
+    )
+
+
+@router.post("/model/train/decision")
+def save_model_selection_decision(
+    request: ModelSelectionDecisionRequest,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    authorize_modeling_scope(user, request.project_id, "edit")
+    if request.status == "approved":
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Model Training may propose candidates but cannot approve a "
+                "champion. Final approval remains in downstream Evaluation / "
+                "Validation."
+            ),
+        )
+    job = TRAINING_JOBS.get(
+        request.training_job_id,
+        owner_user_id=str(user.get("userId") or ""),
+        project_id=request.project_id,
+    )
+    if not job:
+        raise HTTPException(
+            status_code=404,
+            detail="The governed training job was not found in this project.",
+        )
+    candidates = {
+        str(row.get("key"))
+        for row in job.get("partial_ranked_results") or []
+        if isinstance(row, dict) and row.get("champion_eligible", True)
+    }
+    if request.champion_model not in candidates:
+        raise HTTPException(
+            status_code=400,
+            detail="The proposed champion is not an eligible completed candidate.",
+        )
+    invalid_challengers = [
+        model
+        for model in request.challenger_models
+        if model not in candidates or model == request.champion_model
+    ]
+    if invalid_challengers:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid challenger candidates: " + ", ".join(invalid_challengers),
+        )
+    validation_design = (
+        DATASTORE.meta.get("validation_design")
+        if isinstance(DATASTORE.meta.get("validation_design"), dict)
+        else {}
+    )
+    if (
+        request.validation_design_id
+        and request.validation_design_id
+        != validation_design.get("validation_design_id")
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="The Validation Design changed. Refresh the training decision.",
+        )
+    if (
+        request.validation_design_version
+        and request.validation_design_version
+        != validation_design.get("design_version")
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="The Validation Design version changed. Refresh the training decision.",
+        )
+    decided_at = datetime.now(timezone.utc).isoformat()
+    identity = {
+        "project_id": request.project_id,
+        "training_job_id": request.training_job_id,
+        "champion_model": request.champion_model,
+        "challenger_models": request.challenger_models,
+        "status": request.status,
+        "validation_design_version": validation_design.get("design_version"),
+    }
+    encoded = json.dumps(identity, sort_keys=True, separators=(",", ":"))
+    decision = {
+        "decision_id": f"model-decision-{hashlib.sha256(encoded.encode('utf-8')).hexdigest()[:16]}",
+        **request.model_dump(),
+        "validation_design_id": validation_design.get("validation_design_id"),
+        "validation_design_version": validation_design.get("design_version"),
+        "feature_manifest_version": job.get("feature_manifest_version"),
+        "split_id": job.get("split_id"),
+        "actor": {
+            "user_id": user.get("userId"),
+            "display_name": user.get("displayName")
+            or user.get("email")
+            or "Current ATLAS user",
+        },
+        "decided_at": decided_at,
+        "candidate_metrics": {
+            str(row.get("key")): row
+            for row in job.get("partial_ranked_results") or []
+            if isinstance(row, dict)
+            and str(row.get("key"))
+            in {request.champion_model, *request.challenger_models}
+        },
+    }
+    DATASTORE.meta["model_selection_decision"] = decision
+    audit_event(
+        "modeling.model_selection.decision",
+        "project",
+        request.project_id,
+        "success",
+        metadata={
+            "decisionId": decision["decision_id"],
+            "trainingJobId": request.training_job_id,
+            "championModel": request.champion_model,
+            "status": request.status,
+        },
+        user_id=user.get("userId"),
+    )
+    schedule_checkpoint_save()
+    return json_safe({"ok": True, "decision": decision})
 
 
 @router.get("/models/availability")

@@ -95,7 +95,7 @@ const datasetLibraryPage = [
   "Delete",
   "ShareResourceDialog",
   "Archive dataset",
-  "min-w-[980px]",
+  "min-w-[1360px]",
   "sticky right-0",
   "Export metadata",
   "setDatasetViewMode",

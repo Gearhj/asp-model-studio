@@ -44,7 +44,7 @@ from .target_distribution_service import (
     compute_target_distribution,
 )
 
-ENGINE_VERSION = "target-intelligence/1"
+ENGINE_VERSION = "target-intelligence/2"
 
 # ---------------------------------------------------------------------------
 # Bounds. Every one of these caps a payload, not a source population.
@@ -628,10 +628,54 @@ def _numeric_bands(scan: str, predictor: str, target: str, event_value: Any, ban
     )
     SELECT * FROM banded UNION ALL SELECT * FROM absent WHERE population > 0 ORDER BY band
     """
+    box_plot_sql = f"""
+    WITH source AS (
+      SELECT TRY_CAST({predictor_column} AS DOUBLE) AS predictor_value,
+             {event_expression} AS is_event
+      FROM {scan}
+      WHERE {target_column} IS NOT NULL
+    ),
+    quartiles AS (
+      SELECT is_event,
+             COUNT(*) AS population,
+             MIN(predictor_value) AS minimum,
+             QUANTILE_CONT(predictor_value, 0.25) AS q1,
+             QUANTILE_CONT(predictor_value, 0.50) AS median,
+             QUANTILE_CONT(predictor_value, 0.75) AS q3,
+             MAX(predictor_value) AS maximum
+      FROM source
+      WHERE predictor_value IS NOT NULL
+      GROUP BY is_event
+    ),
+    fences AS (
+      SELECT *,
+             q1 - 1.5 * (q3 - q1) AS lower_fence,
+             q3 + 1.5 * (q3 - q1) AS upper_fence
+      FROM quartiles
+    )
+    SELECT f.is_event,
+           f.population,
+           f.minimum,
+           f.q1,
+           f.median,
+           f.q3,
+           f.maximum,
+           MIN(CASE WHEN s.predictor_value >= f.lower_fence THEN s.predictor_value END) AS whisker_low,
+           MAX(CASE WHEN s.predictor_value <= f.upper_fence THEN s.predictor_value END) AS whisker_high,
+           SUM(CASE
+                 WHEN s.predictor_value < f.lower_fence OR s.predictor_value > f.upper_fence
+                 THEN 1 ELSE 0
+               END) AS outlier_count
+    FROM fences f
+    JOIN source s ON s.is_event = f.is_event AND s.predictor_value IS NOT NULL
+    GROUP BY f.is_event, f.population, f.minimum, f.q1, f.median, f.q3, f.maximum
+    ORDER BY f.is_event
+    """
     with _QUERY_LOCK:
         connection = _duckdb().connect()
         try:
             rows = connection.execute(sql).fetchall()
+            box_plot_rows = connection.execute(box_plot_sql).fetchall()
         finally:
             connection.close()
 
@@ -657,7 +701,41 @@ def _numeric_bands(scan: str, predictor: str, target: str, event_value: Any, ban
         else:
             present_rows.append(entry)
 
-    return {"bands": present_rows, "missingGroup": missing_row}
+    box_plot_by_target: List[Dict[str, Any]] = []
+    for (
+        is_event,
+        population,
+        minimum,
+        q1,
+        median,
+        q3,
+        maximum,
+        whisker_low,
+        whisker_high,
+        outlier_count,
+    ) in box_plot_rows:
+        event_group = int(is_event or 0) == 1
+        box_plot_by_target.append(
+            {
+                "targetClass": "event" if event_group else "non_event",
+                "label": f"Event ({event_value})" if event_group else "Non-event",
+                "population": int(population or 0),
+                "minimum": None if minimum is None else float(minimum),
+                "q1": None if q1 is None else float(q1),
+                "median": None if median is None else float(median),
+                "q3": None if q3 is None else float(q3),
+                "maximum": None if maximum is None else float(maximum),
+                "whiskerLow": None if whisker_low is None else float(whisker_low),
+                "whiskerHigh": None if whisker_high is None else float(whisker_high),
+                "outlierCount": int(outlier_count or 0),
+            }
+        )
+
+    return {
+        "bands": present_rows,
+        "missingGroup": missing_row,
+        "boxPlotByTarget": box_plot_by_target,
+    }
 
 
 def _categorical_groups(
@@ -947,7 +1025,11 @@ def compute_target_by_predictor(
             missing_group = computed["missingGroup"]
             other_group = None
             label_key = "label"
-            extras: Dict[str, Any] = {"requestedBands": bands, "returnedBands": len(rows)}
+            extras: Dict[str, Any] = {
+                "requestedBands": bands,
+                "returnedBands": len(rows),
+                "boxPlotByTarget": computed["boxPlotByTarget"],
+            }
         else:
             computed = _categorical_groups(scan, predictor, target, resolved_event, top_categories)
             rows = computed["categories"]

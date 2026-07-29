@@ -340,3 +340,37 @@ test("the phase registers its test script and adds no console noise", async () =
     "node tests/governedProfile.test.mjs && .\\.venv\\Scripts\\python.exe tests\\governed_profile_test.py"
   );
 });
+
+// ---------------------------------------- signal strength vs leakage (Part H) ---
+test("automated leakage evidence is independent of IV", () => {
+  // PROVEN DEFECT: leakageScreen returned "review_recommended" whenever
+  // iv >= 0.5, so association strength WAS the leakage verdict -- flagging ~23
+  // of 30 governed CLASS_TRAIN predictors purely because the PCA components
+  // separate the target well. An independent reference implementation confirmed
+  // that separation is real signal, not leakage.
+  const strong = { iv: 3.28, ivStatus: "available", role: "predictor", eligible: true };
+  assert.equal(lib.leakageScreen(strong), "no_automated_signal",
+    "a high IV alone must NOT produce a leakage state");
+  // ...but it is still surfaced for human review through signal strength.
+  const strength = lib.signalStrength(strong);
+  assert.equal(strength.key, "unusually_strong");
+  assert.equal(strength.reviewRecommended, true);
+
+  // Real evidence -- from server-side checks, not from IV -- still flags.
+  assert.equal(
+    lib.leakageScreen({ iv: 0.01, ivStatus: "available", role: "potential_leakage", eligible: true }),
+    "review_recommended",
+    "actual leakage evidence must still be reported",
+  );
+  // A weak predictor with no evidence is clean.
+  assert.equal(
+    lib.leakageScreen({ iv: 0.01, ivStatus: "available", role: "predictor", eligible: true }),
+    "no_automated_signal",
+  );
+  // High IV never escalates to a confirmed verdict.
+  for (const iv of [0.5, 1.5, 3.6, 99]) {
+    const state = lib.leakageScreen({ iv, ivStatus: "available", role: "predictor", eligible: true });
+    assert.notEqual(state, "confirmed_leakage");
+    assert.notEqual(state, "likely_leakage");
+  }
+});

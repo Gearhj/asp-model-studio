@@ -363,6 +363,14 @@ class GovernedScopeEndpointTests(unittest.TestCase):
         self.assertEqual(body["analysisScope"]["mode"], "workspace_draft")
         self.assertIsNone(body["datasetId"])
         self.assertIsNone(body["versionId"])
+        self.assertEqual(
+            {row["targetClass"] for row in body["boxPlotByTarget"]},
+            {"event", "non_event"},
+        )
+        for row in body["boxPlotByTarget"]:
+            self.assertLessEqual(row["q1"], row["median"])
+            self.assertLessEqual(row["median"], row["q3"])
+            self.assertNotIn("values", row)
 
     # 5 / 16 / 17 ------------------------------------------------------------
     def test_governed_evidence_save_succeeds_with_immutable_provenance(self):

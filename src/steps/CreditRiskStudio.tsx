@@ -1353,11 +1353,6 @@ export default function CreditRiskStudio() {
                 }}>Send selected variables to Both Tracks</button>
                 <EvidenceButton onClick={() => saveEvidence("variable_mapping", ["Data Sources", "Feature Engineering", "Fair Lending / Compliance Considerations"])} label="Save Characteristic Screening Evidence" />
               </div>
-              <StepContinueButton
-                label="Confirm Characteristic Screening and Continue"
-                disabled={schemaMismatch || !schema.length || !(profile.variableMappings || []).some((row) => row.include && isCreditRiskPredictorCandidate(row.variable, profile))}
-                onClick={() => saveAndOpenWorkflowStep("balance-split", { screeningStatus: "Ready", readiness: { ...(profile.readiness || {}), "Variable Mapping": "Ready", "Feature Engineering": "Ready" } })}
-              />
             </StudioSection>
           )}
 
@@ -2563,7 +2558,6 @@ function creditRiskBottomCta(active: string) {
     "Project Setup": { label: "Confirm Project Setup and Continue", next: "Population and Target" },
     "Population and Target": { label: "Save Target Definition and Continue", next: "Credit Risk EDA" },
     "Credit Risk EDA": { label: "Save EDA Evidence and Continue", next: "Characteristic Screening" },
-    "Characteristic Screening": { label: "Confirm Characteristic Screening and Continue", next: "Modeling Approach" },
     "Modeling Approach": { label: "Confirm Modeling Approach and Continue", next: "Traditional Scorecard Path" },
     "Traditional Scorecard Path": { label: "Save Scorecard Progress and Continue", next: "AI/ML Underwriting Path" },
     "AI/ML Underwriting Path": { label: "Save AI/ML Progress and Continue", next: "Champion / Challenger Comparison" },
@@ -3240,7 +3234,6 @@ function RealPredictiveStepEmbed({
     <details className="rounded-xl border border-slate-200 bg-white p-3" open>
       <summary className="cursor-pointer text-sm font-semibold text-slate-950">{title}</summary>
       <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 p-3">
-        <style>{`.credit-risk-embedded-step button[data-step-next-button="true"]{display:none!important}.credit-risk-embedded-step div:has(> button[data-step-next-button="true"]){display:none!important}`}</style>
         <div className="credit-risk-embedded-step">
           <EmbeddedPredictiveStepBoundary key={boundaryResetKey} fullPredictiveRoute={fullPredictiveRoute}>{children}</EmbeddedPredictiveStepBoundary>
         </div>

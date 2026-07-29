@@ -28,6 +28,14 @@ export type BureauReviewDecision = {
   handling: BureauHandling;
   rationale: string;
   updatedAt: string;
+  override: true;
+};
+
+export type BureauVariableDefault = {
+  variable: string;
+  handling: BureauHandling;
+  rationale: string;
+  updatedAt: string;
 };
 
 export type BureauDetectionVariable = {
@@ -37,12 +45,16 @@ export type BureauDetectionVariable = {
   datatype: string;
   special_value_count: number;
   special_value_frequency: number;
+  ordinary_value_count: number;
+  null_count: number;
+  parse_failure_count: number;
   likely_bureau: boolean;
   special_values: Array<{
     value: number;
     definition: string;
     count: number;
     frequency: number;
+    event_count: number | null;
     event_rate: number | null;
     regular_event_rate: number | null;
     event_rate_delta: number | null;
@@ -62,6 +74,7 @@ export type BureauDetectionResponse = {
   reasons: string[];
   likely_variable_count: number;
   variables_with_special_values: number;
+  rows_with_special_values: number;
   variables: BureauDetectionVariable[];
   metadata_source: string;
   reviewed_at: string;
@@ -71,6 +84,11 @@ export type BureauReviewState = {
   declaration: BureauDeclaration;
   rationale: string;
   decisions: BureauReviewDecision[];
+  variableDefaults: BureauVariableDefault[];
+  status: "draft" | "confirmed";
+  evidenceStatus: "not_recorded" | "draft" | "ready" | "stale";
+  confirmedAt?: string;
+  savedAt?: string;
 };
 
 function mapLegacyHandling(treatment: string): BureauHandling {
@@ -85,7 +103,32 @@ function mapLegacyHandling(treatment: string): BureauHandling {
 export function loadBureauReviewState(): BureauReviewState {
   try {
     const parsed = JSON.parse(localStorage.getItem(BUREAU_REVIEW_KEY) || "null");
-    if (parsed && Array.isArray(parsed.decisions)) return parsed;
+    if (parsed && Array.isArray(parsed.decisions)) {
+      return {
+        declaration: parsed.declaration ?? "auto",
+        rationale: parsed.rationale ?? "",
+        decisions: parsed.decisions.map((row: BureauReviewDecision) => ({
+          ...row,
+          override: true as const,
+        })),
+        variableDefaults: Array.isArray(parsed.variableDefaults)
+          ? parsed.variableDefaults
+          : [],
+        status: parsed.status === "confirmed" ? "confirmed" : "draft",
+        evidenceStatus:
+          parsed.evidenceStatus === "draft" ||
+          parsed.evidenceStatus === "ready" ||
+          parsed.evidenceStatus === "stale"
+            ? parsed.evidenceStatus
+            : "not_recorded",
+        confirmedAt:
+          typeof parsed.confirmedAt === "string"
+            ? parsed.confirmedAt
+            : undefined,
+        savedAt:
+          typeof parsed.savedAt === "string" ? parsed.savedAt : undefined,
+      };
+    }
   } catch {
     // Fall through to compatibility migration.
   }
@@ -99,7 +142,11 @@ export function loadBureauReviewState(): BureauReviewState {
       handling: mapLegacyHandling(row.treatment),
       rationale: row.rationale,
       updatedAt: row.updatedAt,
+      override: true,
     })),
+    variableDefaults: [],
+    status: "draft",
+    evidenceStatus: "not_recorded",
   };
 }
 
@@ -143,4 +190,3 @@ export async function fetchBureauDetection(input: {
 }
 
 export const bureauCompatibilityKeys = [BUREAU_METADATA_KEY, BUREAU_TREATMENT_KEY, BUREAU_REVIEW_KEY];
-

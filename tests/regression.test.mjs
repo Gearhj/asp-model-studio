@@ -269,7 +269,7 @@ test("Model Training keeps Studio-routed continuation and no direct Evaluation b
 test("Feature Engineering respects selected columns from Data Acquisition", async () => {
   const source = await readFile(new URL("../src/steps/Step05_EncodingScaling.tsx", import.meta.url), "utf8");
   const featureService = await readFile(new URL("../server/features/feature_service.py", import.meta.url), "utf8");
-  assert.match(source, /getFeatureManifest\(\)/);
+  assert.match(source, /getFeatureManifest\(projectId\)/);
   assert.match(featureService, /DATASTORE\.get_selected_columns\(\)/);
   assert.match(featureService, /"eligibility_status": "eligible" if eligible else "excluded"/);
   assert.match(featureService, /row\.get\("selected"\) and row\.get\("eligibility_status"\) == "eligible"/);
@@ -295,15 +295,15 @@ test("Predictive workflow keeps Project Context concise and downstream regressio
   const modelDocument = await readFile(new URL("../src/lib/modelDevelopmentDocument.ts", import.meta.url), "utf8");
 
   assert.match(projectContext, /predictiveModelTypeOptions/);
-  assert.match(projectContext, /Pending Data Review/);
-  assert.match(projectContext, /Pending Data Acquisition/);
+  assert.match(projectContext, /Dataset binding, target-column selection, validation design, and model selection will be established in later workflow stages/);
+  assert.match(projectContext, /Not yet defined/);
   assert.doesNotMatch(projectContext, /Overprediction cost|Underprediction cost/, "Project Context must not restore the removed cost questionnaire.");
   assert.match(dataAcquisition, /Corr\(Target\)/);
   assert.match(dataAcquisition, /Target Mean/);
   assert.match(dataAcquisition, /props\.targetInfo\.kind === "continuous"/);
   assert.match(balancing, /problemType === "classification"/);
   assert.match(balancing, /Class balancing is not applicable to regression/);
-  assert.match(balancing, /Training and holdout retain their observed target distributions/);
+  assert.match(balancing, /Training and validation populations retain their observed target distributions/);
   assert.match(scoring, /External Validation Dataset/);
   assert.match(scoring, /Out-of-Time Dataset/);
   assert.doesNotMatch(scoring, /Mark Complete &amp; Build Document|Mark Complete & Build Document|navigate\("\/step11"\)/);
@@ -357,17 +357,17 @@ test("EDA and Interpretation handle classification-specific predictive workflow 
 
   for (const term of [
     "target_profile",
-    "Target Profile",
-    "Event rate",
-    "Non-event count",
-    "Event count",
-    "Rare-event target detected",
+    "Target balance",
+    "Full-population class prevalence",
+    "Non-event",
+    "Event",
+    "Rare-event safeguards are required",
     "Missing target",
-    "Target by segment",
-    "Accuracy is not an appropriate primary metric",
+    "Population and event rate by segment",
   ]) {
     assert.match(edaPage, new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `EDA missing classification target term ${term}.`);
   }
+  assert.match(edaPage, /accuracy is not an appropriate\s+primary metric/);
   assert.ok(
     edaPage.indexOf('activeTab === "target"') < edaPage.indexOf('activeTab === "predictors"'),
     "Target analysis should precede predictor analysis in the tab sequence."

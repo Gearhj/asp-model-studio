@@ -688,9 +688,80 @@ def compute_predictor_iv(
         return {**base, "ivStatus": "failed", "failureReason": str(exc)[:300]}
 
 
-def _role_for(column: str, target: str) -> Tuple[str, str]:
+#: A field can only *deterministically define* the target if it has few distinct
+#: values. Bounding the search keeps detection to one extra query per candidate
+#: instead of one per column on wide tables.
+DETERMINISTIC_SOURCE_MAX_DISTINCT = 50
+
+
+def detect_target_source_fields(
+    session: "_Session", columns: List[Any], target: str
+) -> Dict[str, Dict[str, Any]]:
+    """Fields that deterministically define the target -- i.e. the target in disguise.
+
+    DATA-DRIVEN, not a name pattern and not a per-dataset hardcode. A column
+    qualifies when every one of its values maps to exactly ONE target value, so
+    knowing the column is knowing the outcome. HELOC's `RiskPerformance`
+    (Bad -> 1, Good -> 0) is the motivating case: it produced IV ~= 17.48 and was
+    offered as an ordinary "unusually strong" predictor, because role assignment
+    only ever matched column NAMES.
+
+    Returned mapping is the evidence shown to the user, so the exclusion can be
+    explained rather than merely asserted.
+    """
+    quoted_target = _q(target)
+    candidates: List[str] = []
+    for column in columns:
+        name = str(column)
+        if name == target:
+            continue
+        candidates.append(name)
+    if not candidates:
+        return {}
+
+    # One vectorised pass for distinct counts, so wide tables stay cheap.
+    distinct_selects = ", ".join(
+        f"COUNT(DISTINCT CAST({_q(name)} AS VARCHAR))" for name in candidates
+    )
+    counts_row = session.one(f"SELECT {distinct_selects} FROM src")
+    low_cardinality = [
+        name
+        for index, name in enumerate(candidates)
+        if counts_row and 2 <= int(counts_row[index] or 0) <= DETERMINISTIC_SOURCE_MAX_DISTINCT
+    ]
+
+    found: Dict[str, Dict[str, Any]] = {}
+    for name in low_cardinality:
+        quoted = _q(name)
+        violating = session.one(
+            f"SELECT 1 FROM src WHERE {quoted} IS NOT NULL AND {quoted_target} IS NOT NULL "
+            f"GROUP BY CAST({quoted} AS VARCHAR) "
+            f"HAVING COUNT(DISTINCT CAST({quoted_target} AS VARCHAR)) > 1 LIMIT 1"
+        )
+        if violating:
+            continue  # at least one value spans both classes -> not deterministic
+        rows = session.all(
+            f"SELECT CAST({quoted} AS VARCHAR), MIN(CAST({quoted_target} AS VARCHAR)), COUNT(*) "
+            f"FROM src WHERE {quoted} IS NOT NULL AND {quoted_target} IS NOT NULL "
+            f"GROUP BY 1 ORDER BY 3 DESC LIMIT {DETERMINISTIC_SOURCE_MAX_DISTINCT}"
+        )
+        found[name] = {
+            "field": name,
+            "target": target,
+            "relationship": "deterministic_target_source",
+            "mapping": [
+                {"sourceValue": row[0], "targetValue": row[1], "rowCount": int(row[2])}
+                for row in rows
+            ],
+        }
+    return found
+
+
+def _role_for(column: str, target: str, target_sources: Optional[Dict[str, Any]] = None) -> Tuple[str, str]:
     if column == target:
         return "target", "Target column"
+    if target_sources and column in target_sources:
+        return "target_source", "Deterministic source of modeling target"
     if _SPLIT_FIELD.search(column):
         return "split_indicator", "Split or fold indicator"
     if _SYSTEM_FIELD.search(column):
@@ -760,11 +831,14 @@ def governed_target_profile(
             scope["profiledRows"] = quality["populationRows"]
             scope["decisionReady"] = True
 
+            # Detect deterministic target sources BEFORE classifying predictors,
+            # so a field that defines the target can never be offered as one.
+            target_source_fields = detect_target_source_fields(session, session.columns, target)
             predictors: List[Dict[str, Any]] = []
             if include_iv:
                 allowed = set(selected_columns or []) or None
                 for column in session.columns:
-                    role, reason = _role_for(str(column), target)
+                    role, reason = _role_for(str(column), target, target_source_fields)
                     entry: Dict[str, Any] = {
                         "predictor": str(column),
                         "role": role,
@@ -814,6 +888,8 @@ def governed_target_profile(
             "unavailable": len([item for item in predictors if str(item.get("ivStatus", "")).startswith("unavailable")]),
             "failed": len([item for item in predictors if item.get("ivStatus") == "failed"]),
             "leakageReview": len([item for item in predictors if item.get("role") == "potential_leakage"]),
+            "targetSourceFields": list(target_source_fields.values()),
+            "targetSourceExcluded": sorted(target_source_fields.keys()),
         },
         "methodology": {
             "sourcePopulation": f"Registered dataset version {artifact['versionId']} ({quality['populationRows']:,} rows)",
@@ -891,12 +967,16 @@ def workspace_target_profile(
         try:
             mapping = resolve_target_mapping(session, target, event_value, non_event_value)
             quality = compute_quality(session, mapping, target)
+            target_source_fields = (
+                detect_target_source_fields(session, session.columns, target)
+                if not is_preview else {}
+            )
             predictors: List[Dict[str, Any]] = []
             # preview_only never produces IV.
             if include_iv and not is_preview:
                 allowed = set(selected_columns or []) or None
                 for column in session.columns:
-                    role, reason = _role_for(str(column), target)
+                    role, reason = _role_for(str(column), target, target_source_fields)
                     entry: Dict[str, Any] = {
                         "predictor": str(column), "role": role,
                         "exclusionReason": reason, "eligible": role == "eligible",
@@ -909,7 +989,7 @@ def workspace_target_profile(
                     predictors.append(entry)
             elif include_iv and is_preview:
                 for column in session.columns:
-                    role, reason = _role_for(str(column), target)
+                    role, reason = _role_for(str(column), target, target_source_fields)
                     predictors.append({
                         "predictor": str(column), "role": role, "exclusionReason": reason,
                         "eligible": role == "eligible", "iv": None,
@@ -960,6 +1040,8 @@ def workspace_target_profile(
             "previewOnly": len([item for item in predictors if item.get("ivStatus") == "preview_only"]),
             "failed": len([item for item in predictors if item.get("ivStatus") == "failed"]),
             "leakageReview": len([item for item in predictors if item.get("role") == "potential_leakage"]),
+            "targetSourceFields": list(target_source_fields.values()),
+            "targetSourceExcluded": sorted(target_source_fields.keys()),
         },
         "methodology": {
             "sourcePopulation": (

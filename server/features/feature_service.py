@@ -13,6 +13,10 @@ import pandas as pd
 
 from ..core.dataset_store import DATASTORE
 from ..core.session_checkpoint import schedule_checkpoint_save
+from ..preprocessing.predictor_authorization import (
+    bureau_special_mask,
+    governed_predictor_authorization,
+)
 from .feature_types import FeatureDefinitionInput, FeatureManifestUpdateRequest
 
 
@@ -24,9 +28,114 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _feature_summary_statistics(values: pd.Series) -> dict[str, Any]:
+    """Profile one feature on the governed full population.
+
+    Bureau special values remain governed values and are not folded into
+    ordinary numeric summary statistics.
+    """
+
+    special_mask = bureau_special_mask(values)
+    ordinary = values.mask(special_mask)
+    numeric = pd.to_numeric(ordinary, errors="coerce").dropna()
+    return {
+        "row_count": int(len(values)),
+        "missing_count": int(values.isna().sum()),
+        "distinct_count": int(ordinary.nunique(dropna=True)),
+        "mean": float(numeric.mean()) if len(numeric) else None,
+        "standard_deviation": float(numeric.std(ddof=0)) if len(numeric) else None,
+        "minimum": float(numeric.min()) if len(numeric) else None,
+        "median": float(numeric.median()) if len(numeric) else None,
+        "maximum": float(numeric.max()) if len(numeric) else None,
+    }
+
+
 def _manifest_hash(payload: dict[str, Any]) -> str:
     stable = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":"))
     return f"fm-{hashlib.sha256(stable.encode('utf-8')).hexdigest()[:16]}"
+
+
+def _materialization_hash(
+    manifest_hash: str,
+    dataset_version: str,
+    row_count: int,
+    materialized_features: list[str],
+) -> str:
+    stable = json.dumps(
+        {
+            "manifest_hash": manifest_hash,
+            "dataset_version": dataset_version,
+            "row_count": row_count,
+            "materialized_features": materialized_features,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return f"mt-{hashlib.sha256(stable.encode('utf-8')).hexdigest()[:16]}"
+
+
+def _manifest_contract_payload(
+    dataset_version: str,
+    features: list[dict[str, Any]],
+    pipeline_steps: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Return only user-governed definition fields.
+
+    Runtime status, profiling summaries, timestamps, and evidence references are
+    deliberately excluded so materialization cannot make an unchanged contract
+    appear stale.
+    """
+
+    feature_keys = (
+        "feature_id",
+        "feature_name",
+        "display_name",
+        "origin",
+        "source_features",
+        "transformation_type",
+        "formula_or_rule",
+        "output_datatype",
+        "config",
+        "selected",
+        "exclusion_reason",
+        "user_rationale",
+    )
+    pipeline_keys = (
+        "step_id",
+        "transformation_type",
+        "selected_features",
+        "config",
+        "enabled",
+        "fit_scope",
+    )
+    return {
+        "dataset_version": dataset_version,
+        "features": [
+            {key: row.get(key) for key in feature_keys}
+            for row in features
+        ],
+        "pipeline_steps": [
+            {key: row.get(key) for key in pipeline_keys}
+            for row in pipeline_steps
+        ],
+    }
+
+
+def _execution_event(
+    stage: str,
+    status: str,
+    manifest_hash: str,
+    detail: str,
+    **extra: Any,
+) -> dict[str, Any]:
+    return {
+        "stage": stage,
+        "status": status,
+        "manifest_hash": manifest_hash,
+        "detail": detail,
+        "recorded_at": _now(),
+        **extra,
+    }
 
 
 def _existing_manifest() -> dict[str, Any]:
@@ -34,12 +143,96 @@ def _existing_manifest() -> dict[str, Any]:
     return manifest if isinstance(manifest, dict) else {}
 
 
+def _source_selection_for_authorization(frame: pd.DataFrame) -> list[str]:
+    """Return the governed source set independently of downstream outputs.
+
+    ``selected_columns`` becomes the downstream model feature list after a
+    Feature Manifest save, so it can contain engineered outputs and omit
+    reviewer-deselected original predictors. Once a manifest exists, its
+    original-row eligibility is the stable record of which source columns were
+    authorized upstream. Keeping that source set separate prevents an immediate
+    manifest refresh from changing original eligibility, exclusion reasons, or
+    the saved contract hash.
+    """
+
+    frame_columns = {str(column) for column in frame.columns}
+    original_rows = [
+        row
+        for row in _existing_manifest().get("features", [])
+        if isinstance(row, dict) and row.get("origin") == "original"
+    ]
+    if original_rows:
+        return [
+            str(row.get("feature_name"))
+            for row in original_rows
+            if row.get("eligibility_status") == "eligible"
+            and str(row.get("feature_name")) in frame_columns
+        ]
+
+    prior_materialized = set(
+        DATASTORE.meta.get("materialized_feature_names") or []
+    )
+    target = str(DATASTORE.target or "")
+    return [
+        name
+        for name in DATASTORE.get_selected_columns()
+        if name in frame_columns
+        and name not in prior_materialized
+        and name != target
+    ]
+
+
 def _base_columns() -> list[str]:
     df = DATASTORE.get_base_df()
     if df is None:
         return []
     prior_materialized = set(DATASTORE.meta.get("materialized_feature_names") or [])
-    return [str(column) for column in df.columns if str(column) not in prior_materialized]
+    source = df.drop(columns=[name for name in prior_materialized if name in df.columns], errors="ignore")
+    authorization = governed_predictor_authorization(
+        source,
+        target=DATASTORE.target,
+        selected_columns=_source_selection_for_authorization(source),
+    )
+    return list(authorization["authorized_predictors"])
+
+
+def _source_authorization(df: pd.DataFrame | None = None) -> dict[str, Any]:
+    source = df if df is not None else DATASTORE.get_base_df()
+    if source is None:
+        return {
+            "authorized_predictors": [],
+            "excluded_predictors": {},
+            "target_source_excluded": [],
+        }
+    prior_materialized = set(DATASTORE.meta.get("materialized_feature_names") or [])
+    source = source.drop(
+        columns=[name for name in prior_materialized if name in source.columns],
+        errors="ignore",
+    )
+    authorization = governed_predictor_authorization(
+        source,
+        target=DATASTORE.target,
+        selected_columns=_source_selection_for_authorization(source),
+    )
+    raw = DATASTORE.raw_df
+    if raw is None or raw.empty:
+        return authorization
+    full = governed_predictor_authorization(
+        raw,
+        target=DATASTORE.target,
+        selected_columns=_source_selection_for_authorization(raw),
+    )
+    return {
+        **authorization,
+        "target_source_excluded": sorted(
+            set(authorization.get("target_source_excluded", []))
+            | set(full.get("target_source_excluded", []))
+        ),
+        "excluded_predictors": {
+            **full.get("excluded_predictors", {}),
+            **authorization.get("excluded_predictors", {}),
+        },
+    }
 
 
 def _original_feature_rows() -> list[dict[str, Any]]:
@@ -50,13 +243,27 @@ def _original_feature_rows() -> list[dict[str, Any]]:
     target = str(DATASTORE.target or "")
     prior_materialized = set(DATASTORE.meta.get("materialized_feature_names") or [])
     existing = {row.get("feature_name"): row for row in _existing_manifest().get("features", []) if isinstance(row, dict)}
+    authorization = _source_authorization(df)
+    authorized = set(authorization["authorized_predictors"])
+    excluded = dict(authorization["excluded_predictors"])
     rows: list[dict[str, Any]] = []
     for column in df.columns:
         name = str(column)
         if name == target or name in prior_materialized:
             continue
         prior = existing.get(name, {})
-        eligible = not _SPLIT_FIELD.search(name)
+        eligible = name in authorized and not _SPLIT_FIELD.search(name)
+        exclusion_reason = ""
+        if not eligible:
+            exclusion_reason = excluded.get(name) or "Split or fold metadata cannot be used as a predictor."
+        selected_by_manifest = (
+            bool(prior.get("selected"))
+            if "selected" in prior
+            else bool(not selected or name in selected)
+        )
+        selected_for_model = bool(eligible and selected_by_manifest)
+        if eligible and not selected_for_model:
+            exclusion_reason = str(prior.get("exclusion_reason") or "")
         rows.append({
             "feature_name": name,
             "display_name": prior.get("display_name") or name,
@@ -71,14 +278,14 @@ def _original_feature_rows() -> list[dict[str, Any]]:
             "pipeline_status": "not_applicable",
             "eligibility_status": "eligible" if eligible else "excluded",
             "leakage_status": "reviewed" if eligible else "locked",
-            "selected": bool(eligible and (not selected or name in selected)),
-            "exclusion_reason": "" if eligible else "Split or fold metadata cannot be used as a predictor.",
+            "selected": selected_for_model,
+            "exclusion_reason": exclusion_reason,
             "created_at": prior.get("created_at") or _now(),
             "created_by": prior.get("created_by") or "Data Acquisition",
             "transformation_version": "source-v1",
             "dataset_version": str(DATASTORE.meta.get("dataset_version") or "in-memory"),
             "profile_scope": "full_dataset",
-            "summary_statistics": prior.get("summary_statistics") or {},
+            "summary_statistics": _feature_summary_statistics(df[column]),
             "evidence_reference": prior.get("evidence_reference"),
             "config": {},
             "user_rationale": prior.get("user_rationale") or "",
@@ -90,17 +297,34 @@ def _normalize_engineered(item: FeatureDefinitionInput, df_columns: set[str], ex
     name = item.feature_name.strip()
     if not _VALID_NAME.fullmatch(name):
         raise ValueError(f"Feature name '{name}' must start with a letter or underscore and contain only letters, numbers, or underscores.")
-    if name in existing_names or name in df_columns:
+    comparable_names = {value.casefold() for value in existing_names | df_columns}
+    if name.casefold() in comparable_names:
         raise ValueError(f"Feature name '{name}' already exists.")
     target = str(DATASTORE.target or "")
-    if name == target or target in item.source_features:
+    if name.casefold() == target.casefold() or any(source.casefold() == target.casefold() for source in item.source_features):
         raise ValueError(f"Feature '{name}' cannot use the target column.")
+    authorization = _source_authorization()
+    excluded = {
+        str(source).casefold(): str(reason)
+        for source, reason in authorization.get("excluded_predictors", {}).items()
+    }
+    unsafe_sources = [
+        source
+        for source in item.source_features
+        if source.casefold() in excluded
+    ]
+    if unsafe_sources:
+        detail = "; ".join(
+            f"{source}: {excluded[source.casefold()]}"
+            for source in unsafe_sources
+        )
+        raise ValueError(f"Feature '{name}' uses an excluded predictor ({detail}).")
     if any(_SPLIT_FIELD.search(source) for source in item.source_features):
         raise ValueError(f"Feature '{name}' cannot use split or fold metadata.")
     missing_sources = [source for source in item.source_features if source not in df_columns and source not in existing_names]
     if missing_sources:
         raise ValueError(f"Feature '{name}' references unavailable source columns: {', '.join(missing_sources)}.")
-    if name in item.source_features:
+    if any(source.casefold() == name.casefold() for source in item.source_features):
         raise ValueError(f"Feature '{name}' cannot depend on itself.")
     row = item.model_dump()
     row.update({
@@ -131,16 +355,71 @@ def get_manifest() -> dict[str, Any]:
         "features": originals + engineered,
         "pipeline_steps": existing.get("pipeline_steps", []),
     }
-    version = existing.get("manifest_version") or _manifest_hash(payload)
+    contract_payload = _manifest_contract_payload(
+        payload["dataset_version"],
+        payload["features"],
+        payload["pipeline_steps"],
+    )
+    version = _manifest_hash(contract_payload)
+    engineered_rows = [
+        row for row in payload["features"] if row.get("origin") != "original"
+    ]
+    legacy_materialized = bool(engineered_rows) and all(
+        row.get("materialization_status") == "materialized"
+        for row in engineered_rows
+    )
+    materialized_manifest_hash = str(
+        existing.get("materialized_manifest_hash") or ""
+    )
+    materialization_hash = str(existing.get("materialization_hash") or "")
+    if legacy_materialized and not materialized_manifest_hash:
+        base_df = DATASTORE.get_base_df()
+        materialized_manifest_hash = version
+        materialization_hash = materialization_hash or _materialization_hash(
+            version,
+            payload["dataset_version"],
+            len(base_df) if base_df is not None else 0,
+            [row["feature_name"] for row in engineered_rows],
+        )
+    materialization_status = str(
+        existing.get("materialization_status") or "not_materialized"
+    )
+    if materialized_manifest_hash:
+        materialization_status = (
+            "current" if materialized_manifest_hash == version else "stale"
+        )
     manifest = {
         "ok": True,
         "manifest_version": version,
+        "manifest_hash": version,
         "dataset_version": payload["dataset_version"],
         "features": payload["features"],
         "pipeline_steps": payload["pipeline_steps"],
         "created_at": existing.get("created_at") or _now(),
         "updated_at": existing.get("updated_at") or _now(),
+        "validation_status": existing.get("validation_status") or "passed",
+        "validated_at": existing.get("validated_at") or _now(),
+        "materialization_status": materialization_status,
+        "materialization_hash": materialization_hash,
+        "materialized_manifest_hash": materialized_manifest_hash,
+        "materialized_at": existing.get("materialized_at"),
+        "confirmation_status": (
+            "confirmed"
+            if existing.get("confirmed_manifest_hash") == version
+            else "required"
+        ),
+        "confirmed_manifest_hash": str(
+            existing.get("confirmed_manifest_hash") or ""
+        ),
+        "confirmed_at": existing.get("confirmed_at"),
+        "preview_hash": (
+            str((DATASTORE.meta.get("feature_preview") or {}).get("preview_hash") or "")
+            if (DATASTORE.meta.get("feature_preview") or {}).get("manifest_hash") == version
+            else ""
+        ),
+        "execution_history": list(existing.get("execution_history") or []),
         "split_status": DATASTORE.meta.get("split_status") or "not_created",
+        "predictor_authorization": _source_authorization(),
     }
     DATASTORE.meta["feature_manifest"] = manifest
     return manifest
@@ -189,17 +468,76 @@ def update_manifest(request: FeatureManifestUpdateRequest) -> dict[str, Any]:
         "features": originals + engineered,
         "pipeline_steps": pipeline_steps,
     }
-    version = _manifest_hash(payload)
-    changed = version != prior.get("manifest_version")
+    version = _manifest_hash(
+        _manifest_contract_payload(
+            payload["dataset_version"],
+            payload["features"],
+            pipeline_steps,
+        )
+    )
+    changed = version != prior.get("manifest_hash", prior.get("manifest_version"))
+    prior_materialized_manifest_hash = str(
+        prior.get("materialized_manifest_hash") or ""
+    )
+    execution_history = list(prior.get("execution_history") or [])
+    execution_history.append(
+        _execution_event(
+            "validate_definitions",
+            "passed",
+            version,
+            f"Validated {len(payload['features'])} feature definitions and {len(pipeline_steps)} training-only pipeline steps.",
+        )
+    )
+    execution_history.append(
+        _execution_event(
+            "save_manifest",
+            "completed",
+            version,
+            "Saved the governed feature contract.",
+            previous_manifest_hash=prior.get("manifest_hash", prior.get("manifest_version")),
+            contract_changed=changed,
+        )
+    )
+    materialization_status = str(
+        prior.get("materialization_status") or "not_materialized"
+    )
+    if changed and prior_materialized_manifest_hash:
+        materialization_status = "stale"
+        for row in engineered:
+            if row.get("materialization_status") == "materialized":
+                row["materialization_status"] = "stale"
+    elif prior_materialized_manifest_hash == version:
+        materialization_status = "current"
     manifest = {
         "ok": True,
         "manifest_version": version,
+        "manifest_hash": version,
         "dataset_version": payload["dataset_version"],
         "features": payload["features"],
         "pipeline_steps": pipeline_steps,
         "created_at": prior.get("created_at") or _now(),
         "updated_at": _now(),
+        "validation_status": "passed",
+        "validated_at": _now(),
+        "materialization_status": materialization_status,
+        "materialization_hash": prior.get("materialization_hash") or "",
+        "materialized_manifest_hash": prior_materialized_manifest_hash,
+        "materialized_at": prior.get("materialized_at"),
+        "confirmation_status": (
+            "confirmed"
+            if not changed and prior.get("confirmed_manifest_hash") == version
+            else "required"
+        ),
+        "confirmed_manifest_hash": (
+            str(prior.get("confirmed_manifest_hash") or "")
+            if not changed
+            else ""
+        ),
+        "confirmed_at": prior.get("confirmed_at") if not changed else None,
+        "preview_hash": "",
+        "execution_history": execution_history[-40:],
         "split_status": "stale" if changed and DATASTORE.X_train is not None else prior.get("split_status", "not_created"),
+        "predictor_authorization": _source_authorization(df),
     }
     DATASTORE.meta["feature_manifest"] = manifest
     DATASTORE.meta["selected_columns"] = [
@@ -208,6 +546,7 @@ def update_manifest(request: FeatureManifestUpdateRequest) -> dict[str, Any]:
         if row.get("selected") and row.get("eligibility_status") == "eligible"
     ]
     if changed:
+        DATASTORE.meta.pop("feature_preview", None)
         DATASTORE.meta["split_status"] = "stale" if DATASTORE.X_train is not None else "not_created"
         DATASTORE.reset_splits()
     schedule_checkpoint_save()
@@ -221,24 +560,61 @@ def _apply_feature(frame: pd.DataFrame, feature: dict[str, Any]) -> pd.Series:
     if origin == "interaction":
         if len(sources) != 2:
             raise ValueError("Interaction features require exactly two source variables.")
-        return pd.to_numeric(frame[sources[0]], errors="coerce") * pd.to_numeric(frame[sources[1]], errors="coerce")
+        left = pd.to_numeric(frame[sources[0]], errors="coerce")
+        right = pd.to_numeric(frame[sources[1]], errors="coerce")
+        output = left * right
+        if config.get("preserve_bureau_special_values", True):
+            left_special = bureau_special_mask(left)
+            right_special = bureau_special_mask(right)
+            sentinel = left.where(left_special, right)
+            output = output.where(~(left_special | right_special), sentinel)
+        return output
     if origin == "polynomial":
         if len(sources) != 1:
             raise ValueError("Polynomial features require one source variable.")
         degree = int(config.get("degree") or 2)
         if degree not in {2, 3}:
             raise ValueError("Polynomial degree must be 2 or 3.")
-        return pd.to_numeric(frame[sources[0]], errors="coerce") ** degree
+        source = pd.to_numeric(frame[sources[0]], errors="coerce")
+        output = source ** degree
+        if config.get("preserve_bureau_special_values", True):
+            output = output.where(~bureau_special_mask(source), source)
+        return output
     if origin == "numeric_bin":
         if len(sources) != 1:
             raise ValueError("Numeric bins require one source variable.")
-        cut_points = sorted(float(value) for value in config.get("cut_points", []))
+        numeric_source = pd.to_numeric(frame[sources[0]], errors="coerce")
+        if str(config.get("binning_mode") or "custom") == "quantile":
+            quantiles = [
+                float(value)
+                for value in config.get("quantiles", [0.2, 0.4, 0.6, 0.8])
+                if 0 < float(value) < 1
+            ]
+            cut_points = sorted(
+                {
+                    float(numeric_source.quantile(value))
+                    for value in quantiles
+                    if pd.notna(numeric_source.quantile(value))
+                }
+            )
+        else:
+            cut_points = sorted(float(value) for value in config.get("cut_points", []))
         if not cut_points:
             raise ValueError("Numeric bins require at least one cut point.")
         labels = [str(value) for value in config.get("labels", [])]
+        if (
+            labels
+            and len(labels) != len(cut_points) + 1
+            and str(config.get("binning_mode") or "custom") == "quantile"
+        ):
+            labels = []
         if labels and len(labels) != len(cut_points) + 1:
             raise ValueError("Numeric-bin labels must contain one more value than cut points.")
-        output = pd.cut(pd.to_numeric(frame[sources[0]], errors="coerce"), bins=[-np.inf, *cut_points, np.inf], labels=labels or None, include_lowest=True)
+        output = pd.cut(numeric_source, bins=[-np.inf, *cut_points, np.inf], labels=labels or None, include_lowest=True)
+        if config.get("preserve_bureau_special_values", True):
+            output = output.astype("object")
+            for special in (-9.0, -8.0, -7.0):
+                output.loc[numeric_source == special] = f"Bureau special {int(special)}"
         if config.get("missing_label"):
             output = output.astype("object").where(output.notna(), str(config["missing_label"]))
         return output
@@ -263,6 +639,10 @@ def _apply_feature(frame: pd.DataFrame, feature: dict[str, Any]) -> pd.Series:
             else:
                 raise ValueError(f"Unsupported categorical rule operator '{op}'.")
             output.loc[mask] = str(rule.get("then_label") or "Matched")
+        if config.get("preserve_bureau_special_values", True):
+            numeric_source = pd.to_numeric(source, errors="coerce")
+            for special in (-9.0, -8.0, -7.0):
+                output.loc[numeric_source == special] = f"Bureau special {int(special)}"
         return output
     if origin == "arithmetic":
         if len(sources) != 2:
@@ -271,14 +651,21 @@ def _apply_feature(frame: pd.DataFrame, feature: dict[str, Any]) -> pd.Series:
         right = pd.to_numeric(frame[sources[1]], errors="coerce")
         operation = str(config.get("operation") or "add")
         if operation == "add":
-            return left + right
-        if operation == "subtract":
-            return left - right
-        if operation == "multiply":
-            return left * right
-        if operation == "divide":
-            return left / right.replace(0, np.nan)
-        raise ValueError(f"Unsupported arithmetic operation '{operation}'.")
+            output = left + right
+        elif operation == "subtract":
+            output = left - right
+        elif operation == "multiply":
+            output = left * right
+        elif operation == "divide":
+            output = left / right.replace(0, np.nan)
+        else:
+            raise ValueError(f"Unsupported arithmetic operation '{operation}'.")
+        if config.get("preserve_bureau_special_values", True):
+            left_special = bureau_special_mask(left)
+            right_special = bureau_special_mask(right)
+            sentinel = left.where(left_special, right)
+            output = output.where(~(left_special | right_special), sentinel)
+        return output
     if origin == "date-derived":
         if len(sources) != 1:
             raise ValueError("Date-derived features require one source variable.")
@@ -296,10 +683,22 @@ def _apply_feature(frame: pd.DataFrame, feature: dict[str, Any]) -> pd.Series:
     raise ValueError(f"Feature origin '{origin}' is not a deterministic materialization type.")
 
 
-def preview_features(features: list[FeatureDefinitionInput], limit: int) -> dict[str, Any]:
+def preview_features(
+    features: list[FeatureDefinitionInput],
+    limit: int,
+    expected_manifest_version: str = "",
+) -> dict[str, Any]:
     df = DATASTORE.get_base_df()
     if df is None or df.empty:
         raise ValueError("No full backend dataset is loaded.")
+    manifest = get_manifest()
+    if (
+        expected_manifest_version
+        and expected_manifest_version != manifest["manifest_hash"]
+    ):
+        raise ValueError(
+            "The feature plan changed. Save and refresh the manifest before previewing."
+        )
     frame = df.head(limit).copy()
     outputs: list[str] = []
     for item in features:
@@ -310,9 +709,35 @@ def preview_features(features: list[FeatureDefinitionInput], limit: int) -> dict
         outputs.append(normalized["feature_name"])
     columns = [*dict.fromkeys(source for item in features for source in item.source_features if source in frame.columns), *outputs]
     rows = frame[columns].replace({np.nan: None}).to_dict(orient="records") if columns else []
+    preview_hash = ""
+    if expected_manifest_version:
+        preview_hash = f"pv-{hashlib.sha256(f'{expected_manifest_version}:{limit}:{len(df)}'.encode('utf-8')).hexdigest()[:16]}"
+        DATASTORE.meta["feature_preview"] = {
+            "preview_hash": preview_hash,
+            "manifest_hash": manifest["manifest_hash"],
+            "previewed_at": _now(),
+            "preview_row_count": int(len(frame)),
+        }
+        history = list(manifest.get("execution_history") or [])
+        history.append(
+            _execution_event(
+                "preview_features",
+                "completed",
+                manifest["manifest_hash"],
+                f"Previewed {len(outputs)} engineered features across {len(frame)} rows.",
+                preview_hash=preview_hash,
+            )
+        )
+        manifest["preview_hash"] = preview_hash
+        manifest["execution_history"] = history[-40:]
+        manifest["updated_at"] = _now()
+        DATASTORE.meta["feature_manifest"] = manifest
+        schedule_checkpoint_save()
     return {
         "ok": True,
         "scope": "rendered_sample",
+        "manifest_hash": manifest["manifest_hash"] if expected_manifest_version else "",
+        "preview_hash": preview_hash,
         "registered_row_count": int(len(df)),
         "preview_row_count": int(len(frame)),
         "columns": columns,
@@ -321,36 +746,51 @@ def preview_features(features: list[FeatureDefinitionInput], limit: int) -> dict
     }
 
 
-def materialize_manifest(expected_version: str = "") -> dict[str, Any]:
+def materialize_manifest(
+    expected_version: str = "",
+    expected_preview_hash: str = "",
+) -> dict[str, Any]:
     started = time.perf_counter()
     manifest = get_manifest()
-    if expected_version and expected_version != manifest["manifest_version"]:
+    if expected_version and expected_version != manifest["manifest_hash"]:
         raise ValueError("The feature plan changed. Refresh the manifest before materializing features.")
     df = DATASTORE.get_base_df()
     if df is None or df.empty:
         raise ValueError("No full backend dataset is loaded.")
+    engineered_rows = [
+        row for row in manifest["features"] if row.get("origin") != "original"
+    ]
+    preview_record = DATASTORE.meta.get("feature_preview") or {}
+    if engineered_rows and (
+        not expected_preview_hash
+        or expected_preview_hash != preview_record.get("preview_hash")
+        or preview_record.get("manifest_hash") != manifest["manifest_hash"]
+    ):
+        raise ValueError(
+            "Preview the saved feature contract before materializing the full dataset."
+        )
     prior_materialized = set(DATASTORE.meta.get("materialized_feature_names") or [])
     frame = df.drop(columns=[column for column in prior_materialized if column in df.columns], errors="ignore").copy()
     materialized: list[str] = []
     failures: list[dict[str, str]] = []
+    authorized_sources = set(_base_columns())
+    created_names: set[str] = set()
     for feature in manifest["features"]:
         if feature.get("origin") == "original":
             continue
         try:
+            _normalize_engineered(
+                FeatureDefinitionInput(**feature),
+                authorized_sources,
+                created_names,
+            )
             frame[feature["feature_name"]] = _apply_feature(frame, feature)
+            created_names.add(feature["feature_name"])
             feature["creation_status"] = "created"
             feature["materialization_status"] = "materialized"
             feature["profile_scope"] = "full_dataset"
             values = frame[feature["feature_name"]]
-            numeric = pd.to_numeric(values, errors="coerce").dropna()
-            feature["summary_statistics"] = {
-                "row_count": int(len(values)),
-                "missing_count": int(values.isna().sum()),
-                "distinct_count": int(values.nunique(dropna=True)),
-                "mean": float(numeric.mean()) if len(numeric) else None,
-                "minimum": float(numeric.min()) if len(numeric) else None,
-                "maximum": float(numeric.max()) if len(numeric) else None,
-            }
+            feature["summary_statistics"] = _feature_summary_statistics(values)
             materialized.append(feature["feature_name"])
         except Exception as exc:
             feature["creation_status"] = "failed"
@@ -364,14 +804,42 @@ def materialize_manifest(expected_version: str = "") -> dict[str, Any]:
     selected = [feature["feature_name"] for feature in manifest["features"] if feature.get("selected") and feature.get("eligibility_status") == "eligible"]
     DATASTORE.meta["selected_columns"] = selected
     DATASTORE.meta["split_status"] = "not_created"
+    materialization_hash = _materialization_hash(
+        manifest["manifest_hash"],
+        manifest["dataset_version"],
+        len(frame),
+        materialized,
+    )
+    history = list(manifest.get("execution_history") or [])
+    history.append(
+        _execution_event(
+            "materialize_full_dataset",
+            "completed",
+            manifest["manifest_hash"],
+            f"Materialized {len(materialized)} engineered features across {len(frame)} rows.",
+            materialization_hash=materialization_hash,
+        )
+    )
     manifest["updated_at"] = _now()
     manifest["features"] = manifest["features"]
     manifest["split_status"] = "not_created"
+    manifest["materialization_status"] = "current"
+    manifest["materialization_hash"] = materialization_hash
+    manifest["materialized_manifest_hash"] = manifest["manifest_hash"]
+    manifest["materialized_at"] = _now()
+    manifest["confirmation_status"] = "required"
+    manifest["confirmed_manifest_hash"] = ""
+    manifest["confirmed_at"] = None
+    manifest["execution_history"] = history[-40:]
     DATASTORE.meta["feature_manifest"] = manifest
     schedule_checkpoint_save()
     return {
         "ok": True,
         "manifest_version": manifest["manifest_version"],
+        "manifest_hash": manifest["manifest_hash"],
+        "materialization_hash": materialization_hash,
+        "materialized_manifest_hash": manifest["manifest_hash"],
+        "materialization_status": "current",
         "dataset_version": manifest["dataset_version"],
         "row_count": int(len(frame)),
         "original_feature_count": sum(1 for row in manifest["features"] if row.get("origin") == "original"),
@@ -382,7 +850,52 @@ def materialize_manifest(expected_version: str = "") -> dict[str, Any]:
     }
 
 
-def delete_feature(feature_id: str) -> dict[str, Any]:
+def confirm_manifest(
+    expected_version: str = "",
+    expected_materialization_hash: str = "",
+) -> dict[str, Any]:
+    manifest = get_manifest()
+    if expected_version and expected_version != manifest["manifest_hash"]:
+        raise ValueError(
+            "The feature contract changed. Refresh before confirming the feature set."
+        )
+    if manifest.get("validation_status") != "passed":
+        raise ValueError("Validate and save the feature contract before confirmation.")
+    if (
+        manifest.get("materialization_status") != "current"
+        or manifest.get("materialized_manifest_hash") != manifest["manifest_hash"]
+    ):
+        raise ValueError(
+            "Materialize the current feature contract before confirming the feature set."
+        )
+    if (
+        expected_materialization_hash
+        and expected_materialization_hash != manifest.get("materialization_hash")
+    ):
+        raise ValueError(
+            "The materialized dataset changed. Refresh before confirming the feature set."
+        )
+    history = list(manifest.get("execution_history") or [])
+    history.append(
+        _execution_event(
+            "confirm_feature_set",
+            "completed",
+            manifest["manifest_hash"],
+            "Confirmed that the materialized dataset exactly matches the governed feature contract.",
+            materialization_hash=manifest.get("materialization_hash"),
+        )
+    )
+    manifest["confirmation_status"] = "confirmed"
+    manifest["confirmed_manifest_hash"] = manifest["manifest_hash"]
+    manifest["confirmed_at"] = _now()
+    manifest["updated_at"] = _now()
+    manifest["execution_history"] = history[-40:]
+    DATASTORE.meta["feature_manifest"] = manifest
+    schedule_checkpoint_save()
+    return manifest
+
+
+def delete_feature(feature_id: str, project_id: str = "") -> dict[str, Any]:
     manifest = get_manifest()
     target = next((row for row in manifest["features"] if row.get("feature_id") == feature_id), None)
     if not target:
@@ -390,5 +903,10 @@ def delete_feature(feature_id: str) -> dict[str, Any]:
     if target.get("origin") == "original":
         raise ValueError("Source features cannot be deleted. Deselect them in the governed predictor review instead.")
     remaining = [row for row in manifest["features"] if row.get("feature_id") != feature_id and row.get("origin") != "original"]
-    request = FeatureManifestUpdateRequest(features=[FeatureDefinitionInput(**row) for row in remaining], pipeline_steps=manifest.get("pipeline_steps", []), dataset_version=manifest.get("dataset_version", ""))
+    request = FeatureManifestUpdateRequest(
+        project_id=project_id,
+        features=[FeatureDefinitionInput(**row) for row in remaining],
+        pipeline_steps=manifest.get("pipeline_steps", []),
+        dataset_version=manifest.get("dataset_version", ""),
+    )
     return update_manifest(request)

@@ -17,12 +17,19 @@
 // Nothing on this page is computed from a browser preview.
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { EChartsOption } from "echarts";
-import { AlertTriangle, CheckCircle2, Clock, Database, Info, Layers, ShieldAlert, Target as TargetIcon } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, Clock, Database, Info, Layers, ShieldAlert, Target as TargetIcon } from "lucide-react";
 import EChartsPanel, { type EChartsPanelState } from "../../visual-intelligence/EChartsPanel";
 import TargetDistributionPanel from "../dataAcquisition/TargetDistributionPanel";
 import AnalysisScopeBanner, { type ScopeResolution } from "./AnalysisScopeBanner";
 import TargetByPredictorPanel, { type PredictorOption } from "./TargetByPredictorPanel";
 import TargetFindingsPanel from "./TargetFindingsPanel";
+import {
+  TargetBalanceConfidenceVisual,
+  TargetPredictorPreview,
+  TargetQualityDiagnostic,
+  type TargetPredictorPreviewPayload,
+  type TargetPredictorPreviewRow,
+} from "./TargetVisualInsights";
 import { AtlasWorkflowSection } from "../ui/AtlasWorkflow";
 import { buildTargetDistribution, formatEventRate, type TargetDistribution } from "../../lib/dataAcquisitionLifecycle";
 import { useTargetDistribution } from "../../lib/useTargetDistribution";
@@ -272,6 +279,47 @@ export default function TargetIntelligenceWorkspace({
 
   // --- On-demand target by predictor ---------------------------------------
   const predictorAnalysis = useTargetByPredictor();
+  const predictorExplorerRef = useRef<HTMLDivElement>(null);
+  const [requestedPredictor, setRequestedPredictor] = useState("");
+  const predictorPreview = data.predictor_preview
+    ? (safeObject<Record<string, any>>(data.predictor_preview) as TargetPredictorPreviewPayload)
+    : null;
+
+  function runPredictorAnalysis(input: {
+    predictor: string;
+    analysisType: "numeric_quantile" | "categorical";
+    bands: number;
+    includeMissing: boolean;
+  }) {
+    predictorAnalysis.run({
+      projectId,
+      datasetId: governed ? governedScope?.datasetId ?? "" : "",
+      versionId: governed ? governedScope?.datasetVersionId ?? "" : "",
+      workspaceFingerprint: governed ? null : draftScope?.datasetFingerprint ?? null,
+      target,
+      predictor: input.predictor,
+      analysisType: input.analysisType,
+      eventValue,
+      bands: input.bands,
+      includeMissing: input.includeMissing,
+    });
+  }
+
+  function inspectPreviewPredictor(row: TargetPredictorPreviewRow) {
+    setRequestedPredictor(row.feature);
+    runPredictorAnalysis({
+      predictor: row.feature,
+      analysisType: row.kind === "numeric" ? "numeric_quantile" : "categorical",
+      bands: Math.max(2, Math.min(10, row.groups.length || 8)),
+      includeMissing: true,
+    });
+    window.requestAnimationFrame(() => {
+      predictorExplorerRef.current?.scrollIntoView({
+        behavior: reducedMotion ? "auto" : "smooth",
+        block: "start",
+      });
+    });
+  }
 
   // --- Durable findings -----------------------------------------------------
   // Findings follow the resolved scope: a governed query names the exact
@@ -494,6 +542,7 @@ export default function TargetIntelligenceWorkspace({
         identity={identity}
         target={target}
         problemType={problemType}
+        targetSourceExcluded={safeArray<string>(data.target_source_excluded)}
         datasetIdentity={datasetIdentity}
         datasetVersionFallback={String(data.dataset_version ?? "")}
         governanceFields={governanceFields}
@@ -502,6 +551,10 @@ export default function TargetIntelligenceWorkspace({
       />
 
       {/* 2 -------------------------------------------------------------- */}
+      <div
+        className="eda-target-story"
+        data-testid="target-prevalence-story"
+      >
       <AtlasWorkflowSection
         eyebrow="Section 2"
         title="Class Balance and Prevalence"
@@ -511,30 +564,15 @@ export default function TargetIntelligenceWorkspace({
         <div data-testid="target-class-balance">
           {isClassification ? (
             <>
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                <Metric label="Event count" value={formatCount(balance?.eventCount)} tone="danger" testId="target-event-count" />
-                <Metric label="Non-event count" value={formatCount(balance?.nonEventCount)} tone="info" testId="target-non-event-count" />
-                <Metric label="Event rate" value={formatEventRate(balance?.eventRate)} tone="danger" testId="target-event-rate" />
-                <Metric label="Non-event rate" value={formatEventRate(balance?.nonEventRate)} tone="info" />
-                <Metric
-                  label="Event-to-non-event ratio"
-                  value={
-                    balance?.eventToNonEventRatio === null || balance?.eventToNonEventRatio === undefined
-                      ? "Not available"
-                      : `1 : ${(1 / balance.eventToNonEventRatio).toFixed(1)}`
-                  }
-                />
-                <Metric label="Imbalance ratio" value={formatRatio(balance?.imbalanceRatio)} testId="target-imbalance-ratio" />
-                <Metric label="Missing target" value={formatCount(identity.missing_target_count ?? balance?.missingTargetCount)} />
-                <Metric
-                  label="Total modeling population"
-                  value={formatCount(balance?.totalModelingPopulation ?? identity.modeling_population_row_count)}
-                  testId="target-total-population"
-                />
-              </div>
+              <TargetBalanceConfidenceVisual
+                balance={balance}
+                interval={interval}
+                reducedMotion={reducedMotion}
+              />
               <div className="mt-4">
                 <TargetDistributionPanel
                   distribution={distribution}
+                  showMetricCards={false}
                   state={
                     serverDistribution.phase === "queued" || serverDistribution.phase === "running"
                       ? "loading"
@@ -568,48 +606,64 @@ export default function TargetIntelligenceWorkspace({
           )}
         </div>
       </AtlasWorkflowSection>
+      </div>
 
       {/* 3 -------------------------------------------------------------- */}
-      {isClassification ? <RareEventSection imbalance={imbalance} phase={assessmentPhase} /> : null}
+      <TargetQualityDiagnostic
+        quality={quality}
+        identity={identity}
+        targetSourceExcluded={safeArray<string>(data.target_source_excluded)}
+      />
 
       {/* 4 -------------------------------------------------------------- */}
-      {isClassification ? <ConfidenceIntervalSection interval={interval} phase={assessmentPhase} error={assessment.error} onRetry={assessment.retry} /> : null}
+      {isClassification ? (
+        <TargetPredictorPreview
+          preview={predictorPreview}
+          target={target}
+          targetSourceExcluded={safeArray<string>(data.target_source_excluded)}
+          reducedMotion={reducedMotion}
+          onInspect={inspectPreviewPredictor}
+        />
+      ) : null}
 
       {/* 5 -------------------------------------------------------------- */}
-      <AtlasWorkflowSection
-        eyebrow="Section 5"
-        title="Target by Predictor"
-        description="On-demand only. Choose a predictor and run the analysis; ATLAS aggregates the governed dataset server-side and returns bounded grouped rows."
-        tone="neutral"
-      >
-        <TargetByPredictorPanel
-          predictors={predictorOptions}
-          state={predictorAnalysis}
-          disabledReason={
-            !isClassification ? "Target-by-predictor event rates apply to classification targets." : undefined
-          }
-          scopeNotice={
-            governed
-              ? undefined
-              : "Workspace Draft Analysis. This aggregates the full backend workspace population instead of an immutable artifact. Counts are exact and computed server-side, but the result is not version-pinned and is not eligible for governed evidence."
-          }
-          onRun={(input) => {
-            predictorAnalysis.run({
-              projectId,
-              datasetId: governed ? governedScope?.datasetId ?? "" : "",
-              versionId: governed ? governedScope?.datasetVersionId ?? "" : "",
-              workspaceFingerprint: governed ? null : draftScope?.datasetFingerprint ?? null,
-              target,
-              predictor: input.predictor,
-              analysisType: input.analysisType,
-              eventValue,
-              bands: input.bands,
-              includeMissing: input.includeMissing,
-            });
-          }}
-          onReset={predictorAnalysis.reset}
-        />
-      </AtlasWorkflowSection>
+      <div ref={predictorExplorerRef} data-testid="target-predictor-explorer-anchor">
+        <AtlasWorkflowSection
+          eyebrow="Section 5"
+          title="Target by Predictor"
+          description="On-demand only. Choose a predictor and run the analysis; ATLAS aggregates the governed dataset server-side and returns bounded grouped rows."
+          tone="neutral"
+        >
+          <TargetByPredictorPanel
+            predictors={predictorOptions}
+            requestedPredictor={requestedPredictor}
+            state={predictorAnalysis}
+            disabledReason={
+              !isClassification ? "Target-by-predictor event rates apply to classification targets." : undefined
+            }
+            scopeNotice={
+              governed
+                ? undefined
+                : "Workspace Draft Analysis. This aggregates the full backend workspace population instead of an immutable artifact. Counts are exact and computed server-side, but the result is not version-pinned and is not eligible for governed evidence."
+            }
+            onRun={runPredictorAnalysis}
+            onReset={() => {
+              setRequestedPredictor("");
+              predictorAnalysis.reset();
+            }}
+          />
+        </AtlasWorkflowSection>
+      </div>
+
+      {/* Detailed prevalence guidance follows the visual context. */}
+      {isClassification ? (
+        <div
+          className="eda-target-guidance"
+          data-testid="target-uncertainty-guidance"
+        >
+          <RareEventSection imbalance={imbalance} phase={assessmentPhase} />
+        </div>
+      ) : null}
 
       {/* 6 -------------------------------------------------------------- */}
       <TimeAndSegmentSection
@@ -630,7 +684,7 @@ export default function TargetIntelligenceWorkspace({
       />
 
       {/* 7 -------------------------------------------------------------- */}
-      <TargetQualitySection quality={quality} identity={identity} governanceGaps={governanceGaps} />
+      <TargetQualitySection quality={quality} governanceGaps={governanceGaps} />
 
       {/* 8 -------------------------------------------------------------- */}
       <AtlasWorkflowSection
@@ -670,6 +724,57 @@ export default function TargetIntelligenceWorkspace({
   );
 }
 
+function TargetPrevalenceRing({
+  eventRate,
+  eventCount,
+  totalCount,
+}: {
+  eventRate: number | null;
+  eventCount: number | null;
+  totalCount: number | null;
+}) {
+  const normalizedRate =
+    typeof eventRate === "number" && Number.isFinite(eventRate)
+      ? Math.max(0, Math.min(1, eventRate))
+      : 0;
+  return (
+    <div className="flex flex-col items-center text-center" data-testid="target-prevalence-ring">
+      <div
+        className="eda-prevalence-ring grid h-44 w-44 place-items-center rounded-full"
+        style={{
+          background: `conic-gradient(#e11d48 ${normalizedRate * 360}deg, #dbeafe 0deg)`,
+        }}
+        role="img"
+        aria-label={`Configured event prevalence ${formatEventRate(eventRate)}`}
+      >
+        <div className="grid h-36 w-36 place-items-center rounded-full bg-white">
+          <div>
+            <div
+              className="text-3xl font-bold tabular-nums text-slate-950"
+              data-testid="target-event-rate"
+            >
+              {formatEventRate(eventRate)}
+            </div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+              Event prevalence
+            </div>
+          </div>
+        </div>
+      </div>
+      <p className="mt-3 text-xs leading-5 text-slate-600">
+        <span className="font-semibold tabular-nums" data-testid="target-event-count">
+          {formatCount(eventCount)}
+        </span>{" "}
+        configured events across{" "}
+        <span className="font-semibold tabular-nums" data-testid="target-total-population">
+          {formatCount(totalCount)}
+        </span>{" "}
+        modeled rows.
+      </p>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Section 1 -- Target Identity (Part C)
 // ---------------------------------------------------------------------------
@@ -678,6 +783,7 @@ function TargetIdentitySection({
   identity,
   target,
   problemType,
+  targetSourceExcluded,
   datasetIdentity,
   datasetVersionFallback,
   governanceFields,
@@ -687,6 +793,7 @@ function TargetIdentitySection({
   identity: Record<string, any>;
   target: string;
   problemType: string;
+  targetSourceExcluded: string[];
   datasetIdentity: DatasetIdentity | null;
   datasetVersionFallback: string;
   governanceFields: GovernanceField[];
@@ -698,24 +805,83 @@ function TargetIdentitySection({
   // links to it instead of restating target/population/observation/performance
   // definitions that the reviewer has already read there.
   const recordedDefinitions = governanceFields.filter((field) => field.present).length;
+  const positiveValue =
+    identity.positive_value === null || identity.positive_value === undefined
+      ? "Not defined"
+      : String(identity.positive_value);
+  const negativeValue =
+    identity.negative_value === null || identity.negative_value === undefined
+      ? "Not defined"
+      : String(identity.negative_value);
+  const sourceLabel =
+    targetSourceExcluded.find((field) => field === "RiskPerformance") ??
+    targetSourceExcluded[0] ??
+    "Configured outcome source";
+  const helocLineage =
+    target === "bad_flag" &&
+    targetSourceExcluded.some((field) => field === "RiskPerformance");
 
   return (
-    <section className="rounded-xl border-2 border-blue-300 bg-blue-50 p-5 shadow-sm" data-testid="target-identity">
+    <section className="eda-section-band overflow-hidden" data-testid="target-identity">
+      <div className="border-b border-blue-100 bg-blue-50/80 p-5">
       <div className="text-[11px] font-bold uppercase tracking-wide text-blue-700">Section 1</div>
-      <h2 className="mt-1 flex items-center gap-2 text-base font-semibold text-blue-950">
+      <h2 className="mt-1 flex items-center gap-2 text-xl font-bold text-blue-950">
         <TargetIcon size={17} /> Target Identity
       </h2>
       <p className="mt-1 text-sm text-slate-700">
         What the target is, and which immutable dataset version it was measured on.
       </p>
+      </div>
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <div
+        className="grid gap-3 border-b border-slate-200 bg-white px-5 py-4 md:grid-cols-[minmax(150px,1fr)_auto_minmax(110px,0.75fr)_auto_minmax(110px,0.75fr)_auto_minmax(130px,0.9fr)] md:items-center"
+        data-testid="target-governed-lineage"
+        role="img"
+        aria-label={`Target lineage: ${sourceLabel} to ${helocLineage ? "Bad" : "Event"} equals ${positiveValue}, ${helocLineage ? "Good" : "Non-event"} equals ${negativeValue}, to ${target}. The source is excluded from predictors.`}
+      >
+        <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2" data-lineage-step="source">
+          <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+            Deterministic source
+          </div>
+          <div className="mt-1 break-words font-semibold text-slate-900">{sourceLabel}</div>
+        </div>
+        <ArrowRight className="hidden text-slate-400 md:block" size={18} aria-hidden="true" />
+        <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2" data-lineage-step="event-mapping">
+          <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+            Event mapping
+          </div>
+          <div className="mt-1 break-words font-bold text-rose-800">
+            {helocLineage ? "Bad" : "Event"} = {positiveValue}
+          </div>
+        </div>
+        <ArrowRight className="hidden text-slate-400 md:block" size={18} aria-hidden="true" />
+        <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2" data-lineage-step="non-event-mapping">
+          <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+            Non-event mapping
+          </div>
+          <div className="mt-1 break-words font-bold text-blue-800">
+            {helocLineage ? "Good" : "Non-event"} = {negativeValue}
+          </div>
+        </div>
+        <ArrowRight className="hidden text-slate-400 md:block" size={18} aria-hidden="true" />
+        <div className="rounded-lg border border-indigo-200 bg-indigo-50 px-3 py-2" data-lineage-step="modeled-target">
+          <div className="text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500">
+            Modeling target
+          </div>
+          <div className="mt-1 break-words font-bold text-indigo-900">{target}</div>
+          <div className="mt-1 text-[10px] font-semibold uppercase tracking-wide text-teal-700">
+            Source excluded
+          </div>
+        </div>
+      </div>
+
+      <div className="eda-metric-rail grid gap-3 px-5 py-4 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="Target column" value={target || "Not selected"} testId="target-identity-column" />
         <Metric label="Target data type" value={String(identity.data_type ?? "Not evaluated")} />
         <Metric label="Problem type" value={problemType === "classification" ? "Classification" : "Regression"} />
         <Metric label="Distinct values" value={formatCount(identity.distinct_value_count)} />
-        <Metric label="Positive value" value={identity.positive_value === null || identity.positive_value === undefined ? "Not defined" : String(identity.positive_value)} testId="target-positive-value" />
-        <Metric label="Negative value" value={identity.negative_value === null || identity.negative_value === undefined ? "Not defined" : String(identity.negative_value)} />
+        <Metric label="Positive value" value={positiveValue} testId="target-positive-value" />
+        <Metric label="Negative value" value={negativeValue} />
         <Metric label="Missing target" value={formatCount(identity.missing_target_count)} testId="target-identity-missing" />
         <Metric label="Population rows" value={formatCount(identity.population_row_count)} testId="target-identity-rows" />
         <Metric label="Dataset name" value={datasetIdentity?.datasetName || "Not registered"} />
@@ -725,7 +891,7 @@ function TargetIdentitySection({
       </div>
 
       {/* Compact, keyboard-accessible pointer to the authoritative narrative. */}
-      <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-blue-200 bg-white px-3 py-2">
+      <div className="flex flex-wrap items-center gap-3 border-t border-blue-100 bg-blue-50/50 px-5 py-3">
         <span className="text-xs text-slate-600" data-testid="target-project-context-summary">
           {contextState === "loading"
             ? "Loading Project Context..."
@@ -1208,11 +1374,9 @@ const LEAKAGE_STATE_LABELS: Record<string, string> = {
 
 function TargetQualitySection({
   quality,
-  identity,
   governanceGaps,
 }: {
   quality: Record<string, any>;
-  identity: Record<string, any>;
   governanceGaps: GovernanceField[];
 }) {
   const derived = safeArray<any>(quality.target_derived_candidates);
@@ -1230,16 +1394,10 @@ function TargetQualitySection({
       tone={blocking ? "danger" : derived.length || postOutcome.length ? "warning" : "neutral"}
     >
       <div data-testid="target-quality-leakage">
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric label="Missing target" value={formatCount(quality.missing_target_count ?? identity.missing_target_count)} testId="quality-missing-target" />
-          <Metric label="Invalid target values" value={formatCount(invalid.reduce((sum, item) => sum + (Number(item.count) || 0), 0))} testId="quality-invalid-values" />
-          <Metric label="Unexpected target values" value={formatCount(unexpected.length)} testId="quality-unexpected-values" />
-          <Metric label="Target cardinality" value={formatCount(quality.target_cardinality)} testId="quality-cardinality" />
-          <Metric label="Duplicate records" value={formatCount(quality.duplicate_rows)} testId="quality-duplicates" />
-          <Metric label="Duplicate target-bearing records" value={formatCount(quality.duplicate_target_bearing_rows)} testId="quality-duplicate-target-rows" />
-          <Metric label="Target-derived candidates" value={formatCount(derived.length)} testId="quality-target-derived" />
-          <Metric label="Post-outcome candidates" value={formatCount(postOutcome.length)} testId="quality-post-outcome" />
-        </div>
+        <p className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-700">
+          The compact diagnostic above carries the quality counts. This evidence section preserves the candidate-level
+          analytical basis, conservative leakage state, and governance gaps without repeating the same metric cards.
+        </p>
 
         {unexpected.length ? (
           <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950">
@@ -1341,7 +1499,9 @@ function Metric({
   return (
     <div className="rounded-lg border border-slate-200 bg-white px-3 py-2" data-testid={testId}>
       <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
-      <div className={`mt-1 truncate text-sm font-semibold ${toneClass}`} title={value}>
+      <div
+        className={`mt-1 break-words text-sm font-semibold [overflow-wrap:anywhere] ${toneClass}`}
+      >
         {value}
       </div>
     </div>

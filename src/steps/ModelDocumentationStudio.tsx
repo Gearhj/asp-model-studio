@@ -21,6 +21,8 @@ import {
   Sparkles,
 } from "lucide-react";
 import BrandLogo from "../components/BrandLogo";
+import EdaDocumentationLiveLink from "../components/documentation/EdaDocumentationLiveLink";
+import PreparationDocumentationLiveLink from "../components/documentation/PreparationDocumentationLiveLink";
 import ShareResourceDialog from "../components/sharing/ShareResourceDialog";
 import { DATASET_API_BASE } from "../lib/datasetLibrary";
 import { listEvidence, type EvidenceItem } from "../lib/evidenceGraph";
@@ -394,6 +396,9 @@ export default function ModelDocumentationStudio() {
         {message && <div className="mx-5 mb-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">{message}</div>}
         {error && <div className="mx-5 mb-4 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">{error}</div>}
       </section>
+
+      <EdaDocumentationLiveLink projectId={projectId} />
+      <PreparationDocumentationLiveLink projectId={projectId} />
 
       {document && (
         <section className="rounded-xl border border-blue-200 bg-blue-50 p-4 shadow-sm">

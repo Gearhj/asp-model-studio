@@ -1,0 +1,373 @@
+from __future__ import annotations
+
+import os
+import sys
+import tempfile
+import unittest
+import uuid
+from pathlib import Path
+
+import pandas as pd
+from fastapi import HTTPException
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+os.environ.setdefault(
+    "ATLAS_CHECKPOINT_PATH",
+    str(
+        Path(tempfile.gettempdir())
+        / f"atlas_preparation_premium_{uuid.uuid4().hex[:10]}.json"
+    ),
+)
+
+from server.core.dataset_store import DATASTORE  # noqa: E402
+from server.features.feature_service import (  # noqa: E402
+    _apply_feature,
+    _normalize_engineered,
+    get_manifest,
+    preview_features,
+)
+from server.features.feature_types import FeatureDefinitionInput  # noqa: E402
+from server.preprocessing.missing_router import (  # noqa: E402
+    MissingApplyRequest,
+    MissingValidateRequest,
+    apply_missing_values,
+    missing_summary,
+    validate_missing_values,
+)
+from server.preprocessing.outlier_service import outlier_service  # noqa: E402
+from server.preprocessing.predictor_authorization import (  # noqa: E402
+    bureau_special_summary,
+    governed_predictor_authorization,
+)
+import server.preprocessing.missing_router as missing_router_module  # noqa: E402
+
+
+PROJECT_ID = "preparation-premium-test"
+USER = {"userId": "preparation-premium-owner"}
+
+
+def frame_with_heloc_semantics(null_value: float | None = None) -> pd.DataFrame:
+    rows = 120
+    target = [1 if index % 3 == 0 else 0 for index in range(rows)]
+    risk = ["Bad" if value == 1 else "Good" for value in target]
+    external = [float(40 + (index % 50)) for index in range(rows)]
+    external[3] = -9.0
+    external[7] = -8.0
+    external[11] = -7.0
+    external[-1] = 999.0
+    if null_value is None:
+        average = [float(30 + index % 20) for index in range(rows)]
+    else:
+        average = [float(30 + index % 20) for index in range(rows)]
+        average[5] = null_value
+    return pd.DataFrame(
+        {
+            "RiskPerformance": risk,
+            "ExternalRiskEstimate": external,
+            "AverageMInFile": average,
+            "NumTotalTrades": [10 + index % 7 for index in range(rows)],
+            "NumSatisfactoryTrades": [8 + index % 5 for index in range(rows)],
+            "bad_flag": target,
+        }
+    )
+
+
+def configure(frame: pd.DataFrame, include_target_source_in_selection: bool = False):
+    DATASTORE.reset_all()
+    DATASTORE.set_raw(frame)
+    DATASTORE.set_target("bad_flag")
+    selected = [
+        "ExternalRiskEstimate",
+        "AverageMInFile",
+        "NumTotalTrades",
+        "NumSatisfactoryTrades",
+    ]
+    if include_target_source_in_selection:
+        selected.insert(0, "RiskPerformance")
+    DATASTORE.meta["selected_columns"] = selected
+    DATASTORE.meta["dataset_version"] = "heloc-prep-v1"
+
+
+class PredictorAuthorizationTests(unittest.TestCase):
+    def tearDown(self):
+        DATASTORE.reset_all()
+
+    def test_deterministic_target_source_is_detected_even_when_unselected(self):
+        frame = frame_with_heloc_semantics()
+        configure(frame)
+        authorization = governed_predictor_authorization(
+            frame,
+            target="bad_flag",
+            selected_columns=DATASTORE.get_selected_columns(),
+        )
+        self.assertIn("RiskPerformance", authorization["target_source_excluded"])
+        self.assertNotIn(
+            "RiskPerformance", authorization["authorized_predictors"]
+        )
+
+    def test_client_selection_cannot_reauthorize_target_source(self):
+        frame = frame_with_heloc_semantics()
+        configure(frame, include_target_source_in_selection=True)
+        authorization = governed_predictor_authorization(
+            frame,
+            target="bad_flag",
+            selected_columns=DATASTORE.get_selected_columns(),
+        )
+        self.assertEqual(
+            authorization["excluded_predictors"]["RiskPerformance"],
+            "Deterministic source of the modeling target",
+        )
+        self.assertNotIn(
+            "RiskPerformance", authorization["authorized_predictors"]
+        )
+
+    def test_feature_manifest_marks_target_source_ineligible(self):
+        frame = frame_with_heloc_semantics()
+        configure(frame, include_target_source_in_selection=True)
+        manifest = get_manifest()
+        risk = next(
+            row
+            for row in manifest["features"]
+            if row["feature_name"] == "RiskPerformance"
+        )
+        self.assertEqual(risk["eligibility_status"], "excluded")
+        self.assertFalse(risk["selected"])
+        self.assertIn("Deterministic source", risk["exclusion_reason"])
+
+    def test_engineered_feature_cannot_reference_target_source(self):
+        frame = frame_with_heloc_semantics()
+        configure(frame, include_target_source_in_selection=True)
+        definition = FeatureDefinitionInput(
+            feature_name="unsafe_feature",
+            origin="categorical_rule",
+            source_features=["RiskPerformance"],
+            transformation_type="categorical_rule",
+            formula_or_rule="RiskPerformance == Bad",
+            output_datatype="categorical",
+            config={
+                "rules": [
+                    {"op": "equals", "value": "Bad", "then_label": "bad"}
+                ]
+            },
+        )
+        with self.assertRaisesRegex(ValueError, "excluded predictor"):
+            _normalize_engineered(
+                definition,
+                {"ExternalRiskEstimate", "AverageMInFile"},
+                set(),
+            )
+
+
+class OutlierSpecialValueTests(unittest.TestCase):
+    def tearDown(self):
+        DATASTORE.reset_all()
+
+    def test_special_values_are_profiled_separately(self):
+        frame = frame_with_heloc_semantics()
+        configure(frame)
+        summary = outlier_service.summary(
+            DATASTORE.get_raw_active_df(),
+            target="bad_flag",
+            selected_columns=DATASTORE.get_selected_columns(),
+        )
+        external = next(
+            row
+            for row in summary["features"]
+            if row["feature"] == "ExternalRiskEstimate"
+        )
+        self.assertEqual(external["special_value_count"], 3)
+        self.assertEqual(
+            external["special_values"], {"-9": 1, "-8": 1, "-7": 1}
+        )
+        self.assertEqual(external["ordinary_nonmissing_count"], 117)
+
+    def test_special_values_do_not_define_ordinary_thresholds_or_counts(self):
+        frame = frame_with_heloc_semantics()
+        configure(frame)
+        summary = outlier_service.summary(
+            DATASTORE.get_raw_active_df(),
+            target="bad_flag",
+            selected_columns=DATASTORE.get_selected_columns(),
+        )
+        external = next(
+            row
+            for row in summary["features"]
+            if row["feature"] == "ExternalRiskEstimate"
+        )
+        self.assertGreater(
+            external["methods"]["IQR_1_5"]["lower_threshold"], -7
+        )
+        self.assertLess(
+            external["methods"]["IQR_1_5"]["outlier_count"], 4
+        )
+
+    def test_apply_preserves_bureau_special_values(self):
+        frame = frame_with_heloc_semantics()
+        configure(frame)
+        active = DATASTORE.get_raw_active_df()
+        treated, applications = outlier_service.apply(
+            active,
+            config={"ExternalRiskEstimate": "IQR_1_5"},
+            global_method="IQR_1_5",
+            target="bad_flag",
+            selected_columns=DATASTORE.get_selected_columns(),
+        )
+        self.assertEqual(
+            treated.loc[[3, 7, 11], "ExternalRiskEstimate"].tolist(),
+            [-9.0, -8.0, -7.0],
+        )
+        external = next(
+            row
+            for row in applications
+            if row["feature"] == "ExternalRiskEstimate"
+        )
+        self.assertEqual(external["special_values_preserved"], 3)
+
+    def test_feature_override_takes_precedence_over_global_default(self):
+        frame = frame_with_heloc_semantics()
+        configure(frame)
+        _, applications = outlier_service.apply(
+            DATASTORE.get_raw_active_df(),
+            config={"ExternalRiskEstimate": "NONE"},
+            global_method="PCT_05_95",
+            target="bad_flag",
+            selected_columns=DATASTORE.get_selected_columns(),
+        )
+        external = next(
+            row
+            for row in applications
+            if row["feature"] == "ExternalRiskEstimate"
+        )
+        self.assertEqual(external["applied_method"], "NONE")
+        self.assertEqual(external["changed_values"], 0)
+
+
+class MissingValidationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.original_authorize = missing_router_module.authorize_modeling_scope
+        cls.original_save = missing_router_module.save_checkpoint
+        missing_router_module.authorize_modeling_scope = (
+            lambda user, project_id, permission: project_id
+        )
+        missing_router_module.save_checkpoint = lambda: True
+
+    @classmethod
+    def tearDownClass(cls):
+        missing_router_module.authorize_modeling_scope = cls.original_authorize
+        missing_router_module.save_checkpoint = cls.original_save
+
+    def tearDown(self):
+        DATASTORE.reset_all()
+
+    def test_special_values_are_not_true_nulls(self):
+        frame = frame_with_heloc_semantics()
+        configure(frame)
+        payload = missing_summary(PROJECT_ID, user=USER)
+        external = payload["stats"]["ExternalRiskEstimate"]
+        self.assertEqual(external["missing"], 0)
+        self.assertEqual(external["special_value_count"], 3)
+
+    def test_zero_null_validation_does_not_materialize_backend_frame(self):
+        configure(frame_with_heloc_semantics())
+        self.assertIsNone(DATASTORE.processed_df)
+        payload = validate_missing_values(
+            MissingValidateRequest(project_id=PROJECT_ID),
+            user=USER,
+        )
+        self.assertEqual(
+            payload["validation"]["status"],
+            "validated_no_treatment_required",
+        )
+        self.assertFalse(payload["validation"]["backend_materialization"])
+        self.assertIsNone(DATASTORE.processed_df)
+
+    def test_zero_null_apply_is_rejected_without_materialization(self):
+        configure(frame_with_heloc_semantics())
+        with self.assertRaises(HTTPException) as raised:
+            apply_missing_values(
+                MissingApplyRequest(project_id=PROJECT_ID, config={}),
+                user=USER,
+            )
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertIsNone(DATASTORE.processed_df)
+
+
+class FeaturePreviewSafetyTests(unittest.TestCase):
+    def tearDown(self):
+        DATASTORE.reset_all()
+
+    def test_preview_is_nonmutating(self):
+        frame = frame_with_heloc_semantics()
+        configure(frame)
+        before = DATASTORE.raw_df.copy(deep=True)
+        definition = FeatureDefinitionInput(
+            feature_name="non_satisfactory_trade_count",
+            origin="arithmetic",
+            source_features=["NumTotalTrades", "NumSatisfactoryTrades"],
+            transformation_type="arithmetic",
+            formula_or_rule="NumTotalTrades - NumSatisfactoryTrades",
+            output_datatype="numeric",
+            config={"operation": "subtract"},
+        )
+        payload = preview_features([definition], 20)
+        self.assertIn(
+            "non_satisfactory_trade_count", payload["created_features"]
+        )
+        self.assertIsNone(DATASTORE.processed_df)
+        pd.testing.assert_frame_equal(DATASTORE.raw_df, before)
+
+    def test_quantile_bins_and_special_values_are_separate(self):
+        frame = frame_with_heloc_semantics()
+        feature = {
+            "feature_name": "external_risk_band",
+            "origin": "numeric_bin",
+            "source_features": ["ExternalRiskEstimate"],
+            "config": {
+                "binning_mode": "quantile",
+                "quantiles": [0.2, 0.4, 0.6, 0.8],
+                "labels": [
+                    "Very low",
+                    "Low",
+                    "Mid",
+                    "High",
+                    "Very high",
+                ],
+                "missing_label": "Special or missing",
+                "preserve_bureau_special_values": True,
+            },
+        }
+        output = _apply_feature(frame, feature)
+        self.assertEqual(output.iloc[3], "Bureau special -9")
+        self.assertEqual(output.iloc[7], "Bureau special -8")
+        self.assertEqual(output.iloc[11], "Bureau special -7")
+        self.assertGreaterEqual(output.nunique(), 5)
+
+    def test_special_sentinel_is_not_squared(self):
+        frame = frame_with_heloc_semantics()
+        frame.loc[0, "AverageMInFile"] = -7
+        output = _apply_feature(
+            frame,
+            {
+                "feature_name": "average_months_in_file_squared",
+                "origin": "polynomial",
+                "source_features": ["AverageMInFile"],
+                "config": {
+                    "degree": 2,
+                    "preserve_bureau_special_values": True,
+                },
+            },
+        )
+        self.assertEqual(output.iloc[0], -7)
+        self.assertEqual(output.iloc[1], frame.iloc[1]["AverageMInFile"] ** 2)
+
+    def test_bureau_special_summary_never_counts_null(self):
+        summary = bureau_special_summary(
+            pd.Series([-9, -8, -7, None, 10, 20])
+        )
+        self.assertEqual(summary["special_value_count"], 3)
+        self.assertEqual(sum(summary["special_values"].values()), 3)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

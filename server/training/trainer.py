@@ -957,6 +957,7 @@ def _train_classification_model(
     model_params: Optional[Dict[str, Any]] = None,
     calibrate: bool = False,
     cv_folds: int = 3,
+    cv_splits: Optional[List[Tuple[List[int], List[int]]]] = None,
 ) -> Optional[Dict[str, Any]]:
     factory = spec.get("factory")
     if factory is None:
@@ -973,6 +974,21 @@ def _train_classification_model(
             requested_neighbors = 0
         if requested_neighbors > 0 and hasattr(model, "set_params"):
             model.set_params(n_neighbors=max(1, min(51, requested_neighbors)))
+    requested_class_weight = model_params.get("class_weight")
+    if requested_class_weight in {"balanced", None} and "class_weight" in model_params:
+        try:
+            available_params = model.get_params(deep=True)
+            if "class_weight" in available_params:
+                model.set_params(class_weight=requested_class_weight)
+            elif "estimator__class_weight" in available_params:
+                model.set_params(
+                    estimator__class_weight=requested_class_weight
+                )
+        except Exception:
+            # Compatibility is model-specific. Unsupported estimators retain
+            # their governed defaults and expose that fact in the training
+            # contract rather than receiving an invalid parameter.
+            pass
 
     if Pipeline is None or LabelEncoder is None:
         return None
@@ -1010,7 +1026,7 @@ def _train_classification_model(
         (grid_search or key == "knn")
         and bool(param_grid)
         and GridSearchCV is not None
-        and StratifiedKFold is not None
+        and (bool(cv_splits) or StratifiedKFold is not None)
         and min_class_count >= 2
     )
 
@@ -1041,14 +1057,29 @@ def _train_classification_model(
             limited_grid[param] = kept_values
             combinations *= len(kept_values)
 
-        cv_splits = max(2, min(int(cv_folds), min_class_count))
+        fallback_cv_splits = max(2, min(int(cv_folds), min_class_count))
+        search_cv: Any = (
+            [
+                (
+                    np.asarray(train_positions, dtype=int),
+                    np.asarray(validation_positions, dtype=int),
+                )
+                for train_positions, validation_positions in cv_splits
+            ]
+            if cv_splits
+            else StratifiedKFold(
+                n_splits=fallback_cv_splits,
+                shuffle=True,
+                random_state=42,
+            )
+        )
         applied_param_grid = limited_grid
         search_started = time.perf_counter()
         search = GridSearchCV(
             estimator=estimator,
             param_grid=limited_grid,
             scoring="roc_auc",
-            cv=StratifiedKFold(n_splits=cv_splits, shuffle=True, random_state=42),
+            cv=search_cv,
             n_jobs=1,
             refit=True,
         )
@@ -1063,7 +1094,22 @@ def _train_classification_model(
     wrapped_for_calibration = bool(calibrate and key not in precalibrated_keys and CalibratedClassifierCV is not None)
     if wrapped_for_calibration:
         calibration_cv = max(2, min(int(cv_folds), min_class_count))
-        estimator = CalibratedClassifierCV(estimator, method="sigmoid", cv=calibration_cv)
+        governed_calibration_cv: Any = (
+            [
+                (
+                    np.asarray(train_positions, dtype=int),
+                    np.asarray(validation_positions, dtype=int),
+                )
+                for train_positions, validation_positions in cv_splits
+            ]
+            if cv_splits
+            else calibration_cv
+        )
+        estimator = CalibratedClassifierCV(
+            estimator,
+            method="sigmoid",
+            cv=governed_calibration_cv,
+        )
         estimator.fit(X_train, y_train_arr)
         calibration_applied = True
         calibration_method = "sigmoid"
@@ -1180,6 +1226,7 @@ def _train_regression_model(
     grid_search: bool = False,
     grid_search_level: str = "quick",
     cv_folds: int = 3,
+    cv_splits: Optional[List[Tuple[List[int], List[int]]]] = None,
 ) -> Optional[Dict[str, Any]]:
     factory = spec.get("factory")
     if factory is None:
@@ -1227,7 +1274,17 @@ def _train_regression_model(
             estimator=estimator,
             param_grid=limited_grid,
             scoring="neg_root_mean_squared_error",
-            cv=max(2, min(int(cv_folds), len(y_train))),
+            cv=(
+                [
+                    (
+                        np.asarray(train_positions, dtype=int),
+                        np.asarray(validation_positions, dtype=int),
+                    )
+                    for train_positions, validation_positions in cv_splits
+                ]
+                if cv_splits
+                else max(2, min(int(cv_folds), len(y_train)))
+            ),
             n_jobs=1,
             refit=True,
         )
@@ -1276,6 +1333,7 @@ def train_models(
     model_params: Optional[Dict[str, Dict[str, Any]]] = None,
     calibrate: bool = False,
     cv_folds: int = 3,
+    cv_splits: Optional[List[Tuple[List[int], List[int]]]] = None,
 ) -> Dict[str, Any]:
     """
     Train requested models and return a structure suitable for:
@@ -1334,6 +1392,7 @@ def train_models(
                     model_params=model_params.get(key) or {},
                     calibrate=calibrate,
                     cv_folds=cv_folds,
+                    cv_splits=cv_splits,
                 )
             else:
                 details = _train_regression_model(
@@ -1346,6 +1405,7 @@ def train_models(
                     grid_search=grid_search,
                     grid_search_level=grid_search_level,
                     cv_folds=cv_folds,
+                    cv_splits=cv_splits,
                 )
         except Exception as exc:
             failed_rows.append(

@@ -14,13 +14,109 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from ..core.dataset_store import DATASTORE
 from ..core.modeling_scope import authorize_modeling_scope
 from ..security.security_store import require_user
+from .documentation_service import (
+    EDADocumentationValidationError,
+    eda_documentation_service,
+)
+from .documentation_types import (
+    EDADocumentationPayload,
+    EDAInvalidationRequest,
+)
 from .eda_service import eda_service
-from .workspace_service import eda_workspace_service
-from .workspace_types import EDAWorkspaceRequest, TargetByPredictorRequest
+from .workspace_service import (
+    RelationshipSampleValidationError,
+    eda_workspace_service,
+)
+from .workspace_types import (
+    EDARelationshipSampleRequest,
+    EDAVifSimulationRequest,
+    EDAWorkspaceRequest,
+    TargetByPredictorRequest,
+)
 
 router = APIRouter()
 logger = logging.getLogger("atlas.eda")
 DEV_LOGGING = os.getenv("ATLAS_ENV", "development").lower() in {"dev", "development", "local"}
+
+
+def _raise_documentation_validation(
+    exc: EDADocumentationValidationError,
+) -> None:
+    status_code = (
+        409
+        if exc.code
+        in {
+            "eda_documentation_context_mismatch",
+            "eda_governed_context_incomplete",
+            "eda_project_scope_mismatch",
+        }
+        else 422
+    )
+    raise HTTPException(
+        status_code=status_code,
+        detail={
+            "ok": False,
+            "code": exc.code,
+            "message": str(exc),
+            "blockers": exc.blockers,
+        },
+    ) from exc
+
+
+@router.get("/documentation/{project_id}")
+def get_eda_documentation(
+    project_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+):
+    """Read the canonical EDA documentation state consumed by MDD."""
+
+    authorize_modeling_scope(user, project_id, "view")
+    return eda_documentation_service.get_state(project_id)
+
+
+@router.post("/documentation/draft")
+def save_eda_documentation_draft(
+    request: EDADocumentationPayload,
+    user: Dict[str, Any] = Depends(require_user),
+):
+    """Upsert one current draft without modifying an approved snapshot."""
+
+    authorize_modeling_scope(user, request.project_id, "edit")
+    try:
+        return eda_documentation_service.upsert_draft(request, user)
+    except EDADocumentationValidationError as exc:
+        _raise_documentation_validation(exc)
+
+
+@router.post("/confirmation")
+def confirm_eda_documentation(
+    request: EDADocumentationPayload,
+    user: Dict[str, Any] = Depends(require_user),
+):
+    """Validate and freeze an immutable EDA documentation snapshot."""
+
+    authorize_modeling_scope(user, request.project_id, "edit")
+    try:
+        return eda_documentation_service.confirm(request, user)
+    except EDADocumentationValidationError as exc:
+        _raise_documentation_validation(exc)
+
+
+@router.post("/documentation/{project_id}/invalidate")
+def invalidate_eda_documentation(
+    project_id: str,
+    request: EDAInvalidationRequest,
+    user: Dict[str, Any] = Depends(require_user),
+):
+    """Explicitly mark the current approval stale after an upstream change."""
+
+    authorize_modeling_scope(user, project_id, "edit")
+    return eda_documentation_service.invalidate(
+        project_id,
+        request.reason,
+        user,
+        upstream_revision=request.upstream_revision,
+    )
 
 
 @router.post("/workspace/{section}")
@@ -86,6 +182,58 @@ def eda_target_by_predictor(request: TargetByPredictorRequest, user: Dict[str, A
         ) from exc
 
 
+@router.post("/vif-simulation")
+def eda_vif_simulation(request: EDAVifSimulationRequest, user: Dict[str, Any] = Depends(require_user)):
+    """Run a temporary, non-mutating VIF exclusion scenario."""
+
+    authorize_modeling_scope(user, request.project_id, "view")
+    try:
+        return eda_workspace_service.vif_simulation(request)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/relationship-sample")
+def eda_relationship_sample(
+    request: EDARelationshipSampleRequest,
+    user: Dict[str, Any] = Depends(require_user),
+):
+    """Serve one governed sample reused by the 2D, density, and 3D views."""
+
+    authorize_modeling_scope(user, request.project_id, "view")
+    try:
+        return eda_workspace_service.relationship_sample(request)
+    except RelationshipSampleValidationError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "ok": False,
+                "code": "relationship_fields_not_authorized",
+                "message": str(exc),
+                "rejected_fields": exc.rejected_fields,
+            },
+        ) from exc
+    except ValueError as exc:
+        detail = str(exc)
+        status = (
+            409
+            if "dataset" in detail.lower() or "manifest" in detail.lower()
+            else 422
+        )
+        raise HTTPException(
+            status_code=status,
+            detail={
+                "ok": False,
+                "code": (
+                    "relationship_context_mismatch"
+                    if status == 409
+                    else "relationship_request_invalid"
+                ),
+                "message": detail,
+            },
+        ) from exc
+
+
 @router.post("/profile")
 def eda_profile(request: EDAWorkspaceRequest, user: Dict[str, Any] = Depends(require_user)):
     """Compatibility route for frontend builds that expect a single profile endpoint."""
@@ -104,6 +252,24 @@ def _require_df():
         return df
     raise HTTPException(status_code=400, detail="No dataset loaded.")
 
+def _authorized_df(project_id: str, *, include_target: bool = True):
+    """Resolve the fail-closed predictor frame for legacy EDA read routes."""
+
+    try:
+        df, target, _y, _problem, _event, authorization = (
+            eda_workspace_service.authorized_dataset(
+                EDAWorkspaceRequest(
+                    project_id=project_id,
+                    target=DATASTORE.target,
+                )
+            )
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    if not include_target:
+        df = df.drop(columns=[target], errors="ignore")
+    return df, target, authorization
+
 
 # ---------------------------------------------------------------------------
 # Tabular endpoints (may be used by other steps)
@@ -111,49 +277,88 @@ def _require_df():
 @router.get("/overview")
 def eda_overview(project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)):
     authorize_modeling_scope(user, project_id, "view")
-    df = _require_df()
+    df, _target, _authorization = _authorized_df(project_id)
     return eda_service.dataset_overview(df)
 
 
 @router.get("/numeric_summary")
 def numeric_summary(project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)):
     authorize_modeling_scope(user, project_id, "view")
-    df = _require_df()
+    df, _target, _authorization = _authorized_df(project_id)
     return eda_service.numeric_summary(df)
 
 
 @router.get("/missing")
 def missing_summary(project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)):
     authorize_modeling_scope(user, project_id, "view")
-    df = _require_df()
+    df, _target, _authorization = _authorized_df(project_id)
     return eda_service.missing_summary(df)
 
 
 @router.get("/histogram/{column}")
 def histogram(column: str, project_id: str = Query(...), bins: int = Query(default=40, ge=5, le=60), user: Dict[str, Any] = Depends(require_user)):
     authorize_modeling_scope(user, project_id, "view")
-    df = _require_df()
-    return eda_service.histogram(df, column, bins=bins)
+    try:
+        payload = eda_workspace_service.section(
+            "distribution",
+            EDAWorkspaceRequest(
+                project_id=project_id,
+                target=DATASTORE.target,
+                feature=column,
+                histogram_bins=bins,
+            ),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    rows = payload.get("bins") or []
+    edges = [rows[0]["lower"], *[row["upper"] for row in rows]] if rows else []
+    return {
+        "ok": True,
+        "edges": edges,
+        "counts": [row["count"] for row in rows],
+        "column": column,
+        "requested_bins": bins,
+        "returned_bins": len(rows),
+        "row_count": int((payload.get("statistics") or {}).get("count") or 0),
+        "missing_count": int((payload.get("missing_bucket") or {}).get("count") or 0),
+        "predictor_authorization": payload.get("predictor_authorization"),
+    }
 
 
 @router.get("/boxplot/{column}")
 def boxplot(column: str, project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)):
     authorize_modeling_scope(user, project_id, "view")
-    df = _require_df()
+    df, _target, authorization = _authorized_df(project_id, include_target=False)
+    if column not in authorization["authorized_predictors"] or column not in df.columns:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Predictor '{column}' is not authorized for EDA boxplot analysis.",
+        )
     return eda_service.boxplot_stats(df, column)
 
 
 @router.get("/correlation")
 def correlation(project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)):
     authorize_modeling_scope(user, project_id, "view")
-    df = _require_df()
-    return eda_service.correlation_matrix(df)
+    try:
+        payload = eda_workspace_service.section(
+            "relationships",
+            EDAWorkspaceRequest(project_id=project_id, target=DATASTORE.target),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return {
+        "ok": True,
+        "matrix": payload.get("correlation_matrix") or [],
+        "columns": payload.get("correlation_columns") or [],
+        "predictor_authorization": payload.get("predictor_authorization"),
+    }
 
 
 @router.get("/sample")
 def sample(project_id: str = Query(...), max_rows: int = 10000, user: Dict[str, Any] = Depends(require_user)):
     authorize_modeling_scope(user, project_id, "view")
-    df = _require_df()
+    df, _target, _authorization = _authorized_df(project_id)
     return eda_service.sample_records(df, max_rows=max_rows)
 
 
@@ -162,19 +367,24 @@ def sample(project_id: str = Query(...), max_rows: int = 10000, user: Dict[str, 
 # ---------------------------------------------------------------------------
 @router.post("/d3_histogram")
 def d3_histogram(payload: Dict[str, Any] = Body(...), user: Dict[str, Any] = Depends(require_user)):
-    authorize_modeling_scope(user, payload.get("project_id"), "view")
-    df = _require_df()
+    project_id = authorize_modeling_scope(user, payload.get("project_id"), "view")
+    df, target, authorization = _authorized_df(project_id)
     feature = payload.get("feature") or ""
     bins = int(payload.get("bins") or 20)
     sample_pct = int(payload.get("sample_pct") or 10)
 
     if not feature:
         raise HTTPException(status_code=400, detail="Feature is required.")
+    if feature not in authorization["authorized_predictors"]:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Predictor '{feature}' is not authorized for EDA histogram analysis.",
+        )
 
     res = eda_service.d3_histogram(
         df,
         feature=feature,
-        target=DATASTORE.target,
+        target=target,
         bins=bins,
         sample_pct=sample_pct,
     )
@@ -194,7 +404,12 @@ def boxplot_image(
     user: Dict[str, Any] = Depends(require_user),
 ):
     authorize_modeling_scope(user, project_id, "view")
-    df = _require_df()
+    df, _target, authorization = _authorized_df(project_id, include_target=False)
+    if feature not in authorization["authorized_predictors"] or feature not in df.columns:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Predictor '{feature}' is not authorized for EDA boxplot analysis.",
+        )
     res = eda_service.boxplot_image(df, feature=feature, sample_pct=sample_pct)
     if not res.get("ok"):
         raise HTTPException(status_code=400, detail=res.get("error", "Boxplot failed."))
@@ -212,7 +427,7 @@ def corr_heatmap(
     user: Dict[str, Any] = Depends(require_user),
 ):
     authorize_modeling_scope(user, project_id, "view")
-    df = _require_df()
+    df, _target, _authorization = _authorized_df(project_id, include_target=False)
     res = eda_service.corr_heatmap_image(df, sample_pct=sample_pct, limit=limit)
     if not res.get("ok"):
         # frontend treats missing image as "Not enough numeric columns"
@@ -226,7 +441,7 @@ def corr_heatmap(
 @router.get("/pairplot")
 def pairplot(project_id: str = Query(...), sample_pct: int = Query(10, ge=1, le=100), user: Dict[str, Any] = Depends(require_user)):
     authorize_modeling_scope(user, project_id, "view")
-    df = _require_df()
+    df, _target, _authorization = _authorized_df(project_id, include_target=False)
     res = eda_service.pairplot_image(df, sample_pct=sample_pct)
     if not res.get("ok"):
         # frontend treats missing image as generic failure

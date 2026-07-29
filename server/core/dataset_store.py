@@ -59,6 +59,11 @@ class DatasetStore:
     # Optional place to hang arbitrary metadata if needed later
     meta: Dict[str, Any] = field(default_factory=dict)
 
+    # Monotonic in-process identity for cache consumers. Shape, filename, and a
+    # bounded content fingerprint are not sufficient to distinguish two
+    # replacement uploads that happen to look alike at their edges.
+    data_revision: int = 0
+
     # ------------------------------------------------------------------
     # Reset helpers
     # ------------------------------------------------------------------
@@ -66,6 +71,7 @@ class DatasetStore:
         """
         Clear all stored data: raw/processed, target, splits, metadata.
         """
+        self.data_revision += 1
         self.raw_df = None
         self.processed_df = None
         self.target = None
@@ -93,6 +99,7 @@ class DatasetStore:
 
         This invalidates any processed dataset and any existing splits.
         """
+        self.data_revision += 1
         if df is None or df.empty:
             self.raw_df = None
             self.processed_df = None
@@ -120,6 +127,7 @@ class DatasetStore:
 
         This also invalidates existing splits since the feature space changed.
         """
+        self.data_revision += 1
         if df is None or df.empty:
             self.processed_df = None
             self.reset_splits()

@@ -6,6 +6,10 @@ import assert from "node:assert/strict";
 
 const eda = fs.readFileSync("src/steps/Step02_EDA.tsx", "utf8");
 const panel = fs.readFileSync("src/visual-intelligence/production/VisualAnalysisPanel.tsx", "utf8");
+const distribution = fs.readFileSync(
+  "src/components/eda/visual/PredictorDistributionExplorer.tsx",
+  "utf8",
+);
 const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
 
 assert.equal(packageJson.scripts["test:eda-development-context"], "node tests/edaDevelopmentContext.test.mjs");
@@ -60,17 +64,42 @@ assert.match(
   "Compare Runs must be suppressed on development EDA."
 );
 
-// EDA mounts the explorer explicitly as development context.
-assert.match(eda, /analysisContext="development"/, "Development EDA must declare the development context.");
+// Phase 1 EDA now owns a purpose-built development explorer, so it must not
+// mount the scoring-oriented panel or its legacy sampled prototype.
+assert.match(
+  eda,
+  /<PredictorDistributionExplorer/,
+  "Development EDA must mount the full-population predictor explorer."
+);
+assert.doesNotMatch(
+  eda,
+  /<VisualAnalysisPanel/,
+  "Development EDA must not mount the scoring-oriented visual-analysis shell."
+);
+assert.doesNotMatch(
+  eda,
+  /<DistributionExplorer/,
+  "Development EDA must not mount the legacy sampled distribution prototype."
+);
 assert.doesNotMatch(
   eda,
   /durable TRAIN\/TEST\/OOT scoring run/,
   "Development EDA must not advertise TRAIN/TEST/OOT scoring runs."
 );
 assert.match(
-  eda,
-  /Explore how a predictor is distributed across the governed development dataset/,
+  distribution,
+  /Full-population visual intelligence/,
+  "The predictor explorer needs an explicit full-population development scope."
+);
+assert.match(
+  distribution,
+  /Server-aggregated bins, statistical markers, target behavior, missingness/,
   "The explorer needs a development-scoped purpose statement."
+);
+assert.match(
+  distribution,
+  /eda\/workspace\/distribution/,
+  "Development EDA must use the governed distribution aggregation endpoint."
 );
 
 // Evaluation/Scoring pages must keep their Scoring Run controls.

@@ -251,6 +251,20 @@ export type TargetPredictorSummary = {
   interpretation: string;
 };
 
+export type TargetPredictorBoxPlot = {
+  targetClass: "event" | "non_event";
+  label: string;
+  population: number;
+  minimum: number | null;
+  q1: number | null;
+  median: number | null;
+  q3: number | null;
+  maximum: number | null;
+  whiskerLow: number | null;
+  whiskerHigh: number | null;
+  outlierCount: number;
+};
+
 export type TargetByPredictorResult = {
   ok: boolean;
   supported: boolean;
@@ -272,6 +286,7 @@ export type TargetByPredictorResult = {
   analyzedRowCount: number;
   analyzedEventCount: number;
   summary: TargetPredictorSummary;
+  boxPlotByTarget?: TargetPredictorBoxPlot[];
   resolution: "exact";
   cached: boolean;
   durationMs: number;

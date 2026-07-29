@@ -46,12 +46,16 @@ type Props = {
   /** Optional direct click handler for workflows that need to own the visible button behavior. */
   onNextClick?: React.MouseEventHandler<HTMLButtonElement>;
   nextButtonTestId?: string;
+  nextFooterTestId?: string;
+  nextStatusTestId?: string;
   nextStatusLine?: React.ReactNode;
   /** Optional page-specific actions displayed in the sticky workflow bar. */
   nextExtraActions?: React.ReactNode;
   nextDebugPanel?: React.ReactNode;
   /** Where to navigate on click, e.g. "/step05" */
   nextPath?: string;
+  /** Explicit workflow step for embedded routes whose pathname does not identify the active step. */
+  workflowStepId?: Parameters<ReturnType<typeof useWorkflowStore.getState>["markComplete"]>[0];
   variant?: AtlasWorkflowVariant;
   eyebrow?: string;
   heroMetrics?: AtlasWorkflowMetric[];
@@ -59,6 +63,10 @@ type Props = {
   hideHeader?: boolean;
   /** Project Context is intentionally concise and does not expose page-level code tools. */
   showDeveloperTools?: boolean;
+  /** Keep the workflow action available when this step is rendered inside Credit Risk Studio. */
+  showEmbeddedNext?: boolean;
+  /** Pin the workflow action to the viewport instead of placing it after long page content. */
+  nextAlwaysVisible?: boolean;
 };
 
 export default function StepShell({
@@ -71,23 +79,31 @@ export default function StepShell({
   onNext,
   onNextClick,
   nextButtonTestId,
+  nextFooterTestId,
+  nextStatusTestId,
   nextStatusLine,
   nextExtraActions,
   nextDebugPanel,
   nextPath,
+  workflowStepId,
   variant = "standard",
   eyebrow = "Predictive Modeling Workflow",
   heroMetrics = [],
   heroAction,
   hideHeader = false,
   showDeveloperTools = true,
+  showEmbeddedNext = false,
+  nextAlwaysVisible = false,
 }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const markComplete = useWorkflowStore((state) => state.markComplete);
   const getNextStepPath = useWorkflowStore((state) => state.getNextStepPath);
   const [navigationError, setNavigationError] = useState<string | null>(null);
-  const hideEmbeddedNext = location.pathname === "/credit-risk-studio";
+  const hideEmbeddedNext = location.pathname === "/credit-risk-studio" && !showEmbeddedNext;
+  const workflowBarClassName = nextAlwaysVisible
+    ? "fixed bottom-3 left-3 right-3 z-50 rounded-lg border border-slate-200 bg-white/95 p-2 shadow-xl shadow-slate-900/15 backdrop-blur-xl sm:p-3 lg:left-[17rem] lg:right-6"
+    : "sticky bottom-2 z-10 mt-8 rounded-lg border border-slate-200 bg-white/95 p-2 shadow-lg shadow-slate-900/10 backdrop-blur-xl sm:bottom-3 sm:p-3";
 
   const handleNext = async () => {
     setNavigationError(null);
@@ -97,7 +113,7 @@ export default function StepShell({
         if (result === false) return;
       }
 
-      const currentStep = location.pathname.replace("/", "");
+      const currentStep = workflowStepId ?? location.pathname.replace("/", "");
       let targetPath = nextPath;
       if (/^step(?:0[0-9]|1[0-3])$/.test(currentStep) || currentStep === "step01b" || currentStep === "dashboard") {
         markComplete(currentStep as Parameters<typeof markComplete>[0]);
@@ -121,7 +137,7 @@ export default function StepShell({
   };
 
   return (
-    <div className={`w-full space-y-5 ${hideEmbeddedNext ? "" : "pb-28"}`}>
+    <div className={`w-full space-y-5 ${hideEmbeddedNext ? "" : nextAlwaysVisible ? "pb-36" : "pb-28"}`}>
       {!hideHeader && (title || subtitle) ? (
         <AtlasWorkflowHero
           eyebrow={eyebrow}
@@ -150,13 +166,16 @@ export default function StepShell({
       {showDeveloperTools ? <StepPythonPanel /> : null}
 
       {!hideEmbeddedNext && (
-        <div className="sticky bottom-2 z-10 mt-8 rounded-lg border border-slate-200 bg-white/95 p-2 shadow-lg shadow-slate-900/10 backdrop-blur-xl sm:bottom-3 sm:p-3">
+        <div data-testid={nextFooterTestId ?? "workflow-next-bar"} className={workflowBarClassName}>
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="hidden min-w-0 sm:block">
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
                 {nextDisabled ? "Action required" : "Ready for next step"}
               </div>
-              <div className={`mt-1 text-sm ${nextDisabled ? "text-amber-800" : "text-slate-600"}`}>
+              <div
+                data-testid={nextStatusTestId}
+                className={`mt-1 text-sm ${nextDisabled ? "text-amber-800" : "text-slate-600"}`}
+              >
                 {nextDisabled && nextDisabledReason ? nextDisabledReason : nextStatusLine || "Complete this workflow step and continue."}
               </div>
             </div>

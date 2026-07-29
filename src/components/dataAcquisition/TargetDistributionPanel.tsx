@@ -93,6 +93,7 @@ export default function TargetDistributionPanel({
   distribution,
   state,
   scopeLabel,
+  showMetricCards = true,
   errorMessage,
   query,
 }: {
@@ -100,6 +101,10 @@ export default function TargetDistributionPanel({
   state: EChartsPanelState;
   /** Which population the counts describe, so the analyst always knows the scope. */
   scopeLabel: string;
+  /** The EDA Target workspace already presents balance and confidence as one
+   *  visual, so it can suppress the duplicate metric-card rail while retaining
+   *  the chart labels and screen-reader summary. */
+  showMetricCards?: boolean;
   errorMessage?: string;
   /** Server-aggregate lifecycle, when the counts come from a registered version. */
   query?: TargetDistributionQueryState;
@@ -165,7 +170,7 @@ export default function TargetDistributionPanel({
         )}
       </div>
 
-      {distribution && (
+      {distribution && showMetricCards && (
         <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <MetricCard label="Event count" value={distribution.eventCount.toLocaleString()} tone="danger" />
           <MetricCard label="Event rate" value={formatEventRate(distribution.eventPercent)} tone="danger" testId="target-distribution-event-rate" />

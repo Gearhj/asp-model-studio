@@ -1639,7 +1639,7 @@ export default function Step01DataAcquisition() {
               <UploadPanel fileName={fileName} onFile={onFile} />
             )}
             {sourceType === "existing" && existingDatasetPicker}
-            <div className="mt-5 rounded-xl border border-blue-100 bg-blue-50/60 p-4">
+            <div className="mt-5">
               <TargetSetup
                 headers={headers}
                 target={target}
@@ -2353,10 +2353,41 @@ function TargetSetup(props: {
   setNonEventValue: (value: unknown) => void;
   problemType: "classification" | "regression";
 }) {
+  const targetConfirmed = Boolean(props.target);
   return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-base font-semibold text-slate-950">Target Setup</h2>
-      <p className="mt-1 text-sm text-slate-500">Choose the outcome field. Binary classification also requires an explicit event and non-event definition.</p>
+    <section
+      id="data-acquisition-target-setup"
+      className="overflow-hidden rounded-xl border-2 border-blue-500 bg-gradient-to-br from-blue-50 via-white to-cyan-50 shadow-[0_14px_34px_rgba(37,99,235,0.16)]"
+      data-testid="data-acquisition-target-setup"
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-blue-700 to-cyan-700 px-5 py-3 text-white">
+        <div className="flex items-center gap-3">
+          <span className="flex h-8 w-8 items-center justify-center rounded-full bg-white text-sm font-black text-blue-700">
+            2
+          </span>
+          <div>
+            <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-100">
+              Required modeling decision
+            </div>
+            <h2 className="text-base font-semibold">Identify the Target Variable</h2>
+          </div>
+        </div>
+        <span
+          className={`rounded-full border px-3 py-1 text-xs font-bold ${
+            targetConfirmed
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+              : "border-amber-200 bg-amber-50 text-amber-900"
+          }`}
+        >
+          {targetConfirmed ? `Target confirmed: ${props.target}` : "Target required"}
+        </span>
+      </div>
+      <div className="p-5">
+      <p className="text-sm leading-6 text-slate-700">
+        Select the outcome ATLAS must predict. This choice becomes the
+        authoritative target for EDA, predictor exclusion, feature engineering,
+        validation, and modeling.
+      </p>
       <div className="mt-4 grid gap-3 md:grid-cols-3">
         <Select label="Target Column" value={props.target} onChange={props.setTarget} options={props.headers} />
         {props.problemType === "classification" ? (
@@ -2367,6 +2398,11 @@ function TargetSetup(props: {
         ) : (
           <ReadOnlyField label="Target behavior" value="Continuous regression target" />
         )}
+      </div>
+      <p className="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-950">
+        ATLAS will exclude <strong>{props.target || "the selected target"}</strong>{" "}
+        and any deterministic target-source fields from the predictor set.
+      </p>
       </div>
     </section>
   );

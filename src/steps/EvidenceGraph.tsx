@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type React from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { ArrowUpRight, Database, Download, FileText, Filter, GitBranch, Network, PlusCircle, RefreshCw, Search, Share2, ShieldCheck } from "lucide-react";
 import BrandLogo from "../components/BrandLogo";
 import ShareResourceDialog from "../components/sharing/ShareResourceDialog";
@@ -65,6 +65,10 @@ function persistedEvidenceItem(record: PersistedRecord, projectId: string, proje
 }
 
 export default function EvidenceGraph() {
+  const [searchParams] = useSearchParams();
+  const requestedEvidenceId = String(
+    searchParams.get("evidenceId") || ""
+  ).trim();
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
   const [items, setItems] = useState<EvidenceItem[]>([]);
@@ -119,7 +123,17 @@ export default function EvidenceGraph() {
       setItems(nextItems);
       setGraph(nextGraph);
       setCoverage(nextCoverage);
-      setSelected((current) => nextItems.find((item) => item.evidenceId === current?.evidenceId) ?? nextItems[0] ?? null);
+      setSelected(
+        (current) =>
+          nextItems.find(
+            (item) => item.evidenceId === requestedEvidenceId
+          ) ??
+          nextItems.find(
+            (item) => item.evidenceId === current?.evidenceId
+          ) ??
+          nextItems[0] ??
+          null
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "ATLAS could not load evidence.");
     } finally {
@@ -129,7 +143,7 @@ export default function EvidenceGraph() {
 
   useEffect(() => {
     refresh();
-  }, [projectId, filters.evidenceType, filters.status, filters.importance, filters.tag, filters.financialDomain, filters.financialTechnique, filters.productType, filters.modelPurpose, filters.regulatoryRelevance]);
+  }, [projectId, requestedEvidenceId, filters.evidenceType, filters.status, filters.importance, filters.tag, filters.financialDomain, filters.financialTechnique, filters.productType, filters.modelPurpose, filters.regulatoryRelevance]);
 
   const filtered = useMemo(() => {
     const search = filters.search.trim().toLowerCase();

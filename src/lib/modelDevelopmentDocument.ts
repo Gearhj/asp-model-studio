@@ -7,6 +7,7 @@ import { getNotebookSections } from "./notebookExport";
 import { loadProjectContext, summarizeRegulatoryContext } from "./projectContext";
 import { getProblemType, type AtlasProblemType } from "./problemType";
 import { summarizeBureauHandling, treatmentLabels } from "./creditBureau";
+import { loadBureauReviewState } from "./bureauDetection";
 import { loadDataAccessMetadata } from "./enterpriseDataAccess";
 import { buildReportReadiness } from "./reportReadiness";
 import { BRAND } from "../config/brand";
@@ -92,6 +93,108 @@ function currentProjectId() {
   } catch {
     return "";
   }
+}
+
+function readText(key: string) {
+  try {
+    return localStorage.getItem(key) ?? "";
+  } catch {
+    return "";
+  }
+}
+
+function recordValue(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function formatPolicyValue(value: unknown) {
+  const record = recordValue(value);
+  if (!record) return safe(value, "Not documented");
+  return Object.entries(record)
+    .map(([key, fieldValue]) => `${key}: ${safe(fieldValue, "-")}`)
+    .join("; ");
+}
+
+function loadMissingTreatmentSummary(projectId: string) {
+  const fallback = readJson<Record<string, unknown>>(
+    "modeling-tool-missing-config",
+    {},
+  );
+  const stored = projectId
+    ? readJson<Record<string, unknown>>(
+        `modeling-tool-missing-config:${projectId}`,
+        fallback,
+      )
+    : fallback;
+  const wrappedConfig = recordValue(stored.config);
+  const config = wrappedConfig ?? stored;
+  const explicitOverrideNames = Array.isArray(stored.overrideFeatures)
+    ? stored.overrideFeatures.map(String)
+    : Object.entries(config)
+        .filter(([, value]) => {
+          const rule = recordValue(value);
+          return safe(rule?.strategy, "None") !== "None";
+        })
+        .map(([feature]) => feature);
+  const overrideNames = [...new Set(explicitOverrideNames)].filter(
+    (feature) => feature in config,
+  );
+  const result: Record<string, unknown> = {
+    "Global strategy": wrappedConfig
+      ? safe(stored.globalStrategy, "None")
+      : "Legacy per-feature policy",
+    "Inherited predictors": Math.max(
+      0,
+      Object.keys(config).length - overrideNames.length,
+    ),
+    "Explicit overrides": overrideNames.length,
+  };
+  if (safe(stored.globalStrategy, "") === "Constant") {
+    result["Global constant"] = safe(
+      stored.globalConstant,
+      "Required but not documented",
+    );
+  }
+  for (const feature of overrideNames) {
+    result[`Override - ${feature}`] = formatPolicyValue(config[feature]);
+  }
+  return result;
+}
+
+function loadOutlierTreatmentSummary(projectId: string) {
+  const fallback = readJson<Record<string, unknown>>(
+    "modeling-tool-outlier-methods",
+    {},
+  );
+  const methods = projectId
+    ? readJson<Record<string, unknown>>(
+        `modeling-tool-outlier-methods:${projectId}`,
+        fallback,
+      )
+    : fallback;
+  const globalMethod =
+    (projectId
+      ? readText(`modeling-tool-outlier-global-method:${projectId}`)
+      : "") ||
+    readText("modeling-tool-outlier-global-method") ||
+    "Not documented";
+  const overrides = Object.entries(methods).filter(
+    ([, method]) => safe(method, "USE_GLOBAL") !== "USE_GLOBAL",
+  );
+  const result: Record<string, unknown> = {
+    "Global method": globalMethod,
+    "Inherited predictors": Math.max(
+      0,
+      Object.keys(methods).length - overrides.length,
+    ),
+    "Explicit overrides": overrides.length,
+  };
+  for (const [feature, method] of overrides) {
+    result[`Override - ${feature}`] = safe(method);
+  }
+  return result;
 }
 
 function isRegressionExperiment(experiment: ExperimentRecord) {
@@ -305,7 +408,13 @@ function formatExperimentAppendix(experiments: ExperimentRecord[]) {
 
 function formatBureauHandling() {
   const summary = summarizeBureauHandling();
-  if (!summary.profiles.length && !summary.decisions.length) {
+  const governedReview = loadBureauReviewState();
+  if (
+    !summary.profiles.length &&
+    !summary.decisions.length &&
+    !governedReview.variableDefaults.length &&
+    !governedReview.decisions.length
+  ) {
     return "No credit bureau special value profiles or treatment decisions have been captured.";
   }
 
@@ -325,13 +434,47 @@ function formatBureauHandling() {
     ].join(" | ").replace(/^/, "| ").replace(/$/, " |");
   });
 
+  const governedHandlingLabels: Record<string, string> = {
+    preserve_informative: "Preserve as numeric sentinel",
+    convert_to_missing: "Convert to missing",
+    convert_to_category: "Convert to labeled category",
+    documented_domain_mapping: "Map to governed replacement",
+    exclude_variable: "Exclude from modeling",
+    leave_unchanged: "Leave unchanged",
+    custom: "Review required / custom",
+  };
+  const governedRows = [
+    ...governedReview.variableDefaults.map((decision) => [
+      decision.variable,
+      "Variable default",
+      governedHandlingLabels[decision.handling] ?? decision.handling,
+      decision.rationale || "Governed variable-level policy",
+      decision.updatedAt,
+    ]),
+    ...governedReview.decisions.map((decision) => [
+      decision.variable,
+      `Override: ${decision.value}`,
+      governedHandlingLabels[decision.handling] ?? decision.handling,
+      decision.rationale || "Rationale required",
+      decision.updatedAt,
+    ]),
+  ];
+
   return [
     `Detected profiles: ${summary.profiles.length}`,
     `Documented treatment decisions: ${summary.decisions.length}`,
+    `Governed review status: ${governedReview.status}`,
+    `Evidence status: ${governedReview.evidenceStatus}`,
     "",
     "| Variable | Value | Bureau Definition | Count | Percent | Special Event Rate | Regular Event Rate | Treatment | Rationale |",
     "|---|---|---|---:|---:|---:|---:|---|---|",
     ...rows,
+    "",
+    professionalTableHtml(
+      ["Variable", "Policy scope", "Handling", "Rationale", "Updated"],
+      governedRows,
+      { wide: true, badgeColumns: ["Policy scope"] },
+    ),
   ].join("\n");
 }
 
@@ -380,8 +523,9 @@ function buildSections(
   const materialDecisions = summarizeMaterialReportDecisions(decisions);
   const readiness = buildReportReadiness({ problemType: String(problemType), experiments, champion, decisions, dataset, context });
   const governance = buildGovernanceReport();
-  const missingStrategies = readJson<Record<string, unknown>>("modeling-tool-missing-config", {});
-  const outlierMethods = readJson<Record<string, unknown>>("modeling-tool-outlier-methods", {});
+  const projectId = currentProjectId();
+  const missingStrategies = loadMissingTreatmentSummary(projectId);
+  const outlierMethods = loadOutlierTreatmentSummary(projectId);
   const balanceMethod = localStorage.getItem("balanceMethod") ?? "Not documented";
   const splitStrategy = localStorage.getItem("splitStrategy") ?? "Not documented";
   const balanceRatio = localStorage.getItem("balanceRatio") ?? "";
@@ -402,7 +546,7 @@ function buildSections(
         `Development environment: ${BRAND.productName} local workbench`,
         `Prepared for: Consumer Lending AI/ML model development`,
         `Document type: Model Development Document`,
-        `Project ID: ${safe(currentProjectId())}`,
+        `Project ID: ${safe(projectId)}`,
         `Dataset version: ${safe(champion?.datasetVersion ?? dataAccess?.version)}`,
         `Final model ID: ${safe(champion?.modelKey)}`,
         `Final training run ID: ${safe(champion?.experimentId)}`,

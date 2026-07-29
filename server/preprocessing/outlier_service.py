@@ -6,6 +6,11 @@ import numpy as np
 import pandas as pd
 
 from .feature_profile_service import information_value
+from .predictor_authorization import (
+    bureau_special_mask,
+    bureau_special_summary,
+    governed_predictor_authorization,
+)
 
 
 OUTLIER_METHODS = (
@@ -95,6 +100,7 @@ class OutlierService:
         target: str | None = None,
         event_value: Any = None,
         problem_type: str | None = None,
+        selected_columns: list[str] | None = None,
     ) -> dict[str, Any]:
         if df is None or df.empty:
             raise ValueError("No full backend dataset is loaded.")
@@ -107,14 +113,20 @@ class OutlierService:
             valid = y.notna()
             event_rate = float((y[valid].astype(str) == str(resolved_event)).mean()) if int(valid.sum()) else None
 
+        authorization = governed_predictor_authorization(
+            df,
+            target=target,
+            selected_columns=selected_columns,
+        )
         rows: list[dict[str, Any]] = []
-        for column in df.columns:
-            name = str(column)
-            if target and name == str(target):
-                continue
+        for name in authorization["authorized_predictors"]:
+            column = name
             numeric = _numeric(df[column])
             if numeric is None:
                 continue
+            special_summary = bureau_special_summary(numeric)
+            special_mask = bureau_special_mask(numeric)
+            ordinary = numeric.mask(special_mask)
 
             signal = None
             association_status = "not_evaluated"
@@ -126,25 +138,35 @@ class OutlierService:
                     except ValueError:
                         association_status = "target_definition_required"
                 else:
-                    pairs = pd.DataFrame({"feature": numeric, "target": pd.to_numeric(y, errors="coerce")}).dropna()
+                    pairs = pd.DataFrame({"feature": ordinary, "target": pd.to_numeric(y, errors="coerce")}).dropna()
                     if len(pairs) >= 3:
                         correlation = pairs["feature"].corr(pairs["target"])
                         if pd.notna(correlation):
                             signal = float(correlation)
                             association_status = "evaluated"
 
-            clean = numeric.dropna().astype(float)
+            clean = ordinary.dropna().astype(float)
             quantiles = clean.quantile([0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99]) if len(clean) else None
             rows.append({
                 "feature": name,
                 "datatype": str(df[column].dtype),
-                "nonmissing_count": int(len(clean)),
+                "nonmissing_count": int(numeric.notna().sum()),
+                "ordinary_nonmissing_count": int(len(clean)),
                 "missing_count": int(numeric.isna().sum()),
                 "signal_metric": signal,
                 "association_status": association_status,
-                "methods": {method: _method_result(numeric, method) for method in OUTLIER_METHODS},
-                "rendered_sample": _rendered_sample(numeric),
+                "methods": {method: _method_result(ordinary, method) for method in OUTLIER_METHODS},
+                "rendered_sample": _rendered_sample(ordinary),
                 "rendered_sample_count": min(int(len(clean)), 600),
+                "distinct_count": int(clean.nunique()),
+                "mean": float(clean.mean()) if len(clean) else None,
+                "standard_deviation": (
+                    float(clean.std(ddof=0)) if len(clean) else None
+                ),
+                "minimum": float(clean.min()) if len(clean) else None,
+                "maximum": float(clean.max()) if len(clean) else None,
+                "skewness": float(clean.skew()) if len(clean) >= 3 and pd.notna(clean.skew()) else None,
+                **special_summary,
                 "quantiles": {
                     "p01": float(quantiles.loc[0.01]) if quantiles is not None else None,
                     "p05": float(quantiles.loc[0.05]) if quantiles is not None else None,
@@ -166,6 +188,7 @@ class OutlierService:
             "event_value": resolved_event,
             "event_rate": event_rate,
             "rare_event": bool(event_rate is not None and event_rate < 0.05),
+            "predictor_authorization": authorization,
             "features": rows,
         }
 
@@ -175,6 +198,7 @@ class OutlierService:
         config: dict[str, Any],
         global_method: str = "IQR_1_5",
         target: str | None = None,
+        selected_columns: list[str] | None = None,
     ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
         if df is None or df.empty:
             raise ValueError("No full backend dataset is loaded.")
@@ -182,9 +206,15 @@ class OutlierService:
             raise ValueError(f"Unsupported global outlier method: {global_method}.")
 
         work = df.copy()
+        authorization = governed_predictor_authorization(
+            work,
+            target=target,
+            selected_columns=selected_columns,
+        )
+        authorized = set(authorization["authorized_predictors"])
         applied: list[dict[str, Any]] = []
         for column, configured_value in config.items():
-            if column not in work.columns or (target and column == target):
+            if column not in work.columns or column not in authorized or (target and column == target):
                 continue
             configured = str(configured_value or "USE_GLOBAL")
             method = global_method if configured == "USE_GLOBAL" else configured
@@ -193,9 +223,13 @@ class OutlierService:
             numeric = _numeric(work[column])
             if numeric is None:
                 continue
-            result = _method_result(numeric, method)
+            special_mask = bureau_special_mask(numeric)
+            ordinary = numeric.mask(special_mask)
+            special_summary = bureau_special_summary(numeric)
+            result = _method_result(ordinary, method)
             if method != "NONE":
-                work[column] = numeric.clip(result["lower_threshold"], result["upper_threshold"])
+                treated = numeric.clip(result["lower_threshold"], result["upper_threshold"])
+                work[column] = treated.where(~special_mask, numeric)
             applied.append({
                 "feature": column,
                 "configured_method": configured,
@@ -203,6 +237,7 @@ class OutlierService:
                 "changed_values": result["outlier_count"],
                 "lower_threshold": result["lower_threshold"],
                 "upper_threshold": result["upper_threshold"],
+                "special_values_preserved": special_summary["special_value_count"],
             })
         return work, applied
 

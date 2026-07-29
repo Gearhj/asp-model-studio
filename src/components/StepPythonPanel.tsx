@@ -16,11 +16,25 @@ import { logDecision } from "../lib/decisionJournal";
 import { loadDataAccessMetadata } from "../lib/enterpriseDataAccess";
 import { loadLocalDataset } from "../lib/localDataset";
 import {
+  acknowledgeCodeDraftContext,
+  buildCurrentCodeContext,
+  codeContextSummary,
+  evaluateCodeDraftContext,
+  loadCodeDraft,
+  persistCodeDraft,
+  resetCodeDraftForCurrentContext,
+  retainHistoricalCodeDraft,
+  type CodeContextEvaluation,
+  type CodeContextLanguage,
+  type CodeDraftEnvelope,
+} from "../lib/codeContextSafety";
+import {
   getNotebookSections,
   USER_STEP_PYTHON_CODE_KEY,
   USER_STEP_SAS_CODE_KEY,
   type NotebookSection,
 } from "../lib/notebookExport";
+import { createCodeCell, createNotebookCell, saveNotebook } from "../lib/notebookStudio";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 type SasRunMode = "saspy" | "compatible" | "template" | "external";
@@ -181,30 +195,92 @@ export default function StepPythonPanel() {
   const location = useLocation();
   const sections = useMemo(() => sectionsForRoute(location.pathname), [location.pathname]);
   const projectId = useWorkflowStore((state) => state.projectId);
+  const projectName = useWorkflowStore((state) => state.projectName);
   const currentStepId = useWorkflowStore((state) => state.currentStepId);
   const [expanded, setExpanded] = useState(false);
   const [pythonCodeByStep, setPythonCodeByStep] = useState(() => readCode(USER_STEP_PYTHON_CODE_KEY));
   const [sasCodeByStep, setSasCodeByStep] = useState(() => readCode(USER_STEP_SAS_CODE_KEY));
   const [pythonDraft, setPythonDraft] = useState("");
   const [sasDraft, setSasDraft] = useState("");
+  const [pythonDraftEnvelope, setPythonDraftEnvelope] = useState<CodeDraftEnvelope | null>(null);
+  const [sasDraftEnvelope, setSasDraftEnvelope] = useState<CodeDraftEnvelope | null>(null);
+  const [contextMessages, setContextMessages] = useState<Partial<Record<CodeContextLanguage, string>>>({});
+  const [copyingLanguage, setCopyingLanguage] = useState<CodeContextLanguage | null>(null);
   const [pythonResult, setPythonResult] = useState<CodeRunResult | null>(null);
   const [sasResult, setSasResult] = useState<CodeRunResult | null>(null);
   const [pythonRunning, setPythonRunning] = useState(false);
   const [sasRunning, setSasRunning] = useState(false);
   const [sasDiagnostics, setSasDiagnostics] = useState<SasDiagnostics | null>(null);
   const [sasMode, setSasMode] = useState<SasRunMode>("template");
+  const [datasetContextRevision, setDatasetContextRevision] = useState(0);
   // CODE-DATAACQ-001: capability comes from the backend, never from a hard-coded
   // badge. Until it resolves the panel reports "Checking runtime", not "Executable".
   const [pythonCapability, setPythonCapability] = useState<PythonCapability | null>(null);
 
+  const sectionKey = sections[0]?.sectionKey ?? "";
+  const generatedPython = generatedPythonForRoute(location.pathname, sections);
+  const generatedSas =
+    sasMode === "compatible" ? generatedSasCompatibleProgram(location.pathname) : generatedSasForRoute(location.pathname);
+  const pageTitle = sections.map((section) => section.title).join(" / ");
+  const activeDataset = useMemo(
+    () => loadLocalDataset(),
+    [datasetContextRevision, projectId],
+  );
+  const activeLibrary = activeDataset?.dataset_library;
+  const pythonCodeContext = buildCurrentCodeContext({
+    workflowPage: location.pathname,
+    language: "python",
+    projectId,
+    dataset: activeDataset,
+  });
+  const sasCodeContext = buildCurrentCodeContext({
+    workflowPage: location.pathname,
+    language: "sas",
+    projectId,
+    dataset: activeDataset,
+  });
+  const draftLoadOptions = (language: CodeContextLanguage, legacyCode?: string) => ({
+    scope: {
+      projectId,
+      workflowPage: location.pathname,
+      language,
+    },
+    legacyStorageKey: language === "python" ? USER_STEP_PYTHON_CODE_KEY : USER_STEP_SAS_CODE_KEY,
+    legacySectionKey: sectionKey,
+    legacyCode,
+  });
+
   useEffect(() => {
+    const refreshContext = () =>
+      setDatasetContextRevision((revision) => revision + 1);
+    window.addEventListener("atlas-dataset-updated", refreshContext);
+    window.addEventListener("atlas-eda-code-context-updated", refreshContext);
+    return () => {
+      window.removeEventListener("atlas-dataset-updated", refreshContext);
+      window.removeEventListener("atlas-eda-code-context-updated", refreshContext);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!sectionKey) return;
     const pythonSaved = readCode(USER_STEP_PYTHON_CODE_KEY);
     const sasSaved = readCode(USER_STEP_SAS_CODE_KEY);
+    const pythonLoaded = loadCodeDraft(
+      draftLoadOptions("python", combinedSavedCode(sections, pythonSaved)),
+    );
+    const sasLoaded = loadCodeDraft(
+      draftLoadOptions("sas", combinedSavedCode(sections, sasSaved)),
+    );
     setPythonCodeByStep(pythonSaved);
     setSasCodeByStep(sasSaved);
-    setPythonDraft(combinedSavedCode(sections, pythonSaved));
-    setSasDraft(combinedSavedCode(sections, sasSaved) || generatedSasForRoute(location.pathname));
-  }, [location.pathname, sections]);
+    setPythonDraftEnvelope(pythonLoaded.draft);
+    setSasDraftEnvelope(sasLoaded.draft);
+    setPythonDraft(pythonLoaded.draft?.code ?? "");
+    setSasDraft(sasLoaded.draft?.code || generatedSasForRoute(location.pathname));
+    setContextMessages({});
+    // Scope changes are the only time the working draft should be replaced.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname, projectId, sectionKey, sections]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -240,19 +316,46 @@ export default function StepPythonPanel() {
   }, [expanded]);
 
   if (!sections.length) return null;
-  const sectionKey = sections[0].sectionKey;
-  const generatedPython = generatedPythonForRoute(location.pathname, sections);
-  const generatedSas =
-    sasMode === "compatible" ? generatedSasCompatibleProgram(location.pathname) : generatedSasForRoute(location.pathname);
-  const pageTitle = sections.map((section) => section.title).join(" / ");
-  const persist = (language: "python" | "sas") => {
+  const pythonContextEvaluation = evaluateCodeDraftContext(
+    pythonDraftEnvelope,
+    pythonCodeContext,
+    pythonDraft,
+  );
+  const sasContextEvaluation = evaluateCodeDraftContext(sasDraftEnvelope, sasCodeContext, sasDraft);
+  const setContextMessage = (language: CodeContextLanguage, message: string) =>
+    setContextMessages((current) => ({ ...current, [language]: message }));
+
+  const persist = (language: CodeContextLanguage) => {
     const key = language === "python" ? USER_STEP_PYTHON_CODE_KEY : USER_STEP_SAS_CODE_KEY;
     const current = language === "python" ? pythonCodeByStep : sasCodeByStep;
     const draft = language === "python" ? pythonDraft : sasDraft;
+    const currentContext = language === "python" ? pythonCodeContext : sasCodeContext;
+    const result = persistCodeDraft({
+      ...draftLoadOptions(language, combinedSavedCode(sections, current)),
+      currentContext,
+      code: draft,
+    });
+    if (!result.ok) {
+      setContextMessage(
+        language,
+        "Acknowledge the exact historical draft/current-context pair before saving or running this code.",
+      );
+      return false;
+    }
+
     const next = { ...current, [sectionKey]: draft };
+    // Keep the old raw map as a compatibility mirror only. Context-aware reads
+    // always prefer the scoped envelope, and a different project sees a legacy,
+    // unverified draft rather than having this code silently relabelled.
     writeCode(key, next);
-    if (language === "python") setPythonCodeByStep(next);
-    else setSasCodeByStep(next);
+    if (language === "python") {
+      setPythonCodeByStep(next);
+      setPythonDraftEnvelope(result.draft);
+    } else {
+      setSasCodeByStep(next);
+      setSasDraftEnvelope(result.draft);
+    }
+    setContextMessage(language, `${language === "python" ? "Python" : "SAS"} draft saved with its code context.`);
     logDecision({
       workflowStep: pageTitle,
       actionType: language === "python" ? "custom_python_code_edited" : "custom_sas_code_edited",
@@ -261,10 +364,138 @@ export default function StepPythonPanel() {
       newValue: `${draft.length} characters`,
       followStatus: "not_applicable",
     });
+    return true;
   };
 
-  const activeDataset = loadLocalDataset();
-  const activeLibrary = activeDataset?.dataset_library;
+  const acknowledgeMismatch = (language: CodeContextLanguage) => {
+    const current = language === "python" ? pythonCodeByStep : sasCodeByStep;
+    const code = language === "python" ? pythonDraft : sasDraft;
+    const currentContext = language === "python" ? pythonCodeContext : sasCodeContext;
+    const acknowledged = acknowledgeCodeDraftContext({
+      ...draftLoadOptions(language, combinedSavedCode(sections, current)),
+      currentContext,
+      code,
+    });
+    if (!acknowledged) return;
+    if (language === "python") setPythonDraftEnvelope(acknowledged);
+    else setSasDraftEnvelope(acknowledged);
+    setContextMessage(
+      language,
+      "Mismatch acknowledged for this exact code and current context. Any edit will require acknowledgement again.",
+    );
+  };
+
+  const keepHistorical = (language: CodeContextLanguage) => {
+    const current = language === "python" ? pythonCodeByStep : sasCodeByStep;
+    const code = language === "python" ? pythonDraft : sasDraft;
+    const retained = retainHistoricalCodeDraft({
+      ...draftLoadOptions(language, combinedSavedCode(sections, current)),
+      code,
+    });
+    if (!retained) return;
+    if (language === "python") setPythonDraftEnvelope(retained);
+    else setSasDraftEnvelope(retained);
+    setContextMessage(
+      language,
+      "Historical draft retained with its original context. It remains blocked from current execution and export.",
+    );
+  };
+
+  const resetForCurrentContext = (language: CodeContextLanguage) => {
+    const current = language === "python" ? pythonCodeByStep : sasCodeByStep;
+    const historicalCode = language === "python" ? pythonDraft : sasDraft;
+    const generatedCode = language === "python" ? generatedPython : generatedSas;
+    const currentContext = language === "python" ? pythonCodeContext : sasCodeContext;
+    const reset = resetCodeDraftForCurrentContext({
+      ...draftLoadOptions(language, combinedSavedCode(sections, current)),
+      currentContext,
+      generatedCode,
+      historicalCode,
+    });
+    if (language === "python") {
+      setPythonDraftEnvelope(reset.draft);
+      setPythonDraft(reset.draft.code);
+      setPythonResult(null);
+    } else {
+      setSasDraftEnvelope(reset.draft);
+      setSasDraft(reset.draft.code);
+      setSasResult(null);
+    }
+    setContextMessage(
+      language,
+      reset.archivedDraft
+        ? "Historical draft archived. A separate current-context draft now contains the generated code."
+        : "A current-context draft now contains the generated code.",
+    );
+  };
+
+  const saveHistoricalNotebookCopy = async (language: CodeContextLanguage) => {
+    const envelope = language === "python" ? pythonDraftEnvelope : sasDraftEnvelope;
+    const source = language === "python" ? pythonDraft : sasDraft;
+    const currentContext = language === "python" ? pythonCodeContext : sasCodeContext;
+    const evaluation = language === "python" ? pythonContextEvaluation : sasContextEvaluation;
+    if (!envelope || !source.trim()) return;
+    setCopyingLanguage(language);
+    setContextMessage(language, "Saving a distinct, explicitly historical notebook copy...");
+    try {
+      const languageLabel = language === "python" ? "Python" : "SAS";
+      const saved = await saveNotebook({
+        name: `${pageTitle} — ${languageLabel} Historical Code Copy`,
+        description:
+          "A distinct copy of historical edited code. It is not current workflow evidence and does not replace the active draft.",
+        projectId,
+        projectName,
+        primaryDatasetId: envelope.context?.datasetId || undefined,
+        primaryVersionId: envelope.context?.datasetVersion || undefined,
+        tags: ["historical-code-copy", "code-context", language],
+        defaultCodeLanguage: language === "python" ? "python" : "sas_compatible",
+        cells: [
+          createNotebookCell(
+            "markdown",
+            `## Historical ${languageLabel} Code Copy
+
+**${evaluation.warning || "Historical code context"}**
+
+This notebook is a separate historical copy. It is not labelled as current workflow evidence.
+
+### Draft context
+${codeContextSummary(envelope.context).map((line) => `- ${line}`).join("\n")}
+
+### Current context at copy time
+${codeContextSummary(currentContext).map((line) => `- ${line}`).join("\n")}`,
+          ),
+          createCodeCell(language === "python" ? "python" : "sas_compatible", source),
+        ],
+      });
+      setContextMessage(language, `Saved separate notebook copy “${saved.name}”.`);
+    } catch (error) {
+      setContextMessage(
+        language,
+        error instanceof Error ? error.message : "ATLAS could not save the separate notebook copy.",
+      );
+    } finally {
+      setCopyingLanguage(null);
+    }
+  };
+
+  const contextSafety = (
+    language: CodeContextLanguage,
+    evaluation: CodeContextEvaluation,
+  ) =>
+    evaluation.warning
+      ? {
+          warning: evaluation.warning,
+          details: evaluation.details,
+          acknowledged: evaluation.acknowledged,
+          statusMessage: contextMessages[language],
+          savingCopy: copyingLanguage === language,
+          onKeepHistorical: () => keepHistorical(language),
+          onResetForCurrentContext: () => resetForCurrentContext(language),
+          onAcknowledge: () => acknowledgeMismatch(language),
+          onSaveAsNotebookCopy: () => void saveHistoricalNotebookCopy(language),
+        }
+      : undefined;
+
   // The governed identity travels with every execution request so the backend can
   // resolve the exact authorized artifact rather than trusting a client path.
   const context = {
@@ -294,7 +525,7 @@ export default function StepPythonPanel() {
           <Code2 size={17} className="text-slate-700" />
           <span>
             <span className="block text-sm font-semibold text-slate-950">{location.pathname === "/step01" ? "Data Access & Reproducibility Code" : "Code & Reproducibility"}</span>
-            <span className="block text-xs text-slate-500">Review generated code, add governed custom code, execute supported languages, and preserve the code in notebook and evidence exports.</span>
+            <span className="block text-xs text-slate-500">Review generated code, add governed custom code, and preserve context-checked drafts for execution and notebook export.</span>
           </span>
         </span>
         <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{expanded ? "Hide" : "Show"}</span>
@@ -327,14 +558,14 @@ export default function StepPythonPanel() {
                 userCode: pythonDraft,
                 setUserCode: setPythonDraft,
                 note: pythonRunnable
-                  ? `Runtime objects available: df (authorized dataset version${activeLibrary?.versionId ? ` ${activeLibrary.versionId}` : ""}), TARGET (selected target column), SELECTED_FEATURES (approved predictor list).`
-                  : (pythonCapability?.reason ?? "Checking whether the governed code sandbox is available for this ATLAS environment."),
+                  ? `Runtime objects available: df (authorized dataset version${activeLibrary?.versionId ? ` ${activeLibrary.versionId}` : ""}), TARGET (selected target column), SELECTED_FEATURES (approved predictor list).${contextMessages.python ? ` ${contextMessages.python}` : ""}`
+                  : `${pythonCapability?.reason ?? "Checking whether the governed code sandbox is available for this ATLAS environment."}${contextMessages.python ? ` ${contextMessages.python}` : ""}`,
                 runLabel: "Run Python",
-                canRun: pythonRunnable && Boolean(pythonDraft.trim()),
+                canRun: pythonRunnable && Boolean(pythonDraft.trim()) && pythonContextEvaluation.canUseAsCurrent,
                 running: pythonRunning,
                 result: pythonResult,
                 onRun: async () => {
-                  persist("python");
+                  if (!persist("python")) return;
                   setPythonRunning(true);
                   setPythonResult(null);
                   try {
@@ -347,6 +578,9 @@ export default function StepPythonPanel() {
                 },
                 onCopy: () => void navigator.clipboard?.writeText(pythonDraft || generatedPython),
                 onSave: () => persist("python"),
+                canSave: pythonContextEvaluation.canUseAsCurrent,
+                saveLabel: "Save Python Draft",
+                contextSafety: contextSafety("python", pythonContextEvaluation),
               },
               {
                 language: "sas",
@@ -355,13 +589,13 @@ export default function StepPythonPanel() {
                 generatedCode: generatedSas,
                 userCode: sasDraft,
                 setUserCode: setSasDraft,
-                note: sasMode === "compatible" ? "Runs only the supported local compatibility subset and lists unsupported statements." : sasMode === "saspy" ? "Runs explicit SAS code through the configured and tested SASPy session." : "Editable and exportable. Execution is disabled in this mode.",
+                note: `${sasMode === "compatible" ? "Runs only the supported local compatibility subset and lists unsupported statements." : sasMode === "saspy" ? "Runs explicit SAS code through the configured and tested SASPy session." : "Editable and exportable. Execution is disabled in this mode."}${contextMessages.sas ? ` ${contextMessages.sas}` : ""}`,
                 runLabel: sasMode === "compatible" ? "Run SAS-Compatible" : "Run SAS",
-                canRun: Boolean(sasDraft.trim()) && (sasMode === "compatible" || (sasMode === "saspy" && Boolean(sasDiagnostics?.sasExecutionAvailable))),
+                canRun: Boolean(sasDraft.trim()) && (sasMode === "compatible" || (sasMode === "saspy" && Boolean(sasDiagnostics?.sasExecutionAvailable))) && sasContextEvaluation.canUseAsCurrent,
                 running: sasRunning,
                 result: sasResult,
                 onRun: async () => {
-                  persist("sas");
+                  if (!persist("sas")) return;
                   setSasRunning(true);
                   setSasResult(null);
                   try {
@@ -374,6 +608,9 @@ export default function StepPythonPanel() {
                 },
                 onCopy: () => void navigator.clipboard?.writeText(sasDraft || generatedSas),
                 onSave: () => persist("sas"),
+                canSave: sasContextEvaluation.canUseAsCurrent,
+                saveLabel: "Save SAS Draft",
+                contextSafety: contextSafety("sas", sasContextEvaluation),
               },
             ]}
           />

@@ -93,6 +93,241 @@ def _filter_target_derived_rows(rows: List[Dict[str, Any]], feature_key: str = "
 
 
 class EvaluationService:
+    @staticmethod
+    def _active_model_binding(expected: Dict[str, Any] | None = None) -> Dict[str, Any]:
+        """Return the governed workspace identity that a model may be bound to.
+
+        The active DATASTORE state is authoritative for data, feature, and split
+        identity. The last training summary contributes the immutable training
+        run identity, but is never used to paper over a missing active manifest
+        or split after an upstream change invalidates them.
+        """
+        expected = expected or {}
+        summary = RESULTS.get_last_summary() or {}
+        manifest = DATASTORE.meta.get("feature_manifest")
+        manifest = manifest if isinstance(manifest, dict) else {}
+        split_record = DATASTORE.meta.get("split_record")
+        split_record = split_record if isinstance(split_record, dict) else {}
+        validation_design = split_record.get("validation_design")
+        if not isinstance(validation_design, dict):
+            validation_design = DATASTORE.meta.get("validation_design")
+        validation_design = validation_design if isinstance(validation_design, dict) else {}
+        source = DATASTORE.meta.get("source")
+        source = source if isinstance(source, dict) else {}
+        X_train, X_test, y_train, y_test = DATASTORE.get_splits()
+        split_materialized = all(value is not None for value in (X_train, X_test, y_train, y_test))
+
+        project_id = str(expected.get("project_id") or "").strip()
+        if not project_id:
+            try:
+                from ..core.modeling_scope import active_project_id
+
+                project_id = str(active_project_id() or "").strip()
+            except Exception:
+                project_id = ""
+        if not project_id:
+            # Direct service tests do not establish the HTTP ContextVar. The
+            # summary is still an immutable training-produced binding there.
+            project_id = str(summary.get("project_id") or "").strip()
+
+        return {
+            "project_id": project_id,
+            "dataset_id": str(
+                DATASTORE.meta.get("dataset_id")
+                or source.get("datasetId")
+                or source.get("dataset_id")
+                or summary.get("dataset_id")
+                or ""
+            ).strip(),
+            "dataset_version": str(
+                DATASTORE.meta.get("dataset_version")
+                or DATASTORE.meta.get("version_id")
+                or manifest.get("dataset_version")
+                or ""
+            ).strip(),
+            "target": str(DATASTORE.target or "").strip(),
+            "problem_type": str(expected.get("problem_type") or summary.get("problem_type") or "").strip(),
+            "feature_manifest_version": str(
+                manifest.get("manifest_version")
+                or manifest.get("feature_manifest_version")
+                or ""
+            ).strip(),
+            "split_id": str(split_record.get("split_id") or "").strip() if split_materialized else "",
+            "split_materialized": split_materialized,
+            "validation_design_id": str(
+                validation_design.get("validation_design_id")
+                or validation_design.get("design_id")
+                or ""
+            ).strip(),
+            "validation_design_version": str(
+                validation_design.get("design_version")
+                or validation_design.get("validation_design_version")
+                or ""
+            ).strip(),
+            "training_job_id": str(
+                summary.get("training_job_id")
+                or summary.get("training_run_id")
+                or ""
+            ).strip(),
+        }
+
+    def _final_model_context_mismatch(
+        self,
+        metadata: Dict[str, Any] | None,
+        expected: Dict[str, Any] | None = None,
+    ) -> str:
+        """Fail closed when a final artifact is detached from active lineage."""
+        metadata = metadata or {}
+        binding = self._active_model_binding(expected)
+
+        active_requirements = [
+            ("project_id", "project"),
+            ("dataset_version", "dataset version"),
+            ("target", "target"),
+            ("feature_manifest_version", "feature manifest"),
+            ("split_id", "governed split"),
+        ]
+        for key, label in active_requirements:
+            if not str(binding.get(key) or "").strip():
+                return (
+                    f"The active workspace has no current {label} binding. "
+                    "Reconfirm preparation, recreate the governed split, and retrain before using a final model."
+                )
+
+        artifact_requirements = [
+            ("project_id", "project"),
+            ("dataset_version", "dataset version"),
+            ("target", "target"),
+            ("problem_type", "problem type"),
+            ("feature_manifest_version", "feature manifest"),
+            ("split_id", "governed split"),
+        ]
+        for key, label in artifact_requirements:
+            actual = str(metadata.get(key) or "").strip()
+            current = str(binding.get(key) or "").strip()
+            if not actual:
+                return (
+                    f"The final model is missing its {label} binding. "
+                    "Retrain and save a new final model before scoring or export."
+                )
+            if current and actual != current:
+                return (
+                    f"The final model is stale because its {label} does not match the active workspace. "
+                    "Retrain and save a new final model."
+                )
+
+        training_job_id = str(
+            metadata.get("training_job_id")
+            or metadata.get("training_run_id")
+            or ""
+        ).strip()
+        if not training_job_id:
+            return (
+                "The final model is missing its training job binding. "
+                "Retrain and save a new final model before scoring or export."
+            )
+
+        for key, label in (
+            ("validation_design_id", "validation design"),
+            ("validation_design_version", "validation design version"),
+        ):
+            current = str(binding.get(key) or "").strip()
+            actual = str(metadata.get(key) or "").strip()
+            if current and not actual:
+                return (
+                    f"The final model is missing its {label} binding. "
+                    "Retrain under the approved validation design."
+                )
+            if current and actual != current:
+                return (
+                    f"The final model is stale because its {label} does not match the active workspace. "
+                    "Retrain under the current validation design."
+                )
+        return ""
+
+    def _promotion_context_mismatch(
+        self,
+        model_name: str,
+        expected: Dict[str, Any] | None = None,
+    ) -> str:
+        """Validate the selected fitted artifact before promoting it to final."""
+        binding = self._active_model_binding(expected)
+        metadata = RESULTS.get_model_artifact_metadata(model_name) or {}
+        summary = RESULTS.get_last_summary() or {}
+
+        # The active workspace binding is authoritative. Empty or stale
+        # request snapshots must never override current dataset/target identity.
+        basic_mismatch = self._artifact_context_mismatch(model_name, {**(expected or {}), **binding})
+        if basic_mismatch:
+            return basic_mismatch
+        if not binding.get("split_materialized") or not binding.get("split_id"):
+            return "The governed split is no longer current. Recreate the split and retrain before saving a final model."
+
+        checks = [
+            ("feature_manifest_version", "feature manifest"),
+            ("split_id", "governed split"),
+        ]
+        for key, label in checks:
+            current = str(binding.get(key) or "").strip()
+            actual = str(metadata.get(key) or "").strip()
+            if not current:
+                return f"The active workspace has no current {label}. Reconfirm preparation and retrain."
+            if not actual:
+                return f"The selected model artifact is missing its {label} binding. Please retrain this model."
+            if actual != current:
+                return f"The selected model artifact does not match the current {label}. Please retrain this model."
+
+        artifact_run = str(metadata.get("training_run_id") or metadata.get("training_job_id") or "").strip()
+        summary_run = str(summary.get("training_job_id") or summary.get("training_run_id") or "").strip()
+        if not artifact_run:
+            return "The selected model artifact is missing its training job binding. Please retrain this model."
+        if not summary_run or artifact_run != summary_run:
+            return "The selected model artifact is not part of the active training result. Please retrain this model."
+
+        for key, label in (
+            ("validation_design_id", "validation design"),
+            ("validation_design_version", "validation design version"),
+        ):
+            current = str(binding.get(key) or "").strip()
+            actual = str(metadata.get(key) or "").strip()
+            if current and not actual:
+                return f"The selected model artifact is missing its {label} binding. Please retrain this model."
+            if current and actual != current:
+                return f"The selected model artifact does not match the current {label}. Please retrain this model."
+        return ""
+
+    def _final_binding_metadata(
+        self,
+        model_name: str,
+        context: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        binding = self._active_model_binding(context)
+        artifact_metadata = RESULTS.get_model_artifact_metadata(model_name) or {}
+        summary = RESULTS.get_last_summary() or {}
+        return {
+            "project_id": binding.get("project_id"),
+            "dataset_id": binding.get("dataset_id") or artifact_metadata.get("dataset_id"),
+            "dataset_version": binding.get("dataset_version"),
+            "target": binding.get("target"),
+            "problem_type": binding.get("problem_type"),
+            "feature_manifest_version": binding.get("feature_manifest_version"),
+            "split_id": binding.get("split_id"),
+            "validation_design_id": binding.get("validation_design_id") or None,
+            "validation_design_version": binding.get("validation_design_version") or None,
+            "training_job_id": (
+                artifact_metadata.get("training_job_id")
+                or artifact_metadata.get("training_run_id")
+                or summary.get("training_job_id")
+                or summary.get("training_run_id")
+            ),
+            "training_run_id": (
+                artifact_metadata.get("training_run_id")
+                or artifact_metadata.get("training_job_id")
+                or summary.get("training_job_id")
+                or summary.get("training_run_id")
+            ),
+        }
+
     def _artifact_context_mismatch(self, model_name: str, expected: Dict[str, Any] | None = None) -> str:
         expected = expected or {}
         metadata = RESULTS.get_model_artifact_metadata(model_name)
@@ -1780,7 +2015,7 @@ class EvaluationService:
         }
 
     def save_rfe_model(self, model_name: str = "", keep: int = 10, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
-        mismatch = self._artifact_context_mismatch(model_name, context) if model_name else None
+        mismatch = self._promotion_context_mismatch(model_name, context) if model_name else None
         if mismatch:
             return {"ok": False, "error": mismatch, "debug": self._artifact_debug(model_name, context)}
         X_train, X_test, y_train, y_test = DATASTORE.get_splits()
@@ -1839,10 +2074,7 @@ class EvaluationService:
             "source_model": model_name,
             "model_key": "final_rfe",
             "name": f"Final RFE {self._source_model_label(model_name)}",
-            "project_id": str((context or {}).get("project_id") or ""),
-            "dataset_version": str(DATASTORE.meta.get("dataset_version") or DATASTORE.meta.get("version_id") or "in-memory"),
-            "target": str(DATASTORE.target or ""),
-            "problem_type": "classification",
+            **self._final_binding_metadata(model_name, context),
             "feature_count": len(selected_features),
             "features": selected_features,
             "holdout_auc": auc,
@@ -1901,10 +2133,7 @@ class EvaluationService:
             "source_model": model_name,
             "model_key": "final_rfe_regression",
             "name": f"Final RFE {self._source_model_label(model_name)}",
-            "project_id": str((context or {}).get("project_id") or ""),
-            "dataset_version": str(DATASTORE.meta.get("dataset_version") or DATASTORE.meta.get("version_id") or "in-memory"),
-            "target": str(DATASTORE.target or ""),
-            "problem_type": "regression",
+            **self._final_binding_metadata(model_name, context),
             "feature_count": len(selected_features),
             "features": selected_features,
             "metrics": metrics,
@@ -1916,9 +2145,10 @@ class EvaluationService:
         RESULTS.set_final_model(artifact, metadata)
         return {"ok": True, "metadata": metadata}
 
-    def final_model_status(self) -> Dict[str, Any]:
+    def final_model_status(self, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
         artifact = RESULTS.get_final_model()
         metadata = RESULTS.get_final_model_metadata() or {}
+        mismatch = self._final_model_context_mismatch(metadata, context) if artifact is not None else ""
         if artifact is not None:
             summary = RESULTS.get_last_summary() or {}
             ranked = summary.get("ranked") or []
@@ -1945,15 +2175,29 @@ class EvaluationService:
             metadata = enriched
         return {
             "ok": True,
-            "ready": artifact is not None,
+            "ready": artifact is not None and not mismatch,
+            "artifact_present": artifact is not None,
+            "stale": bool(artifact is not None and mismatch),
+            "blocker": mismatch or None,
             "metadata": metadata if artifact is not None else {},
         }
 
-    def save_selected_model_as_final(self, model_name: str = "") -> Dict[str, Any]:
+    def save_selected_model_as_final(
+        self,
+        model_name: str = "",
+        context: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
         summary = RESULTS.get_last_summary() or {}
         ranked = summary.get("ranked") or []
         if not model_name:
             model_name = ranked[0].get("key") if ranked else ""
+        mismatch = self._promotion_context_mismatch(model_name, context) if model_name else ""
+        if mismatch:
+            return {
+                "ok": False,
+                "error": mismatch,
+                "debug": self._artifact_debug(model_name, {**self._active_model_binding(context), **(context or {})}),
+            }
         artifact = self._artifact(model_name)
         if artifact is None:
             return {"ok": False, "error": "No fitted model artifact found for the selected model."}
@@ -1963,9 +2207,9 @@ class EvaluationService:
             "source_model": model_name,
             "model_key": model_name,
             "name": row.get("name") or model_name,
+            **self._final_binding_metadata(model_name, context),
             "source_estimator_class": artifact.__class__.__name__,
             "final_estimator_class": artifact.__class__.__name__,
-            "problem_type": summary.get("problem_type"),
             "feature_count": int(len(X_train.columns)) if X_train is not None else None,
             "features": list(X_train.columns) if X_train is not None else [],
             "metrics": {
@@ -2147,16 +2391,29 @@ class EvaluationService:
             final_model = RESULTS.get_final_model()
             metadata = RESULTS.get_final_model_metadata() or {}
             if final_model is not None:
+                mismatch = self._final_model_context_mismatch(metadata)
+                if mismatch:
+                    raise ValueError(mismatch)
                 return final_model, metadata
+            raise ValueError("No governed final model is available for scoring. Save a current trained model as final first.")
         artifact = self._artifact(model_name)
         if artifact is None:
-            ranked = (RESULTS.get_last_summary() or {}).get("ranked") or []
-            default_key = ranked[0].get("key") if ranked else ""
-            artifact = self._artifact(default_key)
-            model_name = default_key
-        if artifact is None:
             raise ValueError("No model artifact is available for scoring.")
-        return artifact, {"model_key": model_name, "name": model_name}
+        mismatch = self._promotion_context_mismatch(model_name)
+        if mismatch:
+            raise ValueError(mismatch)
+        metadata = RESULTS.get_model_artifact_metadata(model_name) or {}
+        summary = RESULTS.get_last_summary() or {}
+        X_train, _, _, _ = DATASTORE.get_splits()
+        return artifact, {
+            **metadata,
+            "model_key": model_name,
+            "name": next(
+                (row.get("name") for row in (summary.get("ranked") or []) if row.get("key") == model_name),
+                model_name,
+            ),
+            "features": list(X_train.columns) if X_train is not None else [],
+        }
 
     def export_model_bundle(self, model_name: str = "final") -> Tuple[bytes, str]:
         _, metadata = self._resolve_scoring_model(model_name)
@@ -2197,7 +2454,10 @@ class EvaluationService:
     ) -> Dict[str, Any]:
         if df is None or df.empty:
             return {"ok": False, "error": "Uploaded scoring dataset is empty."}
-        model, metadata = self._resolve_scoring_model(model_name)
+        try:
+            model, metadata = self._resolve_scoring_model(model_name)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc), "stale_model": True}
         target = DATASTORE.target
         y_true = None
         original_df = df.reset_index(drop=True).copy()

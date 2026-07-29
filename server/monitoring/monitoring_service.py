@@ -454,14 +454,22 @@ class MonitoringService:
             "baselines": self.monitoring.list_baselines(plan["project_id"]),
         }
 
-    def summary(self) -> Dict[str, Any]:
-        plans = self.monitoring.list_plans(limit=1000)
-        alerts = self.monitoring.list_alerts(limit=1000)
-        actions = self.monitoring.list_actions(limit=1000)
+    def summary(self, project_ids: set[str] | None = None) -> Dict[str, Any]:
+        def allowed(record: Mapping[str, Any]) -> bool:
+            return project_ids is None or str(record.get("project_id") or "") in project_ids
+
+        plans = [record for record in self.monitoring.list_plans(limit=1000) if allowed(record)]
+        alerts = [record for record in self.monitoring.list_alerts(limit=1000) if allowed(record)]
+        actions = [record for record in self.monitoring.list_actions(limit=1000) if allowed(record)]
         runs = []
         for plan in plans:
             runs.extend(self.monitoring.list_runs(plan["monitoring_plan_id"], limit=20))
         open_alerts = [a for a in alerts if a.get("status") not in {"resolved", "closed", "accepted_risk"}]
+        recent_events = [
+            record
+            for record in self.monitoring.list_events(limit=500)
+            if allowed(record)
+        ][:30]
         return {
             "active_plans": len([p for p in plans if p.get("plan_status") == "active"]),
             "total_plans": len(plans),
@@ -475,7 +483,7 @@ class MonitoringService:
             "plans_by_status": dict(Counter(p.get("plan_status") or "draft" for p in plans)),
             "alerts_by_severity": dict(Counter(a.get("severity") or "medium" for a in open_alerts)),
             "breaches_by_workflow_type": dict(Counter(p.get("workflow_type") or "generic" for p in plans if any(a.get("monitoring_plan_id") == p.get("monitoring_plan_id") and a.get("status") not in {"resolved", "closed", "accepted_risk"} for a in alerts))),
-            "recent_events": self.monitoring.list_events(limit=30),
+            "recent_events": recent_events,
             "latest_alerts": alerts[:30],
         }
 

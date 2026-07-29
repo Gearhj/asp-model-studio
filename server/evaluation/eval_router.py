@@ -5,7 +5,7 @@ import hashlib
 from typing import Any, Dict
 
 import pandas as pd
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from ..core.modeling_scope import authorize_modeling_scope
 from ..core.result_store import RESULTS
@@ -268,10 +268,18 @@ def _register_model_version(user: Dict[str, Any], project_id: str, metadata: Dic
             interpretation_summary=interpretation_summary,
             training_run_id=summary.get("training_job_id"),
             dataset_id=summary.get("dataset_id"),
-            dataset_version_id=None,  # no registered Dataset Library version necessarily exists for a workspace-trained project
+            dataset_version_id=metadata.get("dataset_version") or summary.get("dataset_version"),
             feature_manifest_version=summary.get("feature_manifest_version") or metadata.get("feature_manifest_version"),
             training_timestamp=RESULTS.training_timestamp,
-            lineage={"datasetVersionLabel": summary.get("dataset_version"), "splitId": summary.get("split_id")},
+            lineage={
+                "datasetVersionLabel": metadata.get("dataset_version") or summary.get("dataset_version"),
+                "splitId": metadata.get("split_id") or summary.get("split_id"),
+                "validationDesignId": metadata.get("validation_design_id") or summary.get("validation_design_id"),
+                "validationDesignVersion": metadata.get("validation_design_version") or summary.get("validation_design_version"),
+                "trainingJobId": metadata.get("training_job_id") or summary.get("training_job_id"),
+                "featureManifestVersion": metadata.get("feature_manifest_version") or summary.get("feature_manifest_version"),
+                "target": metadata.get("target") or summary.get("target"),
+            },
         )
         return saved
     except Exception:  # noqa: BLE001
@@ -303,10 +311,15 @@ def save_rfe_final_model(request: dict, user: Dict[str, Any] = Depends(require_u
 
 @router.post("/model/save_final")
 def save_selected_final_model(request: dict, user: Dict[str, Any] = Depends(require_user)):
-    project_id = str(request.get("project_id") or "")
-    authorize_modeling_scope(user, project_id, "edit")
+    project_id = authorize_modeling_scope(user, str(request.get("project_id") or ""), "edit")
     result = EVAL.save_selected_model_as_final(
         model_name=str(request.get("model") or ""),
+        context=_context(
+            project_id,
+            str(request.get("dataset_version") or ""),
+            str(request.get("target") or ""),
+            str(request.get("problem_type") or ""),
+        ),
     )
     if result.get("ok"):
         registered = _register_model_version(user, project_id, result["metadata"])
@@ -321,7 +334,7 @@ def save_selected_final_model(request: dict, user: Dict[str, Any] = Depends(requ
 @router.get("/model/final/status")
 def get_final_model_status(project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)):
     authorize_modeling_scope(user, project_id, "view")
-    return EVAL.final_model_status()
+    return EVAL.final_model_status(context={"project_id": project_id})
 
 
 @router.get("/model/export")
@@ -332,7 +345,10 @@ def export_model(project_id: str = Query(...), model: str = "final", format: str
             "ok": False,
             "error": "Only JSON model manifests are exported. Executable model objects must be deployed through a signed model registry or approved ONNX/skops pipeline.",
         }
-    content, filename = EVAL.export_model_bundle(model_name=model)
+    try:
+        content, filename = EVAL.export_model_bundle(model_name=model)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     return Response(
         content=content,
         media_type="application/json",

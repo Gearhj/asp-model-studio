@@ -212,12 +212,29 @@ test("18. IV >= 0.50 produces unusually-strong review semantics", () => {
   assert.equal(profile.signalStrength({ iv: 0.001, ivStatus: "available" }).key, "not_predictive");
 });
 
-test("19. high IV alone never yields likely or confirmed leakage", () => {
+test("19. high IV alone never yields ANY automated leakage signal", () => {
+  // STRENGTHENED, not weakened. This previously asserted `review_recommended`,
+  // which encoded the very conflation the walkthrough ordered removed: IV was
+  // the leakage verdict, so ~23 of 30 governed CLASS_TRAIN predictors were
+  // flagged purely for separating the target well. An independent reference
+  // implementation (tests/iv_reference_test.py) confirmed that separation is
+  // real signal. Association strength is now reported ONLY by signalStrength();
+  // leakage requires actual evidence. The test title's guarantee still holds and
+  // is now stricter.
   const state = profile.leakageScreen({ iv: 3.6283, ivStatus: "available", role: "eligible", eligible: true });
-  assert.equal(state, "review_recommended");
+  assert.equal(state, "no_automated_signal");
   assert.notEqual(state, "likely_leakage");
   assert.notEqual(state, "confirmed_leakage");
-  assert.equal(profile.LEAKAGE_SCREEN_LABELS[state], "Review recommended");
+  assert.equal(profile.LEAKAGE_SCREEN_LABELS[state], "No automated leakage signal");
+  // The review channel is preserved -- via signal strength, where it belongs.
+  const strength = profile.signalStrength({ iv: 3.6283, ivStatus: "available" });
+  assert.equal(strength.key, "unusually_strong");
+  assert.equal(strength.reviewRecommended, true);
+  // Real evidence still flags.
+  assert.equal(
+    profile.leakageScreen({ iv: 0.01, ivStatus: "available", role: "potential_leakage", eligible: true }),
+    "review_recommended",
+  );
   // A normal IV reports the precise meaning, not the ambiguous "Eligible".
   const normal = profile.leakageScreen({ iv: 0.12, ivStatus: "available", role: "eligible", eligible: true });
   assert.equal(profile.LEAKAGE_SCREEN_LABELS[normal], "No automated leakage signal");

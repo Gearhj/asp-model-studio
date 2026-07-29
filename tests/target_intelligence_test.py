@@ -344,6 +344,19 @@ class TargetIntelligenceAggregateTests(unittest.TestCase):
         # The fixture concentrates events in the highest V4 bands.
         self.assertEqual(result["summary"]["highest"]["label"], "Q10")
 
+        boxes = result["boxPlotByTarget"]
+        self.assertEqual({row["targetClass"] for row in boxes}, {"event", "non_event"})
+        self.assertEqual(sum(row["population"] for row in boxes), CLASS_TRAIN_ROWS)
+        for row in boxes:
+            self.assertLessEqual(row["minimum"], row["q1"])
+            self.assertLessEqual(row["q1"], row["median"])
+            self.assertLessEqual(row["median"], row["q3"])
+            self.assertLessEqual(row["q3"], row["maximum"])
+            self.assertGreaterEqual(row["whiskerLow"], row["minimum"])
+            self.assertLessEqual(row["whiskerHigh"], row["maximum"])
+            self.assertGreaterEqual(row["outlierCount"], 0)
+            self.assertNotIn("values", row)
+
     def test_band_count_is_bounded(self):
         self.assertEqual(len(self._by_predictor(bands=999)["rows"]), tis.MAX_BANDS)
         result_cache.RESULT_CACHE.invalidate_dataset("*")

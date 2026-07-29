@@ -5,9 +5,21 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..core.modeling_scope import authorize_modeling_scope
-from ..security.security_store import require_user
-from .feature_service import delete_feature, get_manifest, materialize_manifest, preview_features, update_manifest
-from .feature_types import FeatureManifestUpdateRequest, FeatureMaterializeRequest, FeaturePreviewRequest
+from ..security.security_store import audit_event, require_user
+from .feature_service import (
+    confirm_manifest,
+    delete_feature,
+    get_manifest,
+    materialize_manifest,
+    preview_features,
+    update_manifest,
+)
+from .feature_types import (
+    FeatureConfirmRequest,
+    FeatureManifestUpdateRequest,
+    FeatureMaterializeRequest,
+    FeaturePreviewRequest,
+)
 
 
 router = APIRouter()
@@ -26,7 +38,21 @@ def feature_manifest(project_id: str = Query(...), user: Dict[str, Any] = Depend
 def save_feature_manifest(request: FeatureManifestUpdateRequest, user: Dict[str, Any] = Depends(require_user)):
     authorize_modeling_scope(user, request.project_id, "edit")
     try:
-        return update_manifest(request)
+        result = update_manifest(request)
+        audit_event(
+            "modeling.feature_manifest.saved",
+            "project",
+            request.project_id,
+            "success",
+            metadata={
+                "projectId": request.project_id,
+                "manifestHash": result.get("manifest_hash"),
+                "featureCount": len(result.get("features") or []),
+                "validationStatus": result.get("validation_status"),
+            },
+            user_id=user.get("userId"),
+        )
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -35,7 +61,25 @@ def save_feature_manifest(request: FeatureManifestUpdateRequest, user: Dict[str,
 def feature_preview(request: FeaturePreviewRequest, user: Dict[str, Any] = Depends(require_user)):
     authorize_modeling_scope(user, request.project_id, "view")
     try:
-        return preview_features(request.features, request.preview_limit)
+        result = preview_features(
+            request.features,
+            request.preview_limit,
+            request.manifest_version,
+        )
+        audit_event(
+            "modeling.feature_manifest.previewed",
+            "project",
+            request.project_id,
+            "success",
+            metadata={
+                "projectId": request.project_id,
+                "manifestHash": result.get("manifest_hash"),
+                "previewHash": result.get("preview_hash"),
+                "previewRows": result.get("rows"),
+            },
+            user_id=user.get("userId"),
+        )
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -44,7 +88,47 @@ def feature_preview(request: FeaturePreviewRequest, user: Dict[str, Any] = Depen
 def feature_materialize(request: FeatureMaterializeRequest, user: Dict[str, Any] = Depends(require_user)):
     authorize_modeling_scope(user, request.project_id, "edit")
     try:
-        return materialize_manifest(request.manifest_version)
+        result = materialize_manifest(request.manifest_version, request.preview_hash)
+        audit_event(
+            "modeling.feature_manifest.materialized",
+            "project",
+            request.project_id,
+            "success",
+            metadata={
+                "projectId": request.project_id,
+                "manifestHash": result.get("manifest_hash"),
+                "materializationHash": result.get("materialization_hash"),
+                "materializedRows": result.get("rows"),
+            },
+            user_id=user.get("userId"),
+        )
+        return result
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post("/features/confirm")
+def feature_confirm(request: FeatureConfirmRequest, user: Dict[str, Any] = Depends(require_user)):
+    authorize_modeling_scope(user, request.project_id, "edit")
+    try:
+        result = confirm_manifest(
+            request.manifest_version,
+            request.materialization_hash,
+        )
+        audit_event(
+            "modeling.feature_manifest.confirmed",
+            "project",
+            request.project_id,
+            "success",
+            metadata={
+                "projectId": request.project_id,
+                "manifestHash": result.get("manifest_hash"),
+                "materializationHash": result.get("materialization_hash"),
+                "confirmationStatus": result.get("confirmation_status"),
+            },
+            user_id=user.get("userId"),
+        )
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -53,7 +137,19 @@ def feature_materialize(request: FeatureMaterializeRequest, user: Dict[str, Any]
 def remove_feature(feature_id: str, project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)):
     authorize_modeling_scope(user, project_id, "edit")
     try:
-        return delete_feature(feature_id)
+        result = delete_feature(feature_id, project_id)
+        audit_event(
+            "modeling.feature_manifest.feature_removed",
+            "project",
+            project_id,
+            "success",
+            metadata={
+                "projectId": project_id,
+                "featureId": feature_id,
+                "manifestHash": result.get("manifest_hash"),
+            },
+            user_id=user.get("userId"),
+        )
+        return result
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-

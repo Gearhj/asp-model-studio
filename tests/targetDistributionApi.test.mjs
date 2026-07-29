@@ -27,6 +27,18 @@ async function compile() {
 
 const api = await compile();
 
+async function compileLifecycle() {
+  const source = await readFile(new URL("src/lib/dataAcquisitionLifecycle.ts", ROOT), "utf8");
+  const output = ts.transpileModule(source, {
+    compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const outPath = path.join(TMP_DIR, "dataAcquisitionLifecycle.js");
+  await writeFile(outPath, output, "utf8");
+  return import(pathToFileURL(outPath).href);
+}
+
+const lifecycle = await compileLifecycle();
+
 const BASE_REQUEST = {
   projectId: "proj-1",
   datasetId: "ds-class-train",
@@ -92,6 +104,66 @@ test("concurrent identical requests share a single in-flight query", async () =>
   ]);
   assert.equal(calls.length, 1, "four identical concurrent requests must issue one network call");
   for (const result of results) assert.equal(result.totalRowCount, 170884);
+});
+
+test("StrictMode cleanup cancels only its caller; the remount exits loading and renders the governed distribution", async () => {
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const calls = [];
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, init });
+    await gate;
+    return {
+      ok: true,
+      json: async () => ({
+        ok: true,
+        supported: true,
+        resolution: "exact",
+        datasetId: BASE_REQUEST.datasetId,
+        versionId: BASE_REQUEST.versionId,
+        target: BASE_REQUEST.target,
+        classDistribution: [
+          { value: "0", count: 750, percent: 0.75 },
+          { value: "1", count: 250, percent: 0.25 },
+        ],
+        totalRowCount: 1000,
+        cached: false,
+        durationMs: 12,
+      }),
+    };
+  };
+
+  let panelState = "loading";
+  const firstMount = new AbortController();
+  const firstWait = api.fetchTargetDistribution(BASE_REQUEST, { signal: firstMount.signal });
+  const remountWait = api.fetchTargetDistribution({ ...BASE_REQUEST });
+
+  // React StrictMode cleans up the first effect immediately. That cleanup must
+  // not own or abort the de-duplicated fetch the remount has joined.
+  firstMount.abort();
+  await assert.rejects(firstWait, (error) => error?.name === "AbortError");
+  assert.equal(panelState, "loading");
+  assert.equal(calls.length, 1, "StrictMode remount must join one governed aggregate");
+  assert.equal(calls[0].init.signal, undefined, "no caller signal may own the shared network request");
+
+  release();
+  const result = await remountWait;
+  const rendered = lifecycle.buildTargetDistribution({
+    target: result.target,
+    classDistribution: result.classDistribution,
+    eventValue: BASE_REQUEST.eventValue,
+    nonEventValue: BASE_REQUEST.nonEventValue,
+  });
+  panelState = rendered ? "ready" : "empty";
+
+  assert.equal(panelState, "ready", "the remounted panel must leave loading");
+  assert.equal(rendered.totalRows, 1000);
+  assert.equal(rendered.eventCount, 250);
+  assert.equal(rendered.nonEventCount, 750);
+  assert.equal(rendered.eventPercent, 0.25);
+  assert.equal(rendered.nonEventPercent, 0.75);
 });
 
 // 5 -- cache is used for the same immutable version and target.

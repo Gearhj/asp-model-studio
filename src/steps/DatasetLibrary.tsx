@@ -438,10 +438,10 @@ export default function DatasetLibrary() {
                   Linked to this project
                 </span>
               )}
-              {primaryDatasetActions(actionsFor(dataset)).map((action) => (
-                <DatasetActionPrimaryControl key={action.id} action={action} onInvoke={(selected) => void invokeDatasetAction(dataset, selected)} />
-              ))}
-              <div className="ml-auto">
+              <div className="flex flex-wrap items-center gap-2" data-testid="dataset-card-primary-group">
+                {primaryDatasetActions(actionsFor(dataset)).map((action) => (
+                  <DatasetActionPrimaryControl key={action.id} action={action} onInvoke={(selected) => void invokeDatasetAction(dataset, selected)} />
+                ))}
                 <DatasetActionMenu
                   actions={overflowDatasetActions(actionsFor(dataset))}
                   datasetName={dataset.name}
@@ -494,7 +494,7 @@ function DatasetDetailTable({
 }) {
   return (
     <section className="min-w-0 overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-      <table className="min-w-[980px] w-full table-fixed text-left text-sm">
+      <table className="min-w-[1360px] w-full table-fixed text-left text-sm">
         <thead className="sticky top-0 z-10 bg-slate-100 text-[11px] uppercase tracking-wide text-slate-500">
           <tr>
             <SortableDatasetHeader label="Dataset Name" sortKey="name" activeSort={sort} onSort={onSort} />
@@ -505,7 +505,7 @@ function DatasetDetailTable({
             <SortableDatasetHeader label="Updated" sortKey="updated" activeSort={sort} onSort={onSort} />
             <th className="px-3 py-3">Linked Projects</th>
             <SortableDatasetHeader label="Status" sortKey="status" activeSort={sort} onSort={onSort} />
-            <th className="sticky right-0 z-20 border-l border-slate-200 bg-slate-100 px-3 py-3 shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)]">Actions</th>
+            <th className="sticky right-0 z-20 w-[352px] min-w-[352px] border-l border-slate-200 bg-slate-100 px-3 py-3 shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)]">Actions</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-slate-100">
@@ -532,12 +532,12 @@ function DatasetDetailTable({
                   {dataset.archived ? "Archived" : isSqlResultDataset(dataset) ? "SQL Result" : isScoredOutputDataset(dataset) ? "Scored Output" : "Active"}
                 </span>
               </td>
-              <td className="sticky right-0 z-10 border-l border-slate-200 bg-white px-3 py-2 shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)]">
+              <td className="sticky right-0 z-10 w-[352px] min-w-[352px] border-l border-slate-200 bg-white px-3 py-2 align-middle shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)]">
                 {/* Same `DatasetAction` objects Card View renders -- only the
                     presentation differs. Tooltips, accessible names, disabled
                     reasons, handlers, and confirmation are all shared. */}
                 <div
-                  className="flex items-center justify-end gap-1"
+                  className="flex flex-nowrap items-center justify-end gap-1 whitespace-nowrap [&>*]:shrink-0"
                   data-testid={`dataset-row-actions-${dataset.datasetId}`}
                   data-linked-to-current-project={isLinkedToCurrent(dataset) ? "true" : "false"}
                 >

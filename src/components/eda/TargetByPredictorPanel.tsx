@@ -4,7 +4,7 @@
 // type and presses Run Analysis; only then is a single grouped aggregate issued
 // over the governed artifact. The chart plots the returned bounded rows -- the
 // predictor column and the target column never reach the browser.
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { EChartsOption } from "echarts";
 import type * as echarts from "echarts/core";
 import { LoaderCircle, Play, RotateCcw, Search, Download } from "lucide-react";
@@ -15,9 +15,13 @@ import {
   formatCount,
   type TargetByPredictorResult,
   type TargetPredictorAnalysisType,
+  type TargetPredictorBoxPlot,
   type TargetPredictorGroup,
 } from "../../lib/targetIntelligence";
 import type { TargetByPredictorState } from "../../lib/useTargetIntelligence";
+import StatisticalBoxPlot, {
+  type BoxPlotSeries,
+} from "./visual/StatisticalBoxPlot";
 
 const RATE_COLOR = "#b91c1c";
 const COUNT_COLOR = "#1d4ed8";
@@ -28,6 +32,44 @@ export type PredictorOption = { feature: string; kind: "numeric" | "categorical"
 
 function groupLabel(row: TargetPredictorGroup): string {
   return row.category ?? row.label ?? "Group";
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function targetBoxPlotSeries(
+  rows: TargetPredictorBoxPlot[] | undefined,
+): BoxPlotSeries[] {
+  return (rows ?? []).flatMap((row) => {
+    if (
+      !isFiniteNumber(row.minimum) ||
+      !isFiniteNumber(row.q1) ||
+      !isFiniteNumber(row.median) ||
+      !isFiniteNumber(row.q3) ||
+      !isFiniteNumber(row.maximum) ||
+      !isFiniteNumber(row.whiskerLow) ||
+      !isFiniteNumber(row.whiskerHigh)
+    ) {
+      return [];
+    }
+    return [
+      {
+        id: row.targetClass,
+        label: row.label,
+        count: row.population,
+        minimum: row.minimum,
+        q1: row.q1,
+        median: row.median,
+        q3: row.q3,
+        maximum: row.maximum,
+        whiskerLow: row.whiskerLow,
+        whiskerHigh: row.whiskerHigh,
+        outlierCount: row.outlierCount,
+        color: row.targetClass === "event" ? "#dc2626" : "#0f766e",
+      },
+    ];
+  });
 }
 
 /**
@@ -136,6 +178,7 @@ const PHASE_LABELS: Record<TargetByPredictorState["phase"], string> = {
 
 export default function TargetByPredictorPanel({
   predictors,
+  requestedPredictor,
   state,
   disabledReason,
   scopeNotice,
@@ -143,6 +186,8 @@ export default function TargetByPredictorPanel({
   onReset,
 }: {
   predictors: PredictorOption[];
+  /** Optional selection initiated by the bounded Target predictor preview. */
+  requestedPredictor?: string;
   state: TargetByPredictorState;
   /** Set when the analysis genuinely cannot run, so the controls explain why. */
   disabledReason?: string;
@@ -173,8 +218,20 @@ export default function TargetByPredictorPanel({
     return filtered.slice(0, 300);
   }, [predictors, search]);
 
-  const selected = predictors.find((item) => item.feature === predictor) ?? null;
   const result = state.result;
+  const boxPlotSeries =
+    result?.analysisType === "numeric_quantile"
+      ? targetBoxPlotSeries(result.boxPlotByTarget)
+      : [];
+
+  useEffect(() => {
+    const requested = requestedPredictor || result?.predictor || "";
+    const option = predictors.find((item) => item.feature === requested);
+    if (!option || requested === predictor) return;
+    setPredictor(requested);
+    setSearch("");
+    setAnalysisType(option.kind === "numeric" ? "numeric_quantile" : "categorical");
+  }, [predictor, predictors, requestedPredictor, result?.predictor]);
 
   const option = useMemo(
     () => (result && result.rows.length ? buildOption(result, reducedMotion) : null),
@@ -366,6 +423,18 @@ export default function TargetByPredictorPanel({
                 errorMessage={state.error ?? "The analysis could not be rendered."}
               />
             </div>
+            {boxPlotSeries.length ? (
+              <div className="mt-4">
+                <StatisticalBoxPlot
+                  title={`${result.predictor} by ${result.target} class`}
+                  subtitle="Compare the predictor’s center, spread, whiskers, and outlier burden for the event and non-event populations."
+                  series={boxPlotSeries}
+                  valueLabel={result.predictor}
+                  dataTestId="target-predictor-box-plot"
+                  note="Quartiles, observed whiskers, extremes, and outlier counts are aggregated exactly on the server. Raw predictor and target values do not leave the governed analysis service."
+                />
+              </div>
+            ) : null}
             <p className="sr-only" data-testid="target-by-predictor-summary">
               {describeTargetByPredictor(result, formatEventRate)}
             </p>

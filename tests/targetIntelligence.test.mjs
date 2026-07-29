@@ -31,13 +31,38 @@ const lib = await transpile("src/lib/targetIntelligence.ts", "targetIntelligence
 const api = await transpile("src/lib/targetIntelligenceApi.ts", "targetIntelligenceApi.js");
 
 const workspace = await readFile(new URL("src/components/eda/TargetIntelligenceWorkspace.tsx", ROOT), "utf8");
+const targetVisuals = await readFile(new URL("src/components/eda/TargetVisualInsights.tsx", ROOT), "utf8");
 const predictorPanel = await readFile(new URL("src/components/eda/TargetByPredictorPanel.tsx", ROOT), "utf8");
+const predictorDistribution = await readFile(
+  new URL("src/components/eda/visual/PredictorDistributionExplorer.tsx", ROOT),
+  "utf8",
+);
+const statisticalBoxPlot = await readFile(
+  new URL("src/components/eda/visual/StatisticalBoxPlot.tsx", ROOT),
+  "utf8",
+);
 const findingsPanel = await readFile(new URL("src/components/eda/TargetFindingsPanel.tsx", ROOT), "utf8");
+const distributionPanel = await readFile(new URL("src/components/dataAcquisition/TargetDistributionPanel.tsx", ROOT), "utf8");
+const documentationPayload = await readFile(new URL("src/lib/edaDocumentationPayload.ts", ROOT), "utf8");
 const eda = await readFile(new URL("src/steps/Step02_EDA.tsx", ROOT), "utf8");
 const hooks = await readFile(new URL("src/lib/useTargetIntelligence.ts", ROOT), "utf8");
 const packageJson = JSON.parse(await readFile(new URL("package.json", ROOT), "utf8"));
 
-const ALL_SOURCES = [workspace, predictorPanel, findingsPanel, hooks];
+const ALL_SOURCES = [workspace, targetVisuals, predictorPanel, findingsPanel, hooks];
+
+test("Target and Predictor views render exact-statistic box plots", () => {
+  assert.match(predictorPanel, /result\.boxPlotByTarget/);
+  assert.match(predictorPanel, /dataTestId="target-predictor-box-plot"/);
+  assert.match(predictorPanel, /aggregated exactly on the server/i);
+  assert.match(predictorDistribution, /dataTestId="eda-predictor-box-plot"/);
+  assert.match(predictorDistribution, /displayData\?\.statistics|data\?\.statistics/);
+  assert.match(statisticalBoxPlot, /row\.q1/);
+  assert.match(statisticalBoxPlot, /row\.median/);
+  assert.match(statisticalBoxPlot, /row\.q3/);
+  assert.match(statisticalBoxPlot, /row\.whiskerLow/);
+  assert.match(statisticalBoxPlot, /row\.whiskerHigh/);
+  assert.doesNotMatch(statisticalBoxPlot, /Math\.random|jitter|synthetic/i);
+});
 
 // --- 19: the Target page is substantially more than Overview ---------------
 
@@ -69,9 +94,10 @@ test("19 -- the Target workspace is substantially richer than the Overview panel
   const renderMarkers = [
     "<TargetIdentitySection",
     'title="Class Balance and Prevalence"',
-    "<RareEventSection",
-    "<ConfidenceIntervalSection",
+    "<TargetQualityDiagnostic",
+    "<TargetPredictorPreview",
     'title="Target by Predictor"',
+    "<RareEventSection",
     "<TimeAndSegmentSection",
     "<TargetQualitySection",
     'title="Target Findings and Evidence"',
@@ -172,7 +198,10 @@ test("22 -- class balance is the exact server aggregate, never a browser preview
     "target-imbalance-ratio",
     "target-total-population",
   ]) {
-    assert.ok(workspace.includes(`"${testId}"`), `Class balance must expose ${testId}.`);
+    assert.ok(
+      workspace.includes(`"${testId}"`) || targetVisuals.includes(`"${testId}"`),
+      `Class balance must expose ${testId}.`
+    );
   }
   // The scope mode leads the identity (Governed Analysis Scope phase), so a
   // draft response can never satisfy a governed request.
@@ -242,6 +271,75 @@ test("24 -- the confidence interval is displayed with its method and bounds", ()
   assert.match(described, /Wilson score interval/);
   assert.match(described, /0\.2107%/);
   assert.match(described, /360 events in 170,884 rows/);
+});
+
+test("24b -- final-acceptance Target visuals answer distinct governed questions", () => {
+  for (const marker of [
+    "target-balance-confidence",
+    "target-balance-bar",
+    "target-wilson-confidence-band",
+    "target-quality-diagnostic",
+    "target-event-rate-predictor-preview",
+    "target-predictor-sparkline",
+  ]) {
+    assert.ok(targetVisuals.includes(`"${marker}"`), `Target visual suite must expose ${marker}.`);
+  }
+  assert.match(targetVisuals, /data-scope="full-governed-population"/);
+  assert.match(targetVisuals, /preview\?\.scope/);
+  assert.match(targetVisuals, /High IV is a review signal, not automatic leakage/);
+  assert.match(targetVisuals, /data-reduced-motion=/);
+  assert.match(targetVisuals, /reducedMotion \? "" : "transition/);
+});
+
+test("24c -- lineage is ordered source, class mappings, then modeled target", () => {
+  const lineage = workspace.slice(
+    workspace.indexOf('data-testid="target-governed-lineage"'),
+    workspace.indexOf('className="eda-metric-rail', workspace.indexOf('data-testid="target-governed-lineage"'))
+  );
+  const steps = [
+    'data-lineage-step="source"',
+    'data-lineage-step="event-mapping"',
+    'data-lineage-step="non-event-mapping"',
+    'data-lineage-step="modeled-target"',
+  ].map((marker) => lineage.indexOf(marker));
+  assert.ok(steps.every((index) => index >= 0));
+  assert.deepEqual(steps, [...steps].sort((a, b) => a - b));
+  assert.match(workspace, /"RiskPerformance"/);
+  assert.match(lineage, /\{sourceLabel\}/);
+  assert.match(lineage, /"Bad"/);
+  assert.match(lineage, /"Good"/);
+  assert.match(lineage, /Source excluded/);
+});
+
+test("24d -- preview click loads the existing full explorer without one request per preview card", () => {
+  assert.match(workspace, /predictor_preview/);
+  assert.match(workspace, /onInspect=\{inspectPreviewPredictor\}/);
+  assert.match(workspace, /runPredictorAnalysis\(\{/);
+  assert.match(workspace, /requestedPredictor=\{requestedPredictor\}/);
+  assert.doesNotMatch(targetVisuals, /fetch\(/, "Preview cards must consume the batched Target response.");
+  assert.match(targetVisuals, /new Set\(\[target, \.\.\.targetSourceExcluded\]\)/);
+  assert.match(targetVisuals, /\.slice\(0, 5\)/);
+});
+
+test("24e -- target distribution exposes loading, success, empty, error, and retry", () => {
+  assert.match(distributionPanel, /loadingMessage="Calculating target distribution from the registered dataset\.\.\."/);
+  assert.match(distributionPanel, /emptyMessage="Confirm a target column to see its distribution\."/);
+  assert.match(distributionPanel, /errorMessage=/);
+  assert.match(distributionPanel, /data-testid="retry-target-distribution"/);
+  assert.match(distributionPanel, /data-query-phase=\{query\.phase\}/);
+  assert.match(workspace, /serverDistribution\.phase === "queued"/);
+  assert.match(workspace, /serverDistribution\.phase === "failed"/);
+  assert.match(workspace, /distribution\s*\?\s*"ready"\s*:\s*"empty"/);
+});
+
+test("24f -- new Target visual evidence is carried into the documentation draft", () => {
+  for (const field of [
+    "balance_and_confidence",
+    "quality_diagnostic",
+    "predictor_preview",
+  ]) {
+    assert.match(documentationPayload, new RegExp(`${field}:`), `Documentation payload must carry ${field}.`);
+  }
 });
 
 // --- 26 / 27: on-demand predictor analysis --------------------------------
@@ -496,5 +594,5 @@ test("guard -- the phase does not reintroduce scoring-run controls on developmen
   for (const source of ALL_SOURCES) {
     assert.doesNotMatch(source, /Compare Runs|Scoring Run|scoringRunId|TRAIN \/ TEST|OOT/, "Development EDA must stay free of scoring-run controls.");
   }
-  assert.match(eda, /title="Predictor Inventory and Investigation"/, "The Predictor area must not regress.");
+  assert.match(eda, /title="Detailed Predictor Profiles"/, "The Predictor area must not regress.");
 });

@@ -1,15 +1,19 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  Activity,
   AlertTriangle,
+  ArrowRight,
   BarChart3,
   CheckCircle2,
+  CircleAlert,
   Database,
   Download,
+  FileText,
   FileSearch,
   GitCompareArrows,
+  Layers3,
   LoaderCircle,
   RefreshCw,
-  Save,
   Search,
   ShieldCheck,
   Target,
@@ -20,23 +24,62 @@ import {
   AtlasAttentionPanel,
   AtlasDataScopeBadge,
   AtlasWorkflowSection,
-  type AtlasWorkflowMetric,
 } from "../components/ui/AtlasWorkflow";
 import { createEvidence } from "../lib/evidenceGraph";
 import { logDecision } from "../lib/decisionJournal";
 import { loadLocalDataset } from "../lib/localDataset";
 import { useWorkflowStore } from "../state/useWorkflowStore";
-import { formatNullableMetric, getDatasetScopeLabel, safeArray, safeObject } from "../lib/workflowSafety";
-import VisualAnalysisPanel from "../visual-intelligence/production/VisualAnalysisPanel";
-import DistributionExplorer from "../visual-intelligence/prototypes/DistributionExplorer";
+import { formatNullableMetric, safeArray, safeObject } from "../lib/workflowSafety";
 import TargetIntelligenceWorkspace from "../components/eda/TargetIntelligenceWorkspace";
+import FindingsDecisionWorkspace from "../components/eda/FindingsDecisionWorkspace";
 import type { PredictorOption } from "../components/eda/TargetByPredictorPanel";
+import PredictorDistributionExplorer from "../components/eda/visual/PredictorDistributionExplorer";
+import {
+  LazyPredictorSecondaryInsights,
+  PredictorSignalLandscape,
+} from "../components/eda/visual/PredictorVisualSuite";
+import CorrelationExplorer from "../components/eda/visual/CorrelationExplorer";
+import VifExplorer, {
+  type VifSimulationRequest,
+  type VifSimulationResult,
+} from "../components/eda/visual/VifExplorer";
+import {
+  useEdaVisualSelection,
+  type EdaNumericRange,
+} from "../state/useEdaVisualSelection";
+import { recordEdaPerformance } from "../visual-intelligence/performance";
+import { writeEdaCodeContextSeed } from "../lib/codeContextSafety";
+import {
+  confirmEdaDocumentation,
+  getEdaDocumentationState,
+  saveEdaDocumentationDraft,
+  type EdaDocumentationEvidenceReference,
+  type EdaDocumentationState,
+} from "../lib/edaDocumentationApi";
+import { buildEdaDocumentationPayload } from "../lib/edaDocumentationPayload";
+import {
+  documentedFindingRows,
+  type EdaFindingsReviewState,
+} from "../lib/edaFindings";
+import "../components/eda/eda-premium.css";
+
+const RelationshipExplorer = React.lazy(
+  () => import("../components/eda/visual/RelationshipExplorer"),
+);
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
   "http://127.0.0.1:8001/api";
 
 const FINDINGS_KEY = "atlas-predictive-eda-findings-v2";
+const DOCUMENTATION_SECTIONS: EDATab[] = [
+  "overview",
+  "target",
+  "predictors",
+  "relationships",
+  "stability",
+  "findings",
+];
 
 type EDATab = "overview" | "target" | "predictors" | "relationships" | "stability" | "findings";
 type Scope = "full_dataset" | "complete_browser_dataset" | "preview_profile" | "rendered_sample" | "training_pipeline" | "unavailable";
@@ -56,11 +99,7 @@ type WorkspaceResponse = {
   [key: string]: any;
 };
 
-type FindingsState = {
-  commentary: string;
-  status: "draft" | "reviewed" | "accepted";
-  savedAt?: string;
-};
+type FindingsState = EdaFindingsReviewState;
 
 type EDAErrorState = {
   message: string;
@@ -71,13 +110,10 @@ type EDAErrorState = {
   technical?: string;
 };
 
-type HistogramFetchState = {
-  feature: string;
-  requestedBins: number;
-  bins: Array<{ bin: number; lower: number; upper: number; count: number }>;
-  rowCount?: number;
-  loading: boolean;
-  error?: string;
+type EdaQuickSummaryItem = {
+  label: string;
+  value: string;
+  tone?: "neutral" | "info" | "success" | "warning" | "danger";
 };
 
 const tabs: Array<{ id: EDATab; label: string; icon: LucideIcon }> = [
@@ -89,14 +125,58 @@ const tabs: Array<{ id: EDATab; label: string; icon: LucideIcon }> = [
   { id: "findings", label: "Findings", icon: FileSearch },
 ];
 
+const documentationImpactByTab: Record<
+  EDATab,
+  { title: string; detail: string }
+> = {
+  overview: {
+    title: "Population, quality, and readiness",
+    detail:
+      "The governed population, predictor inventory, integrity signals, exclusions, and readiness assessment will populate the EDA overview narrative.",
+  },
+  target: {
+    title: "Target definition and prevalence",
+    detail:
+      "Target lineage, class balance, uncertainty, quality, leakage review, and target-by-predictor findings will populate the target narrative.",
+  },
+  predictors: {
+    title: "Predictor evidence and notable findings",
+    detail:
+      "Authorized predictors, distribution summaries, missingness, IV, monotonicity, and reviewer findings will populate the predictor narrative.",
+  },
+  relationships: {
+    title: "Correlation, VIF, and relationship decisions",
+    detail:
+      "Pinned correlations, multicollinearity review, bounded relationship exploration, and retain/drop/combine rationale will populate the relationships narrative.",
+  },
+  stability: {
+    title: "Stability and segment availability",
+    detail:
+      "Available time or segment analysis—or the explicit governed not-available statement—will populate the stability narrative.",
+  },
+  findings: {
+    title: "Reviewer decisions and evidence",
+    detail:
+      "Duplicate treatment, approved findings, unresolved items, commentary, and evidence references will populate the findings narrative.",
+  },
+};
+
 function readFindings(): FindingsState {
   try {
     const parsed = JSON.parse(localStorage.getItem(FINDINGS_KEY) || "null");
-    if (parsed && typeof parsed.commentary === "string") return parsed;
+    if (parsed && typeof parsed.commentary === "string") {
+      return {
+        ...parsed,
+        duplicateTreatment:
+          parsed.duplicateTreatment === "exclude" || parsed.duplicateTreatment === "keep"
+            ? parsed.duplicateTreatment
+            : "review",
+      };
+    }
   } catch {
     // Invalid prior browser state should not block governed backend analysis.
   }
-  return { commentary: "", status: "draft" };
+  return { commentary: "", status: "draft", duplicateTreatment: "review" };
 }
 
 function formatNumber(value: unknown, digits = 2) {
@@ -136,8 +216,34 @@ export default function Step02EDA() {
   const [histogramBins, setHistogramBins] = useState(20);
   const [findings, setFindings] = useState<FindingsState>(readFindings);
   const [evidenceMessage, setEvidenceMessage] = useState("");
+  const [documentationState, setDocumentationState] =
+    useState<EdaDocumentationState | null>(null);
+  const [documentationHydrated, setDocumentationHydrated] = useState(false);
+  const [documentationMessage, setDocumentationMessage] = useState("");
+  const [confirmationPending, setConfirmationPending] = useState(false);
+  const [documentationEvidence, setDocumentationEvidence] = useState<
+    EdaDocumentationEvidenceReference[]
+  >([]);
   const requestSequence = useRef<Partial<Record<EDATab, number>>>({});
+  const documentationDraftTimer = useRef<number | null>(null);
+  const lastDraftVersion = useRef("");
+  const shellStartedAt = useRef(
+    typeof performance === "undefined" ? 0 : performance.now(),
+  );
+  const firstUsefulChartRecorded = useRef(false);
+  const compactPreambleRef = useRef<HTMLDivElement>(null);
+  const firstAnalyticalContentRef = useRef<HTMLDivElement>(null);
+  const [compactPreambleHeight, setCompactPreambleHeight] = useState<
+    number | null
+  >(null);
+  const [stickyTopOffset, setStickyTopOffset] = useState(120);
   const confirmedDataset = useMemo(() => loadLocalDataset(), []);
+  const selectedVariable = useEdaVisualSelection((state) => state.selectedVariable);
+  const selectedRange = useEdaVisualSelection((state) => state.selectedRange);
+  const pinnedPair = useEdaVisualSelection((state) => state.pinnedPair);
+  const relationshipAxes = useEdaVisualSelection((state) => state.relationshipAxes);
+  const setSelectionScope = useEdaVisualSelection((state) => state.setScope);
+  const clearVisualSelection = useEdaVisualSelection((state) => state.clearSelection);
 
   const overview = sections.overview;
   const available = overview?.available_fields ?? {};
@@ -182,18 +288,24 @@ export default function Step02EDA() {
       segment_field: segmentField || undefined,
       date_field: dateField || undefined,
       histogram_bins: histogramBins,
+      predictor_visual_shape_limit: 8,
       rendered_sample_limit: 5000,
     }),
     [confirmedDataset?.selected_columns, confirmedDataset?.target, dateField, histogramBins, overview?.event_value, overview?.problem_type, overview?.target, pairwiseFeatures, projectId, segmentField],
   );
 
-  async function loadSection(section: EDATab, force = false, overrides: Record<string, unknown> = {}) {
-    if (!force && sections[section]) return;
+  async function loadSection(
+    section: EDATab,
+    force = false,
+    overrides: Record<string, unknown> = {},
+  ): Promise<WorkspaceResponse | null> {
+    if (!force && sections[section]) return sections[section] ?? null;
     const endpoint = `${API_BASE}/eda/workspace/${section}`;
     const sequence = (requestSequence.current[section] ?? 0) + 1;
     requestSequence.current[section] = sequence;
     setLoading(section);
     setError(null);
+    const startedAt = typeof performance === "undefined" ? 0 : performance.now();
     try {
       const response = await fetch(endpoint, {
         method: "POST",
@@ -202,7 +314,7 @@ export default function Step02EDA() {
         body: JSON.stringify({ ...requestBody, ...overrides }),
       });
       const payload = await response.json().catch(() => null);
-      if (requestSequence.current[section] !== sequence) return;
+      if (requestSequence.current[section] !== sequence) return null;
       if (!response.ok || !payload?.ok) {
         const detail = safeObject(payload?.detail);
         setError({
@@ -218,21 +330,58 @@ export default function Step02EDA() {
           recovery: String(detail.recovery ?? "Return to Data Acquisition and re-register the dataset, or retry after confirming the backend is running."),
           technical: JSON.stringify(payload ?? { status: response.status }, null, 2),
         });
-        return;
+        return null;
       }
+      writeEdaCodeContextSeed(projectId, {
+        datasetId: datasetIdentity?.datasetId,
+        datasetVersion: String(
+          payload.dataset_version ?? datasetIdentity?.versionId ?? "",
+        ),
+        datasetName: datasetIdentity?.datasetName,
+        target: String(payload.target ?? ""),
+        predictorManifestId: String(
+          payload.predictor_authorization?.manifest_version ?? "",
+        ),
+        generatedAt: String(
+          payload.generated_at ?? new Date().toISOString(),
+        ),
+      });
       setSections((current) => ({ ...current, [section]: payload as WorkspaceResponse }));
+      recordEdaPerformance("full-tab-readiness", startedAt, {
+        section,
+        serverDurationMs: payload.duration_ms,
+        cacheStatus: payload.cache_status,
+      });
+      if (!firstUsefulChartRecorded.current) {
+        firstUsefulChartRecorded.current = true;
+        recordEdaPerformance("first-useful-chart", shellStartedAt.current, {
+          section,
+          datasetVersion: payload.dataset_version,
+        });
+      }
+      return payload as WorkspaceResponse;
     } catch (cause) {
-      if (requestSequence.current[section] !== sequence) return;
+      if (requestSequence.current[section] !== sequence) return null;
       setError({
         endpoint,
         code: "eda_backend_unavailable",
         message: cause instanceof Error ? cause.message : "ATLAS could not load this EDA section.",
         recovery: "Confirm the FastAPI backend is running, then retry. If the backend restarted, return to Data Acquisition and re-register the dataset.",
       });
+      return null;
     } finally {
       if (requestSequence.current[section] === sequence) setLoading(null);
     }
   }
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      recordEdaPerformance("initial-page-shell", shellStartedAt.current, {
+        route: "/step02",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, []);
 
   useEffect(() => {
     void loadSection("overview");
@@ -246,27 +395,222 @@ export default function Step02EDA() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
 
+  useEffect(() => {
+    if (activeTab !== "findings" || !sections.findings) return;
+    let cancelled = false;
+    const findingSources: EDATab[] = [
+      "target",
+      "predictors",
+      "relationships",
+      "stability",
+    ];
+    void (async () => {
+      for (const section of findingSources) {
+        if (cancelled) return;
+        await loadSection(section);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Findings consolidate already-governed section aggregates. Loading each
+    // missing section once here avoids a blank-notebook first experience while
+    // preserving the normal lazy behavior on every other EDA tab.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, sections.findings]);
+
+  useEffect(() => {
+    if (!overview?.dataset_version || !overview?.target) return;
+    setSelectionScope(`${projectId}:${overview.dataset_version}:${overview.target}`);
+    setPairwiseFeatures([]);
+  }, [overview?.dataset_version, overview?.target, projectId, setSelectionScope]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const controller = new AbortController();
+    setDocumentationHydrated(false);
+    setDocumentationMessage("");
+    getEdaDocumentationState(projectId, controller.signal)
+      .then((state) => {
+        if (cancelled) return;
+        setDocumentationState(state);
+        const source = state.draft ?? state.current_approved;
+        const evidence = source?.evidence_references ?? [];
+        setDocumentationEvidence(evidence);
+        lastDraftVersion.current = state.draft?.eda_analysis_version ?? "";
+      })
+      .catch((cause) => {
+        if (cancelled || controller.signal.aborted) return;
+        setDocumentationMessage(
+          cause instanceof Error
+            ? cause.message
+            : "ATLAS could not load the governed EDA documentation state.",
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setDocumentationHydrated(true);
+      });
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [projectId]);
+
+  const buildDocumentation = useCallback(
+    (
+      resolvedSections: Partial<Record<EDATab, WorkspaceResponse>> = sections,
+      evidenceReferences: EdaDocumentationEvidenceReference[] =
+        documentationEvidence,
+    ) => {
+      const resolvedOverview = resolvedSections.overview;
+      const datasetId = String(datasetIdentity?.datasetId ?? "").trim();
+      const datasetVersion = String(
+        resolvedOverview?.dataset_version ?? datasetIdentity?.versionId ?? "",
+      ).trim();
+      const target = String(
+        resolvedOverview?.target ?? confirmedDataset?.target ?? "",
+      ).trim();
+      const predictorManifestId = String(
+        resolvedOverview?.predictor_authorization?.manifest_version ?? "",
+      ).trim();
+      if (
+        !resolvedOverview ||
+        !datasetId ||
+        !datasetVersion ||
+        !target ||
+        !predictorManifestId
+      ) {
+        return null;
+      }
+      return buildEdaDocumentationPayload({
+        projectId,
+        datasetId,
+        datasetVersion,
+        target,
+        predictorManifestId,
+        sections: resolvedSections,
+        findings,
+        selectedFeatures: confirmedDataset?.selected_columns ?? [],
+        controls: {
+          histogramBins,
+          dateField,
+          segmentField,
+          pairwiseFeatures,
+        },
+        evidenceReferences,
+      });
+    },
+    [
+      confirmedDataset?.selected_columns,
+      confirmedDataset?.target,
+      dateField,
+      datasetIdentity,
+      documentationEvidence,
+      findings,
+      histogramBins,
+      pairwiseFeatures,
+      projectId,
+      sections,
+      segmentField,
+    ],
+  );
+
+  useEffect(() => {
+    if (
+      !documentationHydrated ||
+      confirmationPending ||
+      !overview ||
+      !datasetIdentity
+    ) {
+      return;
+    }
+    const payload = buildDocumentation();
+    if (!payload) return;
+    const approvedVersion =
+      documentationState?.current_approved?.eda_analysis_version;
+    if (
+      documentationState?.status === "confirmed" &&
+      approvedVersion === payload.eda_analysis_version
+    ) {
+      return;
+    }
+    if (
+      lastDraftVersion.current === payload.eda_analysis_version &&
+      documentationState?.draft?.eda_analysis_version ===
+        payload.eda_analysis_version
+    ) {
+      return;
+    }
+    if (documentationDraftTimer.current !== null) {
+      window.clearTimeout(documentationDraftTimer.current);
+    }
+    documentationDraftTimer.current = window.setTimeout(() => {
+      setDocumentationMessage("Updating documentation draft…");
+      void saveEdaDocumentationDraft(payload)
+        .then((state) => {
+          lastDraftVersion.current = payload.eda_analysis_version;
+          setDocumentationState(state);
+          setDocumentationMessage(
+            state.status === "stale"
+              ? "Draft changes saved. The approved documentation is now stale and requires reconfirmation."
+              : "Documentation draft is synchronized with the current EDA state.",
+          );
+        })
+        .catch((cause) => {
+          setDocumentationMessage(
+            cause instanceof Error
+              ? cause.message
+              : "ATLAS could not update the EDA documentation draft.",
+          );
+        });
+    }, 700);
+    return () => {
+      if (documentationDraftTimer.current !== null) {
+        window.clearTimeout(documentationDraftTimer.current);
+        documentationDraftTimer.current = null;
+      }
+    };
+  }, [
+    buildDocumentation,
+    confirmationPending,
+    datasetIdentity,
+    documentationHydrated,
+    documentationState?.current_approved?.eda_analysis_version,
+    documentationState?.draft?.eda_analysis_version,
+    documentationState?.status,
+    overview,
+  ]);
+
   async function refreshActiveSection(overrides: Record<string, unknown> = {}) {
     await loadSection(activeTab, true, overrides);
   }
 
-  async function saveEvidence() {
-    const findingsPayload = sections.findings;
-    if (!overview || !findingsPayload) {
+  async function saveEvidence(
+    resolvedSections: Partial<Record<EDATab, WorkspaceResponse>> = sections,
+  ): Promise<EdaDocumentationEvidenceReference | null> {
+    const resolvedOverview = resolvedSections.overview;
+    const findingsPayload = resolvedSections.findings;
+    if (!resolvedOverview || !findingsPayload) {
       setEvidenceMessage("Open the Findings tab before saving governed EDA evidence.");
-      return;
+      return null;
     }
     setEvidenceMessage("Saving evidence...");
     try {
-      await createEvidence({
+      const governedFindingRows = documentedFindingRows(
+        resolvedSections,
+        findings,
+      );
+      const evidence = await createEvidence({
         projectId,
         projectName,
         evidenceType: "eda",
         title: "Governed Exploratory Data Analysis",
-        summary: `Full-dataset EDA for ${overview.target} across ${overview.row_count.toLocaleString()} registered rows.`,
+        summary: `Full-dataset EDA for ${resolvedOverview.target} across ${resolvedOverview.row_count.toLocaleString()} registered rows.`,
         sourcePage: "Exploratory Data Analysis",
         sourceRoute: "/step02",
-        datasetIds: [overview.dataset_version],
+        datasetIds: [
+          String(datasetIdentity?.datasetId ?? resolvedOverview.dataset_version),
+        ],
         modelIds: [],
         documentIds: [],
         notebookIds: [],
@@ -275,72 +619,920 @@ export default function Step02EDA() {
         status: findings.status === "accepted" ? "ready" : "needs_review",
         importance: "high",
         lineage: {
-          datasetVersion: overview.dataset_version,
-          target: overview.target,
-          problemType: overview.problem_type,
-          eventValue: overview.event_value,
-          rowCount: overview.row_count,
-          scope: overview.scope,
+          datasetId: datasetIdentity?.datasetId,
+          datasetVersion: resolvedOverview.dataset_version,
+          target: resolvedOverview.target,
+          predictorManifestId:
+            resolvedOverview.predictor_authorization?.manifest_version,
+          problemType: resolvedOverview.problem_type,
+          eventValue: resolvedOverview.event_value,
+          rowCount: resolvedOverview.row_count,
+          scope: resolvedOverview.scope,
         },
         payload: {
-          headline: overview.headline,
-          findings: findingsPayload.findings,
-          carryForward: findingsPayload.carry_forward,
+          headline: resolvedOverview.headline,
+          findings: governedFindingRows,
+          sourceFindings: findingsPayload.findings,
+          carryForward: governedFindingRows
+            .filter(
+              (finding) =>
+                finding.reviewer_disposition === "accepted",
+            )
+            .map((finding) => ({
+              finding_id: finding.finding_id,
+              title: finding.title,
+              destination: finding.downstream_destination,
+              recommendation: finding.recommended_action,
+              transformation: finding.suggested_transformation,
+              reviewerRationale: finding.reviewer_rationale,
+              status: "draft_recommendation",
+              mutationApplied: false,
+            })),
           userCommentary: findings.commentary,
+          overallConclusion: findings.overallConclusion ?? "",
           findingStatus: findings.status,
+          duplicateTreatment: findings.duplicateTreatment ?? "review",
+          duplicateDecisionSavedAt: findings.duplicateDecisionSavedAt ?? null,
         },
       });
       const next = { ...findings, savedAt: new Date().toISOString() };
       localStorage.setItem(FINDINGS_KEY, JSON.stringify(next));
       setFindings(next);
       setEvidenceMessage("EDA evidence saved.");
+      const reference: EdaDocumentationEvidenceReference = {
+        evidence_id: evidence.evidenceId,
+        title: evidence.title,
+        uri: `/evidence-graph?evidenceId=${encodeURIComponent(
+          evidence.evidenceId,
+        )}`,
+        evidence_type: evidence.evidenceType,
+      };
+      setDocumentationEvidence([reference]);
+      return reference;
     } catch (cause) {
       setEvidenceMessage(cause instanceof Error ? cause.message : "EDA evidence could not be saved.");
+      return null;
     }
   }
 
-  async function completeEDA() {
-    localStorage.setItem(FINDINGS_KEY, JSON.stringify(findings));
-    logDecision({
-      workflowStep: "Exploratory Data Analysis",
-      actionType: "workflow_setting_changed",
-      subject: "EDA findings status",
-      previousValue: "draft",
-      newValue: findings.status,
-      systemRecommendation: "Review full-dataset findings and document any downstream treatment decisions.",
-      userReason: findings.commentary,
-    });
-    if (sections.findings && findings.commentary.trim()) await saveEvidence();
+  async function completeEDA(): Promise<boolean> {
+    setConfirmationPending(true);
+    setDocumentationMessage(
+      "Validating the governed dataset, target, predictor manifest, findings, and documentation snapshot…",
+    );
+    try {
+      const resolvedSections: Partial<Record<EDATab, WorkspaceResponse>> = {
+        ...sections,
+      };
+      for (const section of DOCUMENTATION_SECTIONS) {
+        if (resolvedSections[section]) continue;
+        const payload = await loadSection(section);
+        if (payload) resolvedSections[section] = payload;
+      }
+      const missing = DOCUMENTATION_SECTIONS.filter(
+        (section) => !resolvedSections[section],
+      );
+      if (missing.length) {
+        throw new Error(
+          `Confirmation is blocked until these governed EDA sections load successfully: ${missing.join(
+            ", ",
+          )}.`,
+        );
+      }
+      if (findings.status !== "accepted") {
+        throw new Error(
+          "Set the Findings reviewer status to Accepted for carry-forward before confirming EDA.",
+        );
+      }
+      const resolvedOverview = resolvedSections.overview;
+      const duplicateRows = Number(
+        resolvedOverview?.headline?.duplicate_rows ?? 0,
+      );
+      const duplicateResolved =
+        duplicateRows <= 0 ||
+        ((findings.duplicateTreatment === "exclude" ||
+          findings.duplicateTreatment === "keep") &&
+          Boolean(findings.duplicateDecisionSavedAt));
+      if (!duplicateResolved) {
+        throw new Error(
+          "Record and save a substantive duplicate-row treatment decision before confirming EDA.",
+        );
+      }
+
+      let evidenceReferences = documentationEvidence;
+      const candidate = buildDocumentation(
+        resolvedSections,
+        evidenceReferences,
+      );
+      if (!candidate) {
+        throw new Error(
+          "The registered dataset ID, version, target, or predictor manifest is unavailable. Reopen Data Acquisition and restore the governed dataset context.",
+        );
+      }
+      const approvedMatches =
+        documentationState?.status === "confirmed" &&
+        documentationState.current_approved?.eda_analysis_version ===
+          candidate.eda_analysis_version;
+      if (!approvedMatches || evidenceReferences.length === 0) {
+        const evidence = await saveEvidence(resolvedSections);
+        if (!evidence) {
+          throw new Error(
+            "EDA evidence could not be created, so the documentation snapshot was not confirmed.",
+          );
+        }
+        evidenceReferences = [evidence];
+      }
+      const confirmationPayload = buildDocumentation(
+        resolvedSections,
+        evidenceReferences,
+      );
+      if (!confirmationPayload) {
+        throw new Error(
+          "The governed EDA documentation payload could not be assembled.",
+        );
+      }
+      if (confirmationPayload.unresolved_blocking_findings.length) {
+        throw new Error(
+          confirmationPayload.unresolved_blocking_findings.join(" "),
+        );
+      }
+
+      const confirmation = await confirmEdaDocumentation(
+        confirmationPayload,
+      );
+      if (!confirmation.next_step_eligible) {
+        throw new Error(
+          "The server persisted the EDA record but did not grant next-step eligibility.",
+        );
+      }
+      const governedState = await getEdaDocumentationState(projectId);
+      setDocumentationState(governedState);
+      setDocumentationEvidence(evidenceReferences);
+      lastDraftVersion.current = "";
+      setDocumentationMessage(
+        `EDA confirmed as ${confirmation.documentation_version} (confirmation ${confirmation.confirmation_id}). Model Development Documentation is synchronized to the approved snapshot.`,
+      );
+      localStorage.setItem(FINDINGS_KEY, JSON.stringify(findings));
+      logDecision({
+        workflowStep: "Exploratory Data Analysis",
+        actionType: "workflow_setting_changed",
+        subject: "EDA findings status",
+        previousValue: "draft",
+        newValue: findings.status,
+        systemRecommendation:
+          "Review full-dataset findings and document any downstream treatment decisions.",
+        userReason: findings.commentary,
+      });
+      return true;
+    } catch (cause) {
+      setDocumentationMessage(
+        cause instanceof Error
+          ? cause.message
+          : "ATLAS could not confirm the governed EDA documentation snapshot.",
+      );
+      return false;
+    } finally {
+      setConfirmationPending(false);
+    }
   }
 
-  const heroMetrics: AtlasWorkflowMetric[] = overview
-    ? [
-        { label: "Dataset Scope", value: getDatasetScopeLabel(overview.scope), tone: "info" },
-        { label: "Registered Rows", value: overview.row_count.toLocaleString() },
-        { label: "Target", value: overview.target },
-        { label: "Problem Type", value: titleCase(overview.problem_type) },
-        { label: "Predictors", value: formatNumber(overview.headline?.predictors, 0) },
-        { label: "Analysis State", value: "Available", tone: "success" },
-      ]
-    : [{ label: "Analysis State", value: loading ? "Loading full profile" : error ? "Analysis failed" : "Backend dataset missing", tone: loading ? "info" : "warning" }];
-
   const activeData = sections[activeTab];
+  const duplicateRows = Number(overview?.headline?.duplicate_rows ?? 0);
+  const duplicateDecisionComplete =
+    duplicateRows <= 0 ||
+    ((findings.duplicateTreatment === "exclude" ||
+      findings.duplicateTreatment === "keep") &&
+      Boolean(findings.duplicateDecisionSavedAt));
+  const locallyReady =
+    Boolean(overview) &&
+    findings.status === "accepted" &&
+    duplicateDecisionComplete;
+  const confirmationStatus = confirmationPending
+    ? "Confirming…"
+    : documentationState?.status === "confirmed"
+      ? "Confirmed"
+      : documentationState?.status === "stale"
+        ? "Stale after upstream change"
+        : documentationState?.status === "ready_for_confirmation" ||
+            locallyReady
+          ? "Ready for confirmation"
+          : "Draft";
+  const confirmationState = confirmationPending
+    ? "confirming"
+    : documentationState?.status === "confirmed"
+      ? "confirmed"
+      : documentationState?.status === "stale"
+        ? "stale"
+        : confirmationStatus === "Ready for confirmation"
+          ? "ready"
+          : "draft";
+  const nextDisabled =
+    !overview ||
+    Boolean(loading) ||
+    confirmationPending ||
+    findings.status !== "accepted" ||
+    !duplicateDecisionComplete;
+  const nextDisabledReason = !overview
+    ? "Load the full registered dataset before completing EDA."
+    : loading
+      ? "Wait for the active analysis to complete."
+      : findings.status !== "accepted"
+        ? "Set Findings to Accepted for carry-forward before confirming EDA."
+        : !duplicateDecisionComplete
+          ? "Record and save the duplicate-row treatment decision before confirming EDA."
+          : undefined;
+  const documentationImpact = documentationImpactByTab[activeTab];
+  const predictorAuthorization = safeObject(overview?.predictor_authorization);
+  const authorizedPredictors = safeArray<string>(
+    predictorAuthorization.authorized_predictors,
+  );
+  const targetSourceExclusions = safeArray<string>(
+    overview?.target_source_excluded ??
+      predictorAuthorization.target_source_excluded,
+  );
+  const datasetDisplayName = String(
+    datasetIdentity?.datasetName ||
+      datasetIdentity?.datasetId ||
+      projectName ||
+      "Registered dataset",
+  );
+  const datasetVersionLabel = String(
+    overview?.dataset_version ??
+      datasetIdentity?.versionId ??
+      "Version pending",
+  );
+  const predictorManifestLabel = String(
+    predictorAuthorization.manifest_version ?? "Manifest pending",
+  );
+  const predictorCount = Math.max(
+    0,
+    Number(
+      overview?.headline?.predictors ??
+        authorizedPredictors.length,
+    ),
+  );
+  const activeTabLabel =
+    tabs.find((tab) => tab.id === activeTab)?.label ?? titleCase(activeTab);
+  const analysisState = loading
+    ? `Running ${activeTabLabel}`
+    : error
+      ? "Analysis unavailable"
+      : overview
+        ? "Analysis available"
+        : "Connecting to governed data";
+  const documentationMessageIsBlocking =
+    Boolean(documentationMessage) &&
+    (confirmationState === "stale" ||
+      /could not|cannot|failed|blocked|unavailable|requires? reconfirmation|missing|invalid|error/i.test(
+        documentationMessage,
+      ));
+  const documentationBlockerMessage =
+    confirmationState === "stale"
+      ? documentationMessage ||
+        "The approved EDA documentation is stale after an upstream change and must be reconfirmed."
+      : documentationMessageIsBlocking
+        ? documentationMessage
+        : "";
+  const activeBlockerMessage = documentationBlockerMessage
+    ? documentationBlockerMessage
+    : error
+      ? `The ${activeTabLabel} analysis is unavailable: ${error.message}`
+      : !loading && nextDisabled && nextDisabledReason
+        ? nextDisabledReason
+        : "";
+  const activeBlockerSource = documentationBlockerMessage
+    ? "documentation"
+    : error
+      ? "analysis"
+      : activeBlockerMessage
+        ? "workflow"
+        : "none";
+
+  const quickSummaryItems = useMemo<EdaQuickSummaryItem[]>(() => {
+    const overviewHeadline = safeObject(overview?.headline);
+    const overviewIntegrity = safeObject(overview?.data_integrity);
+    const active = activeData ?? overview;
+
+    if (activeTab === "overview") {
+      const constantCount = safeArray(
+        overviewIntegrity.constant_columns,
+      ).length;
+      const leakageCount = safeArray(
+        overviewIntegrity.leakage_candidates,
+      ).length;
+      const missingCells = Number(overviewHeadline.missing_cells ?? 0);
+      const duplicateCount = Number(overviewHeadline.duplicate_rows ?? 0);
+      const readinessChecks = [
+        missingCells === 0,
+        duplicateCount === 0,
+        constantCount === 0,
+        leakageCount === 0,
+      ];
+      const cleared = readinessChecks.filter(Boolean).length;
+      const mainReviewItem =
+        duplicateCount > 0
+          ? `${formatNumber(duplicateCount, 0)} duplicate rows`
+          : missingCells > 0
+            ? `${formatNumber(missingCells, 0)} missing cells`
+            : leakageCount > 0
+              ? `${formatNumber(leakageCount, 0)} leakage-name candidates`
+              : constantCount > 0
+                ? `${formatNumber(constantCount, 0)} constant predictors`
+                : "No headline escalation";
+      const targetProfile = safeObject(overview?.target_profile);
+      const targetBalance =
+        overview?.problem_type === "classification"
+          ? formatPercent(targetProfile.event_rate)
+          : formatNumber(targetProfile.mean);
+      return [
+        {
+          label: "Population",
+          value: formatNumber(
+            overviewHeadline.rows ?? overview?.row_count,
+            0,
+          ),
+        },
+        {
+          label: "Predictors",
+          value: formatNumber(overviewHeadline.predictors, 0),
+        },
+        {
+          label: "Target balance",
+          value: targetBalance,
+          tone: "info",
+        },
+        {
+          label: "Readiness",
+          value:
+            cleared === readinessChecks.length
+              ? "Checks clear"
+              : `${cleared}/${readinessChecks.length} checks clear`,
+          tone:
+            cleared === readinessChecks.length ? "success" : "warning",
+        },
+        {
+          label: "Main review item",
+          value: mainReviewItem,
+          tone:
+            mainReviewItem === "No headline escalation"
+              ? "success"
+              : "warning",
+        },
+      ];
+    }
+
+    if (activeTab === "target") {
+      const profile = safeObject(
+        active?.profile ?? overview?.target_profile,
+      );
+      const identity = safeObject(active?.identity);
+      const targetQuality = safeObject(active?.target_quality);
+      const source =
+        identity.source ??
+        targetSourceExclusions[0] ??
+        "governed source";
+      const unexpectedCount = safeArray(profile.unexpected_values).length;
+      const missingCount = Number(profile.missing_count ?? 0);
+      const quality =
+        missingCount === 0 && unexpectedCount === 0
+          ? "Checks clear"
+          : `${formatNumber(missingCount, 0)} missing · ${formatNumber(
+              unexpectedCount,
+              0,
+            )} unexpected`;
+      return [
+        {
+          label: "Target lineage",
+          value: `${overview?.target ?? active?.target ?? "Target"} <- ${String(
+            source,
+          )}`,
+        },
+        {
+          label: "Prevalence",
+          value:
+            (active?.problem_type ?? overview?.problem_type) ===
+            "classification"
+              ? formatPercent(profile.event_rate)
+              : formatNumber(profile.mean),
+          tone: "info",
+        },
+        {
+          label: "Class balance",
+          value:
+            profile.event_count !== undefined
+              ? `${formatNumber(profile.event_count, 0)} event / ${formatNumber(
+                  profile.non_event_count,
+                  0,
+                )} non-event`
+              : "Regression target",
+        },
+        {
+          label: "Quality",
+          value:
+            String(targetQuality.status ?? "").trim() || quality,
+          tone: quality === "Checks clear" ? "success" : "warning",
+        },
+      ];
+    }
+
+    if (activeTab === "predictors") {
+      const predictorRows = [
+        ...safeArray<any>(active?.numeric),
+        ...safeArray<any>(active?.categorical),
+      ];
+      const signalKey =
+        (active?.problem_type ?? overview?.problem_type) ===
+        "classification"
+          ? "iv"
+          : "correlation_with_target";
+      const strongest =
+        [...predictorRows].sort(
+          (left, right) =>
+            Math.abs(Number(right?.[signalKey] ?? 0)) -
+            Math.abs(Number(left?.[signalKey] ?? 0)),
+        )[0] ?? null;
+      const selected =
+        predictorRows.find(
+          (row) => String(row.feature) === selectedVariable,
+        ) ??
+        strongest ??
+        null;
+      const signalLabel = signalKey === "iv" ? "IV" : "Correlation";
+      return [
+        {
+          label: "Selected predictor",
+          value: String(selected?.feature ?? "Awaiting analysis"),
+        },
+        {
+          label: signalLabel,
+          value: formatNumber(selected?.[signalKey], 3),
+          tone: "info",
+        },
+        {
+          label: "Missingness",
+          value: formatPercent(selected?.missing_rate),
+        },
+        {
+          label: "Monotonicity",
+          value: String(selected?.monotonicity ?? "Not evaluated"),
+        },
+        {
+          label: "Strongest pattern",
+          value: strongest
+            ? `${String(strongest.feature)} · ${signalLabel} ${formatNumber(
+                strongest[signalKey],
+                3,
+              )}`
+            : "Awaiting analysis",
+          tone: strongest ? "success" : "neutral",
+        },
+      ];
+    }
+
+    if (activeTab === "relationships") {
+      const strongPairs = safeArray<any>(active?.strong_pairs);
+      const strongestPair = strongPairs[0];
+      const vifRows = safeArray<any>(active?.vif);
+      const highestVif = vifRows[0];
+      const vifReviewCount = vifRows.filter(
+        (row) =>
+          row.is_infinite ||
+          row.status === "review" ||
+          row.status === "high" ||
+          Number(row.vif) >= 5,
+      ).length;
+      const selectedPair = pinnedPair
+        ? `${pinnedPair.a} × ${pinnedPair.b}`
+        : relationshipAxes.x && relationshipAxes.y
+          ? `${relationshipAxes.x} × ${relationshipAxes.y}`
+          : "None pinned";
+      return [
+        {
+          label: "Strongest pair",
+          value: strongestPair
+            ? `${String(strongestPair.feature_a)} × ${String(
+                strongestPair.feature_b,
+              )} · ${formatNumber(strongestPair.correlation, 2)}`
+            : "No pair above threshold",
+          tone: strongestPair ? "warning" : "success",
+        },
+        {
+          label: "Max VIF",
+          value: highestVif?.is_infinite
+            ? "Infinite"
+            : formatNumber(highestVif?.vif, 2),
+          tone:
+            highestVif?.status === "high" || highestVif?.is_infinite
+              ? "danger"
+              : highestVif?.status === "review"
+                ? "warning"
+                : "success",
+        },
+        {
+          label: "Review count",
+          value: formatNumber(vifReviewCount, 0),
+          tone: vifReviewCount ? "warning" : "success",
+        },
+        { label: "Selected pair", value: selectedPair },
+      ];
+    }
+
+    if (activeTab === "stability") {
+      const timeRows = safeArray(active?.time_profile);
+      const segmentRows = safeArray(active?.segment_profile);
+      const timeCandidates = safeArray(available.date_candidates);
+      const segmentCandidates = safeArray(
+        available.segment_candidates,
+      );
+      const availableAnalyses = [
+        timeRows.length ? "Time" : null,
+        segmentRows.length ? "Segments" : null,
+      ].filter(Boolean);
+      return [
+        {
+          label: "Time fields",
+          value: formatNumber(timeCandidates.length, 0),
+        },
+        {
+          label: "Time periods",
+          value: formatNumber(timeRows.length, 0),
+        },
+        {
+          label: "Segment fields",
+          value: formatNumber(segmentCandidates.length, 0),
+        },
+        {
+          label: "Segments",
+          value: formatNumber(segmentRows.length, 0),
+        },
+        {
+          label: "Availability",
+          value: availableAnalyses.length
+            ? availableAnalyses.join(" + ")
+            : timeCandidates.length || segmentCandidates.length
+              ? "Ready to configure"
+              : "No governed fields",
+          tone: availableAnalyses.length ? "success" : "warning",
+        },
+      ];
+    }
+
+    const findingRows = safeArray<any>(active?.findings);
+    const findingBlockers = findingRows.filter((row) =>
+      /warning|danger|critical|block/i.test(
+        String(row.severity ?? row.status ?? ""),
+      ),
+    ).length;
+    const workflowBlockers =
+      findingBlockers +
+      (duplicateDecisionComplete ? 0 : 1) +
+      (confirmationState === "stale" ? 1 : 0);
+    return [
+      {
+        label: "Open",
+        value: formatNumber(
+          findings.status === "accepted" ? 0 : findingRows.length,
+          0,
+        ),
+      },
+      {
+        label: "Accepted",
+        value: findings.status === "accepted" ? "Yes" : "No",
+        tone: findings.status === "accepted" ? "success" : "warning",
+      },
+      {
+        label: "Blockers",
+        value: formatNumber(workflowBlockers, 0),
+        tone: workflowBlockers ? "danger" : "success",
+      },
+      {
+        label: "Documentation state",
+        value: confirmationStatus,
+        tone:
+          confirmationState === "confirmed"
+            ? "success"
+            : confirmationState === "stale"
+              ? "danger"
+              : "info",
+      },
+      {
+        label: "Evidence",
+        value: formatNumber(documentationEvidence.length, 0),
+      },
+    ];
+  }, [
+    activeData,
+    activeTab,
+    available.date_candidates,
+    available.segment_candidates,
+    confirmationState,
+    confirmationStatus,
+    documentationEvidence.length,
+    duplicateDecisionComplete,
+    findings.status,
+    overview,
+    pinnedPair,
+    relationshipAxes.x,
+    relationshipAxes.y,
+    selectedVariable,
+    targetSourceExclusions,
+  ]);
+
+  useEffect(() => {
+    const element = compactPreambleRef.current;
+    if (!element) return;
+    const breadcrumb = document.querySelector<HTMLElement>(
+      '[data-testid="atlas-breadcrumb"]',
+    );
+    const appHeader = breadcrumb?.closest<HTMLElement>("header") ?? null;
+    let frame = 0;
+    const measure = () => {
+      const nextHeight = Math.round(
+        element.getBoundingClientRect().height,
+      );
+      setCompactPreambleHeight((current) =>
+        current === nextHeight ? current : nextHeight,
+      );
+      if (appHeader) {
+        const nextStickyTop =
+          Math.ceil(appHeader.getBoundingClientRect().height) + 8;
+        setStickyTopOffset((current) =>
+          current === nextStickyTop ? current : nextStickyTop,
+        );
+      }
+    };
+    const scheduleMeasure = () => {
+      window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(measure);
+    };
+    scheduleMeasure();
+    window.addEventListener("resize", scheduleMeasure);
+    if (typeof ResizeObserver === "undefined") {
+      return () => {
+        window.cancelAnimationFrame(frame);
+        window.removeEventListener("resize", scheduleMeasure);
+      };
+    }
+    const observer = new ResizeObserver(scheduleMeasure);
+    observer.observe(element);
+    if (appHeader) observer.observe(appHeader);
+    return () => {
+      observer.disconnect();
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("resize", scheduleMeasure);
+    };
+  }, []);
 
   return (
     <StepShell
       title="Step 2: Exploratory Data Analysis"
       subtitle="Examine the full modeling population, target behavior, predictor quality, relationships, stability, segments, and governed findings before treatment decisions."
-      variant="analysis"
-      heroMetrics={heroMetrics}
+      hideHeader
       nextPath={getNextStepPath("step02")}
-      nextDisabled={!overview || !!loading}
-      nextDisabledReason={!overview ? "Load the full registered dataset before completing EDA." : "Wait for the active analysis to complete."}
+      nextDisabled={nextDisabled}
+      nextDisabledReason={nextDisabledReason}
       nextLabel="Confirm EDA and Continue"
       onNext={completeEDA}
-      nextStatusLine="Record the reviewed EDA state and continue to outlier treatment."
+      nextStatusLine={
+        confirmationStatus === "Confirmed"
+          ? "The approved EDA snapshot is synchronized with Model Development Documentation."
+          : confirmationStatus === "Stale after upstream change"
+            ? "Reconfirm EDA before treating the approved documentation as current."
+            : "Confirm the reviewed EDA state and freeze its documentation snapshot."
+      }
     >
-      <div className="space-y-4">
-        <div className="atlas-workflow-section atlas-workflow-section--analysis p-2">
+      <div className="eda-premium-page">
+        <div
+          ref={compactPreambleRef}
+          className="eda-compact-preamble"
+          data-testid="eda-compact-preamble"
+          data-preamble-target-px="380"
+          data-measured-preamble-px={
+            compactPreambleHeight ?? "pending"
+          }
+          data-preamble-budget-status={
+            compactPreambleHeight === null
+              ? "pending"
+              : compactPreambleHeight <= 380
+                ? "within-budget"
+                : "over-budget"
+          }
+        >
+          <header
+            className="eda-compact-page-header"
+            data-testid="eda-compact-page-header"
+            data-page-identity="exploratory-data-analysis"
+          >
+            <div className="eda-compact-title-lockup">
+              <span className="eda-compact-title-mark" aria-hidden="true">
+                <BarChart3 size={18} />
+              </span>
+              <div className="min-w-0">
+                <div className="eda-compact-eyebrow">
+                  EDA intelligence workspace · Step 2
+                </div>
+                <h1>Step 2: Exploratory Data Analysis</h1>
+                <p>
+                  Governed population, target, predictor, relationship,
+                  stability, and reviewer evidence.
+                </p>
+              </div>
+            </div>
+            <div
+              className="eda-compact-current-view"
+              aria-label={`Current EDA view: ${activeTabLabel}`}
+            >
+              <small>Current view</small>
+              <strong>{activeTabLabel}</strong>
+            </div>
+          </header>
+
+          <div
+            className="eda-compact-sticky"
+            data-testid="eda-compact-navigation"
+            data-global-header-offset-px={stickyTopOffset}
+            style={
+              {
+                "--eda-sticky-top": `${stickyTopOffset}px`,
+              } as React.CSSProperties
+            }
+          >
+            <section
+              className="eda-governed-context-strip"
+              aria-label="Governed EDA context"
+              data-testid="eda-governed-context-strip"
+              data-context-panel="governed"
+              data-active-tab={activeTab}
+            >
+              <div
+                className="eda-governed-context-content"
+                data-testid="eda-predictor-authorization"
+              >
+              <div
+                className="eda-context-item eda-context-item--dataset"
+                title={`${datasetDisplayName} · ${datasetVersionLabel}`}
+              >
+                <Database size={14} aria-hidden="true" />
+                <span>
+                  <small>Dataset / version</small>
+                  <strong>
+                    {datasetDisplayName} · {datasetVersionLabel}
+                  </strong>
+                </span>
+              </div>
+              <div className="eda-context-item">
+                <Target size={14} aria-hidden="true" />
+                <span>
+                  <small>Target</small>
+                  <strong>
+                    {overview?.target ??
+                      confirmedDataset?.target ??
+                      "Pending"}
+                  </strong>
+                </span>
+              </div>
+              <div className="eda-context-item">
+                <Layers3 size={14} aria-hidden="true" />
+                <span>
+                  <small>Predictor manifest</small>
+                  <strong>
+                    {predictorCount.toLocaleString()} ·{" "}
+                    {predictorManifestLabel}
+                  </strong>
+                </span>
+              </div>
+              <div
+                className="eda-context-item eda-context-item--documentation"
+                data-testid="eda-documentation-impact"
+                title={documentationImpact.detail}
+              >
+                <FileText size={14} aria-hidden="true" />
+                <span>
+                  <small>Documentation impact</small>
+                  <strong>{documentationImpact.title}</strong>
+                </span>
+              </div>
+              <div
+                className={`eda-context-state eda-context-state--${confirmationState}`}
+                data-testid="eda-confirmation-status"
+                data-confirmation-state={confirmationState}
+              >
+                {confirmationState === "confirmed" ||
+                confirmationState === "ready" ? (
+                  <CheckCircle2 size={13} aria-hidden="true" />
+                ) : (
+                  <CircleAlert size={13} aria-hidden="true" />
+                )}
+                <span>{confirmationStatus}</span>
+              </div>
+              <div
+                className={`eda-context-state ${
+                  error
+                    ? "eda-context-state--stale"
+                    : overview
+                      ? "eda-context-state--confirmed"
+                      : "eda-context-state--draft"
+                }`}
+              >
+                <Activity size={13} aria-hidden="true" />
+                <span>{analysisState}</span>
+              </div>
+              <div className="eda-backend-enforced">
+                <ShieldCheck size={13} aria-hidden="true" />
+                Backend enforced
+              </div>
+              <details
+                className="eda-context-details"
+                data-testid="eda-governed-context-details"
+              >
+                <summary>Details</summary>
+                <div className="eda-context-details-panel">
+                  <div>
+                    <div className="eda-detail-label">
+                      Current tab documentation
+                    </div>
+                    <div className="eda-detail-title">
+                      {documentationImpact.title}
+                    </div>
+                    <p>{documentationImpact.detail}</p>
+                  </div>
+                  <div>
+                    <div className="eda-detail-label">
+                      Dataset lineage
+                    </div>
+                    <dl>
+                      <div>
+                        <dt>Dataset</dt>
+                        <dd>{datasetDisplayName}</dd>
+                      </div>
+                      <div>
+                        <dt>Dataset ID</dt>
+                        <dd>
+                          {datasetIdentity?.datasetId ??
+                            "Not available"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>Version</dt>
+                        <dd>{datasetVersionLabel}</dd>
+                      </div>
+                      <div>
+                        <dt>Target</dt>
+                        <dd>
+                          {overview?.target ??
+                            confirmedDataset?.target ??
+                            "Pending"}
+                        </dd>
+                      </div>
+                    </dl>
+                  </div>
+                  <div>
+                    <div className="eda-detail-label">
+                      Server-authorized predictor manifest
+                    </div>
+                    <p>
+                      {authorizedPredictors.length.toLocaleString()}{" "}
+                      eligible predictors under{" "}
+                      {predictorManifestLabel}. The modeling target
+                      {targetSourceExclusions.length
+                        ? ` and deterministic target source ${targetSourceExclusions.join(
+                            ", ",
+                          )}`
+                        : ""}{" "}
+                      are excluded from every governed visual.
+                    </p>
+                    {authorizedPredictors.length ? (
+                      <p>
+                        <strong>Authorized fields:</strong>{" "}
+                        {authorizedPredictors.join(", ")}
+                      </p>
+                    ) : null}
+                  </div>
+                  <div>
+                    <div className="eda-detail-label">
+                      Documentation state
+                    </div>
+                    <p>
+                      {confirmationStatus}.{" "}
+                      {documentationMessage ||
+                        "No documentation synchronization message is active."}
+                    </p>
+                  </div>
+                </div>
+              </details>
+              <span className="sr-only">
+                Server-authorized predictor manifest.{" "}
+                {targetSourceExclusions.join(", ")}. Backend
+                enforced.
+              </span>
+              </div>
+            </section>
+
+            <nav
+              className="eda-tab-rail p-1.5"
+              aria-label="EDA analysis navigation"
+              data-testid="eda-analysis-tab-rail"
+            >
           <div className="flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 gap-1 overflow-x-auto" role="tablist" aria-label="EDA analysis sections">
               {tabs.map((tab) => {
@@ -367,6 +1559,32 @@ export default function Step02EDA() {
               })}
             </div>
             <div className="flex shrink-0 items-center gap-2 px-2">
+              {selectedVariable ? (
+                <div
+                  className="flex max-w-[430px] items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-[11px] text-blue-950"
+                  data-testid="eda-linked-selection-summary"
+                >
+                  <span className="font-semibold">{selectedVariable}</span>
+                  {selectedRange?.feature === selectedVariable ? (
+                    <span className="truncate tabular-nums">
+                      {formatNumber(selectedRange.min, 3)} to {formatNumber(selectedRange.max, 3)}
+                    </span>
+                  ) : null}
+                  {pinnedPair ? <span className="truncate">{pinnedPair.a} × {pinnedPair.b}</span> : null}
+                  {relationshipAxes.z ? (
+                    <span className="truncate">Z: {relationshipAxes.z}</span>
+                  ) : null}
+                  {(selectedRange ||
+                  pinnedPair ||
+                  relationshipAxes.x ||
+                  relationshipAxes.y ||
+                  relationshipAxes.z) ? (
+                    <button type="button" className="font-semibold underline" onClick={clearVisualSelection}>
+                      Clear selection
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
               {activeData ? <AtlasDataScopeBadge scope={activeData.scope} rows={activeData.row_count} /> : null}
               <button type="button" className="atlas-secondary-button" onClick={() => void refreshActiveSection()} disabled={!!loading}>
                 <RefreshCw size={15} className={loading === activeTab ? "animate-spin" : ""} />
@@ -374,84 +1592,144 @@ export default function Step02EDA() {
               </button>
             </div>
           </div>
+        </nav>
+          </div>
+
+          <EdaTabQuickSummary
+            activeTab={activeTab}
+            activeTabLabel={activeTabLabel}
+            items={quickSummaryItems}
+          />
+
+          {activeBlockerMessage ? (
+          <div
+              className="eda-active-context-blocker"
+              role="alert"
+            aria-live="polite"
+            aria-atomic="true"
+              data-testid="eda-active-context-blocker"
+              data-blocker-source={activeBlockerSource}
+          >
+              <AlertTriangle size={15} aria-hidden="true" />
+              <span>
+                <strong>Active blocker:</strong>{" "}
+                <span
+                  data-testid={
+                    documentationBlockerMessage
+                      ? "eda-documentation-message"
+                      : undefined
+                  }
+                >
+                  {activeBlockerMessage}
+                </span>
+              </span>
+          </div>
+        ) : null}
+          {documentationMessage &&
+          !documentationBlockerMessage ? (
+            <span
+              className="sr-only"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              data-testid="eda-documentation-message"
+            >
+              {documentationMessage}
+            </span>
+          ) : null}
         </div>
 
-        {error ? (
-          <EDAUnavailablePanel error={error} onRetry={() => void refreshActiveSection()} />
-        ) : null}
+        <div
+          ref={firstAnalyticalContentRef}
+          data-testid="eda-first-analytical-content"
+          data-active-tab={activeTab}
+          data-preamble-target-px="380"
+          data-measured-preamble-px={
+            compactPreambleHeight ?? "pending"
+          }
+        >
+          <div key={activeTab} className="eda-tab-stage space-y-4">
+          {error ? (
+            <EDAUnavailablePanel error={error} onRetry={() => void refreshActiveSection()} />
+          ) : null}
 
-        {loading === activeTab && !activeData ? <LoadingPanel label={`Running ${tabs.find((tab) => tab.id === activeTab)?.label} analysis`} /> : null}
+          {loading === activeTab && !activeData ? <LoadingPanel label={`Running ${tabs.find((tab) => tab.id === activeTab)?.label} analysis`} /> : null}
 
-        {activeTab === "overview" && overview ? <OverviewPanel data={overview} /> : null}
-        {!loading && !error && !activeData ? (
-          <AtlasAttentionPanel title="EDA section not loaded" tone="info">
-            This section has not returned profile data yet. Use Refresh to retry the governed backend request.
-          </AtlasAttentionPanel>
-        ) : null}
-        {activeTab === "target" && activeData ? (
-          <TargetIntelligenceWorkspace
-            data={activeData}
-            projectId={projectId}
-            projectName={projectName}
-            datasetIdentity={datasetIdentity}
-            eventValue={activeData.event_value ?? confirmedDataset?.event_value}
-            nonEventValue={confirmedDataset?.non_event_value}
-            predictorOptions={predictorOptions}
-            timeField={dateField}
-            segmentField={segmentField}
-            segmentCandidates={available.segment_candidates ?? []}
-            onTimeField={(value) => {
-              setDateField(value);
-              void refreshActiveSection({ date_field: value || undefined });
-            }}
-            onSegmentField={(value) => {
-              setSegmentField(value);
-              void refreshActiveSection({ segment_field: value || undefined });
-            }}
-            onRunConditional={() => void refreshActiveSection()}
-          />
-        ) : null}
-        {activeTab === "predictors" && activeData ? (
-          <PredictorsPanel
-            data={activeData}
-            histogramBins={histogramBins}
-            onHistogramBins={setHistogramBins}
-            projectId={projectId}
-          />
-        ) : null}
-        {activeTab === "relationships" && activeData ? (
-          <RelationshipsPanel
-            data={activeData}
-            numericFields={available.numeric ?? []}
-            pairwiseFeatures={pairwiseFeatures}
-            onPairwiseFeatures={setPairwiseFeatures}
-            onRun={() => void refreshActiveSection()}
-          />
-        ) : null}
-        {activeTab === "stability" && activeData ? (
-          <StabilityPanel
-            data={activeData}
-            dateFields={available.date_candidates ?? []}
-            segmentFields={available.segment_candidates ?? []}
-            dateField={dateField}
-            segmentField={segmentField}
-            onDateField={setDateField}
-            onSegmentField={setSegmentField}
-            onRun={() => void refreshActiveSection()}
-          />
-        ) : null}
-        {activeTab === "findings" && activeData ? (
-          <FindingsPanel
-            data={activeData}
-            state={findings}
-            onChange={(next) => {
-              setFindings(next);
-              localStorage.setItem(FINDINGS_KEY, JSON.stringify(next));
-            }}
-            onSave={() => void saveEvidence()}
-            message={evidenceMessage}
-          />
-        ) : null}
+          {activeTab === "overview" && overview ? <OverviewPanel data={overview} /> : null}
+          {!loading && !error && !activeData ? (
+            <AtlasAttentionPanel title="EDA section not loaded" tone="info">
+              This section has not returned profile data yet. Use Refresh to retry the governed backend request.
+            </AtlasAttentionPanel>
+          ) : null}
+          {activeTab === "target" && activeData ? (
+            <TargetIntelligenceWorkspace
+              data={activeData}
+              projectId={projectId}
+              projectName={projectName}
+              datasetIdentity={datasetIdentity}
+              eventValue={activeData.event_value ?? confirmedDataset?.event_value}
+              nonEventValue={confirmedDataset?.non_event_value}
+              predictorOptions={predictorOptions}
+              timeField={dateField}
+              segmentField={segmentField}
+              segmentCandidates={available.segment_candidates ?? []}
+              onTimeField={(value) => {
+                setDateField(value);
+                void refreshActiveSection({ date_field: value || undefined });
+              }}
+              onSegmentField={(value) => {
+                setSegmentField(value);
+                void refreshActiveSection({ segment_field: value || undefined });
+              }}
+              onRunConditional={() => void refreshActiveSection()}
+            />
+          ) : null}
+          {activeTab === "predictors" && activeData ? (
+            <PredictorsPanel
+              data={activeData}
+              histogramBins={histogramBins}
+              onHistogramBins={setHistogramBins}
+              projectId={projectId}
+            />
+          ) : null}
+          {activeTab === "relationships" && activeData ? (
+            <RelationshipsPanel
+              data={activeData}
+              numericFields={available.numeric ?? []}
+              segmentFields={available.segment_candidates ?? []}
+              pairwiseFeatures={pairwiseFeatures}
+              onPairwiseFeatures={setPairwiseFeatures}
+              projectId={projectId}
+              onRun={(overrides) => void refreshActiveSection(overrides)}
+            />
+          ) : null}
+          {activeTab === "stability" && activeData ? (
+            <StabilityPanel
+              data={activeData}
+              dateFields={available.date_candidates ?? []}
+              segmentFields={available.segment_candidates ?? []}
+              dateField={dateField}
+              segmentField={segmentField}
+              onDateField={setDateField}
+              onSegmentField={setSegmentField}
+              onRun={() => void refreshActiveSection()}
+            />
+          ) : null}
+          {activeTab === "findings" && activeData ? (
+            <FindingsDecisionWorkspace
+              sections={{ ...sections, findings: activeData }}
+              state={findings}
+              onChange={(next) => {
+                setFindings(next);
+                localStorage.setItem(FINDINGS_KEY, JSON.stringify(next));
+              }}
+              onSave={() => void saveEvidence()}
+              message={evidenceMessage}
+              documentationStatus={documentationState?.status}
+            />
+          ) : null}
+        </div>
+      </div>
       </div>
     </StepShell>
   );
@@ -502,6 +1780,44 @@ function LoadingPanel({ label }: { label: string }) {
   );
 }
 
+function EdaTabQuickSummary({
+  activeTab,
+  activeTabLabel,
+  items,
+}: {
+  activeTab: EDATab;
+  activeTabLabel: string;
+  items: EdaQuickSummaryItem[];
+}) {
+  return (
+    <section
+      className="eda-tab-quick-summary"
+      aria-label={`${activeTabLabel} quick summary`}
+      data-testid="eda-tab-quick-summary"
+      data-active-tab={activeTab}
+    >
+      <div className="eda-tab-quick-summary__label">
+        <span>{activeTabLabel}</span>
+        <small>Quick summary</small>
+      </div>
+      <div className="eda-tab-quick-summary__items">
+        {items.map((item) => (
+          <div
+            key={item.label}
+            className={`eda-quick-summary-item eda-quick-summary-item--${
+              item.tone ?? "neutral"
+            }`}
+            data-summary-label={item.label}
+          >
+            <small>{item.label}</small>
+            <strong title={item.value}>{item.value}</strong>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function OverviewPanel({ data }: { data: WorkspaceResponse }) {
   const headline = safeObject(data.headline);
   const integrity = safeObject(data.data_integrity);
@@ -509,59 +1825,471 @@ function OverviewPanel({ data }: { data: WorkspaceResponse }) {
   const constantColumns = safeArray(integrity.constant_columns);
   const identifierCandidates = safeArray(integrity.identifier_candidates);
   const leakageCandidates = safeArray(integrity.leakage_candidates);
+  const invalidNumeric = safeArray(integrity.invalid_numeric_parsing);
+  const targetSourceExcluded = safeArray<string>(data.target_source_excluded);
+  const configuredTarget = String(data.target || "Not configured");
+  const configuredEvent =
+    data.event_value === null || data.event_value === undefined
+      ? ""
+      : String(data.event_value);
+  const rows = Math.max(0, Number(headline.rows ?? data.row_count ?? 0));
+  const predictors = Math.max(0, Number(headline.predictors ?? 0));
+  const numericPredictors = Math.max(0, Number(headline.numeric_predictors ?? 0));
+  const categoricalPredictors = Math.max(
+    0,
+    Number(headline.categorical_predictors ?? 0),
+  );
+  const missingRate = Math.max(
+    0,
+    Math.min(1, Number(headline.missing_cell_rate ?? 0)),
+  );
+  const duplicateRows = Math.max(0, Number(headline.duplicate_rows ?? 0));
+  const duplicateRate = rows ? Math.min(1, duplicateRows / rows) : 0;
+  const targetMissingCount = Math.max(0, Number(target.missing_count ?? 0));
+  const numericShare = predictors ? (numericPredictors / predictors) * 100 : 0;
+  const categoricalShare = predictors
+    ? (categoricalPredictors / predictors) * 100
+    : 0;
+  const classRows = safeArray<any>(target.class_distribution);
+  const maximumClassCount = Math.max(
+    1,
+    ...classRows.map((row) => Number(row.count ?? 0)),
+  );
+  const qualitySignals = [
+    {
+      label: "Completeness",
+      value: Math.max(0, 1 - missingRate),
+      display: formatPercent(Math.max(0, 1 - missingRate), 0),
+      clear: missingRate === 0,
+    },
+    {
+      label: "Row integrity",
+      value: Math.max(0, 1 - duplicateRate),
+      display: formatPercent(Math.max(0, 1 - duplicateRate), 0),
+      clear: duplicateRows === 0,
+    },
+    {
+      label: "Non-constant fields",
+      value: predictors
+        ? Math.max(0, 1 - constantColumns.length / predictors)
+        : 0,
+      display: predictors
+        ? formatPercent(
+            Math.max(0, 1 - constantColumns.length / predictors),
+            0,
+          )
+        : "N/A",
+      clear: predictors > 0 && constantColumns.length === 0,
+    },
+    {
+      label: "Parsing-clear fields",
+      value: predictors
+        ? Math.max(0, 1 - invalidNumeric.length / predictors)
+        : 0,
+      display: predictors
+        ? formatPercent(
+            Math.max(0, 1 - invalidNumeric.length / predictors),
+            0,
+          )
+        : "N/A",
+      clear: predictors > 0 && invalidNumeric.length === 0,
+    },
+    {
+      label: "Target completeness",
+      value: rows
+        ? Math.max(0, 1 - targetMissingCount / rows)
+        : 0,
+      display: rows
+        ? formatPercent(Math.max(0, 1 - targetMissingCount / rows), 0)
+        : "N/A",
+      clear: rows > 0 && targetMissingCount === 0,
+    },
+  ];
+  const clearQualityChecks = qualitySignals.filter((signal) => signal.clear).length;
+  const readinessProgress = clearQualityChecks / qualitySignals.length;
+  const targetHasNoUsablePopulation = Number(target.valid_count ?? 0) <= 0;
+  const targetHasSingleClass =
+    data.problem_type === "classification" &&
+    Number(target.class_count ?? 0) < 2;
+  const reviewIssueCount = [
+    missingRate > 0,
+    duplicateRows > 0,
+    constantColumns.length > 0,
+    identifierCandidates.length > 0,
+    leakageCandidates.length > 0,
+    invalidNumeric.length > 0,
+    targetMissingCount > 0,
+  ].filter(Boolean).length;
+  const readinessLabel =
+    targetHasNoUsablePopulation || targetHasSingleClass
+      ? "Blocking target condition"
+      : reviewIssueCount
+        ? "Review items remain"
+        : "Ready for analytical review";
+
   return (
-    <div className="space-y-4">
-      <AtlasWorkflowSection eyebrow="Governed population" title="Modeling Dataset Overview" description="Headline metrics are aggregated from the full backend dataset and are independent of browser preview settings." tone="info">
-        <MetricGrid
-          items={[
-            ["Registered rows", formatNumber(headline.rows, 0)],
-            ["Predictors", formatNumber(headline.predictors, 0)],
-            ["Numeric", formatNumber(headline.numeric_predictors, 0)],
-            ["Categorical", formatNumber(headline.categorical_predictors, 0)],
-            ["Missing cells", formatNumber(headline.missing_cells, 0)],
-            ["Duplicate rows", formatNumber(headline.duplicate_rows, 0)],
-          ]}
-        />
-      </AtlasWorkflowSection>
-      <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
-        <AtlasWorkflowSection eyebrow="Outcome" title="Target Readiness" tone={target.rare_event ? "warning" : "info"}>
-          <MetricGrid
-            items={data.problem_type === "classification"
-              ? [
-                  ["Event count", formatNumber(target.event_count, 0)],
-                  ["Non-event count", formatNumber(target.non_event_count, 0)],
-                  ["Event rate", formatPercent(target.event_rate, 3)],
-                  ["Missing target", formatNumber(target.missing_count, 0)],
-                ]
-              : [
-                  ["Valid target", formatNumber(target.valid_count, 0)],
-                  ["Mean", formatNumber(target.mean)],
-                  ["Std. deviation", formatNumber(target.standard_deviation)],
-                  ["Missing target", formatNumber(target.missing_count, 0)],
-                ]}
-          />
+    <div className="space-y-6" data-testid="eda-overview-launch-surface">
+      <section
+        className="eda-section-band overflow-hidden"
+        aria-labelledby="eda-dataset-fingerprint-title"
+        data-testid="eda-dataset-fingerprint"
+      >
+        <div className="grid lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="p-5 sm:p-6">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-blue-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.14em] text-blue-700">
+                Full-population fingerprint
+              </span>
+              <span className="text-xs font-semibold text-slate-500">
+                {data.dataset_version || "Current governed version"}
+              </span>
+            </div>
+            <h2
+              id="eda-dataset-fingerprint-title"
+              className="mt-3 text-2xl font-bold tracking-tight text-slate-950"
+            >
+              One governed population, ready to interrogate
+            </h2>
+            <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              This fingerprint connects population composition, target balance,
+              structural quality, and authorization decisions before deeper analysis.
+            </p>
+
+            <div className="mt-6 grid gap-5 sm:grid-cols-3">
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                  Registered population
+                </div>
+                <div className="mt-1 text-3xl font-bold tabular-nums text-slate-950">
+                  {formatNumber(rows, 0)}
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  Full backend rows · not a browser preview
+                </div>
+              </div>
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                  Authorized predictors
+                </div>
+                <div className="mt-1 text-3xl font-bold tabular-nums text-slate-950">
+                  {formatNumber(predictors, 0)}
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  Target and source fields excluded
+                </div>
+              </div>
+              <div>
+                <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-slate-500">
+                  Modeling target
+                </div>
+                <div className="mt-1 break-words text-2xl font-bold text-blue-800">
+                  {data.target}
+                </div>
+                <div className="mt-1 text-xs text-slate-500">
+                  {titleCase(data.problem_type)} ·{" "}
+                  {data.problem_type === "classification"
+                    ? `event ${String(data.event_value ?? "configured")}`
+                    : "continuous outcome"}
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <div className="mb-2 flex items-center justify-between gap-3 text-xs">
+                <span className="font-semibold text-slate-700">
+                  Predictor-type composition
+                </span>
+                <span className="text-slate-500">
+                  {numericPredictors} numeric · {categoricalPredictors} categorical
+                </span>
+              </div>
+              <div
+                className="eda-fingerprint-composition flex h-4 overflow-hidden rounded-full bg-slate-100"
+                role="img"
+                aria-label={`${numericPredictors} numeric and ${categoricalPredictors} categorical predictors`}
+              >
+                <span
+                  className="h-full bg-blue-600"
+                  style={{ width: `${numericShare}%` }}
+                />
+                <span
+                  className="h-full bg-cyan-500"
+                  style={{ width: `${categoricalShare}%` }}
+                />
+              </div>
+              <div className="mt-2 flex flex-wrap gap-4 text-xs text-slate-600">
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-sm bg-blue-600" />
+                  Numeric {formatPercent(numericShare / 100, 1)}
+                </span>
+                <span className="inline-flex items-center gap-1.5">
+                  <span className="h-2.5 w-2.5 rounded-sm bg-cyan-500" />
+                  Categorical {formatPercent(categoricalShare / 100, 1)}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col items-center justify-center border-t border-slate-200 bg-slate-50 p-6 text-center lg:border-l lg:border-t-0">
+            <div
+              className="eda-readiness-ring grid h-44 w-44 place-items-center rounded-full"
+              style={{
+                background: `conic-gradient(#2563eb ${readinessProgress * 360}deg, #dbe4ef 0deg)`,
+              }}
+              role="img"
+              aria-label={`${clearQualityChecks} of ${qualitySignals.length} governed readiness checks are clear`}
+            >
+              <div className="grid h-36 w-36 place-items-center rounded-full bg-white">
+                <div>
+                  <div className="text-3xl font-bold tabular-nums text-slate-950">
+                    {clearQualityChecks}/{qualitySignals.length}
+                  </div>
+                  <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-slate-500">
+                    Checks clear
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="mt-4 font-semibold text-slate-900">{readinessLabel}</div>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              Categorical summary of server-returned checks; not a score,
+              approval, or modeling decision.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <div className="grid gap-6 xl:grid-cols-[1.08fr_0.92fr]">
+        <section
+          className="eda-section-band p-5 sm:p-6"
+          aria-labelledby="eda-population-balance-title"
+          data-testid="eda-overview-population-balance"
+        >
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-blue-700">
+                Population composition
+              </div>
+              <h3 id="eda-population-balance-title" className="mt-1 text-lg font-bold text-slate-950">
+                Target balance
+              </h3>
+              <p className="mt-1 text-sm text-slate-600">
+                Full-population class prevalence for the configured event.
+              </p>
+            </div>
+            <span className="w-fit rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
+              Missing target {formatNumber(target.missing_count, 0)}
+            </span>
+          </div>
+
           {data.problem_type === "classification" ? (
-            <div className="mt-4">
-              <ClassDistributionChart rows={safeArray<any>(target.class_distribution)} scope="Full Dataset Aggregation" />
+            <div className="mt-5 space-y-4">
+              {classRows.map((row, index) => {
+                const count = Math.max(0, Number(row.count ?? 0));
+                const rate = Number(row.rate ?? (rows ? count / rows : 0));
+                const event =
+                  String(row.value) === String(data.event_value ?? target.positive_class);
+                return (
+                  <div key={`${String(row.value)}-${index}`}>
+                    <div className="mb-1.5 flex items-end justify-between gap-4">
+                      <div>
+                        <span className="font-semibold text-slate-900">
+                          {event ? "Event" : "Non-event"}
+                        </span>
+                        <span className="ml-2 text-xs text-slate-500">
+                          value {String(row.value)}
+                        </span>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-bold tabular-nums text-slate-950">
+                          {formatNumber(count, 0)}
+                        </span>
+                        <span className="ml-2 text-xs font-semibold tabular-nums text-slate-500">
+                          {formatPercent(rate, 2)}
+                        </span>
+                      </div>
+                    </div>
+                    <div className="h-5 overflow-hidden rounded-md bg-slate-100">
+                      <div
+                        className={`h-full origin-left rounded-md motion-safe:animate-[eda-grow_620ms_cubic-bezier(0.2,0.75,0.25,1)_both] ${
+                          event ? "bg-rose-500" : "bg-blue-600"
+                        }`}
+                        style={{ width: `${Math.max(2, (count / maximumClassCount) * 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                );
+              })}
+              {target.rare_event ? (
+                <div className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                  Rare-event safeguards are required; accuracy is not an appropriate
+                  primary metric for this distribution.
+                </div>
+              ) : null}
             </div>
           ) : (
             <div className="mt-4">
-              <HistogramChart bins={chartBins(target)} source={target} scope="Full Dataset Aggregation" />
+              <HistogramChart
+                bins={chartBins(target)}
+                source={target}
+                scope="Full Dataset Aggregation"
+              />
             </div>
           )}
-          {target.rare_event ? <p className="mt-3 text-sm text-amber-900">Rare-event safeguards are required. Accuracy is not an appropriate primary metric for this target distribution.</p> : null}
-        </AtlasWorkflowSection>
-        <AtlasWorkflowSection eyebrow="Integrity" title="Review Signals" tone={leakageCandidates.length ? "warning" : "neutral"}>
-          <StatusList
-            items={[
-              { label: "Duplicate records", value: integrity.duplicate_rows ? `${formatNumber(integrity.duplicate_rows, 0)} detected` : "None detected", warning: !!integrity.duplicate_rows },
-              { label: "Constant fields", value: `${constantColumns.length} detected`, warning: !!constantColumns.length },
-              { label: "Identifier candidates", value: `${identifierCandidates.length} require review`, warning: !!identifierCandidates.length },
-              { label: "Leakage-name candidates", value: `${leakageCandidates.length} require evidence review`, warning: !!leakageCandidates.length },
-            ]}
-          />
-        </AtlasWorkflowSection>
+        </section>
+
+        <section
+          className="eda-section-band eda-section-band--tonal p-5 sm:p-6"
+          aria-labelledby="eda-quality-health-title"
+          data-testid="eda-data-quality-health"
+        >
+          <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-blue-700">
+            Data quality health
+          </div>
+          <h3 id="eda-quality-health-title" className="mt-1 text-lg font-bold text-slate-950">
+            Structural signal skyline
+          </h3>
+          <p className="mt-1 text-sm text-slate-600">
+            Five normalized checks show where review effort is concentrated.
+          </p>
+          <div
+            className="eda-quality-skyline mt-6 grid h-44 grid-cols-5 items-end gap-3 border-b border-slate-300 px-2"
+            role="img"
+            aria-label={qualitySignals
+              .map((signal) => `${signal.label} ${signal.display}`)
+              .join(", ")}
+          >
+            {qualitySignals.map((signal) => (
+              <span
+                key={signal.label}
+                className="relative min-h-4 rounded-t-md bg-blue-600"
+                style={{ height: `${Math.max(8, signal.value * 100)}%` }}
+                title={`${signal.label}: ${signal.display}`}
+              >
+                <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] font-bold tabular-nums text-slate-700">
+                  {signal.display}
+                </span>
+              </span>
+            ))}
+          </div>
+          <div className="mt-2 grid grid-cols-5 gap-2 text-center text-[10px] font-semibold leading-4 text-slate-500">
+            {qualitySignals.map((signal) => (
+              <span key={signal.label}>{signal.label}</span>
+            ))}
+          </div>
+          <div className="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+            <div>
+              <span className="text-slate-500">Missing cells</span>
+              <div className="font-bold tabular-nums text-slate-900">
+                {formatNumber(headline.missing_cells, 0)}
+              </div>
+            </div>
+            <div>
+              <span className="text-slate-500">Duplicate rows</span>
+              <div className="font-bold tabular-nums text-slate-900">
+                {formatNumber(duplicateRows, 0)}
+              </div>
+            </div>
+          </div>
+        </section>
       </div>
+
+      <section
+        className="eda-section-band overflow-hidden"
+        aria-labelledby="eda-attention-title"
+        data-testid="eda-overview-attention"
+      >
+        <div className="flex flex-col gap-2 border-b border-slate-200 bg-slate-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-blue-700">
+              Decision queue
+            </div>
+            <h3 id="eda-attention-title" className="mt-1 text-lg font-bold text-slate-950">
+              What deserves attention
+            </h3>
+          </div>
+          <span className="text-xs text-slate-500">
+            Warnings are review prompts, not automatic feature-removal decisions.
+          </span>
+        </div>
+        <div className="divide-y divide-slate-100">
+          <OverviewAttentionItem
+            label="Duplicate rows"
+            value={duplicateRows ? `${formatNumber(duplicateRows, 0)} require a recorded treatment decision` : "None detected"}
+            tone={duplicateRows ? "warning" : "complete"}
+          />
+          <OverviewAttentionItem
+            label="Constant fields"
+            value={constantColumns.length ? `${constantColumns.length} detected` : "None detected"}
+            tone={constantColumns.length ? "warning" : "complete"}
+          />
+          <OverviewAttentionItem
+            label="Multicollinearity"
+            value="Correlation and VIF review is available on Relationships"
+            tone="review"
+          />
+          <OverviewAttentionItem
+            label="Target-source exclusion"
+            value={
+              targetSourceExcluded.length
+                ? `Data Acquisition target: ${configuredTarget}${configuredEvent ? ` (event ${configuredEvent})` : ""}. Target excluded from predictors; source field${targetSourceExcluded.length === 1 ? "" : "s"} ${targetSourceExcluded.join(", ")} also excluded by the server-authorized manifest.`
+                : `Data Acquisition target: ${configuredTarget}${configuredEvent ? ` (event ${configuredEvent})` : ""}. Target excluded from predictors; no additional deterministic target-source field was returned.`
+            }
+            tone="complete"
+          />
+          <OverviewAttentionItem
+            label="Bureau special values"
+            value="Meaning-bearing special values remain visible for governed predictor review"
+            tone="review"
+          />
+          <OverviewAttentionItem
+            label="Unresolved findings"
+            value="Reviewer dispositions and evidence are tracked on Findings"
+            tone="review"
+          />
+        </div>
+      </section>
+    </div>
+  );
+}
+
+function OverviewAttentionItem({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "complete" | "review" | "warning";
+}) {
+  const config = {
+    complete: {
+      icon: <CheckCircle2 size={17} aria-hidden="true" />,
+      label: "Completed",
+      className: "bg-emerald-50 text-emerald-800",
+    },
+    review: {
+      icon: <Activity size={17} aria-hidden="true" />,
+      label: "Review",
+      className: "bg-blue-50 text-blue-800",
+    },
+    warning: {
+      icon: <AlertTriangle size={17} aria-hidden="true" />,
+      label: "Attention",
+      className: "bg-amber-50 text-amber-900",
+    },
+  }[tone];
+  return (
+    <div className="grid gap-3 px-5 py-3.5 sm:grid-cols-[190px_minmax(0,1fr)_auto] sm:items-center">
+      <div className="font-semibold text-slate-900">{label}</div>
+      <div className="text-sm leading-5 text-slate-600">{value}</div>
+      <span
+        className={`inline-flex w-fit items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${config.className}`}
+      >
+        {config.icon}
+        {config.label}
+      </span>
     </div>
   );
 }
@@ -582,112 +2310,92 @@ function PredictorsPanel({
   const [rowLimit, setRowLimit] = useState(15);
   const allNumeric = safeArray<any>(data.numeric);
   const allCategorical = safeArray<any>(data.categorical);
-  const [selectedFeature, setSelectedFeature] = useState(() => String(allNumeric[0]?.feature ?? allCategorical[0]?.feature ?? ""));
+  const selectedVariable = useEdaVisualSelection((state) => state.selectedVariable);
+  const [selectedCategory, setSelectedCategory] = useState(() =>
+    String(allCategorical[0]?.feature ?? ""),
+  );
   const signalKey = data.problem_type === "classification" ? "iv" : "correlation_with_target";
-  const sortRows = (rows: any[]) => [...rows].sort((left, right) => {
-    if (sortMode === "name") return String(left.feature ?? "").localeCompare(String(right.feature ?? ""));
-    const key = sortMode === "missing" ? "missing_rate" : sortMode === "outliers" ? "outlier_rate" : signalKey;
-    return Math.abs(Number(right?.[key] ?? 0)) - Math.abs(Number(left?.[key] ?? 0));
-  });
-  // EDA-UX-004: the inventory tables are filtered by the shared "Search
-  // predictors" box. Typing a feature name to locate it legitimately reduces the
-  // table to one row, but the section still claimed to be the full inventory
-  // with no result count and no sign that a filter was active -- so it read as
-  // "the inventory collapsed to the selected predictor". Matched/total counts and
-  // an explicit filter notice are now surfaced for each table.
-  const numericMatches = sortRows(safeArray<any>(data.numeric).filter((row: any) => String(row.feature).toLowerCase().includes(search.toLowerCase())));
-  const categoricalMatches = sortRows(safeArray<any>(data.categorical).filter((row: any) => String(row.feature).toLowerCase().includes(search.toLowerCase())));
-  const missingMatches = sortRows(safeArray<any>(data.missingness).filter((row: any) => row.missing_count > 0));
+  const sortRows = (rows: any[]) =>
+    [...rows].sort((left, right) => {
+      if (sortMode === "name") {
+        return String(left.feature ?? "").localeCompare(String(right.feature ?? ""));
+      }
+      const key =
+        sortMode === "missing"
+          ? "missing_rate"
+          : sortMode === "outliers"
+            ? "outlier_rate"
+            : signalKey;
+      return Math.abs(Number(right?.[key] ?? 0)) - Math.abs(Number(left?.[key] ?? 0));
+    });
+  const normalizedSearch = search.trim().toLowerCase();
+  const matchesSearch = (row: any) =>
+    !normalizedSearch || String(row.feature ?? "").toLowerCase().includes(normalizedSearch);
+  const numericMatches = sortRows(allNumeric.filter(matchesSearch));
+  const categoricalMatches = sortRows(allCategorical.filter(matchesSearch));
+  const allMissing = safeArray<any>(data.missingness).filter(
+    (row: any) => Number(row.missing_count) > 0,
+  );
+  const missingMatches = sortRows(allMissing.filter(matchesSearch));
   const numeric = numericMatches.slice(0, rowLimit);
   const categorical = categoricalMatches.slice(0, rowLimit);
   const missing = missingMatches.slice(0, rowLimit);
-  const searchActive = Boolean(search.trim());
-  const selected =
-    allNumeric.find((row: any) => row.feature === selectedFeature) ??
-    allCategorical.find((row: any) => row.feature === selectedFeature) ??
-    allNumeric[0] ??
-    allCategorical[0];
-  const selectedIsNumeric = !!allNumeric.find((row: any) => row.feature === selected?.feature);
-  const selectedName = String(selected?.feature ?? "");
-  const [histogramReload, setHistogramReload] = useState(0);
-  const [histogramState, setHistogramState] = useState<HistogramFetchState>({
-    feature: "",
-    requestedBins: histogramBins,
-    bins: [],
-    loading: false,
-  });
-  const histogramSequence = useRef(0);
+  const searchActive = Boolean(normalizedSearch);
+  const activeCategory =
+    allCategorical.find((row: any) => row.feature === selectedCategory) ??
+    allCategorical[0] ??
+    null;
+  const predictorAuthorization = safeObject(data.predictor_authorization);
+  const predictorVisualProps = {
+    predictorVisualProfiles: safeArray<any>(data.predictor_visual_profiles),
+    predictorVisualContract: safeObject(data.predictor_visual_contract) as any,
+    authorizedPredictors: safeArray<string>(
+      predictorAuthorization.authorized_predictors,
+    ),
+    target: String(data.target ?? ""),
+    targetSourceExcluded: safeArray<string>(
+      data.target_source_excluded ??
+        predictorAuthorization.target_source_excluded,
+    ),
+    rowCount: Number(data.row_count ?? 0),
+    populationEventRate:
+      Number.isFinite(Number(safeObject(data.target_profile).event_rate))
+        ? Number(safeObject(data.target_profile).event_rate)
+        : null,
+    datasetVersion: String(data.dataset_version ?? ""),
+  };
 
   useEffect(() => {
-    if (!selectedIsNumeric || !selectedName) {
-      setHistogramState({ feature: selectedName, requestedBins: histogramBins, bins: [], loading: false });
+    if (!allCategorical.length) {
+      if (selectedCategory) setSelectedCategory("");
       return;
     }
-    const sequence = histogramSequence.current + 1;
-    histogramSequence.current = sequence;
-    const controller = new AbortController();
-    setHistogramState((current) => ({
-      feature: selectedName,
-      requestedBins: histogramBins,
-      bins: current.feature === selectedName && current.requestedBins === histogramBins ? current.bins : [],
-      rowCount: current.feature === selectedName ? current.rowCount : undefined,
-      loading: true,
-      error: undefined,
-    }));
+    if (!allCategorical.some((row: any) => row.feature === selectedCategory)) {
+      setSelectedCategory(String(allCategorical[0].feature));
+    }
+  }, [allCategorical, selectedCategory]);
 
-    void fetch(`${API_BASE}/eda/histogram/${encodeURIComponent(selectedName)}?bins=${histogramBins}&project_id=${encodeURIComponent(projectId)}`, {
-      credentials: "include",
-      signal: controller.signal,
-    })
-      .then(async (response) => {
-        const payload = await response.json().catch(() => null);
-        if (!response.ok || !payload?.ok) throw new Error(String(payload?.detail?.message ?? payload?.detail ?? payload?.error ?? "Histogram aggregation failed."));
-        const edges = safeArray<number>(payload.edges).map(Number);
-        const counts = safeArray<number>(payload.counts).map(Number);
-        if (!counts.length || edges.length !== counts.length + 1) throw new Error("The histogram service returned an incomplete bin contract.");
-        return {
-          feature: selectedName,
-          requestedBins: histogramBins,
-          bins: counts.map((count, index) => ({ bin: index + 1, lower: edges[index], upper: edges[index + 1], count })),
-          rowCount: Number(payload.row_count),
-          loading: false,
-        } satisfies HistogramFetchState;
-      })
-      .then((next) => {
-        if (histogramSequence.current === sequence) setHistogramState(next);
-      })
-      .catch((cause) => {
-        if (controller.signal.aborted || histogramSequence.current !== sequence) return;
-        setHistogramState({
-          feature: selectedName,
-          requestedBins: histogramBins,
-          bins: [],
-          loading: false,
-          error: cause instanceof Error ? cause.message : "Histogram aggregation failed.",
-        });
-      });
-
-    return () => controller.abort();
-  }, [data.dataset_version, histogramBins, histogramReload, selectedIsNumeric, selectedName]);
-
-  const profileBins = chartBins(selected);
-  const dedicatedHistogramCurrent = histogramState.feature === selectedName && histogramState.requestedBins === histogramBins;
-  const resolvedHistogram = dedicatedHistogramCurrent && histogramState.bins.length
-    ? histogramState.bins
-    : profileBins.length === histogramBins
-      ? profileBins
-      : [];
-  const histogramPending = selectedIsNumeric && (!dedicatedHistogramCurrent || histogramState.loading);
   return (
     <div className="space-y-4">
-      {/* EDA-PREDICTORS-001: the instructional block (heading, explanatory
-          paragraph, and four-step workflow) was removed at James's request --
-          it did not perform an analytical function. Not replaced with another
-          instructional card; the controls below are self-describing. */}
+      <PredictorSignalLandscape {...predictorVisualProps} />
+
+      <PredictorDistributionExplorer
+        projectId={projectId}
+        target={data.target}
+        problemType={data.problem_type}
+        eventValue={data.event_value}
+        datasetVersion={data.dataset_version}
+        predictors={allNumeric}
+        histogramBins={histogramBins}
+        onHistogramBins={onHistogramBins}
+      />
+
+      <LazyPredictorSecondaryInsights {...predictorVisualProps} />
+
       <AtlasWorkflowSection
-        eyebrow="Predictors"
-        title="Predictor Inventory and Investigation"
-        description="Full-dataset numeric, categorical, and missingness diagnostics. Treatment remains on later workflow steps."
+        eyebrow="Predictor inventory"
+        title="Detailed Predictor Profiles"
+        description="Search, sort, and export the full-dataset numeric, categorical, and missingness diagnostics after reviewing the visual evidence above."
         tone="info"
         action={<AtlasDataScopeBadge scope="full_dataset" rows={data.row_count} />}
       >
@@ -718,83 +2426,53 @@ function PredictorsPanel({
           </div>
         </div>
       </AtlasWorkflowSection>
-      <AtlasWorkflowSection eyebrow="Feature investigation" title="Selected Predictor Visualization" description="Charts use backend aggregated bins or bounded backend-rendered summaries. They do not compute full-dataset chart data in the browser." tone="info">
-        <div className="grid gap-4 lg:grid-cols-[280px_1fr]">
-          <div className="space-y-3">
-            <label>
-              <span className="atlas-label">Feature selector</span>
-              <select className="atlas-input mt-1" value={selected?.feature ?? ""} onChange={(event) => setSelectedFeature(event.target.value)}>
-                {allNumeric.length ? <optgroup label="Numeric predictors">{allNumeric.map((row: any) => <option key={row.feature} value={row.feature}>{row.feature}</option>)}</optgroup> : null}
-                {allCategorical.length ? <optgroup label="Categorical predictors">{allCategorical.map((row: any) => <option key={row.feature} value={row.feature}>{row.feature}</option>)}</optgroup> : null}
-              </select>
-              <span className="mt-1 block text-xs text-slate-500">Chart scope: Full Dataset Aggregation</span>
-            </label>
-            <label>
-              <span className="atlas-label">Histogram bins</span>
-              <select className="atlas-input mt-1" value={histogramBins} onChange={(event) => onHistogramBins(Number(event.target.value))}>
-                {[10, 15, 20, 30, 40, 50, 60].map((value) => (
-                  <option key={value} value={value}>{value} bins</option>
-                ))}
-              </select>
-              <span className="mt-1 block text-xs text-slate-500">Choose more bins when the distribution needs finer detail.</span>
-            </label>
-            <button type="button" className="atlas-secondary-button w-full justify-center" onClick={() => setHistogramReload((value) => value + 1)} disabled={histogramState.loading}>
-              <RefreshCw size={15} className={histogramState.loading ? "animate-spin" : ""} /> {histogramState.loading ? "Aggregating full data" : "Refresh histogram"}
-            </button>
-          </div>
-          {!selected ? (
-            <AtlasAttentionPanel title="No predictors available" tone="info">The backend profile did not return any eligible predictors for visualization.</AtlasAttentionPanel>
-          ) : selectedIsNumeric ? (
-            <div className="grid gap-4 xl:grid-cols-2">
-              <div className="xl:col-span-2">
-                <HistogramChart
-                  bins={resolvedHistogram}
-                  source={selected}
-                  scope="Full Dataset Aggregation"
-                  requestedBins={histogramBins}
-                  loading={histogramPending}
-                  error={dedicatedHistogramCurrent ? histogramState.error : undefined}
-                  rowCount={dedicatedHistogramCurrent ? histogramState.rowCount : undefined}
-                  onRetry={() => setHistogramReload((value) => value + 1)}
-                />
-              </div>
-              <QuantileSummary row={selected} />
-              <EventRateByQuantile rows={safeArray<any>(selected.event_rate_by_quantile)} />
-              <MissingPresentRates row={selected} />
-            </div>
-          ) : (
-            <div className="grid gap-4 xl:grid-cols-2">
-              <CategoryFrequencyChart rows={safeArray<any>(selected.top_levels)} scope="Full Dataset Aggregation" />
-              <CategoryEventRateChart rows={safeArray<any>(selected.top_levels)} />
-              <MetricGrid items={[["Rare levels", formatNumber(selected.rare_level_count, 0)], ["Cardinality", formatNumber(selected.cardinality, 0)], ["Missing", formatPercent(selected.missing_rate)], ["Suggested grouping", selected.suggested_grouping ?? "Not evaluated"]]} />
-            </div>
-          )}
-        </div>
-      </AtlasWorkflowSection>
-      <AtlasWorkflowSection
-        eyebrow="Advanced analysis"
-        title="Interactive Distribution Explorer (Visual Intelligence)"
-        description="Server-side histogram, quantile, and segment aggregation for enterprise-scale datasets -- brush a range or enter numeric cutoffs to see bounded aggregate statistics without loading full columns into the browser."
-        tone="neutral"
-      >
-        {/* EDA-EXPLORER-001 / Part E: development EDA is explicitly a
-            development-context analysis. TRAIN/TEST/OOT partitions and durable
-            Scoring Runs do not exist yet, so those controls are suppressed. */}
-        <VisualAnalysisPanel
-          analysisType="distribution"
-          analysisContext="development"
-          title="Interactive Distribution Explorer"
-          description="Explore how a predictor is distributed across the governed development dataset, and how a selected value range relates to the target."
+
+      {activeCategory ? (
+        <AtlasWorkflowSection
+          eyebrow="Categorical profile"
+          title="Categorical Predictor Review"
+          description="Full-population category frequencies and target rates are retained alongside the numeric visual explorer."
+          tone="neutral"
+          action={<AtlasDataScopeBadge scope="full_dataset" rows={data.row_count} />}
         >
-          <DistributionExplorer />
-        </VisualAnalysisPanel>
-      </AtlasWorkflowSection>
+          <label className="mb-4 block max-w-md">
+            <span className="atlas-label">Categorical predictor</span>
+            <select
+              className="atlas-input mt-1"
+              value={String(activeCategory.feature)}
+              onChange={(event) => setSelectedCategory(event.target.value)}
+            >
+              {allCategorical.map((row: any) => (
+                <option key={row.feature} value={row.feature}>{row.feature}</option>
+              ))}
+            </select>
+          </label>
+          <div className="grid gap-4 xl:grid-cols-2">
+            <CategoryFrequencyChart
+              rows={safeArray<any>(activeCategory.top_levels)}
+              scope="Full Dataset Aggregation"
+            />
+            <CategoryEventRateChart rows={safeArray<any>(activeCategory.top_levels)} />
+            <div className="xl:col-span-2">
+              <MetricGrid
+                items={[
+                  ["Rare levels", formatNumber(activeCategory.rare_level_count, 0)],
+                  ["Cardinality", formatNumber(activeCategory.cardinality, 0)],
+                  ["Missing", formatPercent(activeCategory.missing_rate)],
+                  ["Suggested grouping", activeCategory.suggested_grouping ?? "Not evaluated"],
+                ]}
+              />
+            </div>
+          </div>
+        </AtlasWorkflowSection>
+      ) : null}
+
       <DataTable
         title="All numeric predictors"
         inventoryCount={{ shown: numeric.length, matched: numericMatches.length, total: allNumeric.length }}
         searchTerm={searchActive ? search : ""}
         onClearSearch={() => setSearch("")}
-        highlightFeature={selectedName}
+        highlightFeature={selectedVariable ?? ""}
         columns={[
           ["feature", "Feature"], ["count", "Count"], ["missing_rate", "Missing", "percent"], ["mean", "Mean"],
           ["standard_deviation", "Std. dev."], ["median", "Median"], ["skewness", "Skew"], ["outlier_rate", "Outliers", "percent"],
@@ -808,7 +2486,7 @@ function PredictorsPanel({
         inventoryCount={{ shown: categorical.length, matched: categoricalMatches.length, total: allCategorical.length }}
         searchTerm={searchActive ? search : ""}
         onClearSearch={() => setSearch("")}
-        highlightFeature={selectedName}
+        highlightFeature={String(activeCategory?.feature ?? "")}
         columns={[
           ["feature", "Feature"], ["count", "Count"], ["missing_rate", "Missing", "percent"], ["cardinality", "Cardinality"],
           ["rare_level_count", "Rare levels"], ["iv", "IV"], ["high_cardinality", "High cardinality", "boolean"], ["inconsistent_labels", "Label cleanup", "boolean"],
@@ -818,6 +2496,10 @@ function PredictorsPanel({
       />
       <DataTable
         title="Missingness diagnostics"
+        inventoryCount={{ shown: missing.length, matched: missingMatches.length, total: allMissing.length }}
+        searchTerm={searchActive ? search : ""}
+        onClearSearch={() => setSearch("")}
+        highlightFeature={selectedVariable ?? String(activeCategory?.feature ?? "")}
         columns={[["feature", "Feature"], ["missing_count", "Missing rows"], ["missing_rate", "Missing", "percent"], ["missing_event_rate", "Event rate when missing", "percent"], ["present_event_rate", "Event rate when present", "percent"], ["informative_missingness", "Informative flag", "boolean"]]}
         rows={missing}
         empty="No missing predictor values were detected."
@@ -829,23 +2511,249 @@ function PredictorsPanel({
 function RelationshipsPanel(props: {
   data: WorkspaceResponse;
   numericFields: string[];
+  segmentFields: string[];
   pairwiseFeatures: string[];
   onPairwiseFeatures: (values: string[]) => void;
-  onRun: () => void;
+  projectId: string;
+  onRun: (overrides?: Record<string, unknown>) => void;
 }) {
   const columns = safeArray<string>(props.data.correlation_columns);
   const matrix = safeArray<Array<number | null>>(props.data.correlation_matrix);
+  const selectedVariable = useEdaVisualSelection((state) => state.selectedVariable);
+  const selectedRange = useEdaVisualSelection((state) => state.selectedRange);
+  const pinnedPair = useEdaVisualSelection((state) => state.pinnedPair);
+  const vifVariable = useEdaVisualSelection((state) => state.vifVariable);
+  const setSelectedVariable = useEdaVisualSelection((state) => state.setSelectedVariable);
+  const pinPair = useEdaVisualSelection((state) => state.pinPair);
+  const setVifVariable = useEdaVisualSelection((state) => state.setVifVariable);
+  const setRelationshipMode = useEdaVisualSelection((state) => state.setRelationshipMode);
+  const vifByFeature = useMemo(
+    () =>
+      Object.fromEntries(
+        safeArray<any>(props.data.vif).map((row) => [
+          String(row.feature),
+          {
+            vif:
+              row.vif === null || row.vif === undefined
+                ? null
+                : Number(row.vif),
+            is_infinite: Boolean(row.is_infinite),
+          },
+        ]),
+      ),
+    [props.data.vif],
+  );
+
+  const simulateVif = useCallback(async (
+    request: VifSimulationRequest,
+  ): Promise<VifSimulationResult> => {
+    const excludedFeature = request.temporarilyExcludedVariables[0];
+    if (!excludedFeature) throw new Error("Select one predictor for the temporary VIF scenario.");
+    const response = await fetch(`${API_BASE}/eda/vif-simulation`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        project_id: props.projectId,
+        target: props.data.target,
+        event_value: props.data.event_value,
+        problem_type: props.data.problem_type,
+        excluded_feature: excludedFeature,
+      }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok || !payload?.ok) {
+      const rawDetail = payload?.detail;
+      const detail = safeObject(rawDetail);
+      throw new Error(
+        String(
+          (typeof rawDetail === "string" ? rawDetail : detail.message) ??
+            payload?.message ??
+            payload?.error ??
+            "The temporary VIF scenario could not be computed.",
+        ),
+      );
+    }
+    const summary = safeObject(payload.summary);
+    const rows = safeArray<any>(payload.after);
+    const maximumVif = Number(summary.after_max_vif);
+    return {
+      summary: `Temporary exclusion of ${excludedFeature}; ${
+        rows.length
+      } predictors remain. No governed feature state was changed.`,
+      maximumVif: Number.isFinite(maximumVif) ? maximumVif : null,
+      materialReviewCount: rows.filter((row) => Number(row.vif) >= 10).length,
+      rows,
+    };
+  }, [
+    props.data.event_value,
+    props.data.problem_type,
+    props.data.target,
+    props.projectId,
+  ]);
+  const handleCorrelationVariable = useCallback(
+    (name: string) => setSelectedVariable(name, "correlation"),
+    [setSelectedVariable],
+  );
+  const handlePinnedPair = useCallback(
+    (pair: { a: string; b: string }) => {
+      setSelectedVariable(pair.a, "correlation");
+      pinPair(pair);
+      const nextPairwise = [pair.a, pair.b];
+      props.onPairwiseFeatures(nextPairwise);
+      props.onRun({ pairwise_features: nextPairwise });
+    },
+    [
+      pinPair,
+      props.onPairwiseFeatures,
+      props.onRun,
+      setSelectedVariable,
+    ],
+  );
+  const handleVifVariable = useCallback(
+    (variable: string | null) => setVifVariable(variable),
+    [setVifVariable],
+  );
+  const launchRelationshipExplorer = useCallback(
+    (mode: "2d" | "density" | "3d", pair?: { a: string; b: string }) => {
+      const alreadyPinned =
+        pair &&
+        pinnedPair &&
+        ((pinnedPair.a === pair.a && pinnedPair.b === pair.b) ||
+          (pinnedPair.a === pair.b && pinnedPair.b === pair.a));
+      if (pair && !alreadyPinned) handlePinnedPair(pair);
+      setRelationshipMode(mode);
+      window.requestAnimationFrame(() => {
+        document
+          .getElementById("eda-relationship-explorer-section")
+          ?.scrollIntoView({ block: "start", behavior: "smooth" });
+      });
+    },
+    [handlePinnedPair, pinnedPair, setRelationshipMode],
+  );
+
   return (
     <div className="space-y-4">
-      <AtlasWorkflowSection eyebrow="Association" title="Correlation and Redundancy" description="Correlation and VIF use governed backend data. Pairwise rendering is limited to six explicitly selected variables." tone="info">
-        <CorrelationGrid columns={columns} matrix={matrix} />
+      <AtlasWorkflowSection
+        eyebrow="Association"
+        title="Correlation and Redundancy"
+        description="Search, filter, reorder, and pin an exact pair in the full-population correlation matrix. A pinned pair updates the bounded pairwise view below."
+        tone="info"
+      >
+        <CorrelationExplorer
+          columns={columns}
+          matrix={matrix}
+          correlationSampleSizes={safeArray<Array<number | null>>(
+            props.data.correlation_n_matrix,
+          )}
+          vifByFeature={vifByFeature}
+          selectedVariable={selectedVariable}
+          pinnedPair={pinnedPair}
+          onSelectVariable={handleCorrelationVariable}
+          onPinPair={handlePinnedPair}
+          onLaunch2D={(pair) => launchRelationshipExplorer("2d", pair)}
+          onLaunch3D={(pair) => launchRelationshipExplorer("3d", pair)}
+        />
       </AtlasWorkflowSection>
       <DataTable title="Strong correlated pairs" columns={[["feature_a", "Feature A"], ["feature_b", "Feature B"], ["correlation", "Correlation"]]} rows={props.data.strong_pairs ?? []} empty="No pairs exceed the 0.70 review threshold." />
-      <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-        <VifBarChart rows={props.data.vif ?? []} />
-        <DataTable title="Variance inflation factor" columns={[["feature", "Feature"], ["vif", "VIF"], ["status", "Status"]]} rows={props.data.vif ?? []} empty="VIF requires at least two eligible numeric predictors." />
-      </div>
-      <DataTable title="Target association ranking" columns={[["feature", "Feature"], [props.data.problem_type === "classification" ? "iv" : "correlation_with_target", props.data.problem_type === "classification" ? "IV" : "Correlation"], ["monotonicity", "Monotonicity"]]} rows={safeArray<any>(props.data.numeric)} empty="No target association ranking is available." />
+      <VifExplorer
+        rows={safeArray<any>(props.data.vif)}
+        correlationColumns={columns}
+        correlationMatrix={matrix}
+        selectedVariable={selectedVariable}
+        onSelectVariable={handleVifVariable}
+        datasetVersion={props.data.dataset_version}
+        scope={props.data.vif_scope}
+        onSimulate={simulateVif}
+      />
+      <section
+        id="eda-relationship-explorer-section"
+        className="eda-section-band overflow-hidden"
+        aria-labelledby="eda-relationship-section-title"
+        data-testid="eda-relationship-explorer-section"
+      >
+        <div className="flex flex-col gap-3 border-b border-indigo-100 bg-indigo-50/70 px-5 py-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="rounded-lg bg-indigo-100 p-2 text-indigo-700">
+              <Layers3 size={18} aria-hidden="true" />
+            </span>
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-indigo-700">
+                First-class linked analysis
+              </div>
+              <h2
+                id="eda-relationship-section-title"
+                className="mt-1 text-xl font-bold text-slate-950"
+              >
+                Relationship Explorer
+              </h2>
+              <p className="mt-1 max-w-4xl text-sm leading-6 text-slate-600">
+                Move directly from population-level correlation and VIF evidence
+                into a bounded deterministic sample. Use 2D Scatter, Density, or
+                the lazily loaded 3D Explorer without changing the governed data.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            className="atlas-secondary-button shrink-0"
+            onClick={() => launchRelationshipExplorer("2d")}
+          >
+            Focus 2D controls <ArrowRight size={15} aria-hidden="true" />
+          </button>
+        </div>
+        <div className="border-b border-indigo-100 bg-white px-5 py-3 text-xs leading-5 text-indigo-950">
+          {vifVariable ? (
+            <>
+              <strong>{vifVariable}</strong> is linked as X from VIF. Select Y
+              and an explicit Z below.
+            </>
+          ) : (
+            "Select a VIF row to link it as X, pin a heatmap pair to set X and Y, or choose axes directly below."
+          )}
+        </div>
+        <React.Suspense
+          fallback={
+            <div
+              className="flex min-h-64 items-center justify-center bg-white text-sm text-slate-600"
+              role="status"
+            >
+              <LoaderCircle size={18} className="mr-2 animate-spin" />
+              Loading the Relationship Explorer…
+            </div>
+          }
+        >
+          <RelationshipExplorer
+            projectId={props.projectId}
+            target={String(props.data.target)}
+            eventValue={props.data.event_value}
+            problemType={props.data.problem_type}
+            datasetVersion={String(props.data.dataset_version)}
+            predictorManifestId={String(
+              safeObject(props.data.predictor_authorization).manifest_version ?? "",
+            )}
+            numericFields={props.numericFields}
+            segmentFields={props.segmentFields}
+            selectedRange={selectedRange}
+            initialPair={pinnedPair}
+            vifVariable={vifVariable}
+          />
+        </React.Suspense>
+      </section>
+      <DataTable
+        title="Target association ranking"
+        columns={[
+          ["feature", "Feature"],
+          [
+            props.data.problem_type === "classification" ? "iv" : "correlation_with_target",
+            props.data.problem_type === "classification" ? "IV" : "Correlation",
+          ],
+          ["monotonicity", "Monotonicity"],
+        ]}
+        rows={safeArray<any>(props.data.target_association)}
+        empty="No target association ranking is available."
+        highlightFeature={selectedVariable ?? ""}
+      />
       <AtlasWorkflowSection
         eyebrow="Bounded chart data"
         title="Pairwise Plot Builder"
@@ -874,13 +2782,29 @@ function RelationshipsPanel(props: {
                 );
               })}
             </div>
-            <button type="button" className="atlas-primary-button mt-3 w-full" onClick={props.onRun}>Generate pairwise plot</button>
+            <button type="button" className="atlas-primary-button mt-3 w-full" onClick={() => props.onRun()}>Generate pairwise plot</button>
           </div>
           <div className="space-y-3">
             {safeArray<string>(props.data.pairwise_features).length ? (
               <>
                 {Number(props.data.pairwise_event_rows ?? 0) < 5 && props.data.problem_type === "classification" ? <AtlasAttentionPanel title="Small event count in render sample" tone="warning">The pairwise render sample contains fewer than five event rows. Use the full-dataset association metrics for final decisions.</AtlasAttentionPanel> : null}
-                <PairwiseMatrix features={safeArray<string>(props.data.pairwise_features)} rows={safeArray<any>(props.data.pairwise_sample)} />
+                {selectedRange &&
+                safeArray<string>(props.data.pairwise_features).includes(selectedRange.feature) ? (
+                  <div
+                    className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-950"
+                    data-testid="pairwise-linked-range"
+                  >
+                    Linked highlight: rows where <strong>{selectedRange.feature}</strong> is
+                    between {formatNumber(selectedRange.min, 3)} and{" "}
+                    {formatNumber(selectedRange.max, 3)}. The full bounded sample remains
+                    visible for context.
+                  </div>
+                ) : null}
+                <PairwiseMatrix
+                  features={safeArray<string>(props.data.pairwise_features)}
+                  rows={safeArray<any>(props.data.pairwise_sample)}
+                  selectedRange={selectedRange}
+                />
               </>
             ) : (
               <AtlasAttentionPanel title="Pairwise plot data has not been generated" tone="info">Select up to four predictors and click Generate pairwise plot.</AtlasAttentionPanel>
@@ -906,8 +2830,20 @@ function StabilityPanel(props: {
   const hasSegmentFields = safeArray<string>(props.segmentFields).length > 0;
   const hasTimeProfile = safeArray(props.data.time_profile).length > 0;
   const hasSegmentProfile = safeArray(props.data.segment_profile).length > 0;
+  if (!hasTimeFields && !hasSegmentFields) {
+    return (
+      <StabilityUnavailableState
+        title="No governed time or segment fields were detected"
+        note="This dataset does not contain a governed observation-time or reusable segment field. Stability analysis can be enabled with a documented date, cohort, product, region, channel, or other approved segmentation variable."
+      />
+    );
+  }
   return (
-    <div className="space-y-4">
+    <div
+      className="space-y-4"
+      data-testid="eda-stability-workspace"
+      data-analysis-available="true"
+    >
       <AtlasWorkflowSection eyebrow="Population stability" title="Time and Segment Configuration" description="ATLAS only runs these analyses after a reviewer selects a legitimate time or business segment field." tone="info">
         <AnalysisSelectors {...props} />
         <div className="mt-4">
@@ -921,11 +2857,7 @@ function StabilityPanel(props: {
           />
         </div>
       </AtlasWorkflowSection>
-      {!hasTimeFields && !hasSegmentFields ? (
-        <AtlasAttentionPanel title="No governed time or segment fields were detected" tone="info">
-          This dataset does not expose an obvious date, period, or reusable business segment field. ATLAS will not invent segments from arbitrary numeric predictors. Define a governed segment or time field upstream if stability analysis is required.
-        </AtlasAttentionPanel>
-      ) : !hasTimeProfile && !hasSegmentProfile ? (
+      {!hasTimeProfile && !hasSegmentProfile ? (
         <AtlasAttentionPanel title="No governed time or segment field has been selected" tone="info">Choose a valid time or segment field, then run the analysis. ATLAS will not infer a date from ordinary numeric values.</AtlasAttentionPanel>
       ) : null}
       <div className="grid gap-4 xl:grid-cols-2">
@@ -942,80 +2874,128 @@ function StabilityPanel(props: {
   );
 }
 
-function FindingsPanel({ data, state, onChange, onSave, message }: { data: WorkspaceResponse; state: FindingsState; onChange: (value: FindingsState) => void; onSave: () => void; message: string }) {
-  const [duplicateTreatment, setDuplicateTreatment] = useState("review");
-  const [duplicateMessage, setDuplicateMessage] = useState("");
-  const duplicateFinding = safeArray<any>(data.findings).find((finding: any) => String(finding.category).toLowerCase() === "data integrity" && /duplicate/i.test(String(finding.finding)));
-  function saveDuplicateDecision() {
-    logDecision({
-      workflowStep: "Exploratory Data Analysis",
-      actionType: "workflow_setting_changed",
-      subject: "Duplicate row treatment",
-      previousValue: "review",
-      newValue: duplicateTreatment,
-      systemRecommendation: "Confirm whether duplicate records represent repeated observations or ingestion duplication before downstream modeling.",
-      userReason: duplicateTreatment === "exclude" ? "Reviewer selected duplicate-row exclusion for downstream preprocessing." : "Reviewer recorded duplicate-row handling decision.",
-    });
-    setDuplicateMessage("Duplicate-row decision recorded.");
-  }
+function StabilityUnavailableState({
+  title,
+  note,
+}: {
+  title: string;
+  note: string;
+}) {
+  const capabilities: Array<{
+    title: string;
+    description: string;
+    requirement: string;
+    icon: LucideIcon;
+  }> = [
+    {
+      title: "Time trend",
+      description:
+        "Volume and target behavior across governed observation periods.",
+      requirement: "Requires an approved observation-date field.",
+      icon: Activity,
+    },
+    {
+      title: "Segment comparison",
+      description:
+        "Population and target behavior across reusable business groups.",
+      requirement: "Requires an approved segment or cohort field.",
+      icon: GitCompareArrows,
+    },
+    {
+      title: "Population drift",
+      description:
+        "Reference-versus-comparison change once valid cohorts exist.",
+      requirement: "Requires governed reference and comparison populations.",
+      icon: ShieldCheck,
+    },
+    {
+      title: "Population Stability Index (PSI)",
+      description:
+        "Distribution shift evidence using governed comparison windows.",
+      requirement: "Requires valid time or cohort partitions.",
+      icon: BarChart3,
+    },
+  ];
   return (
-    <div className="space-y-4">
-      <AtlasWorkflowSection eyebrow="Governed conclusions" title="EDA Findings and Carry-Forward" description="Recommendations inform later choices but do not automatically apply outlier, missing-value, feature, or split treatments." tone="info">
-        <div className="space-y-2">
-          {safeArray<any>(data.findings).map((finding: any, index: number) => (
-            <div key={`${finding.category}-${index}`} className={`rounded-lg border p-3 ${finding.severity === "warning" ? "border-amber-300 bg-amber-50" : "border-blue-200 bg-blue-50"}`}>
-              <div className="flex items-start gap-2">
-                {finding.severity === "warning" ? <AlertTriangle size={17} className="mt-0.5 shrink-0 text-amber-700" /> : <CheckCircle2 size={17} className="mt-0.5 shrink-0 text-blue-700" />}
-                <div>
-                  <div className="text-sm font-semibold text-slate-950">{finding.category}</div>
-                  <div className="mt-1 text-sm text-slate-700">{finding.finding}</div>
-                  <div className="mt-1 text-xs text-slate-600"><strong>Recommended action:</strong> {finding.recommended_action}</div>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </AtlasWorkflowSection>
-      {duplicateFinding ? (
-        <AtlasWorkflowSection eyebrow="Duplicate row treatment" title="Duplicate Row Decision" description="Record how duplicate observations should be handled before the dataset moves into treatment and model training." tone="warning">
-          <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
-            <label>
-              <span className="atlas-label">Duplicate row action</span>
-              <select className="atlas-input mt-1" value={duplicateTreatment} onChange={(event) => setDuplicateTreatment(event.target.value)}>
-                <option value="review">Review before downstream treatment</option>
-                <option value="exclude">Exclude duplicate rows before downstream modeling</option>
-                <option value="keep">Keep duplicate rows as repeated observations</option>
-              </select>
-              <span className="mt-1 block text-xs text-slate-600">
-                This records the EDA decision. Dataset mutation should occur through governed preprocessing evidence before training.
-              </span>
-            </label>
-            <button type="button" className="atlas-primary-button" onClick={saveDuplicateDecision}>Save duplicate-row decision</button>
+    <section
+      className="eda-stability-unavailable"
+      aria-labelledby="eda-stability-unavailable-title"
+      data-testid="eda-stability-unavailable"
+      data-analysis-available="false"
+      data-confirmation-impact="non-blocking"
+    >
+      <div className="eda-stability-unavailable__header">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="eda-stability-unavailable__icon">
+            <ShieldCheck size={19} aria-hidden="true" />
+          </span>
+          <div>
+            <div className="eda-detail-label">Capability availability</div>
+            <h2 id="eda-stability-unavailable-title">{title}</h2>
+            <p>
+              {note} ATLAS has not calculated stability, drift, or PSI, and it
+              will not infer dates or comparison populations from ordinary
+              numeric fields.
+            </p>
           </div>
-          {duplicateMessage ? <div className="mt-3 text-sm font-medium text-emerald-700">{duplicateMessage}</div> : null}
-        </AtlasWorkflowSection>
-      ) : null}
-      <AtlasWorkflowSection eyebrow="Reviewer record" title="Conclusion and Status" tone="neutral">
-        <div className="grid gap-4 lg:grid-cols-[1fr_220px]">
-          <label className="block">
-            <span className="atlas-label">Reviewer commentary</span>
-            <textarea className="atlas-input mt-1 min-h-32" value={state.commentary} onChange={(event) => onChange({ ...state, commentary: event.target.value })} placeholder="Record key conclusions, exceptions, and downstream review priorities." />
-          </label>
-          <label className="block">
-            <span className="atlas-label">Finding status</span>
-            <select className="atlas-input mt-1" value={state.status} onChange={(event) => onChange({ ...state, status: event.target.value as FindingsState["status"] })}>
-              <option value="draft">Draft</option>
-              <option value="reviewed">Reviewed</option>
-              <option value="accepted">Accepted for carry-forward</option>
-            </select>
-          </label>
         </div>
-        <div className="mt-4 flex flex-wrap items-center gap-2">
-          <button type="button" className="atlas-primary-button" onClick={onSave}><Save size={15} /> Save to Evidence Center</button>
-          {message ? <span className="text-sm text-slate-600">{message}</span> : null}
+        <span className="eda-stability-unavailable__status">
+          Unavailable · No analysis fabricated
+        </span>
+      </div>
+
+      <div
+        className="eda-stability-capability-grid"
+        aria-label="Unavailable stability capability previews"
+      >
+        {capabilities.map((capability) => {
+          const Icon = capability.icon;
+          return (
+            <article
+              key={capability.title}
+              className="eda-stability-capability"
+              aria-disabled="true"
+              data-capability-state="unavailable"
+            >
+              <div className="eda-stability-capability__title">
+                <Icon size={16} aria-hidden="true" />
+                <h3>{capability.title}</h3>
+              </div>
+              <p>{capability.description}</p>
+              <div>{capability.requirement}</div>
+            </article>
+          );
+        })}
+      </div>
+
+      <div className="eda-stability-enablement">
+        <div>
+          <h3>How to enable these analyses</h3>
+          <ol>
+            <li>
+              Register or derive a documented observation date, approved
+              cohort, or reusable business segment upstream.
+            </li>
+            <li>
+              Publish that governed field in a new dataset version and reopen
+              this EDA workspace.
+            </li>
+            <li>
+              Select the field here, then run the applicable time or segment
+              analysis.
+            </li>
+          </ol>
         </div>
-      </AtlasWorkflowSection>
-    </div>
+        <div className="eda-stability-nonblocking">
+          <CheckCircle2 size={16} aria-hidden="true" />
+          <span>
+            This honest unavailable state is informational. It does not block
+            EDA confirmation when the other required reviewer decisions are
+            complete.
+          </span>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -1234,57 +3214,6 @@ function HistogramChart({
   );
 }
 
-function QuantileSummary({ row }: { row: any }) {
-  return (
-    <ChartCard title="Quantile Summary" scope="Full Dataset Aggregation">
-      <MetricGrid items={[
-        ["Minimum", formatNumber(row.min ?? row.minimum)],
-        ["Q1", formatNumber(row.q1)],
-        ["Median", formatNumber(row.median)],
-        ["Q3", formatNumber(row.q3)],
-        ["Maximum", formatNumber(row.max ?? row.maximum)],
-        ["Missing", formatPercent(row.missing_rate)],
-      ]} />
-    </ChartCard>
-  );
-}
-
-function EventRateByQuantile({ rows }: { rows: any[] }) {
-  const safeRows = safeArray<any>(rows);
-  const max = Math.max(0.01, ...safeRows.map((row) => Number(row.event_rate ?? 0)));
-  if (!safeRows.length) return <ChartCard title="Event Rate by Quantile" scope="Full Dataset Aggregation"><div className="text-sm text-slate-500">Event-rate by quantile is not available for this feature.</div></ChartCard>;
-  return (
-    <ChartCard title="Event Rate by Quantile" scope="Full Dataset Aggregation">
-      <div className="space-y-2">
-        {safeRows.map((row, index) => {
-          const rate = Number(row.event_rate ?? 0);
-          const label = String(row.bucket ?? row.quantile ?? `Q${index + 1}`);
-          return (
-            <div key={`${label}-${index}`} className="grid grid-cols-[74px_1fr_80px] items-center gap-3 text-xs">
-              <span className="truncate font-medium text-slate-700">{label}</span>
-              <span className="h-2 overflow-hidden rounded bg-slate-200"><span className="block h-full rounded bg-emerald-500" style={{ width: `${Math.max(2, (rate / max) * 100)}%` }} /></span>
-              <span className="text-right tabular-nums text-slate-600">{formatPercent(rate)}</span>
-            </div>
-          );
-        })}
-      </div>
-    </ChartCard>
-  );
-}
-
-function MissingPresentRates({ row }: { row: any }) {
-  return (
-    <ChartCard title="Missing and Present Target Rates" scope="Full Dataset Aggregation">
-      <MetricGrid items={[
-        ["Present event rate", formatPercent(row.present_event_rate)],
-        ["Missing event rate", formatPercent(row.missing_event_rate)],
-        ["Present rows", formatNumber(row.present_count, 0)],
-        ["Missing rows", formatNumber(row.missing_count, 0)],
-      ]} />
-    </ChartCard>
-  );
-}
-
 function CategoryFrequencyChart({ rows, scope }: { rows: any[]; scope?: string }) {
   const safeRows = safeArray<any>(rows);
   const max = Math.max(1, ...safeRows.map((row) => Number(row.count ?? 0)));
@@ -1319,12 +3248,25 @@ function CategoryEventRateChart({ rows }: { rows: any[] }) {
   );
 }
 
-function PairwiseMatrix({ features, rows }: { features: string[]; rows: any[] }) {
+function PairwiseMatrix({
+  features,
+  rows,
+  selectedRange,
+}: {
+  features: string[];
+  rows: any[];
+  selectedRange?: EdaNumericRange | null;
+}) {
   const safeFeatures = safeArray<string>(features).slice(0, 6);
   const safeRows = safeArray<any>(rows).slice(0, 600);
+  const linkedRange =
+    selectedRange && safeFeatures.includes(selectedRange.feature) ? selectedRange : null;
   if (safeFeatures.length < 2 || !safeRows.length) return <div className="rounded-lg border border-slate-200 bg-white p-4 text-sm text-slate-500">Pairwise plot data is not available for the selected features.</div>;
   return (
-    <div className="overflow-auto rounded-lg border border-slate-200 bg-white p-3">
+    <div
+      className="overflow-auto rounded-lg border border-slate-200 bg-white p-3"
+      data-linked-selection={linkedRange ? linkedRange.feature : undefined}
+    >
       <div className="grid min-w-[720px] gap-1" style={{ gridTemplateColumns: `120px repeat(${safeFeatures.length}, minmax(120px, 1fr))` }}>
         <div />
         {safeFeatures.map((feature) => <div key={`head-${feature}`} className="truncate px-2 py-1 text-center text-[10px] font-semibold uppercase text-slate-500" title={feature}>{feature}</div>)}
@@ -1332,7 +3274,20 @@ function PairwiseMatrix({ features, rows }: { features: string[]; rows: any[] })
           <div key={`row-${yFeature}`} className="truncate px-2 py-10 text-[10px] font-semibold uppercase text-slate-500" title={yFeature}>{yFeature}</div>,
           ...safeFeatures.map((xFeature) => (
             <div key={`${yFeature}-${xFeature}`} className="h-32 rounded border border-slate-100 bg-slate-50">
-              {xFeature === yFeature ? <MiniHistogramValues rows={safeRows} feature={xFeature} /> : <ScatterCell rows={safeRows} xFeature={xFeature} yFeature={yFeature} />}
+              {xFeature === yFeature ? (
+                <MiniHistogramValues
+                  rows={safeRows}
+                  feature={xFeature}
+                  selectedRange={linkedRange}
+                />
+              ) : (
+                <ScatterCell
+                  rows={safeRows}
+                  xFeature={xFeature}
+                  yFeature={yFeature}
+                  selectedRange={linkedRange}
+                />
+              )}
             </div>
           )),
         ])}
@@ -1341,7 +3296,15 @@ function PairwiseMatrix({ features, rows }: { features: string[]; rows: any[] })
   );
 }
 
-function MiniHistogramValues({ rows, feature }: { rows: any[]; feature: string }) {
+function MiniHistogramValues({
+  rows,
+  feature,
+  selectedRange,
+}: {
+  rows: any[];
+  feature: string;
+  selectedRange?: EdaNumericRange | null;
+}) {
   const values = safeArray<any>(rows).map((row) => Number(row[feature])).filter(Number.isFinite);
   if (!values.length) return <div className="flex h-full items-center justify-center text-[10px] text-slate-400">No numeric data</div>;
   const min = Math.min(...values);
@@ -1352,11 +3315,60 @@ function MiniHistogramValues({ rows, feature }: { rows: any[]; feature: string }
     bins[index] += 1;
   });
   const maxBin = Math.max(1, ...bins);
-  return <div className="flex h-full items-end gap-0.5 p-2">{bins.map((count, index) => <span key={index} className="block flex-1 rounded-t bg-blue-400" style={{ height: `${Math.max(4, (count / maxBin) * 100)}%` }} />)}</div>;
+  const binWidth = max === min ? 0 : (max - min) / bins.length;
+  return (
+    <div className="flex h-full items-end gap-0.5 p-2">
+      {bins.map((count, index) => {
+        const lower = min + index * binWidth;
+        const upper = index === bins.length - 1 ? max : lower + binWidth;
+        const linked =
+          selectedRange?.feature === feature &&
+          upper >= selectedRange.min &&
+          lower <= selectedRange.max;
+        return (
+          <span
+            key={index}
+            className={`block flex-1 rounded-t transition-colors ${
+              selectedRange?.feature === feature
+                ? linked
+                  ? "bg-blue-700"
+                  : "bg-slate-300"
+                : "bg-blue-400"
+            }`}
+            style={{ height: `${Math.max(4, (count / maxBin) * 100)}%` }}
+          />
+        );
+      })}
+    </div>
+  );
 }
 
-function ScatterCell({ rows, xFeature, yFeature }: { rows: any[]; xFeature: string; yFeature: string }) {
-  const points = safeArray<any>(rows).map((row) => ({ x: Number(row[xFeature]), y: Number(row[yFeature]), event: !!row.__event__ })).filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
+function ScatterCell({
+  rows,
+  xFeature,
+  yFeature,
+  selectedRange,
+}: {
+  rows: any[];
+  xFeature: string;
+  yFeature: string;
+  selectedRange?: EdaNumericRange | null;
+}) {
+  const points = safeArray<any>(rows)
+    .map((row) => {
+      const linkedValue = selectedRange ? Number(row[selectedRange.feature]) : Number.NaN;
+      return {
+        x: Number(row[xFeature]),
+        y: Number(row[yFeature]),
+        event: !!row.__event__,
+        linked:
+          !selectedRange ||
+          (Number.isFinite(linkedValue) &&
+            linkedValue >= selectedRange.min &&
+            linkedValue <= selectedRange.max),
+      };
+    })
+    .filter((point) => Number.isFinite(point.x) && Number.isFinite(point.y));
   if (!points.length) return <div className="flex h-full items-center justify-center text-[10px] text-slate-400">No numeric data</div>;
   const xMin = Math.min(...points.map((point) => point.x));
   const xMax = Math.max(...points.map((point) => point.x));
@@ -1368,8 +3380,18 @@ function ScatterCell({ rows, xFeature, yFeature }: { rows: any[]; xFeature: stri
       {points.map((point, index) => (
         <span
           key={index}
-          className={`absolute h-1.5 w-1.5 rounded-full ${point.event ? "bg-emerald-600" : "bg-blue-500"} opacity-60`}
-          style={{ left: `${scale(point.x, xMin, xMax)}%`, bottom: `${scale(point.y, yMin, yMax)}%` }}
+          className={`absolute rounded-full transition-[opacity,transform] ${
+            point.event ? "bg-emerald-600" : "bg-blue-500"
+          }`}
+          data-linked-match={selectedRange ? (point.linked ? "true" : "false") : undefined}
+          style={{
+            left: `${scale(point.x, xMin, xMax)}%`,
+            bottom: `${scale(point.y, yMin, yMax)}%`,
+            width: point.linked && selectedRange ? "0.5rem" : "0.375rem",
+            height: point.linked && selectedRange ? "0.5rem" : "0.375rem",
+            opacity: selectedRange ? (point.linked ? 0.9 : 0.12) : 0.6,
+            transform: point.linked && selectedRange ? "translate(-1px, 1px)" : undefined,
+          }}
         />
       ))}
     </div>
@@ -1545,15 +3567,15 @@ function DataTable({
                           <span className={`inline-flex rounded-full border px-2 py-1 text-[10px] font-semibold ${statusClasses(display)}`}>{display}</span>
                         ) : isSignal ? (
                           <div className="min-w-24">
-                            <div className="font-mono font-semibold text-slate-900">{display}</div>
+                            <div className="font-semibold text-slate-900">{display}</div>
                             <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
                               <div className={`h-full rounded-full ${/vif/i.test(key) && numeric >= 10 ? "bg-rose-500" : /vif/i.test(key) && numeric >= 5 ? "bg-amber-500" : "bg-blue-600"}`} style={{ width: `${width}%` }} />
                             </div>
                           </div>
                         ) : type === "percent" ? (
-                          <span className="font-mono font-medium text-slate-800">{display}</span>
+                          <span className="font-medium tabular-nums text-slate-800">{display}</span>
                         ) : (
-                          <span className={typeof row?.[key] === "number" ? "font-mono text-slate-800" : ""}>{display}</span>
+                          <span className={typeof row?.[key] === "number" ? "tabular-nums text-slate-800" : ""}>{display}</span>
                         )}
                       </td>
                     );
@@ -1565,87 +3587,6 @@ function DataTable({
         </div>
       )}
     </section>
-  );
-}
-
-function CorrelationGrid({ columns, matrix }: { columns: string[]; matrix: Array<Array<number | null>> }) {
-  const safeColumns = safeArray<string>(columns);
-  const safeMatrix = safeArray<Array<number | null>>(matrix);
-  if (!safeColumns.length) return <div className="flex min-h-52 items-center justify-center rounded-lg border border-slate-200 bg-white text-sm text-slate-500">At least two numeric predictors are required.</div>;
-  return (
-    <div className="overflow-auto rounded-lg border border-slate-200 bg-white p-3">
-      <div className="grid min-w-[680px] gap-0.5" style={{ gridTemplateColumns: `160px repeat(${safeColumns.length}, minmax(34px, 1fr))` }}>
-        <div />
-        {safeColumns.map((column) => <div key={`head-${column}`} className="truncate px-1 py-2 text-center text-[10px] font-semibold text-slate-500" title={column}>{column}</div>)}
-        {safeColumns.flatMap((rowName, rowIndex) => [
-          <div key={`row-${rowName}`} className="truncate px-2 py-2 text-[11px] font-medium text-slate-700" title={rowName}>{rowName}</div>,
-          ...safeColumns.map((column, columnIndex) => {
-            const value = Number(safeMatrix[rowIndex]?.[columnIndex]);
-            const magnitude = Number.isFinite(value) ? Math.abs(value) : 0;
-            const color = value >= 0 ? `rgba(37, 99, 235, ${0.08 + magnitude * 0.75})` : `rgba(190, 24, 93, ${0.08 + magnitude * 0.65})`;
-            return <div key={`${rowName}-${column}`} className="flex min-h-9 items-center justify-center text-[10px] tabular-nums text-slate-950" style={{ backgroundColor: color }} title={`${rowName} / ${column}: ${formatNumber(value, 3)}`}>{formatNumber(value, 2)}</div>;
-          }),
-        ])}
-      </div>
-    </div>
-  );
-}
-
-function VifBarChart({ rows }: { rows: any[] }) {
-  const prepared = safeArray<any>(rows).map((row) => {
-    const rawValue = row.vif;
-    const value = rawValue === null || rawValue === undefined || rawValue === "" ? Number.NaN : Number(rawValue);
-    return { ...row, numericVif: Number.isFinite(value) ? value : null };
-  }).sort((left, right) => {
-    if (left.numericVif === null && right.numericVif === null) return 0;
-    if (left.numericVif === null) return -1;
-    if (right.numericVif === null) return 1;
-    return right.numericVif - left.numericVif;
-  }).slice(0, 15);
-  if (!prepared.length) {
-    return <div className="atlas-workflow-section flex min-h-64 items-center justify-center text-sm text-slate-500">VIF requires at least two eligible numeric predictors.</div>;
-  }
-  const largestFinite = Math.max(10, ...prepared.map((row) => row.numericVif ?? 10));
-  const scaleMax = Math.min(50, Math.max(12, Math.ceil(largestFinite * 1.1)));
-  const thresholdPosition = (value: number) => `${Math.min(100, (value / scaleMax) * 100)}%`;
-  return (
-    <div className="atlas-workflow-section overflow-hidden p-0">
-      <div className="border-b border-slate-200 px-4 py-3">
-        <div className="text-sm font-semibold text-slate-950">VIF Risk Map</div>
-        <div className="mt-1 text-xs text-slate-500">The highest 15 factors are shown. VIF 5 requires review; VIF 10 indicates material multicollinearity.</div>
-      </div>
-      <div className="p-4">
-        <div className="mb-3 flex flex-wrap gap-3 text-[11px] font-semibold">
-          <span className="flex items-center gap-1.5 text-emerald-700"><span className="h-2.5 w-2.5 rounded-sm bg-emerald-500" /> Acceptable &lt; 5</span>
-          <span className="flex items-center gap-1.5 text-amber-700"><span className="h-2.5 w-2.5 rounded-sm bg-amber-500" /> Review 5-10</span>
-          <span className="flex items-center gap-1.5 text-red-700"><span className="h-2.5 w-2.5 rounded-sm bg-red-500" /> High &ge; 10</span>
-        </div>
-        <div className="mb-2 grid grid-cols-[minmax(130px,210px)_1fr_64px] gap-3 text-[10px] font-semibold uppercase text-slate-500">
-          <span>Predictor</span>
-          <span className="relative h-4"><span className="absolute left-0">0</span><span className="absolute -translate-x-1/2" style={{ left: thresholdPosition(5) }}>5</span><span className="absolute -translate-x-1/2" style={{ left: thresholdPosition(10) }}>10</span><span className="absolute right-0">{scaleMax}</span></span>
-          <span className="text-right">VIF</span>
-        </div>
-        <div className="space-y-2.5">
-          {prepared.map((row, index) => {
-            const value = row.numericVif;
-            const plotted = value === null ? scaleMax : Math.min(scaleMax, value);
-            const status = String(row.status ?? (plotted >= 10 ? "high" : plotted >= 5 ? "review" : "acceptable"));
-            const color = status === "high" ? "bg-red-500" : status === "review" ? "bg-amber-500" : "bg-emerald-500";
-            return (
-              <div key={`${row.feature}-${index}`} className="grid grid-cols-[minmax(130px,210px)_1fr_64px] items-center gap-3">
-                <span className="truncate text-xs font-medium text-slate-800" title={String(row.feature)}>{row.feature}</span>
-                <div className="relative h-4 overflow-hidden rounded bg-slate-100">
-                  <span className="absolute inset-y-0 border-l border-amber-400" style={{ left: thresholdPosition(5) }} />
-                  <span className="absolute inset-y-0 border-l border-red-400" style={{ left: thresholdPosition(10) }} />
-                  <span className={`block h-full rounded ${color}`} style={{ width: `${Math.max(1.5, (plotted / scaleMax) * 100)}%` }} />
-                </div>
-                <span className={`text-right font-mono text-xs font-semibold ${status === "high" ? "text-red-700" : status === "review" ? "text-amber-700" : "text-emerald-700"}`}>{value === null ? `>${scaleMax}` : formatNumber(value, 2)}</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    </div>
   );
 }
 

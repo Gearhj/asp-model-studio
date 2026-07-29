@@ -52,9 +52,16 @@ class FeaturePreviewRequest(BaseModel):
     project_id: str
     features: List[FeatureDefinitionInput] = Field(default_factory=list)
     preview_limit: int = Field(default=20, ge=1, le=100)
+    manifest_version: str = ""
 
 
 class FeatureMaterializeRequest(BaseModel):
     project_id: str
     manifest_version: str = ""
+    preview_hash: str = ""
 
+
+class FeatureConfirmRequest(BaseModel):
+    project_id: str
+    manifest_version: str = ""
+    materialization_hash: str = ""

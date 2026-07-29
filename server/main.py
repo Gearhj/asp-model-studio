@@ -26,6 +26,7 @@ from .core.utils import df_to_records
 from .eda.eda_router import router as eda_router
 from .preprocessing.outlier_router import router as outlier_router
 from .preprocessing.missing_router import router as missing_router
+from .preprocessing.preparation_documentation_router import router as preparation_documentation_router
 from .preprocessing.quality_profile_router import router as quality_profile_router
 from .preprocessing.feature_profile_router import router as feature_profile_router
 from .preprocessing.governed_profile_router import router as governed_profile_router
@@ -65,6 +66,7 @@ from .sql_studio.sql_router import router as sql_studio_router
 from .evidence.evidence_router import router as evidence_router
 from .credit_risk.credit_risk_router import router as credit_risk_router
 from .experimentation.ab_router import router as experimentation_router
+from .experimental_design.router import router as experimental_design_router
 from .optimization.optimization_router import router as optimization_router
 from .persistence import PersistenceUnavailableError, get_persistence_service, initialize_persistence
 from .persistence.persistence_router import router as persistence_router
@@ -278,6 +280,7 @@ def create_app() -> FastAPI:
     app.include_router(eda_router, prefix="/api/eda", tags=["EDA"], dependencies=authenticated)
     app.include_router(outlier_router, prefix="/api/outliers", tags=["Outliers"], dependencies=authenticated)
     app.include_router(missing_router, prefix="/api/missing", tags=["Missing Values"], dependencies=authenticated)
+    app.include_router(preparation_documentation_router, prefix="/api", tags=["Preparation Documentation"], dependencies=authenticated)
     app.include_router(quality_profile_router, prefix="/api", tags=["Data Quality"], dependencies=authenticated)
     app.include_router(feature_profile_router, prefix="/api", tags=["Feature Profiling"], dependencies=authenticated)
     app.include_router(governed_profile_router, prefix="/api", tags=["Governed Target Profiling"], dependencies=authenticated)
@@ -312,6 +315,7 @@ def create_app() -> FastAPI:
     app.include_router(evidence_router, prefix="/api", tags=["Evidence Graph"], dependencies=authenticated)
     app.include_router(credit_risk_router, prefix="/api", tags=["Credit Risk Studio"], dependencies=authenticated)
     app.include_router(experimentation_router, prefix="/api", tags=["Experimentation"], dependencies=authenticated)
+    app.include_router(experimental_design_router, prefix="/api", tags=["Experimental Design"], dependencies=authenticated)
     app.include_router(optimization_router, prefix="/api", tags=["Optimization"], dependencies=authenticated)
 
     assert_api_routes_authenticated(app)

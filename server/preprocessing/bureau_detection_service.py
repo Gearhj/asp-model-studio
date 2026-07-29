@@ -22,6 +22,13 @@ def _event_rate(values: pd.Series, target: pd.Series, event_value: Any) -> float
     return float((valid.astype(str) == str(event_value)).mean())
 
 
+def _event_count(values: pd.Series, target: pd.Series, event_value: Any) -> int | None:
+    valid = target.loc[values.index].dropna()
+    if valid.empty or event_value is None:
+        return None
+    return int((valid.astype(str) == str(event_value)).sum())
+
+
 def _resolve_event(target: pd.Series | None, requested: Any) -> Any:
     if target is None:
         return None
@@ -61,6 +68,7 @@ def detect_bureau_data(request: BureauDetectionRequest) -> dict[str, Any]:
     event_value = _resolve_event(target, request.event_value)
     metadata = {row.variableName.lower(): row for row in request.metadata}
     variable_results: list[dict[str, Any]] = []
+    special_row_mask = pd.Series(False, index=df.index)
 
     for column in df.columns:
         if column == target_name:
@@ -79,6 +87,9 @@ def detect_bureau_data(request: BureauDetectionRequest) -> dict[str, Any]:
         special_mask = numeric.isin(list(definitions))
         special_count = int(special_mask.sum())
         special_rate = special_count / max(len(series), 1)
+        ordinary_mask = numeric.notna() & ~special_mask
+        null_count = int(series.isna().sum())
+        parse_failure_count = int((series.notna() & numeric.isna()).sum())
         distinct_special = sorted(float(value) for value in numeric[special_mask].dropna().unique())
         if special_count:
             if signals:
@@ -88,27 +99,41 @@ def detect_bureau_data(request: BureauDetectionRequest) -> dict[str, Any]:
                 score += 0.2
                 signals.append("Multiple special values are concentrated in the distribution, but no bureau name or metadata signal is present.")
         profile_rows: list[dict[str, Any]] = []
-        regular_mask = numeric.notna() & ~special_mask
+        regular_mask = ordinary_mask
         regular_event_rate = _event_rate(numeric[regular_mask], target, event_value) if target is not None else None
         for value in distinct_special:
             mask = numeric == value
             count = int(mask.sum())
             special_event_rate = _event_rate(numeric[mask], target, event_value) if target is not None else None
-            delta = abs(special_event_rate - regular_event_rate) if special_event_rate is not None and regular_event_rate is not None else None
-            if delta is not None and delta >= 0.05 and (signals or metadata_row):
+            special_event_count = _event_count(numeric[mask], target, event_value) if target is not None else None
+            rate_difference = (
+                special_event_rate - regular_event_rate
+                if special_event_rate is not None
+                and regular_event_rate is not None
+                else None
+            )
+            if (
+                rate_difference is not None
+                and abs(rate_difference) >= 0.05
+                and (signals or metadata_row)
+            ):
                 score += 0.05
             profile_rows.append({
                 "value": int(value) if value.is_integer() else value,
                 "definition": definitions.get(value, "Configured special value"),
                 "count": count,
                 "frequency": count / max(len(series), 1),
+                "event_count": special_event_count,
                 "event_rate": special_event_rate,
                 "regular_event_rate": regular_event_rate,
-                "event_rate_delta": delta,
-                "recommended_handling": "Preserve as informative special value" if delta is not None and delta >= 0.02 else "Review domain mapping before treatment",
+                "event_rate_delta": rate_difference,
+                "recommended_handling": "Preserve as informative special value" if rate_difference is not None and abs(rate_difference) >= 0.02 else "Review domain mapping before treatment",
             })
         score = min(1.0, score)
         if score >= 0.45 or metadata_row:
+            likely_bureau = score >= 0.55
+            if likely_bureau:
+                special_row_mask = special_row_mask | special_mask
             variable_results.append({
                 "variable": str(column),
                 "confidence": score,
@@ -116,9 +141,12 @@ def detect_bureau_data(request: BureauDetectionRequest) -> dict[str, Any]:
                 "datatype": str(series.dtype),
                 "special_value_count": special_count,
                 "special_value_frequency": special_rate,
+                "ordinary_value_count": int(ordinary_mask.sum()),
+                "null_count": null_count,
+                "parse_failure_count": parse_failure_count,
                 "special_values": profile_rows,
                 "metadata": metadata_row.model_dump() if metadata_row else None,
-                "likely_bureau": score >= 0.55,
+                "likely_bureau": likely_bureau,
             })
 
     likely = [row for row in variable_results if row["likely_bureau"]]
@@ -149,6 +177,7 @@ def detect_bureau_data(request: BureauDetectionRequest) -> dict[str, Any]:
         "reasons": reasons,
         "likely_variable_count": len(likely),
         "variables_with_special_values": sum(1 for row in likely if row["special_value_count"]),
+        "rows_with_special_values": int(special_row_mask.sum()),
         "variables": variable_results,
         "reviewer_rationale": request.reviewer_rationale,
         "treatment_selections": request.treatment_selections,
@@ -157,4 +186,3 @@ def detect_bureau_data(request: BureauDetectionRequest) -> dict[str, Any]:
     }
     DATASTORE.meta["bureau_review"] = result
     return result
-

@@ -6,6 +6,7 @@ from .decision_journal_repository import DecisionJournalRepository
 from .demo_feedback_repository import DemoFeedbackRepository
 from .documentation_repository import DocumentationRepository
 from .evidence_repository import EvidenceRepository
+from .experimental_design_repository import ExperimentalDesignRepository
 from .export_repository import ExportRepository
 from .project_repository import ProjectRepository
 from .run_repository import RunRepository

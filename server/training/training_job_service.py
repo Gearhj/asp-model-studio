@@ -4,6 +4,7 @@ from concurrent.futures import Future, ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from datetime import datetime, timezone
 import os
+import platform
 from threading import Event, Lock, Thread
 import time
 from typing import Any, Tuple
@@ -95,10 +96,33 @@ class TrainingJobService:
         models = list(dict.fromkeys(request.models))
         if not models:
             raise ValueError("No supported models were selected for training.")
+        inherited_folds = int(
+            preflight.get("cross_validation_compatibility", {}).get(
+                "effective_folds"
+            )
+            or request.k_folds
+        )
+        tuning_candidates = (
+            {"quick": 4, "balanced": 8, "thorough": 12}.get(
+                str(request.grid_search_level).lower(), 4
+            )
+            if request.grid_search
+            else 1
+        )
+        estimated_fits = len(models) * max(1, inherited_folds) * tuning_candidates
+        if request.calibrate:
+            estimated_fits += len(models) * max(1, inherited_folds)
+        if estimated_fits >= 160 and not request.large_job_confirmed:
+            raise ValueError(
+                f"This plan is a large job ({estimated_fits} estimated fits). "
+                "Review the workload and explicitly confirm the run."
+            )
         if request.use_pca:
             raise ValueError("PCA is not implemented by the current training pipeline and cannot be enabled.")
 
-        X_train, X_test, y_train, y_test, excluded = TRAINER._get_or_create_splits(request.k_folds)
+        X_train, X_test, y_train, y_test, excluded = TRAINER._get_or_create_splits(
+            inherited_folds
+        )
         trained_feature_names = [str(column) for column in X_train.columns]
         requested_parallel = max(1, int(request.max_parallel or 1))
         safe_parallel = min(
@@ -135,6 +159,22 @@ class TrainingJobService:
         }
         manifest = DATASTORE.meta.get("feature_manifest") if isinstance(DATASTORE.meta.get("feature_manifest"), dict) else {}
         split_record = DATASTORE.meta.get("split_record") if isinstance(DATASTORE.meta.get("split_record"), dict) else {}
+        raw_cv_splits = (
+            split_record.get("cv_execution_splits")
+            if isinstance(split_record.get("cv_execution_splits"), list)
+            else []
+        )
+        governed_cv_splits: list[tuple[list[int], list[int]]] = [
+            (
+                [int(value) for value in fold.get("train_positions") or []],
+                [
+                    int(value)
+                    for value in fold.get("validation_positions") or []
+                ],
+            )
+            for fold in raw_cv_splits
+            if isinstance(fold, dict)
+        ]
         job: dict[str, Any] = {
             "job_id": job_id,
             "overall_status": "queued",
@@ -160,6 +200,7 @@ class TrainingJobService:
             "cancellation_requested": False,
             "max_parallel_requested": requested_parallel,
             "max_parallel_honored": safe_parallel,
+            "estimated_fits": estimated_fits,
             "input_feature_names": trained_feature_names,
             "trained_feature_names": trained_feature_names,
             "engineered_feature_names": list(preflight.get("engineered_features") or []),
@@ -170,6 +211,10 @@ class TrainingJobService:
             "dataset_version": preflight["dataset_version"],
             "feature_manifest_version": preflight["feature_manifest_version"],
             "split_id": preflight["split_id"],
+            "validation_design_id": preflight.get("validation_design_id"),
+            "validation_design_version": preflight.get(
+                "validation_design_version"
+            ),
             "project_id": request.project_id,
             "owner_user_id": owner_user_id,
             "problem_type": preflight["problem_type"],
@@ -190,18 +235,54 @@ class TrainingJobService:
                 "selected_engineered_features": preflight["engineered_features"],
                 "preprocessing_pipeline": request.preprocessing_pipeline or manifest.get("pipeline_steps", []),
                 "split_id": preflight["split_id"],
+                "validation_design_id": preflight.get("validation_design_id"),
+                "validation_design_version": preflight.get(
+                    "validation_design_version"
+                ),
+                "validation_design": preflight.get("validation_design") or {},
+                "cv_design": preflight.get("cv_design") or {},
+                "fold_architecture": preflight.get("fold_architecture") or {},
+                "cv_execution": {
+                    "source": "approved_validation_design",
+                    "exact_fold_bindings": bool(governed_cv_splits),
+                    "execution_fold_count": len(governed_cv_splits),
+                },
+                "evaluation_population_role": preflight.get(
+                    "evaluation_population_role"
+                ),
+                "test_reference": preflight.get("test_reference"),
+                "oot_reference": preflight.get("oot_reference"),
                 "split_configuration": split_record.get("config") or {},
+                "balancing_policy": split_record.get("balancing_policy") or {},
                 "random_seed": request.random_seed,
                 "model_list": models,
-                "tuning_configuration": {"grid_search": request.grid_search, "level": request.grid_search_level, "folds": preflight["cross_validation_compatibility"]["effective_folds"]},
+                "candidate_strategy": request.candidate_strategy,
+                "retry_parent_job_id": request.retry_parent_job_id or None,
+                "tuning_configuration": {
+                    "grid_search": request.grid_search,
+                    "level": request.grid_search_level,
+                    "folds": inherited_folds,
+                    "source": "approved_validation_design",
+                },
                 "calibration_configuration": {"requested": request.calibrate, "compatibility": preflight["calibration_compatibility"]},
+                "runtime_environment": {
+                    "python_version": platform.python_version(),
+                    "platform": platform.system(),
+                    "cpu_count": os.cpu_count() or 1,
+                    "requested_workers": requested_parallel,
+                    "honored_workers": safe_parallel,
+                    "execution_mode": "local_background_workers",
+                },
                 "user": request.user,
                 "timestamp": request.requested_at or created_at,
             },
             "_result_store": RESULTS.current(),
+            "_dataset_store": DATASTORE.current(),
             "_artifacts": {},
             "_raw_results": {},
             "_excluded_target_features": excluded,
+            "_futures": {},
+            "_cv_execution_splits": governed_cv_splits,
         }
         cancel_event = Event()
         scope_key: ScopeKey = (owner_user_id, request.project_id)
@@ -320,6 +401,60 @@ class TrainingJobService:
             pass
         return public_job
 
+    def cancel_queued(
+        self,
+        job_id: str,
+        owner_user_id: str,
+        project_id: str,
+    ) -> dict[str, Any] | None:
+        with self._lock:
+            job = self._owned_job_locked(job_id, owner_user_id, project_id)
+            if not job:
+                return None
+            if job["overall_status"] in TERMINAL_STATES:
+                return self._public_job(job)
+            cancelled_at = _now()
+            cancelled_models: list[str] = []
+            futures = job.get("_futures") or {}
+            for model, future in futures.items():
+                state = job["per_model_status"].get(model) or {}
+                if state.get("status") != "queued":
+                    continue
+                if future.cancel():
+                    cancelled_models.append(model)
+                    state.update(
+                        {
+                            "status": "cancelled",
+                            "state": "cancelled",
+                            "completed_at": cancelled_at,
+                            "current_stage": "Queued work cancelled",
+                            "message": "Cancelled while queued; no fit was started.",
+                        }
+                    )
+                    job["per_model_history"][model].append(
+                        {
+                            "state": "cancelled",
+                            "at": cancelled_at,
+                            "stage": "Queued work cancelled",
+                            "message": "Cancelled while queued; no fit was started.",
+                        }
+                    )
+            job["finished_count"] += len(cancelled_models)
+            job["queued_models"] = [
+                model
+                for model in job.get("queued_models") or []
+                if model not in cancelled_models
+            ]
+            job["user_message"] = (
+                f"Cancelled {len(cancelled_models)} queued model(s); active fits continue."
+                if cancelled_models
+                else "No queued model could be cancelled; active fits continue."
+            )
+            job["message"] = job["user_message"]
+            public = self._public_job(job)
+        schedule_checkpoint_save()
+        return public
+
     def _transition_model(self, job_id: str, model: str, state: str, message: str, stage: str, **values: Any) -> None:
         at = _now()
         with self._lock:
@@ -354,8 +489,14 @@ class TrainingJobService:
                         self._jobs[job_id]["message"] = self._jobs[job_id]["user_message"]
                 for model in self._jobs[job_id]["requested_models"]:
                     futures[executor.submit(self._train_one, job_id, model, request, X_train, X_test, y_train, y_test)] = model
+                with self._lock:
+                    self._jobs[job_id]["_futures"] = {
+                        model: future for future, model in futures.items()
+                    }
                 for future in as_completed(futures):
                     model = futures[future]
+                    if future.cancelled():
+                        continue
                     try:
                         result = future.result()
                     except Exception as exc:
@@ -386,19 +527,45 @@ class TrainingJobService:
             job["runtime_ms"] = int((time.perf_counter() - started) * 1000)
             job["completed_at"] = _now()
             if job["overall_status"] == "interrupted":
-                pass
+                final_status = "interrupted"
+                final_message = job["user_message"]
             elif cancel_event.is_set():
-                job["overall_status"] = "cancelled"
-                job["user_message"] = f"Training cancelled after {job['finished_count']} of {job['total_count']} models finished."
+                final_status = "cancelled"
+                final_message = f"Training cancelled after {job['finished_count']} of {job['total_count']} models finished."
+            elif all(
+                state.get("status") == "cancelled"
+                for state in job["per_model_status"].values()
+            ):
+                final_status = "cancelled"
+                final_message = "All queued models were cancelled before fitting."
             elif job["completed_count"] == 0:
-                job["overall_status"] = "failed"
-                job["user_message"] = "No selected model completed successfully. Review each model's failure reason."
+                final_status = "failed"
+                final_message = "No selected model completed successfully. Review each model's failure reason."
             else:
-                job["overall_status"] = "complete"
-                job["user_message"] = f"{job['completed_count']} of {job['total_count']} models completed successfully."
+                final_status = "complete"
+                final_message = f"{job['completed_count']} of {job['total_count']} models completed successfully."
+            # Keep the externally visible state non-terminal until metrics,
+            # artifacts, and the final summary persist successfully.
+            job["overall_status"] = "running"
+            job["user_message"] = "Model fitting finished. Persisting metrics and artifacts."
             job["message"] = job["user_message"]
         try:
-            self._finalize(job_id, request, X_train, X_test, y_train, y_test)
+            self._finalize(
+                job_id,
+                request,
+                X_train,
+                X_test,
+                y_train,
+                y_test,
+                final_status=final_status,
+            )
+            with self._lock:
+                job = self._jobs[job_id]
+                job["overall_status"] = final_status
+                job["user_message"] = final_message
+                job["message"] = final_message
+                if isinstance(job.get("summary"), dict):
+                    job["summary"]["status"] = final_status
             schedule_checkpoint_save()
         except Exception as exc:
             with self._lock:
@@ -408,8 +575,12 @@ class TrainingJobService:
                 job["user_message"] = "Model fitting finished, but ATLAS could not persist the training result. Retry after reviewing technical details."
                 job["message"] = job["user_message"]
         finally:
-            if DATASTORE.meta.get("active_training_job_id") == job_id:
-                DATASTORE.meta.pop("active_training_job_id", None)
+            dataset_store = self._jobs[job_id].get("_dataset_store")
+            if (
+                dataset_store is not None
+                and dataset_store.meta.get("active_training_job_id") == job_id
+            ):
+                dataset_store.meta.pop("active_training_job_id", None)
 
     def _train_one(self, job_id: str, model: str, request: TrainingJobRequest, X_train, X_test, y_train, y_test) -> dict[str, Any]:
         cancel_event = self._cancel_events[job_id]
@@ -421,7 +592,32 @@ class TrainingJobService:
             raise ValueError("Train or holdout feature matrix is empty.")
         if cancel_event.is_set():
             return {"ok": False, "cancelled": True, "model": model, "error": "Cancelled during preparation."}
-        self._transition_model(job_id, model, "running", "Model fit is running.", "Fitting estimator")
+        effective_folds = int(
+            self._jobs[job_id]["preflight"][
+                "cross_validation_compatibility"
+            ]["effective_folds"]
+        )
+        candidate_budget = (
+            {"quick": 4, "balanced": 8, "thorough": 12}.get(
+                str(request.grid_search_level).lower(), 4
+            )
+            if request.grid_search
+            else 1
+        )
+        self._transition_model(
+            job_id,
+            model,
+            "running",
+            (
+                "Estimator fit is running inside the approved validation "
+                "architecture. The underlying estimator does not expose "
+                "per-fold callbacks."
+            ),
+            f"Fitting estimator · {effective_folds} folds · up to {candidate_budget} tuning candidate(s)",
+            current_fold=None,
+            current_tuning_candidate=None,
+            fold_progress_available=False,
+        )
         calibration_info = self._jobs[job_id]["preflight"]["calibration_compatibility"].get(model, {})
         calibration_allowed = bool(request.calibrate and calibration_info.get("compatible"))
         result = train_models(
@@ -435,6 +631,7 @@ class TrainingJobService:
             model_params=request.model_params,
             calibrate=calibration_allowed,
             cv_folds=int(self._jobs[job_id]["preflight"]["cross_validation_compatibility"]["effective_folds"]),
+            cv_splits=self._jobs[job_id].get("_cv_execution_splits") or None,
         )
         result["runtime_ms"] = int((time.perf_counter() - started) * 1000)
         if request.calibrate and not calibration_allowed:
@@ -504,7 +701,16 @@ class TrainingJobService:
             job["user_message"] = f"{job['finished_count']} of {job['total_count']} models finished; {job['completed_count']} successful."
             job["message"] = job["user_message"]
 
-    def _finalize(self, job_id: str, request: TrainingJobRequest, X_train, X_test, y_train, y_test) -> None:
+    def _finalize(
+        self,
+        job_id: str,
+        request: TrainingJobRequest,
+        X_train,
+        X_test,
+        y_train,
+        y_test,
+        final_status: str | None = None,
+    ) -> None:
         persistence_started = time.perf_counter()
         with self._lock:
             job = self._jobs[job_id]
@@ -551,6 +757,10 @@ class TrainingJobService:
             "n_features": job["feature_count"],
             "feature_manifest_version": job["feature_manifest_version"],
             "split_id": job["split_id"],
+            "validation_design_id": job.get("validation_design_id"),
+            "validation_design_version": job.get(
+                "validation_design_version"
+            ),
             "excluded_target_features": job["_excluded_target_features"],
             "k_folds": int(job["preflight"]["cross_validation_compatibility"]["effective_folds"]),
             "max_parallel": int(job["max_parallel_honored"]),
@@ -559,7 +769,7 @@ class TrainingJobService:
             "grid_search": bool(request.grid_search),
             "grid_search_level": request.grid_search_level,
             "model_params": request.model_params,
-            "status": job["overall_status"],
+            "status": final_status or job["overall_status"],
             "contract": job["contract"],
         }
         if ranked:
@@ -578,12 +788,35 @@ class TrainingJobService:
                     "engineered_feature_names": job["engineered_feature_names"],
                     "feature_manifest_version": job["feature_manifest_version"],
                     "split_id": job["split_id"],
+                    "validation_design_id": job.get("validation_design_id"),
+                    "validation_design_version": job.get("validation_design_version"),
                 }
                 for key in job["_artifacts"]
             }
             job["_result_store"].set_model_artifacts(job["_artifacts"], metadata)
             summary["result_persistence_ms"] = int((time.perf_counter() - persistence_started) * 1000)
             job["_result_store"].set_last_summary(json_safe(summary))
+        job["_dataset_store"].meta["training_execution"] = json_safe(
+            {
+                "training_job_id": job["job_id"],
+                "status": final_status or job["overall_status"],
+                "candidate_strategy": request.candidate_strategy,
+                "requested_models": job["requested_models"],
+                "completed_models": job["completed_models"],
+                "failed_models": job["failed_models"],
+                "ranked_candidates": ranked,
+                "dataset_version": job["dataset_version"],
+                "feature_manifest_version": job["feature_manifest_version"],
+                "split_id": job["split_id"],
+                "validation_design_id": job.get("validation_design_id"),
+                "validation_design_version": job.get(
+                    "validation_design_version"
+                ),
+                "contract": job["contract"],
+                "completed_at": job["completed_at"],
+                "runtime_ms": job["runtime_ms"],
+            }
+        )
         with self._lock:
             job["summary"] = summary
             job["partial_ranked_results"] = ranked

@@ -361,3 +361,30 @@ test("18. linked-to-current-project is durable state, shown identically in both 
   assert.match(library, /isLinkedToCurrent: \(dataset: DatasetSummary\) => boolean;/);
   assert.match(library, /isLinkedToCurrent=\{isLinkedToCurrentProject\}/);
 });
+
+// ------------------------------------------------------- layout (Parts A/B) ---
+test("19. Detailed View gives the Actions column a deliberate width and cannot overlap", () => {
+  // The action group was being squeezed by `table-fixed` because the Actions
+  // column had no width while every other column did.
+  assert.match(library, /w-\[352px\] min-w-\[352px\]/, "Actions column needs an explicit width");
+  assert.equal((library.match(/w-\[352px\] min-w-\[352px\]/g) || []).length, 2, "header AND cell must be sized");
+  assert.match(library, /min-w-\[1360px\]/, "table must be wide enough for the sized Actions column");
+  assert.match(library, /flex-nowrap items-center justify-end gap-1 whitespace-nowrap \[&>\*\]:shrink-0/,
+    "controls must not wrap or shrink into neighbouring cells");
+  // Horizontal scrolling remains available when the viewport cannot fit it.
+  assert.match(library, /overflow-x-auto/);
+});
+
+test("20. Card View has one deliberate action footer with no floating control", () => {
+  // `ml-auto` on the lone More Actions button is what made it look detached.
+  assert.ok(!library.includes("ml-auto"), "no control may float to an arbitrary right edge");
+  assert.match(library, /data-testid="dataset-card-primary-group"/, "primary actions are one group");
+  // More Actions sits inside that same group, so it aligns as a peer.
+  const group = library.slice(library.indexOf('data-testid="dataset-card-primary-group"'));
+  const menuAt = group.indexOf("<DatasetActionMenu");
+  const closeAt = group.indexOf("</div>");
+  assert.ok(menuAt > 0 && menuAt < closeAt, "More Actions must live inside the primary group");
+  // Menu stays anchored to its trigger.
+  assert.match(controls, /className="relative"/);
+  assert.match(controls, /absolute right-0 z-30 mt-1/);
+});

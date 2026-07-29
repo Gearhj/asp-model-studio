@@ -24,11 +24,16 @@ class TrainingJobRequest(BaseModel):
     non_event_value: Any | None = None
     feature_manifest_version: str = ""
     split_id: str = ""
+    validation_design_id: str = ""
+    validation_design_version: str = ""
     selected_original_features: List[str] = Field(default_factory=list)
     selected_engineered_features: List[str] = Field(default_factory=list)
     preprocessing_pipeline: List[Dict[str, Any]] = Field(default_factory=list)
     random_seed: int = 42
     primary_metric: str = ""
+    candidate_strategy: str = "custom_portfolio"
+    large_job_confirmed: bool = False
+    retry_parent_job_id: str = ""
     user: str = ""
     requested_at: str = ""
 

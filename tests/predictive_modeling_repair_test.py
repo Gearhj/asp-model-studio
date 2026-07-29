@@ -348,6 +348,12 @@ def _run_remaining_checks(frame: pd.DataFrame, outlier_profile: dict, missing_pr
     assert sensitivity["ok"] is True and len(sensitivity["rows"]) == 5, sensitivity
     assert shap["ok"] is True and shap["rows"], shap
 
+    selected_final = EVAL.save_selected_model_as_final("dtree", context=interpretation_context)
+    assert selected_final["ok"] is True, selected_final
+    assert selected_final["metadata"]["feature_manifest_version"] == "fm-repair-test-v2"
+    assert selected_final["metadata"]["split_id"] == "split-repair-test-v2"
+    assert selected_final["metadata"]["training_job_id"] == job["job_id"]
+
     rfe = EVAL.rfe("logreg", keep=2, context=interpretation_context)
     assert rfe["ok"] is True, rfe
     assert len(rfe["rows"]) == 3
@@ -384,6 +390,22 @@ def _run_remaining_checks(frame: pd.DataFrame, outlier_profile: dict, missing_pr
     assert train_scoring["scoring_diagnostics"]["model_feature_count"] == 2
     assert train_scoring["scoring_diagnostics"]["matched_feature_count"] == 2
     assert train_scoring["scoring_diagnostics"]["constant_prediction"] is False
+
+    # P0 lifecycle regression: an upstream feature-contract change must make
+    # an otherwise resident final artifact unavailable. It must not silently
+    # remain scoreable merely because the in-memory fitted object still exists.
+    DATASTORE.meta["feature_manifest"]["manifest_version"] = "fm-repair-test-stale"
+    stale_status = EVAL.final_model_status()
+    assert stale_status["artifact_present"] is True
+    assert stale_status["ready"] is False
+    assert stale_status["stale"] is True
+    assert "feature manifest" in stale_status["blocker"].lower()
+    stale_scoring = EVAL.score_development_split(dataset_type="train", model_name="final")
+    assert stale_scoring["ok"] is False
+    assert stale_scoring["stale_model"] is True
+    assert "feature manifest" in stale_scoring["error"].lower()
+    DATASTORE.meta["feature_manifest"]["manifest_version"] = "fm-repair-test-v2"
+    assert EVAL.final_model_status()["ready"] is True
 
     diagnostic_created = TRAINING_JOBS.create(request(["gnb", "iso"]), owner_user_id=REPAIR_TEST_OWNER_USER_ID)
     diagnostic_job, _ = wait_for_job(diagnostic_created["job_id"])
