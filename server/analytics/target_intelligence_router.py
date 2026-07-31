@@ -20,8 +20,15 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from ..datasets.dataset_registry import project_dataset_links, require_dataset
+from ..core.modeling_scope import authorize_modeling_scope
+from ..datasets.dataset_identity import (
+    assert_expected_active_identity,
+    require_exact_project_link,
+)
+from ..datasets.dataset_registry import require_dataset
+from ..evidence.evidence_identity import authorize_and_normalize_evidence
 from ..evidence.evidence_store import upsert_evidence
+from ..evidence.evidence_types import CANONICAL_DATASET_LINEAGE_CONTRACT
 from ..persistence.db import PersistenceUnavailableError, now_iso
 from ..persistence.service import get_persistence_service
 from ..security.security_store import audit_event, require_user, user_can_access_project
@@ -74,7 +81,7 @@ def _service():
         raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
-def _require_dataset_linked_to_project(project_id: str, dataset_id: str) -> None:
+def _require_dataset_linked_to_project(project_id: str, dataset_id: str, version_id: str) -> None:
     """Blocks pairing a project the caller owns with another project's dataset version.
 
     `require_dataset` already enforces the dataset ACL, but a user who can read
@@ -82,15 +89,25 @@ def _require_dataset_linked_to_project(project_id: str, dataset_id: str) -> None
     provenance for project B. Governed evidence must name a version that is
     actually linked to the project it documents.
     """
-    links = project_dataset_links(project_id)
-    if not any(str(link.get("datasetId")) == str(dataset_id) for link in links):
-        raise HTTPException(
-            status_code=403,
-            detail=(
-                "That dataset is not linked to this project, so it cannot be used as governed provenance. "
-                "Link the dataset to this project on Data Acquisition first."
-            ),
-        )
+    require_exact_project_link(project_id, dataset_id, version_id)
+
+
+def _require_active_version(
+    user: Dict[str, Any],
+    project_id: str,
+    dataset_id: str,
+    version_id: Optional[str],
+) -> Dict[str, Any]:
+    # Bind the request to the project-scoped modeling store before consulting
+    # DATASTORE. Project ACL checks alone do not establish the scoped store.
+    authorize_modeling_scope(user, project_id, "view")
+    return assert_expected_active_identity(
+        project_id,
+        expected_dataset_id=dataset_id,
+        expected_dataset_version_id=version_id,
+        require_expected=True,
+        user=user,
+    )
 
 
 def _assert_target_exists_in_version(dataset_id: str, version_id: Optional[str], target: str) -> Dict[str, Any]:
@@ -135,11 +152,17 @@ def target_assessment(payload: TargetAssessmentRequest, user: Dict[str, Any] = D
     """Exact class balance, event-prevalence and class-imbalance assessment, and a
     Wilson score interval, with a server-derived governed analysis scope."""
     _check_project_access(user, payload.projectId)
+    identity = _require_active_version(
+        user,
+        payload.projectId,
+        payload.datasetId,
+        payload.versionId,
+    )
     return compute_target_assessment(
         user_scope=_user_scope(user),
-        project_id=payload.projectId,
-        dataset_id=payload.datasetId,
-        version_id=payload.versionId,
+        project_id=identity["project_id"],
+        dataset_id=identity["dataset_id"],
+        version_id=identity["dataset_version_id"],
         target=payload.target,
         event_value=payload.eventValue,
         non_event_value=payload.nonEventValue,
@@ -171,11 +194,17 @@ def target_by_predictor(payload: TargetByPredictorRequest, user: Dict[str, Any] 
     """Bounded grouped event rate for one predictor. Explicitly invoked -- this
     is never issued when the Target tab mounts."""
     _check_project_access(user, payload.projectId)
+    identity = _require_active_version(
+        user,
+        payload.projectId,
+        payload.datasetId,
+        payload.versionId,
+    )
     return compute_target_by_predictor(
         user_scope=_user_scope(user),
-        project_id=payload.projectId,
-        dataset_id=payload.datasetId,
-        version_id=payload.versionId,
+        project_id=identity["project_id"],
+        dataset_id=identity["dataset_id"],
+        version_id=identity["dataset_version_id"],
         target=payload.target,
         predictor=payload.predictor,
         analysis_type=payload.analysisType,
@@ -268,8 +297,15 @@ def save_target_evidence(payload: TargetEvidenceRequest, user: Dict[str, Any] = 
         )
 
     dataset = require_dataset(payload.datasetId)
-    _require_dataset_linked_to_project(payload.projectId, payload.datasetId)
-    artifact = _assert_target_exists_in_version(payload.datasetId, payload.versionId, payload.target)
+    active = _require_active_version(
+        user,
+        payload.projectId,
+        payload.datasetId,
+        payload.versionId,
+    )
+    dataset_id = active["dataset_id"]
+    version_id = active["dataset_version_id"]
+    artifact = _assert_target_exists_in_version(dataset_id, version_id, payload.target)
     if str(artifact.get("versionId")) != str(payload.versionId):
         raise HTTPException(
             status_code=422,
@@ -277,8 +313,8 @@ def save_target_evidence(payload: TargetEvidenceRequest, user: Dict[str, Any] = 
         )
 
     assessment = compute_target_assessment(
-        user_scope=_user_scope(user), project_id=payload.projectId, dataset_id=payload.datasetId,
-        version_id=payload.versionId, target=payload.target,
+        user_scope=_user_scope(user), project_id=payload.projectId, dataset_id=dataset_id,
+        version_id=version_id, target=payload.target,
         event_value=payload.eventValue, non_event_value=payload.nonEventValue,
     )
     scope = require_evidence_eligible(assessment.get("analysisScope"))
@@ -286,8 +322,8 @@ def save_target_evidence(payload: TargetEvidenceRequest, user: Dict[str, Any] = 
     predictor_analysis = None
     if payload.predictor:
         predictor_analysis = compute_target_by_predictor(
-            user_scope=_user_scope(user), project_id=payload.projectId, dataset_id=payload.datasetId,
-            version_id=payload.versionId, target=payload.target, predictor=payload.predictor,
+            user_scope=_user_scope(user), project_id=payload.projectId, dataset_id=dataset_id,
+            version_id=version_id, target=payload.target, predictor=payload.predictor,
             analysis_type=payload.predictorAnalysisType or "numeric_quantile",
             event_value=payload.eventValue, bands=payload.predictorBands,
             top_categories=payload.predictorTopCategories, include_missing=payload.predictorIncludeMissing,
@@ -326,7 +362,7 @@ def save_target_evidence(payload: TargetEvidenceRequest, user: Dict[str, Any] = 
         {
             "analysisScope": scope,
             "datasetIdentity": {
-                "datasetId": payload.datasetId,
+                "datasetId": dataset_id,
                 "datasetName": dataset.get("name"),
                 "datasetVersionId": artifact.get("versionId"),
                 "artifactChecksum": artifact.get("checksum"),
@@ -391,8 +427,12 @@ def save_target_evidence(payload: TargetEvidenceRequest, user: Dict[str, Any] = 
     # save creates a NEW artifact that references the prior one rather than
     # silently overwriting it.
     evidence_id = f"ev-target-intel-{uuid.uuid4().hex[:20]}"
-    record = upsert_evidence({
+    evidence_record = authorize_and_normalize_evidence({
         "evidenceId": evidence_id,
+        "lineage_contract": CANONICAL_DATASET_LINEAGE_CONTRACT,
+        "project_id": payload.projectId,
+        "dataset_id": dataset_id,
+        "dataset_version_id": version_id,
         "projectId": payload.projectId,
         "evidenceType": "eda",
         "title": title,
@@ -404,8 +444,8 @@ def save_target_evidence(payload: TargetEvidenceRequest, user: Dict[str, Any] = 
         "sourcePage": "Exploratory Data Analysis -- Target Intelligence",
         "sourceRoute": "/step02",
         "artifactType": "target_intelligence",
-        "artifactId": f"{payload.datasetId}:{artifact.get('versionId')}:{payload.target}",
-        "datasetIds": [payload.datasetId],
+        "artifactId": f"{dataset_id}:{artifact.get('versionId')}:{payload.target}",
+        "datasetIds": [dataset_id],
         "modelIds": [], "documentIds": [], "notebookIds": [],
         "supportsSections": ["Exploratory Data Analysis", "Data Quality", "Model Development"],
         "tags": ["predictive_modeling", "eda", "target_intelligence", "governed_version"],
@@ -414,9 +454,14 @@ def save_target_evidence(payload: TargetEvidenceRequest, user: Dict[str, Any] = 
         "workflowStep": "Exploratory Data Analysis",
         "createdBy": _user_scope(user),
         "lineage": {
+            "lineage_contract": CANONICAL_DATASET_LINEAGE_CONTRACT,
+            "project_id": payload.projectId,
+            "dataset_id": dataset_id,
+            "dataset_version_id": version_id,
             "projectId": payload.projectId,
-            "datasetId": payload.datasetId,
-            "datasetVersionId": artifact.get("versionId"),
+            "datasetId": dataset_id,
+            "datasetVersion": version_id,
+            "datasetVersionId": version_id,
             "artifactChecksum": artifact.get("checksum"),
             "target": payload.target,
             "scopeMode": scope.get("mode"),
@@ -432,12 +477,13 @@ def save_target_evidence(payload: TargetEvidenceRequest, user: Dict[str, Any] = 
             "scopeIdentity": scope_identity(scope),
             "resolvedBy": "server",
         },
-    })
+    }, user)
+    record = upsert_evidence(evidence_record)
     audit_event(
         "eda.target_evidence.created", "project", payload.projectId, "success",
         user_id=_user_scope(user),
         metadata={
-            "evidenceId": record.get("evidenceId"), "datasetId": payload.datasetId,
+            "evidenceId": record.get("evidenceId"), "datasetId": dataset_id,
             "versionId": artifact.get("versionId"), "target": payload.target,
         },
     )
@@ -475,6 +521,11 @@ def target_summary_export(payload: TargetSummaryExportRequest, user: Dict[str, A
     governed artifact.
     """
     _check_project_access(user, payload.projectId)
+    if bool(payload.datasetId) != bool(payload.versionId):
+        raise HTTPException(
+            status_code=422,
+            detail="datasetId and versionId must be supplied together for an exact governed export.",
+        )
     governed = bool(payload.datasetId and payload.versionId)
     if not governed:
         return {
@@ -494,9 +545,15 @@ def target_summary_export(payload: TargetSummaryExportRequest, user: Dict[str, A
             ),
         }
 
+    active = _require_active_version(
+        user,
+        payload.projectId,
+        str(payload.datasetId),
+        payload.versionId,
+    )
     assessment = compute_target_assessment(
-        user_scope=_user_scope(user), project_id=payload.projectId, dataset_id=payload.datasetId,
-        version_id=payload.versionId, target=payload.target,
+        user_scope=_user_scope(user), project_id=payload.projectId, dataset_id=active["dataset_id"],
+        version_id=active["dataset_version_id"], target=payload.target,
         event_value=payload.eventValue, non_event_value=payload.nonEventValue,
     )
     scope = assessment.get("analysisScope") or {}
@@ -604,7 +661,7 @@ def _bounded_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
     return _bounded(metadata, label="A target finding payload")
 
 
-def _resolve_finding_scope(payload: TargetFindingRequest) -> Dict[str, Any]:
+def _resolve_finding_scope(payload: TargetFindingRequest, user: Dict[str, Any]) -> Dict[str, Any]:
     """Derives the finding's scope from server state.
 
     A caller that supplies a dataset and version gets a GOVERNED finding only if
@@ -612,15 +669,25 @@ def _resolve_finding_scope(payload: TargetFindingRequest) -> Dict[str, Any]:
     artifact resolve. Anything else is a draft pinned to the workspace
     fingerprint -- never a governed row with blank identity.
     """
+    if bool(payload.datasetId) != bool(payload.versionId):
+        raise HTTPException(
+            status_code=422,
+            detail="datasetId and versionId must be supplied together for an exact governed finding.",
+        )
     if payload.datasetId and payload.versionId:
         require_dataset(payload.datasetId)
-        _require_dataset_linked_to_project(payload.projectId, payload.datasetId)
-        artifact = _assert_target_exists_in_version(payload.datasetId, payload.versionId, payload.target) if payload.target else _resolve_version_artifact(payload.datasetId, payload.versionId)
+        active = _require_active_version(
+            user,
+            payload.projectId,
+            payload.datasetId,
+            payload.versionId,
+        )
+        artifact = _assert_target_exists_in_version(active["dataset_id"], active["dataset_version_id"], payload.target) if payload.target else _resolve_version_artifact(active["dataset_id"], active["dataset_version_id"])
         if str(artifact.get("versionId")) != str(payload.versionId):
             raise HTTPException(status_code=422, detail="The requested dataset version could not be resolved exactly.")
         return {
             "scope_mode": GOVERNED_VERSION,
-            "dataset_id": payload.datasetId,
+            "dataset_id": active["dataset_id"],
             "dataset_version_id": str(artifact.get("versionId")),
             "artifact_checksum": str(artifact.get("checksum") or ""),
             "workspace_fingerprint": "",
@@ -674,7 +741,7 @@ def create_target_finding(payload: TargetFindingRequest, user: Dict[str, Any] = 
     if payload.status not in ALLOWED_STATUSES:
         raise HTTPException(status_code=400, detail=f"Unsupported status. Use one of: {', '.join(sorted(ALLOWED_STATUSES))}.")
 
-    scope = _resolve_finding_scope(payload)
+    scope = _resolve_finding_scope(payload, user)
     service = _service()
     service.ensure_project(payload.projectId, user)
     timestamp = now_iso()
@@ -714,6 +781,13 @@ def update_target_finding(
         raise HTTPException(status_code=404, detail="Target finding not found.")
     if str(existing.get("project_id")) != payload.projectId:
         raise HTTPException(status_code=403, detail="This finding belongs to a different project.")
+    if str(existing.get("scope_mode")) == GOVERNED_VERSION:
+        _require_active_version(
+            user,
+            payload.projectId,
+            str(existing.get("dataset_id") or ""),
+            str(existing.get("dataset_version_id") or ""),
+        )
     if payload.severity is not None and payload.severity not in ALLOWED_SEVERITIES:
         raise HTTPException(status_code=400, detail=f"Unsupported severity. Use one of: {', '.join(sorted(ALLOWED_SEVERITIES))}.")
     if payload.status is not None and payload.status not in ALLOWED_STATUSES:
@@ -757,19 +831,24 @@ def promote_target_finding(
         raise HTTPException(status_code=409, detail="This finding is already a governed finding.")
 
     require_dataset(payload.datasetId)
-    _require_dataset_linked_to_project(payload.projectId, payload.datasetId)
+    active = _require_active_version(
+        user,
+        payload.projectId,
+        payload.datasetId,
+        payload.versionId,
+    )
     target = str(existing.get("target") or "")
     artifact = (
-        _assert_target_exists_in_version(payload.datasetId, payload.versionId, target)
+        _assert_target_exists_in_version(active["dataset_id"], active["dataset_version_id"], target)
         if target
-        else _resolve_version_artifact(payload.datasetId, payload.versionId)
+        else _resolve_version_artifact(active["dataset_id"], active["dataset_version_id"])
     )
 
     timestamp = now_iso()
     record = service.target_findings.upsert({
         "target_finding_id": f"tfind_{uuid.uuid4().hex}",
         "project_id": payload.projectId,
-        "dataset_id": payload.datasetId,
+        "dataset_id": active["dataset_id"],
         "dataset_version_id": str(artifact.get("versionId")),
         "artifact_checksum": str(artifact.get("checksum") or ""),
         "workspace_fingerprint": "",

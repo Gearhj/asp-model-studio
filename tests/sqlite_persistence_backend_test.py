@@ -617,11 +617,12 @@ class SqlitePersistenceBackendTest(unittest.TestCase):
         test_prefix = f"atlas_api_context_{os.getpid()}_{port}"
         security_database = data_root / f"{test_prefix}_security.db"
         persistence_database = data_root / f"{test_prefix}_persistence.db"
+        checkpoint_path = data_root / f"{test_prefix}_workflow_state.json"
         test_database_files = [
             Path(f"{database}{suffix}")
             for database in (security_database, persistence_database)
             for suffix in ("", "-wal", "-shm")
-        ]
+        ] + [checkpoint_path]
         for database_file in test_database_files:
             database_file.unlink(missing_ok=True)
 
@@ -637,6 +638,7 @@ class SqlitePersistenceBackendTest(unittest.TestCase):
                 "ATLAS_LOCAL_ADMIN_USER_ID": SEEDED_ADMIN_USER_ID,
                 "ATLAS_SECURITY_DB_PATH": str(security_database),
                 "ATLAS_SQLITE_PATH": str(persistence_database),
+                "ATLAS_CHECKPOINT_PATH": str(checkpoint_path),
             }
         )
         command = [

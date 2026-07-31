@@ -10,6 +10,8 @@ import {
   getPreparationDocumentation,
   type PreparationDocumentationState,
 } from "../../lib/preparationGovernance";
+import { loadLocalDataset } from "../../lib/localDataset";
+import { requireLocalDatasetCanonicalIdentity } from "../../lib/datasetIdentity";
 
 export default function PreparationDocumentationLiveLink({
   projectId,
@@ -22,7 +24,23 @@ export default function PreparationDocumentationLiveLink({
   useEffect(() => {
     if (!projectId) return;
     const controller = new AbortController();
-    getPreparationDocumentation(projectId, controller.signal)
+    let identity: ReturnType<typeof requireLocalDatasetCanonicalIdentity>;
+    try {
+      identity = requireLocalDatasetCanonicalIdentity(
+        projectId,
+        loadLocalDataset(),
+        "Preparation documentation dataset identity",
+      );
+    } catch (cause) {
+      setState(null);
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Preparation documentation requires an exact Dataset Library version.",
+      );
+      return () => controller.abort();
+    }
+    getPreparationDocumentation(identity, controller.signal)
       .then((payload) => {
         setState(payload);
         setError("");

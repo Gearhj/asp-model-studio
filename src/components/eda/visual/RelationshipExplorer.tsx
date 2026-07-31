@@ -25,6 +25,7 @@ import {
 } from "../../../state/useEdaVisualSelection";
 import { recordEdaPerformance } from "../../../visual-intelligence/performance";
 import { useReducedMotion } from "../../../visual-intelligence/useReducedMotion";
+import { assertExactDatasetIdentity } from "../../../lib/datasetIdentity";
 
 const RelationshipWebGL = lazy(() => import("./RelationshipWebGL"));
 
@@ -68,7 +69,9 @@ export type RelationshipPairMetric = {
 export type RelationshipSampleResponse = {
   ok: boolean;
   scope: "rendered_sample";
-  dataset_id?: string | null;
+  project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
   dataset_version: string;
   predictor_manifest_id: string;
   population_rows: number;
@@ -110,6 +113,8 @@ export type RelationshipCamera = {
 
 type RelationshipExplorerProps = {
   projectId: string;
+  datasetId: string;
+  datasetVersionId: string;
   target: string;
   eventValue?: unknown;
   problemType: "classification" | "regression";
@@ -526,6 +531,8 @@ function Density2D({
 
 export default function RelationshipExplorer({
   projectId,
+  datasetId,
+  datasetVersionId,
   target,
   eventValue,
   problemType,
@@ -584,10 +591,12 @@ export default function RelationshipExplorer({
     if (!axes.x || !axes.y || axes.x === axes.y) return "";
     return JSON.stringify({
       project_id: projectId,
+      expected_dataset_id: datasetId,
+      expected_dataset_version_id: datasetVersionId,
       target,
       event_value: eventValue,
       problem_type: problemType,
-      dataset_version: datasetVersion,
+      dataset_version: datasetVersionId,
       predictor_manifest_id: predictorManifestId,
       x_feature: axes.x,
       y_feature: axes.y,
@@ -604,7 +613,9 @@ export default function RelationshipExplorer({
     axes.x,
     axes.y,
     axes.z,
+    datasetId,
     datasetVersion,
+    datasetVersionId,
     eventValue,
     numericFields,
     predictorManifestId,
@@ -656,6 +667,15 @@ export default function RelationshipExplorer({
             )}${rejected ? ` ${rejected}` : ""}`,
           );
         }
+        assertExactDatasetIdentity(
+          {
+            project_id: projectId,
+            dataset_id: datasetId,
+            dataset_version_id: datasetVersionId,
+          },
+          payload,
+          "EDA relationship sample response",
+        );
         return payload as RelationshipSampleResponse;
       });
       request.catch(() => responseCache.delete(requestSignature));

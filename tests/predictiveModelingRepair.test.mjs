@@ -184,7 +184,12 @@ assert.match(training, /\/model\/train\/preflight/);
 assert.match(training, /Validate & Train Selected Models/);
 assert.doesNotMatch(training, /disabled=\{jobActive \|\| !selectedModels\.length \|\| !readiness\}/);
 assert.match(training, /\/model\/train\/jobs\/active/);
-assert.match(training, /dataset_id: dataset\?\.dataset_library\?\.datasetId/);
+assert.match(training, /dataset_id: datasetIdentity\?\.dataset_id/);
+assert.match(
+  training,
+  /dataset_version_id: datasetIdentity\?\.dataset_version_id/,
+);
+assert.doesNotMatch(training, /data_access\?\.(?:datasetId|version)/);
 assert.match(training, /non_event_value: dataset\?\.non_event_value/);
 assert.match(training, /user: requestUser/);
 assert.match(training, /Kill unfinished/);
@@ -222,7 +227,8 @@ assert.match(outliers, /Go to Data Acquisition/);
 assert.match(outliers, /Go to EDA/);
 assert.doesNotMatch(outliers, /synthSeries|browser sample from Step 1/);
 assert.match(outlierRouter, /DATASTORE\.get_raw_active_df/);
-assert.match(outlierRouter, /DATASTORE\.set_processed\(work\)/);
+assert.match(outlierRouter, /scoped_store\.set_processed\(work\)/);
+assert.match(outlierRouter, /with scoped_store\.state_lock/);
 assert.match(outlierRouter, /outlier_application/);
 assert.match(outlierRouter, /json_safe\(result\)/);
 

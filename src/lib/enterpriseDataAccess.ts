@@ -1,4 +1,8 @@
 import type { LocalDataset } from "./localDataset";
+import {
+  assertExactDatasetIdentity,
+  type CanonicalDatasetIdentity,
+} from "./datasetIdentity";
 
 export const DATA_ACCESS_METADATA_KEY = "modeling-tool-data-access-metadata";
 export const DATASET_VERSIONS_KEY = "modeling-tool-dataset-versions";
@@ -7,8 +11,10 @@ export type DataSourceType = "upload" | "sql" | "cloud" | "existing" | "python";
 export type SamplingMethod = "full" | "sample" | "random" | "stratified" | "time_based" | "top_n";
 
 export type DataAccessMetadata = {
-  datasetId: string;
-  version: string;
+  /** Browser-generated identity for this access/import metadata snapshot. */
+  accessMetadataId: string;
+  /** Browser-generated identity for the source represented by this snapshot. */
+  accessSourceId: string;
   hash: string;
   sourceType: DataSourceType;
   sourceLabel: string;
@@ -35,6 +41,9 @@ export type DataAccessMetadata = {
 };
 
 export type DataQualitySummary = {
+  projectId?: string;
+  datasetId?: string;
+  datasetVersionId?: string;
   profileScope?: "full_dataset" | "complete_browser_dataset" | "preview_profile" | "not_generated";
   profiledRowCount?: number;
   registeredRowCount?: number;
@@ -63,9 +72,9 @@ export type DataQualitySummary = {
   memoryEstimateMb: number;
 };
 
-export type DatasetVersionRecord = {
-  datasetId: string;
-  version: string;
+export type DataAccessHistoryRecord = {
+  accessMetadataId: string;
+  accessSourceId: string;
   hash: string;
   sourceType: DataSourceType;
   sourceLabel: string;
@@ -75,6 +84,9 @@ export type DatasetVersionRecord = {
   importedAt: string;
   samplingMethod: SamplingMethod;
 };
+
+/** @deprecated Use DataAccessHistoryRecord. This history is not Dataset Library version history. */
+export type DatasetVersionRecord = DataAccessHistoryRecord;
 
 function readJson<T>(key: string, fallback: T): T {
   try {
@@ -107,8 +119,39 @@ export function compactTimestamp(date = new Date()) {
   return date.toISOString().replace(/\D/g, "").slice(0, 14);
 }
 
+function asNonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized || undefined;
+}
+
+/**
+ * Reads current access metadata and safely reclassifies legacy browser-only
+ * datasetId/version fields as subordinate access identifiers. They are never
+ * promoted to canonical Dataset Library identity.
+ */
+function normalizeDataAccessMetadata(value: unknown): DataAccessMetadata | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const accessMetadataId = asNonEmptyString(raw.accessMetadataId) ?? asNonEmptyString(raw.version);
+  const accessSourceId = asNonEmptyString(raw.accessSourceId) ?? asNonEmptyString(raw.datasetId);
+  if (!accessMetadataId || !accessSourceId) return null;
+
+  const metadata = { ...raw };
+  delete metadata.datasetId;
+  delete metadata.version;
+  delete metadata.dataset_id;
+  delete metadata.dataset_version;
+  delete metadata.dataset_version_id;
+  return {
+    ...metadata,
+    accessMetadataId,
+    accessSourceId,
+  } as DataAccessMetadata;
+}
+
 export function loadDataAccessMetadata(): DataAccessMetadata | null {
-  return readJson<DataAccessMetadata | null>(DATA_ACCESS_METADATA_KEY, null);
+  return normalizeDataAccessMetadata(readJson<unknown>(DATA_ACCESS_METADATA_KEY, null));
 }
 
 export function saveDataAccessMetadata(metadata: DataAccessMetadata) {
@@ -116,15 +159,42 @@ export function saveDataAccessMetadata(metadata: DataAccessMetadata) {
   window.dispatchEvent(new CustomEvent("data-access-metadata-updated"));
 }
 
-export function loadDatasetVersions() {
-  return readJson<DatasetVersionRecord[]>(DATASET_VERSIONS_KEY, []);
+function normalizeDataAccessHistoryRecord(value: unknown): DataAccessHistoryRecord | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const accessMetadataId = asNonEmptyString(raw.accessMetadataId) ?? asNonEmptyString(raw.version);
+  const accessSourceId = asNonEmptyString(raw.accessSourceId) ?? asNonEmptyString(raw.datasetId);
+  if (!accessMetadataId || !accessSourceId) return null;
+  const record = { ...raw };
+  delete record.datasetId;
+  delete record.version;
+  delete record.dataset_id;
+  delete record.dataset_version;
+  delete record.dataset_version_id;
+  return {
+    ...record,
+    accessMetadataId,
+    accessSourceId,
+  } as DataAccessHistoryRecord;
 }
 
-export function recordDatasetVersion(dataset: LocalDataset, metadata: DataAccessMetadata) {
-  const existing = loadDatasetVersions();
-  const record: DatasetVersionRecord = {
-    datasetId: metadata.datasetId,
-    version: metadata.version,
+export function loadDataAccessHistory(): DataAccessHistoryRecord[] {
+  const stored = readJson<unknown[]>(DATASET_VERSIONS_KEY, []);
+  return stored
+    .map(normalizeDataAccessHistoryRecord)
+    .filter((record): record is DataAccessHistoryRecord => record !== null);
+}
+
+/** @deprecated Use loadDataAccessHistory. */
+export function loadDatasetVersions(): DataAccessHistoryRecord[] {
+  return loadDataAccessHistory();
+}
+
+export function recordDataAccessHistory(dataset: LocalDataset, metadata: DataAccessMetadata) {
+  const existing = loadDataAccessHistory();
+  const record: DataAccessHistoryRecord = {
+    accessMetadataId: metadata.accessMetadataId,
+    accessSourceId: metadata.accessSourceId,
     hash: metadata.hash,
     sourceType: metadata.sourceType,
     sourceLabel: metadata.sourceLabel,
@@ -134,9 +204,14 @@ export function recordDatasetVersion(dataset: LocalDataset, metadata: DataAccess
     importedAt: metadata.importedAt,
     samplingMethod: metadata.samplingMethod,
   };
-  const next = [record, ...existing.filter((row) => row.hash !== record.hash)].slice(0, 50);
+  const next = [record, ...existing.filter((row) => row.accessMetadataId !== record.accessMetadataId)].slice(0, 50);
   localStorage.setItem(DATASET_VERSIONS_KEY, JSON.stringify(next));
   return next;
+}
+
+/** @deprecated Use recordDataAccessHistory. */
+export function recordDatasetVersion(dataset: LocalDataset, metadata: DataAccessMetadata) {
+  return recordDataAccessHistory(dataset, metadata);
 }
 
 export function extractSqlTables(sql: string) {
@@ -270,11 +345,15 @@ export function inferDataQuality(dataset: Pick<LocalDataset, "headers" | "rows" 
 
 export async function fetchFullDataQualityProfile(input: {
   projectId: string;
+  datasetIdentity: CanonicalDatasetIdentity;
   target?: string | null;
   eventValue?: unknown;
   nonEventValue?: unknown;
   selectedColumns?: string[];
 }): Promise<DataQualitySummary> {
+  if (input.datasetIdentity.project_id !== input.projectId) {
+    throw new Error("Quality-profile project identity does not match the active workflow.");
+  }
   const apiBase =
     (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
     "http://127.0.0.1:8001/api";
@@ -284,6 +363,9 @@ export async function fetchFullDataQualityProfile(input: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       project_id: input.projectId,
+      expected_dataset_id: input.datasetIdentity.dataset_id,
+      expected_dataset_version_id: input.datasetIdentity.dataset_version_id,
+      dataset_version: input.datasetIdentity.dataset_version_id,
       target: input.target,
       event_value: input.eventValue,
       non_event_value: input.nonEventValue,
@@ -292,12 +374,20 @@ export async function fetchFullDataQualityProfile(input: {
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok || !payload?.ok) throw new Error(payload?.detail ?? "Full-dataset quality profiling is unavailable.");
+  const canonical = assertExactDatasetIdentity(
+    input.datasetIdentity,
+    payload,
+    "Full-dataset quality profile response",
+  );
   return {
+    projectId: canonical.project_id,
+    datasetId: canonical.dataset_id,
+    datasetVersionId: canonical.dataset_version_id,
     profileScope: payload.profileScope,
     profiledRowCount: payload.profiledRowCount,
     registeredRowCount: payload.registeredRowCount,
     generatedAt: payload.generatedAt,
-    datasetVersion: payload.datasetVersion,
+    datasetVersion: canonical.dataset_version_id,
     datasetHash: payload.datasetHash,
     rowCount: payload.registeredRowCount,
     columnCount: payload.columnCount,
@@ -345,8 +435,8 @@ export function buildDataAccessMetadata(input: {
 }) {
   const returnedRowCount = input.rowCountOverride ?? input.dataset.rows.length;
   const hash = hashDatasetPreview(input.dataset.headers, input.dataset.rows, returnedRowCount);
-  const datasetId = `${input.sourceType}-${hash.slice(0, 8)}`;
-  const version = `${compactTimestamp()}-${hash.slice(0, 8)}`;
+  const accessSourceId = `${input.sourceType}-${hash.slice(0, 8)}`;
+  const accessMetadataId = `${compactTimestamp()}-${hash.slice(0, 8)}`;
   const tablesReferenced = input.sqlQuery ? extractSqlTables(input.sqlQuery) : [];
   const validationWarnings = input.sqlQuery ? validateSql(input.sqlQuery) : [];
   const lineage = [
@@ -358,8 +448,8 @@ export function buildDataAccessMetadata(input: {
     "Imported into modeling project",
   ];
   const metadata: DataAccessMetadata = {
-    datasetId,
-    version,
+    accessMetadataId,
+    accessSourceId,
     hash,
     sourceType: input.sourceType,
     sourceLabel: input.sourceLabel,

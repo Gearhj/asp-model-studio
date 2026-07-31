@@ -1,6 +1,16 @@
 import { logDecision } from "./decisionJournal";
 import { loadLocalDataset } from "./localDataset";
 import { BRAND } from "../config/brand";
+import {
+  assertExactDatasetIdentity,
+  requireCanonicalDatasetIdentity,
+  requireLocalDatasetCanonicalIdentity,
+  type CanonicalDatasetIdentityInput,
+} from "./datasetIdentity";
+import {
+  loadCanonicalPreparationBrowserState,
+  type CanonicalPreparationBrowserState,
+} from "./preparationGovernance";
 
 export const EXPERIMENT_TRACKING_KEY = "modeling-tool-mlflow-lite-experiments";
 
@@ -23,8 +33,12 @@ export type ExperimentMetricSet = {
 export type ExperimentRecord = {
   experimentId: string;
   timestamp: string;
-  datasetHash: string;
-  datasetVersion: string;
+  project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
+  trainingJobId: string;
+  accessMetadataId?: string;
+  datasetContentHash?: string;
   selectedFeatures: string[];
   preprocessingSteps: Record<string, unknown>;
   balancingMethod: string;
@@ -62,7 +76,8 @@ type RankedModel = {
 
 type CaptureInput = {
   apiBase: string;
-  projectId: string;
+  datasetIdentity: CanonicalDatasetIdentityInput;
+  trainingJobId: string;
   ranked: RankedModel[];
   selectedModelKeys: string[];
   trainingSettings: Record<string, unknown>;
@@ -88,42 +103,119 @@ function hashString(text: string) {
   return (hash >>> 0).toString(16).padStart(8, "0");
 }
 
-export function getDatasetVersion() {
+function getCanonicalDatasetContext(identityInput: CanonicalDatasetIdentityInput) {
+  const identity = requireCanonicalDatasetIdentity(
+    identityInput,
+    "Training experiment dataset identity",
+  );
   const dataset = loadLocalDataset();
-  if (!dataset) return { datasetHash: "no-dataset", datasetVersion: "no-dataset", selectedFeatures: [] as string[] };
+  if (!dataset) {
+    throw new Error(
+      "Training experiment persistence requires the active canonical local dataset.",
+    );
+  }
+  const localIdentity = requireLocalDatasetCanonicalIdentity(
+    identity.project_id,
+    dataset,
+    "Training experiment local dataset identity",
+  );
+  assertExactDatasetIdentity(
+    identity,
+    localIdentity,
+    "Training experiment local dataset identity",
+  );
   const selectedFeatures = dataset.selected_columns ?? dataset.headers.filter((header) => header !== dataset.target);
-  const signature = JSON.stringify({
-    headers: dataset.headers,
-    target: dataset.target,
-    selectedFeatures,
-    rows: dataset.rows.length,
-    firstRows: dataset.rows.slice(0, 25),
-  });
-  const datasetHash = hashString(signature);
   return {
-    datasetHash,
-    datasetVersion: `${dataset.target ?? "target"}-${dataset.rows.length}-${datasetHash}`,
+    identity,
     selectedFeatures,
+    accessMetadataId:
+      typeof dataset.data_access?.accessMetadataId === "string" &&
+      dataset.data_access.accessMetadataId.trim()
+        ? dataset.data_access.accessMetadataId.trim()
+        : undefined,
+    datasetContentHash:
+      typeof dataset.data_access?.hash === "string" &&
+      dataset.data_access.hash.trim()
+        ? dataset.data_access.hash.trim()
+        : undefined,
   };
 }
 
-export function loadExperiments(): ExperimentRecord[] {
-  return readJson<ExperimentRecord[]>(EXPERIMENT_TRACKING_KEY, []);
+function requiredText(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+/**
+ * Legacy experiment rows used a target-rowCount-hash pseudo-version and had no
+ * canonical project/dataset/version triple. They remain stale historical
+ * browser data and are never eligible for selection, documentation, or
+ * promotion.
+ */
+export function isCanonicalExperimentRecord(value: unknown): value is ExperimentRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  if (
+    !requiredText(record.experimentId) ||
+    !requiredText(record.project_id) ||
+    !requiredText(record.dataset_id) ||
+    !requiredText(record.dataset_version_id)
+  ) {
+    return false;
+  }
+  const compatibilityVersion =
+    typeof record.datasetVersion === "string"
+      ? record.datasetVersion.trim()
+      : "";
+  return (
+    !compatibilityVersion ||
+    compatibilityVersion === String(record.dataset_version_id).trim()
+  );
+}
+
+export function loadExperiments(
+  identityInput?: CanonicalDatasetIdentityInput,
+): ExperimentRecord[] {
+  const stored = readJson<unknown[]>(EXPERIMENT_TRACKING_KEY, []);
+  const canonical = Array.isArray(stored)
+    ? stored.filter(isCanonicalExperimentRecord)
+    : [];
+  if (!identityInput) return canonical;
+  const identity = requireCanonicalDatasetIdentity(
+    identityInput,
+    "Experiment selection dataset identity",
+  );
+  return canonical.filter(
+    (experiment) =>
+      experiment.project_id === identity.project_id &&
+      experiment.dataset_id === identity.dataset_id &&
+      experiment.dataset_version_id === identity.dataset_version_id,
+  );
 }
 
 export function saveExperiments(experiments: ExperimentRecord[]) {
+  if (!experiments.every(isCanonicalExperimentRecord)) {
+    throw new Error(
+      "Experiment persistence requires an exact canonical project_id, dataset_id, and dataset_version_id.",
+    );
+  }
   localStorage.setItem(EXPERIMENT_TRACKING_KEY, JSON.stringify(experiments));
   window.dispatchEvent(new CustomEvent("experiment-tracking-updated"));
 }
 
-function buildPreprocessingSteps(trainingSettings: Record<string, unknown>) {
+function buildPreprocessingSteps(
+  trainingSettings: Record<string, unknown>,
+  preparation: CanonicalPreparationBrowserState,
+) {
   return {
-    outlierMethods: readJson<Record<string, string>>("modeling-tool-outlier-methods", {}),
-    missingStrategies: readJson<Record<string, unknown>>("modeling-tool-missing-config", {}),
-    splitStrategy: localStorage.getItem("splitStrategy") ?? "holdout",
-    balanceMethod: localStorage.getItem("balanceMethod") ?? "none",
-    balanceRatio: localStorage.getItem("balanceRatio") ?? "",
-    kFolds: localStorage.getItem("kFolds") ?? "",
+    outlierMethods: preparation.outlierMethods,
+    outlierGlobalMethod: preparation.outlierGlobalMethod,
+    outlierRationales: preparation.outlierRationales,
+    missingStrategies: preparation.missingPolicy,
+    splitStrategy: preparation.splitStrategy,
+    balanceMethod: preparation.balanceMethod,
+    balanceRatio: preparation.balanceRatio,
+    kFolds: preparation.kFolds,
+    validationDesign: preparation.validationDraft,
     trainingSettings,
   };
 }
@@ -202,15 +294,41 @@ async function captureDiagnostics(apiBase: string, projectId: string, modelKey: 
 }
 
 export async function recordTrainingExperiments(input: CaptureInput) {
-  const { datasetHash, datasetVersion, selectedFeatures } = getDatasetVersion();
-  const preprocessingSteps = buildPreprocessingSteps(input.trainingSettings);
-  const existing = loadExperiments().map((experiment) => ({ ...experiment, champion: false }));
+  const {
+    identity,
+    selectedFeatures,
+    accessMetadataId,
+    datasetContentHash,
+  } = getCanonicalDatasetContext(input.datasetIdentity);
+  const trainingJobId =
+    typeof input.trainingJobId === "string" ? input.trainingJobId.trim() : "";
+  if (!trainingJobId) {
+    throw new Error(
+      "Training experiment persistence requires an explicit training job artifact ID.",
+    );
+  }
+  const preparation = loadCanonicalPreparationBrowserState(identity);
+  const preprocessingSteps = buildPreprocessingSteps(
+    input.trainingSettings,
+    preparation,
+  );
+  const existing = loadExperiments().map((experiment) =>
+    experiment.project_id === identity.project_id &&
+    experiment.dataset_id === identity.dataset_id &&
+    experiment.dataset_version_id === identity.dataset_version_id
+      ? { ...experiment, champion: false }
+      : experiment,
+  );
 
   const records = await Promise.all(
     input.ranked
       .filter((model) => input.selectedModelKeys.includes(model.key))
       .map(async (model) => {
-        const diagnostics = await captureDiagnostics(input.apiBase, input.projectId, model.key);
+        const diagnostics = await captureDiagnostics(
+          input.apiBase,
+          identity.project_id,
+          model.key,
+        );
         const curveMetrics = diagnostics.curves?.metrics ?? {};
         const metrics: ExperimentMetricSet = {
           auc: curveMetrics.auc ?? model.auc,
@@ -229,14 +347,20 @@ export async function recordTrainingExperiments(input: CaptureInput) {
         };
 
         return {
-          experimentId: `${compactTimestamp()}-${model.key}-${hashString(datasetHash + model.key + Math.random())}`,
+          experimentId: `${compactTimestamp()}-${model.key}-${hashString(
+            `${identity.project_id}:${identity.dataset_id}:${identity.dataset_version_id}:${trainingJobId}:${model.key}:${Math.random()}`,
+          )}`,
           timestamp: new Date().toISOString(),
-          datasetHash,
-          datasetVersion,
+          project_id: identity.project_id,
+          dataset_id: identity.dataset_id,
+          dataset_version_id: identity.dataset_version_id,
+          trainingJobId,
+          accessMetadataId,
+          datasetContentHash,
           selectedFeatures,
           preprocessingSteps,
-          balancingMethod: String(localStorage.getItem("balanceMethod") ?? "none"),
-          splitStrategy: String(localStorage.getItem("splitStrategy") ?? "holdout"),
+          balancingMethod: preparation.balanceMethod,
+          splitStrategy: preparation.splitStrategy,
           modelKey: model.key,
           modelType: model.name,
           hyperparameters: model.best_params ?? null,
@@ -264,7 +388,13 @@ export function promoteExperimentToChampion(experimentId: string) {
   const promoted = experiments.find((experiment) => experiment.experimentId === experimentId);
   const next = experiments.map((experiment) => ({
     ...experiment,
-    champion: experiment.experimentId === experimentId,
+    champion:
+      promoted &&
+      experiment.project_id === promoted.project_id &&
+      experiment.dataset_id === promoted.dataset_id &&
+      experiment.dataset_version_id === promoted.dataset_version_id
+        ? experiment.experimentId === experimentId
+        : experiment.champion,
   }));
   saveExperiments(next);
   if (promoted) {
@@ -296,7 +426,10 @@ export function exportExperimentsCsv(experiments: ExperimentRecord[]) {
     "product_subtitle",
     "experiment_id",
     "timestamp",
-    "dataset_version",
+    "project_id",
+    "dataset_id",
+    "dataset_version_id",
+    "training_job_id",
     "model_type",
     "auc",
     "pr_auc",
@@ -318,7 +451,10 @@ export function exportExperimentsCsv(experiments: ExperimentRecord[]) {
       BRAND.productSubtitle,
       experiment.experimentId,
       experiment.timestamp,
-      experiment.datasetVersion,
+      experiment.project_id,
+      experiment.dataset_id,
+      experiment.dataset_version_id,
+      experiment.trainingJobId,
       experiment.modelType,
       experiment.metrics.auc,
       experiment.metrics.pr_auc,

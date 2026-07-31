@@ -1,4 +1,8 @@
 import { DATASET_API_BASE } from "./datasetLibrary";
+import {
+  assertExactDatasetIdentity,
+  type CanonicalDatasetIdentity,
+} from "./datasetIdentity";
 
 export const EDA_DOCUMENTATION_UPDATED_EVENT = "atlas-eda-documentation-updated";
 export const EDA_DOCUMENTATION_BROADCAST_CHANNEL =
@@ -56,6 +60,8 @@ export type EdaDocumentationDecision = {
 export type EdaDocumentationPayload = {
   project_id: string;
   dataset_id: string;
+  dataset_version_id: string;
+  /** Compatibility projection; it must mirror dataset_version_id. */
   dataset_version: string;
   target: string;
   predictor_manifest_id: string;
@@ -88,6 +94,7 @@ export type EdaDocumentationConfirmationSummary = {
   documentation_version: string;
   eda_analysis_version?: string;
   dataset_id?: string;
+  dataset_version_id?: string;
   dataset_version?: string;
   target?: string;
   predictor_manifest_id?: string;
@@ -103,6 +110,7 @@ export type EdaDocumentationConfirmationSummary = {
 export type EdaDocumentationLineage = {
   project_id: string;
   dataset_id?: string;
+  dataset_version_id?: string;
   dataset_version?: string;
   target?: string;
   predictor_manifest_id?: string;
@@ -110,6 +118,10 @@ export type EdaDocumentationLineage = {
 
 export type EdaDocumentationState = {
   ok: boolean;
+  project_id: string;
+  dataset_id?: string;
+  dataset_version_id?: string;
+  dataset_version?: string;
   status: EdaDocumentationStatus;
   draft: EdaDocumentationRecord | null;
   current_approved: EdaDocumentationRecord | null;
@@ -190,14 +202,51 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function assertEdaDocumentationStateIdentity(
+  identity: CanonicalDatasetIdentity,
+  state: EdaDocumentationState,
+) {
+  assertExactDatasetIdentity(
+    identity,
+    state,
+    "EDA documentation state",
+  );
+  assertExactDatasetIdentity(
+    identity,
+    state.source_lineage,
+    "EDA documentation source lineage",
+  );
+  for (const [label, record] of [
+    ["draft", state.draft],
+    ["approved snapshot", state.current_approved],
+  ] as const) {
+    if (record) {
+      assertExactDatasetIdentity(
+        identity,
+        record,
+        `EDA documentation ${label}`,
+      );
+    }
+  }
+  return state;
+}
+
 export async function getEdaDocumentationState(
   projectId: string,
-  signal?: AbortSignal
+  identity: CanonicalDatasetIdentity,
+  signal?: AbortSignal,
 ) {
-  return edaDocumentationFetch<EdaDocumentationState>(
-    `/eda/documentation/${encodeURIComponent(projectId)}`,
-    { signal }
+  const query = new URLSearchParams({
+    expected_dataset_id: identity.dataset_id,
+    expected_dataset_version_id: identity.dataset_version_id,
+  });
+  const state = await edaDocumentationFetch<EdaDocumentationState>(
+    `/eda/documentation/${encodeURIComponent(projectId)}${
+      query.size ? `?${query.toString()}` : ""
+    }`,
+    { signal },
   );
+  return assertEdaDocumentationStateIdentity(identity, state);
 }
 
 export async function saveEdaDocumentationDraft(
@@ -210,11 +259,19 @@ export async function saveEdaDocumentationDraft(
       body: JSON.stringify(payload),
     }
   );
+  const verified = assertEdaDocumentationStateIdentity(
+    {
+      project_id: payload.project_id,
+      dataset_id: payload.dataset_id,
+      dataset_version_id: payload.dataset_version_id,
+    },
+    state,
+  );
   publishEdaDocumentationUpdate({
     project_id: payload.project_id,
-    status: state.status,
+    status: verified.status,
   });
-  return state;
+  return verified;
 }
 
 export async function confirmEdaDocumentation(
@@ -228,6 +285,15 @@ export async function confirmEdaDocumentation(
         body: JSON.stringify(payload),
       }
     );
+  assertExactDatasetIdentity(
+    {
+      project_id: payload.project_id,
+      dataset_id: payload.dataset_id,
+      dataset_version_id: payload.dataset_version_id,
+    },
+    result.record,
+    "EDA confirmation response",
+  );
   publishEdaDocumentationUpdate({
     project_id: payload.project_id,
     status: result.status,
@@ -238,26 +304,30 @@ export async function confirmEdaDocumentation(
 }
 
 export async function invalidateEdaDocumentation(
-  projectId: string,
+  identity: CanonicalDatasetIdentity,
   reason: string,
   upstreamRevision?: string
 ) {
+  const projectId = identity.project_id;
   const state = await edaDocumentationFetch<EdaDocumentationState>(
     `/eda/documentation/${encodeURIComponent(projectId)}/invalidate`,
     {
       method: "POST",
       body: JSON.stringify({
         reason,
+        expected_dataset_id: identity.dataset_id,
+        expected_dataset_version_id: identity.dataset_version_id,
         ...(upstreamRevision ? { upstream_revision: upstreamRevision } : {}),
       }),
     }
   );
+  const verified = assertEdaDocumentationStateIdentity(identity, state);
   publishEdaDocumentationUpdate({
     project_id: projectId,
-    status: state.status,
+    status: verified.status,
     reason,
   });
-  return state;
+  return verified;
 }
 
 export function publishEdaDocumentationUpdate(

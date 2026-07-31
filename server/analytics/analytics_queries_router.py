@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from ..security.security_store import audit_event, require_user, user_can_access_project
+from ..datasets.dataset_identity import assert_expected_active_identity
 from .target_distribution_service import compute_target_distribution
 from .distributed_engine_interface import list_configured_engines
 from .parquet_service import materialize_parquet_for_version
@@ -93,16 +94,29 @@ def target_distribution(payload: TargetDistributionRequest, user: Dict[str, Any]
     browser preview preparation to render class counts.
     """
     _check_project_access(user, payload.projectId)
-    return compute_target_distribution(
+    identity = assert_expected_active_identity(
+        payload.projectId,
+        expected_dataset_id=payload.datasetId,
+        expected_dataset_version_id=payload.versionId,
+        require_expected=True,
+        user=user,
+    )
+    result = compute_target_distribution(
         user_scope=str(user.get("userId") or "anonymous"),
-        project_id=payload.projectId,
-        dataset_id=payload.datasetId,
-        version_id=payload.versionId,
+        project_id=identity["project_id"],
+        dataset_id=identity["dataset_id"],
+        version_id=identity["dataset_version_id"],
         target=payload.target,
         event_value=payload.eventValue,
         non_event_value=payload.nonEventValue,
         force_exact=payload.forceExact,
     )
+    return {
+        **result,
+        "projectId": identity["project_id"],
+        "datasetId": identity["dataset_id"],
+        "versionId": identity["dataset_version_id"],
+    }
 
 
 @router.get("/analytics/queries/{query_id}")

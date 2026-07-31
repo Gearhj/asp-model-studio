@@ -410,3 +410,68 @@ test("the accessible summary reports the same values the chart plots", () => {
   assert.match(summary, /Total rows 170,884/);
   assert.equal(lib.describeTargetDistribution(null), "Target distribution is not available.");
 });
+
+test("exact-version reactivation restores the governed target contract before reporting backend sync", async () => {
+  const source = await readFile(
+    new URL("src/steps/Step01_DataAcquisition.tsx", ROOT),
+    "utf8",
+  );
+  const start = source.indexOf("const restoreExactIdentity = async () =>");
+  const end = source.indexOf("void restoreExactIdentity();", start);
+  assert.notEqual(start, -1, "missing exact identity restoration flow");
+  assert.notEqual(end, -1, "missing exact identity restoration invocation");
+  const restore = source.slice(start, end);
+
+  assert.match(restore, /reactivated = true/);
+  assert.match(
+    restore,
+    /if \(reactivated\) \{[\s\S]*?buildTargetPersistencePayload\(resolved,\s*\{[\s\S]*?target:\s*saved\.target,[\s\S]*?selected_columns:\s*saved\.selected_columns,[\s\S]*?event_value:\s*saved\.event_value,[\s\S]*?non_event_value:\s*saved\.non_event_value/,
+    "reactivation must reapply the complete saved target contract",
+  );
+  assert.match(restore, /fetch\(`\$\{BASE\}\/data\/set_target`/);
+  assert.match(restore, /assertExactDatasetActivation\(resolved,\s*targetResult\)/);
+
+  const targetRestore = restore.indexOf(
+    "await fetch(`${BASE}/data/set_target`",
+  );
+  const backendSynced = restore.indexOf("setBackendImportSynced(true)");
+  assert.ok(targetRestore >= 0);
+  assert.ok(backendSynced > targetRestore);
+});
+
+test("target and predictor partial saves retain the existing canonical and profiling envelope", async () => {
+  const source = await readFile(
+    new URL("src/steps/Step01_DataAcquisition.tsx", ROOT),
+    "utf8",
+  );
+  const selectionStart = source.indexOf(
+    "function saveKeptSelection(nextKept:",
+  );
+  const selectionEnd = source.indexOf(
+    "function applyWeakSignalFilter",
+    selectionStart,
+  );
+  const targetStart = source.indexOf("const updateTarget = (next: string)");
+  const targetEnd = source.indexOf(
+    "// Debounced on registerName changes",
+    targetStart,
+  );
+  assert.ok(selectionStart >= 0 && selectionEnd > selectionStart);
+  assert.ok(targetStart >= 0 && targetEnd > targetStart);
+
+  for (const [label, block] of [
+    ["predictor selection", source.slice(selectionStart, selectionEnd)],
+    ["target selection", source.slice(targetStart, targetEnd)],
+  ]) {
+    assert.match(block, /const currentDataset = loadLocalDataset\(\)/);
+    assert.match(
+      block,
+      /saveLocalDataset\(\{\s*\.\.\.\(currentDataset \?\? \{\}\),/,
+      `${label} must merge into the stored envelope instead of replacing it`,
+    );
+    assert.doesNotMatch(
+      block,
+      /dataset_id:\s*undefined|dataset_version_id:\s*undefined|data_access:\s*undefined|data_quality:\s*undefined/,
+    );
+  }
+});

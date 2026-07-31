@@ -3,6 +3,212 @@ import {
   type EdaDocumentationState,
 } from "./edaDocumentationApi";
 import { DATASET_API_BASE } from "./datasetLibrary";
+import {
+  assertExactDatasetIdentity,
+  canonicalDatasetStorageKey,
+  requireCanonicalDatasetIdentity,
+  type CanonicalDatasetIdentity,
+  type CanonicalDatasetIdentityInput,
+} from "./datasetIdentity";
+
+export const OUTLIER_METHODS_STORAGE_PREFIX =
+  "modeling-tool-outlier-methods";
+export const OUTLIER_GLOBAL_METHOD_STORAGE_PREFIX =
+  "modeling-tool-outlier-global-method";
+export const OUTLIER_RATIONALES_STORAGE_PREFIX =
+  "atlas:outlier-rationales";
+export const MISSING_POLICY_STORAGE_PREFIX =
+  "modeling-tool-missing-config";
+export const VALIDATION_DESIGN_DRAFT_STORAGE_PREFIX =
+  "atlas-validation-design-draft-v2";
+export const TRAINING_CONFIG_STORAGE_PREFIX =
+  "modeling-tool-training-config";
+
+export type CanonicalValidationDesignDraft = {
+  holdoutSize?: number;
+  randomSeed?: number;
+  foldMethod?: string;
+  foldCount?: number;
+  foldRepeats?: number;
+  innerFoldCount?: number;
+  groupField?: string;
+  timeField?: string;
+  shuffleFolds?: boolean;
+  balanceMethod?: string;
+  minorityShare?: number;
+  classWeightPolicy?: string;
+  externalValidationMode?: string;
+  testDatasetId?: string;
+  testDatasetVersion?: string;
+  testTargetField?: string;
+  ootDatasetId?: string;
+  ootDatasetVersion?: string;
+  ootTargetField?: string;
+  designDirty?: boolean;
+  savedAt?: string;
+};
+
+export type CanonicalPreparationBrowserState = {
+  identity: CanonicalDatasetIdentity;
+  outlierMethods: Record<string, unknown>;
+  outlierGlobalMethod: string;
+  outlierRationales: Record<string, string>;
+  missingPolicy: Record<string, unknown>;
+  validationDraft: CanonicalValidationDesignDraft | null;
+  trainingConfig: Record<string, unknown>;
+  splitStrategy: "hybrid" | "Not documented";
+  balanceMethod: string;
+  balanceRatio: string;
+  kFolds: string;
+};
+
+function readScopedJson<T>(
+  prefix: string,
+  identity: CanonicalDatasetIdentity,
+  fallback: T,
+): T {
+  if (typeof localStorage === "undefined") return fallback;
+  try {
+    const raw = localStorage.getItem(
+      canonicalDatasetStorageKey(prefix, identity),
+    );
+    if (!raw) return fallback;
+    return (JSON.parse(raw) as T) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function readScopedText(
+  prefix: string,
+  identity: CanonicalDatasetIdentity,
+): string {
+  if (typeof localStorage === "undefined") return "";
+  try {
+    return (
+      localStorage.getItem(canonicalDatasetStorageKey(prefix, identity)) ?? ""
+    ).trim();
+  } catch {
+    return "";
+  }
+}
+
+function browserRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function validationDesignDraft(
+  value: unknown,
+): CanonicalValidationDesignDraft | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const draft = value as Record<string, unknown>;
+  if (
+    typeof draft.holdoutSize !== "number" ||
+    !Number.isFinite(draft.holdoutSize) ||
+    typeof draft.randomSeed !== "number" ||
+    !Number.isFinite(draft.randomSeed) ||
+    typeof draft.foldMethod !== "string" ||
+    !draft.foldMethod.trim() ||
+    typeof draft.balanceMethod !== "string" ||
+    !draft.balanceMethod.trim() ||
+    typeof draft.minorityShare !== "number" ||
+    !Number.isFinite(draft.minorityShare)
+  ) {
+    return null;
+  }
+  return draft as CanonicalValidationDesignDraft;
+}
+
+/**
+ * Loads predictive preparation preferences from one exact immutable dataset
+ * version namespace. Global, project-only, previous-version, and legacy keys
+ * are intentionally never consulted.
+ */
+export function loadCanonicalPreparationBrowserState(
+  identityInput: CanonicalDatasetIdentityInput,
+): CanonicalPreparationBrowserState {
+  const identity = requireCanonicalDatasetIdentity(
+    identityInput,
+    "Preparation governance browser state identity",
+  );
+  const outlierMethods = browserRecord(
+    readScopedJson(
+      OUTLIER_METHODS_STORAGE_PREFIX,
+      identity,
+      {},
+    ),
+  );
+  const rawRationales = browserRecord(
+    readScopedJson(
+      OUTLIER_RATIONALES_STORAGE_PREFIX,
+      identity,
+      {},
+    ),
+  );
+  const outlierRationales = Object.fromEntries(
+    Object.entries(rawRationales)
+      .map(([feature, rationale]) => [
+        feature,
+        typeof rationale === "string" ? rationale : "",
+      ])
+      .filter(([, rationale]) => Boolean(rationale)),
+  );
+  const missingPolicy = browserRecord(
+    readScopedJson(
+      MISSING_POLICY_STORAGE_PREFIX,
+      identity,
+      {},
+    ),
+  );
+  const validationDraftValue = readScopedJson<unknown>(
+    VALIDATION_DESIGN_DRAFT_STORAGE_PREFIX,
+    identity,
+    null,
+  );
+  const validationDraft = validationDesignDraft(validationDraftValue);
+  const trainingConfig = browserRecord(
+    readScopedJson(
+      TRAINING_CONFIG_STORAGE_PREFIX,
+      identity,
+      {},
+    ),
+  );
+  const balanceMethod =
+    typeof validationDraft?.balanceMethod === "string" &&
+    validationDraft.balanceMethod.trim()
+      ? validationDraft.balanceMethod.trim()
+      : "Not documented";
+  const balanceRatio =
+    typeof validationDraft?.minorityShare === "number" &&
+    Number.isFinite(validationDraft.minorityShare)
+      ? String(validationDraft.minorityShare)
+      : "";
+  const kFolds =
+    validationDraft?.foldMethod &&
+    validationDraft.foldMethod !== "none" &&
+    typeof validationDraft.foldCount === "number" &&
+    Number.isFinite(validationDraft.foldCount)
+      ? String(validationDraft.foldCount)
+      : "";
+
+  return {
+    identity,
+    outlierMethods,
+    outlierGlobalMethod:
+      readScopedText(OUTLIER_GLOBAL_METHOD_STORAGE_PREFIX, identity) ||
+      "Not documented",
+    outlierRationales,
+    missingPolicy,
+    validationDraft,
+    trainingConfig,
+    splitStrategy: validationDraft ? "hybrid" : "Not documented",
+    balanceMethod,
+    balanceRatio,
+    kFolds,
+  };
+}
 
 export type PreparationStage =
   | "outliers"
@@ -32,6 +238,9 @@ export type PreparationDocumentationStatus =
 export type PreparationDocumentationState = {
   ok: boolean;
   project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
+  /** Compatibility alias; it must mirror dataset_version_id. */
   dataset_version: string;
   target: string | null;
   predictor_manifest_id: string | null;
@@ -157,18 +366,24 @@ function strings(value: unknown): string[] {
     .filter(Boolean);
 }
 
-function decisionStorageKey(projectId: string, stage: PreparationStage) {
-  return `atlas:preparation-carry-forward:${projectId}:${stage}`;
+function decisionStorageKey(
+  identity: CanonicalDatasetIdentity,
+  stage: PreparationStage,
+) {
+  return canonicalDatasetStorageKey(
+    `atlas:preparation-carry-forward:${stage}`,
+    identity,
+  );
 }
 
 export function loadCarryForwardDispositions(
-  projectId: string,
+  identity: CanonicalDatasetIdentity,
   stage: PreparationStage,
 ) {
   if (typeof localStorage === "undefined") return {} as Record<string, CarryForwardDisposition>;
   try {
     const parsed = JSON.parse(
-      localStorage.getItem(decisionStorageKey(projectId, stage)) || "{}",
+      localStorage.getItem(decisionStorageKey(identity, stage)) || "{}",
     );
     return asRecord(parsed) as Record<string, CarryForwardDisposition>;
   } catch {
@@ -177,15 +392,15 @@ export function loadCarryForwardDispositions(
 }
 
 export function saveCarryForwardDisposition(
-  projectId: string,
+  identity: CanonicalDatasetIdentity,
   stage: PreparationStage,
   findingId: string,
   disposition: CarryForwardDisposition,
 ) {
   if (typeof localStorage === "undefined") return;
-  const current = loadCarryForwardDispositions(projectId, stage);
+  const current = loadCarryForwardDispositions(identity, stage);
   localStorage.setItem(
-    decisionStorageKey(projectId, stage),
+    decisionStorageKey(identity, stage),
     JSON.stringify({ ...current, [findingId]: disposition }),
   );
 }
@@ -201,13 +416,17 @@ function destinationMatches(stage: PreparationStage, destination: string) {
 }
 
 export async function getEdaCarryForward(
-  projectId: string,
+  identity: CanonicalDatasetIdentity,
   stage: PreparationStage,
   signal?: AbortSignal,
 ): Promise<EdaCarryForwardContext> {
   let state: EdaDocumentationState;
   try {
-    state = await getEdaDocumentationState(projectId, signal);
+    state = await getEdaDocumentationState(
+      identity.project_id,
+      identity,
+      signal,
+    );
   } catch {
     return EMPTY_EDA_CONTEXT;
   }
@@ -218,13 +437,31 @@ export async function getEdaCarryForward(
       documentationStatus: state.status,
     };
   }
+  try {
+    assertExactDatasetIdentity(
+      identity,
+      {
+        project_id: record.project_id,
+        dataset_id: record.dataset_id,
+        dataset_version_id: (record as Record<string, unknown>)
+          .dataset_version_id,
+        dataset_version: record.dataset_version,
+      },
+      "EDA carry-forward documentation",
+    );
+  } catch {
+    return {
+      ...EMPTY_EDA_CONTEXT,
+      documentationStatus: "stale",
+    };
+  }
   const findings = asRecord(record.sections?.findings);
   const predictors = asRecord(record.sections?.predictors);
   const relationships = asRecord(record.sections?.relationships);
   const carryForward = Array.isArray(findings.carry_forward)
     ? findings.carry_forward
     : [];
-  const dispositions = loadCarryForwardDispositions(projectId, stage);
+  const dispositions = loadCarryForwardDispositions(identity, stage);
   const items = carryForward
     .map((raw) => asRecord(raw))
     .map((row, index) => {
@@ -287,11 +524,16 @@ export async function getEdaCarryForward(
 }
 
 export async function getPreparationDocumentation(
-  projectId: string,
+  identity: CanonicalDatasetIdentity,
   signal?: AbortSignal,
 ) {
+  const query = new URLSearchParams({
+    project_id: identity.project_id,
+    expected_dataset_id: identity.dataset_id,
+    expected_dataset_version_id: identity.dataset_version_id,
+  });
   const response = await fetch(
-    `${DATASET_API_BASE}/preparation/documentation?project_id=${encodeURIComponent(projectId)}`,
+    `${DATASET_API_BASE}/preparation/documentation?${query.toString()}`,
     { credentials: "include", signal },
   );
   const payload = await response.json().catch(() => null);
@@ -301,7 +543,13 @@ export async function getPreparationDocumentation(
         `ATLAS preparation documentation request failed with HTTP ${response.status}.`,
     );
   }
-  return payload as PreparationDocumentationState;
+  const state = payload as PreparationDocumentationState;
+  assertExactDatasetIdentity(
+    identity,
+    state,
+    "Preparation documentation response",
+  );
+  return state;
 }
 
 export function preparationStatusLabel(status: PreparationDocumentationStatus) {

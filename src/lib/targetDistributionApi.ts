@@ -5,6 +5,7 @@
 // module calls a purpose-built endpoint that runs a single DuckDB GROUP BY over
 // the governed artifact and returns bounded aggregate rows only.
 import type { ClassDistributionRow } from "./dataAcquisitionLifecycle";
+import { assertExactDatasetIdentity } from "./datasetIdentity";
 
 const API_BASE =
   (import.meta.env?.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
@@ -24,6 +25,7 @@ export type TargetDistributionResult = {
   supported: boolean;
   resolution: TargetDistributionResolution;
   reason?: string;
+  projectId: string;
   datasetId: string;
   versionId: string;
   target: string;
@@ -137,6 +139,19 @@ export async function fetchTargetDistribution(
       throw new Error(payload?.detail ?? "The target distribution could not be calculated.");
     }
     const result = payload as TargetDistributionResult;
+    assertExactDatasetIdentity(
+      {
+        project_id: request.projectId,
+        dataset_id: request.datasetId,
+        dataset_version_id: request.versionId,
+      },
+      {
+        project_id: result.projectId,
+        dataset_id: result.datasetId,
+        dataset_version_id: result.versionId,
+      },
+      "Target-distribution response",
+    );
     resultCache.set(key, result);
     return result;
   })();

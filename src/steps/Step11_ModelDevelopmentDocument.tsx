@@ -9,6 +9,7 @@ import {
 } from "../lib/modelDevelopmentDocument";
 import { loadExperiments } from "../lib/experimentTracking";
 import { loadLocalDataset } from "../lib/localDataset";
+import { requireLocalDatasetCanonicalIdentity } from "../lib/datasetIdentity";
 import { upsertProjectFromState } from "../lib/localProjects";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
@@ -17,9 +18,24 @@ export default function Step11ModelDevelopmentDocument() {
   const navigate = useNavigate();
   const markComplete = useWorkflowStore((state) => state.markComplete);
   const projectName = useWorkflowStore((state) => state.projectName);
+  const projectId = useWorkflowStore((state) => state.projectId);
   const workflowSteps = useWorkflowStore((state) => state.workflowSteps);
   const dataset = useMemo(() => loadLocalDataset(), []);
-  const champion = useMemo(() => loadExperiments().find((experiment) => experiment.champion) ?? null, []);
+  const champion = useMemo(() => {
+    try {
+      const identity = requireLocalDatasetCanonicalIdentity(
+        projectId,
+        dataset,
+        "Documentation Review dataset identity",
+      );
+      return (
+        loadExperiments(identity).find((experiment) => experiment.champion) ??
+        null
+      );
+    } catch {
+      return null;
+    }
+  }, [dataset, projectId]);
   const documentOptions = useMemo<ModelDevelopmentDocumentOptions>(
     () => ({ includeFullDecisionJournalAppendix: false }),
     []

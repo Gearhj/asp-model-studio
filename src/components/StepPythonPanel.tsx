@@ -15,6 +15,7 @@ import {
 import { logDecision } from "../lib/decisionJournal";
 import { loadDataAccessMetadata } from "../lib/enterpriseDataAccess";
 import { loadLocalDataset } from "../lib/localDataset";
+import { requireLocalDatasetCanonicalIdentity } from "../lib/datasetIdentity";
 import {
   acknowledgeCodeDraftContext,
   buildCurrentCodeContext,
@@ -61,7 +62,11 @@ function combinedGeneratedCode(sections: NotebookSection[]) {
   return sections.map((section) => `# ${section.title}\n${section.code}`).join("\n\n");
 }
 
-function generatedPythonForRoute(route: string, sections: NotebookSection[]) {
+function generatedPythonForRoute(
+  route: string,
+  sections: NotebookSection[],
+  projectId: string,
+) {
   if (route !== "/step01") return combinedGeneratedCode(sections);
 
   const metadata = loadDataAccessMetadata();
@@ -76,12 +81,24 @@ function generatedPythonForRoute(route: string, sections: NotebookSection[]) {
   // generated code therefore carries no dataset path at all -- the previous
   // placeholder export path could never resolve and would fail once execution
   // was enabled.
-  if (dataset?.dataset_library) {
+  let canonicalIdentity:
+    | ReturnType<typeof requireLocalDatasetCanonicalIdentity>
+    | null = null;
+  try {
+    canonicalIdentity = requireLocalDatasetCanonicalIdentity(
+      projectId,
+      dataset,
+      "Generated code dataset identity",
+    );
+  } catch {
+    canonicalIdentity = null;
+  }
+  if (dataset?.dataset_library && canonicalIdentity) {
     const library = dataset.dataset_library;
     return `# ATLAS provides df from the authorized project dataset and version.
 # Runtime objects: df, TARGET, SELECTED_FEATURES, ATLAS_DATASET_PATH
-# Dataset: ${library.datasetName} (${library.datasetId})
-# Version: ${library.versionId}
+# Dataset: ${library.datasetName} (${canonicalIdentity.dataset_id})
+# Version: ${canonicalIdentity.dataset_version_id}
 
 print("Dataset shape:", df.shape)
 print("Target:", TARGET or "Not selected")
@@ -218,7 +235,11 @@ export default function StepPythonPanel() {
   const [pythonCapability, setPythonCapability] = useState<PythonCapability | null>(null);
 
   const sectionKey = sections[0]?.sectionKey ?? "";
-  const generatedPython = generatedPythonForRoute(location.pathname, sections);
+  const generatedPython = generatedPythonForRoute(
+    location.pathname,
+    sections,
+    projectId,
+  );
   const generatedSas =
     sasMode === "compatible" ? generatedSasCompatibleProgram(location.pathname) : generatedSasForRoute(location.pathname);
   const pageTitle = sections.map((section) => section.title).join(" / ");
@@ -226,7 +247,17 @@ export default function StepPythonPanel() {
     () => loadLocalDataset(),
     [datasetContextRevision, projectId],
   );
-  const activeLibrary = activeDataset?.dataset_library;
+  const activeDatasetIdentity = useMemo(() => {
+    try {
+      return requireLocalDatasetCanonicalIdentity(
+        projectId,
+        activeDataset,
+        "Code execution dataset identity",
+      );
+    } catch {
+      return null;
+    }
+  }, [activeDataset, projectId]);
   const pythonCodeContext = buildCurrentCodeContext({
     workflowPage: location.pathname,
     language: "python",
@@ -501,8 +532,8 @@ ${codeContextSummary(currentContext).map((line) => `- ${line}`).join("\n")}`,
   const context = {
     previewRows: activeDataset?.rows.slice(0, 500) ?? [],
     datasetName: sasDatasetName(),
-    datasetId: activeLibrary?.datasetId ?? "",
-    versionId: activeLibrary?.versionId ?? "",
+    datasetId: activeDatasetIdentity?.dataset_id ?? "",
+    versionId: activeDatasetIdentity?.dataset_version_id ?? "",
     target: activeDataset?.target ?? "",
     selectedFeatures: activeDataset?.selected_columns ?? [],
   };
@@ -558,7 +589,7 @@ ${codeContextSummary(currentContext).map((line) => `- ${line}`).join("\n")}`,
                 userCode: pythonDraft,
                 setUserCode: setPythonDraft,
                 note: pythonRunnable
-                  ? `Runtime objects available: df (authorized dataset version${activeLibrary?.versionId ? ` ${activeLibrary.versionId}` : ""}), TARGET (selected target column), SELECTED_FEATURES (approved predictor list).${contextMessages.python ? ` ${contextMessages.python}` : ""}`
+                  ? `Runtime objects available: df (authorized dataset version${activeDatasetIdentity?.dataset_version_id ? ` ${activeDatasetIdentity.dataset_version_id}` : ""}), TARGET (selected target column), SELECTED_FEATURES (approved predictor list).${contextMessages.python ? ` ${contextMessages.python}` : ""}`
                   : `${pythonCapability?.reason ?? "Checking whether the governed code sandbox is available for this ATLAS environment."}${contextMessages.python ? ` ${contextMessages.python}` : ""}`,
                 runLabel: "Run Python",
                 canRun: pythonRunnable && Boolean(pythonDraft.trim()) && pythonContextEvaluation.canUseAsCurrent,

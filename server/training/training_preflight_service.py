@@ -7,8 +7,14 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
+from fastapi import HTTPException
 
 from ..core.dataset_store import DATASTORE
+from ..datasets.dataset_identity import (
+    assert_expected_active_identity,
+    resolve_registered_version,
+)
+from ..security.security_store import active_user
 from .trainer import MODEL_CATALOG
 from .training_job_types import TrainingJobRequest
 
@@ -72,17 +78,112 @@ def _finite_issues(frame: pd.DataFrame) -> tuple[list[str], list[str], list[str]
     return all_missing, infinite, high_cardinality
 
 
+def _identity_error(
+    record: dict[str, Any],
+    identity: dict[str, Any],
+    label: str,
+) -> str:
+    if not record:
+        return (
+            f"The {label} is missing. Recreate it for the exact active "
+            "Dataset Library version."
+        )
+    expected = {
+        "project_id": str(identity["project_id"]),
+        "dataset_id": str(identity["dataset_id"]),
+        "dataset_version_id": str(identity["dataset_version_id"]),
+    }
+    missing = [
+        key
+        for key in expected
+        if not str(record.get(key) or "").strip()
+    ]
+    mismatched = [
+        key
+        for key, value in expected.items()
+        if str(record.get(key) or "").strip()
+        and str(record.get(key)) != value
+    ]
+    legacy = str(record.get("dataset_version") or "").strip()
+    if legacy and legacy != expected["dataset_version_id"]:
+        mismatched.append("dataset_version")
+    if not missing and not mismatched:
+        return ""
+    return (
+        f"The {label} is not bound to the exact active Dataset Library "
+        "version. Recreate it before training."
+    )
+
+
+def _external_reference_error(reference: Any, role: str) -> str:
+    """Require a persisted TEST/OOT pin to remain exact, readable, and allowed."""
+    if reference in (None, {}):
+        return ""
+    if not isinstance(reference, dict):
+        return f"The pinned {role} dataset reference is malformed."
+    dataset_id = str(reference.get("dataset_id") or "").strip()
+    dataset_version_id = str(reference.get("dataset_version_id") or "").strip()
+    if not dataset_id or not dataset_version_id:
+        return (
+            f"The pinned {role} dataset reference does not contain an exact "
+            "dataset_id and dataset_version_id."
+        )
+    for alias in ("version_id", "dataset_version"):
+        compatibility_value = str(reference.get(alias) or "").strip()
+        if compatibility_value and compatibility_value != dataset_version_id:
+            return (
+                f"The pinned {role} dataset reference contains conflicting "
+                "version identifiers."
+            )
+    authenticated_user = active_user()
+    if not authenticated_user:
+        return (
+            f"The pinned {role} dataset version cannot be revalidated because "
+            "the authenticated user context is unavailable."
+        )
+    try:
+        resolved = resolve_registered_version(
+            dataset_id,
+            dataset_version_id,
+            user=authenticated_user,
+        )
+    except HTTPException as exc:
+        return (
+            f"The pinned {role} dataset version is stale, unavailable, or no "
+            f"longer authorized: {exc.detail}"
+        )
+    if (
+        str(resolved.get("dataset_id") or "") != dataset_id
+        or str(resolved.get("dataset_version_id") or "") != dataset_version_id
+    ):
+        return f"The pinned {role} dataset version no longer resolves exactly."
+    return ""
+
+
 def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
     started = time.perf_counter()
     blocking: list[str] = []
     warnings: list[str] = []
+    identity: dict[str, Any] = {}
+    try:
+        identity = assert_expected_active_identity(
+            request.project_id,
+            expected_dataset_id=request.dataset_id,
+            expected_dataset_version_id=request.dataset_version_id,
+            legacy_dataset_version=request.dataset_version,
+            require_expected=True,
+        )
+    except HTTPException as exc:
+        blocking.append(str(exc.detail))
+
     X_train, X_test, y_train, y_test = DATASTORE.get_splits()
     split_record = DATASTORE.meta.get("split_record") if isinstance(DATASTORE.meta.get("split_record"), dict) else {}
     manifest = DATASTORE.meta.get("feature_manifest") if isinstance(DATASTORE.meta.get("feature_manifest"), dict) else {}
     split_status = str(DATASTORE.meta.get("split_status") or "not_created")
-    dataset_version = str(DATASTORE.meta.get("dataset_version") or manifest.get("dataset_version") or "in-memory")
-    source = DATASTORE.meta.get("source") if isinstance(DATASTORE.meta.get("source"), dict) else {}
-    dataset_id = str(source.get("datasetId") or source.get("dataset_id") or DATASTORE.meta.get("dataset_id") or request.dataset_id or "")
+    dataset_id = str(identity.get("dataset_id") or "")
+    dataset_version_id = str(identity.get("dataset_version_id") or "")
+    # Compatibility alias is always derived from the canonical version ID.
+    dataset_version = dataset_version_id
     manifest_version = str(
         manifest.get("manifest_hash") or manifest.get("manifest_version") or ""
     )
@@ -110,12 +211,89 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
     )
     target = str(DATASTORE.target or "")
 
+    external_reference_errors = [
+        error
+        for reference, role in (
+            (split_record.get("test_reference"), "TEST"),
+            (split_record.get("oot_reference"), "OOT"),
+        )
+        if (
+            error := _external_reference_error(
+                reference,
+                role,
+            )
+        )
+    ]
+    if external_reference_errors:
+        split_status = "stale"
+        blocking.extend(
+            error + " Return to Balance & Split and rebuild Validation Design."
+            for error in external_reference_errors
+        )
+
     if split_status != "current" or any(part is None for part in (X_train, X_test, y_train, y_test)):
         blocking.append("A current governed validation split is required. Return to Balance & Split and create the split explicitly.")
-    if request.dataset_version and request.dataset_version != dataset_version:
-        blocking.append(f"Dataset version mismatch: request {request.dataset_version}, active {dataset_version}.")
-    if request.dataset_id and dataset_id and request.dataset_id != dataset_id:
-        blocking.append(f"Dataset ID mismatch: request {request.dataset_id}, active {dataset_id}.")
+    if identity:
+        for record, label in (
+            (manifest, "feature manifest"),
+            (split_record, "validation split"),
+            (validation_design, "Validation Design"),
+        ):
+            error = _identity_error(record, identity, label)
+            if error:
+                blocking.append(error)
+        development_dataset = (
+            validation_design.get("development_dataset")
+            if isinstance(
+                validation_design.get("development_dataset"), dict
+            )
+            else {}
+        )
+        development_version = str(
+            development_dataset.get("dataset_version_id")
+            or development_dataset.get("version_id")
+            or ""
+        )
+        if (
+            str(development_dataset.get("dataset_id") or "")
+            != str(identity["dataset_id"])
+            or development_version != str(identity["dataset_version_id"])
+        ):
+            blocking.append(
+                "The Validation Design development population is not pinned "
+                "to the exact active Dataset Library version."
+            )
+    if not manifest_version:
+        blocking.append(
+            "A versioned feature manifest is required before training."
+        )
+    if not split_id:
+        blocking.append(
+            "A versioned validation split is required before training."
+        )
+    if not validation_design_id or not validation_design_version:
+        blocking.append(
+            "An approved, versioned Validation Design is required before training."
+        )
+    split_manifest_version = str(
+        split_record.get("feature_manifest_version") or ""
+    )
+    if not split_manifest_version or split_manifest_version != manifest_version:
+        blocking.append(
+            "The validation split is not bound to the current feature manifest. "
+            "Return to Balance & Split."
+        )
+    design_manifest_version = str(
+        validation_design.get("feature_manifest_hash") or ""
+    )
+    if (
+        not design_manifest_version
+        or design_manifest_version != manifest_version
+    ):
+        blocking.append(
+            "The Validation Design is not bound to the current feature manifest. "
+            "Return to Balance & Split."
+        )
     if request.feature_manifest_version and request.feature_manifest_version != manifest_version:
         blocking.append("Feature manifest version mismatch. Refresh Model Training after saving Final Predictor Review.")
     if request.split_id and request.split_id != split_id:
@@ -350,7 +528,9 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         "ready": ready,
         "blocking_errors": list(dict.fromkeys(blocking)),
         "warnings": list(dict.fromkeys(warnings)),
+        "project_id": request.project_id,
         "dataset_id": dataset_id,
+        "dataset_version_id": dataset_version_id,
         "dataset_version": dataset_version,
         "target": target,
         "event_value": train_distribution.get("event_value", request.event_value),

@@ -2,13 +2,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, Iterable, List
 
-from .evidence_types import DOCUMENTATION_SECTIONS, EVIDENCE_IMPORTANCE, EVIDENCE_STATUSES, EVIDENCE_TYPES
+from .evidence_types import (
+    CANONICAL_DATASET_LINEAGE_CONTRACT,
+    DOCUMENTATION_SECTIONS,
+    EVIDENCE_IMPORTANCE,
+    EVIDENCE_STATUSES,
+    EVIDENCE_TYPES,
+)
 from .financial_services_taxonomy import (
     CREDIT_RISK_DOCUMENTATION_MAPPING,
     credit_risk_checklist,
@@ -16,7 +23,9 @@ from .financial_services_taxonomy import (
 )
 
 ARTIFACT_ROOT = Path(__file__).resolve().parents[1] / "artifacts"
-EVIDENCE_ROOT = ARTIFACT_ROOT / "evidence"
+EVIDENCE_ROOT = Path(
+    os.getenv("ATLAS_EVIDENCE_ROOT", str(ARTIFACT_ROOT / "evidence"))
+)
 ITEMS_ROOT = EVIDENCE_ROOT / "items"
 REGISTRY_PATH = EVIDENCE_ROOT / "evidence_registry.json"
 
@@ -60,10 +69,21 @@ def write_json(path: Path, payload: Any) -> None:
 
 
 def evidence_id_for(payload: Dict[str, Any]) -> str:
-    basis = "|".join(
-        str(payload.get(key, ""))
-        for key in ["projectId", "evidenceType", "sourcePage", "artifactType", "artifactId", "title"]
-    )
+    basis_fields = [
+        "projectId",
+        "evidenceType",
+        "sourcePage",
+        "artifactType",
+        "artifactId",
+        "title",
+    ]
+    dataset_version_id = str(payload.get("dataset_version_id") or "").strip()
+    basis_values = [str(payload.get(key, "")) for key in basis_fields]
+    if dataset_version_id:
+        # Preserve legacy generated IDs for non-versioned evidence while making
+        # every canonical Dataset Library version a distinct immutable item.
+        basis_values.append(dataset_version_id)
+    basis = "|".join(basis_values)
     digest = hashlib.sha256(basis.encode("utf-8")).hexdigest()[:16]
     slug = re.sub(r"[^a-z0-9]+", "-", str(payload.get("title") or payload.get("evidenceType") or "evidence").lower()).strip("-")[:42]
     return f"ev-{slug or 'item'}-{digest}"
@@ -72,6 +92,10 @@ def evidence_id_for(payload: Dict[str, Any]) -> str:
 def compact_item(item: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "evidenceId": item["evidenceId"],
+        "lineage_contract": item.get("lineage_contract", ""),
+        "project_id": item.get("project_id", ""),
+        "dataset_id": item.get("dataset_id", ""),
+        "dataset_version_id": item.get("dataset_version_id", ""),
         "projectId": item.get("projectId", ""),
         "projectName": item.get("projectName", ""),
         "evidenceType": item.get("evidenceType", "documentation"),
@@ -182,6 +206,8 @@ def list_evidence(filters: Dict[str, str | None]) -> List[Dict[str, Any]]:
     for key in [
         "projectId",
         "datasetId",
+        "datasetVersionId",
+        "dataset_version_id",
         "evidenceType",
         "sourcePage",
         "status",
@@ -198,6 +224,12 @@ def list_evidence(filters: Dict[str, str | None]) -> List[Dict[str, Any]]:
             continue
         if key == "datasetId":
             rows = [row for row in rows if value in row.get("datasetIds", [])]
+        elif key in {"datasetVersionId", "dataset_version_id"}:
+            rows = [
+                row
+                for row in rows
+                if str(row.get("dataset_version_id") or "") == value
+            ]
         elif key == "tag":
             rows = [row for row in rows if value in row.get("tags", [])]
         elif key == "productType":
@@ -230,8 +262,16 @@ def quality_score(item: Dict[str, Any]) -> int:
     return round(sum(1 for check in checks if check) / len(checks) * 100)
 
 
-def graph(project_id: str | None = None) -> Dict[str, Any]:
-    rows = list_evidence({"projectId": project_id} if project_id else {})
+def graph(
+    project_id: str | None = None,
+    *,
+    evidence_rows: List[Dict[str, Any]] | None = None,
+) -> Dict[str, Any]:
+    rows = (
+        evidence_rows
+        if evidence_rows is not None
+        else list_evidence({"projectId": project_id} if project_id else {})
+    )
     nodes: Dict[str, Dict[str, Any]] = {}
     edges: List[Dict[str, Any]] = []
     inferred_project_id = project_id or next((str(row.get("projectId") or "") for row in rows if row.get("projectId")), "")
@@ -359,8 +399,16 @@ def _graph_node_type(row: Dict[str, Any]) -> str:
     }.get(evidence_type, "Analytics Insight")
 
 
-def coverage(project_id: str) -> Dict[str, Any]:
-    rows = list_evidence({"projectId": project_id})
+def coverage(
+    project_id: str,
+    *,
+    evidence_rows: List[Dict[str, Any]] | None = None,
+) -> Dict[str, Any]:
+    rows = (
+        evidence_rows
+        if evidence_rows is not None
+        else list_evidence({"projectId": project_id})
+    )
     optimization_rows = [row for row in rows if str(row.get("evidenceType", "")).startswith("optimization_")]
     if optimization_rows:
         optimization_types = [
@@ -467,33 +515,85 @@ def coverage(project_id: str) -> Dict[str, Any]:
 
 
 def auto_capture(project_id: str | None = None, project_name: str | None = None) -> List[Dict[str, Any]]:
+    from ..datasets.dataset_registry import load_registry as load_dataset_registry
+
+    project_id = str(project_id or "").strip()
+    if not project_id:
+        return []
     captured: List[Dict[str, Any]] = []
-    for dataset in _iter_registry_records(ARTIFACT_ROOT / "datasets" / "registry.json"):
+    datasets = load_dataset_registry().get("datasets", [])
+    for dataset in datasets:
+        if not isinstance(dataset, dict):
+            continue
         dataset_id = str(dataset.get("datasetId") or dataset.get("id") or "")
         if not dataset_id:
             continue
         linked_projects = dataset.get("linkedProjects") if isinstance(dataset.get("linkedProjects"), list) else []
-        if project_id and linked_projects and not any(link.get("projectId") == project_id for link in linked_projects):
-            continue
-        captured.append(
-            upsert_evidence(
-                {
-                    "projectId": project_id or _first_linked_project(linked_projects),
-                    "projectName": project_name or "",
-                    "evidenceType": "dataset",
-                    "title": f"Dataset: {dataset.get('name') or dataset_id}",
-                    "summary": dataset.get("description") or "Governed dataset registered in the ATLAS Dataset Library.",
-                    "sourcePage": "Dataset Library",
-                    "sourceRoute": f"/datasets/{dataset_id}",
-                    "artifactType": "dataset",
-                    "artifactId": dataset_id,
-                    "datasetIds": [dataset_id],
-                    "tags": [tag for tag in ["model_risk", str(dataset.get("domain", "")).lower()] if tag],
-                    "lineage": {"registry": "datasets/registry.json"},
-                    "governance": {"retention": "Reference only; raw dataset is not duplicated in Evidence Graph."},
-                }
-            )
+        version_ids = {
+            str(version.get("versionId") or "").strip()
+            for version in (dataset.get("versions") or [])
+            if isinstance(version, dict)
+            and str(version.get("versionId") or "").strip()
+        }
+        linked_version_ids = sorted(
+            {
+                str(link.get("versionId") or "").strip()
+                for link in linked_projects
+                if isinstance(link, dict)
+                and str(link.get("projectId") or "").strip() == project_id
+                and str(link.get("versionId") or "").strip() in version_ids
+            }
         )
+        for dataset_version_id in linked_version_ids:
+            captured.append(
+                upsert_evidence(
+                    {
+                        "lineage_contract": CANONICAL_DATASET_LINEAGE_CONTRACT,
+                        "project_id": project_id,
+                        "dataset_id": dataset_id,
+                        "dataset_version_id": dataset_version_id,
+                        "projectId": project_id,
+                        "projectName": project_name or "",
+                        "evidenceType": "dataset",
+                        "title": f"Dataset: {dataset.get('name') or dataset_id}",
+                        "summary": dataset.get("description")
+                        or "Governed dataset registered in the ATLAS Dataset Library.",
+                        "sourcePage": "Dataset Library",
+                        "sourceRoute": (
+                            f"/datasets/{dataset_id}/versions/{dataset_version_id}"
+                        ),
+                        "artifactType": "dataset",
+                        "artifactId": dataset_id,
+                        "datasetIds": [dataset_id],
+                        "tags": [
+                            tag
+                            for tag in [
+                                "model_risk",
+                                str(dataset.get("domain", "")).lower(),
+                            ]
+                            if tag
+                        ],
+                        "lineage": {
+                            "registry": "datasets/registry.json",
+                            "lineage_contract": (
+                                CANONICAL_DATASET_LINEAGE_CONTRACT
+                            ),
+                            "project_id": project_id,
+                            "dataset_id": dataset_id,
+                            "dataset_version_id": dataset_version_id,
+                            "projectId": project_id,
+                            "datasetId": dataset_id,
+                            "datasetVersion": dataset_version_id,
+                        },
+                        "governance": {
+                            "retention": (
+                                "Reference only; raw dataset is not duplicated "
+                                "in Evidence Graph."
+                            )
+                        },
+                    }
+                )
+            )
     return captured
 
 
@@ -511,16 +611,18 @@ def _iter_registry_records(path: Path) -> Iterable[Dict[str, Any]]:
                 yield value
 
 
-def _first_linked_project(links: Any) -> str:
-    if isinstance(links, list) and links and isinstance(links[0], dict):
-        return str(links[0].get("projectId") or "")
-    return ""
-
-
-def export_excel(project_id: str | None = None) -> bytes:
+def export_excel(
+    project_id: str | None = None,
+    *,
+    evidence_rows: List[Dict[str, Any]] | None = None,
+) -> bytes:
     from openpyxl import Workbook
 
-    rows = list_evidence({"projectId": project_id} if project_id else {})
+    rows = (
+        evidence_rows
+        if evidence_rows is not None
+        else list_evidence({"projectId": project_id} if project_id else {})
+    )
     workbook = Workbook()
     sheet = workbook.active
     sheet.title = "Evidence Registry"

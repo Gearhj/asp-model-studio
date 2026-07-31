@@ -150,6 +150,13 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
         frame = _frame()
         DATASTORE.set_raw(frame)
         DATASTORE.set_target(TARGET)
+        DATASTORE.meta.update(
+            {
+                "project_id": PROJECT_ID,
+                "dataset_id": "ds-eda-phase1-synthetic",
+                "dataset_version_id": "eda-phase1-synthetic-v1",
+            }
+        )
 
         # Deliberately unsafe legacy/crafted state. Production must sanitize it
         # against the authoritative manifest and server-derived target lineage.
@@ -191,12 +198,22 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
                 for feature in sorted(TARGET_SOURCES)
             ],
         }
+        self.identity_patch = patch(
+            "server.eda.workspace_service.assert_expected_active_identity",
+            return_value={
+                "project_id": PROJECT_ID,
+                "dataset_id": "ds-eda-phase1-synthetic",
+                "dataset_version_id": "eda-phase1-synthetic-v1",
+            },
+        )
+        self.identity_patch.start()
         eda_workspace_service._cache.clear()
         for attribute in ("_fingerprint_key", "_fingerprint_value"):
             if hasattr(eda_workspace_service, attribute):
                 delattr(eda_workspace_service, attribute)
 
     def tearDown(self) -> None:
+        self.identity_patch.stop()
         eda_workspace_service._cache.clear()
         DATASTORE.reset_all()
 

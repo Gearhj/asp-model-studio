@@ -381,7 +381,14 @@ async def create_dataset_from_upload(
     registry["datasets"] = [item for item in registry.get("datasets", []) if item.get("datasetId") != dataset_id] + [dataset]
     save_registry(registry)
     audit_event("dataset.created", "dataset", dataset_id, "success", metadata={"name": dataset_name, "versionId": version_id})
-    return summarize_dataset(dataset)
+    summary = summarize_dataset(dataset)
+    # Creation APIs return the exact version created by this operation. This
+    # field is intentionally distinct from the descriptive `latestVersion`
+    # projection, which must never drive activation.
+    summary["created_dataset_version_id"] = version_id
+    summary["createdDatasetVersionId"] = version_id
+    summary["created_version"] = version_summary
+    return summary
 
 
 def create_dataset_from_dataframe(
@@ -474,7 +481,14 @@ def create_dataset_from_dataframe(
         "success",
         metadata={"name": dataset_name, "versionId": version_id, "rowCount": int(normalized.shape[0])},
     )
-    return summarize_dataset(dataset)
+    summary = summarize_dataset(dataset)
+    # Creation APIs return the exact version created by this operation. This
+    # field is intentionally distinct from the descriptive `latestVersion`
+    # projection, which must never drive activation.
+    summary["created_dataset_version_id"] = version_id
+    summary["createdDatasetVersionId"] = version_id
+    summary["created_version"] = version_summary
+    return summary
 
 
 async def add_dataset_version(dataset_id: str, file: UploadFile) -> Dict[str, Any]:
@@ -654,11 +668,34 @@ def archive_dataset(dataset_id: str) -> Dict[str, Any]:
     return summarize_dataset(updated or require_dataset(dataset_id))
 
 
-def link_project(project_id: str, dataset_id: str, version_id: Optional[str], role: str = "modeling") -> Dict[str, Any]:
+def link_project(project_id: str, dataset_id: str, version_id: str, role: str = "modeling") -> Dict[str, Any]:
     dataset = require_dataset(dataset_id)
-    resolved_version = version_id or latest_version_id(dataset)
+    resolved_version = str(version_id or "").strip()
     if not resolved_version:
-        raise HTTPException(status_code=400, detail="Dataset has no version to link.")
+        raise HTTPException(
+            status_code=422,
+            detail="An exact Dataset Library versionId is required; ATLAS will not select the latest version automatically.",
+        )
+    if not any(
+        str(version.get("versionId") or "") == resolved_version
+        for version in (dataset.get("versions") or [])
+        if isinstance(version, dict)
+    ):
+        other_dataset_owns_version = any(
+            str(version.get("versionId") or "") == resolved_version
+            for item in load_registry().get("datasets", [])
+            if isinstance(item, dict) and item.get("datasetId") != dataset_id
+            for version in (item.get("versions") or [])
+            if isinstance(version, dict)
+        )
+        raise HTTPException(
+            status_code=409 if other_dataset_owns_version else 404,
+            detail=(
+                "The requested version belongs to another dataset."
+                if other_dataset_owns_version
+                else "Dataset version not found."
+            ),
+        )
     link = {
         "projectId": project_id,
         "datasetId": dataset_id,
@@ -800,7 +837,11 @@ def register_workspace_dataset(
         source_info=source_info,
         dataset_role="development",
     )
-    version_id = (dataset.get("latestVersion") or {}).get("versionId")
+    version_id = str(
+        dataset.get("created_dataset_version_id")
+        or dataset.get("createdDatasetVersionId")
+        or ""
+    )
     if version_id:
         link_project(project_id, dataset["datasetId"], version_id, "development")
     return dataset

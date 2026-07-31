@@ -3,12 +3,15 @@ import { loadExperiments, type ExperimentRecord, type ExperimentMetricSet } from
 import { loadLocalDataset } from "./localDataset";
 import { loadProjectContext, summarizeRegulatoryContext } from "./projectContext";
 import { getProblemType, type AtlasProblemType } from "./problemType";
-import { loadDataAccessMetadata } from "./enterpriseDataAccess";
 import { BRAND } from "../config/brand";
 import { getWorkflowDefinition } from "../config/workflows";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { loadWorkflowNodeEvidence, summarizeWorkflowNodeEvidence } from "./workflowNodeEvidence";
 import { buildExperimentalDesignAnalysis, type ExperimentalDesignNodeState } from "./experimentalDesign";
+import {
+  requireLocalDatasetCanonicalIdentity,
+} from "./datasetIdentity";
+import { loadCanonicalPreparationBrowserState } from "./preparationGovernance";
 import {
   atlasReportStyles,
   decisionJournalTimelineHtml,
@@ -34,17 +37,6 @@ export type GovernanceReport = {
   wordHtml: string;
 };
 
-function readJson<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw);
-    return parsed ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
 function safe(value: unknown, fallback = "Not documented") {
   if (value === null || value === undefined || value === "") return fallback;
   return String(value);
@@ -66,7 +58,7 @@ function formatObject(value: unknown, fallback = "None documented") {
 }
 
 function selectChampion(experiments: ExperimentRecord[]) {
-  return experiments.find((experiment) => experiment.champion) ?? experiments[0] ?? null;
+  return experiments.find((experiment) => experiment.champion) ?? null;
 }
 
 function isRegressionExperiment(experiment: ExperimentRecord) {
@@ -78,6 +70,17 @@ function filterExperimentsForProblem(experiments: ExperimentRecord[], problemTyp
   return String(problemType).toLowerCase() === "regression"
     ? experiments.filter(isRegressionExperiment)
     : experiments.filter((experiment) => !isRegressionExperiment(experiment));
+}
+
+function resolveGovernanceDatasetIdentity(
+  projectId: string,
+  dataset: ReturnType<typeof loadLocalDataset>,
+) {
+  return requireLocalDatasetCanonicalIdentity(
+    projectId,
+    dataset,
+    "Governance report dataset identity",
+  );
 }
 
 function metricLines(metrics: ExperimentMetricSet | undefined, problemType: AtlasProblemType | string = "unknown") {
@@ -188,13 +191,15 @@ function formatDecisionAppendix(entries: DecisionJournalEntry[]) {
 function formatExperimentAppendix(experiments: ExperimentRecord[]) {
   if (!experiments.length) return "No experiment records captured.";
   return professionalTableHtml(
-    ["Experiment ID", "Timestamp", "Model", "Champion", "Dataset Version", "Features", "Balancing", "Split Strategy", "Notes"],
+    ["Experiment ID", "Timestamp", "Model", "Champion", "Project ID", "Dataset ID", "Dataset Version ID", "Features", "Balancing", "Split Strategy", "Notes"],
     experiments.slice(0, 50).map((experiment) => [
       experiment.experimentId,
       experiment.timestamp,
       experiment.modelType,
       experiment.champion ? "Yes" : "No",
-      experiment.datasetVersion,
+      experiment.project_id,
+      experiment.dataset_id,
+      experiment.dataset_version_id,
       experiment.selectedFeatures.length,
       experiment.balancingMethod,
       experiment.splitStrategy,
@@ -230,17 +235,28 @@ function compactFileName(value: string) {
 function buildSections(): GovernanceSection[] {
   const context = loadProjectContext();
   const dataset = loadLocalDataset();
+  const projectId = useWorkflowStore.getState().projectId;
+  const datasetIdentity = resolveGovernanceDatasetIdentity(projectId, dataset);
   const problemType = getProblemType(context, dataset);
-  const experiments = filterExperimentsForProblem(loadExperiments(), problemType);
+  const experiments = filterExperimentsForProblem(
+    loadExperiments(datasetIdentity),
+    problemType,
+  );
+  const preparation =
+    loadCanonicalPreparationBrowserState(datasetIdentity);
   const decisions = loadDecisionJournal();
   const champion = selectChampion(experiments);
-  const missingStrategies = readJson<Record<string, unknown>>("modeling-tool-missing-config", {});
-  const outlierMethods = readJson<Record<string, unknown>>("modeling-tool-outlier-methods", {});
-  const balanceMethod = localStorage.getItem("balanceMethod") ?? "Not documented";
-  const balanceRatio = localStorage.getItem("balanceRatio") ?? "";
-  const splitStrategy = localStorage.getItem("splitStrategy") ?? "Not documented";
-  const kFolds = localStorage.getItem("kFolds") ?? "";
-  const dataAccess = loadDataAccessMetadata() ?? dataset?.data_access ?? null;
+  const missingStrategies = preparation.missingPolicy;
+  const outlierMethods = {
+    "Global method": preparation.outlierGlobalMethod,
+    "Feature methods": preparation.outlierMethods,
+    "Override rationales": preparation.outlierRationales,
+  };
+  const balanceMethod = preparation.balanceMethod;
+  const balanceRatio = preparation.balanceRatio;
+  const splitStrategy = preparation.splitStrategy;
+  const kFolds = preparation.kFolds;
+  const dataAccess = dataset?.data_access ?? null;
   const dataQuality = dataset?.data_quality ?? null;
   const excludedFeatures = decisions
     .filter((entry) => entry.actionType === "feature_inclusion_changed" && /false|exclude|removed|no/i.test(entry.newValue))
@@ -288,16 +304,18 @@ function buildSections(): GovernanceSection[] {
         `Schema: ${safe(dataAccess?.schema)}`,
         `SQL query: ${safe(dataAccess?.sqlQuery)}`,
         `Import date: ${safe(dataAccess?.importedAt)}`,
-        `Dataset Library ID: ${safe(dataset?.dataset_library?.datasetId)}`,
-        `Dataset Library version: ${safe(dataset?.dataset_library?.versionId)}`,
+        `Project ID: ${safe(datasetIdentity?.project_id)}`,
+        `Dataset ID: ${safe(datasetIdentity?.dataset_id)}`,
+        `Dataset Library ID: ${safe(datasetIdentity?.dataset_id)}`,
+        `Dataset Library version: ${safe(datasetIdentity?.dataset_version_id)}`,
         `Dataset Library name: ${safe(dataset?.dataset_library?.datasetName)}`,
-        `Dataset version: ${safe(dataAccess?.version)}`,
+        `Access metadata ID: ${safe(dataAccess?.accessMetadataId)}`,
         `Dataset hash: ${safe(dataAccess?.hash)}`,
         `Sampling approach: ${safe(dataAccess?.samplingMethod)} ${safe(dataAccess?.samplingDetail, "")}`,
         `Rows currently available in browser sample: ${dataset?.rows.length ?? 0}`,
         `Columns: ${dataset?.headers.length ?? 0}`,
         `Selected features: ${dataset?.selected_columns?.length ?? 0}`,
-        `Dataset versions in current problem-type experiments: ${formatList([...new Set(experiments.map((experiment) => experiment.datasetVersion))])}`,
+        `Dataset versions in current problem-type experiments: ${formatList([...new Set(experiments.map((experiment) => experiment.dataset_version_id))])}`,
         "",
         "Lineage:",
         dataAccess?.lineage?.length ? dataAccess.lineage.map((item) => `- ${item}`).join("\n") : "Not documented",
@@ -343,7 +361,9 @@ function buildSections(): GovernanceSection[] {
         ? [
             `Model: ${champion.modelType}`,
             `Experiment ID: ${champion.experimentId}`,
-            `Dataset version: ${champion.datasetVersion}`,
+            `Project ID: ${champion.project_id}`,
+            `Dataset ID: ${champion.dataset_id}`,
+            `Dataset version: ${champion.dataset_version_id}`,
             `Calibration status: ${champion.calibrationStatus}`,
             `Interpretability score: ${champion.interpretability}`,
             `Hyperparameters:\n${formatObject(champion.hyperparameters, "{}")}`,

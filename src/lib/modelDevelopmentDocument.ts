@@ -8,10 +8,16 @@ import { loadProjectContext, summarizeRegulatoryContext } from "./projectContext
 import { getProblemType, type AtlasProblemType } from "./problemType";
 import { summarizeBureauHandling, treatmentLabels } from "./creditBureau";
 import { loadBureauReviewState } from "./bureauDetection";
-import { loadDataAccessMetadata } from "./enterpriseDataAccess";
 import { buildReportReadiness } from "./reportReadiness";
 import { BRAND } from "../config/brand";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import {
+  requireLocalDatasetCanonicalIdentity,
+} from "./datasetIdentity";
+import {
+  loadCanonicalPreparationBrowserState,
+  type CanonicalPreparationBrowserState,
+} from "./preparationGovernance";
 import {
   atlasReportStyles,
   decisionJournalTimelineHtml,
@@ -42,16 +48,6 @@ export type ModelDevelopmentDocumentMode = "executive" | "governance" | "technic
 export type ModelDevelopmentDocumentOptions = {
   includeFullDecisionJournalAppendix?: boolean;
 };
-
-function readJson<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    return (JSON.parse(raw) as T) ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
 
 function safe(value: unknown, fallback = "Not documented") {
   if (value === null || value === undefined || value === "") return fallback;
@@ -95,14 +91,6 @@ function currentProjectId() {
   }
 }
 
-function readText(key: string) {
-  try {
-    return localStorage.getItem(key) ?? "";
-  } catch {
-    return "";
-  }
-}
-
 function recordValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -117,17 +105,9 @@ function formatPolicyValue(value: unknown) {
     .join("; ");
 }
 
-function loadMissingTreatmentSummary(projectId: string) {
-  const fallback = readJson<Record<string, unknown>>(
-    "modeling-tool-missing-config",
-    {},
-  );
-  const stored = projectId
-    ? readJson<Record<string, unknown>>(
-        `modeling-tool-missing-config:${projectId}`,
-        fallback,
-      )
-    : fallback;
+function summarizeMissingTreatment(
+  stored: CanonicalPreparationBrowserState["missingPolicy"],
+) {
   const wrappedConfig = recordValue(stored.config);
   const config = wrappedConfig ?? stored;
   const explicitOverrideNames = Array.isArray(stored.overrideFeatures)
@@ -144,7 +124,9 @@ function loadMissingTreatmentSummary(projectId: string) {
   const result: Record<string, unknown> = {
     "Global strategy": wrappedConfig
       ? safe(stored.globalStrategy, "None")
-      : "Legacy per-feature policy",
+      : Object.keys(stored).length
+        ? "Per-feature policy"
+        : "Not documented",
     "Inherited predictors": Math.max(
       0,
       Object.keys(config).length - overrideNames.length,
@@ -163,23 +145,11 @@ function loadMissingTreatmentSummary(projectId: string) {
   return result;
 }
 
-function loadOutlierTreatmentSummary(projectId: string) {
-  const fallback = readJson<Record<string, unknown>>(
-    "modeling-tool-outlier-methods",
-    {},
-  );
-  const methods = projectId
-    ? readJson<Record<string, unknown>>(
-        `modeling-tool-outlier-methods:${projectId}`,
-        fallback,
-      )
-    : fallback;
-  const globalMethod =
-    (projectId
-      ? readText(`modeling-tool-outlier-global-method:${projectId}`)
-      : "") ||
-    readText("modeling-tool-outlier-global-method") ||
-    "Not documented";
+function summarizeOutlierTreatment(
+  preparation: CanonicalPreparationBrowserState,
+) {
+  const methods = preparation.outlierMethods;
+  const globalMethod = preparation.outlierGlobalMethod;
   const overrides = Object.entries(methods).filter(
     ([, method]) => safe(method, "USE_GLOBAL") !== "USE_GLOBAL",
   );
@@ -193,6 +163,10 @@ function loadOutlierTreatmentSummary(projectId: string) {
   };
   for (const [feature, method] of overrides) {
     result[`Override - ${feature}`] = safe(method);
+    const rationale = preparation.outlierRationales[feature];
+    if (rationale) {
+      result[`Rationale - ${feature}`] = rationale;
+    }
   }
   return result;
 }
@@ -209,15 +183,19 @@ function filterExperimentsForProblem(experiments: ExperimentRecord[], problemTyp
   return experiments;
 }
 
-function filterExperimentsForCurrentDataset(experiments: ExperimentRecord[], dataset: ReturnType<typeof loadLocalDataset>) {
-  if (!dataset?.target || !dataset.rows?.length) return experiments;
-  const expectedPrefix = `${dataset.target}-${dataset.rows.length}-`;
-  const exact = experiments.filter((experiment) => experiment.datasetVersion?.startsWith(expectedPrefix));
-  return exact.length ? exact : experiments;
+function resolveDocumentDatasetIdentity(
+  projectId: string,
+  dataset: ReturnType<typeof loadLocalDataset>,
+) {
+  return requireLocalDatasetCanonicalIdentity(
+    projectId,
+    dataset,
+    "Model Development Document dataset identity",
+  );
 }
 
 function selectChampion(experiments: ExperimentRecord[]) {
-  return experiments.find((experiment) => experiment.champion) ?? experiments[0] ?? null;
+  return experiments.find((experiment) => experiment.champion) ?? null;
 }
 
 function metricLines(metrics: ExperimentMetricSet | undefined, problemType: AtlasProblemType | string = "unknown") {
@@ -390,13 +368,15 @@ function collapsedAuditAppendix(entries: DecisionJournalEntry[]) {
 function formatExperimentAppendix(experiments: ExperimentRecord[]) {
   if (!experiments.length) return "No experiment records have been captured.";
   return professionalTableHtml(
-    ["Experiment ID", "Timestamp", "Model", "Champion", "Dataset Version", "Features", "Preprocessing", "Metrics", "Notes"],
+    ["Experiment ID", "Timestamp", "Model", "Champion", "Project ID", "Dataset ID", "Dataset Version ID", "Features", "Preprocessing", "Metrics", "Notes"],
     experiments.slice(0, 80).map((experiment) => [
       experiment.experimentId,
       experiment.timestamp,
       experiment.modelType,
       experiment.champion ? "Yes" : "No",
-      experiment.datasetVersion,
+      experiment.project_id,
+      experiment.dataset_id,
+      experiment.dataset_version_id,
       experiment.selectedFeatures.length,
       [`Balancing: ${experiment.balancingMethod}`, `Split: ${experiment.splitStrategy}`].join("; "),
       metricLines(experiment.metrics, isRegressionExperiment(experiment) ? "regression" : "classification").replace(/\n/g, "; ").replace(/^- /g, ""),
@@ -435,13 +415,13 @@ function formatBureauHandling() {
   });
 
   const governedHandlingLabels: Record<string, string> = {
-    preserve_informative: "Preserve as numeric sentinel",
-    convert_to_missing: "Convert to missing",
-    convert_to_category: "Convert to labeled category",
-    documented_domain_mapping: "Map to governed replacement",
-    exclude_variable: "Exclude from modeling",
-    leave_unchanged: "Leave unchanged",
-    custom: "Review required / custom",
+    preserve_informative: "Leave value unchanged (governed special code)",
+    convert_to_missing: "Treat as missing for imputation",
+    convert_to_category: "Create special-value indicator (dummy variable)",
+    documented_domain_mapping: "Impute with a valid governed value",
+    exclude_variable: "Exclude feature from modeling",
+    leave_unchanged: "Leave value unchanged",
+    custom: "Custom treatment (requires rationale)",
   };
   const governedRows = [
     ...governedReview.variableDefaults.map((decision) => [
@@ -513,24 +493,29 @@ function buildSections(
 ): ModelDevelopmentDocumentSection[] {
   const context = loadProjectContext();
   const dataset = loadLocalDataset();
+  const projectId = currentProjectId();
+  const datasetIdentity = resolveDocumentDatasetIdentity(projectId, dataset);
   const problemType = getProblemType(context, dataset);
-  const experiments = filterExperimentsForCurrentDataset(
-    filterExperimentsForProblem(loadExperiments(), String(problemType)),
-    dataset
+  const experiments = filterExperimentsForProblem(
+    loadExperiments(datasetIdentity),
+    String(problemType),
   );
+  const preparation =
+    loadCanonicalPreparationBrowserState(datasetIdentity);
   const decisions = loadDecisionJournal();
   const champion = selectChampion(experiments);
   const materialDecisions = summarizeMaterialReportDecisions(decisions);
   const readiness = buildReportReadiness({ problemType: String(problemType), experiments, champion, decisions, dataset, context });
   const governance = buildGovernanceReport();
-  const projectId = currentProjectId();
-  const missingStrategies = loadMissingTreatmentSummary(projectId);
-  const outlierMethods = loadOutlierTreatmentSummary(projectId);
-  const balanceMethod = localStorage.getItem("balanceMethod") ?? "Not documented";
-  const splitStrategy = localStorage.getItem("splitStrategy") ?? "Not documented";
-  const balanceRatio = localStorage.getItem("balanceRatio") ?? "";
+  const missingStrategies = summarizeMissingTreatment(
+    preparation.missingPolicy,
+  );
+  const outlierMethods = summarizeOutlierTreatment(preparation);
+  const balanceMethod = preparation.balanceMethod;
+  const splitStrategy = preparation.splitStrategy;
+  const balanceRatio = preparation.balanceRatio;
   const selectedFeatures = dataset?.selected_columns ?? [];
-  const dataAccess = loadDataAccessMetadata() ?? dataset?.data_access ?? null;
+  const dataAccess = dataset?.data_access ?? null;
   const dataQuality = dataset?.data_quality ?? null;
 
   const sections: Omit<ModelDevelopmentDocumentSection, "number">[] = [
@@ -547,7 +532,8 @@ function buildSections(
         `Prepared for: Consumer Lending AI/ML model development`,
         `Document type: Model Development Document`,
         `Project ID: ${safe(projectId)}`,
-        `Dataset version: ${safe(champion?.datasetVersion ?? dataAccess?.version)}`,
+        `Dataset ID: ${safe(datasetIdentity?.dataset_id)}`,
+        `Dataset version: ${safe(datasetIdentity?.dataset_version_id)}`,
         `Final model ID: ${safe(champion?.modelKey)}`,
         `Final training run ID: ${safe(champion?.experimentId)}`,
         `Problem type: ${safe(problemType)}`,
@@ -563,7 +549,8 @@ function buildSections(
         `Selected features: ${selectedFeatures.length}`,
         `Champion model: ${safe(champion?.modelType, "No champion selected")}`,
         `Final training run ID: ${safe(champion?.experimentId)}`,
-        `Dataset version: ${safe(champion?.datasetVersion ?? dataAccess?.version)}`,
+        `Dataset ID: ${safe(datasetIdentity?.dataset_id)}`,
+        `Dataset version: ${safe(datasetIdentity?.dataset_version_id)}`,
         `Primary success metric: ${safe(context.primarySuccessMetric)}`,
         "",
         metricLines(champion?.metrics, problemType),
@@ -625,12 +612,13 @@ function buildSections(
         `Schema: ${safe(dataAccess?.schema)}`,
         `SQL query: ${safe(dataAccess?.sqlQuery)}`,
         `Import date: ${safe(dataAccess?.importedAt)}`,
-        `Dataset ID: ${safe(dataAccess?.datasetId)}`,
-        `Dataset Library ID: ${safe(dataset?.dataset_library?.datasetId)}`,
-        `Dataset Library version: ${safe(dataset?.dataset_library?.versionId)}`,
+        `Dataset ID: ${safe(datasetIdentity?.dataset_id)}`,
+        `Dataset Library ID: ${safe(datasetIdentity?.dataset_id)}`,
+        `Dataset Library version: ${safe(datasetIdentity?.dataset_version_id)}`,
         `Dataset Library name: ${safe(dataset?.dataset_library?.datasetName)}`,
         `Dataset Library role: ${safe(dataset?.dataset_library?.datasetRole)}`,
-        `Dataset version: ${safe(dataAccess?.version)}`,
+        `Dataset version: ${safe(datasetIdentity?.dataset_version_id)}`,
+        `Access metadata ID: ${safe(dataAccess?.accessMetadataId)}`,
         `Dataset hash: ${safe(dataAccess?.hash)}`,
         `Sampling approach: ${safe(dataAccess?.samplingMethod)} ${safe(dataAccess?.samplingDetail, "")}`,
         `Population definition: ${safe(context.populationDefinition)}`,

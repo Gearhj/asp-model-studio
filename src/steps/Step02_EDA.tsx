@@ -28,6 +28,13 @@ import {
 import { createEvidence } from "../lib/evidenceGraph";
 import { logDecision } from "../lib/decisionJournal";
 import { loadLocalDataset } from "../lib/localDataset";
+import {
+  assertExactDatasetIdentity,
+  buildCanonicalEvidenceEnvelope,
+  canonicalDatasetStorageKey,
+  requireLocalDatasetCanonicalIdentity,
+  type CanonicalDatasetIdentity,
+} from "../lib/datasetIdentity";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { formatNullableMetric, safeArray, safeObject } from "../lib/workflowSafety";
 import TargetIntelligenceWorkspace from "../components/eda/TargetIntelligenceWorkspace";
@@ -71,7 +78,7 @@ const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
   "http://127.0.0.1:8001/api";
 
-const FINDINGS_KEY = "atlas-predictive-eda-findings-v2";
+const FINDINGS_KEY_PREFIX = "atlas-predictive-eda-findings-v2";
 const DOCUMENTATION_SECTIONS: EDATab[] = [
   "overview",
   "target",
@@ -86,6 +93,9 @@ type Scope = "full_dataset" | "complete_browser_dataset" | "preview_profile" | "
 
 type WorkspaceResponse = {
   ok: boolean;
+  project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
   section: EDATab;
   scope: Scope;
   row_count: number;
@@ -161,9 +171,15 @@ const documentationImpactByTab: Record<
   },
 };
 
-function readFindings(): FindingsState {
+function readFindings(
+  identity: CanonicalDatasetIdentity | null,
+): FindingsState {
+  if (!identity) {
+    return { commentary: "", status: "draft", duplicateTreatment: "review" };
+  }
   try {
-    const parsed = JSON.parse(localStorage.getItem(FINDINGS_KEY) || "null");
+    const key = canonicalDatasetStorageKey(FINDINGS_KEY_PREFIX, identity);
+    const parsed = JSON.parse(localStorage.getItem(key) || "null");
     if (parsed && typeof parsed.commentary === "string") {
       return {
         ...parsed,
@@ -206,6 +222,47 @@ export default function Step02EDA() {
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
   const getNextStepPath = useWorkflowStore((state) => state.getNextStepPath);
+  // EDA is remounted after Data Acquisition navigation; also re-read whenever
+  // the active project changes so another project's version cannot linger.
+  const confirmedDataset = useMemo(() => loadLocalDataset(), [projectId]);
+  const datasetIdentityResolution = useMemo(() => {
+    try {
+      return {
+        identity: requireLocalDatasetCanonicalIdentity(
+          projectId,
+          confirmedDataset,
+          "EDA dataset identity",
+        ),
+        error: "",
+      };
+    } catch (cause) {
+      return {
+        identity: null,
+        error:
+          cause instanceof Error
+            ? cause.message
+            : "The exact registered Dataset Library version is unavailable.",
+      };
+    }
+  }, [
+    confirmedDataset?.dataset_id,
+    confirmedDataset?.dataset_version_id,
+    confirmedDataset?.dataset_version,
+    confirmedDataset?.dataset_library?.datasetId,
+    confirmedDataset?.dataset_library?.versionId,
+    projectId,
+  ]);
+  const datasetIdentity = datasetIdentityResolution.identity;
+  const findingsStorageKey = useMemo(
+    () =>
+      datasetIdentity
+        ? canonicalDatasetStorageKey(
+            FINDINGS_KEY_PREFIX,
+            datasetIdentity,
+          )
+        : "",
+    [datasetIdentity],
+  );
   const [activeTab, setActiveTab] = useState<EDATab>("overview");
   const [sections, setSections] = useState<Partial<Record<EDATab, WorkspaceResponse>>>({});
   const [loading, setLoading] = useState<EDATab | null>(null);
@@ -214,7 +271,9 @@ export default function Step02EDA() {
   const [dateField, setDateField] = useState("");
   const [pairwiseFeatures, setPairwiseFeatures] = useState<string[]>([]);
   const [histogramBins, setHistogramBins] = useState(20);
-  const [findings, setFindings] = useState<FindingsState>(readFindings);
+  const [findings, setFindings] = useState<FindingsState>(() =>
+    readFindings(datasetIdentity),
+  );
   const [evidenceMessage, setEvidenceMessage] = useState("");
   const [documentationState, setDocumentationState] =
     useState<EdaDocumentationState | null>(null);
@@ -237,7 +296,6 @@ export default function Step02EDA() {
     number | null
   >(null);
   const [stickyTopOffset, setStickyTopOffset] = useState(120);
-  const confirmedDataset = useMemo(() => loadLocalDataset(), []);
   const selectedVariable = useEdaVisualSelection((state) => state.selectedVariable);
   const selectedRange = useEdaVisualSelection((state) => state.selectedRange);
   const pinnedPair = useEdaVisualSelection((state) => state.pinnedPair);
@@ -268,18 +326,13 @@ export default function Step02EDA() {
     return [...numeric, ...categorical].filter((item) => item.feature !== overview?.target);
   }, [available.numeric, available.categorical, sections.predictors, overview?.target]);
 
-  const datasetIdentity = useMemo(() => {
-    const library = confirmedDataset?.dataset_library;
-    if (!library?.datasetId || !library?.versionId) return null;
-    return {
-      datasetId: library.datasetId,
-      versionId: library.versionId,
-      datasetName: library.datasetName ?? "",
-    };
-  }, [confirmedDataset?.dataset_library]);
   const requestBody = useMemo(
     () => ({
       project_id: projectId,
+      expected_dataset_id: datasetIdentity?.dataset_id,
+      expected_dataset_version_id:
+        datasetIdentity?.dataset_version_id,
+      dataset_version: datasetIdentity?.dataset_version_id,
       target: overview?.target || confirmedDataset?.target || undefined,
       event_value: overview?.event_value,
       problem_type: overview?.problem_type,
@@ -291,7 +344,7 @@ export default function Step02EDA() {
       predictor_visual_shape_limit: 8,
       rendered_sample_limit: 5000,
     }),
-    [confirmedDataset?.selected_columns, confirmedDataset?.target, dateField, histogramBins, overview?.event_value, overview?.problem_type, overview?.target, pairwiseFeatures, projectId, segmentField],
+    [confirmedDataset?.selected_columns, confirmedDataset?.target, datasetIdentity?.dataset_id, datasetIdentity?.dataset_version_id, dateField, histogramBins, overview?.event_value, overview?.problem_type, overview?.target, pairwiseFeatures, projectId, segmentField],
   );
 
   async function loadSection(
@@ -299,6 +352,16 @@ export default function Step02EDA() {
     force = false,
     overrides: Record<string, unknown> = {},
   ): Promise<WorkspaceResponse | null> {
+    if (!datasetIdentity) {
+      setError({
+        endpoint: `${API_BASE}/eda/workspace/${section}`,
+        code: "missing_canonical_identity",
+        message: datasetIdentityResolution.error,
+        recovery:
+          "Return to Data Acquisition and activate the exact registered Dataset Library version.",
+      });
+      return null;
+    }
     if (!force && sections[section]) return sections[section] ?? null;
     const endpoint = `${API_BASE}/eda/workspace/${section}`;
     const sequence = (requestSequence.current[section] ?? 0) + 1;
@@ -332,12 +395,16 @@ export default function Step02EDA() {
         });
         return null;
       }
+      assertExactDatasetIdentity(
+        datasetIdentity,
+        payload,
+        `EDA ${section} workspace response`,
+      );
       writeEdaCodeContextSeed(projectId, {
-        datasetId: datasetIdentity?.datasetId,
-        datasetVersion: String(
-          payload.dataset_version ?? datasetIdentity?.versionId ?? "",
-        ),
-        datasetName: datasetIdentity?.datasetName,
+        datasetId: datasetIdentity.dataset_id,
+        datasetVersion: datasetIdentity.dataset_version_id,
+        datasetName:
+          confirmedDataset?.dataset_library?.datasetName ?? "",
         target: String(payload.target ?? ""),
         predictorManifestId: String(
           payload.predictor_authorization?.manifest_version ?? "",
@@ -384,16 +451,42 @@ export default function Step02EDA() {
   }, []);
 
   useEffect(() => {
-    void loadSection("overview");
+    setFindings(readFindings(datasetIdentity));
+    setSections({});
+    setDocumentationState(null);
+    setDocumentationEvidence([]);
+    lastDraftVersion.current = "";
+    if (!datasetIdentity) {
+      setError({
+        endpoint: `${API_BASE}/eda/workspace/overview`,
+        code: "missing_canonical_identity",
+        message: datasetIdentityResolution.error,
+        recovery:
+          "Return to Data Acquisition and activate the exact registered Dataset Library version.",
+      });
+      return;
+    }
+    void loadSection("overview", true);
     // Load once from the governed backend. Secondary sections remain lazy.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [
+    datasetIdentity?.project_id,
+    datasetIdentity?.dataset_id,
+    datasetIdentity?.dataset_version_id,
+  ]);
 
   useEffect(() => {
-    if (activeTab !== "overview") void loadSection(activeTab);
+    if (activeTab !== "overview" && datasetIdentity) {
+      void loadSection(activeTab, true);
+    }
     // Configuration-specific refreshes are handled by explicit actions below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab]);
+  }, [
+    activeTab,
+    datasetIdentity?.project_id,
+    datasetIdentity?.dataset_id,
+    datasetIdentity?.dataset_version_id,
+  ]);
 
   useEffect(() => {
     if (activeTab !== "findings" || !sections.findings) return;
@@ -420,17 +513,24 @@ export default function Step02EDA() {
   }, [activeTab, sections.findings]);
 
   useEffect(() => {
-    if (!overview?.dataset_version || !overview?.target) return;
-    setSelectionScope(`${projectId}:${overview.dataset_version}:${overview.target}`);
+    if (!datasetIdentity || !overview?.target) return;
+    setSelectionScope(
+      `${datasetIdentity.project_id}:${datasetIdentity.dataset_id}:${datasetIdentity.dataset_version_id}:${overview.target}`,
+    );
     setPairwiseFeatures([]);
-  }, [overview?.dataset_version, overview?.target, projectId, setSelectionScope]);
+  }, [datasetIdentity, overview?.target, setSelectionScope]);
 
   useEffect(() => {
     let cancelled = false;
     const controller = new AbortController();
     setDocumentationHydrated(false);
     setDocumentationMessage("");
-    getEdaDocumentationState(projectId, controller.signal)
+    if (!datasetIdentity) {
+      setDocumentationMessage(datasetIdentityResolution.error);
+      setDocumentationHydrated(true);
+      return () => controller.abort();
+    }
+    getEdaDocumentationState(projectId, datasetIdentity, controller.signal)
       .then((state) => {
         if (cancelled) return;
         setDocumentationState(state);
@@ -454,7 +554,7 @@ export default function Step02EDA() {
       cancelled = true;
       controller.abort();
     };
-  }, [projectId]);
+  }, [datasetIdentity, datasetIdentityResolution.error, projectId]);
 
   const buildDocumentation = useCallback(
     (
@@ -463,9 +563,9 @@ export default function Step02EDA() {
         documentationEvidence,
     ) => {
       const resolvedOverview = resolvedSections.overview;
-      const datasetId = String(datasetIdentity?.datasetId ?? "").trim();
+      const datasetId = String(datasetIdentity?.dataset_id ?? "").trim();
       const datasetVersion = String(
-        resolvedOverview?.dataset_version ?? datasetIdentity?.versionId ?? "",
+        datasetIdentity?.dataset_version_id ?? "",
       ).trim();
       const target = String(
         resolvedOverview?.target ?? confirmedDataset?.target ?? "",
@@ -590,7 +690,7 @@ export default function Step02EDA() {
   ): Promise<EdaDocumentationEvidenceReference | null> {
     const resolvedOverview = resolvedSections.overview;
     const findingsPayload = resolvedSections.findings;
-    if (!resolvedOverview || !findingsPayload) {
+    if (!resolvedOverview || !findingsPayload || !datasetIdentity) {
       setEvidenceMessage("Open the Findings tab before saving governed EDA evidence.");
       return null;
     }
@@ -601,26 +701,7 @@ export default function Step02EDA() {
         findings,
       );
       const evidence = await createEvidence({
-        projectId,
-        projectName,
-        evidenceType: "eda",
-        title: "Governed Exploratory Data Analysis",
-        summary: `Full-dataset EDA for ${resolvedOverview.target} across ${resolvedOverview.row_count.toLocaleString()} registered rows.`,
-        sourcePage: "Exploratory Data Analysis",
-        sourceRoute: "/step02",
-        datasetIds: [
-          String(datasetIdentity?.datasetId ?? resolvedOverview.dataset_version),
-        ],
-        modelIds: [],
-        documentIds: [],
-        notebookIds: [],
-        supportsSections: ["Exploratory Data Analysis", "Data Quality", "Feature Engineering"],
-        tags: ["predictive_modeling", "eda", "full_dataset"],
-        status: findings.status === "accepted" ? "ready" : "needs_review",
-        importance: "high",
-        lineage: {
-          datasetId: datasetIdentity?.datasetId,
-          datasetVersion: resolvedOverview.dataset_version,
+        ...buildCanonicalEvidenceEnvelope(datasetIdentity, {
           target: resolvedOverview.target,
           predictorManifestId:
             resolvedOverview.predictor_authorization?.manifest_version,
@@ -628,7 +709,20 @@ export default function Step02EDA() {
           eventValue: resolvedOverview.event_value,
           rowCount: resolvedOverview.row_count,
           scope: resolvedOverview.scope,
-        },
+        }),
+        projectName,
+        evidenceType: "eda",
+        title: "Governed Exploratory Data Analysis",
+        summary: `Full-dataset EDA for ${resolvedOverview.target} across ${resolvedOverview.row_count.toLocaleString()} registered rows.`,
+        sourcePage: "Exploratory Data Analysis",
+        sourceRoute: "/step02",
+        modelIds: [],
+        documentIds: [],
+        notebookIds: [],
+        supportsSections: ["Exploratory Data Analysis", "Data Quality", "Feature Engineering"],
+        tags: ["predictive_modeling", "eda", "full_dataset"],
+        status: findings.status === "accepted" ? "ready" : "needs_review",
+        importance: "high",
         payload: {
           headline: resolvedOverview.headline,
           findings: governedFindingRows,
@@ -656,7 +750,9 @@ export default function Step02EDA() {
         },
       });
       const next = { ...findings, savedAt: new Date().toISOString() };
-      localStorage.setItem(FINDINGS_KEY, JSON.stringify(next));
+      if (findingsStorageKey) {
+        localStorage.setItem(findingsStorageKey, JSON.stringify(next));
+      }
       setFindings(next);
       setEvidenceMessage("EDA evidence saved.");
       const reference: EdaDocumentationEvidenceReference = {
@@ -765,14 +861,24 @@ export default function Step02EDA() {
           "The server persisted the EDA record but did not grant next-step eligibility.",
         );
       }
-      const governedState = await getEdaDocumentationState(projectId);
+      if (!datasetIdentity) {
+        throw new Error(
+          "The exact registered Dataset Library version is unavailable.",
+        );
+      }
+      const governedState = await getEdaDocumentationState(
+        projectId,
+        datasetIdentity,
+      );
       setDocumentationState(governedState);
       setDocumentationEvidence(evidenceReferences);
       lastDraftVersion.current = "";
       setDocumentationMessage(
         `EDA confirmed as ${confirmation.documentation_version} (confirmation ${confirmation.confirmation_id}). Model Development Documentation is synchronized to the approved snapshot.`,
       );
-      localStorage.setItem(FINDINGS_KEY, JSON.stringify(findings));
+      if (findingsStorageKey) {
+        localStorage.setItem(findingsStorageKey, JSON.stringify(findings));
+      }
       logDecision({
         workflowStep: "Exploratory Data Analysis",
         actionType: "workflow_setting_changed",
@@ -851,14 +957,14 @@ export default function Step02EDA() {
       predictorAuthorization.target_source_excluded,
   );
   const datasetDisplayName = String(
-    datasetIdentity?.datasetName ||
-      datasetIdentity?.datasetId ||
+    confirmedDataset?.dataset_library?.datasetName ||
+      datasetIdentity?.dataset_id ||
       projectName ||
       "Registered dataset",
   );
   const datasetVersionLabel = String(
-    overview?.dataset_version ??
-      datasetIdentity?.versionId ??
+    datasetIdentity?.dataset_version_label ??
+      datasetIdentity?.dataset_version_id ??
       "Version pending",
   );
   const predictorManifestLabel = String(
@@ -1468,7 +1574,7 @@ export default function Step02EDA() {
                       <div>
                         <dt>Dataset ID</dt>
                         <dd>
-                          {datasetIdentity?.datasetId ??
+                          {datasetIdentity?.dataset_id ??
                             "Not available"}
                         </dd>
                       </div>
@@ -1666,7 +1772,16 @@ export default function Step02EDA() {
               data={activeData}
               projectId={projectId}
               projectName={projectName}
-              datasetIdentity={datasetIdentity}
+              datasetIdentity={
+                datasetIdentity
+                  ? {
+                      datasetId: datasetIdentity.dataset_id,
+                      versionId: datasetIdentity.dataset_version_id,
+                      datasetName:
+                        confirmedDataset?.dataset_library?.datasetName ?? "",
+                    }
+                  : null
+              }
               eventValue={activeData.event_value ?? confirmedDataset?.event_value}
               nonEventValue={confirmedDataset?.non_event_value}
               predictorOptions={predictorOptions}
@@ -1721,7 +1836,12 @@ export default function Step02EDA() {
               state={findings}
               onChange={(next) => {
                 setFindings(next);
-                localStorage.setItem(FINDINGS_KEY, JSON.stringify(next));
+                if (findingsStorageKey) {
+                  localStorage.setItem(
+                    findingsStorageKey,
+                    JSON.stringify(next),
+                  );
+                }
               }}
               onSave={() => void saveEvidence()}
               message={evidenceMessage}
@@ -2381,6 +2501,8 @@ function PredictorsPanel({
 
       <PredictorDistributionExplorer
         projectId={projectId}
+        datasetId={data.dataset_id}
+        datasetVersionId={data.dataset_version_id}
         target={data.target}
         problemType={data.problem_type}
         eventValue={data.event_value}
@@ -2555,6 +2677,10 @@ function RelationshipsPanel(props: {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         project_id: props.projectId,
+        expected_dataset_id: props.data.dataset_id,
+        expected_dataset_version_id:
+          props.data.dataset_version_id,
+        dataset_version: props.data.dataset_version_id,
         target: props.data.target,
         event_value: props.data.event_value,
         problem_type: props.data.problem_type,
@@ -2574,6 +2700,15 @@ function RelationshipsPanel(props: {
         ),
       );
     }
+    assertExactDatasetIdentity(
+      {
+        project_id: props.projectId,
+        dataset_id: props.data.dataset_id,
+        dataset_version_id: props.data.dataset_version_id,
+      },
+      payload,
+      "EDA VIF simulation response",
+    );
     const summary = safeObject(payload.summary);
     const rows = safeArray<any>(payload.after);
     const maximumVif = Number(summary.after_max_vif);
@@ -2587,6 +2722,8 @@ function RelationshipsPanel(props: {
     };
   }, [
     props.data.event_value,
+    props.data.dataset_id,
+    props.data.dataset_version_id,
     props.data.problem_type,
     props.data.target,
     props.projectId,
@@ -2725,6 +2862,8 @@ function RelationshipsPanel(props: {
         >
           <RelationshipExplorer
             projectId={props.projectId}
+            datasetId={props.data.dataset_id}
+            datasetVersionId={props.data.dataset_version_id}
             target={String(props.data.target)}
             eventValue={props.data.event_value}
             problemType={props.data.problem_type}

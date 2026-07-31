@@ -19,6 +19,7 @@ from ..analytics.target_intelligence_service import (
     wilson_score_interval,
 )
 from ..core.dataset_store import DATASTORE
+from ..datasets.dataset_identity import assert_expected_active_identity
 from ..preprocessing.bureau_registry import BUREAU_SPECIAL_VALUES, name_signals
 from ..preprocessing.feature_profile_service import information_value
 from ..preprocessing.quality_profile_service import governed_time_field
@@ -471,7 +472,8 @@ def _predictor_authorization(
         "authorized": authorized,
         "excluded": exclusion_rows,
         "upstream": manifest.get("manifest_version"),
-        "dataset": DATASTORE.meta.get("dataset_version"),
+        "dataset_id": DATASTORE.meta.get("dataset_id"),
+        "dataset_version_id": DATASTORE.meta.get("dataset_version_id"),
     }
     version = str(manifest.get("manifest_version") or f"eda-pm-{hashlib.sha256(json.dumps(stable, sort_keys=True, default=str).encode('utf-8')).hexdigest()[:16]}")
     return {
@@ -543,6 +545,20 @@ class EDAWorkspaceService:
         self._max_cache_entries = max_cache_entries
 
     def _dataset(self, request: EDAWorkspaceRequest) -> tuple[pd.DataFrame, str, pd.Series, str, Any, dict[str, Any]]:
+        # Every EDA calculation is downstream of activation. Resolve the exact
+        # immutable Library version before reading the ambient frame so stale
+        # checkpoints and legacy browser pseudo-versions fail closed.
+        assert_expected_active_identity(
+            request.project_id,
+            expected_dataset_id=getattr(request, "expected_dataset_id", None),
+            expected_dataset_version_id=getattr(
+                request,
+                "expected_dataset_version_id",
+                None,
+            ),
+            legacy_dataset_version=getattr(request, "dataset_version", None),
+            require_expected=True,
+        )
         active = DATASTORE.get_active_df()
         if active is None or active.empty:
             raise ValueError("No full backend dataset is loaded.")
@@ -598,8 +614,16 @@ class EDAWorkspaceService:
             dataset_name=str(source.get("filename") or "Workspace dataset"),
             analysis_source=analysis_source,
             exact=True,
-            linked_dataset_id=source.get("datasetId") if source.get("kind") == "dataset_library" else None,
-            linked_version_id=source.get("version") if source.get("kind") == "dataset_library" else None,
+            linked_dataset_id=(
+                source.get("dataset_id") or source.get("datasetId")
+                if source.get("kind") == "dataset_library"
+                else None
+            ),
+            linked_version_id=(
+                source.get("dataset_version_id") or source.get("versionId")
+                if source.get("kind") == "dataset_library"
+                else None
+            ),
         )
 
     def _fingerprint(self, df: pd.DataFrame, target: str, source: dict[str, Any]) -> str:
@@ -631,7 +655,8 @@ class EDAWorkspaceService:
             # Content identity, so a replacement upload with the same shape can
             # never be served the previous dataset's cached section.
             "workspace_fingerprint": fingerprint,
-            "dataset_version": DATASTORE.meta.get("dataset_version") or DATASTORE.meta.get("version_id") or "in-memory",
+            "dataset_id": DATASTORE.meta.get("dataset_id"),
+            "dataset_version_id": DATASTORE.meta.get("dataset_version_id"),
             "shape": list(df.shape),
             "target": target,
             "event_value": request.event_value,
@@ -680,10 +705,13 @@ class EDAWorkspaceService:
             "scope_identity": scope_identity(scope),
             "row_count": int(len(df)),
             "column_count": int(df.shape[1]),
+            "project_id": request.project_id,
             "target": target,
             "problem_type": problem,
             "event_value": _json_value(event),
-            "dataset_version": str(DATASTORE.meta.get("dataset_version") or DATASTORE.meta.get("version_id") or "in-memory"),
+            "dataset_id": DATASTORE.meta.get("dataset_id"),
+            "dataset_version_id": DATASTORE.meta.get("dataset_version_id"),
+            "dataset_version": str(DATASTORE.meta.get("dataset_version_id") or "unresolved"),
             "generated_at": _now(),
             "duration_ms": int((time.perf_counter() - started) * 1000),
             "cache_status": "miss",
@@ -714,7 +742,9 @@ class EDAWorkspaceService:
         }
         if section not in factories:
             raise ValueError(f"Unsupported EDA section '{section}'.")
-        return self._cached(section, request, factories[section])
+        scoped_store = DATASTORE.current()
+        with scoped_store.state_lock:
+            return self._cached(section, request, factories[section])
 
     def authorized_dataset(
         self,
@@ -1029,10 +1059,21 @@ class EDAWorkspaceService:
         Only grouped counts are returned. The predictor column and the target
         column never leave the server.
         """
+        scoped_store = DATASTORE.current()
+        with scoped_store.state_lock:
+            return self._target_by_predictor_locked(request)
+
+    def _target_by_predictor_locked(
+        self,
+        request: TargetByPredictorRequest,
+    ) -> dict[str, Any]:
         started = time.perf_counter()
         base = EDAWorkspaceRequest(
             project_id=request.project_id, target=request.target,
             event_value=request.event_value, problem_type=request.problem_type,
+            expected_dataset_id=request.expected_dataset_id,
+            expected_dataset_version_id=request.expected_dataset_version_id,
+            dataset_version=request.dataset_version,
         )
         df, target, y, problem, event, _authorization = self._dataset(base)
 
@@ -1166,11 +1207,12 @@ class EDAWorkspaceService:
             "source": "eda_full_population",
             "analysisScope": scope,
             "scopeIdentity": scope_identity(scope),
-            # Never invented. A draft analysis has no governed dataset identity,
-            # so these stay null rather than echoing an in-memory label that
-            # would read like a registered version.
-            "datasetId": None,
-            "versionId": None,
+            "project_id": request.project_id,
+            "dataset_id": DATASTORE.meta.get("dataset_id"),
+            "dataset_version_id": DATASTORE.meta.get("dataset_version_id"),
+            "dataset_version": DATASTORE.meta.get("dataset_version_id"),
+            "datasetId": DATASTORE.meta.get("dataset_id"),
+            "versionId": DATASTORE.meta.get("dataset_version_id"),
             "target": str(target),
             "predictor": str(predictor),
             "analysisType": request.analysis_type,
@@ -1198,12 +1240,23 @@ class EDAWorkspaceService:
     def vif_simulation(self, request: EDAVifSimulationRequest) -> dict[str, Any]:
         """Recompute VIF after a temporary exclusion without mutating DATASTORE."""
 
+        scoped_store = DATASTORE.current()
+        with scoped_store.state_lock:
+            return self._vif_simulation_locked(request)
+
+    def _vif_simulation_locked(
+        self,
+        request: EDAVifSimulationRequest,
+    ) -> dict[str, Any]:
         started = time.perf_counter()
         base = EDAWorkspaceRequest(
             project_id=request.project_id,
             target=request.target,
             event_value=request.event_value,
             problem_type=request.problem_type,
+            expected_dataset_id=request.expected_dataset_id,
+            expected_dataset_version_id=request.expected_dataset_version_id,
+            dataset_version=request.dataset_version,
         )
         df, target, _y, _problem, _event, authorization = self._dataset(base)
         excluded = str(request.excluded_feature or "").strip()
@@ -1249,6 +1302,10 @@ class EDAWorkspaceService:
 
         return {
             "ok": True,
+            "project_id": request.project_id,
+            "dataset_id": DATASTORE.meta.get("dataset_id"),
+            "dataset_version_id": DATASTORE.meta.get("dataset_version_id"),
+            "dataset_version": DATASTORE.meta.get("dataset_version_id"),
             "non_mutating": True,
             "excluded_feature": excluded,
             "before": before,
@@ -1275,19 +1332,26 @@ class EDAWorkspaceService:
         names never bypass the server-authored predictor authorization.
         """
 
+        scoped_store = DATASTORE.current()
+        with scoped_store.state_lock:
+            return self._relationship_sample_locked(request)
+
+    def _relationship_sample_locked(
+        self,
+        request: EDARelationshipSampleRequest,
+    ) -> dict[str, Any]:
         started = time.perf_counter()
         base = EDAWorkspaceRequest(
             project_id=request.project_id,
             target=request.target,
             event_value=request.event_value,
             problem_type=request.problem_type,
+            expected_dataset_id=request.expected_dataset_id,
+            expected_dataset_version_id=request.expected_dataset_version_id,
+            dataset_version=request.dataset_version,
         )
         df, target, y, problem, event, authorization = self._dataset(base)
-        dataset_version = str(
-            DATASTORE.meta.get("dataset_version")
-            or DATASTORE.meta.get("version_id")
-            or "in-memory"
-        )
+        dataset_version = str(DATASTORE.meta.get("dataset_version_id") or "unresolved")
         manifest_id = str(authorization["manifest_version"])
         if request.dataset_version and str(request.dataset_version) != dataset_version:
             raise ValueError(
@@ -1581,7 +1645,9 @@ class EDAWorkspaceService:
             "scope": "rendered_sample",
             "analysis_scope": analysis_scope,
             "scope_identity": scope_identity(analysis_scope),
-            "dataset_id": source.get("datasetId"),
+            "project_id": request.project_id,
+            "dataset_id": DATASTORE.meta.get("dataset_id"),
+            "dataset_version_id": DATASTORE.meta.get("dataset_version_id"),
             "dataset_version": dataset_version,
             "predictor_manifest_id": manifest_id,
             "population_rows": int(len(df)),

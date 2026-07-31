@@ -34,13 +34,23 @@ import {
 } from "../lib/enterpriseDataAccess";
 import { loadLocalDataset, saveLocalDataset, type LocalDataset } from "../lib/localDataset";
 import {
+  assertExactDatasetActivation,
+  buildTargetPersistencePayload,
+  requireCanonicalDatasetIdentity,
+  requireLocalDatasetCanonicalIdentity,
+  resolveExactReopenDatasetIdentity,
+  type CanonicalDatasetIdentity,
+} from "../lib/datasetIdentity";
+import {
   activateDatasetVersion,
   findSimilarDatasets,
+  getDataset,
   getDatasetPreview,
   linkDatasetToProject,
   listDatasets,
   registerWorkspaceDataset,
   type DatasetSummary,
+  type DatasetVersionSummary,
 } from "../lib/datasetLibrary";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { fetchFullFeatureProfile, predictorEligibility, profileFeaturesInBrowser, type FeatureProfileResponse } from "../lib/featureProfiling";
@@ -439,6 +449,7 @@ export default function Step01DataAcquisition() {
   const [backendImportSynced, setBackendImportSynced] = useState(false);
   const [backendRowCount, setBackendRowCount] = useState<number | null>(null);
   const [libraryDatasets, setLibraryDatasets] = useState<DatasetSummary[]>([]);
+  const [selectedDatasetVersions, setSelectedDatasetVersions] = useState<DatasetVersionSummary[]>([]);
   const [selectedLibraryDatasetId, setSelectedLibraryDatasetId] = useState("");
   const [selectedLibraryVersionId, setSelectedLibraryVersionId] = useState("");
   const [libraryLoading, setLibraryLoading] = useState(false);
@@ -446,6 +457,8 @@ export default function Step01DataAcquisition() {
   // milestones. Identity is tracked by datasetId/versionId (never by display
   // name or filename) so changing either selector honestly resets the action.
   const [loadedLibraryIdentity, setLoadedLibraryIdentity] = useState<{ datasetId: string; versionId: string } | null>(null);
+  const [activeDatasetIdentity, setActiveDatasetIdentity] = useState<CanonicalDatasetIdentity | null>(null);
+  const [datasetIdentityError, setDatasetIdentityError] = useState("");
   // Governed target-dependent profiling. The analytical identity includes the
   // dataset version AND the event mapping, so changing either invalidates every
   // target-dependent result rather than leaving stale IV on screen.
@@ -497,6 +510,106 @@ export default function Step01DataAcquisition() {
   }, []);
 
   useEffect(() => {
+    const saved = loadLocalDataset();
+    if (!saved) return;
+    let persisted: CanonicalDatasetIdentity;
+    try {
+      persisted = requireLocalDatasetCanonicalIdentity(
+        projectId,
+        saved,
+        "Restored Data Acquisition dataset identity",
+      );
+    } catch (error) {
+      const detail =
+        error instanceof Error
+          ? error.message
+          : "The restored workflow does not contain one exact Dataset Library identity.";
+      setActiveDatasetIdentity(null);
+      setBackendImportSynced(false);
+      setDatasetIdentityError(detail);
+      setImportError(detail);
+      return;
+    }
+
+    let alive = true;
+    const restoreExactIdentity = async () => {
+      try {
+        const response = await fetch(
+          `${BASE}/data/active-identity?project_id=${encodeURIComponent(projectId)}`,
+          { credentials: "include" }
+        );
+        const payload = await response.json().catch(() => null);
+        let resolved: CanonicalDatasetIdentity;
+        let reactivated = false;
+        if (response.ok && payload?.ok) {
+          resolved = resolveExactReopenDatasetIdentity(persisted, [payload]);
+        } else {
+          const activation = await activateDatasetVersion(
+            persisted.dataset_id,
+            persisted.dataset_version_id,
+            projectId
+          );
+          resolved = assertExactDatasetActivation(persisted, activation);
+          reactivated = true;
+        }
+        if (reactivated) {
+          const targetPayload = buildTargetPersistencePayload(resolved, {
+            target: saved.target,
+            selected_columns: saved.selected_columns,
+            event_value: saved.event_value,
+            non_event_value: saved.non_event_value,
+          });
+          const targetResponse = await fetch(`${BASE}/data/set_target`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({
+              ...targetPayload,
+              access_metadata_id: saved.data_access?.accessMetadataId,
+            }),
+          });
+          const targetResult = await targetResponse.json().catch(() => null);
+          if (!targetResponse.ok || !targetResult?.ok) {
+            throw new Error(
+              targetResult?.detail ??
+                targetResult?.error ??
+                "The exact dataset version was reactivated, but its governed target configuration could not be restored.",
+            );
+          }
+          assertExactDatasetActivation(resolved, targetResult);
+        }
+        if (!alive) return;
+        setActiveDatasetIdentity(resolved);
+        setLoadedLibraryIdentity({
+          datasetId: resolved.dataset_id,
+          versionId: resolved.dataset_version_id,
+        });
+        setSelectedLibraryDatasetId(resolved.dataset_id);
+        setSelectedLibraryVersionId(resolved.dataset_version_id);
+        void getDataset(resolved.dataset_id).then((dataset) => {
+          if (alive) setSelectedDatasetVersions(dataset.versions);
+        }).catch(() => undefined);
+        setBackendImportSynced(true);
+        setDatasetIdentityError("");
+      } catch (error) {
+        if (!alive) return;
+        const detail =
+          error instanceof Error
+            ? error.message
+            : "The exact registered Dataset Library version could not be restored.";
+        setActiveDatasetIdentity(null);
+        setBackendImportSynced(false);
+        setDatasetIdentityError(detail);
+        setImportError(detail);
+      }
+    };
+    void restoreExactIdentity();
+    return () => {
+      alive = false;
+    };
+  }, [projectId]);
+
+  useEffect(() => {
     if (sourceType !== "existing") return;
     let alive = true;
     setLibraryLoading(true);
@@ -504,11 +617,6 @@ export default function Step01DataAcquisition() {
       .then((payload) => {
         if (!alive) return;
         setLibraryDatasets(payload.datasets);
-        const first = payload.datasets[0];
-        if (first && !selectedLibraryDatasetId) {
-          setSelectedLibraryDatasetId(first.datasetId);
-          setSelectedLibraryVersionId(first.latestVersion?.versionId ?? "");
-        }
       })
       .catch((error) => setMessage(error instanceof Error ? error.message : "ATLAS could not load Dataset Library records."))
       .finally(() => alive && setLibraryLoading(false));
@@ -538,7 +646,15 @@ export default function Step01DataAcquisition() {
   // UX-DATAACQ-004 / Part C: the active source's governed identity decides which
   // persistence UI applies. `datasetLibraryLink` is the authoritative signal --
   // it is only ever written with a real datasetId/versionId pair.
-  const datasetLibraryLink = useMemo(() => loadLocalDataset()?.dataset_library ?? null, [headers, fileName, backendImportSynced, loadedLibraryIdentity]);
+  const datasetLibraryLink = useMemo(() => {
+    if (!activeDatasetIdentity) return null;
+    const savedLink = loadLocalDataset()?.dataset_library;
+    return {
+      ...(savedLink ?? {}),
+      datasetId: activeDatasetIdentity.dataset_id,
+      versionId: activeDatasetIdentity.dataset_version_id,
+    };
+  }, [headers, fileName, backendImportSynced, loadedLibraryIdentity, activeDatasetIdentity]);
   const datasetSourceKind: DatasetSourceKind = useMemo(
     () =>
       resolveDatasetSourceKind({
@@ -599,16 +715,16 @@ export default function Step01DataAcquisition() {
   // server compute on the 170,884-row CLASS_TRAIN asset just to obtain two rows.
   const targetDistributionRequest = useMemo(() => {
     if (!target || targetInfo.kind === "continuous") return null;
-    if (!datasetLibraryLink?.datasetId || !datasetLibraryLink?.versionId) return null;
+    if (!activeDatasetIdentity) return null;
     return {
-      projectId,
-      datasetId: datasetLibraryLink.datasetId,
-      versionId: datasetLibraryLink.versionId,
+      projectId: activeDatasetIdentity.project_id,
+      datasetId: activeDatasetIdentity.dataset_id,
+      versionId: activeDatasetIdentity.dataset_version_id,
       target,
       eventValue,
       nonEventValue,
     };
-  }, [target, targetInfo.kind, datasetLibraryLink?.datasetId, datasetLibraryLink?.versionId, projectId, eventValue, nonEventValue]);
+  }, [target, targetInfo.kind, activeDatasetIdentity, eventValue, nonEventValue]);
 
   const serverDistribution = useTargetDistribution(targetDistributionRequest);
 
@@ -662,12 +778,12 @@ export default function Step01DataAcquisition() {
   const acquisitionStatus = useMemo(
     () =>
       deriveDataAcquisitionStatus({
-        hasSelectedVersion: Boolean(loadedLibraryIdentity?.versionId || selectedLibraryVersionId || headers.length),
-        isRegisteredAsset: Boolean(loadedLibraryIdentity?.datasetId || selectedLibraryDatasetId || datasetLibraryLink?.datasetId),
-        isLinkedToProject: Boolean(datasetLibraryLink?.datasetId || loadedLibraryIdentity?.datasetId),
-        isLoaded: Boolean(headers.length && backendImportSynced),
+        hasSelectedVersion: Boolean(activeDatasetIdentity?.dataset_version_id),
+        isRegisteredAsset: Boolean(activeDatasetIdentity?.dataset_id),
+        isLinkedToProject: Boolean(activeDatasetIdentity?.project_id === projectId),
+        isLoaded: Boolean(headers.length && backendImportSynced && activeDatasetIdentity),
         isLoading: isImporting,
-        loadError: importError,
+        loadError: datasetIdentityError || importError,
         target,
         eventValue,
         nonEventValue,
@@ -689,7 +805,7 @@ export default function Step01DataAcquisition() {
         reviewCompleted: dataAcquisitionReviewed,
       }),
     [
-      loadedLibraryIdentity, selectedLibraryVersionId, selectedLibraryDatasetId, datasetLibraryLink,
+      activeDatasetIdentity, projectId, datasetIdentityError,
       headers.length, backendImportSynced, isImporting, importError, target, eventValue, nonEventValue,
       selected.length, governedProfile.phase, governedProfile.error, governedProfile.profile,
       governedProfile.quality, dataAcquisitionReviewed,
@@ -788,6 +904,9 @@ export default function Step01DataAcquisition() {
     const profileDataset: LocalDataset = {
       headers,
       rows: profilingRows,
+      dataset_id: activeDatasetIdentity?.dataset_id,
+      dataset_version_id: activeDatasetIdentity?.dataset_version_id,
+      dataset_version: activeDatasetIdentity?.dataset_version_id,
       target,
       selected_columns: selected,
       problem_type: targetInfo.kind === "continuous" ? "regression" : "classification",
@@ -819,7 +938,7 @@ export default function Step01DataAcquisition() {
     return () => {
       alive = false;
     };
-  }, [headers, target, profilingRows, fullSourceRows, selected.join("|"), targetInfo.kind, registeredRowCount, completeBrowserDataset, backendImportSynced, eventValue, nonEventValue]);
+  }, [headers, target, profilingRows, fullSourceRows, selected.join("|"), targetInfo.kind, registeredRowCount, completeBrowserDataset, backendImportSynced, eventValue, nonEventValue, activeDatasetIdentity]);
 
   useEffect(() => {
     if (!headers.length || !profilingRows.length) {
@@ -853,7 +972,22 @@ export default function Step01DataAcquisition() {
       // dataset/version, or target changed is discarded instead of overwriting
       // the newer selection's profile.
       setQualityLoading(true);
-      fetchFullDataQualityProfile({ projectId, target, eventValue, nonEventValue, selectedColumns: selected })
+      if (!activeDatasetIdentity) {
+        setQuality(null);
+        setQualityLoading(false);
+        setMessage("Full-population data quality profiling requires an exact active Dataset Library version.");
+        return () => {
+          alive = false;
+        };
+      }
+      fetchFullDataQualityProfile({
+        projectId,
+        datasetIdentity: activeDatasetIdentity,
+        target,
+        eventValue,
+        nonEventValue,
+        selectedColumns: selected,
+      })
         .then((payload) => {
           if (!alive) return;
           setQuality(payload);
@@ -878,7 +1012,7 @@ export default function Step01DataAcquisition() {
     return () => {
       alive = false;
     };
-  }, [headers, target, profilingRows, fullSourceRows, completeBrowserDataset, registeredRowCount, backendImportSynced, eventValue, nonEventValue, selected.join("|"), projectId, loadedLibraryIdentity]);
+  }, [headers, target, profilingRows, fullSourceRows, completeBrowserDataset, registeredRowCount, backendImportSynced, eventValue, nonEventValue, selected.join("|"), projectId, loadedLibraryIdentity, activeDatasetIdentity]);
 
   function saveKeptSelection(nextKept: Record<string, boolean>) {
     setKept(nextKept);
@@ -895,6 +1029,7 @@ export default function Step01DataAcquisition() {
       target: target || null,
     });
     saveLocalDataset({
+      ...(currentDataset ?? {}),
       headers: localView.headers,
       rows: localView.rows,
       target: target || null,
@@ -984,6 +1119,7 @@ export default function Step01DataAcquisition() {
     backendSynced: boolean;
     browserComplete?: boolean;
     datasetLibrary?: LocalDataset["dataset_library"];
+    canonicalIdentity?: CanonicalDatasetIdentity;
   }) {
     const guessedTarget = preferredTarget(normalized.headers, normalized.target);
     const keep: Record<string, boolean> = {};
@@ -1016,6 +1152,9 @@ export default function Step01DataAcquisition() {
       browser_data_complete: options.browserComplete ?? (!options.backendSynced && normalized.previewRows.length === normalized.rowCount),
       event_value: eventValue,
       non_event_value: nonEventValue,
+      dataset_id: options.canonicalIdentity?.dataset_id,
+      dataset_version_id: options.canonicalIdentity?.dataset_version_id,
+      dataset_version: options.canonicalIdentity?.dataset_version_id,
       dataset_library: options.datasetLibrary,
     });
     window.dispatchEvent(new CustomEvent("atlas-dataset-updated"));
@@ -1054,7 +1193,48 @@ export default function Step01DataAcquisition() {
       if (!normalized.headers.length || !normalized.previewRows.length || !normalized.rowCount) {
         throw new Error("Backend import completed but did not return usable columns and preview rows.");
       }
-      applyLoadedDataset(normalized, { sourceLabel: `Backend CSV import: ${file.name}`, backendSynced: true });
+      const canonical = requireCanonicalDatasetIdentity(
+        {
+          project_id: normalized.projectId,
+          dataset_id: normalized.datasetId,
+          dataset_version_id: normalized.datasetVersionId,
+        },
+        "Registered upload response"
+      );
+      if (canonical.project_id !== projectId) {
+        throw new Error("Backend upload returned a dataset identity for a different project.");
+      }
+      applyLoadedDataset(normalized, {
+        sourceLabel: `Registered backend import: ${file.name}`,
+        backendSynced: true,
+        canonicalIdentity: canonical,
+        datasetLibrary: {
+          datasetId: canonical.dataset_id,
+          versionId: canonical.dataset_version_id,
+          datasetName: file.name,
+          datasetRole: "development",
+          sourceType: "dataset-library",
+          rowCount: normalized.rowCount,
+          columnCount: normalized.columnCount,
+          linkedAt: new Date().toISOString(),
+        },
+      });
+      setActiveDatasetIdentity(canonical);
+      setLoadedLibraryIdentity({
+        datasetId: canonical.dataset_id,
+        versionId: canonical.dataset_version_id,
+      });
+      setSelectedLibraryDatasetId(canonical.dataset_id);
+      setSelectedLibraryVersionId(canonical.dataset_version_id);
+      setSelectedDatasetVersions([
+        {
+          versionId: canonical.dataset_version_id,
+          createdAt: new Date().toISOString(),
+          rowCount: normalized.rowCount,
+          columnCount: normalized.columnCount,
+        },
+      ]);
+      setDatasetIdentityError("");
       setMessage(`Loaded ${normalized.rowCount.toLocaleString()} rows and ${normalized.columnCount.toLocaleString()} columns through backend import. The browser preview shows ${normalized.previewRows.length.toLocaleString()} rows.`);
     } catch (err: any) {
       const errorText = err?.message ?? "ATLAS could not import this file through the backend.";
@@ -1108,6 +1288,9 @@ export default function Step01DataAcquisition() {
         target: preferredTarget(parsed.headers),
         selectedColumns: parsed.headers.filter((header) => header !== preferredTarget(parsed.headers)),
         filename: file.name,
+        projectId: "",
+        datasetId: "",
+        datasetVersionId: "",
       };
       applyLoadedDataset(normalized, { sourceLabel: `Uploaded ${file.name}`, backendSynced: false, browserComplete: true });
       setMessage(`Loaded the complete browser dataset with ${parsed.rows.length.toLocaleString()} rows and ${parsed.headers.length.toLocaleString()} columns.`);
@@ -1136,18 +1319,19 @@ export default function Step01DataAcquisition() {
     setMessage("SQL metadata saved. Real query execution requires a backend connector; upload query output or connect the backend to populate rows.");
   }
 
-  async function persistDataset() {
+  async function persistDataset(identityOverride?: CanonicalDatasetIdentity) {
     if (!headers.length) throw new Error("No dataset or query metadata is available.");
+    const canonical = requireCanonicalDatasetIdentity(
+      identityOverride ?? activeDatasetIdentity,
+      "Active Data Acquisition dataset identity"
+    );
+    if (canonical.project_id !== projectId) {
+      throw new Error("The active registered dataset belongs to a different project.");
+    }
     const selectedColumns = selected;
     const localView = buildSelectedDatasetView({
       headers,
       rows: profilingRows,
-      selectedColumns,
-      target: target || null,
-    });
-    const backendView = buildSelectedDatasetView({
-      headers,
-      rows: fullSourceRows,
       selectedColumns,
       target: target || null,
     });
@@ -1162,30 +1346,27 @@ export default function Step01DataAcquisition() {
       problem_type: problemType,
       registered_row_count: registeredRowCount,
       browser_data_complete: completeBrowserDataset,
-      dataset_version: meta?.version,
+      dataset_id: canonical.dataset_id,
+      dataset_version_id: canonical.dataset_version_id,
+      dataset_version: canonical.dataset_version_id,
       event_value: eventValue,
       non_event_value: nonEventValue,
-      dataset_library:
-        sourceType === "existing" && selectedLibraryDatasetId && selectedLibraryVersionId
-          ? {
-              datasetId: selectedLibraryDatasetId,
-              versionId: selectedLibraryVersionId,
-              datasetName: libraryDatasets.find((dataset) => dataset.datasetId === selectedLibraryDatasetId)?.name ?? "Dataset Library asset",
-              datasetRole: "modeling",
-              sourceType: "dataset-library",
-              rowCount: registeredRowCount,
-              columnCount: headers.length,
-              linkedAt: new Date().toISOString(),
-            }
-          : undefined,
+      dataset_library: {
+        datasetId: canonical.dataset_id,
+        versionId: canonical.dataset_version_id,
+        datasetName:
+          libraryDatasets.find((dataset) => dataset.datasetId === canonical.dataset_id)?.name ??
+          datasetLibraryLink?.datasetName ??
+          fileName ??
+          "Dataset Library asset",
+        datasetRole: datasetLibraryLink?.datasetRole ?? "modeling",
+        sourceType: "dataset-library",
+        rowCount: registeredRowCount,
+        columnCount: headers.length,
+        linkedAt: datasetLibraryLink?.linkedAt ?? new Date().toISOString(),
+      },
       data_access: meta ?? undefined,
       data_quality: dq,
-    };
-    const backendPayload: LocalDataset = {
-      ...localPayload,
-      headers: backendView.headers,
-      rows: backendView.rows,
-      selected_columns: backendView.selectedColumns,
     };
     const localSaveStatus = saveLocalDataset(localPayload);
     if (localSaveStatus === "failed") {
@@ -1214,31 +1395,40 @@ export default function Step01DataAcquisition() {
           task: problemType === "regression" ? "regression" : "binary",
           target,
           selected_columns: localView.selectedColumns,
-          dataset_version: meta?.version,
+          dataset_id: canonical.dataset_id,
+          dataset_version_id: canonical.dataset_version_id,
+          dataset_version: canonical.dataset_version_id,
         },
       },
     }));
 
-    let backendSynced = backendImportSynced;
+    let backendSynced = false;
     try {
-      if (!backendImportSynced && !completeBrowserDataset) {
-        throw new Error("The full registered dataset artifact is not active. Reload the source instead of sending preview rows as modeling data.");
-      }
-      const backendRes = await fetch(`${BASE}${backendImportSynced ? "/data/set_target" : "/data/set_sample"}`, {
+      const targetPayload = buildTargetPersistencePayload(canonical, {
+        target: target || null,
+        selected_columns: localView.selectedColumns,
+        event_value: eventValue,
+        non_event_value: nonEventValue,
+      });
+      const backendRes = await fetch(`${BASE}/data/set_target`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify(backendImportSynced
-          ? { project_id: projectId, target, selected_columns: localView.selectedColumns, dataset_version: meta?.version }
-          : { ...backendPayload, project_id: projectId, dataset_version: meta?.version }),
+        body: JSON.stringify({
+          ...targetPayload,
+          access_metadata_id: meta?.accessMetadataId,
+        }),
       });
       const backendJson = await backendRes.json().catch(() => null);
       if (!backendRes.ok || !backendJson?.ok) {
         throw new Error(backendJson?.detail ?? backendJson?.error ?? "Backend did not accept the modeling dataset.");
       }
+      assertExactDatasetActivation(canonical, backendJson);
       backendSynced = true;
     } catch (err: any) {
-      setMessage(`Dataset preview is saved locally. Backend sync did not complete: ${err?.message ?? "Unable to send the modeling dataset to the backend."}`);
+      const detail = err?.message ?? "Unable to send target configuration to the backend.";
+      setMessage(`Dataset preview is saved locally. Backend sync did not complete: ${detail}`);
+      throw new Error(detail);
     }
 
     if (backendSynced && localSaveStatus === "sample") {
@@ -1246,19 +1436,12 @@ export default function Step01DataAcquisition() {
     } else if (backendSynced && localSaveStatus !== "failed") {
       setMessage(`Cached ${profilingRows.length.toLocaleString()} profiling rows in the browser and preserved ${registeredRowCount.toLocaleString()} registered modeling rows.`);
     }
-    if (sourceType === "existing" && selectedLibraryDatasetId && selectedLibraryVersionId) {
-      try {
-        await linkDatasetToProject(projectId, selectedLibraryDatasetId, selectedLibraryVersionId, "modeling");
-      } catch (error) {
-        setMessage("Dataset is usable in this workflow, but ATLAS could not update the project-dataset link registry.");
-      }
-    }
     logDecision({
       workflowStep: "Data Acquisition",
       actionType: "workflow_setting_changed",
       subject: "Dataset version",
-      previousValue: metadata?.version,
-      newValue: meta?.version,
+      previousValue: loadLocalDataset()?.dataset_version_id,
+      newValue: canonical.dataset_version_id,
       systemRecommendation: "Use dataset version, hash, source, query, and sampling metadata in model governance documentation.",
       followStatus: "followed",
     });
@@ -1296,6 +1479,7 @@ export default function Step01DataAcquisition() {
       target: next || null,
     });
     saveLocalDataset({
+      ...(currentDataset ?? {}),
       headers: localView.headers,
       rows: localView.rows,
       target: next || null,
@@ -1358,34 +1542,89 @@ export default function Step01DataAcquisition() {
     setRegistering(true);
     setRegistrationError("");
     try {
-      // The backend DATASTORE for this project is only synced when the user advances
-      // past this step (persistDataset, normally StepShell's onNext) -- registration can
-      // happen before that, so ensure the sync has actually happened first, without
-      // navigating away from this page.
-      await persistDataset();
-      const dataset = await registerWorkspaceDataset({
+      if (activeDatasetIdentity) {
+        setMessage(
+          `This workflow already uses registered version ${activeDatasetIdentity.dataset_version_id}.`
+        );
+        return;
+      }
+      if (!completeBrowserDataset || !fullSourceRows.length) {
+        throw new Error(
+          "Load the complete dataset through backend registration before creating a governed Dataset Library version."
+        );
+      }
+      const draftView = buildSelectedDatasetView({
+        headers,
+        rows: fullSourceRows,
+        selectedColumns: selected,
+        target: target || null,
+      });
+      const draftResponse = await fetch(`${BASE}/data/set_sample`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          project_id: projectId,
+          headers: draftView.headers,
+          rows: draftView.rows,
+          target,
+          selected_columns: draftView.selectedColumns,
+          access_metadata_id: generatedMetadata?.accessMetadataId,
+        }),
+      });
+      const draftPayload = await draftResponse.json().catch(() => null);
+      if (!draftResponse.ok || !draftPayload?.ok) {
+        throw new Error(
+          draftPayload?.detail ?? draftPayload?.error ?? "ATLAS could not stage the workspace dataset for registration."
+        );
+      }
+      const registration = await registerWorkspaceDataset({
         projectId,
         name: registerName.trim(),
         description: registerDescription.trim(),
         tags: registerTags.split(",").map((tag) => tag.trim()).filter(Boolean),
       });
+      const dataset = registration.dataset;
       setRegistrationResult(dataset);
-      // Record the governed link locally.
-      //
-      // Without this, registering an UPLOADED workspace dataset left
-      // `dataset_library` unset (it was only written when picking an already
-      // registered asset), so downstream steps had no immutable
-      // (datasetId, versionId) to analyze against and EDA stayed a Workspace
-      // Draft Analysis forever -- the draft-to-governed transition could never
-      // complete for the most common flow.
-      const registeredVersion = dataset.latestVersion ?? null;
+      const createdVersionId = registration.created_dataset_version_id;
+      const registeredVersion = registration.created_version;
+      if (
+        !dataset.datasetId ||
+        !createdVersionId ||
+        !registeredVersion ||
+        registeredVersion.versionId !== createdVersionId
+      ) {
+        throw new Error("Dataset registration did not return an exact immutable version.");
+      }
+      const canonical = assertExactDatasetActivation(
+        {
+          project_id: projectId,
+          dataset_id: dataset.datasetId,
+          dataset_version_id: createdVersionId,
+        },
+        registration
+      );
+      setActiveDatasetIdentity(canonical);
+      setLoadedLibraryIdentity({
+        datasetId: canonical.dataset_id,
+        versionId: canonical.dataset_version_id,
+      });
+      setSelectedLibraryDatasetId(canonical.dataset_id);
+      setSelectedLibraryVersionId(canonical.dataset_version_id);
+      setSelectedDatasetVersions([registeredVersion]);
+      setBackendImportSynced(true);
+      setDatasetIdentityError("");
+      await persistDataset(canonical);
       const existing = loadLocalDataset();
-      if (existing && dataset.datasetId && registeredVersion?.versionId) {
+      if (existing) {
         saveLocalDataset({
           ...existing,
+          dataset_id: canonical.dataset_id,
+          dataset_version_id: canonical.dataset_version_id,
+          dataset_version: canonical.dataset_version_id,
           dataset_library: {
-            datasetId: dataset.datasetId,
-            versionId: registeredVersion.versionId,
+            datasetId: canonical.dataset_id,
+            versionId: canonical.dataset_version_id,
             datasetName: dataset.name ?? registerName.trim(),
             datasetRole: "modeling",
             sourceType: "dataset-library",
@@ -1415,15 +1654,30 @@ export default function Step01DataAcquisition() {
     <ExistingDatasetPanel
       versions={datasetVersions}
       libraryDatasets={libraryDatasets}
+      libraryVersions={selectedDatasetVersions}
       selectedDatasetId={selectedLibraryDatasetId}
       selectedVersionId={selectedLibraryVersionId}
       loading={libraryLoading}
       loadProgress={loadProgress}
       isLoaded={isAlreadyLinked(loadedLibraryIdentity, { datasetId: selectedLibraryDatasetId, versionId: selectedLibraryVersionId })}
-      onDatasetChange={(datasetId) => {
-        const dataset = libraryDatasets.find((item) => item.datasetId === datasetId);
+      onDatasetChange={async (datasetId) => {
         setSelectedLibraryDatasetId(datasetId);
-        setSelectedLibraryVersionId(dataset?.latestVersion?.versionId ?? "");
+        setSelectedLibraryVersionId("");
+        setSelectedDatasetVersions([]);
+        setActiveDatasetIdentity(null);
+        setDatasetIdentityError("");
+        if (datasetId) {
+          try {
+            const dataset = await getDataset(datasetId);
+            setSelectedDatasetVersions(dataset.versions);
+          } catch (error) {
+            setDatasetIdentityError(
+              error instanceof Error
+                ? error.message
+                : "ATLAS could not resolve the selected dataset's exact versions."
+            );
+          }
+        }
         // Part A/5 + H1/8: a different selection is not the loaded version.
         setLoadProgress(IDLE_LOAD_PROGRESS);
       }}
@@ -1455,21 +1709,36 @@ export default function Step01DataAcquisition() {
         let stageIndex = 0;
         try {
           advance(0); // Authorizing dataset access
-          const activation = await activateDatasetVersion(selectedLibraryDatasetId, selectedLibraryVersionId, projectId);
-          // Loading a governed version INTO this project's modeling workspace is
-          // the act of using it here, so the project-dataset link is established
-          // now rather than only when the page is finally saved. Governed
-          // profiling requires the link (server-side `_require_linked`), so
-          // deferring it left the authoritative profile unavailable after load.
-          await linkDatasetToProject(projectId, selectedLibraryDatasetId, selectedLibraryVersionId, "modeling").catch(() => undefined);
+          await linkDatasetToProject(
+            projectId,
+            selectedLibraryDatasetId,
+            selectedLibraryVersionId,
+            "modeling"
+          );
+          const activation = await activateDatasetVersion(
+            selectedLibraryDatasetId,
+            selectedLibraryVersionId,
+            projectId
+          );
+          const canonical = assertExactDatasetActivation(
+            {
+              project_id: projectId,
+              dataset_id: selectedLibraryDatasetId,
+              dataset_version_id: selectedLibraryVersionId,
+            },
+            activation
+          );
 
           stageIndex = 1;
           advance(1); // Resolving dataset version
-          const resolvedRowCount = activation.row_count ?? dataset?.latestVersion?.rowCount ?? 0;
+          const resolvedRowCount = activation.row_count;
 
           stageIndex = 2;
           advance(2); // Reading governed schema
-          const preview = await getDatasetPreview(selectedLibraryDatasetId, selectedLibraryVersionId);
+          const preview = await getDatasetPreview(
+            canonical.dataset_id,
+            canonical.dataset_version_id
+          );
 
           stageIndex = 3;
           advance(3); // Profiling target and predictors
@@ -1482,6 +1751,9 @@ export default function Step01DataAcquisition() {
             target: guessedTarget,
             selectedColumns: preview.columns.filter((header) => header !== guessedTarget),
             filename: dataset?.name ?? selectedLibraryDatasetId,
+            projectId: canonical.project_id,
+            datasetId: canonical.dataset_id,
+            datasetVersionId: canonical.dataset_version_id,
           };
 
           stageIndex = 4;
@@ -1493,9 +1765,10 @@ export default function Step01DataAcquisition() {
             sourceLabel: `Dataset Library: ${dataset?.name ?? selectedLibraryDatasetId} (${selectedLibraryVersionId})`,
             backendSynced: true,
             browserComplete: false,
+            canonicalIdentity: canonical,
             datasetLibrary: {
-              datasetId: selectedLibraryDatasetId,
-              versionId: selectedLibraryVersionId,
+              datasetId: canonical.dataset_id,
+              versionId: canonical.dataset_version_id,
               datasetName: dataset?.name ?? "Dataset Library asset",
               datasetRole: "modeling",
               sourceType: "dataset-library",
@@ -1505,7 +1778,12 @@ export default function Step01DataAcquisition() {
             },
           });
           setFileName(dataset?.name ?? "Dataset Library asset");
-          setLoadedLibraryIdentity({ datasetId: selectedLibraryDatasetId, versionId: selectedLibraryVersionId });
+          setActiveDatasetIdentity(canonical);
+          setDatasetIdentityError("");
+          setLoadedLibraryIdentity({
+            datasetId: canonical.dataset_id,
+            versionId: canonical.dataset_version_id,
+          });
           setLoadProgress({ phase: "loaded", activeStageIndex: DATASET_LOAD_STAGES.length - 1, failedStageIndex: null, error: null });
           // Part A/6: identity, not display name, is what the analyst is told was loaded.
           setMessage(`Loaded ${dataset?.name ?? "Dataset Library asset"}, version ${selectedLibraryVersionId}, into this project.`);
@@ -1514,6 +1792,8 @@ export default function Step01DataAcquisition() {
           // Part H1/7: completed milestones survive, the failed stage is named, no green completion.
           setLoadProgress({ phase: "failed", activeStageIndex: stageIndex, failedStageIndex: stageIndex, error: detail });
           setLoadedLibraryIdentity(null);
+          setActiveDatasetIdentity(null);
+          setDatasetIdentityError(detail);
           setMessage(detail);
         } finally {
           setIsImporting(false);
@@ -1757,7 +2037,7 @@ export default function Step01DataAcquisition() {
           columnCount={headers.length}
           selectedCount={selected.length}
           browserDataComplete={completeBrowserDataset}
-          datasetVersion={selectedLibraryVersionId || generatedMetadata?.version || metadata?.version}
+          datasetVersion={activeDatasetIdentity?.dataset_version_id}
           sourceKindLabel={DATASET_SOURCE_LABELS[datasetSourceKind]}
         />
 
@@ -1809,7 +2089,12 @@ export default function Step01DataAcquisition() {
           </div>
         </section>
 
-        <BureauReviewPanel target={target} eventValue={eventValue} enabled={!!headers.length && !!registeredRowCount} />
+        <BureauReviewPanel
+          target={target}
+          eventValue={eventValue}
+          enabled={!!headers.length && !!registeredRowCount}
+          datasetIdentity={activeDatasetIdentity}
+        />
 
         {!!headers.length && (
           <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -2571,6 +2856,7 @@ function CloudPanel({ cloudProvider, setCloudProvider, cloudPath, setCloudPath }
 function ExistingDatasetPanel({
   versions,
   libraryDatasets,
+  libraryVersions,
   selectedDatasetId,
   selectedVersionId,
   loading,
@@ -2583,6 +2869,7 @@ function ExistingDatasetPanel({
 }: {
   versions: ReturnType<typeof loadDatasetVersions>;
   libraryDatasets: DatasetSummary[];
+  libraryVersions: DatasetVersionSummary[];
   selectedDatasetId: string;
   selectedVersionId: string;
   loading: boolean;
@@ -2594,7 +2881,6 @@ function ExistingDatasetPanel({
   onLoad: () => void;
 }) {
   const selectedDataset = libraryDatasets.find((dataset) => dataset.datasetId === selectedDatasetId);
-  const selectedVersions = selectedDataset?.latestVersion ? [selectedDataset.latestVersion] : [];
   const isLoading = loadProgress.phase === "loading";
   const failed = loadProgress.phase === "failed";
   // Part A/5: a successful load only counts for the selection that produced it.
@@ -2643,7 +2929,7 @@ function ExistingDatasetPanel({
             label="Version"
             value={selectedVersionId}
             onChange={onVersionChange}
-            options={selectedVersions.map((version) => version.versionId)}
+            options={libraryVersions.map((version) => version.versionId)}
           />
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
@@ -2694,9 +2980,9 @@ function ExistingDatasetPanel({
           <div className="mt-2 overflow-auto rounded-lg border border-slate-200 bg-white">
             <table className="min-w-full text-sm">
               <thead className="bg-slate-50 text-xs uppercase text-slate-500">
-                <tr><th className="px-3 py-2 text-left">Version</th><th className="px-3 py-2 text-left">Source</th><th className="px-3 py-2 text-right">Rows</th><th className="px-3 py-2 text-right">Columns</th><th className="px-3 py-2 text-left">Imported</th></tr>
+                <tr><th className="px-3 py-2 text-left">Access snapshot</th><th className="px-3 py-2 text-left">Source</th><th className="px-3 py-2 text-right">Rows</th><th className="px-3 py-2 text-right">Columns</th><th className="px-3 py-2 text-left">Imported</th></tr>
               </thead>
-              <tbody>{versions.map((row) => <tr key={row.version} className="border-t"><td className="px-3 py-2 font-mono text-xs">{row.version}</td><td className="px-3 py-2">{row.sourceLabel}</td><td className="px-3 py-2 text-right">{row.rows}</td><td className="px-3 py-2 text-right">{row.columns}</td><td className="px-3 py-2">{new Date(row.importedAt).toLocaleString()}</td></tr>)}</tbody>
+              <tbody>{versions.map((row) => <tr key={row.accessMetadataId} className="border-t"><td className="px-3 py-2 font-mono text-xs">{row.accessMetadataId}</td><td className="px-3 py-2">{row.sourceLabel}</td><td className="px-3 py-2 text-right">{row.rows}</td><td className="px-3 py-2 text-right">{row.columns}</td><td className="px-3 py-2">{new Date(row.importedAt).toLocaleString()}</td></tr>)}</tbody>
             </table>
           </div>
         </details>
@@ -2818,7 +3104,7 @@ function DataQualityPanel({ quality, metadata }: { quality: DataQualitySummary |
           <Stat label="Profiled rows" value={quality.profiledRowCount ?? quality.rowCount} />
           <Stat label="Columns" value={quality.columnCount} />
           <Stat label="Memory estimate" value={`${quality.memoryEstimateMb.toFixed(2)} MB`} />
-          {metadata?.version && <Stat label="Dataset version" value={quality.datasetVersion ?? metadata.version} />}
+          {metadata?.accessMetadataId && <Stat label="Access snapshot" value={metadata.accessMetadataId} />}
           {(quality.datasetHash || metadata?.hash) && <Stat label="Dataset hash" value={quality.datasetHash ?? metadata?.hash ?? ""} />}
         </div>
       </div>

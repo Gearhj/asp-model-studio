@@ -17,6 +17,9 @@ class TrainingJobRequest(BaseModel):
     model_params: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     project_id: str
     dataset_id: str = ""
+    dataset_version_id: str = ""
+    # Backward-compatible expectation only. The active Dataset Library
+    # identity is authoritative.
     dataset_version: str = ""
     target: str = ""
     problem_type: str = ""

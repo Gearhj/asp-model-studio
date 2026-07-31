@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -13,8 +14,14 @@ from pydantic import BaseModel, Field
 
 from ..core.dataset_store import DATASTORE
 from ..core.modeling_scope import authorize_modeling_scope
+from ..core.pretraining_invalidation import invalidate_downstream_training_state
+from ..core.result_store import RESULTS
 from ..core.session_checkpoint import schedule_checkpoint_save
-from ..datasets.dataset_registry import require_dataset, version_dir
+from ..datasets.dataset_identity import (
+    active_dataset_identity,
+    assert_expected_active_identity,
+    resolve_registered_version,
+)
 from ..security.security_store import audit_event, require_user
 from .split_service import split_service, target_distribution
 
@@ -41,13 +48,23 @@ class SplitConfigPayload(BaseModel):
     event_value: Any | None = None
     selected_features: list[str] = Field(default_factory=list)
     feature_manifest_version: str = ""
+    dataset_id: str = ""
+    dataset_version_id: str = ""
+    # Backward-compatible expectation only; canonical identity is resolved
+    # from the active project link.
     dataset_version: str = ""
     development_dataset_id: str = ""
+    development_dataset_version_id: str = ""
+    # Deprecated comparison-only alias.
     development_dataset_version: str = ""
     test_dataset_id: str = ""
+    test_dataset_version_id: str = ""
+    # Deprecated comparison-only alias.
     test_dataset_version: str = ""
     test_target_field: str = ""
     oot_dataset_id: str = ""
+    oot_dataset_version_id: str = ""
+    # Deprecated comparison-only alias.
     oot_dataset_version: str = ""
     oot_target_field: str = ""
     external_validation_mode: Literal[
@@ -103,6 +120,54 @@ def _stable_hash(payload: dict[str, Any]) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def _current_store(proxy: Any) -> Any:
+    """Resolve a scoped proxy while remaining compatible with direct tests."""
+    current = getattr(proxy, "current", None)
+    return current() if callable(current) else proxy
+
+
+def _identity_fields(identity: dict[str, Any]) -> dict[str, str]:
+    return {
+        "project_id": str(identity["project_id"]),
+        "dataset_id": str(identity["dataset_id"]),
+        "dataset_version_id": str(identity["dataset_version_id"]),
+        # Transitional response compatibility only.
+        "dataset_version": str(identity["dataset_version_id"]),
+    }
+
+
+def _record_identity_is_current(
+    record: dict[str, Any],
+    identity: dict[str, Any],
+) -> bool:
+    if not record:
+        return False
+    canonical = _identity_fields(identity)
+    if any(
+        not str(record.get(key) or "").strip()
+        or str(record.get(key)) != canonical[key]
+        for key in ("project_id", "dataset_id", "dataset_version_id")
+    ):
+        return False
+    legacy = str(record.get("dataset_version") or "").strip()
+    return not legacy or legacy == canonical["dataset_version_id"]
+
+
+def _require_record_identity(
+    record: dict[str, Any],
+    identity: dict[str, Any],
+    label: str,
+) -> None:
+    if not _record_identity_is_current(record, identity):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"The {label} is not bound to the exact active Dataset Library "
+                "version. Recreate it before continuing."
+            ),
+        )
+
+
 def _selected_manifest_features(manifest: dict[str, Any]) -> list[str]:
     return [
         str(row.get("feature_name"))
@@ -111,36 +176,95 @@ def _selected_manifest_features(manifest: dict[str, Any]) -> list[str]:
     ]
 
 
+def _manifest_concurrency_token(manifest: dict[str, Any]) -> str:
+    """Fingerprint the governed fields that authorize a split computation."""
+    return _stable_hash(
+        {
+            "identity": {
+                key: manifest.get(key)
+                for key in ("project_id", "dataset_id", "dataset_version_id")
+            },
+            "manifest_version": (
+                manifest.get("manifest_hash")
+                or manifest.get("manifest_version")
+                or ""
+            ),
+            "validation_status": manifest.get("validation_status"),
+            "materialization_status": manifest.get("materialization_status"),
+            "materialized_manifest_hash": manifest.get(
+                "materialized_manifest_hash"
+            ),
+            "confirmation_status": manifest.get("confirmation_status"),
+            "confirmed_manifest_hash": manifest.get("confirmed_manifest_hash"),
+            "selected_features": _selected_manifest_features(manifest),
+        }
+    )
+
+
+def _external_reference_error(
+    reference: Any,
+    role: str,
+    *,
+    user: dict[str, Any] | None,
+) -> str:
+    """Re-resolve a persisted TEST/OOT reference without any latest fallback."""
+    if reference in (None, {}):
+        return ""
+    if not isinstance(reference, dict):
+        return f"The pinned {role} dataset reference is malformed."
+    dataset_id = str(reference.get("dataset_id") or "").strip()
+    dataset_version_id = str(reference.get("dataset_version_id") or "").strip()
+    if not dataset_id or not dataset_version_id:
+        return (
+            f"The pinned {role} dataset reference does not contain an exact "
+            "dataset_id and dataset_version_id."
+        )
+    for alias in ("version_id", "dataset_version"):
+        legacy = str(reference.get(alias) or "").strip()
+        if legacy and legacy != dataset_version_id:
+            return (
+                f"The pinned {role} dataset reference contains conflicting "
+                "version identifiers."
+            )
+    try:
+        resolved = resolve_registered_version(
+            dataset_id,
+            dataset_version_id,
+            user=user,
+        )
+    except HTTPException as exc:
+        return (
+            f"The pinned {role} dataset version is no longer available to "
+            f"this project user: {exc.detail}"
+        )
+    if (
+        str(resolved.get("dataset_id") or "") != dataset_id
+        or str(resolved.get("dataset_version_id") or "") != dataset_version_id
+    ):
+        return f"The pinned {role} dataset version no longer resolves exactly."
+    return ""
+
+
 def _load_external_frame(
     dataset_id: str,
-    version_id: str,
+    dataset_version_id: str,
     role: str,
+    *,
+    user: dict[str, Any] | None = None,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
-    if not dataset_id or not version_id:
+    if not dataset_id or not dataset_version_id:
         raise HTTPException(
             status_code=400,
             detail=f"Select and pin an immutable {role} dataset version.",
         )
-    dataset = require_dataset(dataset_id)
-    version = next(
-        (
-            item
-            for item in dataset.get("versions") or []
-            if str(item.get("versionId")) == version_id
-        ),
-        None,
+    resolved = resolve_registered_version(
+        dataset_id,
+        dataset_version_id,
+        user=user,
     )
-    if version is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"The pinned {role} dataset version was not found.",
-        )
-    path = version_dir(dataset_id, version_id) / "data_full.csv"
-    if not path.exists():
-        raise HTTPException(
-            status_code=404,
-            detail=f"The pinned {role} dataset has no full-data artifact.",
-        )
+    dataset = resolved["dataset"]
+    version = resolved["version"]
+    path = resolved["artifact_path"]
     try:
         frame = pd.read_csv(path)
     except Exception as exc:
@@ -157,7 +281,9 @@ def _load_external_frame(
         "role": role,
         "dataset_id": dataset_id,
         "dataset_name": dataset.get("name"),
-        "version_id": version_id,
+        "dataset_version_id": dataset_version_id,
+        # Transitional compatibility alias derived from the canonical field.
+        "version_id": dataset_version_id,
         "version_hash": version.get("hash"),
         "row_count": int(len(frame)),
         "column_count": int(len(frame.columns)),
@@ -333,37 +459,50 @@ def _compatibility_matrix(
     }
 
 
-def _require_full_dataset():
-    frame = DATASTORE.get_base_df()
+def _require_full_dataset(store: Any = DATASTORE):
+    frame = store.get_base_df()
     if frame is None or frame.empty:
         raise HTTPException(status_code=400, detail="No full backend dataset is loaded.")
-    target = str(DATASTORE.target or "")
+    target = str(store.target or "")
     if not target or target not in frame.columns:
         raise HTTPException(status_code=400, detail="Confirm a target column before creating a split.")
     return frame, target
 
 
-def _current_status() -> dict[str, Any]:
-    meta = DATASTORE.meta
+def _current_status(
+    project_id: str,
+    *,
+    user: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    scoped_store = _current_store(DATASTORE)
+    identity = active_dataset_identity(project_id, user=user, store=scoped_store)
+    meta = scoped_store.meta
     record = meta.get("split_record") if isinstance(meta.get("split_record"), dict) else {}
     manifest = meta.get("feature_manifest") if isinstance(meta.get("feature_manifest"), dict) else {}
     stored_status = str(meta.get("split_status") or "not_created")
-    has_split = all(part is not None for part in DATASTORE.get_splits())
+    has_split = all(part is not None for part in scoped_store.get_splits())
     status = stored_status
     reason = ""
-    current_dataset_version = str(meta.get("dataset_version") or manifest.get("dataset_version") or "in-memory")
     current_manifest_version = str(
         manifest.get("manifest_hash") or manifest.get("manifest_version") or ""
     )
-    current_selected = _selected_manifest_features(manifest) or DATASTORE.get_selected_columns()
-    current_target = str(DATASTORE.target or "")
+    if not current_manifest_version:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "A governed feature manifest for the active Dataset Library "
+                "version is required before Validation Design."
+            ),
+        )
+    current_selected = _selected_manifest_features(manifest)
+    current_target = str(scoped_store.target or "")
     has_engineered_features = any(
         isinstance(row, dict) and row.get("origin") != "original"
         for row in manifest.get("features") or []
     )
     record_selected = [str(value) for value in record.get("selected_features") or []]
     distributions = dict(record.get("distributions") or {})
-    current_frame = DATASTORE.get_base_df()
+    current_frame = scoped_store.get_base_df()
     if (
         "full_dataset" not in distributions
         and current_frame is not None
@@ -373,14 +512,39 @@ def _current_status() -> dict[str, Any]:
     ):
         distributions["full_dataset"] = target_distribution(
             current_frame[current_target],
-            record.get("event_value") if record else DATASTORE.meta.get("event_value"),
+            record.get("event_value")
+            if record
+            else scoped_store.meta.get("event_value"),
         )
-    if status == "current" and not has_split:
+    validation_design = (
+        record.get("validation_design")
+        if isinstance(record.get("validation_design"), dict)
+        else {}
+    )
+    if status == "current" and not _record_identity_is_current(record, identity):
+        status = "stale"
+        reason = (
+            "Validation split is stale because it is not bound to the exact "
+            "active Dataset Library version."
+        )
+    elif status == "current" and not _record_identity_is_current(manifest, identity):
+        status = "stale"
+        reason = (
+            "Validation split is stale because the feature manifest is not "
+            "bound to the exact active Dataset Library version."
+        )
+    elif (
+        status == "current"
+        and not _record_identity_is_current(validation_design, identity)
+    ):
+        status = "stale"
+        reason = (
+            "Validation split is stale because the validation design is not "
+            "bound to the exact active Dataset Library version."
+        )
+    elif status == "current" and not has_split:
         status = "stale"
         reason = "Validation split is stale because split data is not loaded in the backend session."
-    elif status == "current" and record.get("dataset_version") and record.get("dataset_version") != current_dataset_version:
-        status = "stale"
-        reason = "Validation split is stale because the dataset version changed."
     elif status == "current" and record.get("feature_manifest_version") and record.get("feature_manifest_version") != current_manifest_version:
         status = "stale"
         reason = "Validation split is stale because engineered features were updated."
@@ -402,14 +566,36 @@ def _current_status() -> dict[str, Any]:
         status = "stale"
         reason = "Validation design is stale because the feature contract is no longer confirmed current."
     elif status == "current":
-        train_distribution = (record.get("distributions") or {}).get("train_after_balancing") or {}
-        holdout_distribution = (record.get("distributions") or {}).get("holdout_untouched") or {}
-        if train_distribution.get("events") == 0:
-            status = "stale"
-            reason = "Training split has zero events."
-        elif holdout_distribution.get("events") == 0:
-            status = "stale"
-            reason = "Holdout split has zero events."
+        for reference, role in (
+            (record.get("test_reference"), "TEST"),
+            (record.get("oot_reference"), "OOT"),
+        ):
+            external_error = _external_reference_error(
+                reference,
+                role,
+                user=user,
+            )
+            if external_error:
+                status = "stale"
+                reason = external_error + " Rebuild Validation Design."
+                break
+        if status == "current":
+            train_distribution = (
+                (record.get("distributions") or {}).get(
+                    "train_after_balancing"
+                )
+                or {}
+            )
+            holdout_distribution = (
+                (record.get("distributions") or {}).get("holdout_untouched")
+                or {}
+            )
+            if train_distribution.get("events") == 0:
+                status = "stale"
+                reason = "Training split has zero events."
+            elif holdout_distribution.get("events") == 0:
+                status = "stale"
+                reason = "Holdout split has zero events."
     if not reason:
         if status == "current":
             reason = "Ready for next step. Validation split is current."
@@ -419,6 +605,7 @@ def _current_status() -> dict[str, Any]:
             reason = "Create a governed validation split before continuing."
     return {
         "ok": True,
+        **_identity_fields(identity),
         "status": status,
         "ready": status == "current" and has_split,
         "readiness_reason": reason,
@@ -429,7 +616,6 @@ def _current_status() -> dict[str, Any]:
         "split_config_hash": record.get("split_config_hash"),
         "balancing_config_hash": record.get("balancing_config_hash"),
         "created_at": record.get("created_at"),
-        "dataset_version": record.get("dataset_version"),
         "target": record.get("target"),
         "event_value": record.get("event_value"),
         "feature_manifest_version": record.get("feature_manifest_version"),
@@ -467,29 +653,116 @@ def _current_status() -> dict[str, Any]:
 
 
 @router.get("/status")
-def balancing_split_status(project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)):
+def balancing_split_status(
+    project_id: str = Query(...),
+    expected_dataset_id: str = Query(""),
+    expected_dataset_version_id: str = Query(""),
+    user: Dict[str, Any] = Depends(require_user),
+):
     authorize_modeling_scope(user, project_id, "view")
-    return _current_status()
+    scoped_store = _current_store(DATASTORE)
+    with scoped_store.state_lock:
+        assert_expected_active_identity(
+            project_id,
+            expected_dataset_id=expected_dataset_id,
+            expected_dataset_version_id=expected_dataset_version_id,
+            require_expected=True,
+            user=user,
+            store=scoped_store,
+        )
+        return _current_status(project_id, user=user)
 
 
 @router.post("/config")
 def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = Depends(require_user)):
     authorize_modeling_scope(user, payload.project_id, "edit")
     started = time.perf_counter()
-    frame, target = _require_full_dataset()
-    manifest = DATASTORE.meta.get("feature_manifest") if isinstance(DATASTORE.meta.get("feature_manifest"), dict) else {}
+    scoped_store = _current_store(DATASTORE)
+    scoped_results = _current_store(RESULTS)
+    # Capture one immutable computation snapshot. Expensive compatibility and
+    # split work happens outside the lock, but no output is publishable unless
+    # this exact identity/revision/manifest contract still holds at commit.
+    with scoped_store.state_lock:
+        identity = assert_expected_active_identity(
+            payload.project_id,
+            expected_dataset_id=payload.dataset_id,
+            expected_dataset_version_id=payload.dataset_version_id,
+            legacy_dataset_version=payload.dataset_version,
+            require_expected=True,
+            user=user,
+            store=scoped_store,
+        )
+        frame, target = _require_full_dataset(scoped_store)
+        frame = frame.copy(deep=True)
+        manifest = (
+            deepcopy(scoped_store.meta.get("feature_manifest"))
+            if isinstance(scoped_store.meta.get("feature_manifest"), dict)
+            else {}
+        )
+        captured_data_revision = int(scoped_store.data_revision)
+        captured_manifest_token = _manifest_concurrency_token(manifest)
+    if (
+        payload.development_dataset_id
+        and payload.development_dataset_id != identity["dataset_id"]
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The requested development dataset does not match the active "
+                "Dataset Library link."
+            ),
+        )
+    if (
+        payload.development_dataset_version_id
+        and payload.development_dataset_version_id
+        != identity["dataset_version_id"]
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The requested development dataset version does not match the "
+                "active Dataset Library version."
+            ),
+        )
+    if (
+        payload.development_dataset_version
+        and payload.development_dataset_version
+        != identity["dataset_version_id"]
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The deprecated development dataset version expectation does "
+                "not match the active Dataset Library version."
+            ),
+        )
+    if (
+        payload.development_dataset_version_id
+        and payload.development_dataset_version
+        and payload.development_dataset_version_id
+        != payload.development_dataset_version
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="Conflicting development dataset version expectations were supplied.",
+        )
+    _require_record_identity(manifest, identity, "feature manifest")
     current_manifest_version = str(
         manifest.get("manifest_hash") or manifest.get("manifest_version") or ""
     )
-    current_dataset_version = str(DATASTORE.meta.get("dataset_version") or manifest.get("dataset_version") or "in-memory")
+    current_dataset_id = str(identity["dataset_id"])
+    current_dataset_version = str(identity["dataset_version_id"])
 
     if payload.feature_manifest_version and current_manifest_version and payload.feature_manifest_version != current_manifest_version:
         raise HTTPException(status_code=409, detail="The feature manifest changed. Refresh Final Predictor Review before creating the split.")
-    if payload.dataset_version and current_dataset_version and payload.dataset_version != current_dataset_version:
-        raise HTTPException(status_code=409, detail="The dataset version changed. Reload this page before creating the split.")
-
     manifest_selected = _selected_manifest_features(manifest)
-    selected = list(dict.fromkeys(payload.selected_features or manifest_selected or DATASTORE.get_selected_columns()))
+    selected = list(
+        dict.fromkeys(
+            payload.selected_features
+            or manifest_selected
+            or scoped_store.get_selected_columns()
+        )
+    )
     missing = [name for name in selected if name not in frame.columns]
     if missing:
         raise HTTPException(status_code=409, detail="Selected engineered features must be materialized before splitting: " + ", ".join(missing))
@@ -521,9 +794,48 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
             "project_id",
             "selected_features",
             "feature_manifest_version",
+            "dataset_id",
+            "dataset_version_id",
             "dataset_version",
+            "development_dataset_id",
+            "development_dataset_version_id",
+            "development_dataset_version",
+            "test_dataset_version",
+            "oot_dataset_version",
         }
     )
+    test_dataset_version_id = str(
+        payload.test_dataset_version_id or ""
+    ).strip()
+    oot_dataset_version_id = str(
+        payload.oot_dataset_version_id or ""
+    ).strip()
+    if (
+        payload.test_dataset_version
+        and payload.test_dataset_version != test_dataset_version_id
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The deprecated TEST dataset version expectation conflicts "
+                "with test_dataset_version_id."
+            ),
+        )
+    if (
+        payload.oot_dataset_version
+        and payload.oot_dataset_version != oot_dataset_version_id
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The deprecated OOT dataset version expectation conflicts "
+                "with oot_dataset_version_id."
+            ),
+        )
+    config["development_dataset_id"] = current_dataset_id
+    config["development_dataset_version_id"] = current_dataset_version
+    config["test_dataset_version_id"] = test_dataset_version_id
+    config["oot_dataset_version_id"] = oot_dataset_version_id
     if payload.split_strategy in {"holdout", "holdout_current"} and "fold_method" not in payload.model_fields_set:
         config["fold_method"] = "none"
         config["tuning_scope"] = "none"
@@ -555,10 +867,19 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
         or payload.external_validation_mode in {"oot", "test_oot"}
     )
     if test_requested:
+        if not test_dataset_version_id:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Select and pin an exact immutable TEST "
+                    "dataset_version_id."
+                ),
+            )
         test_frame, test_reference = _load_external_frame(
             payload.test_dataset_id,
-            payload.test_dataset_version,
+            test_dataset_version_id,
             "TEST",
+            user=user,
         )
         test_compatibility = _compatibility_matrix(
             frame,
@@ -582,10 +903,19 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
                 ),
             )
     if oot_requested:
+        if not oot_dataset_version_id:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Select and pin an exact immutable OOT "
+                    "dataset_version_id."
+                ),
+            )
         oot_frame, oot_reference = _load_external_frame(
             payload.oot_dataset_id,
-            payload.oot_dataset_version,
+            oot_dataset_version_id,
             "OOT",
+            user=user,
         )
         oot_compatibility = _compatibility_matrix(
             frame,
@@ -659,11 +989,11 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    DATASTORE.meta["selected_columns"] = selected
-    DATASTORE.set_splits(result.X_train, result.X_test, result.y_train, result.y_test)
+    committed_data_revision = captured_data_revision + 1
     config_payload = {
         **config,
-        "dataset_version": current_dataset_version,
+        **_identity_fields(identity),
+        "data_revision": committed_data_revision,
         "feature_manifest_version": current_manifest_version,
         "selected_features": selected,
     }
@@ -703,7 +1033,8 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
     split_id = f"split-{config_hash}"
     design_seed = {
         "strategy": payload.split_strategy,
-        "dataset_version": current_dataset_version,
+        **_identity_fields(identity),
+        "data_revision": committed_data_revision,
         "feature_manifest_version": current_manifest_version,
         "target": target,
         "selected_feature_hash": selected_feature_hash,
@@ -828,7 +1159,8 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
             "risk": "OOT unavailable",
             "status": "low" if oot_reference else "not_applicable",
             "detail": (
-                f"Pinned {oot_reference.get('dataset_name')} {oot_reference.get('version_id')}."
+                f"Pinned {oot_reference.get('dataset_name')} "
+                f"{oot_reference.get('dataset_version_id')}."
                 if oot_reference
                 else "No OOT population is part of this approved strategy."
             ),
@@ -845,7 +1177,8 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
     )
     completion_gates = {
         "validation_strategy_selected": bool(payload.split_strategy),
-        "dataset_versions_pinned": bool(current_dataset_version)
+        "dataset_versions_pinned": bool(current_dataset_id)
+        and bool(current_dataset_version)
         and (not test_requested or bool(test_reference))
         and (not oot_required or bool(oot_reference)),
         "schema_compatibility_verified": not compatibility_failed,
@@ -915,13 +1248,17 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
         "oot_untouched": True,
     }
     validation_design = {
+        **_identity_fields(identity),
+        "data_revision": committed_data_revision,
         "validation_design_id": validation_design_id,
         "design_version": design_version,
         "strategy": payload.split_strategy,
         "development_dataset": {
-            "dataset_id": payload.development_dataset_id or None,
-            "version_id": payload.development_dataset_version
-            or current_dataset_version,
+            "dataset_id": current_dataset_id,
+            "dataset_version_id": current_dataset_version,
+            # Transitional compatibility alias derived from the canonical ID.
+            "version_id": current_dataset_version,
+            "dataset_version": current_dataset_version,
         },
         "training_population_id": training_population_id,
         "holdout_population_id": holdout_population_id,
@@ -942,19 +1279,19 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
         "approved_at": approved_at,
         "approval_note": payload.approval_note,
         "feature_manifest_hash": current_manifest_version,
-        "dataset_version": current_dataset_version,
         "target": target,
         "selected_feature_hash": selected_feature_hash,
         "status": "approved",
     }
     record = {
+        **_identity_fields(identity),
+        "data_revision": committed_data_revision,
         "split_id": split_id,
         "config_hash": config_hash,
         "selected_feature_hash": selected_feature_hash,
         "split_config_hash": split_config_hash,
         "balancing_config_hash": balancing_config_hash,
         "created_at": _now(),
-        "dataset_version": current_dataset_version,
         "target": target,
         "event_value": payload.event_value,
         "feature_manifest_version": current_manifest_version,
@@ -988,18 +1325,95 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
         "duration_ms": int((time.perf_counter() - started) * 1000),
     }
     record["execution_ms"] = record["duration_ms"]
-    DATASTORE.meta["split_record"] = record
-    DATASTORE.meta["split_config"] = config_payload
-    DATASTORE.meta["validation_design"] = validation_design
-    DATASTORE.meta["target_prevalence"] = {
-        "original": distributions["full_dataset"].get("event_rate"),
-        "train": distributions["train_after_balancing"].get("event_rate"),
-        "test": distributions["holdout_untouched"].get("event_rate"),
-    }
-    DATASTORE.meta["split_status"] = "current"
-    if manifest:
+    committed_splits = (
+        result.X_train.copy(deep=True),
+        result.X_test.copy(deep=True),
+        result.y_train.copy(deep=True),
+        result.y_test.copy(deep=True),
+    )
+    with scoped_store.state_lock:
+        current_identity = assert_expected_active_identity(
+            payload.project_id,
+            expected_dataset_id=identity["dataset_id"],
+            expected_dataset_version_id=identity["dataset_version_id"],
+            user=user,
+            store=scoped_store,
+        )
+        current_manifest = (
+            scoped_store.meta.get("feature_manifest")
+            if isinstance(scoped_store.meta.get("feature_manifest"), dict)
+            else {}
+        )
+        if (
+            any(
+                str(current_identity.get(key) or "")
+                != str(identity.get(key) or "")
+                for key in ("project_id", "dataset_id", "dataset_version_id")
+            )
+            or int(scoped_store.data_revision) != captured_data_revision
+            or not _record_identity_is_current(current_manifest, identity)
+            or _manifest_concurrency_token(current_manifest)
+            != captured_manifest_token
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "The governed dataset or feature manifest changed while "
+                    "Validation Design was being computed. Refresh Balance & "
+                    "Split and rebuild from the current state."
+                ),
+            )
+        for reference, role in (
+            (test_reference, "TEST"),
+            (oot_reference, "OOT"),
+        ):
+            external_error = _external_reference_error(
+                reference,
+                role,
+                user=user,
+            )
+            if external_error:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        external_error
+                        + " Refresh Balance & Split before committing."
+                    ),
+                )
+
+        invalidation = invalidate_downstream_training_state(
+            "Validation Design rebuilt",
+            store=scoped_store,
+            result_store=scoped_results,
+            split_status="stale",
+            bump_revision=True,
+        )
+        committed_data_revision = int(invalidation["data_revision"])
+        if committed_data_revision != int(record["data_revision"]):
+            raise RuntimeError(
+                "Validation Design revision transition was not monotonic."
+            )
+
+        # Publish the four arrays and every matching metadata record together.
+        # No consumer can observe a new split with an old design (or vice versa).
+        scoped_store.meta["selected_columns"] = list(selected)
+        (
+            scoped_store.X_train,
+            scoped_store.X_test,
+            scoped_store.y_train,
+            scoped_store.y_test,
+        ) = committed_splits
+        scoped_store.meta["split_record"] = record
+        scoped_store.meta["split_config"] = config_payload
+        scoped_store.meta["validation_design"] = validation_design
+        scoped_store.meta["target_prevalence"] = {
+            "original": distributions["full_dataset"].get("event_rate"),
+            "train": distributions["train_after_balancing"].get("event_rate"),
+            "test": distributions["holdout_untouched"].get("event_rate"),
+        }
+        scoped_store.meta["split_status"] = "current"
         manifest["split_status"] = "current"
-        DATASTORE.meta["feature_manifest"] = manifest
+        scoped_store.meta["feature_manifest"] = manifest
     audit_event(
         "modeling.validation_design.approved",
         "project",
@@ -1010,6 +1424,8 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
             "designVersion": design_version,
             "splitId": split_id,
             "strategy": payload.split_strategy,
+            "datasetId": current_dataset_id,
+            "datasetVersionId": current_dataset_version,
         },
         user_id=user.get("userId"),
     )

@@ -76,7 +76,7 @@ export default function ExperimentComparison() {
     const q = query.trim().toLowerCase();
     const rows = q
       ? experiments.filter((experiment) =>
-          [experiment.experimentId, experiment.datasetVersion, experiment.modelType, experiment.modelKey, experiment.notes]
+          [experiment.experimentId, experiment.dataset_version_id, experiment.modelType, experiment.modelKey, experiment.notes]
             .join(" ")
             .toLowerCase()
             .includes(q)
@@ -148,7 +148,17 @@ export default function ExperimentComparison() {
       <section className="grid gap-4 md:grid-cols-4">
         <Stat label="Experiments" value={experiments.length || "-"} />
         <Stat label="Champion" value={champion?.modelType ?? "None"} />
-        <Stat label="Datasets" value={new Set(experiments.map((experiment) => experiment.datasetHash)).size || "-"} />
+        <Stat
+          label="Datasets"
+          value={
+            new Set(
+              experiments.map(
+                (experiment) =>
+                  `${experiment.project_id}:${experiment.dataset_id}:${experiment.dataset_version_id}`,
+              ),
+            ).size || "-"
+          }
+        />
         <Stat label="Models" value={new Set(experiments.map((experiment) => experiment.modelKey)).size || "-"} />
       </section>
 
@@ -277,7 +287,9 @@ function ExperimentDetail({
       </div>
 
       <div className="mt-4 grid gap-2">
-        <Detail label="Dataset Version" value={experiment.datasetVersion} />
+        <Detail label="Project ID" value={experiment.project_id} />
+        <Detail label="Dataset ID" value={experiment.dataset_id} />
+        <Detail label="Dataset Version" value={experiment.dataset_version_id} />
         <Detail label="Selected Features" value={String(experiment.selectedFeatures.length)} />
         <Detail label="Balancing" value={experiment.balancingMethod} />
         <Detail label="Split Strategy" value={experiment.splitStrategy} />

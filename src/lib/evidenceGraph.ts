@@ -1,4 +1,9 @@
 import { DATASET_API_BASE } from "./datasetLibrary";
+import {
+  assertExactDatasetIdentity,
+  requireCanonicalDatasetIdentity,
+  type CanonicalDatasetIdentity,
+} from "./datasetIdentity";
 import type { CreditRiskContext, CreditRiskEvidenceChecklist, FinancialDomain, RegulatoryRelevance } from "./financialServicesEvidence";
 import { saveEvidenceToDatabase, updateEvidenceInDatabase } from "./serverPersistence";
 
@@ -46,8 +51,16 @@ export type EvidenceType =
 export type EvidenceStatus = "draft" | "ready" | "needs_review" | "accepted" | "deprecated";
 export type EvidenceImportance = "low" | "medium" | "high" | "critical";
 
+export type EvidenceCanonicalLineage = CanonicalDatasetIdentity & {
+  lineage_contract: "canonical_dataset_version";
+} & Record<string, unknown>;
+
 export type EvidenceItem = {
   evidenceId: string;
+  lineage_contract?: "canonical_dataset_version";
+  project_id?: string;
+  dataset_id?: string;
+  dataset_version_id?: string;
   projectId?: string;
   projectName?: string;
   evidenceType: EvidenceType;
@@ -76,7 +89,7 @@ export type EvidenceItem = {
   createdBy?: string;
   workflowStep?: string;
   sourceRunReference?: string;
-  lineage?: Record<string, unknown>;
+  lineage?: EvidenceCanonicalLineage | Record<string, unknown>;
   payload?: Record<string, unknown>;
   governance?: Record<string, unknown>;
 };
@@ -252,10 +265,23 @@ export async function listEvidence(filters: Record<string, string | undefined> =
 }
 
 export async function createEvidence(input: Partial<EvidenceItem>) {
+  const canonicalClaimed =
+    input.lineage_contract === "canonical_dataset_version" ||
+    Boolean(input.project_id || input.dataset_id || input.dataset_version_id);
+  const canonical = canonicalClaimed
+    ? requireCanonicalDatasetIdentity(input, "Evidence create request")
+    : null;
   const payload = await jsonFetch<{ ok: true; evidence: EvidenceItem }>("/evidence", {
     method: "POST",
     body: JSON.stringify(input),
   });
+  if (canonical) {
+    assertExactDatasetIdentity(
+      canonical,
+      payload.evidence,
+      "Evidence persistence response",
+    );
+  }
   if (payload.evidence.projectId) void saveEvidenceToDatabase(payload.evidence.projectId, payload.evidence as unknown as Record<string, unknown>);
   return payload.evidence;
 }

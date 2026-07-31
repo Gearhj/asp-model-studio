@@ -1,5 +1,40 @@
 from __future__ import annotations
 
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+CANONICAL_DATASET_LINEAGE_CONTRACT = "canonical_dataset_version"
+
+
+class CanonicalEvidenceLineage(BaseModel):
+    """Exact immutable Dataset Library identity carried by governed evidence.
+
+    Camel-case fields used by the legacy Evidence Graph are deliberately not
+    accepted as substitutes. They are emitted later as derived compatibility
+    aliases only after these canonical fields have been authorized and checked
+    against the active modeling scope.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    project_id: str = Field(min_length=1)
+    dataset_id: str = Field(min_length=1)
+    dataset_version_id: str = Field(min_length=1)
+    lineage_contract: Literal["canonical_dataset_version"] = (
+        CANONICAL_DATASET_LINEAGE_CONTRACT
+    )
+
+    @field_validator("project_id", "dataset_id", "dataset_version_id")
+    @classmethod
+    def identifiers_must_not_be_blank(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("Canonical evidence identifiers cannot be blank.")
+        return cleaned
+
+
 EVIDENCE_TYPES = {
     "dataset",
     "sql_query",

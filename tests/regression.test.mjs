@@ -269,7 +269,8 @@ test("Model Training keeps Studio-routed continuation and no direct Evaluation b
 test("Feature Engineering respects selected columns from Data Acquisition", async () => {
   const source = await readFile(new URL("../src/steps/Step05_EncodingScaling.tsx", import.meta.url), "utf8");
   const featureService = await readFile(new URL("../server/features/feature_service.py", import.meta.url), "utf8");
-  assert.match(source, /getFeatureManifest\(projectId\)/);
+  assert.match(source, /requireLocalDatasetCanonicalIdentity/);
+  assert.match(source, /getFeatureManifest\(datasetIdentity\)/);
   assert.match(featureService, /DATASTORE\.get_selected_columns\(\)/);
   assert.match(featureService, /"eligibility_status": "eligible" if eligible else "excluded"/);
   assert.match(featureService, /row\.get\("selected"\) and row\.get\("eligibility_status"\) == "eligible"/);
@@ -404,7 +405,9 @@ test("Linear Regression interpretation path is scoped to current project and rej
   const resultStore = await readFile(new URL("../server/core/result_store.py", import.meta.url), "utf8");
 
   assert.match(trainPage, /project_id:\s*projectId/);
-  assert.match(trainPage, /dataset_version:\s*manifest\?\.dataset_version \?\? dataset\?\.dataset_version/);
+  assert.match(trainPage, /requireLocalDatasetCanonicalIdentity/);
+  assert.match(trainPage, /dataset_id:\s*datasetIdentity\?\.dataset_id \?\? ""/);
+  assert.match(trainPage, /dataset_version_id:\s*datasetIdentity\?\.dataset_version_id \?\? ""/);
   assert.match(trainPage, /target:\s*dataset\?\.target/);
   assert.match(trainPage, /problem_type:\s*problemType/);
   assert.doesNotMatch(evalPage, /Mark Complete &amp; Interpret Model|Mark Complete & Interpret Model/);
@@ -418,7 +421,7 @@ test("Linear Regression interpretation path is scoped to current project and rej
   assert.match(trainerService, /training_run_id/);
   assert.match(trainingJobService, /"training_run_id": job\["job_id"\]/);
   assert.match(trainingJobService, /"project_id": request\.project_id/);
-  assert.match(trainingJobService, /"dataset_version": job\["dataset_version"\]/);
+  assert.match(trainingJobService, /"dataset_version_id": job\["dataset_version_id"\]/);
   assert.match(resultStore, /model_artifact_metadata/);
   assert.match(resultStore, /get_model_artifact_metadata/);
   assert.match(evalRouter, /\/interpretation\/debug/);

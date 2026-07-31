@@ -38,6 +38,13 @@ import {
 } from "../components/ui/AtlasWorkflow";
 import { createEvidence } from "../lib/evidenceGraph";
 import { me } from "../lib/auth";
+import {
+  assertExactDatasetIdentity,
+  buildCanonicalEvidenceEnvelope,
+  canonicalDatasetStorageKey,
+  requireLocalDatasetCanonicalIdentity,
+  type CanonicalDatasetIdentity,
+} from "../lib/datasetIdentity";
 import { getFeatureManifest, type FeatureManifest } from "../lib/featureManifest";
 import { loadLocalDataset } from "../lib/localDataset";
 import { logDecision } from "../lib/decisionJournal";
@@ -246,7 +253,9 @@ type Preflight = {
   ready: boolean;
   blocking_errors: string[];
   warnings: string[];
+  project_id: string;
   dataset_id: string;
+  dataset_version_id: string;
   dataset_version: string;
   target: string;
   event_value?: unknown;
@@ -318,6 +327,9 @@ type ModelExecution = {
 type TrainingJob = {
   ok?: boolean;
   job_id: string;
+  project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
   overall_status: JobState;
   created_at: string;
   started_at?: string | null;
@@ -350,12 +362,22 @@ type TrainingJob = {
   estimated_fits?: number;
   dataset_version?: string;
   n_features: number;
-  summary?: { ranked?: RankedResult[]; trained_feature_names?: string[]; runtime_ms?: number } | null;
+  summary?: {
+    ranked?: RankedResult[];
+    trained_feature_names?: string[];
+    runtime_ms?: number;
+    project_id?: string;
+    dataset_id?: string;
+    dataset_version_id?: string;
+  } | null;
 };
 
 type Availability = { ok: boolean; availability: Record<string, boolean>; labels: Record<string, string> };
 type SplitStatus = {
   ok: boolean;
+  project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
   status: "not_created" | "current" | "stale";
   split_id?: string;
   config?: Record<string, any>;
@@ -380,6 +402,10 @@ type SplitStatus = {
 
 type ModelSelectionDecision = {
   decision_id: string;
+  project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
+  dataset_version?: string;
   training_job_id: string;
   champion_model: string;
   challenger_models: string[];
@@ -407,9 +433,14 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
-function readConfig() {
+function readConfig(identity: CanonicalDatasetIdentity | null) {
+  if (!identity) return {} as Record<string, any>;
   try {
-    return JSON.parse(localStorage.getItem(TRAINING_CONFIG_KEY) || "{}") as Record<string, any>;
+    return JSON.parse(
+      localStorage.getItem(
+        canonicalDatasetStorageKey(TRAINING_CONFIG_KEY, identity),
+      ) || "{}",
+    ) as Record<string, any>;
   } catch {
     return {};
   }
@@ -432,10 +463,18 @@ function buildInitialSelected(config: Record<string, any>, problemType: ProblemT
   return problemType === "regression" ? ["linreg", "dt_reg", "rf_reg"] : ["logreg", "dtree", "rf"];
 }
 
-function readActiveJobId() {
+function readActiveJobId(identity: CanonicalDatasetIdentity | null) {
+  if (!identity) return "";
   try {
     const value = JSON.parse(localStorage.getItem(ACTIVE_JOB_KEY) || "null");
-    return typeof value?.jobId === "string" ? value.jobId : "";
+    return (
+      typeof value?.jobId === "string" &&
+      value?.projectId === identity.project_id &&
+      value?.datasetId === identity.dataset_id &&
+      value?.datasetVersionId === identity.dataset_version_id
+    )
+      ? value.jobId
+      : "";
   } catch {
     return "";
   }
@@ -471,7 +510,21 @@ export default function Step07ModelTraining() {
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
   const getNextStepPath = useWorkflowStore((state) => state.getNextStepPath);
-  const persisted = readConfig();
+  let datasetIdentity: CanonicalDatasetIdentity | null = null;
+  let datasetIdentityError = "";
+  try {
+    datasetIdentity = requireLocalDatasetCanonicalIdentity(
+      projectId,
+      dataset,
+      "Model Training dataset identity",
+    );
+  } catch (cause) {
+    datasetIdentityError =
+      cause instanceof Error
+        ? cause.message
+        : "Model Training requires an exact registered Dataset Library version.";
+  }
+  const persisted = readConfig(datasetIdentity);
   const [manifest, setManifest] = useState<FeatureManifest | null>(null);
   const [splitStatus, setSplitStatus] = useState<SplitStatus | null>(null);
   const [availability, setAvailability] = useState<Record<string, boolean>>({});
@@ -497,7 +550,9 @@ export default function Step07ModelTraining() {
   const [preflightSignature, setPreflightSignature] = useState("");
   const [preflightLoading, setPreflightLoading] = useState(false);
   const [job, setJob] = useState<TrainingJob | null>(null);
-  const [activeJobId, setActiveJobId] = useState(readActiveJobId());
+  const [activeJobId, setActiveJobId] = useState(() =>
+    readActiveJobId(datasetIdentity),
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
@@ -600,8 +655,9 @@ export default function Step07ModelTraining() {
           )
         : {},
     project_id: projectId,
-    dataset_id: dataset?.dataset_library?.datasetId ?? dataset?.data_access?.datasetId ?? "",
-    dataset_version: manifest?.dataset_version ?? dataset?.dataset_version ?? "",
+    dataset_id: datasetIdentity?.dataset_id ?? "",
+    dataset_version_id: datasetIdentity?.dataset_version_id ?? "",
+    dataset_version: datasetIdentity?.dataset_version_id ?? "",
     target: dataset?.target ?? "",
     problem_type: problemType,
     event_value: dataset?.event_value,
@@ -619,14 +675,18 @@ export default function Step07ModelTraining() {
     large_job_confirmed: largeJobConfirmed,
     user: requestUser,
     requested_at: new Date().toISOString(),
-  }), [calibrate, candidateStrategy, dataset?.data_access?.datasetId, dataset?.dataset_library?.datasetId, dataset?.dataset_version, dataset?.event_value, dataset?.non_event_value, dataset?.target, engineeredFeatures, gridSearch, gridSearchLevel, kFolds, largeJobConfirmed, manifest?.dataset_version, manifest?.manifest_hash, manifest?.pipeline_steps, maxParallel, primaryMetric, problemType, projectId, requestUser, selectedFeatures, selectedModels, splitStatus?.balancing_policy?.class_weight_policy, splitStatus?.config?.random_seed, splitStatus?.split_id, splitStatus?.validation_design_id, splitStatus?.validation_design_version]);
+  }), [calibrate, candidateStrategy, dataset?.event_value, dataset?.non_event_value, dataset?.target, datasetIdentity?.dataset_id, datasetIdentity?.dataset_version_id, engineeredFeatures, gridSearch, gridSearchLevel, kFolds, largeJobConfirmed, manifest?.manifest_hash, manifest?.pipeline_steps, maxParallel, primaryMetric, problemType, projectId, requestUser, selectedFeatures, selectedModels, splitStatus?.balancing_policy?.class_weight_policy, splitStatus?.config?.random_seed, splitStatus?.split_id, splitStatus?.validation_design_id, splitStatus?.validation_design_version]);
   const currentSignature = useMemo(() => JSON.stringify({ ...requestPayload, requested_at: "" }), [requestPayload]);
   const preflightCurrent = !!preflight && preflightSignature === currentSignature;
 
   useEffect(() => {
+    if (!datasetIdentity) return;
     const selected_map = Object.fromEntries(MODEL_DEFINITIONS.map((model) => [model.key, selectedModels.includes(model.key)]));
-    localStorage.setItem(TRAINING_CONFIG_KEY, JSON.stringify({ problem_type: problemType, candidateStrategy, selectedModels, selected_models: selectedModels, selected_map, maxParallel, calibrate, gridSearch, gridSearchLevel, primaryMetric }));
-  }, [calibrate, candidateStrategy, gridSearch, gridSearchLevel, maxParallel, primaryMetric, problemType, selectedModels]);
+    localStorage.setItem(
+      canonicalDatasetStorageKey(TRAINING_CONFIG_KEY, datasetIdentity),
+      JSON.stringify({ problem_type: problemType, candidateStrategy, selectedModels, selected_models: selectedModels, selected_map, maxParallel, calibrate, gridSearch, gridSearchLevel, primaryMetric }),
+    );
+  }, [calibrate, candidateStrategy, gridSearch, gridSearchLevel, maxParallel, primaryMetric, problemType, selectedModels, datasetIdentity?.dataset_id, datasetIdentity?.dataset_version_id]);
 
   useEffect(() => {
     setLargeJobConfirmed(false);
@@ -634,17 +694,62 @@ export default function Step07ModelTraining() {
 
   useEffect(() => {
     let active = true;
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      setLoading(false);
+      setActiveJobId("");
+      return () => {
+        active = false;
+      };
+    }
+    const activeIdentity = datasetIdentity;
+    const splitStatusQuery = new URLSearchParams({
+      project_id: projectId,
+      expected_dataset_id: activeIdentity.dataset_id,
+      expected_dataset_version_id: activeIdentity.dataset_version_id,
+    });
+    const trainingArtifactQuery = new URLSearchParams({
+      project_id: projectId,
+      dataset_id: activeIdentity.dataset_id,
+      dataset_version_id: activeIdentity.dataset_version_id,
+    });
+    const decisionQuery = new URLSearchParams({
+      project_id: projectId,
+      expected_dataset_id: activeIdentity.dataset_id,
+      expected_dataset_version_id: activeIdentity.dataset_version_id,
+    });
     void me().then((response) => {
       if (active) setRequestUser(response.user.email || response.user.displayName || response.user.userId);
     }).catch(() => undefined);
     Promise.all([
-      getFeatureManifest(projectId),
-      requestJson<SplitStatus>(`/balancing_split/status?project_id=${encodeURIComponent(projectId)}`),
+      getFeatureManifest(activeIdentity),
+      requestJson<SplitStatus>(
+        `/balancing_split/status?${splitStatusQuery.toString()}`,
+      ),
       requestJson<Availability>(`/models/availability?project_id=${encodeURIComponent(projectId)}`),
-      requestJson<{ ok: boolean; summary?: { ranked?: RankedResult[] } | null }>(`/train/last?project_id=${encodeURIComponent(projectId)}`).catch(() => ({ ok: true, summary: null })),
-      requestJson<{ ok: boolean; decision?: ModelSelectionDecision | null }>(`/model/train/decision?project_id=${encodeURIComponent(projectId)}`).catch(() => ({ ok: true, decision: null })),
+      requestJson<{ ok: boolean; summary?: TrainingJob["summary"] }>(
+        `/train/last?${trainingArtifactQuery.toString()}`,
+      ).catch(() => ({ ok: true, summary: null })),
+      requestJson<{
+        ok: boolean;
+        project_id: string;
+        dataset_id: string;
+        dataset_version_id: string;
+        decision?: ModelSelectionDecision | null;
+      }>(`/model/train/decision?${decisionQuery.toString()}`).catch(() => ({
+        ok: true,
+        project_id: activeIdentity.project_id,
+        dataset_id: activeIdentity.dataset_id,
+        dataset_version_id: activeIdentity.dataset_version_id,
+        decision: null,
+      })),
     ]).then(([nextManifest, nextSplit, modelAvailability, last, decisionResponse]) => {
       if (!active) return;
+      assertExactDatasetIdentity(
+        activeIdentity,
+        nextSplit,
+        "Model Training Validation Design response",
+      );
       setManifest(nextManifest);
       setSplitStatus(nextSplit);
       const inheritedFolds = Number(nextSplit.cv_design?.fold_count ?? 0);
@@ -656,7 +761,17 @@ export default function Step07ModelTraining() {
       ) setGridSearch(false);
       setAvailability(modelAvailability.availability ?? {});
       setLabels(modelAvailability.labels ?? {});
+      assertExactDatasetIdentity(
+        activeIdentity,
+        decisionResponse,
+        "Model-selection decision response",
+      );
       if (decisionResponse.decision) {
+        assertExactDatasetIdentity(
+          activeIdentity,
+          decisionResponse.decision,
+          "Saved model-selection decision",
+        );
         setSelectionDecision(decisionResponse.decision);
         setChampionModel(decisionResponse.decision.champion_model);
         setChallengerModels(decisionResponse.decision.challenger_models ?? []);
@@ -668,30 +783,84 @@ export default function Step07ModelTraining() {
         setDeploymentConstraints(decisionResponse.decision.deployment_constraints ?? "");
         setReviewerNotes(decisionResponse.decision.reviewer_notes ?? "");
       }
-      if (last.summary?.ranked?.length) {
-        setJob((current) => current ?? ({ job_id: "last-completed-run", overall_status: "complete", created_at: "", requested_models: [], completed_count: last.summary!.ranked!.length, total_count: last.summary!.ranked!.length, current_models: [], per_model_status: {}, partial_ranked_results: last.summary!.ranked!, failed_models: [], message: "Last completed training run", runtime_ms: 0, cancellation_requested: false, max_parallel_honored: 1, trained_feature_names: [], n_features: nextManifest.features.filter((row) => row.selected).length, summary: last.summary }));
+      const lastSummaryCurrent =
+        !!last.summary?.ranked?.length &&
+        (() => {
+          try {
+            assertExactDatasetIdentity(
+              activeIdentity,
+              last.summary ?? {},
+              "Restored training summary",
+            );
+            return true;
+          } catch {
+            return false;
+          }
+        })();
+      if (lastSummaryCurrent && last.summary?.ranked?.length) {
+        setJob((current) => current ?? ({
+          job_id: "last-completed-run",
+          project_id: activeIdentity.project_id,
+          dataset_id: activeIdentity.dataset_id,
+          dataset_version_id: activeIdentity.dataset_version_id,
+          overall_status: "complete", created_at: "", requested_models: [], completed_count: last.summary!.ranked!.length, total_count: last.summary!.ranked!.length, current_models: [], per_model_status: {}, partial_ranked_results: last.summary!.ranked!, failed_models: [], message: "Last completed training run", runtime_ms: 0, cancellation_requested: false, max_parallel_honored: 1, trained_feature_names: [], n_features: nextManifest.features.filter((row) => row.selected).length, summary: last.summary,
+        }));
       }
       if (dataset?.problem_type) setProblemType(dataset.problem_type);
     }).catch((cause) => active && setError(cause instanceof Error ? cause.message : "Model Training could not load its governed contract."))
       .finally(() => active && setLoading(false));
     if (!activeJobId) {
       requestJson<{ ok: boolean; jobs: TrainingJob[] }>(`/model/train/jobs/active?project_id=${encodeURIComponent(projectId)}`).then((response) => {
-        const latest = response.jobs?.[0];
+        const latest = response.jobs?.find((candidate) => {
+          try {
+            assertExactDatasetIdentity(
+              activeIdentity,
+              candidate,
+              "Active training job",
+            );
+            return true;
+          } catch {
+            return false;
+          }
+        });
         if (active && latest) {
           setActiveJobId(latest.job_id);
           setJob(latest);
-          localStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify({ jobId: latest.job_id, projectId, datasetVersion: latest.dataset_version }));
+          localStorage.setItem(
+            ACTIVE_JOB_KEY,
+            JSON.stringify({
+              jobId: latest.job_id,
+              projectId,
+              datasetId: activeIdentity.dataset_id,
+              datasetVersionId: activeIdentity.dataset_version_id,
+            }),
+          );
         }
       }).catch(() => undefined);
     }
     return () => { active = false; };
-  }, [activeJobId, dataset?.problem_type, projectId]);
+  }, [
+    activeJobId,
+    dataset?.problem_type,
+    datasetIdentity?.dataset_id,
+    datasetIdentity?.dataset_version_id,
+    projectId,
+  ]);
 
   async function runPreflight() {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      throw new Error(datasetIdentityError);
+    }
     setPreflightLoading(true);
     setError("");
     try {
       const result = await requestJson<Preflight>("/model/train/preflight", { method: "POST", body: JSON.stringify(requestPayload) });
+      assertExactDatasetIdentity(
+        datasetIdentity,
+        result,
+        "Model Training preflight response",
+      );
       setPreflight(result);
       setPreflightSignature(currentSignature);
       if (result.recommended_parallelism < maxParallel) setMaxParallel(result.recommended_parallelism);
@@ -721,6 +890,14 @@ export default function Step07ModelTraining() {
       try {
         const current = await requestJson<TrainingJob>(`/model/train/jobs/${encodeURIComponent(activeJobId)}?project_id=${encodeURIComponent(projectId)}`);
         if (cancelled) return;
+        if (!datasetIdentity) {
+          throw new Error(datasetIdentityError);
+        }
+        assertExactDatasetIdentity(
+          datasetIdentity,
+          current,
+          "Polled training job",
+        );
         setJob(current);
         setError("");
         if (["complete", "failed", "cancelled", "interrupted"].includes(current.overall_status)) {
@@ -740,7 +917,22 @@ export default function Step07ModelTraining() {
               r2: row.r2 ?? undefined,
               adjusted_r2: row.adjusted_r2 ?? undefined,
             }));
-            void recordTrainingExperiments({ apiBase: API_BASE, projectId, ranked: trackingRows, selectedModelKeys: current.requested_models, trainingSettings: requestPayload, runtimeMs: current.runtime_ms, calibrated: calibrate }).catch(() => undefined);
+            void recordTrainingExperiments({
+              apiBase: API_BASE,
+              datasetIdentity,
+              trainingJobId: current.job_id,
+              ranked: trackingRows,
+              selectedModelKeys: current.requested_models,
+              trainingSettings: requestPayload,
+              runtimeMs: current.runtime_ms,
+              calibrated: calibrate,
+            }).catch((cause) => {
+              setError(
+                `Training completed, but experiment evidence persistence failed: ${
+                  cause instanceof Error ? cause.message : "Unknown persistence failure."
+                }`,
+              );
+            });
           }
           return;
         }
@@ -761,6 +953,10 @@ export default function Step07ModelTraining() {
     overrideModels?: string[],
     retryParentJobId = "",
   ) {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      return;
+    }
     const launchModels = overrideModels?.length
       ? [...new Set(overrideModels)]
       : selectedModels;
@@ -782,8 +978,20 @@ export default function Step07ModelTraining() {
               method: "POST",
               body: JSON.stringify(launchPayload),
             });
+      if (check) {
+        assertExactDatasetIdentity(
+          datasetIdentity,
+          check,
+          "Model Training preflight response",
+        );
+      }
       if (!check?.ready) throw new Error("Resolve every blocking preflight issue before creating a training job.");
       const created = await requestJson<TrainingJob>("/model/train/jobs", { method: "POST", body: JSON.stringify(launchPayload) });
+      assertExactDatasetIdentity(
+        datasetIdentity,
+        created,
+        "Created training job",
+      );
       const queued: TrainingJob = created.per_model_status ? created : {
         ...created,
         overall_status: "queued",
@@ -803,7 +1011,15 @@ export default function Step07ModelTraining() {
       };
       setJob(queued);
       setActiveJobId(created.job_id);
-      localStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify({ jobId: created.job_id, projectId, datasetVersion: check.dataset_version }));
+      localStorage.setItem(
+        ACTIVE_JOB_KEY,
+        JSON.stringify({
+          jobId: created.job_id,
+          projectId,
+          datasetId: datasetIdentity.dataset_id,
+          datasetVersionId: datasetIdentity.dataset_version_id,
+        }),
+      );
       logDecision({ workflowStep: "Model Training", actionType: "workflow_setting_changed", subject: retryParentJobId ? "Failed model retry job created" : "Training job created", previousValue: retryParentJobId || null, newValue: { jobId: created.job_id, models: launchModels, splitId: check.split_id, validationDesignVersion: check.validation_design_version, featureManifestVersion: check.feature_manifest_version }, systemRecommendation: "Train only after the governed preflight and Validation Design binding pass.", followStatus: "followed" });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "ATLAS could not create the training job.");
@@ -823,6 +1039,12 @@ export default function Step07ModelTraining() {
     if (!activeJobId) return;
     try {
       const current = await requestJson<TrainingJob>(`/model/train/jobs/${encodeURIComponent(activeJobId)}/cancel?project_id=${encodeURIComponent(projectId)}`, { method: "POST" });
+      if (!datasetIdentity) throw new Error(datasetIdentityError);
+      assertExactDatasetIdentity(
+        datasetIdentity,
+        current,
+        "Cancelled training job response",
+      );
       setJob(current);
       if (["complete", "failed", "cancelled", "interrupted"].includes(current.overall_status)) {
         localStorage.removeItem(ACTIVE_JOB_KEY);
@@ -839,6 +1061,12 @@ export default function Step07ModelTraining() {
       const current = await requestJson<TrainingJob>(
         `/model/train/jobs/${encodeURIComponent(activeJobId)}/cancel-queued?project_id=${encodeURIComponent(projectId)}`,
         { method: "POST" },
+      );
+      if (!datasetIdentity) throw new Error(datasetIdentityError);
+      assertExactDatasetIdentity(
+        datasetIdentity,
+        current,
+        "Cancel-queued training job response",
       );
       setJob(current);
       setMessage(current.user_message ?? current.message);
@@ -858,6 +1086,11 @@ export default function Step07ModelTraining() {
       setError("Complete the governed training job before recording a model decision.");
       return;
     }
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      return;
+    }
+    const activeIdentity = datasetIdentity;
     if (!championModel) {
       setError("Select one champion candidate.");
       return;
@@ -876,6 +1109,9 @@ export default function Step07ModelTraining() {
         method: "POST",
         body: JSON.stringify({
           project_id: projectId,
+          dataset_id: activeIdentity.dataset_id,
+          dataset_version_id: activeIdentity.dataset_version_id,
+          dataset_version: activeIdentity.dataset_version_id,
           training_job_id: job.job_id,
           validation_design_id: splitStatus?.validation_design_id ?? "",
           validation_design_version:
@@ -894,6 +1130,11 @@ export default function Step07ModelTraining() {
           reviewer_notes: reviewerNotes.trim(),
         }),
       });
+      assertExactDatasetIdentity(
+        activeIdentity,
+        response.decision,
+        "Saved model-selection decision",
+      );
       setSelectionDecision(response.decision);
       setMessage(
         `${status === "approved" ? "Approved" : "Proposed"} champion/challenger decision ${response.decision.decision_id} was bound to job ${job.job_id}.`,
@@ -993,6 +1234,7 @@ export default function Step07ModelTraining() {
   const trainActionBlocked =
     jobActive ||
     preflightLoading ||
+    !datasetIdentity ||
     !selectedModels.length ||
     !manifest ||
     !splitStatus ||
@@ -1019,20 +1261,30 @@ export default function Step07ModelTraining() {
   ];
 
   async function completeStep() {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      return false;
+    }
     if (
       !championEligibleResults.length ||
       job?.overall_status !== "complete" ||
       selectionDecision?.training_job_id !== job.job_id
     ) return false;
     await createEvidence({
-      projectId,
+      ...buildCanonicalEvidenceEnvelope(datasetIdentity, {
+        manifestVersion: preflight?.feature_manifest_version,
+        splitId: preflight?.split_id,
+        validationDesignId: preflight?.validation_design_id,
+        validationDesignVersion: preflight?.validation_design_version,
+        jobId: job.job_id,
+        modelDecisionId: selectionDecision.decision_id,
+      }),
       projectName,
       evidenceType: "model_training",
       title: "Governed Model Training Run",
       summary: `${results.length} model(s) completed under job ${job.job_id}. ${modelLabel(selectionDecision.champion_model, labels)} is proposed—not approved—as champion with ${selectionDecision.challenger_models.length} governed challenger(s).`,
       sourcePage: "Model Training",
       sourceRoute: "/step07",
-      datasetIds: preflight?.dataset_id ? [preflight.dataset_id] : preflight?.dataset_version ? [preflight.dataset_version] : [],
       modelIds: championEligibleResults.map((row) => row.key),
       documentIds: [],
       notebookIds: [],
@@ -1040,16 +1292,6 @@ export default function Step07ModelTraining() {
       tags: ["predictive_modeling", "training_job", "candidate_models"],
       status: job.failed_models.length ? "needs_review" : "ready",
       importance: "high",
-      lineage: {
-        datasetId: preflight?.dataset_id,
-        datasetVersion: preflight?.dataset_version,
-        manifestVersion: preflight?.feature_manifest_version,
-        splitId: preflight?.split_id,
-        validationDesignId: preflight?.validation_design_id,
-        validationDesignVersion: preflight?.validation_design_version,
-        jobId: job.job_id,
-        modelDecisionId: selectionDecision.decision_id,
-      },
       payload: { job, configuration: requestPayload, modelDecision: selectionDecision },
     });
     return true;
@@ -1067,7 +1309,11 @@ export default function Step07ModelTraining() {
       eyebrow="Predictive Modeling Workflow"
       heroMetrics={heroMetrics}
       nextPath={getNextStepPath("step07")}
-      nextDisabled={job?.overall_status !== "complete" || !championEligibleResults.length || selectionDecision?.training_job_id !== job?.job_id}
+      nextDisabled={
+        !datasetIdentity ||
+        job?.overall_status !== "complete" ||
+        !championEligibleResults.length ||
+        selectionDecision?.training_job_id !== job?.job_id}
       nextDisabledReason={
         job?.overall_status !== "complete" || !championEligibleResults.length
           ? "Complete at least one supervised, champion-eligible model before continuing to Evaluation."
@@ -1115,7 +1361,7 @@ export default function Step07ModelTraining() {
             <LockedInputCard title="Validation Design" value={splitStatus?.validation_design_version ?? "Unavailable"} detail={validationDesignLabel(splitStatus)} href="/step06" />
             <LockedInputCard title="Balancing policy" value={String(splitStatus?.balancing_policy?.method ?? "none").replace(/_/g, " ")} detail={`${String(splitStatus?.balancing_policy?.scope ?? "training_population_only").replace(/_/g, " ")} · class weights ${String(splitStatus?.balancing_policy?.class_weight_policy ?? "none")}`} href="/step06" />
             <LockedInputCard title="Preprocessing pipeline" value={`${manifest?.pipeline_steps.length ?? 0} learned step(s)`} detail={(manifest?.pipeline_steps.map((step) => String(step.config?.method ?? step.transformation_type)).join(" · ") || "No learned transformations")} href="/step05" />
-            <LockedInputCard title="Dataset version" value={manifest?.dataset_version ?? dataset?.dataset_version ?? "Unavailable"} detail={dataset?.dataset_library?.datasetId ?? dataset?.data_access?.datasetId ?? "Active project dataset"} href="/step01" />
+            <LockedInputCard title="Dataset version" value={datasetIdentity?.dataset_version_id ?? "Unavailable"} detail={datasetIdentity?.dataset_id ?? "Return to Data Acquisition"} href="/step01" />
             <LockedInputCard title="Excluded fields" value={`${(manifest?.predictor_authorization?.target_source_excluded ?? []).length + 1} protected`} detail={[dataset?.target, ...(manifest?.predictor_authorization?.target_source_excluded ?? [])].filter(Boolean).join(" · ")} href="/step05" />
             <LockedInputCard title="CV configuration" value={`${splitStatus?.cv_design?.method?.replace(/_/g, " ") ?? "none"} · ${splitStatus?.cv_design?.fold_count ?? 0} folds`} detail="Read-only; owned by Validation Design" href="/step06" testId="validation-contract-readonly" />
           </div>
@@ -1129,7 +1375,7 @@ export default function Step07ModelTraining() {
           action={<div className="flex items-center gap-2"><AtlasDataScopeBadge scope="full_dataset" rows={preflight?.train_rows && preflight?.test_rows ? preflight.train_rows + preflight.test_rows : dataset?.registered_row_count} /><button type="button" className="atlas-secondary-button" disabled={preflightLoading || jobActive || !selectedModels.length} onClick={() => void runPreflight()}>{preflightLoading ? <LoaderCircle size={15} className="animate-spin" /> : <RefreshCw size={15} />} Run Preflight</button></div>}
         >
           <AtlasStatusStrip items={[
-            { label: "Dataset", state: preflight?.dataset_version ? "complete" : "blocked", detail: preflight?.dataset_version ?? "Unavailable" },
+            { label: "Dataset", state: preflight?.dataset_version_id ? "complete" : "blocked", detail: preflight?.dataset_version_id ?? "Unavailable" },
             { label: "Target", state: preflight?.target ? "complete" : "blocked", detail: preflight?.target ?? "Missing" },
             { label: "Feature contract", state: preflight?.missing_features?.length ? "blocked" : preflight?.selected_features?.length ? "complete" : "pending", detail: preflight ? `${preflight.selected_features.length} exact predictors` : "Not checked" },
             { label: "Validation split", state: preflight?.split_status === "current" ? "complete" : "blocked", detail: preflight?.split_id ?? "Not current" },

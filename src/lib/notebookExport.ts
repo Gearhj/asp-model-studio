@@ -4,7 +4,6 @@ import { loadExperiments } from "./experimentTracking";
 import { buildGovernanceReport } from "./governanceReport";
 import { inferLocalProblemType, loadLocalDataset } from "./localDataset";
 import { loadProjectContext, summarizeRegulatoryContext } from "./projectContext";
-import { loadDataAccessMetadata } from "./enterpriseDataAccess";
 import { BRAND } from "../config/brand";
 import { getWorkflowDefinition } from "../config/workflows";
 import { useWorkflowStore } from "../state/useWorkflowStore";
@@ -17,6 +16,8 @@ import {
   type CodeContextLanguage,
   type CodeDraftEnvelope,
 } from "./codeContextSafety";
+import { requireLocalDatasetCanonicalIdentity } from "./datasetIdentity";
+import { loadCanonicalPreparationBrowserState } from "./preparationGovernance";
 
 export const USER_PYTHON_CODE_KEY = "modeling-tool-user-python-code";
 export const USER_STEP_PYTHON_CODE_KEY = "modeling-tool-user-python-code-by-step";
@@ -105,35 +106,41 @@ function customSasCodeByStep() {
   }
 }
 
-function selectedFeatureList() {
-  const dataset = loadLocalDataset();
+function selectedFeatureList(
+  dataset: ReturnType<typeof loadLocalDataset>,
+) {
   return dataset?.selected_columns?.length
     ? dataset.selected_columns
     : dataset?.headers.filter((header) => header !== dataset.target) ?? [];
 }
 
-function readLocalStorageJson(key: string) {
-  try {
-    return JSON.parse(localStorage.getItem(key) || "null");
-  } catch {
-    return null;
-  }
-}
-
 function buildSections(): NotebookSection[] {
   const context = loadProjectContext();
   const dataset = loadLocalDataset();
+  const projectId = useWorkflowStore.getState().projectId;
+  const datasetIdentity = requireLocalDatasetCanonicalIdentity(
+    projectId,
+    dataset,
+    "Predictive notebook export dataset identity",
+  );
+  const preparation =
+    loadCanonicalPreparationBrowserState(datasetIdentity);
   const problemType = inferLocalProblemType(dataset) ?? "classification";
-  const experiments = loadExperiments();
-  const champion = experiments.find((experiment) => experiment.champion) ?? experiments[0] ?? null;
-  const features = selectedFeatureList();
-  const missingConfig = readLocalStorageJson("modeling-tool-missing-config") ?? {};
-  const outlierConfig = readLocalStorageJson("modeling-tool-outlier-methods") ?? {};
-  const balanceMethod = localStorage.getItem("balanceMethod") ?? "none";
-  const splitStrategy = localStorage.getItem("splitStrategy") ?? "holdout";
-  const balanceRatio = localStorage.getItem("balanceRatio") ?? "";
-  const dataAccess = loadDataAccessMetadata();
-  const trainingConfig = readLocalStorageJson("modeling-tool-training-config") ?? {};
+  const experiments = loadExperiments(datasetIdentity);
+  const champion =
+    experiments.find((experiment) => experiment.champion) ?? null;
+  const features = selectedFeatureList(dataset);
+  const missingConfig = preparation.missingPolicy;
+  const outlierConfig = {
+    globalMethod: preparation.outlierGlobalMethod,
+    methods: preparation.outlierMethods,
+    rationales: preparation.outlierRationales,
+  };
+  const balanceMethod = preparation.balanceMethod;
+  const splitStrategy = preparation.splitStrategy;
+  const balanceRatio = preparation.balanceRatio;
+  const dataAccess = dataset?.data_access ?? null;
+  const trainingConfig = preparation.trainingConfig;
 
   return [
     {
@@ -172,6 +179,9 @@ df = pd.read_csv(TRAIN_CSV_PATH)
 `}
 
 DATA_ACCESS_METADATA = ${safeJson(dataAccess)}
+PROJECT_ID = ${safeJson(datasetIdentity.project_id)}
+DATASET_ID = ${safeJson(datasetIdentity.dataset_id)}
+DATASET_VERSION_ID = ${safeJson(datasetIdentity.dataset_version_id)}
 TARGET = ${safeJson(dataset?.target ?? "target")}
 SELECTED_FEATURES = ${safeJson(features)}
 PROBLEM_TYPE = ${safeJson(problemType)}
@@ -180,7 +190,8 @@ print("Rows:", len(df))
 print("Columns:", len(df.columns))
 print("Target:", TARGET)
 print("Data source:", DATA_ACCESS_METADATA.get("sourceLabel") if DATA_ACCESS_METADATA else "Not documented")
-print("Dataset version:", DATA_ACCESS_METADATA.get("version") if DATA_ACCESS_METADATA else "Not documented")
+print("Dataset ID:", DATASET_ID or "Not documented")
+print("Dataset version:", DATASET_VERSION_ID or "Not documented")
 display(df.head())`,
     },
     {

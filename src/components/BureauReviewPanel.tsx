@@ -28,6 +28,10 @@ import {
 } from "../lib/bureauDetection";
 import { parseBureauMetadataCsv, saveBureauMetadata } from "../lib/creditBureau";
 import { createEvidence } from "../lib/evidenceGraph";
+import {
+  buildCanonicalEvidenceEnvelope,
+  type CanonicalDatasetIdentity,
+} from "../lib/datasetIdentity";
 import { logDecision } from "../lib/decisionJournal";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
@@ -116,10 +120,12 @@ export default function BureauReviewPanel({
   target,
   eventValue,
   enabled,
+  datasetIdentity,
 }: {
   target: string;
   eventValue: unknown;
   enabled: boolean;
+  datasetIdentity: CanonicalDatasetIdentity | null;
 }) {
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
@@ -452,6 +458,12 @@ export default function BureauReviewPanel({
 
   async function persistReview(mode: "draft" | "confirmed") {
     if (!result) return;
+    if (!datasetIdentity) {
+      setError(
+        "Credit bureau evidence requires an exact active Dataset Library version. Reactivate the registered dataset before saving this review.",
+      );
+      return;
+    }
     if (mode === "confirmed" && unresolvedCount) {
       setError(
         `${unresolvedCount} treatment requirement${unresolvedCount === 1 ? "" : "s"} remain unresolved. Add the indicated rationale before confirmation.`,
@@ -475,7 +487,12 @@ export default function BureauReviewPanel({
     };
     try {
       await createEvidence({
-        projectId,
+        ...buildCanonicalEvidenceEnvelope(datasetIdentity, {
+          scope: result.scope,
+          rowCount: result.row_count,
+          target: result.target,
+          metadataSource: result.metadata_source,
+        }),
         projectName,
         evidenceType: "dataset",
         title: "Credit Bureau Detection and Special-Value Review",
@@ -484,7 +501,6 @@ export default function BureauReviewPanel({
           : "No credit bureau data was confirmed after automated and manual review.",
         sourcePage: "Data Acquisition",
         sourceRoute: "/step01?section=credit-bureau-review",
-        datasetIds: [],
         modelIds: [],
         documentIds: [],
         notebookIds: [],
@@ -500,12 +516,6 @@ export default function BureauReviewPanel({
         ],
         status: mode === "confirmed" ? "ready" : "draft",
         importance: "high",
-        lineage: {
-          scope: result.scope,
-          rowCount: result.row_count,
-          target: result.target,
-          metadataSource: result.metadata_source,
-        },
         payload: {
           detected: result.detected,
           confidence: result.confidence,

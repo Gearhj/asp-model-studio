@@ -31,6 +31,13 @@ import {
 } from "../components/ui/AtlasWorkflow";
 import { createEvidence } from "../lib/evidenceGraph";
 import {
+  assertExactDatasetIdentity,
+  buildCanonicalEvidenceEnvelope,
+  canonicalDatasetStorageKey,
+  requireLocalDatasetCanonicalIdentity,
+  type CanonicalDatasetIdentity,
+} from "../lib/datasetIdentity";
+import {
   getDataset,
   listDatasets,
   type DatasetSummary,
@@ -131,6 +138,9 @@ type DistributionCollection = {
 
 type SplitStatus = {
   ok: boolean;
+  project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
   status: "not_created" | "current" | "stale";
   ready?: boolean;
   readiness_reason?: string;
@@ -162,6 +172,10 @@ type SplitStatus = {
   oot_reference?: Record<string, unknown> | null;
   evaluation_population_role?: string | null;
   validation_design?: {
+    project_id?: string;
+    dataset_id?: string;
+    dataset_version_id?: string;
+    dataset_version?: string;
     validation_design_id?: string;
     design_version?: string;
     strategy?: ValidationStrategy;
@@ -231,6 +245,22 @@ function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
     }
     return payload as T;
   });
+}
+
+function verifySplitStatusIdentity(
+  identity: CanonicalDatasetIdentity,
+  status: SplitStatus,
+  context: string,
+) {
+  assertExactDatasetIdentity(identity, status, context);
+  if (status.validation_design?.validation_design_id) {
+    assertExactDatasetIdentity(
+      identity,
+      status.validation_design,
+      `${context} validation design`,
+    );
+  }
+  return status;
 }
 
 function toDraft(row: FeatureManifestRow): FeatureDraft {
@@ -333,11 +363,14 @@ function eventCountSeverity(events: number | null | undefined) {
   return { tone: "success" as const, label: "Positive event count is workable" };
 }
 
-function loadValidationDraft(projectId: string): ValidationDraft | null {
+function loadValidationDraft(
+  identity: CanonicalDatasetIdentity,
+): ValidationDraft | null {
   try {
     const parsed = JSON.parse(
-      localStorage.getItem(`${VALIDATION_DRAFT_PREFIX}:${projectId}`) ||
-        "null",
+      localStorage.getItem(
+        canonicalDatasetStorageKey(VALIDATION_DRAFT_PREFIX, identity),
+      ) || "null",
     );
     return parsed && typeof parsed === "object"
       ? (parsed as ValidationDraft)
@@ -347,9 +380,12 @@ function loadValidationDraft(projectId: string): ValidationDraft | null {
   }
 }
 
-function saveValidationDraft(projectId: string, draft: ValidationDraft) {
+function saveValidationDraft(
+  identity: CanonicalDatasetIdentity,
+  draft: ValidationDraft,
+) {
   localStorage.setItem(
-    `${VALIDATION_DRAFT_PREFIX}:${projectId}`,
+    canonicalDatasetStorageKey(VALIDATION_DRAFT_PREFIX, identity),
     JSON.stringify(draft),
   );
 }
@@ -381,6 +417,20 @@ export default function Step06BalancingSplit() {
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
   const getNextStepPath = useWorkflowStore((state) => state.getNextStepPath);
+  let datasetIdentity: CanonicalDatasetIdentity | null = null;
+  let datasetIdentityError = "";
+  try {
+    datasetIdentity = requireLocalDatasetCanonicalIdentity(
+      projectId,
+      dataset,
+      "Balance & Split dataset identity",
+    );
+  } catch (cause) {
+    datasetIdentityError =
+      cause instanceof Error
+        ? cause.message
+        : "Balance & Split requires an exact registered Dataset Library version.";
+  }
   const [manifest, setManifest] = useState<FeatureManifest | null>(null);
   const [profile, setProfile] = useState<FeatureProfileResponse | null>(null);
   const [splitStatus, setSplitStatus] = useState<SplitStatus | null>(null);
@@ -426,6 +476,11 @@ export default function Step06BalancingSplit() {
   const isClassification = problemType === "classification";
 
   async function loadPage() {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      setLoading(false);
+      return;
+    }
     if (!dataset?.target) {
       setError("Return to Data Acquisition and confirm a target before reviewing the final feature set.");
       setLoading(false);
@@ -435,17 +490,28 @@ export default function Step06BalancingSplit() {
     setError("");
     try {
       const [nextManifest, nextProfile, nextStatus, library] = await Promise.all([
-        getFeatureManifest(projectId),
+        getFeatureManifest(datasetIdentity),
         fetchFullFeatureProfile(dataset, projectId),
-        requestJson<SplitStatus>(`/balancing_split/status?project_id=${encodeURIComponent(projectId)}`),
+        requestJson<SplitStatus>(
+          `/balancing_split/status?${new URLSearchParams({
+            project_id: projectId,
+            expected_dataset_id: datasetIdentity.dataset_id,
+            expected_dataset_version_id: datasetIdentity.dataset_version_id,
+          }).toString()}`,
+        ),
         listDatasets(),
       ]);
+      verifySplitStatusIdentity(
+        datasetIdentity,
+        nextStatus,
+        "Validation Design status response",
+      );
       const details = await Promise.all(
         library.datasets.map(async (summary) => {
           try {
             return await getDataset(summary.datasetId);
           } catch {
-            return { ...summary, versions: summary.latestVersion ? [summary.latestVersion] : [] };
+            return { ...summary, versions: [] };
           }
         }),
       );
@@ -499,13 +565,17 @@ export default function Step06BalancingSplit() {
       if (typeof config.minority_share === "number") setMinorityShare(config.minority_share);
       if (config.class_weight_policy === "balanced" || config.class_weight_policy === "none") setClassWeightPolicy(config.class_weight_policy);
       if (typeof config.test_dataset_id === "string") setTestDatasetId(config.test_dataset_id);
-      if (typeof config.test_dataset_version === "string") setTestDatasetVersion(config.test_dataset_version);
+      if (typeof config.test_dataset_version_id === "string") {
+        setTestDatasetVersion(config.test_dataset_version_id);
+      }
       if (typeof config.test_target_field === "string") setTestTargetField(config.test_target_field);
       if (typeof config.oot_dataset_id === "string") setOotDatasetId(config.oot_dataset_id);
-      if (typeof config.oot_dataset_version === "string") setOotDatasetVersion(config.oot_dataset_version);
+      if (typeof config.oot_dataset_version_id === "string") {
+        setOotDatasetVersion(config.oot_dataset_version_id);
+      }
       if (typeof config.oot_target_field === "string") setOotTargetField(config.oot_target_field);
       setDirty(false);
-      const savedDraft = loadValidationDraft(projectId);
+      const savedDraft = loadValidationDraft(datasetIdentity);
       if (savedDraft?.designDirty) {
         setTestSize(savedDraft.holdoutSize);
         setRandomSeed(savedDraft.randomSeed);
@@ -544,11 +614,15 @@ export default function Step06BalancingSplit() {
     void loadPage();
     // Dataset version is the page-level invalidation key. Selection edits are local until explicitly saved.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataset?.dataset_version, dataset?.target]);
+  }, [
+    datasetIdentity?.dataset_id,
+    datasetIdentity?.dataset_version_id,
+    dataset?.target,
+  ]);
 
   useEffect(() => {
-    if (loading) return;
-    saveValidationDraft(projectId, {
+    if (loading || !datasetIdentity) return;
+    saveValidationDraft(datasetIdentity, {
       holdoutSize: testSize,
       randomSeed,
       foldMethod,
@@ -586,7 +660,6 @@ export default function Step06BalancingSplit() {
     ootDatasetId,
     ootDatasetVersion,
     ootTargetField,
-    projectId,
     randomSeed,
     shuffleFolds,
     testDatasetId,
@@ -594,6 +667,8 @@ export default function Step06BalancingSplit() {
     testSize,
     testTargetField,
     timeField,
+    datasetIdentity?.dataset_id,
+    datasetIdentity?.dataset_version_id,
   ]);
 
   const profileByName = useMemo(
@@ -673,15 +748,13 @@ export default function Step06BalancingSplit() {
   }
 
   function chooseExternalDataset(role: "test" | "oot", datasetId: string) {
-    const option = datasetOptions.find((item) => item.datasetId === datasetId);
-    const latest = option?.versions.at(-1)?.versionId ?? "";
     if (role === "test") {
       setTestDatasetId(datasetId);
-      setTestDatasetVersion(latest);
+      setTestDatasetVersion("");
       setTestTargetField(dataset?.target ?? "");
     } else {
       setOotDatasetId(datasetId);
-      setOotDatasetVersion(latest);
+      setOotDatasetVersion("");
       setOotTargetField(dataset?.target ?? "");
     }
     markDesignChanged();
@@ -701,6 +774,10 @@ export default function Step06BalancingSplit() {
   }
 
   async function saveSelection() {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      return;
+    }
     if (!manifest) return;
     if (!selected.length) {
       setError("Select at least one eligible predictor before model training.");
@@ -717,11 +794,26 @@ export default function Step06BalancingSplit() {
           ? row.exclusion_reason
           : selectedSet.has(row.feature_name) ? "" : "Excluded at Final Predictor Review",
       }));
-      const saved = await saveFeatureManifest(projectId, updated, manifest.pipeline_steps, manifest.dataset_version);
+      const saved = await saveFeatureManifest(
+        datasetIdentity,
+        updated,
+        manifest.pipeline_steps,
+      );
       setManifest(saved);
       setSelected(saved.features.filter((row) => row.selected && row.eligibility_status === "eligible").map((row) => row.feature_name));
       setDirty(false);
-      const status = await requestJson<SplitStatus>(`/balancing_split/status?project_id=${encodeURIComponent(projectId)}`);
+      const status = await requestJson<SplitStatus>(
+        `/balancing_split/status?${new URLSearchParams({
+          project_id: projectId,
+          expected_dataset_id: datasetIdentity.dataset_id,
+          expected_dataset_version_id: datasetIdentity.dataset_version_id,
+        }).toString()}`,
+      );
+      verifySplitStatusIdentity(
+        datasetIdentity,
+        status,
+        "Validation Design status response",
+      );
       setSplitStatus(status);
       setMessage("Final predictor selection saved. Create or rebuild the holdout split to make it current.");
       logDecision({
@@ -741,6 +833,9 @@ export default function Step06BalancingSplit() {
   }
 
   async function createSplit(): Promise<SplitStatus> {
+    if (!datasetIdentity) {
+      throw new Error(datasetIdentityError);
+    }
     if (!manifest || dirty) {
       throw new Error(
         "Save predictor changes before creating the Validation Design.",
@@ -796,18 +891,20 @@ export default function Step06BalancingSplit() {
           event_value: dataset?.event_value,
           selected_features: selected,
           feature_manifest_version: manifest.manifest_hash,
-          dataset_version: manifest.dataset_version,
-          development_dataset_id: dataset?.dataset_library?.datasetId ?? "",
-          development_dataset_version:
-            dataset?.dataset_library?.versionId ?? manifest.dataset_version,
+          dataset_id: datasetIdentity.dataset_id,
+          dataset_version_id: datasetIdentity.dataset_version_id,
+          dataset_version: datasetIdentity.dataset_version_id,
+          development_dataset_id: datasetIdentity.dataset_id,
+          development_dataset_version_id:
+            datasetIdentity.dataset_version_id,
           external_validation_mode: externalValidationMode,
           test_dataset_id: separateTestEnabled ? testDatasetId : "",
-          test_dataset_version: separateTestEnabled
+          test_dataset_version_id: separateTestEnabled
             ? testDatasetVersion
             : "",
           test_target_field: testTargetField || dataset?.target || "",
           oot_dataset_id: ootEnabled ? ootDatasetId : "",
-          oot_dataset_version: ootEnabled ? ootDatasetVersion : "",
+          oot_dataset_version_id: ootEnabled ? ootDatasetVersion : "",
           oot_target_field: ootTargetField || dataset?.target || "",
           fold_method: cvEnabled ? foldMethod : "none",
           fold_count: foldCount,
@@ -836,6 +933,11 @@ export default function Step06BalancingSplit() {
             "Standard ATLAS design: cross-validation inside the training population plus an untouched final holdout. The single creation action records the governed contract.",
         }),
       });
+      verifySplitStatusIdentity(
+        datasetIdentity,
+        status,
+        "Created Validation Design response",
+      );
       setSplitStatus(status);
       setDesignDirty(false);
       setManifest((current) => current ? { ...current, split_status: "current" } : current);
@@ -876,16 +978,26 @@ export default function Step06BalancingSplit() {
   }
 
   async function completeStep() {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      return false;
+    }
     const status = await createSplit();
     await createEvidence({
-      projectId,
+      ...buildCanonicalEvidenceEnvelope(datasetIdentity, {
+        manifestVersion: status.feature_manifest_version,
+        splitId: status.split_id,
+        validationDesignId: status.validation_design_id,
+        validationDesignVersion: status.validation_design_version,
+        trainingPopulationId: status.training_population_id,
+        holdoutPopulationId: status.holdout_population_id,
+      }),
       projectName,
       evidenceType: "governance",
       title: "Created Validation Design",
       summary: `${status.feature_count} predictors were bound to ${status.validation_design_version} and split ${status.split_id}. Cross-validation, holdout protection, external references, and training-only balancing are governed here.`,
       sourcePage: "Balance & Split",
       sourceRoute: "/step06",
-      datasetIds: status.dataset_version ? [status.dataset_version] : [],
       modelIds: [],
       documentIds: [],
       notebookIds: [],
@@ -893,15 +1005,6 @@ export default function Step06BalancingSplit() {
       tags: ["predictive_modeling", "feature_gate", "validation_design", "cross_validation"],
       status: "ready",
       importance: "high",
-      lineage: {
-        datasetVersion: status.dataset_version,
-        manifestVersion: status.feature_manifest_version,
-        splitId: status.split_id,
-        validationDesignId: status.validation_design_id,
-        validationDesignVersion: status.validation_design_version,
-        trainingPopulationId: status.training_population_id,
-        holdoutPopulationId: status.holdout_population_id,
-      },
       payload: status,
     });
     return true;
@@ -978,6 +1081,10 @@ export default function Step06BalancingSplit() {
     (foldMethod !== "time_series" || !!timeField);
   const readinessItems = [
     {
+      label: "Canonical dataset identity",
+      ready: !!datasetIdentity,
+    },
+    {
       label: "Feature manifest current",
       ready: manifestCurrent && !dirty,
     },
@@ -1019,6 +1126,7 @@ export default function Step06BalancingSplit() {
         ]),
   ];
   const readinessBlockers = [
+    !datasetIdentity ? datasetIdentityError : "",
     dirty
       ? "Save predictor changes or restore the current feature manifest."
       : "",
@@ -1131,9 +1239,7 @@ export default function Step06BalancingSplit() {
             "Registered dataset"
           }
           datasetVersion={
-            dataset?.dataset_library?.versionId ||
-            manifest?.dataset_version ||
-            ""
+            datasetIdentity?.dataset_version_id || ""
           }
           target={dataset?.target || ""}
           predictorCount={selected.length}

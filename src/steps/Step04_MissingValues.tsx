@@ -25,6 +25,13 @@ import {
 } from "../components/ui/AtlasWorkflow";
 import { logDecision } from "../lib/decisionJournal";
 import { createEvidence } from "../lib/evidenceGraph";
+import {
+  assertExactDatasetIdentity,
+  buildCanonicalEvidenceEnvelope,
+  canonicalDatasetStorageKey,
+  requireLocalDatasetCanonicalIdentity,
+  type CanonicalDatasetIdentity,
+} from "../lib/datasetIdentity";
 import { loadLocalDataset } from "../lib/localDataset";
 import {
   getEdaCarryForward,
@@ -97,6 +104,9 @@ type MissingStats = {
 };
 type MissingApplication = {
   applied_at: string;
+  project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
   dataset_version: string;
   config: MissingConfig;
   config_signature: string;
@@ -116,6 +126,9 @@ type MissingApplication = {
 };
 type MissingValidation = {
   validated_at: string;
+  project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
   dataset_version: string;
   source_stage: string;
   row_count: number;
@@ -129,6 +142,9 @@ type MissingValidation = {
 type MissingSummary = {
   ok: boolean;
   scope: "full_dataset";
+  project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
   rows: number;
   columns: ColumnInfo[];
   stats: Record<string, MissingStats>;
@@ -298,7 +314,11 @@ function configMatchesApplication(
 function validationMatchesSummary(summary: MissingSummary | null) {
   if (!summary?.validation) return false;
   return (
-    summary.validation.dataset_version === summary.dataset_version &&
+    summary.validation.project_id === summary.project_id &&
+    summary.validation.dataset_id === summary.dataset_id &&
+    summary.validation.dataset_version_id === summary.dataset_version_id &&
+    summary.validation.dataset_version === summary.dataset_version_id &&
+    summary.dataset_version === summary.dataset_version_id &&
     summary.validation.source_stage === summary.source_stage &&
     summary.validation.missing_cells === 0
   );
@@ -321,6 +341,20 @@ export default function Step04MissingValues() {
   const localDataset = loadLocalDataset();
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
+  let datasetIdentity: CanonicalDatasetIdentity | null = null;
+  let datasetIdentityError = "";
+  try {
+    datasetIdentity = requireLocalDatasetCanonicalIdentity(
+      projectId,
+      localDataset,
+      "Missing Values dataset identity",
+    );
+  } catch (cause) {
+    datasetIdentityError =
+      cause instanceof Error
+        ? cause.message
+        : "Missing Values requires an exact registered Dataset Library version.";
+  }
   const [summary, setSummary] = useState<MissingSummary | null>(null);
   const [config, setConfig] = useState<MissingConfig>({});
   const [globalStrategy, setGlobalStrategy] =
@@ -359,10 +393,20 @@ export default function Step04MissingValues() {
     const requestedProjectId = projectId;
     setSettingsHydratedFor("");
     setLoading(true);
-    setError("");
+    setError(datasetIdentityError);
+    if (!datasetIdentity) {
+      setLoading(false);
+      return;
+    }
     try {
       const query = new URLSearchParams();
       query.set("project_id", projectId);
+      query.set("expected_dataset_id", datasetIdentity.dataset_id);
+      query.set(
+        "expected_dataset_version_id",
+        datasetIdentity.dataset_version_id,
+      );
+      query.set("dataset_version", datasetIdentity.dataset_version_id);
       if (
         localDataset?.event_value !== undefined &&
         localDataset?.event_value !== null
@@ -375,6 +419,25 @@ export default function Step04MissingValues() {
       const payload = await requestJson<MissingSummary>(
         `/missing/summary?${query.toString()}`,
       );
+      assertExactDatasetIdentity(
+        datasetIdentity,
+        payload,
+        "Missing-value summary response",
+      );
+      if (payload.application) {
+        assertExactDatasetIdentity(
+          datasetIdentity,
+          payload.application,
+          "Saved missing-value application",
+        );
+      }
+      if (payload.validation) {
+        assertExactDatasetIdentity(
+          datasetIdentity,
+          payload.validation,
+          "Saved missing-value validation",
+        );
+      }
       if (requestNumber !== hydrationRequest.current) return;
       const normalizedStats = Object.fromEntries(
         payload.columns.map((column) => {
@@ -444,9 +507,11 @@ export default function Step04MissingValues() {
       let storedConfig: MissingConfig = {};
       let storedPolicy: StoredMissingPolicy | null = null;
       try {
-        const scopedPolicy =
-          localStorage.getItem(`${CONFIG_KEY}:${projectId}`) ??
-          localStorage.getItem(CONFIG_KEY);
+        const scopedPolicy = datasetIdentity
+          ? localStorage.getItem(
+              canonicalDatasetStorageKey(CONFIG_KEY, datasetIdentity),
+            )
+          : null;
         const stored = JSON.parse(scopedPolicy || "{}");
         if (
           stored?.policyVersion === POLICY_VERSION &&
@@ -501,21 +566,31 @@ export default function Step04MissingValues() {
   useEffect(() => {
     void loadSummary();
     const controller = new AbortController();
-    getEdaCarryForward(projectId, "missing_values", controller.signal)
-      .then((context) => {
-        setCarryForward(context.items);
-        setEdaDocumentStatus(context.documentationStatus);
-        setEdaManifest(context.predictorManifestId);
-      })
-      .catch(() => undefined);
-    getPreparationDocumentation(projectId, controller.signal)
-      .then(setPreparationDocs)
-      .catch(() => undefined);
+    if (datasetIdentity) {
+      getEdaCarryForward(
+        datasetIdentity,
+        "missing_values",
+        controller.signal,
+      )
+        .then((context) => {
+          setCarryForward(context.items);
+          setEdaDocumentStatus(context.documentationStatus);
+          setEdaManifest(context.predictorManifestId);
+        })
+        .catch(() => undefined);
+      getPreparationDocumentation(datasetIdentity, controller.signal)
+        .then(setPreparationDocs)
+        .catch(() => undefined);
+    }
     return () => controller.abort();
-  }, [projectId]);
+  }, [
+    projectId,
+    datasetIdentity?.dataset_id,
+    datasetIdentity?.dataset_version_id,
+  ]);
 
   useEffect(() => {
-    if (settingsHydratedFor !== projectId) return;
+    if (settingsHydratedFor !== projectId || !datasetIdentity) return;
     try {
       const policy: StoredMissingPolicy = {
         policyVersion: POLICY_VERSION,
@@ -525,7 +600,7 @@ export default function Step04MissingValues() {
         overrideFeatures: [...overrideFeatures],
       };
       localStorage.setItem(
-        `${CONFIG_KEY}:${projectId}`,
+        canonicalDatasetStorageKey(CONFIG_KEY, datasetIdentity),
         JSON.stringify(policy),
       );
     } catch {
@@ -540,6 +615,8 @@ export default function Step04MissingValues() {
     overrideFeatures,
     projectId,
     settingsHydratedFor,
+    datasetIdentity?.dataset_id,
+    datasetIdentity?.dataset_version_id,
   ]);
 
   const totalMissing =
@@ -760,8 +837,15 @@ export default function Step04MissingValues() {
     item: PreparationCarryForwardItem,
     disposition: CarryForwardDisposition,
   ) {
+    if (!datasetIdentity) {
+      setError(
+        datasetIdentityError ||
+          "Missing-value evidence decisions require an exact registered Dataset Library version.",
+      );
+      return;
+    }
     saveCarryForwardDisposition(
-      projectId,
+      datasetIdentity,
       "missing_values",
       item.findingId,
       disposition,
@@ -779,6 +863,10 @@ export default function Step04MissingValues() {
   }
 
   async function validateNoTreatment(): Promise<MissingValidation | null> {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      return null;
+    }
     if (!summary) return null;
     setApplying(true);
     setValidationFailed(false);
@@ -787,15 +875,32 @@ export default function Step04MissingValues() {
       const payload = await requestJson<{
         ok: true;
         scope: "full_dataset";
+        project_id: string;
+        dataset_id: string;
+        dataset_version_id: string;
+        dataset_version: string;
         validation: MissingValidation;
       }>("/missing/validate", {
         method: "POST",
         body: JSON.stringify({
           project_id: projectId,
+          expected_dataset_id: datasetIdentity.dataset_id,
+          expected_dataset_version_id: datasetIdentity.dataset_version_id,
+          dataset_version: datasetIdentity.dataset_version_id,
           event_value: summary.event_value,
           problem_type: summary.problem_type,
         }),
       });
+      assertExactDatasetIdentity(
+        datasetIdentity,
+        payload,
+        "Missing-value validation response",
+      );
+      assertExactDatasetIdentity(
+        datasetIdentity,
+        payload.validation,
+        "Missing-value validation record",
+      );
       setSummary((current) =>
         current
           ? { ...current, validation: payload.validation, application: null }
@@ -831,6 +936,10 @@ export default function Step04MissingValues() {
   }
 
   async function applyTreatments(): Promise<MissingApplication | null> {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      return null;
+    }
     if (!summary) return null;
     if (totalMissing === 0) return null;
     const missingConstant = summary.columns.find(
@@ -863,16 +972,33 @@ export default function Step04MissingValues() {
       const payload = await requestJson<{
         ok: true;
         scope: "full_dataset";
+        project_id: string;
+        dataset_id: string;
+        dataset_version_id: string;
+        dataset_version: string;
         application: MissingApplication;
       }>("/missing/apply", {
         method: "POST",
         body: JSON.stringify({
           project_id: projectId,
+          expected_dataset_id: datasetIdentity.dataset_id,
+          expected_dataset_version_id: datasetIdentity.dataset_version_id,
+          dataset_version: datasetIdentity.dataset_version_id,
           config: normalizeConfig(summary.columns, config),
           event_value: summary.event_value,
           problem_type: summary.problem_type,
         }),
       });
+      assertExactDatasetIdentity(
+        datasetIdentity,
+        payload,
+        "Missing-value treatment response",
+      );
+      assertExactDatasetIdentity(
+        datasetIdentity,
+        payload.application,
+        "Missing-value treatment application",
+      );
       setSummary((current) =>
         current
           ? { ...current, application: payload.application, validation: null }
@@ -896,6 +1022,10 @@ export default function Step04MissingValues() {
   }
 
   async function completeStep() {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      return false;
+    }
     if (!summary) return false;
     const decision =
       totalMissing === 0
@@ -908,7 +1038,11 @@ export default function Step04MissingValues() {
     if (!decision) return false;
     const isValidation = "validated_at" in decision;
     await createEvidence({
-      projectId,
+      ...buildCanonicalEvidenceEnvelope(datasetIdentity, {
+        sourceStage: decision.source_stage,
+        scope: "full_dataset",
+        backendMaterialization: !isValidation,
+      }),
       projectName,
       evidenceType: "missing_values",
       title: isValidation
@@ -919,7 +1053,6 @@ export default function Step04MissingValues() {
         : `${decision.treatments.length.toLocaleString()} treatments were applied. True nulls changed from ${decision.missing_before.toLocaleString()} to ${decision.missing_after.toLocaleString()}.`,
       sourcePage: "Missing Values",
       sourceRoute: "/step04",
-      datasetIds: [decision.dataset_version],
       modelIds: [],
       documentIds: [],
       notebookIds: [],
@@ -936,12 +1069,6 @@ export default function Step04MissingValues() {
       ],
       status: "ready",
       importance: "high",
-      lineage: {
-        datasetVersion: decision.dataset_version,
-        sourceStage: decision.source_stage,
-        scope: "full_dataset",
-        backendMaterialization: !isValidation,
-      },
       payload: decision,
     });
     return true;
@@ -962,7 +1089,9 @@ export default function Step04MissingValues() {
       hideHeader
       nextPath="/step05"
       onNext={completeStep}
-      nextDisabled={loading || !summary || !!error || applying}
+      nextDisabled={
+        loading || !datasetIdentity || !summary || !!error || applying
+      }
       nextDisabledReason={
         error || "Load the governed missingness profile before continuing."
       }
@@ -991,7 +1120,7 @@ export default function Step04MissingValues() {
           description="Distinguish true nulls from governed bureau special values, validate the current population, and materialize only a necessary treatment."
           datasetName={datasetName}
           datasetVersion={
-            summary?.dataset_version || localDataset?.dataset_version || ""
+            datasetIdentity?.dataset_version_id || ""
           }
           target={summary?.target || localDataset?.target || ""}
           predictorCount={summary?.columns.length ?? 0}

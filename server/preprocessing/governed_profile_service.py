@@ -145,8 +145,13 @@ def resolve_governed_artifact(dataset_id: str, version_id: Optional[str]) -> Dic
     as one is the exact defect this phase exists to remove.
     """
     dataset = require_dataset(dataset_id)
+    if not str(version_id or "").strip():
+        raise HTTPException(
+            status_code=422,
+            detail="An exact Dataset Library versionId is required for governed profiling.",
+        )
     versions = dataset.get("versions") or []
-    version = next((item for item in versions if item.get("versionId") == version_id), versions[-1] if versions else None)
+    version = next((item for item in versions if item.get("versionId") == version_id), None)
     if not version:
         raise HTTPException(status_code=404, detail="Dataset version not found.")
 

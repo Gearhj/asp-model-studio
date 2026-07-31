@@ -67,12 +67,23 @@ def resolve_bound_dataset(
     dataset identity (an unregistered workspace upload), so the caller can fall
     back to the preview-row contract.
     """
-    if not dataset_id:
+    if bool(dataset_id) != bool(version_id):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Both datasetId and versionId are required to bind an exact "
+                "Dataset Library version for code execution."
+            ),
+        )
+    if not dataset_id or not version_id:
         return None
 
     dataset = require_dataset(dataset_id)
     versions = dataset.get("versions", [])
-    version = next((v for v in versions if v.get("versionId") == version_id), versions[-1] if versions else None)
+    version = next(
+        (v for v in versions if v.get("versionId") == version_id),
+        None,
+    )
     if not version:
         raise HTTPException(status_code=404, detail="Dataset version not found.")
 

@@ -18,6 +18,8 @@ from fastapi.routing import APIRoute
 # Core in-memory store
 from .core.dataset_store import DATASTORE
 from .core.modeling_scope import authorize_modeling_scope
+from .core.pretraining_invalidation import invalidate_downstream_training_state
+from .core.result_store import RESULTS
 from .core.session_checkpoint import load_checkpoint, schedule_checkpoint_save, shutdown_checkpoint_writer
 
 # Modular routers
@@ -37,6 +39,11 @@ from .features.feature_router import router as feature_router
 from .evaluation.eval_router import router as eval_router
 from .python_execution import router as python_execution_router
 from .datasets.dataset_router import router as dataset_library_router
+from .datasets.dataset_registry import create_dataset_from_dataframe, link_project
+from .datasets.dataset_identity import (
+    resolve_project_dataset_identity,
+    stamp_active_dataset_identity,
+)
 from .security.security_router import router as security_router
 from .admin.router import router as admin_router
 from .sharing.router import router as sharing_router
@@ -231,19 +238,72 @@ def create_app() -> FastAPI:
         if int(df.shape[1]) > MAX_UPLOAD_COLUMNS:
             raise HTTPException(status_code=413, detail=f"Uploaded CSV has too many columns. Maximum is {MAX_UPLOAD_COLUMNS:,}.")
 
-        DATASTORE.set_raw(df)
-        target = _infer_target(df)
-        columns = [str(c) for c in df.columns]
-        selected_columns = [col for col in columns if col != target]
-        DATASTORE.meta["selected_columns"] = selected_columns
-        DATASTORE.meta["source"] = {
-            "kind": "backend_csv_import",
-            "filename": filename,
-            "rows": int(df.shape[0]),
-            "columns": int(df.shape[1]),
-            "target": target,
-            "selected_columns": selected_columns,
-        }
+        # Phase 2A: a new upload becomes an immutable registered version before
+        # it can enter governed modeling state. No browser-generated identifier
+        # is accepted as a substitute for this backend identity.
+        dataset = create_dataset_from_dataframe(
+            df,
+            name=os.path.splitext(os.path.basename(filename))[0] or "Uploaded Dataset",
+            description="Registered automatically from Data Acquisition upload.",
+            domain="Predictive Modeling",
+            source_type="data_acquisition_upload",
+            source_info={"projectId": project_id, "originalFilename": filename},
+            dataset_role="development",
+        )
+        dataset_id = str(dataset.get("datasetId") or "")
+        dataset_version_id = str(
+            dataset.get("created_dataset_version_id")
+            or dataset.get("createdDatasetVersionId")
+            or ""
+        )
+        if not dataset_id or not dataset_version_id:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    "Dataset registration did not return the exact immutable "
+                    "version created by this upload."
+                ),
+            )
+        link_project(project_id, dataset_id, dataset_version_id, "development")
+        identity = resolve_project_dataset_identity(
+            project_id,
+            dataset_id,
+            dataset_version_id,
+            user=user,
+        )
+
+        scoped_store = DATASTORE.current()
+        scoped_results = RESULTS.current()
+        with scoped_store.state_lock:
+            scoped_store.set_raw(df)
+            target = _infer_target(df)
+            columns = [str(c) for c in df.columns]
+            selected_columns = [col for col in columns if col != target]
+            scoped_store.meta["selected_columns"] = selected_columns
+            canonical = stamp_active_dataset_identity(
+                identity,
+                store=scoped_store,
+            )
+            scoped_store.meta["source"] = {
+                "kind": "dataset_library",
+                "dataset_id": canonical["dataset_id"],
+                "dataset_version_id": canonical["dataset_version_id"],
+                "datasetId": canonical["dataset_id"],
+                "versionId": canonical["dataset_version_id"],
+                "filename": filename,
+                "rows": int(df.shape[0]),
+                "columns": int(df.shape[1]),
+                "target": target,
+                "selected_columns": selected_columns,
+            }
+            invalidate_downstream_training_state(
+                "A newly uploaded exact Dataset Library version was activated.",
+                store=scoped_store,
+                result_store=scoped_results,
+                split_status="not_created",
+                # set_raw already advanced the guarded revision.
+                bump_revision=False,
+            )
         schedule_checkpoint_save()
         sample_df = df.head(max(1, min(MAX_UPLOAD_SAMPLE_ROWS, int(df.shape[0]))))
 
@@ -251,6 +311,13 @@ def create_app() -> FastAPI:
             "ok": True,
             "source": "backend_csv_import",
             "filename": filename,
+            "project_id": canonical["project_id"],
+            "dataset_id": canonical["dataset_id"],
+            "dataset_version_id": canonical["dataset_version_id"],
+            "created_dataset_version_id": dataset_version_id,
+            "created_version": dataset.get("created_version"),
+            "datasetId": canonical["dataset_id"],
+            "versionId": canonical["dataset_version_id"],
             "rows": int(df.shape[0]),
             "rows_loaded": int(df.shape[0]),
             "row_count": int(df.shape[0]),

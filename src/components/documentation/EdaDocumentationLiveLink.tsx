@@ -23,6 +23,8 @@ import {
   type EdaDocumentationState,
   type EdaDocumentationStatus,
 } from "../../lib/edaDocumentationApi";
+import { loadLocalDataset } from "../../lib/localDataset";
+import { requireLocalDatasetCanonicalIdentity } from "../../lib/datasetIdentity";
 
 const UPSTREAM_REFRESH_EVENTS = [
   "atlas-dataset-updated",
@@ -93,8 +95,14 @@ export default function EdaDocumentationLiveLink({ projectId }: Props) {
       if (silent) setRefreshing(true);
       else setLoading(true);
       try {
+        const identity = requireLocalDatasetCanonicalIdentity(
+          projectId,
+          loadLocalDataset(),
+          "EDA documentation dataset identity",
+        );
         const next = await getEdaDocumentationState(
           projectId,
+          identity,
           controller.signal
         );
         if (!controller.signal.aborted) {

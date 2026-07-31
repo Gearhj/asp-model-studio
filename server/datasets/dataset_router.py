@@ -32,8 +32,13 @@ from .dataset_registry import (
     unlink_project_dataset,
     ARTIFACT_ROOT,
 )
+from .dataset_identity import (
+    resolve_project_dataset_identity,
+    stamp_active_dataset_identity,
+)
 from ..core.dataset_store import DATASTORE
 from ..core.modeling_scope import authorize_modeling_scope
+from ..core.pretraining_invalidation import invalidate_downstream_training_state
 from ..core.result_store import RESULTS
 from ..core.session_checkpoint import schedule_checkpoint_save
 from ..security.security_store import require_user, user_can_access_project, audit_event
@@ -61,7 +66,7 @@ class DatasetGrantRequest(BaseModel):
 
 class LinkDatasetRequest(BaseModel):
     datasetId: str
-    versionId: Optional[str] = None
+    versionId: str
     datasetRole: str = "modeling"
 
 
@@ -142,10 +147,20 @@ def register_workspace(payload: RegisterWorkspaceDatasetRequest, user: Dict[str,
     state, transformed or not) as a durable, versioned Dataset Library asset linked
     to this project. Previously missing path -- see docs/architecture/DATASET_LIFECYCLE_ADR.md."""
     authorize_modeling_scope(user, payload.projectId, "edit")
-    df = DATASTORE.get_active_df()
-    if df is None or df.empty:
-        raise HTTPException(status_code=400, detail="Upload a dataset in this project before registering it to the Dataset Library.")
-    source = DATASTORE.meta.get("source") if isinstance(DATASTORE.meta.get("source"), dict) else {}
+    scoped_store = DATASTORE.current()
+    scoped_results = RESULTS.current()
+    with scoped_store.state_lock:
+        active = scoped_store.get_active_df()
+        if active is None or active.empty:
+            raise HTTPException(status_code=400, detail="Upload a dataset in this project before registering it to the Dataset Library.")
+        df = active.copy()
+        source = (
+            dict(scoped_store.meta.get("source"))
+            if isinstance(scoped_store.meta.get("source"), dict)
+            else {}
+        )
+        target = scoped_store.target
+        starting_revision = int(scoped_store.data_revision)
     dataset = register_workspace_dataset(
         df,
         name=payload.name,
@@ -153,10 +168,69 @@ def register_workspace(payload: RegisterWorkspaceDatasetRequest, user: Dict[str,
         description=payload.description,
         domain=payload.domain,
         tags=payload.tags,
-        target=DATASTORE.target,
+        target=target,
         source_meta=source,
     )
-    return {"ok": True, "dataset": dataset}
+    dataset_id = str(dataset.get("datasetId") or "")
+    dataset_version_id = str(
+        dataset.get("created_dataset_version_id")
+        or dataset.get("createdDatasetVersionId")
+        or ""
+    )
+    if not dataset_id or not dataset_version_id:
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Dataset registration did not return the exact immutable "
+                "version created by this operation."
+            ),
+        )
+    identity = resolve_project_dataset_identity(
+        payload.projectId,
+        dataset_id,
+        dataset_version_id,
+        user=user,
+    )
+    with scoped_store.state_lock:
+        if int(scoped_store.data_revision) != starting_revision:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "The workspace dataset changed while registration was in "
+                    "progress. Register the current dataset again."
+                ),
+            )
+        canonical = stamp_active_dataset_identity(identity, store=scoped_store)
+        scoped_store.meta["source"] = {
+            "kind": "dataset_library",
+            "dataset_id": canonical["dataset_id"],
+            "dataset_version_id": canonical["dataset_version_id"],
+            "created_dataset_version_id": dataset_version_id,
+            "created_version": dataset.get("created_version"),
+            "datasetId": canonical["dataset_id"],
+            "versionId": canonical["dataset_version_id"],
+            "filename": dataset.get("name"),
+            "rows": int(df.shape[0]),
+            "columns": int(df.shape[1]),
+        }
+        invalidate_downstream_training_state(
+            "An exact Dataset Library version was activated for the workspace.",
+            store=scoped_store,
+            result_store=scoped_results,
+            split_status="not_created",
+        )
+    schedule_checkpoint_save()
+    return {
+        "ok": True,
+        "dataset": dataset,
+        "project_id": canonical["project_id"],
+        "dataset_id": canonical["dataset_id"],
+        "dataset_version_id": canonical["dataset_version_id"],
+        "created_dataset_version_id": dataset_version_id,
+        "created_version": dataset.get("created_version"),
+        "datasetId": canonical["dataset_id"],
+        "versionId": canonical["dataset_version_id"],
+    }
 
 
 @router.get("/datasets/{dataset_id}/versions")
@@ -201,39 +275,62 @@ def get_preview(dataset_id: str, version_id: str) -> Dict[str, Any]:
 @router.post("/datasets/{dataset_id}/versions/{version_id}/activate")
 def activate_dataset_version(dataset_id: str, version_id: str, project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     authorize_modeling_scope(user, project_id, "edit")
-    dataset = require_dataset(dataset_id)
-    version = next((item for item in dataset.get("versions", []) if item.get("versionId") == version_id), None)
-    if not version:
-        raise HTTPException(status_code=404, detail="Dataset version not found.")
-    relative_path = version.get("fullDataPath")
-    if not relative_path:
-        raise HTTPException(status_code=409, detail="This dataset version does not contain a full registered artifact.")
-    path = (ARTIFACT_ROOT / str(relative_path)).resolve()
-    root = ARTIFACT_ROOT.resolve()
-    if root not in path.parents or not path.exists():
-        raise HTTPException(status_code=409, detail="The full registered dataset artifact is unavailable.")
+    identity = resolve_project_dataset_identity(
+        project_id,
+        dataset_id,
+        version_id,
+        user=user,
+    )
+    dataset = identity["dataset"]
+    version = identity["version"]
+    path = identity["artifact_path"]
     try:
         df = pd.read_csv(path)
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Unable to load registered dataset version: {exc}") from exc
-    DATASTORE.set_raw(df)
-    DATASTORE.set_target(None)
-    DATASTORE.meta["selected_columns"] = [str(column) for column in df.columns]
-    DATASTORE.meta["dataset_version"] = version_id
-    DATASTORE.meta["source"] = {
-        "kind": "dataset_library",
-        "datasetId": dataset_id,
-        "version": version_id,
-        "filename": version.get("originalFilename") or dataset.get("name"),
-        "rows": int(df.shape[0]),
-        "columns": int(df.shape[1]),
-    }
-    RESULTS.clear_model_artifacts()
+    scoped_store = DATASTORE.current()
+    scoped_results = RESULTS.current()
+    with scoped_store.state_lock:
+        scoped_store.set_raw(df)
+        scoped_store.set_target(None)
+        scoped_store.meta["selected_columns"] = [
+            str(column) for column in df.columns
+        ]
+        canonical = stamp_active_dataset_identity(identity, store=scoped_store)
+        scoped_store.meta["source"] = {
+            "kind": "dataset_library",
+            "dataset_id": canonical["dataset_id"],
+            "dataset_version_id": canonical["dataset_version_id"],
+            "datasetId": canonical["dataset_id"],
+            "versionId": canonical["dataset_version_id"],
+            "filename": version.get("originalFilename") or dataset.get("name"),
+            "rows": int(df.shape[0]),
+            "columns": int(df.shape[1]),
+        }
+        invalidate_downstream_training_state(
+            "A different exact Dataset Library version was activated.",
+            store=scoped_store,
+            result_store=scoped_results,
+            split_status="not_created",
+            # set_raw already advanced the guarded revision.
+            bump_revision=False,
+        )
     schedule_checkpoint_save()
     return {
         "ok": True,
-        "datasetId": dataset_id,
-        "versionId": version_id,
+        "project_id": canonical["project_id"],
+        "dataset_id": canonical["dataset_id"],
+        "dataset_version_id": canonical["dataset_version_id"],
+        "datasetId": canonical["dataset_id"],
+        "versionId": canonical["dataset_version_id"],
+        "dataset_version_label": identity.get("dataset_version_label"),
+        "dataset_content_hash": identity.get("dataset_content_hash"),
+        "dataset_schema_hash": identity.get("dataset_schema_hash"),
+        "dataset_source_type": identity.get("dataset_source_type"),
+        "datasetVersionLabel": identity.get("dataset_version_label"),
+        "datasetContentHash": identity.get("dataset_content_hash"),
+        "datasetSchemaHash": identity.get("dataset_schema_hash"),
+        "datasetSourceType": identity.get("dataset_source_type"),
         "row_count": int(df.shape[0]),
         "column_count": int(df.shape[1]),
         "headers": [str(column) for column in df.columns],

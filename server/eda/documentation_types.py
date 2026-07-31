@@ -88,7 +88,10 @@ class EDADocumentationPayload(BaseModel):
 
     project_id: str = Field(min_length=1, max_length=200)
     dataset_id: str = Field(min_length=1, max_length=300)
-    dataset_version: str = Field(min_length=1, max_length=300)
+    dataset_version_id: str = Field(min_length=1, max_length=300)
+    # Transitional compare-only alias. The service derives the persisted alias
+    # from dataset_version_id after validating that both values agree.
+    dataset_version: Optional[str] = Field(default=None, min_length=1, max_length=300)
     target: str = Field(min_length=1, max_length=300)
     predictor_manifest_id: str = Field(min_length=1, max_length=300)
     eda_analysis_version: str = Field(min_length=1, max_length=120)
@@ -113,7 +116,7 @@ class EDADocumentationPayload(BaseModel):
     @field_validator(
         "project_id",
         "dataset_id",
-        "dataset_version",
+        "dataset_version_id",
         "target",
         "predictor_manifest_id",
         "eda_analysis_version",
@@ -141,6 +144,8 @@ class EDAInvalidationRequest(BaseModel):
 
     reason: str = Field(min_length=1, max_length=2000)
     upstream_revision: Optional[str] = Field(default=None, max_length=300)
+    expected_dataset_id: Optional[str] = Field(default=None, max_length=300)
+    expected_dataset_version_id: Optional[str] = Field(default=None, max_length=300)
 
     @field_validator("reason")
     @classmethod

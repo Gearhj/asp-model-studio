@@ -51,6 +51,13 @@ import {
   type PipelineStep,
 } from "../lib/featureManifest";
 import { createEvidence } from "../lib/evidenceGraph";
+import {
+  assertExactDatasetIdentity,
+  buildCanonicalEvidenceEnvelope,
+  canonicalDatasetStorageKey,
+  requireLocalDatasetCanonicalIdentity,
+  type CanonicalDatasetIdentity,
+} from "../lib/datasetIdentity";
 import { logDecision } from "../lib/decisionJournal";
 import {
   buildFeatureRecommendations,
@@ -130,6 +137,20 @@ export default function Step05FeatureEngineering() {
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
   const getNextStepPath = useWorkflowStore((state) => state.getNextStepPath);
+  let datasetIdentity: CanonicalDatasetIdentity | null = null;
+  let datasetIdentityError = "";
+  try {
+    datasetIdentity = requireLocalDatasetCanonicalIdentity(
+      projectId,
+      localDataset,
+      "Feature Engineering dataset identity",
+    );
+  } catch (cause) {
+    datasetIdentityError =
+      cause instanceof Error
+        ? cause.message
+        : "Feature Engineering requires an exact registered Dataset Library version.";
+  }
   const [manifest, setManifest] = useState<FeatureManifest | null>(null);
   const [drafts, setDrafts] = useState<FeatureDraft[]>([]);
   const [pipelineSteps, setPipelineSteps] = useState<PipelineStep[]>([]);
@@ -187,9 +208,13 @@ export default function Step05FeatureEngineering() {
 
   async function loadManifest() {
     setLoading(true);
-    setError("");
+    setError(datasetIdentityError);
+    if (!datasetIdentity) {
+      setLoading(false);
+      return;
+    }
     try {
-      const payload = await getFeatureManifest(projectId);
+      const payload = await getFeatureManifest(datasetIdentity);
       setManifest(payload);
       setDrafts(payload.features.filter((feature) => feature.origin !== "original").map(toDraft));
       setPipelineSteps(payload.pipeline_steps ?? []);
@@ -203,32 +228,49 @@ export default function Step05FeatureEngineering() {
 
   useEffect(() => {
     void loadManifest();
-    try {
-      setRecommendationDispositions(
-        JSON.parse(
-          localStorage.getItem(
-            `atlas:feature-recommendation-dispositions:${projectId}`,
-          ) || "{}",
-        ),
-      );
-    } catch {
+    if (datasetIdentity) {
+      try {
+        setRecommendationDispositions(
+          JSON.parse(
+            localStorage.getItem(
+              canonicalDatasetStorageKey(
+                "atlas:feature-recommendation-dispositions",
+                datasetIdentity,
+              ),
+            ) || "{}",
+          ),
+        );
+      } catch {
+        setRecommendationDispositions({});
+      }
+    } else {
       setRecommendationDispositions({});
     }
     const controller = new AbortController();
-    getEdaCarryForward(projectId, "feature_engineering", controller.signal)
-      .then((context) => {
-        setCarryForward(context.items);
-        setEdaDocumentStatus(context.documentationStatus);
-        setEdaManifest(context.predictorManifestId);
-        setPredictorEvidence(context.predictorEvidence);
-        setHighCorrelationPairs(context.highCorrelationPairs);
-      })
-      .catch(() => undefined);
-    getPreparationDocumentation(projectId, controller.signal)
-      .then(setPreparationDocs)
-      .catch(() => undefined);
+    if (datasetIdentity) {
+      getEdaCarryForward(
+        datasetIdentity,
+        "feature_engineering",
+        controller.signal,
+      )
+        .then((context) => {
+          setCarryForward(context.items);
+          setEdaDocumentStatus(context.documentationStatus);
+          setEdaManifest(context.predictorManifestId);
+          setPredictorEvidence(context.predictorEvidence);
+          setHighCorrelationPairs(context.highCorrelationPairs);
+        })
+        .catch(() => undefined);
+      getPreparationDocumentation(datasetIdentity, controller.signal)
+        .then(setPreparationDocs)
+        .catch(() => undefined);
+    }
     return () => controller.abort();
-  }, []);
+  }, [
+    projectId,
+    datasetIdentity?.dataset_id,
+    datasetIdentity?.dataset_version_id,
+  ]);
 
   const originals = manifest?.features.filter((feature) => feature.origin === "original") ?? [];
   const eligibleOriginals = originals.filter((feature) => feature.eligibility_status === "eligible");
@@ -434,8 +476,16 @@ export default function Step05FeatureEngineering() {
     setRecommendationDispositions((current) => {
       const next = { ...current, [recommendationId]: disposition };
       try {
+        if (!datasetIdentity) {
+          throw new Error(
+            "Recommendation decisions require an exact registered Dataset Library version.",
+          );
+        }
         localStorage.setItem(
-          `atlas:feature-recommendation-dispositions:${projectId}`,
+          canonicalDatasetStorageKey(
+            "atlas:feature-recommendation-dispositions",
+            datasetIdentity,
+          ),
           JSON.stringify(next),
         );
       } catch {
@@ -525,6 +575,10 @@ export default function Step05FeatureEngineering() {
   async function previewRecommendation(
     recommendation: FeatureRecommendation,
   ) {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      return;
+    }
     const existing = drafts.find(
       (draft) =>
         draft.feature_name.toLowerCase() ===
@@ -560,7 +614,7 @@ export default function Step05FeatureEngineering() {
         candidate,
       ];
       const payload = await previewFeaturePlan(
-        projectId,
+        datasetIdentity,
         plan,
         previewRowLimit,
         controller.signal,
@@ -586,8 +640,15 @@ export default function Step05FeatureEngineering() {
     item: PreparationCarryForwardItem,
     disposition: CarryForwardDisposition,
   ) {
+    if (!datasetIdentity) {
+      setError(
+        datasetIdentityError ||
+          "Feature-planning evidence decisions require an exact registered Dataset Library version.",
+      );
+      return;
+    }
     saveCarryForwardDisposition(
-      projectId,
+      datasetIdentity,
       "feature_engineering",
       item.findingId,
       disposition,
@@ -605,10 +666,18 @@ export default function Step05FeatureEngineering() {
   }
 
   async function savePlan() {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      return;
+    }
     setSaving(true);
     setError("");
     try {
-      const payload = await saveFeatureManifest(projectId, drafts, pipelineSteps, manifest?.dataset_version ?? "");
+      const payload = await saveFeatureManifest(
+        datasetIdentity,
+        drafts,
+        pipelineSteps,
+      );
       setManifest(payload);
       setDrafts(payload.features.filter((feature) => feature.origin !== "original").map(toDraft));
       setPipelineSteps(payload.pipeline_steps ?? []);
@@ -623,6 +692,10 @@ export default function Step05FeatureEngineering() {
   }
 
   async function runPreview() {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      return;
+    }
     if (dirty || !manifest) {
       setError("Validate and save the current transformation plan before previewing it.");
       return;
@@ -634,14 +707,14 @@ export default function Step05FeatureEngineering() {
     setError("");
     try {
       const payload = await previewFeaturePlan(
-        projectId,
+        datasetIdentity,
         drafts,
         previewRowLimit,
         controller.signal,
         manifest.manifest_hash,
       );
       setPreview(payload);
-      const refreshed = await getFeatureManifest(projectId);
+      const refreshed = await getFeatureManifest(datasetIdentity);
       setManifest(refreshed);
       setMessage(`Preview ${payload.preview_hash} generated from ${payload.preview_row_count} bounded rows. No full-data materialization occurred.`);
     } catch (cause) {
@@ -653,6 +726,10 @@ export default function Step05FeatureEngineering() {
   }
 
   async function materialize() {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      return;
+    }
     if (dirty) {
       setError("Save the current transformation plan before materializing features.");
       return;
@@ -670,7 +747,7 @@ export default function Step05FeatureEngineering() {
         return;
       }
       const payload = await materializeFeatureManifest(
-        projectId,
+        datasetIdentity,
         manifest.manifest_hash,
         previewHash,
       );
@@ -684,6 +761,10 @@ export default function Step05FeatureEngineering() {
   }
 
   async function confirmCurrentSet() {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      return;
+    }
     if (!manifest || !exactMaterialization) {
       setError("Materialize the exact saved feature contract before confirming the set current.");
       return;
@@ -692,7 +773,7 @@ export default function Step05FeatureEngineering() {
     setError("");
     try {
       const payload = await confirmFeatureManifest(
-        projectId,
+        datasetIdentity,
         manifest.manifest_hash,
         manifest.materialization_hash,
       );
@@ -706,9 +787,13 @@ export default function Step05FeatureEngineering() {
   }
 
   async function deleteDraft(draft: FeatureDraft) {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      return;
+    }
     if (draft.feature_id && manifest?.features.some((feature) => feature.feature_id === draft.feature_id)) {
       try {
-        const payload = await removeFeature(projectId, draft.feature_id);
+        const payload = await removeFeature(datasetIdentity, draft.feature_id);
         setManifest(payload);
         setDrafts(payload.features.filter((feature) => feature.origin !== "original").map(toDraft));
         setDirty(false);
@@ -824,6 +909,10 @@ export default function Step05FeatureEngineering() {
   }
 
   async function previewFeatureRow(draft: FeatureDraft) {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      return;
+    }
     previewController.current?.abort();
     const controller = new AbortController();
     previewController.current = controller;
@@ -832,7 +921,7 @@ export default function Step05FeatureEngineering() {
     focusFeatureDetail(draft, "detail");
     try {
       const payload = await previewFeaturePlan(
-        projectId,
+        datasetIdentity,
         drafts,
         previewRowLimit,
         controller.signal,
@@ -840,7 +929,7 @@ export default function Step05FeatureEngineering() {
       );
       setPreview(payload);
       if (!dirty && payload.preview_hash) {
-        const refreshed = await getFeatureManifest(projectId);
+        const refreshed = await getFeatureManifest(datasetIdentity);
         setManifest(refreshed);
       }
       setMessage(
@@ -859,6 +948,10 @@ export default function Step05FeatureEngineering() {
   }
 
   async function runVif() {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      return;
+    }
     if (dirty) {
       setError("Save and materialize the current feature plan before running VIF diagnostics.");
       return;
@@ -874,10 +967,21 @@ export default function Step05FeatureEngineering() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ project_id: projectId, selected_features: vifCandidateNames }),
+        body: JSON.stringify({
+          project_id: projectId,
+          expected_dataset_id: datasetIdentity.dataset_id,
+          expected_dataset_version_id: datasetIdentity.dataset_version_id,
+          dataset_version: datasetIdentity.dataset_version_id,
+          selected_features: vifCandidateNames,
+        }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok || !payload?.ok) throw new Error(payload?.detail ?? "VIF analysis failed.");
+      assertExactDatasetIdentity(
+        datasetIdentity,
+        { ...payload, project_id: payload.project_id ?? projectId },
+        "Feature VIF response",
+      );
       setVifRows(payload.vif ?? []);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "VIF analysis failed.");
@@ -887,6 +991,10 @@ export default function Step05FeatureEngineering() {
   }
 
   async function persistVifSelection(updates: Record<string, boolean>) {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      return;
+    }
     if (!manifest) return;
     setVifSaving(true);
     setError("");
@@ -902,7 +1010,11 @@ export default function Step05FeatureEngineering() {
           exclusion_reason: selected ? "" : "Excluded after VIF review",
         };
       });
-      const payload = await saveFeatureManifest(projectId, featureUpdates, pipelineSteps, manifest.dataset_version);
+      const payload = await saveFeatureManifest(
+        datasetIdentity,
+        featureUpdates,
+        pipelineSteps,
+      );
       setManifest(payload);
       setDrafts(payload.features.filter((feature) => feature.origin !== "original").map(toDraft));
       setPipelineSteps(payload.pipeline_steps ?? []);
@@ -945,6 +1057,10 @@ export default function Step05FeatureEngineering() {
   }
 
   async function finalizeFeatureSetAndContinue() {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      return false;
+    }
     if (!manifest) {
       setError("The governed Feature Manifest is not available yet.");
       return false;
@@ -976,10 +1092,9 @@ export default function Step05FeatureEngineering() {
       if (dirty || currentManifest.validation_status !== "passed") {
         setAdvancingStage("Validating and saving the feature set");
         currentManifest = await saveFeatureManifest(
-          projectId,
+          datasetIdentity,
           currentDrafts,
           pipelineSteps,
-          currentManifest.dataset_version,
         );
         currentDrafts = currentManifest.features
           .filter((feature) => feature.origin !== "original")
@@ -1007,7 +1122,7 @@ export default function Step05FeatureEngineering() {
         if (!previewHash) {
           setAdvancingStage("Previewing the saved feature set");
           const previewPayload = await previewFeaturePlan(
-            projectId,
+            datasetIdentity,
             currentDrafts,
             previewRowLimit,
             undefined,
@@ -1015,16 +1130,16 @@ export default function Step05FeatureEngineering() {
           );
           previewHash = previewPayload.preview_hash;
           setPreview(previewPayload);
-          currentManifest = await getFeatureManifest(projectId);
+          currentManifest = await getFeatureManifest(datasetIdentity);
         }
 
         setAdvancingStage("Materializing the governed feature set");
         await materializeFeatureManifest(
-          projectId,
+          datasetIdentity,
           currentManifest.manifest_hash,
           previewHash,
         );
-        currentManifest = await getFeatureManifest(projectId);
+        currentManifest = await getFeatureManifest(datasetIdentity);
       }
 
       const exactCurrentMaterialization =
@@ -1045,7 +1160,7 @@ export default function Step05FeatureEngineering() {
       ) {
         setAdvancingStage("Confirming the current feature contract");
         currentManifest = await confirmFeatureManifest(
-          projectId,
+          datasetIdentity,
           currentManifest.manifest_hash,
           currentManifest.materialization_hash,
         );
@@ -1081,20 +1196,26 @@ export default function Step05FeatureEngineering() {
   async function completeStep(
     confirmedManifest: FeatureManifest | null = manifest,
   ) {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      return false;
+    }
     if (!confirmedManifest) return false;
     const confirmedDrafts = confirmedManifest.features.filter(
       (feature) => feature.origin !== "original",
     );
     const confirmedPipelineSteps = confirmedManifest.pipeline_steps ?? [];
     await createEvidence({
-      projectId,
+      ...buildCanonicalEvidenceEnvelope(datasetIdentity, {
+        manifestVersion: confirmedManifest.manifest_hash,
+        materializationHash: confirmedManifest.materialization_hash,
+      }),
       projectName,
       evidenceType: "feature_engineering",
       title: "Governed Feature Manifest",
       summary: `${confirmedDrafts.length} deterministic engineered features and ${confirmedPipelineSteps.length} training-only pipeline steps were recorded in manifest ${confirmedManifest.manifest_version}.`,
       sourcePage: "Feature Engineering",
       sourceRoute: "/step05",
-      datasetIds: [confirmedManifest.dataset_version],
       modelIds: [],
       documentIds: [],
       notebookIds: [],
@@ -1102,11 +1223,6 @@ export default function Step05FeatureEngineering() {
       tags: ["predictive_modeling", "feature_manifest", "lineage"],
       status: "ready",
       importance: "high",
-      lineage: {
-        datasetVersion: confirmedManifest.dataset_version,
-        manifestVersion: confirmedManifest.manifest_hash,
-        materializationHash: confirmedManifest.materialization_hash,
-      },
       payload: {
         features: confirmedManifest.features,
         pipelineSteps: confirmedPipelineSteps,
@@ -1293,6 +1409,8 @@ export default function Step05FeatureEngineering() {
   ];
   const continueDisabledReason = loading
     ? "Loading the governed Feature Manifest."
+    : !datasetIdentity
+      ? datasetIdentityError
     : !manifest
       ? "The governed Feature Manifest is unavailable. Reload the page or restore the registered dataset."
       : selectedReviewFeatureCount === 0
@@ -1336,7 +1454,7 @@ export default function Step05FeatureEngineering() {
           description="Review the predictors that will move forward. Add an engineered feature only when it is needed, then use the single confirmation action to continue."
           datasetName={datasetName}
           datasetVersion={
-            manifest?.dataset_version || localDataset?.dataset_version || ""
+            datasetIdentity?.dataset_version_id || ""
           }
           target={targetName}
           predictorCount={eligibleOriginals.length}

@@ -20,6 +20,7 @@ Security and governance invariants:
 from __future__ import annotations
 
 import copy
+from functools import wraps
 import hashlib
 import json
 import threading
@@ -27,9 +28,14 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Optional
+from urllib.parse import quote
 
 from ..core.dataset_store import DATASTORE
 from ..core.modeling_scope import active_project_id
+from ..datasets.dataset_identity import active_dataset_identity
+from ..evidence.evidence_identity import has_complete_canonical_dataset_lineage
+from ..evidence.evidence_store import get_evidence
+from ..evidence.evidence_types import CANONICAL_DATASET_LINEAGE_CONTRACT
 from ..security.security_store import audit_event
 from .documentation_types import EDADocumentationPayload
 from .workspace_service import eda_workspace_service
@@ -114,6 +120,18 @@ def _actor(user: Dict[str, Any]) -> Dict[str, str]:
     return {"user_id": user_id, "display_name": display_name or user_id}
 
 
+def _dataset_state_locked(function):
+    """Serialize documentation reads/writes with dataset activation."""
+
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        scoped_store = DATASTORE.current()
+        with scoped_store.state_lock:
+            return function(*args, **kwargs)
+
+    return wrapped
+
+
 class EDADocumentationValidationError(ValueError):
     """Structured validation failure returned by the API boundary."""
 
@@ -130,9 +148,13 @@ class EDADocumentationService:
         self,
         root: Path | None = None,
         context_provider: Optional[Callable[[str], Dict[str, Any]]] = None,
+        evidence_provider: Optional[
+            Callable[[str], Optional[Dict[str, Any]]]
+        ] = None,
     ) -> None:
         self.root = Path(root or EDA_DOCUMENTATION_ROOT)
         self._context_provider = context_provider or self._active_context
+        self._evidence_provider = evidence_provider or get_evidence
         self._lock = threading.RLock()
 
     # ------------------------------------------------------------------
@@ -193,6 +215,7 @@ class EDADocumentationService:
     # ------------------------------------------------------------------
     # Active governed context
     # ------------------------------------------------------------------
+    @_dataset_state_locked
     def _active_context(self, project_id: str) -> Dict[str, Any]:
         # DATASTORE is an ambient proxy keyed by the authenticated user and
         # ACTIVE_PROJECT_ID. Routers set that project context immediately after
@@ -208,31 +231,21 @@ class EDADocumentationService:
                     "requested EDA documentation project."
                 ],
             )
+        identity = active_dataset_identity(project_id)
+        dataset_id = str(identity["dataset_id"])
+        dataset_version_id = str(identity["dataset_version_id"])
         df, target, _y, _problem, _event, authorization = (
             eda_workspace_service.authorized_dataset(
-                EDAWorkspaceRequest(project_id=project_id)
+                EDAWorkspaceRequest(
+                    project_id=project_id,
+                    expected_dataset_id=dataset_id,
+                    expected_dataset_version_id=dataset_version_id,
+                    dataset_version=dataset_version_id,
+                )
             )
         )
-        source = (
-            DATASTORE.meta.get("source")
-            if isinstance(DATASTORE.meta.get("source"), dict)
-            else {}
-        )
-        dataset_id = str(
-            source.get("datasetId")
-            or source.get("dataset_id")
-            or DATASTORE.meta.get("dataset_id")
-            or ""
-        ).strip()
-        dataset_version = str(
-            DATASTORE.meta.get("dataset_version")
-            or DATASTORE.meta.get("version_id")
-            or source.get("version")
-            or source.get("versionId")
-            or ""
-        ).strip()
         manifest_id = str(authorization.get("manifest_version") or "").strip()
-        if not dataset_id or not dataset_version or not manifest_id:
+        if not dataset_id or not dataset_version_id or not manifest_id:
             raise EDADocumentationValidationError(
                 "eda_governed_context_incomplete",
                 [
@@ -243,7 +256,10 @@ class EDADocumentationService:
         return {
             "project_id": project_id,
             "dataset_id": dataset_id,
-            "dataset_version": dataset_version,
+            "dataset_version_id": dataset_version_id,
+            # Transitional persisted alias; it is always the canonical immutable
+            # Dataset Library version and is never sourced independently.
+            "dataset_version": dataset_version_id,
             "target": str(target),
             "predictor_manifest_id": manifest_id,
             "authorized_predictors": sorted(
@@ -261,15 +277,46 @@ class EDADocumentationService:
 
     @staticmethod
     def _lineage(context: Dict[str, Any]) -> Dict[str, str]:
+        dataset_version_id = str(context.get("dataset_version_id") or "")
         return {
             "project_id": str(context.get("project_id") or ""),
             "dataset_id": str(context.get("dataset_id") or ""),
-            "dataset_version": str(context.get("dataset_version") or ""),
+            "dataset_version_id": dataset_version_id,
+            # Compatibility output only; never recover canonical lineage from
+            # an older alias-only record.
+            "dataset_version": dataset_version_id,
             "target": str(context.get("target") or ""),
             "predictor_manifest_id": str(
                 context.get("predictor_manifest_id") or ""
             ),
         }
+
+    @staticmethod
+    def _assert_expected_identity(
+        context: Dict[str, Any],
+        *,
+        expected_dataset_id: Optional[str] = None,
+        expected_dataset_version_id: Optional[str] = None,
+    ) -> None:
+        lineage = EDADocumentationService._lineage(context)
+        if (
+            (
+                expected_dataset_id
+                and str(expected_dataset_id) != lineage["dataset_id"]
+            )
+            or (
+                expected_dataset_version_id
+                and str(expected_dataset_version_id)
+                != lineage["dataset_version_id"]
+            )
+        ):
+            raise EDADocumentationValidationError(
+                "eda_documentation_context_mismatch",
+                [
+                    "The requested EDA documentation state does not match "
+                    "the exact active Dataset Library version."
+                ],
+            )
 
     def _assert_active_scope(
         self,
@@ -279,7 +326,7 @@ class EDADocumentationService:
         asserted = {
             "project_id": payload.project_id,
             "dataset_id": payload.dataset_id,
-            "dataset_version": payload.dataset_version,
+            "dataset_version_id": payload.dataset_version_id,
             "target": payload.target,
             "predictor_manifest_id": payload.predictor_manifest_id,
         }
@@ -287,7 +334,7 @@ class EDADocumentationService:
         labels = {
             "project_id": "project",
             "dataset_id": "dataset",
-            "dataset_version": "dataset version",
+            "dataset_version_id": "dataset version",
             "target": "target",
             "predictor_manifest_id": "predictor manifest",
         }
@@ -299,6 +346,14 @@ class EDADocumentationService:
             for key in asserted
             if str(asserted[key]) != str(current[key])
         ]
+        if (
+            payload.dataset_version
+            and payload.dataset_version != current["dataset_version_id"]
+        ):
+            mismatches.append(
+                "The submitted legacy dataset version alias does not mirror "
+                "the active immutable dataset version."
+            )
         if mismatches:
             raise EDADocumentationValidationError(
                 "eda_documentation_context_mismatch",
@@ -308,11 +363,144 @@ class EDADocumentationService:
     # ------------------------------------------------------------------
     # Canonicalization and readiness
     # ------------------------------------------------------------------
+    def _canonical_evidence_references(
+        self,
+        references: Iterable[Dict[str, Any]],
+        context: Dict[str, Any],
+    ) -> list[Dict[str, Any]]:
+        """Resolve evidence IDs against the exact governed dataset version.
+
+        Evidence metadata supplied by the browser is display-only and cannot
+        establish lineage. Each referenced item is reloaded from the governed
+        evidence store, checked against the active canonical triple, and then
+        projected into the documentation snapshot from server-owned values.
+        """
+
+        expected = self._lineage(context)
+        expected_identity = {
+            "project_id": expected["project_id"],
+            "dataset_id": expected["dataset_id"],
+            "dataset_version_id": expected["dataset_version_id"],
+        }
+        invalid_ids: list[str] = []
+        canonical: list[Dict[str, Any]] = []
+        seen: set[str] = set()
+
+        for reference in references:
+            evidence_id = str(reference.get("evidence_id") or "").strip()
+            if evidence_id in seen:
+                continue
+            seen.add(evidence_id)
+            stored = self._evidence_provider(evidence_id)
+            stored_id = (
+                str(
+                    (stored or {}).get("evidenceId")
+                    or (stored or {}).get("evidence_id")
+                    or ""
+                ).strip()
+                if isinstance(stored, dict)
+                else ""
+            )
+            identity_matches = bool(
+                isinstance(stored, dict)
+                and stored_id == evidence_id
+                and has_complete_canonical_dataset_lineage(stored)
+                and all(
+                    str(stored.get(key) or "").strip() == value
+                    for key, value in expected_identity.items()
+                )
+            )
+
+            # Canonical evidence writers mirror the triple into lineage for
+            # graph compatibility. Treat a present contradictory alias as
+            # corruption instead of silently preferring either representation.
+            lineage = (
+                stored.get("lineage")
+                if isinstance(stored, dict)
+                and isinstance(stored.get("lineage"), dict)
+                else {}
+            )
+            compatibility_claims = (
+                ("project_id", "project_id"),
+                ("dataset_id", "dataset_id"),
+                ("dataset_version_id", "dataset_version_id"),
+                ("projectId", "project_id"),
+                ("datasetId", "dataset_id"),
+                ("datasetVersion", "dataset_version_id"),
+            )
+            if identity_matches:
+                identity_matches = all(
+                    not str(lineage.get(alias) or "").strip()
+                    or str(lineage.get(alias) or "").strip()
+                    == expected_identity[canonical_key]
+                    for alias, canonical_key in compatibility_claims
+                )
+                nested_contract = str(
+                    lineage.get("lineage_contract") or ""
+                ).strip()
+                identity_matches = identity_matches and (
+                    not nested_contract
+                    or nested_contract
+                    == CANONICAL_DATASET_LINEAGE_CONTRACT
+                )
+
+            if not identity_matches:
+                invalid_ids.append(evidence_id)
+                continue
+
+            checksum = (
+                stored.get("checksum")
+                or stored.get("artifactChecksum")
+                or stored.get("artifact_checksum")
+                or lineage.get("artifactChecksum")
+                or lineage.get("artifact_checksum")
+            )
+            canonical.append(
+                {
+                    "evidence_id": evidence_id,
+                    "title": str(stored.get("title") or evidence_id)[:500],
+                    "uri": (
+                        "/evidence-graph?evidenceId="
+                        f"{quote(evidence_id, safe='')}"
+                    ),
+                    "checksum": (
+                        str(checksum)[:256] if checksum is not None else None
+                    ),
+                    "evidence_type": (
+                        str(
+                            stored.get("evidenceType")
+                            or stored.get("evidence_type")
+                            or ""
+                        )[:120]
+                        or None
+                    ),
+                }
+            )
+
+        if invalid_ids:
+            raise EDADocumentationValidationError(
+                "eda_evidence_context_mismatch",
+                [
+                    "Every EDA evidence reference must resolve to a governed "
+                    "evidence item for the exact active project, dataset, and "
+                    "immutable dataset version."
+                ],
+            )
+        return sorted(canonical, key=lambda item: item["evidence_id"])
+
     def _canonical_payload(
         self,
         payload: EDADocumentationPayload,
+        context: Dict[str, Any],
     ) -> Dict[str, Any]:
         value = payload.model_dump(mode="json")
+        # Persist the legacy alias only as a projection of the canonical
+        # immutable version; the browser can never define it independently.
+        value["dataset_version"] = value["dataset_version_id"]
+        value["evidence_references"] = self._canonical_evidence_references(
+            value.get("evidence_references", []),
+            context,
+        )
         encoded = _canonical_json(value).encode("utf-8")
         if len(encoded) > _MAX_CANONICAL_PAYLOAD_BYTES:
             raise EDADocumentationValidationError(
@@ -322,20 +510,6 @@ class EDADocumentationService:
                     "two-megabyte limit."
                 ],
             )
-        # Preserve first occurrence order while preventing evidence ID
-        # duplication inside one confirmation snapshot.
-        seen_evidence: set[str] = set()
-        evidence = []
-        for item in value.get("evidence_references", []):
-            evidence_id = str(item.get("evidence_id") or "")
-            if evidence_id in seen_evidence:
-                continue
-            seen_evidence.add(evidence_id)
-            evidence.append(item)
-        value["evidence_references"] = sorted(
-            evidence,
-            key=lambda item: str(item.get("evidence_id") or ""),
-        )
         seen_decisions: set[str] = set()
         decisions = []
         for item in value.get("decisions", []):
@@ -524,6 +698,7 @@ class EDADocumentationService:
             upstream_revision=str(context.get("data_revision") or ""),
         )
 
+    @_dataset_state_locked
     def upsert_draft(
         self,
         payload: EDADocumentationPayload,
@@ -532,7 +707,7 @@ class EDADocumentationService:
         actor = _actor(user)
         context = self._context_provider(payload.project_id)
         self._assert_active_scope(payload, context)
-        canonical = self._canonical_payload(payload)
+        canonical = self._canonical_payload(payload, context)
         payload_digest = _payload_digest(canonical)
         blockers = self._readiness_blockers(canonical, context)
         with self._lock:
@@ -576,13 +751,15 @@ class EDADocumentationService:
             metadata={
                 "projectId": payload.project_id,
                 "datasetId": payload.dataset_id,
-                "datasetVersion": payload.dataset_version,
+                "datasetVersionId": payload.dataset_version_id,
+                "datasetVersion": payload.dataset_version_id,
                 "status": draft["status"],
                 "changedSections": changed_sections,
             },
         )
         return self.get_state(payload.project_id, context=context)
 
+    @_dataset_state_locked
     def confirm(
         self,
         payload: EDADocumentationPayload,
@@ -591,7 +768,7 @@ class EDADocumentationService:
         actor = _actor(user)
         context = self._context_provider(payload.project_id)
         self._assert_active_scope(payload, context)
-        canonical = self._canonical_payload(payload)
+        canonical = self._canonical_payload(payload, context)
         blockers = self._readiness_blockers(canonical, context)
         if blockers:
             raise EDADocumentationValidationError(
@@ -654,7 +831,8 @@ class EDADocumentationService:
             metadata={
                 "projectId": payload.project_id,
                 "datasetId": payload.dataset_id,
-                "datasetVersion": payload.dataset_version,
+                "datasetVersionId": payload.dataset_version_id,
+                "datasetVersion": payload.dataset_version_id,
                 "target": payload.target,
                 "predictorManifestId": payload.predictor_manifest_id,
                 "documentationVersion": snapshot["documentation_version"],
@@ -666,6 +844,7 @@ class EDADocumentationService:
         )
         return self._confirmation_response(snapshot, idempotent=False)
 
+    @_dataset_state_locked
     def invalidate(
         self,
         project_id: str,
@@ -673,8 +852,16 @@ class EDADocumentationService:
         user: Dict[str, Any],
         *,
         upstream_revision: Optional[str] = None,
+        expected_dataset_id: Optional[str] = None,
+        expected_dataset_version_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         actor = _actor(user)
+        context = self._context_provider(project_id)
+        self._assert_expected_identity(
+            context,
+            expected_dataset_id=expected_dataset_id,
+            expected_dataset_version_id=expected_dataset_version_id,
+        )
         with self._lock:
             record = self._read(project_id)
             changed = self._mark_current_stale(
@@ -698,27 +885,48 @@ class EDADocumentationService:
                     "upstreamRevision": upstream_revision,
                 },
             )
-        return self.get_state(project_id)
+        return self.get_state(project_id, context=context)
 
+    @_dataset_state_locked
     def get_state(
         self,
         project_id: str,
         *,
         context: Optional[Dict[str, Any]] = None,
+        expected_dataset_id: Optional[str] = None,
+        expected_dataset_version_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         with self._lock:
             record = self._read(project_id)
-            active_context = context
-            if active_context is None:
-                try:
-                    active_context = self._context_provider(project_id)
-                except (ValueError, EDADocumentationValidationError):
-                    active_context = None
+            active_context = (
+                context
+                if context is not None
+                else self._context_provider(project_id)
+            )
+            if expected_dataset_id or expected_dataset_version_id:
+                if active_context is None:
+                    raise EDADocumentationValidationError(
+                        "eda_governed_context_incomplete",
+                        [
+                            "The exact active Dataset Library version is "
+                            "required to read EDA documentation state."
+                        ],
+                    )
+                self._assert_expected_identity(
+                    active_context,
+                    expected_dataset_id=expected_dataset_id,
+                    expected_dataset_version_id=(
+                        expected_dataset_version_id
+                    ),
+                )
             if active_context is not None and self._auto_invalidate(
                 record,
                 active_context,
             ):
-                self._write(record)
+                # A view route may report the derived stale state but must not
+                # mutate durable documentation. Explicit invalidation and edit
+                # routes own persistence.
+                pass
 
             current = self._current_approval(record)
             draft = record.get("draft")
@@ -752,7 +960,8 @@ class EDADocumentationService:
                         "confirmed_by_display_name"
                     ),
                     "dataset_id": item.get("dataset_id"),
-                    "dataset_version": item.get("dataset_version"),
+                    "dataset_version_id": item.get("dataset_version_id"),
+                    "dataset_version": item.get("dataset_version_id"),
                     "target": item.get("target"),
                     "predictor_manifest_id": item.get(
                         "predictor_manifest_id"
@@ -764,6 +973,14 @@ class EDADocumentationService:
             ]
             return {
                 "ok": True,
+                "project_id": source_lineage.get("project_id", project_id),
+                "dataset_id": source_lineage.get("dataset_id"),
+                "dataset_version_id": source_lineage.get(
+                    "dataset_version_id"
+                ),
+                "dataset_version": source_lineage.get(
+                    "dataset_version_id"
+                ),
                 "status": status,
                 "draft": copy.deepcopy(draft),
                 "current_approved": copy.deepcopy(current),

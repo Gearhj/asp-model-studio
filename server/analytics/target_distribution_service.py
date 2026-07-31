@@ -85,8 +85,13 @@ def _resolve_version_artifact(dataset_id: str, version_id: Optional[str]) -> Dic
     authorization check, exactly as in artifact_resolver.resolve_source.
     """
     dataset = require_dataset(dataset_id)
+    if not str(version_id or "").strip():
+        raise HTTPException(
+            status_code=422,
+            detail="An exact Dataset Library versionId is required for target distribution.",
+        )
     versions = dataset.get("versions", [])
-    version = next((v for v in versions if v.get("versionId") == version_id), versions[-1] if versions else None)
+    version = next((v for v in versions if v.get("versionId") == version_id), None)
     if not version:
         raise HTTPException(status_code=404, detail="Dataset version not found.")
 

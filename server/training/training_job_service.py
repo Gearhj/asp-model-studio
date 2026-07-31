@@ -14,6 +14,7 @@ from ..core.dataset_store import DATASTORE
 from ..core.json_safety import json_safe
 from ..core.result_store import RESULTS
 from ..core.session_checkpoint import schedule_checkpoint_save
+from ..datasets.dataset_identity import validate_checkpoint_identity
 from .trainer import MODEL_CATALOG, train_models
 from .trainer_service import TRAINER
 from .training_job_types import TrainingJobRequest
@@ -78,6 +79,22 @@ def _friendly_error(model: str, error: Any) -> str:
     return f"{label} failed: {detail}"
 
 
+def _record_matches_identity(
+    record: dict[str, Any],
+    identity: dict[str, Any],
+) -> bool:
+    if not record or not identity:
+        return False
+    if any(
+        not str(record.get(key) or "").strip()
+        or str(record.get(key)) != str(identity.get(key) or "")
+        for key in ("project_id", "dataset_id", "dataset_version_id")
+    ):
+        return False
+    legacy = str(record.get("dataset_version") or "").strip()
+    return not legacy or legacy == str(identity["dataset_version_id"])
+
+
 class TrainingJobService:
     def __init__(self) -> None:
         self._jobs: dict[str, dict[str, Any]] = {}
@@ -90,6 +107,10 @@ class TrainingJobService:
 
     def create(self, request: TrainingJobRequest, owner_user_id: str) -> dict[str, Any]:
         create_started = time.perf_counter()
+        scoped_store = DATASTORE.current()
+        scoped_results = RESULTS.current()
+        with scoped_store.state_lock:
+            preflight_data_revision = int(scoped_store.data_revision)
         preflight = self.preflight(request)
         if not preflight["ready"]:
             raise ValueError("Training preflight blocked job creation: " + " | ".join(preflight["blocking_errors"]))
@@ -208,7 +229,10 @@ class TrainingJobService:
             "feature_count": len(trained_feature_names),
             "n_features": len(trained_feature_names),
             "dataset_id": preflight["dataset_id"],
-            "dataset_version": preflight["dataset_version"],
+            "dataset_version_id": preflight["dataset_version_id"],
+            # Transitional response compatibility only.
+            "dataset_version": preflight["dataset_version_id"],
+            "data_revision": preflight_data_revision,
             "feature_manifest_version": preflight["feature_manifest_version"],
             "split_id": preflight["split_id"],
             "validation_design_id": preflight.get("validation_design_id"),
@@ -226,7 +250,9 @@ class TrainingJobService:
             "contract": {
                 "project_id": request.project_id,
                 "dataset_id": preflight["dataset_id"],
-                "dataset_version": preflight["dataset_version"],
+                "dataset_version_id": preflight["dataset_version_id"],
+                "dataset_version": preflight["dataset_version_id"],
+                "data_revision": preflight_data_revision,
                 "target": preflight["target"],
                 "event_value": preflight["event_value"],
                 "non_event_value": preflight["non_event_value"],
@@ -276,8 +302,8 @@ class TrainingJobService:
                 "user": request.user,
                 "timestamp": request.requested_at or created_at,
             },
-            "_result_store": RESULTS.current(),
-            "_dataset_store": DATASTORE.current(),
+            "_result_store": scoped_results,
+            "_dataset_store": scoped_store,
             "_artifacts": {},
             "_raw_results": {},
             "_excluded_target_features": excluded,
@@ -286,11 +312,21 @@ class TrainingJobService:
         }
         cancel_event = Event()
         scope_key: ScopeKey = (owner_user_id, request.project_id)
-        with self._lock:
-            self._jobs[job_id] = job
-            self._cancel_events[job_id] = cancel_event
-            self._project_job_ids.setdefault(scope_key, []).append(job_id)
-        DATASTORE.meta["active_training_job_id"] = job_id
+        with scoped_store.state_lock:
+            current, reason = self._scope_matches_job(job)
+            if not current:
+                raise ValueError(
+                    "Training inputs changed during job creation: "
+                    + (
+                        reason
+                        or "run preflight again for the current preparation state."
+                    )
+                )
+            with self._lock:
+                self._jobs[job_id] = job
+                self._cancel_events[job_id] = cancel_event
+                self._project_job_ids.setdefault(scope_key, []).append(job_id)
+            scoped_store.meta["active_training_job_id"] = job_id
 
         Thread(
             target=self._run,
@@ -302,6 +338,10 @@ class TrainingJobService:
             "job_id": job_id,
             "status": "queued",
             "overall_status": "queued",
+            "project_id": request.project_id,
+            "dataset_id": preflight["dataset_id"],
+            "dataset_version_id": preflight["dataset_version_id"],
+            "dataset_version": preflight["dataset_version_id"],
             "requested_models": models,
             "created_at": created_at,
             "max_parallel_honored": safe_parallel,
@@ -325,22 +365,132 @@ class TrainingJobService:
             return None
         return job
 
+    @staticmethod
+    def _scope_matches_job(job: dict[str, Any]) -> tuple[bool, str]:
+        """Validate a background job against its explicitly captured scope.
+
+        Worker threads do not inherit request contextvars, so this must use the
+        captured DatasetStore plus explicit owner/project identifiers.
+        """
+        store = job.get("_dataset_store")
+        if store is None:
+            return False, "The captured dataset scope is unavailable."
+        valid, reason, identity = validate_checkpoint_identity(
+            store,
+            owner_user_id=str(job.get("owner_user_id") or ""),
+            project_id=str(job.get("project_id") or ""),
+        )
+        if not valid or identity is None:
+            return False, reason or "The canonical dataset identity is unresolved."
+        if any(
+            str(job.get(key) or "") != str(identity.get(key) or "")
+            for key in ("project_id", "dataset_id", "dataset_version_id")
+        ):
+            return False, "The active canonical dataset identity changed."
+        if int(store.data_revision) != int(job.get("data_revision", -1)):
+            return False, "The governed pre-training data revision changed."
+
+        manifest = (
+            store.meta.get("feature_manifest")
+            if isinstance(store.meta.get("feature_manifest"), dict)
+            else {}
+        )
+        split_record = (
+            store.meta.get("split_record")
+            if isinstance(store.meta.get("split_record"), dict)
+            else {}
+        )
+        design = (
+            split_record.get("validation_design")
+            if isinstance(split_record.get("validation_design"), dict)
+            else {}
+        )
+        if not _record_matches_identity(manifest, identity):
+            return False, "The active feature manifest no longer matches the dataset."
+        if not _record_matches_identity(split_record, identity):
+            return False, "The active split no longer matches the dataset."
+        if not _record_matches_identity(design, identity):
+            return False, "The active validation design no longer matches the dataset."
+        manifest_id = str(
+            manifest.get("manifest_hash")
+            or manifest.get("manifest_version")
+            or ""
+        )
+        if manifest_id != str(job.get("feature_manifest_version") or ""):
+            return False, "The active feature manifest changed."
+        if str(split_record.get("split_id") or "") != str(job.get("split_id") or ""):
+            return False, "The active split changed."
+        if str(design.get("validation_design_id") or "") != str(
+            job.get("validation_design_id") or ""
+        ):
+            return False, "The active validation design changed."
+        if str(design.get("design_version") or "") != str(
+            job.get("validation_design_version") or ""
+        ):
+            return False, "The active validation design version changed."
+        if str(store.meta.get("split_status") or "") != "current":
+            return False, "The active split is stale."
+        return True, ""
+
+    def _interrupt_if_scope_changed(self, job_id: str) -> bool:
+        with self._lock:
+            job = self._jobs[job_id]
+            if job["overall_status"] == "interrupted":
+                return True
+            if job["overall_status"] == "cancelled":
+                return False
+            snapshot = dict(job)
+        current, reason = self._scope_matches_job(snapshot)
+        if current:
+            return False
+        with self._lock:
+            job = self._jobs[job_id]
+            event = self._cancel_events.get(job_id)
+            if event:
+                event.set()
+            job["overall_status"] = "interrupted"
+            job["completed_at"] = _now()
+            job["user_message"] = (
+                "Training interrupted because the governed dataset, feature "
+                "manifest, split, or validation design changed. Run preflight again."
+            )
+            job["message"] = job["user_message"]
+            job["developer_details"].append(
+                {"stage": "canonical_scope_revalidation", "reason": reason}
+            )
+            for model, state in job["per_model_status"].items():
+                if state.get("status") in ACTIVE_STATES:
+                    state.update(
+                        {
+                            "status": "interrupted",
+                            "state": "interrupted",
+                            "completed_at": _now(),
+                            "message": job["user_message"],
+                            "current_stage": "Scope changed",
+                        }
+                    )
+                    job["per_model_history"][model].append(
+                        {
+                            "state": "interrupted",
+                            "at": _now(),
+                            "stage": "Scope changed",
+                            "message": reason,
+                        }
+                    )
+        return True
+
     def get(self, job_id: str, owner_user_id: str, project_id: str) -> dict[str, Any] | None:
         with self._lock:
             job = self._owned_job_locked(job_id, owner_user_id, project_id)
             if not job:
                 return None
-            if job["overall_status"] in ACTIVE_STATES:
-                active_dataset = str(DATASTORE.meta.get("dataset_version") or "in-memory")
-                active_split = str((DATASTORE.meta.get("split_record") or {}).get("split_id") or "")
-                if active_dataset != job["dataset_version"] or active_split != job["split_id"]:
-                    event = self._cancel_events.get(job_id)
-                    if event:
-                        event.set()
-                    job["overall_status"] = "interrupted"
-                    job["completed_at"] = _now()
-                    job["user_message"] = "Training interrupted because the governed dataset or split changed. Run preflight again."
-                    job["message"] = job["user_message"]
+            active = job["overall_status"] in ACTIVE_STATES
+        if active:
+            self._interrupt_if_scope_changed(job_id)
+        with self._lock:
+            job = self._owned_job_locked(job_id, owner_user_id, project_id)
+            if not job:
+                return None
             return self._public_job(job)
 
     def active(self, owner_user_id: str, project_id: str) -> list[dict[str, Any]]:
@@ -478,6 +628,15 @@ class TrainingJobService:
             job["started_at"] = _now()
             job["user_message"] = "Preparing governed matrices and local model workers."
             job["message"] = job["user_message"]
+        if self._interrupt_if_scope_changed(job_id):
+            dataset_store = self._jobs[job_id].get("_dataset_store")
+            if (
+                dataset_store is not None
+                and dataset_store.meta.get("active_training_job_id") == job_id
+            ):
+                dataset_store.meta.pop("active_training_job_id", None)
+            schedule_checkpoint_save()
+            return
 
         futures: dict[Future, str] = {}
         try:
@@ -497,6 +656,11 @@ class TrainingJobService:
                     model = futures[future]
                     if future.cancelled():
                         continue
+                    if self._interrupt_if_scope_changed(job_id):
+                        for pending in futures:
+                            if not pending.done():
+                                pending.cancel()
+                        continue
                     try:
                         result = future.result()
                     except Exception as exc:
@@ -507,8 +671,15 @@ class TrainingJobService:
                         should_publish_partial = job["overall_status"] != "cancelled" and job["completed_count"] > 0
                     if should_publish_partial:
                         try:
-                            self._finalize(job_id, request, X_train, X_test, y_train, y_test)
-                            schedule_checkpoint_save()
+                            if self._finalize(
+                                job_id,
+                                request,
+                                X_train,
+                                X_test,
+                                y_train,
+                                y_test,
+                            ):
+                                schedule_checkpoint_save()
                         except Exception as exc:
                             with self._lock:
                                 job = self._jobs[job_id]
@@ -550,7 +721,7 @@ class TrainingJobService:
             job["user_message"] = "Model fitting finished. Persisting metrics and artifacts."
             job["message"] = job["user_message"]
         try:
-            self._finalize(
+            if not self._finalize(
                 job_id,
                 request,
                 X_train,
@@ -558,7 +729,9 @@ class TrainingJobService:
                 y_train,
                 y_test,
                 final_status=final_status,
-            )
+            ):
+                schedule_checkpoint_save()
+                return
             with self._lock:
                 job = self._jobs[job_id]
                 job["overall_status"] = final_status
@@ -641,12 +814,19 @@ class TrainingJobService:
     def _record_result(self, job_id: str, model: str, result: dict[str, Any]) -> None:
         with self._lock:
             job = self._jobs[job_id]
-            if job["overall_status"] == "cancelled" or job["per_model_status"][model]["status"] == "cancelled":
+            if (
+                job["overall_status"] in {"cancelled", "interrupted"}
+                or job["per_model_status"][model]["status"]
+                in {"cancelled", "interrupted"}
+            ):
                 job["developer_details"].append(
                     {
                         "stage": "late_model_result_ignored",
                         "model": model,
-                        "reason": "Result returned after user cancellation.",
+                        "reason": (
+                            "Result returned after cancellation or canonical "
+                            "scope interruption."
+                        ),
                     }
                 )
                 return
@@ -710,7 +890,12 @@ class TrainingJobService:
         y_train,
         y_test,
         final_status: str | None = None,
-    ) -> None:
+    ) -> bool:
+        if self._interrupt_if_scope_changed(job_id):
+            return False
+        with self._lock:
+            if self._jobs[job_id]["overall_status"] == "cancelled":
+                return False
         persistence_started = time.perf_counter()
         with self._lock:
             job = self._jobs[job_id]
@@ -738,11 +923,14 @@ class TrainingJobService:
             "failed": job["failed_models"],
             "project_id": request.project_id,
             "dataset_id": job["dataset_id"],
-            "dataset_version": job["dataset_version"],
+            "dataset_version_id": job["dataset_version_id"],
+            "dataset_version": job["dataset_version_id"],
+            "data_revision": job["data_revision"],
             "target": job["target"],
             "event_value": job["event_value"],
             "non_event_value": job["non_event_value"],
             "training_job_id": job["job_id"],
+            "requested_models": job["requested_models"],
             "created_at": job["created_at"],
             "started_at": job["started_at"],
             "completed_at": job["completed_at"],
@@ -772,55 +960,80 @@ class TrainingJobService:
             "status": final_status or job["overall_status"],
             "contract": job["contract"],
         }
-        if ranked:
-            metadata = {
-                key: {
-                    "project_id": request.project_id,
+        # Recheck and persist inside the same per-scope state transition lock
+        # used by Dataset Library activation and preparation invalidation.
+        # Therefore activation either wins before this block (and rejects the
+        # job) or runs afterward and clears everything written here.
+        dataset_store = job["_dataset_store"]
+        with dataset_store.state_lock:
+            if self._interrupt_if_scope_changed(job_id):
+                return False
+            with self._lock:
+                if self._jobs[job_id]["overall_status"] in {
+                    "cancelled",
+                    "interrupted",
+                }:
+                    return False
+            if ranked:
+                metadata = {
+                    key: {
+                        "project_id": request.project_id,
+                        "dataset_id": job["dataset_id"],
+                        "dataset_version_id": job["dataset_version_id"],
+                        "dataset_version": job["dataset_version_id"],
+                        "target": job["target"],
+                        "problem_type": problem_type,
+                        "model_key": key,
+                        "training_run_id": job["job_id"],
+                        "trained_at": job["completed_at"],
+                        "input_feature_names": job["input_feature_names"],
+                        "trained_feature_names": job["trained_feature_names"],
+                        "engineered_feature_names": job["engineered_feature_names"],
+                        "feature_manifest_version": job["feature_manifest_version"],
+                        "split_id": job["split_id"],
+                        "validation_design_id": job.get("validation_design_id"),
+                        "validation_design_version": job.get("validation_design_version"),
+                    }
+                    for key in job["_artifacts"]
+                }
+                job["_result_store"].set_model_artifacts(
+                    job["_artifacts"],
+                    metadata,
+                )
+                summary["result_persistence_ms"] = int(
+                    (time.perf_counter() - persistence_started) * 1000
+                )
+                job["_result_store"].set_last_summary(json_safe(summary))
+            dataset_store.meta["training_execution"] = json_safe(
+                {
+                    "project_id": job["project_id"],
                     "dataset_id": job["dataset_id"],
-                    "dataset_version": job["dataset_version"],
-                    "target": job["target"],
-                    "problem_type": problem_type,
-                    "model_key": key,
-                    "training_run_id": job["job_id"],
-                    "trained_at": job["completed_at"],
-                    "input_feature_names": job["input_feature_names"],
-                    "trained_feature_names": job["trained_feature_names"],
-                    "engineered_feature_names": job["engineered_feature_names"],
+                    "dataset_version_id": job["dataset_version_id"],
+                    "dataset_version": job["dataset_version_id"],
+                    "data_revision": job["data_revision"],
+                    "training_job_id": job["job_id"],
+                    "status": final_status or job["overall_status"],
+                    "candidate_strategy": request.candidate_strategy,
+                    "requested_models": job["requested_models"],
+                    "completed_models": job["completed_models"],
+                    "failed_models": job["failed_models"],
+                    "ranked_candidates": ranked,
                     "feature_manifest_version": job["feature_manifest_version"],
                     "split_id": job["split_id"],
                     "validation_design_id": job.get("validation_design_id"),
-                    "validation_design_version": job.get("validation_design_version"),
+                    "validation_design_version": job.get(
+                        "validation_design_version"
+                    ),
+                    "contract": job["contract"],
+                    "completed_at": job["completed_at"],
+                    "runtime_ms": job["runtime_ms"],
                 }
-                for key in job["_artifacts"]
-            }
-            job["_result_store"].set_model_artifacts(job["_artifacts"], metadata)
-            summary["result_persistence_ms"] = int((time.perf_counter() - persistence_started) * 1000)
-            job["_result_store"].set_last_summary(json_safe(summary))
-        job["_dataset_store"].meta["training_execution"] = json_safe(
-            {
-                "training_job_id": job["job_id"],
-                "status": final_status or job["overall_status"],
-                "candidate_strategy": request.candidate_strategy,
-                "requested_models": job["requested_models"],
-                "completed_models": job["completed_models"],
-                "failed_models": job["failed_models"],
-                "ranked_candidates": ranked,
-                "dataset_version": job["dataset_version"],
-                "feature_manifest_version": job["feature_manifest_version"],
-                "split_id": job["split_id"],
-                "validation_design_id": job.get("validation_design_id"),
-                "validation_design_version": job.get(
-                    "validation_design_version"
-                ),
-                "contract": job["contract"],
-                "completed_at": job["completed_at"],
-                "runtime_ms": job["runtime_ms"],
-            }
-        )
-        with self._lock:
-            job["summary"] = summary
-            job["partial_ranked_results"] = ranked
-            job["partial_results"] = ranked
+            )
+            with self._lock:
+                job["summary"] = summary
+                job["partial_ranked_results"] = ranked
+                job["partial_results"] = ranked
+        return True
 
     @staticmethod
     def _public_job(job: dict[str, Any]) -> dict[str, Any]:

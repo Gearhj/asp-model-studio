@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -12,7 +13,13 @@ import numpy as np
 import pandas as pd
 
 from ..core.dataset_store import DATASTORE
+from ..core.modeling_scope import active_project_id
+from ..core.pretraining_invalidation import invalidate_downstream_training_state
 from ..core.session_checkpoint import schedule_checkpoint_save
+from ..datasets.dataset_identity import (
+    active_dataset_identity,
+    assert_expected_active_identity,
+)
 from ..preprocessing.predictor_authorization import (
     bureau_special_mask,
     governed_predictor_authorization,
@@ -57,14 +64,16 @@ def _manifest_hash(payload: dict[str, Any]) -> str:
 
 def _materialization_hash(
     manifest_hash: str,
-    dataset_version: str,
+    identity: dict[str, Any],
     row_count: int,
     materialized_features: list[str],
 ) -> str:
     stable = json.dumps(
         {
             "manifest_hash": manifest_hash,
-            "dataset_version": dataset_version,
+            "project_id": identity["project_id"],
+            "dataset_id": identity["dataset_id"],
+            "dataset_version_id": identity["dataset_version_id"],
             "row_count": row_count,
             "materialized_features": materialized_features,
         },
@@ -75,7 +84,7 @@ def _materialization_hash(
 
 
 def _manifest_contract_payload(
-    dataset_version: str,
+    identity: dict[str, Any],
     features: list[dict[str, Any]],
     pipeline_steps: list[dict[str, Any]],
 ) -> dict[str, Any]:
@@ -109,7 +118,11 @@ def _manifest_contract_payload(
         "fit_scope",
     )
     return {
-        "dataset_version": dataset_version,
+        "project_id": identity["project_id"],
+        "dataset_id": identity["dataset_id"],
+        "dataset_version_id": identity["dataset_version_id"],
+        # Compatibility alias derived only from the canonical version ID.
+        "dataset_version": identity["dataset_version_id"],
         "features": [
             {key: row.get(key) for key in feature_keys}
             for row in features
@@ -141,6 +154,96 @@ def _execution_event(
 def _existing_manifest() -> dict[str, Any]:
     manifest = DATASTORE.meta.get("feature_manifest")
     return manifest if isinstance(manifest, dict) else {}
+
+
+def _identity_fields(identity: dict[str, Any]) -> dict[str, str]:
+    return {
+        "project_id": str(identity["project_id"]),
+        "dataset_id": str(identity["dataset_id"]),
+        "dataset_version_id": str(identity["dataset_version_id"]),
+        # Transitional response compatibility only.
+        "dataset_version": str(identity["dataset_version_id"]),
+    }
+
+
+def _active_identity(
+    project_id: str = "",
+    *,
+    expected_dataset_id: str = "",
+    expected_dataset_version_id: str = "",
+    legacy_dataset_version: str = "",
+    require_expected: bool = False,
+) -> dict[str, Any]:
+    resolved_project_id = str(
+        project_id
+        or active_project_id()
+        or DATASTORE.meta.get("project_id")
+        or ""
+    ).strip()
+    if require_expected or (
+        expected_dataset_id
+        or expected_dataset_version_id
+        or legacy_dataset_version
+    ):
+        return assert_expected_active_identity(
+            resolved_project_id,
+            expected_dataset_id=expected_dataset_id,
+            expected_dataset_version_id=expected_dataset_version_id,
+            legacy_dataset_version=legacy_dataset_version,
+            require_expected=require_expected,
+        )
+    return active_dataset_identity(resolved_project_id)
+
+
+def _revalidate_identity(identity: dict[str, Any]) -> dict[str, Any]:
+    """Fail closed if activation changed while a feature operation was running."""
+    return _active_identity(
+        str(identity["project_id"]),
+        expected_dataset_id=str(identity["dataset_id"]),
+        expected_dataset_version_id=str(identity["dataset_version_id"]),
+    )
+
+
+def _assert_data_revision(
+    store: Any,
+    expected_revision: int,
+    operation: str,
+) -> None:
+    if int(store.data_revision) != int(expected_revision):
+        raise ValueError(
+            "The governed dataset or preparation state changed while "
+            f"{operation}. Reload the current feature contract and try again."
+        )
+
+
+def _assert_record_identity(
+    record: dict[str, Any],
+    identity: dict[str, Any],
+    label: str,
+) -> None:
+    if not record:
+        return
+    expected = _identity_fields(identity)
+    missing = [
+        key
+        for key in ("project_id", "dataset_id", "dataset_version_id")
+        if not str(record.get(key) or "").strip()
+    ]
+    mismatched = [
+        key
+        for key in ("project_id", "dataset_id", "dataset_version_id")
+        if str(record.get(key) or "").strip()
+        and str(record.get(key)) != expected[key]
+    ]
+    legacy_version = str(record.get("dataset_version") or "").strip()
+    if legacy_version and legacy_version != expected["dataset_version_id"]:
+        mismatched.append("dataset_version")
+    if missing or mismatched:
+        detail = (
+            f"The stored {label} is not bound to the exact active Dataset "
+            "Library version. Recreate it for the current dataset."
+        )
+        raise ValueError(detail)
 
 
 def _source_selection_for_authorization(frame: pd.DataFrame) -> list[str]:
@@ -235,7 +338,7 @@ def _source_authorization(df: pd.DataFrame | None = None) -> dict[str, Any]:
     }
 
 
-def _original_feature_rows() -> list[dict[str, Any]]:
+def _original_feature_rows(identity: dict[str, Any]) -> list[dict[str, Any]]:
     df = DATASTORE.get_base_df()
     if df is None:
         return []
@@ -265,6 +368,7 @@ def _original_feature_rows() -> list[dict[str, Any]]:
         if eligible and not selected_for_model:
             exclusion_reason = str(prior.get("exclusion_reason") or "")
         rows.append({
+            **_identity_fields(identity),
             "feature_name": name,
             "display_name": prior.get("display_name") or name,
             "feature_id": prior.get("feature_id") or f"original-{hashlib.sha1(name.encode('utf-8')).hexdigest()[:12]}",
@@ -283,7 +387,6 @@ def _original_feature_rows() -> list[dict[str, Any]]:
             "created_at": prior.get("created_at") or _now(),
             "created_by": prior.get("created_by") or "Data Acquisition",
             "transformation_version": "source-v1",
-            "dataset_version": str(DATASTORE.meta.get("dataset_version") or "in-memory"),
             "profile_scope": "full_dataset",
             "summary_statistics": _feature_summary_statistics(df[column]),
             "evidence_reference": prior.get("evidence_reference"),
@@ -293,7 +396,12 @@ def _original_feature_rows() -> list[dict[str, Any]]:
     return rows
 
 
-def _normalize_engineered(item: FeatureDefinitionInput, df_columns: set[str], existing_names: set[str]) -> dict[str, Any]:
+def _normalize_engineered(
+    item: FeatureDefinitionInput,
+    df_columns: set[str],
+    existing_names: set[str],
+    identity: dict[str, Any],
+) -> dict[str, Any]:
     name = item.feature_name.strip()
     if not _VALID_NAME.fullmatch(name):
         raise ValueError(f"Feature name '{name}' must start with a letter or underscore and contain only letters, numbers, or underscores.")
@@ -328,6 +436,7 @@ def _normalize_engineered(item: FeatureDefinitionInput, df_columns: set[str], ex
         raise ValueError(f"Feature '{name}' cannot depend on itself.")
     row = item.model_dump()
     row.update({
+        **_identity_fields(identity),
         "feature_id": item.feature_id or f"feature-{uuid4().hex}",
         "display_name": item.display_name or name,
         "creation_status": "planned",
@@ -338,7 +447,6 @@ def _normalize_engineered(item: FeatureDefinitionInput, df_columns: set[str], ex
         "created_at": _now(),
         "created_by": "Current ATLAS user",
         "transformation_version": "1",
-        "dataset_version": str(DATASTORE.meta.get("dataset_version") or "in-memory"),
         "profile_scope": "not_profiled",
         "summary_statistics": {},
         "evidence_reference": None,
@@ -346,17 +454,35 @@ def _normalize_engineered(item: FeatureDefinitionInput, df_columns: set[str], ex
     return row
 
 
-def get_manifest() -> dict[str, Any]:
+def get_manifest(
+    project_id: str = "",
+    *,
+    expected_dataset_id: str = "",
+    expected_dataset_version_id: str = "",
+    legacy_dataset_version: str = "",
+) -> dict[str, Any]:
+    identity = _active_identity(
+        project_id,
+        expected_dataset_id=expected_dataset_id,
+        expected_dataset_version_id=expected_dataset_version_id,
+        legacy_dataset_version=legacy_dataset_version,
+        require_expected=True,
+    )
     existing = _existing_manifest()
-    originals = _original_feature_rows()
-    engineered = [row for row in existing.get("features", []) if isinstance(row, dict) and row.get("origin") != "original"]
+    _assert_record_identity(existing, identity, "feature manifest")
+    originals = _original_feature_rows(identity)
+    engineered = [
+        {**row, **_identity_fields(identity)}
+        for row in existing.get("features", [])
+        if isinstance(row, dict) and row.get("origin") != "original"
+    ]
     payload = {
-        "dataset_version": str(DATASTORE.meta.get("dataset_version") or existing.get("dataset_version") or "in-memory"),
+        **_identity_fields(identity),
         "features": originals + engineered,
         "pipeline_steps": existing.get("pipeline_steps", []),
     }
     contract_payload = _manifest_contract_payload(
-        payload["dataset_version"],
+        identity,
         payload["features"],
         payload["pipeline_steps"],
     )
@@ -377,7 +503,7 @@ def get_manifest() -> dict[str, Any]:
         materialized_manifest_hash = version
         materialization_hash = materialization_hash or _materialization_hash(
             version,
-            payload["dataset_version"],
+            identity,
             len(base_df) if base_df is not None else 0,
             [row["feature_name"] for row in engineered_rows],
         )
@@ -392,7 +518,7 @@ def get_manifest() -> dict[str, Any]:
         "ok": True,
         "manifest_version": version,
         "manifest_hash": version,
-        "dataset_version": payload["dataset_version"],
+        **_identity_fields(identity),
         "features": payload["features"],
         "pipeline_steps": payload["pipeline_steps"],
         "created_at": existing.get("created_at") or _now(),
@@ -421,17 +547,31 @@ def get_manifest() -> dict[str, Any]:
         "split_status": DATASTORE.meta.get("split_status") or "not_created",
         "predictor_authorization": _source_authorization(),
     }
-    DATASTORE.meta["feature_manifest"] = manifest
+    _revalidate_identity(identity)
     return manifest
 
 
 def update_manifest(request: FeatureManifestUpdateRequest) -> dict[str, Any]:
+    scoped_store = DATASTORE.current()
+    identity = _active_identity(
+        request.project_id,
+        expected_dataset_id=request.dataset_id,
+        expected_dataset_version_id=request.dataset_version_id,
+        legacy_dataset_version=request.dataset_version,
+        require_expected=True,
+    )
+    with scoped_store.state_lock:
+        input_revision = int(scoped_store.data_revision)
     df = DATASTORE.get_base_df()
     if df is None or df.empty:
         raise ValueError("No full backend dataset is loaded.")
-    prior = get_manifest()
+    prior = get_manifest(
+        identity["project_id"],
+        expected_dataset_id=identity["dataset_id"],
+        expected_dataset_version_id=identity["dataset_version_id"],
+    )
     prior_by_id = {row.get("feature_id"): row for row in prior["features"] if row.get("origin") != "original"}
-    originals = _original_feature_rows()
+    originals = _original_feature_rows(identity)
     requested_originals = {
         item.feature_name: item
         for item in request.features
@@ -448,7 +588,7 @@ def update_manifest(request: FeatureManifestUpdateRequest) -> dict[str, Any]:
     for item in request.features:
         if item.origin == "original":
             continue
-        row = _normalize_engineered(item, df_columns, names)
+        row = _normalize_engineered(item, df_columns, names, identity)
         previous = prior_by_id.get(row["feature_id"])
         if previous and previous.get("feature_name") == row["feature_name"]:
             for key in ("created_at", "materialization_status", "creation_status", "summary_statistics", "profile_scope"):
@@ -464,13 +604,13 @@ def update_manifest(request: FeatureManifestUpdateRequest) -> dict[str, Any]:
             "status": "configured" if step.enabled else "disabled",
         })
     payload = {
-        "dataset_version": request.dataset_version or str(DATASTORE.meta.get("dataset_version") or "in-memory"),
+        **_identity_fields(identity),
         "features": originals + engineered,
         "pipeline_steps": pipeline_steps,
     }
     version = _manifest_hash(
         _manifest_contract_payload(
-            payload["dataset_version"],
+            identity,
             payload["features"],
             pipeline_steps,
         )
@@ -512,7 +652,7 @@ def update_manifest(request: FeatureManifestUpdateRequest) -> dict[str, Any]:
         "ok": True,
         "manifest_version": version,
         "manifest_hash": version,
-        "dataset_version": payload["dataset_version"],
+        **_identity_fields(identity),
         "features": payload["features"],
         "pipeline_steps": pipeline_steps,
         "created_at": prior.get("created_at") or _now(),
@@ -539,16 +679,27 @@ def update_manifest(request: FeatureManifestUpdateRequest) -> dict[str, Any]:
         "split_status": "stale" if changed and DATASTORE.X_train is not None else prior.get("split_status", "not_created"),
         "predictor_authorization": _source_authorization(df),
     }
-    DATASTORE.meta["feature_manifest"] = manifest
-    DATASTORE.meta["selected_columns"] = [
-        row["feature_name"]
-        for row in manifest["features"]
-        if row.get("selected") and row.get("eligibility_status") == "eligible"
-    ]
-    if changed:
-        DATASTORE.meta.pop("feature_preview", None)
-        DATASTORE.meta["split_status"] = "stale" if DATASTORE.X_train is not None else "not_created"
-        DATASTORE.reset_splits()
+    with scoped_store.state_lock:
+        _revalidate_identity(identity)
+        _assert_data_revision(
+            scoped_store,
+            input_revision,
+            "the feature manifest was being updated",
+        )
+        had_split = scoped_store.X_train is not None
+        scoped_store.meta["feature_manifest"] = manifest
+        scoped_store.meta["selected_columns"] = [
+            row["feature_name"]
+            for row in manifest["features"]
+            if row.get("selected") and row.get("eligibility_status") == "eligible"
+        ]
+        if changed:
+            scoped_store.meta.pop("feature_preview", None)
+            invalidate_downstream_training_state(
+                "The governed feature manifest changed.",
+                store=scoped_store,
+                split_status="stale" if had_split else "not_created",
+            )
     schedule_checkpoint_save()
     return manifest
 
@@ -687,11 +838,32 @@ def preview_features(
     features: list[FeatureDefinitionInput],
     limit: int,
     expected_manifest_version: str = "",
+    *,
+    project_id: str = "",
+    expected_dataset_id: str = "",
+    expected_dataset_version_id: str = "",
+    legacy_dataset_version: str = "",
 ) -> dict[str, Any]:
+    scoped_store = DATASTORE.current()
+    identity = _active_identity(
+        project_id,
+        expected_dataset_id=expected_dataset_id,
+        expected_dataset_version_id=expected_dataset_version_id,
+        legacy_dataset_version=legacy_dataset_version,
+        require_expected=True,
+    )
+    with scoped_store.state_lock:
+        input_revision = int(scoped_store.data_revision)
     df = DATASTORE.get_base_df()
     if df is None or df.empty:
         raise ValueError("No full backend dataset is loaded.")
-    manifest = get_manifest()
+    manifest = deepcopy(
+        get_manifest(
+            identity["project_id"],
+            expected_dataset_id=identity["dataset_id"],
+            expected_dataset_version_id=identity["dataset_version_id"],
+        )
+    )
     if (
         expected_manifest_version
         and expected_manifest_version != manifest["manifest_hash"]
@@ -704,7 +876,12 @@ def preview_features(
     for item in features:
         if item.origin == "original":
             continue
-        normalized = _normalize_engineered(item, set(frame.columns), set(outputs))
+        normalized = _normalize_engineered(
+            item,
+            set(frame.columns),
+            set(outputs),
+            identity,
+        )
         frame[normalized["feature_name"]] = _apply_feature(frame, normalized)
         outputs.append(normalized["feature_name"])
     columns = [*dict.fromkeys(source for item in features for source in item.source_features if source in frame.columns), *outputs]
@@ -712,12 +889,6 @@ def preview_features(
     preview_hash = ""
     if expected_manifest_version:
         preview_hash = f"pv-{hashlib.sha256(f'{expected_manifest_version}:{limit}:{len(df)}'.encode('utf-8')).hexdigest()[:16]}"
-        DATASTORE.meta["feature_preview"] = {
-            "preview_hash": preview_hash,
-            "manifest_hash": manifest["manifest_hash"],
-            "previewed_at": _now(),
-            "preview_row_count": int(len(frame)),
-        }
         history = list(manifest.get("execution_history") or [])
         history.append(
             _execution_event(
@@ -731,10 +902,25 @@ def preview_features(
         manifest["preview_hash"] = preview_hash
         manifest["execution_history"] = history[-40:]
         manifest["updated_at"] = _now()
-        DATASTORE.meta["feature_manifest"] = manifest
+        with scoped_store.state_lock:
+            _revalidate_identity(identity)
+            _assert_data_revision(
+                scoped_store,
+                input_revision,
+                "the feature preview was being calculated",
+            )
+            scoped_store.meta["feature_preview"] = {
+                **_identity_fields(identity),
+                "preview_hash": preview_hash,
+                "manifest_hash": manifest["manifest_hash"],
+                "previewed_at": _now(),
+                "preview_row_count": int(len(frame)),
+            }
+            scoped_store.meta["feature_manifest"] = manifest
         schedule_checkpoint_save()
     return {
         "ok": True,
+        **_identity_fields(identity),
         "scope": "rendered_sample",
         "manifest_hash": manifest["manifest_hash"] if expected_manifest_version else "",
         "preview_hash": preview_hash,
@@ -749,9 +935,30 @@ def preview_features(
 def materialize_manifest(
     expected_version: str = "",
     expected_preview_hash: str = "",
+    *,
+    project_id: str = "",
+    expected_dataset_id: str = "",
+    expected_dataset_version_id: str = "",
+    legacy_dataset_version: str = "",
 ) -> dict[str, Any]:
     started = time.perf_counter()
-    manifest = get_manifest()
+    scoped_store = DATASTORE.current()
+    identity = _active_identity(
+        project_id,
+        expected_dataset_id=expected_dataset_id,
+        expected_dataset_version_id=expected_dataset_version_id,
+        legacy_dataset_version=legacy_dataset_version,
+        require_expected=True,
+    )
+    with scoped_store.state_lock:
+        input_revision = int(scoped_store.data_revision)
+    manifest = deepcopy(
+        get_manifest(
+            identity["project_id"],
+            expected_dataset_id=identity["dataset_id"],
+            expected_dataset_version_id=identity["dataset_version_id"],
+        )
+    )
     if expected_version and expected_version != manifest["manifest_hash"]:
         raise ValueError("The feature plan changed. Refresh the manifest before materializing features.")
     df = DATASTORE.get_base_df()
@@ -761,6 +968,8 @@ def materialize_manifest(
         row for row in manifest["features"] if row.get("origin") != "original"
     ]
     preview_record = DATASTORE.meta.get("feature_preview") or {}
+    if preview_record:
+        _assert_record_identity(preview_record, identity, "feature preview")
     if engineered_rows and (
         not expected_preview_hash
         or expected_preview_hash != preview_record.get("preview_hash")
@@ -783,6 +992,7 @@ def materialize_manifest(
                 FeatureDefinitionInput(**feature),
                 authorized_sources,
                 created_names,
+                identity,
             )
             frame[feature["feature_name"]] = _apply_feature(frame, feature)
             created_names.add(feature["feature_name"])
@@ -798,15 +1008,10 @@ def materialize_manifest(
             failures.append({"feature": feature["feature_name"], "error": str(exc)})
     if failures:
         raise ValueError("Feature materialization failed: " + "; ".join(f"{row['feature']}: {row['error']}" for row in failures))
-    DATASTORE.set_processed(frame)
-    DATASTORE.meta["processed_stage"] = "feature_engineering"
-    DATASTORE.meta["materialized_feature_names"] = materialized
     selected = [feature["feature_name"] for feature in manifest["features"] if feature.get("selected") and feature.get("eligibility_status") == "eligible"]
-    DATASTORE.meta["selected_columns"] = selected
-    DATASTORE.meta["split_status"] = "not_created"
     materialization_hash = _materialization_hash(
         manifest["manifest_hash"],
-        manifest["dataset_version"],
+        identity,
         len(frame),
         materialized,
     )
@@ -831,16 +1036,34 @@ def materialize_manifest(
     manifest["confirmed_manifest_hash"] = ""
     manifest["confirmed_at"] = None
     manifest["execution_history"] = history[-40:]
-    DATASTORE.meta["feature_manifest"] = manifest
+    with scoped_store.state_lock:
+        _revalidate_identity(identity)
+        _assert_data_revision(
+            scoped_store,
+            input_revision,
+            "the feature dataset was being materialized",
+        )
+        scoped_store.set_processed(frame)
+        scoped_store.meta["processed_stage"] = "feature_engineering"
+        scoped_store.meta["materialized_feature_names"] = materialized
+        scoped_store.meta["selected_columns"] = selected
+        invalidate_downstream_training_state(
+            "The governed feature dataset was materialized.",
+            store=scoped_store,
+            split_status="not_created",
+        )
+        # Store the materialized contract last, after invalidation marked the
+        # prior manifest stale.
+        scoped_store.meta["feature_manifest"] = manifest
     schedule_checkpoint_save()
     return {
         "ok": True,
+        **_identity_fields(identity),
         "manifest_version": manifest["manifest_version"],
         "manifest_hash": manifest["manifest_hash"],
         "materialization_hash": materialization_hash,
         "materialized_manifest_hash": manifest["manifest_hash"],
         "materialization_status": "current",
-        "dataset_version": manifest["dataset_version"],
         "row_count": int(len(frame)),
         "original_feature_count": sum(1 for row in manifest["features"] if row.get("origin") == "original"),
         "engineered_feature_count": len(materialized),
@@ -853,8 +1076,27 @@ def materialize_manifest(
 def confirm_manifest(
     expected_version: str = "",
     expected_materialization_hash: str = "",
+    *,
+    project_id: str = "",
+    expected_dataset_id: str = "",
+    expected_dataset_version_id: str = "",
+    legacy_dataset_version: str = "",
 ) -> dict[str, Any]:
-    manifest = get_manifest()
+    scoped_store = DATASTORE.current()
+    identity = _active_identity(
+        project_id,
+        expected_dataset_id=expected_dataset_id,
+        expected_dataset_version_id=expected_dataset_version_id,
+        legacy_dataset_version=legacy_dataset_version,
+        require_expected=True,
+    )
+    with scoped_store.state_lock:
+        input_revision = int(scoped_store.data_revision)
+    manifest = get_manifest(
+        identity["project_id"],
+        expected_dataset_id=identity["dataset_id"],
+        expected_dataset_version_id=identity["dataset_version_id"],
+    )
     if expected_version and expected_version != manifest["manifest_hash"]:
         raise ValueError(
             "The feature contract changed. Refresh before confirming the feature set."
@@ -890,13 +1132,38 @@ def confirm_manifest(
     manifest["confirmed_at"] = _now()
     manifest["updated_at"] = _now()
     manifest["execution_history"] = history[-40:]
-    DATASTORE.meta["feature_manifest"] = manifest
+    with scoped_store.state_lock:
+        _revalidate_identity(identity)
+        _assert_data_revision(
+            scoped_store,
+            input_revision,
+            "the feature contract was being confirmed",
+        )
+        scoped_store.meta["feature_manifest"] = manifest
     schedule_checkpoint_save()
     return manifest
 
 
-def delete_feature(feature_id: str, project_id: str = "") -> dict[str, Any]:
-    manifest = get_manifest()
+def delete_feature(
+    feature_id: str,
+    project_id: str = "",
+    *,
+    expected_dataset_id: str = "",
+    expected_dataset_version_id: str = "",
+    legacy_dataset_version: str = "",
+) -> dict[str, Any]:
+    identity = _active_identity(
+        project_id,
+        expected_dataset_id=expected_dataset_id,
+        expected_dataset_version_id=expected_dataset_version_id,
+        legacy_dataset_version=legacy_dataset_version,
+        require_expected=True,
+    )
+    manifest = get_manifest(
+        identity["project_id"],
+        expected_dataset_id=identity["dataset_id"],
+        expected_dataset_version_id=identity["dataset_version_id"],
+    )
     target = next((row for row in manifest["features"] if row.get("feature_id") == feature_id), None)
     if not target:
         raise ValueError("Feature was not found in the current manifest.")
@@ -904,9 +1171,11 @@ def delete_feature(feature_id: str, project_id: str = "") -> dict[str, Any]:
         raise ValueError("Source features cannot be deleted. Deselect them in the governed predictor review instead.")
     remaining = [row for row in manifest["features"] if row.get("feature_id") != feature_id and row.get("origin") != "original"]
     request = FeatureManifestUpdateRequest(
-        project_id=project_id,
+        project_id=identity["project_id"],
         features=[FeatureDefinitionInput(**row) for row in remaining],
         pipeline_steps=manifest.get("pipeline_steps", []),
-        dataset_version=manifest.get("dataset_version", ""),
+        dataset_id=identity["dataset_id"],
+        dataset_version_id=identity["dataset_version_id"],
+        dataset_version=identity["dataset_version_id"],
     )
     return update_manifest(request)

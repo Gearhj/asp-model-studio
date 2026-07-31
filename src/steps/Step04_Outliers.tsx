@@ -27,6 +27,13 @@ import {
 } from "../components/ui/AtlasWorkflow";
 import { logDecision } from "../lib/decisionJournal";
 import { createEvidence } from "../lib/evidenceGraph";
+import {
+  assertExactDatasetIdentity,
+  buildCanonicalEvidenceEnvelope,
+  canonicalDatasetStorageKey,
+  requireLocalDatasetCanonicalIdentity,
+  type CanonicalDatasetIdentity,
+} from "../lib/datasetIdentity";
 import { loadLocalDataset } from "../lib/localDataset";
 import {
   applyOutlierPreviewTreatment,
@@ -89,6 +96,9 @@ type OutlierFeature = {
 
 type OutlierApplication = {
   applied_at: string;
+  project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
   dataset_version: string;
   row_count: number;
   global_method: MethodKey;
@@ -123,6 +133,9 @@ type PredictorAuthorization = {
 type OutlierSummary = {
   ok: boolean;
   scope: "full_dataset";
+  project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
   row_count: number;
   dataset_version: string;
   target: string | null;
@@ -325,6 +338,20 @@ export default function Step04Outliers() {
   const localDataset = loadLocalDataset();
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
+  let datasetIdentity: CanonicalDatasetIdentity | null = null;
+  let datasetIdentityError = "";
+  try {
+    datasetIdentity = requireLocalDatasetCanonicalIdentity(
+      projectId,
+      localDataset,
+      "Outliers dataset identity",
+    );
+  } catch (cause) {
+    datasetIdentityError =
+      cause instanceof Error
+        ? cause.message
+        : "Outliers requires an exact registered Dataset Library version.";
+  }
   const [summary, setSummary] = useState<OutlierSummary | null>(null);
   const [config, setConfig] = useState<Record<string, FeatureMethodKey>>({});
   const [rationales, setRationales] = useState<Record<string, string>>({});
@@ -357,17 +384,36 @@ export default function Step04Outliers() {
 
   async function loadSummary() {
     setLoading(true);
-    setError("");
+    setError(datasetIdentityError);
+    if (!datasetIdentity) {
+      setLoading(false);
+      return;
+    }
     try {
       const payload = await requestJson<OutlierSummary>("/outliers/summary", {
         method: "POST",
         body: JSON.stringify({
           project_id: projectId,
+          expected_dataset_id: datasetIdentity.dataset_id,
+          expected_dataset_version_id: datasetIdentity.dataset_version_id,
+          dataset_version: datasetIdentity.dataset_version_id,
           target: localDataset?.target,
           event_value: localDataset?.event_value,
           problem_type: localDataset?.problem_type,
         }),
       });
+      assertExactDatasetIdentity(
+        datasetIdentity,
+        payload,
+        "Outlier summary response",
+      );
+      if (payload.application) {
+        assertExactDatasetIdentity(
+          datasetIdentity,
+          payload.application,
+          "Saved outlier application",
+        );
+      }
       const features = safeArray<OutlierFeature>(payload.features).map(
         (feature) => ({
           ...feature,
@@ -409,17 +455,19 @@ export default function Step04Outliers() {
       let storedRationales: Record<string, string> = {};
       let storedGlobal: MethodKey | null = null;
       try {
-        const scopedConfig =
-          localStorage.getItem(`${CONFIG_KEY}:${projectId}`) ||
-          localStorage.getItem(CONFIG_KEY);
+        const scopedConfig = localStorage.getItem(
+          canonicalDatasetStorageKey(CONFIG_KEY, datasetIdentity),
+        );
         stored = JSON.parse(scopedConfig || "{}");
         storedRationales = JSON.parse(
-          localStorage.getItem(`${RATIONALE_KEY}:${projectId}`) || "{}",
+          localStorage.getItem(
+            canonicalDatasetStorageKey(RATIONALE_KEY, datasetIdentity),
+          ) || "{}",
         );
         const candidateGlobal =
-          localStorage.getItem(`${GLOBAL_KEY}:${projectId}`) ||
-          safePayload.application?.global_method ||
-          localStorage.getItem(GLOBAL_KEY);
+          localStorage.getItem(
+            canonicalDatasetStorageKey(GLOBAL_KEY, datasetIdentity),
+          ) || safePayload.application?.global_method;
         storedGlobal = isMethodKey(candidateGlobal) ? candidateGlobal : null;
       } catch {
         stored = {};
@@ -465,29 +513,38 @@ export default function Step04Outliers() {
   useEffect(() => {
     void loadSummary();
     const controller = new AbortController();
-    getEdaCarryForward(projectId, "outliers", controller.signal)
-      .then((context) => {
-        setCarryForward(context.items);
-        setEdaDocumentStatus(context.documentationStatus);
-        setEdaManifest(context.predictorManifestId);
-      })
-      .catch(() => undefined);
-    getPreparationDocumentation(projectId, controller.signal)
-      .then(setPreparationDocs)
-      .catch(() => undefined);
+    if (datasetIdentity) {
+      getEdaCarryForward(datasetIdentity, "outliers", controller.signal)
+        .then((context) => {
+          setCarryForward(context.items);
+          setEdaDocumentStatus(context.documentationStatus);
+          setEdaManifest(context.predictorManifestId);
+        })
+        .catch(() => undefined);
+      getPreparationDocumentation(datasetIdentity, controller.signal)
+        .then(setPreparationDocs)
+        .catch(() => undefined);
+    }
     return () => controller.abort();
-  }, []);
+  }, [
+    projectId,
+    datasetIdentity?.dataset_id,
+    datasetIdentity?.dataset_version_id,
+  ]);
 
   useEffect(() => {
-    if (!settingsHydrated) return;
+    if (!settingsHydrated || !datasetIdentity) return;
     try {
       localStorage.setItem(
-        `${CONFIG_KEY}:${projectId}`,
+        canonicalDatasetStorageKey(CONFIG_KEY, datasetIdentity),
         JSON.stringify(config),
       );
-      localStorage.setItem(`${GLOBAL_KEY}:${projectId}`, globalMethod);
       localStorage.setItem(
-        `${RATIONALE_KEY}:${projectId}`,
+        canonicalDatasetStorageKey(GLOBAL_KEY, datasetIdentity),
+        globalMethod,
+      );
+      localStorage.setItem(
+        canonicalDatasetStorageKey(RATIONALE_KEY, datasetIdentity),
         JSON.stringify(rationales),
       );
     } catch {
@@ -495,7 +552,15 @@ export default function Step04Outliers() {
         "Selections are retained for this session, but browser persistence is unavailable.",
       );
     }
-  }, [config, globalMethod, projectId, rationales, settingsHydrated]);
+  }, [
+    config,
+    datasetIdentity?.dataset_id,
+    datasetIdentity?.dataset_version_id,
+    globalMethod,
+    projectId,
+    rationales,
+    settingsHydrated,
+  ]);
 
   const applied = configMatchesApplication(
     summary,
@@ -665,8 +730,15 @@ export default function Step04Outliers() {
     item: PreparationCarryForwardItem,
     disposition: CarryForwardDisposition,
   ) {
+    if (!datasetIdentity) {
+      setError(
+        datasetIdentityError ||
+          "Outlier evidence decisions require an exact registered Dataset Library version.",
+      );
+      return;
+    }
     saveCarryForwardDisposition(
-      projectId,
+      datasetIdentity,
       "outliers",
       item.findingId,
       disposition,
@@ -684,6 +756,10 @@ export default function Step04Outliers() {
   }
 
   async function applyTreatments(): Promise<OutlierApplication | null> {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      return null;
+    }
     if (!summary) {
       setError(
         "Full-data outlier analysis must load before treatments can be applied.",
@@ -710,12 +786,19 @@ export default function Step04Outliers() {
       const payload = await requestJson<{
         ok: true;
         scope: "full_dataset";
+        project_id: string;
+        dataset_id: string;
+        dataset_version_id: string;
+        dataset_version: string;
         application: OutlierApplication;
         idempotent?: boolean;
       }>("/outliers/apply", {
         method: "POST",
         body: JSON.stringify({
           project_id: projectId,
+          expected_dataset_id: datasetIdentity.dataset_id,
+          expected_dataset_version_id: datasetIdentity.dataset_version_id,
+          dataset_version: datasetIdentity.dataset_version_id,
           config: normalizedConfig(summary.features, config),
           global_method: globalMethod,
           target: summary.target,
@@ -725,6 +808,16 @@ export default function Step04Outliers() {
           acknowledged_high_impact: highImpactRows.length > 0,
         }),
       });
+      assertExactDatasetIdentity(
+        datasetIdentity,
+        payload,
+        "Outlier treatment response",
+      );
+      assertExactDatasetIdentity(
+        datasetIdentity,
+        payload.application,
+        "Outlier treatment application",
+      );
       setSummary((current) =>
         current ? { ...current, application: payload.application } : current,
       );
@@ -760,20 +853,28 @@ export default function Step04Outliers() {
   }
 
   async function completeStep() {
+    if (!datasetIdentity) {
+      setError(datasetIdentityError);
+      return false;
+    }
     const application =
       applied && summary?.application
         ? summary.application
         : await applyTreatments();
     if (!application) return false;
     await createEvidence({
-      projectId,
+      ...buildCanonicalEvidenceEnvelope(datasetIdentity, {
+        rowCount: application.row_count,
+        scope: "full_dataset",
+        targetSourceExclusions:
+          summary?.predictor_authorization.target_source_excluded ?? [],
+      }),
       projectName,
       evidenceType: "outliers",
       title: "Governed Outlier Treatment and Special-Value Separation",
       summary: `${application.changed_values.toLocaleString()} ordinary values were treated across ${application.treatments.length.toLocaleString()} predictors; bureau special values were preserved and no rows were removed.`,
       sourcePage: "Outlier Analysis",
       sourceRoute: "/step03",
-      datasetIds: [application.dataset_version],
       modelIds: [],
       documentIds: [],
       notebookIds: [],
@@ -790,13 +891,6 @@ export default function Step04Outliers() {
       ],
       status: "ready",
       importance: "high",
-      lineage: {
-        datasetVersion: application.dataset_version,
-        rowCount: application.row_count,
-        scope: "full_dataset",
-        targetSourceExclusions:
-          summary?.predictor_authorization.target_source_excluded ?? [],
-      },
       payload: application,
     });
     return true;
@@ -819,6 +913,7 @@ export default function Step04Outliers() {
       onNext={completeStep}
       nextDisabled={
         loading ||
+        !datasetIdentity ||
         !summary ||
         !!error ||
         !allRows.length ||
@@ -844,7 +939,7 @@ export default function Step04Outliers() {
           description="Separate ordinary tail behavior from governed bureau special values, compare treatment impact, and materialize only an explicitly confirmed policy."
           datasetName={datasetName}
           datasetVersion={
-            summary?.dataset_version || localDataset?.dataset_version || ""
+            datasetIdentity?.dataset_version_id || ""
           }
           target={summary?.target || localDataset?.target || ""}
           predictorCount={allRows.length}

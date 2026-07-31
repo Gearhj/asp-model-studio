@@ -3,7 +3,7 @@ export const DEFAULT_BROWSER_MAX_ROWS = 250_000;
 export const DEFAULT_BROWSER_MAX_COLUMNS = 500;
 
 export const BROWSER_PARSE_EXTENSIONS = new Set(["csv", "txt", "json"]);
-export const BACKEND_CSV_IMPORT_EXTENSIONS = new Set(["csv", "txt"]);
+export const BACKEND_CSV_IMPORT_EXTENSIONS = new Set(["csv", "txt", "json"]);
 export const RECOGNIZED_UPLOAD_EXTENSIONS = new Set([
   "csv",
   "txt",
@@ -38,6 +38,11 @@ export type BackendImportPayload = {
   preview_rows?: unknown;
   max_upload_mb?: unknown;
   filename?: unknown;
+  project_id?: unknown;
+  dataset_id?: unknown;
+  dataset_version_id?: unknown;
+  datasetId?: unknown;
+  versionId?: unknown;
 };
 
 export type NormalizedBackendImport = {
@@ -48,6 +53,9 @@ export type NormalizedBackendImport = {
   target: string;
   selectedColumns: string[];
   filename: string;
+  projectId: string;
+  datasetId: string;
+  datasetVersionId: string;
 };
 
 export type SelectedDatasetViewInput = {
@@ -97,18 +105,22 @@ export function getUploadDecision(input: {
     };
   }
 
+  if (BACKEND_CSV_IMPORT_EXTENSIONS.has(extension)) {
+    return {
+      mode: "backend",
+      extension,
+      message:
+        input.fileSize > browserLimitBytes
+          ? `This ${formatUploadBytes(input.fileSize)} file exceeds the browser preview limit, so ATLAS will register it through the backend and show a governed preview sample.`
+          : "ATLAS will register an immutable backend version and then load its governed preview.",
+    };
+  }
+
   if (input.fileSize > browserLimitBytes) {
-    if (BACKEND_CSV_IMPORT_EXTENSIONS.has(extension)) {
-      return {
-        mode: "backend",
-        extension,
-        message: `This ${formatUploadBytes(input.fileSize)} file exceeds the browser preview limit, so ATLAS will import it through the backend and show a governed preview sample.`,
-      };
-    }
     return {
       mode: "recognized_unsupported",
       extension,
-      message: `${extension.toUpperCase()} files are recognized, but large-file backend import currently supports CSV and TXT only. Convert this file to CSV or use the Python Loader.`,
+      message: `${extension.toUpperCase()} files are recognized, but backend registration currently supports CSV, TXT, and JSON only. Convert this file to CSV or use the Python Loader.`,
     };
   }
 
@@ -164,6 +176,24 @@ export function normalizeBackendImportResponse(payload: BackendImportPayload): N
   const columnCount = asPositiveNumber(payload.cols, headers.length);
   const target = typeof payload.target === "string" && headers.includes(payload.target) ? payload.target : guessTargetFromHeaders(headers);
   const selectedColumns = asStringArray(payload.selected_columns).filter((column) => headers.includes(column) && column !== target);
+  const projectId = typeof payload.project_id === "string" ? payload.project_id.trim() : "";
+  const datasetId =
+    typeof payload.dataset_id === "string"
+      ? payload.dataset_id.trim()
+      : typeof payload.datasetId === "string"
+        ? payload.datasetId.trim()
+        : "";
+  const datasetVersionId =
+    typeof payload.dataset_version_id === "string"
+      ? payload.dataset_version_id.trim()
+      : typeof payload.versionId === "string"
+        ? payload.versionId.trim()
+        : "";
+  if (!projectId || !datasetId || !datasetVersionId) {
+    throw new Error(
+      "Backend import did not return an exact registered project_id, dataset_id, and dataset_version_id."
+    );
+  }
 
   return {
     headers,
@@ -173,6 +203,9 @@ export function normalizeBackendImportResponse(payload: BackendImportPayload): N
     target,
     selectedColumns: selectedColumns.length ? selectedColumns : headers.filter((header) => header !== target),
     filename: typeof payload.filename === "string" ? payload.filename : "",
+    projectId,
+    datasetId,
+    datasetVersionId,
   };
 }
 

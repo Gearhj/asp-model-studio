@@ -5,7 +5,21 @@ from typing import Any, List, Optional
 from pydantic import BaseModel, Field
 
 
-class EDAWorkspaceRequest(BaseModel):
+class EDADatasetIdentityExpectation(BaseModel):
+    """Compare-only identity supplied by an EDA client.
+
+    These values can constrain a read, but they can never activate a dataset or
+    replace the canonical identity held by the server.
+    """
+
+    expected_dataset_id: Optional[str] = None
+    expected_dataset_version_id: Optional[str] = None
+    # Transitional compatibility assertion. It must mirror
+    # expected_dataset_version_id and is never authoritative.
+    dataset_version: Optional[str] = None
+
+
+class EDAWorkspaceRequest(EDADatasetIdentityExpectation):
     project_id: str
     target: Optional[str] = None
     event_value: Optional[Any] = None
@@ -22,7 +36,7 @@ class EDAWorkspaceRequest(BaseModel):
     selection_max: Optional[float] = None
 
 
-class TargetByPredictorRequest(BaseModel):
+class TargetByPredictorRequest(EDADatasetIdentityExpectation):
     """On-demand Target-by-Predictor over the full in-memory backend population.
 
     Used when the project has no registered Dataset Library version, so the
@@ -43,7 +57,7 @@ class TargetByPredictorRequest(BaseModel):
     include_missing: bool = True
 
 
-class EDAVifSimulationRequest(BaseModel):
+class EDAVifSimulationRequest(EDADatasetIdentityExpectation):
     """Non-mutating VIF reduction scenario for one authorized predictor."""
 
     project_id: str
@@ -53,7 +67,7 @@ class EDAVifSimulationRequest(BaseModel):
     problem_type: Optional[str] = None
 
 
-class EDARelationshipSampleRequest(BaseModel):
+class EDARelationshipSampleRequest(EDADatasetIdentityExpectation):
     """Bounded, server-authorized data for the relationship explorer.
 
     Every requested field is an assertion against the server-authored
@@ -66,7 +80,6 @@ class EDARelationshipSampleRequest(BaseModel):
     target: Optional[str] = None
     event_value: Optional[Any] = None
     problem_type: Optional[str] = None
-    dataset_version: Optional[str] = None
     predictor_manifest_id: Optional[str] = None
     x_feature: str
     y_feature: str

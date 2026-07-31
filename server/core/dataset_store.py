@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from threading import RLock
 from typing import Optional, Dict, Any, Tuple
 
 import pandas as pd
+
+from .dataset_state_keys import PRETRAINING_STATE_KEYS
 
 # Only ever used for the project half of the scope key when no request has
 # gone through authorize_modeling_scope() (server/core/modeling_scope.py) at
@@ -64,6 +67,12 @@ class DatasetStore:
     # replacement uploads that happen to look alike at their edges.
     data_revision: int = 0
 
+    # Per-scope state transition lock. Dataset activation, pre-training
+    # invalidation, and training-result persistence all use this same lock so
+    # an old background job cannot publish between an activation check and the
+    # corresponding state/result writes.
+    state_lock: Any = field(default_factory=RLock, repr=False, compare=False)
+
     # ------------------------------------------------------------------
     # Reset helpers
     # ------------------------------------------------------------------
@@ -71,24 +80,26 @@ class DatasetStore:
         """
         Clear all stored data: raw/processed, target, splits, metadata.
         """
-        self.data_revision += 1
-        self.raw_df = None
-        self.processed_df = None
-        self.target = None
-        self.X_train = None
-        self.X_test = None
-        self.y_train = None
-        self.y_test = None
-        self.meta.clear()
+        with self.state_lock:
+            self.data_revision += 1
+            self.raw_df = None
+            self.processed_df = None
+            self.target = None
+            self.X_train = None
+            self.X_test = None
+            self.y_train = None
+            self.y_test = None
+            self.meta.clear()
 
     def reset_splits(self) -> None:
         """
         Clear only the dev/train/test splits (Step 6 outputs).
         """
-        self.X_train = None
-        self.X_test = None
-        self.y_train = None
-        self.y_test = None
+        with self.state_lock:
+            self.X_train = None
+            self.X_test = None
+            self.y_train = None
+            self.y_test = None
 
     # ------------------------------------------------------------------
     # Core setters
@@ -99,27 +110,41 @@ class DatasetStore:
 
         This invalidates any processed dataset and any existing splits.
         """
-        self.data_revision += 1
-        if df is None or df.empty:
-            self.raw_df = None
+        with self.state_lock:
+            self.data_revision += 1
+            # A source replacement cannot inherit either the prior immutable
+            # Dataset Library identity or any state computed from that dataset.
+            # PRETRAINING_STATE_KEYS lives in a dependency-neutral core module so
+            # this reset stays aligned with dataset_identity invalidation without
+            # importing dataset_identity back into DatasetStore.
+            for key in (
+                "project_id",
+                "dataset_id",
+                "dataset_version_id",
+                "dataset_version",
+                "dataset_version_label",
+                "dataset_content_hash",
+                "dataset_schema_hash",
+                "dataset_source_type",
+                "dataset_identity_status",
+                "dataset_identity_error",
+                "source",
+                "access_metadata_id",
+                "profile_snapshot_id",
+            ):
+                self.meta.pop(key, None)
+            for key in PRETRAINING_STATE_KEYS:
+                self.meta.pop(key, None)
+
+            if df is None or df.empty:
+                self.raw_df = None
+                self.processed_df = None
+                self.reset_splits()
+                return
+
+            self.raw_df = df.copy()
             self.processed_df = None
             self.reset_splits()
-            return
-
-        self.raw_df = df.copy()
-        self.processed_df = None
-        self.reset_splits()
-        for key in (
-            "processed_stage",
-            "outlier_application",
-            "missing_application",
-            "missing_config",
-            "materialized_feature_names",
-            "feature_manifest",
-            "split_record",
-            "split_status",
-        ):
-            self.meta.pop(key, None)
 
     def set_processed(self, df: pd.DataFrame) -> None:
         """
@@ -127,14 +152,15 @@ class DatasetStore:
 
         This also invalidates existing splits since the feature space changed.
         """
-        self.data_revision += 1
-        if df is None or df.empty:
-            self.processed_df = None
-            self.reset_splits()
-            return
+        with self.state_lock:
+            self.data_revision += 1
+            if df is None or df.empty:
+                self.processed_df = None
+                self.reset_splits()
+                return
 
-        self.processed_df = df.copy()
-        self.reset_splits()
+            self.processed_df = df.copy()
+            self.reset_splits()
 
     def set_target(self, col_name: Optional[str]) -> None:
         """
@@ -142,7 +168,8 @@ class DatasetStore:
 
         Routers should ensure the column actually exists before relying on it.
         """
-        self.target = col_name
+        with self.state_lock:
+            self.target = col_name
 
     def get_selected_columns(self) -> list[str]:
         """
@@ -224,10 +251,11 @@ class DatasetStore:
 
         These are used by the training service in Step 7.
         """
-        self.X_train = X_train.copy() if X_train is not None else None
-        self.X_test = X_test.copy() if X_test is not None else None
-        self.y_train = y_train.copy() if y_train is not None else None
-        self.y_test = y_test.copy() if y_test is not None else None
+        with self.state_lock:
+            self.X_train = X_train.copy() if X_train is not None else None
+            self.X_test = X_test.copy() if X_test is not None else None
+            self.y_train = y_train.copy() if y_train is not None else None
+            self.y_test = y_test.copy() if y_test is not None else None
 
     # ------------------------------------------------------------------
     # Core getters

@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from ..core.modeling_scope import authorize_modeling_scope
-from ..datasets.dataset_registry import project_dataset_links
+from ..datasets.dataset_identity import assert_expected_active_identity
 from ..security.security_store import audit_event, require_user, user_can_access_project
 from .governed_profile_service import governed_target_profile, workspace_target_profile
 
@@ -54,18 +54,6 @@ def _check_project(user: Dict[str, Any], project_id: str) -> None:
         raise HTTPException(status_code=403, detail="You do not have access to profiling for this project.")
 
 
-def _require_linked(project_id: str, dataset_id: str) -> None:
-    """A governed profile must name a dataset actually linked to the project, so a
-    user with access to two projects cannot profile one project's data under the
-    other's governance."""
-    links = project_dataset_links(project_id)
-    if not any(str(link.get("datasetId")) == str(dataset_id) for link in links):
-        raise HTTPException(
-            status_code=403,
-            detail="That dataset is not linked to this project, so it cannot be profiled as this project's governed population.",
-        )
-
-
 @router.post("/data/target-profile")
 def target_profile(payload: TargetProfileRequest, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     """Target-dependent data quality and Information Value.
@@ -78,11 +66,26 @@ def target_profile(payload: TargetProfileRequest, user: Dict[str, Any] = Depends
     authorize_modeling_scope(user, payload.project_id, "view")
     user_scope = str(user.get("userId") or "anonymous")
 
+    if bool(payload.dataset_id) != bool(payload.version_id):
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Both dataset_id and version_id are required for a governed "
+                "target profile."
+            ),
+        )
     if payload.dataset_id and payload.version_id:
-        _require_linked(payload.project_id, payload.dataset_id)
+        identity = assert_expected_active_identity(
+            payload.project_id,
+            expected_dataset_id=payload.dataset_id,
+            expected_dataset_version_id=payload.version_id,
+            require_expected=True,
+            user=user,
+        )
         return governed_target_profile(
-            user_scope=user_scope, project_id=payload.project_id,
-            dataset_id=payload.dataset_id, version_id=payload.version_id,
+            user_scope=user_scope, project_id=identity["project_id"],
+            dataset_id=identity["dataset_id"],
+            version_id=identity["dataset_version_id"],
             target=payload.target, event_value=payload.event_value,
             non_event_value=payload.non_event_value, problem_type=payload.problem_type,
             include_iv=payload.include_iv, selected_columns=payload.selected_columns,

@@ -22,6 +22,7 @@ import {
 import StatisticalBoxPlot, {
   type BoxPlotSeries,
 } from "./StatisticalBoxPlot";
+import { assertExactDatasetIdentity } from "../../../lib/datasetIdentity";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
@@ -78,6 +79,9 @@ type DistributionMetrics = {
 
 type DistributionResponse = {
   ok: boolean;
+  project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
   section: "distribution";
   feature: string;
   target: string;
@@ -143,6 +147,8 @@ type DistributionResponse = {
 
 type Props = {
   projectId: string;
+  datasetId: string;
+  datasetVersionId: string;
   target: string;
   problemType: "classification" | "regression";
   eventValue?: unknown;
@@ -350,6 +356,8 @@ function downloadRows(filename: string, rows: Record<string, unknown>[]) {
 
 export default function PredictorDistributionExplorer({
   projectId,
+  datasetId,
+  datasetVersionId,
   target,
   problemType,
   eventValue,
@@ -427,6 +435,9 @@ export default function PredictorDistributionExplorer({
     const startedAt = performance.now();
     const body: Record<string, unknown> = {
       project_id: projectId,
+      expected_dataset_id: datasetId,
+      expected_dataset_version_id: datasetVersionId,
+      dataset_version: datasetVersionId,
       target,
       event_value: eventValue,
       problem_type: problemType,
@@ -444,6 +455,15 @@ export default function PredictorDistributionExplorer({
     fetchDistribution(body, datasetVersion, force)
       .then((payload) => {
         if (requestSequence.current !== sequence) return;
+        assertExactDatasetIdentity(
+          {
+            project_id: projectId,
+            dataset_id: datasetId,
+            dataset_version_id: datasetVersionId,
+          },
+          payload,
+          "EDA predictor distribution response",
+        );
         if (
           payload.feature !== variable ||
           payload.dataset_version !== datasetVersion ||
@@ -489,6 +509,8 @@ export default function PredictorDistributionExplorer({
     activeRange?.min,
     available,
     eventValue,
+    datasetId,
+    datasetVersionId,
     datasetVersion,
     histogramBins,
     problemType,

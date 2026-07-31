@@ -45,6 +45,11 @@ class FeatureManifestUpdateRequest(BaseModel):
     project_id: str
     features: List[FeatureDefinitionInput] = Field(default_factory=list)
     pipeline_steps: List[PipelineStepInput] = Field(default_factory=list)
+    dataset_id: str = ""
+    dataset_version_id: str = ""
+    # Backward-compatible expectation only. The active Dataset Library
+    # identity remains authoritative and this value must never be persisted as
+    # identity without an exact comparison.
     dataset_version: str = ""
 
 
@@ -53,15 +58,27 @@ class FeaturePreviewRequest(BaseModel):
     features: List[FeatureDefinitionInput] = Field(default_factory=list)
     preview_limit: int = Field(default=20, ge=1, le=100)
     manifest_version: str = ""
+    dataset_id: str = ""
+    dataset_version_id: str = ""
+    # Transitional comparison-only mirror. It can never establish identity.
+    dataset_version: str = ""
 
 
 class FeatureMaterializeRequest(BaseModel):
     project_id: str
     manifest_version: str = ""
     preview_hash: str = ""
+    dataset_id: str = ""
+    dataset_version_id: str = ""
+    # Transitional comparison-only mirror. It can never establish identity.
+    dataset_version: str = ""
 
 
 class FeatureConfirmRequest(BaseModel):
     project_id: str
     manifest_version: str = ""
     materialization_hash: str = ""
+    dataset_id: str = ""
+    dataset_version_id: str = ""
+    # Transitional comparison-only mirror. It can never establish identity.
+    dataset_version: str = ""

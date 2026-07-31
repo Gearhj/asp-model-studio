@@ -11,6 +11,7 @@ const missing = read("src/steps/Step04_MissingValues.tsx");
 const modelDevelopmentDocument = read(
   "src/lib/modelDevelopmentDocument.ts",
 );
+const preparationGovernance = read("src/lib/preparationGovernance.ts");
 
 function sectionBody(source, id) {
   const marker = `id="${id}"`;
@@ -308,23 +309,31 @@ test("Missingness impact map uses IV-ranked expansion and live imputation values
 test("MDD captures the active global policies, inheritance, and explicit overrides", () => {
   assert.match(
     modelDevelopmentDocument,
-    /function loadMissingTreatmentSummary\(projectId: string\)/,
+    /loadCanonicalPreparationBrowserState/,
   );
   assert.match(
     modelDevelopmentDocument,
-    /function loadOutlierTreatmentSummary\(projectId: string\)/,
+    /function summarizeMissingTreatment\(/,
   );
   assert.match(
     modelDevelopmentDocument,
-    /modeling-tool-missing-config:\$\{projectId\}/,
+    /function summarizeOutlierTreatment\(/,
   );
   assert.match(
-    modelDevelopmentDocument,
-    /modeling-tool-outlier-methods:\$\{projectId\}/,
+    preparationGovernance,
+    /canonicalDatasetStorageKey\(prefix, identity\)/,
   );
   assert.match(
-    modelDevelopmentDocument,
-    /modeling-tool-outlier-global-method:\$\{projectId\}/,
+    preparationGovernance,
+    /MISSING_POLICY_STORAGE_PREFIX/,
+  );
+  assert.match(
+    preparationGovernance,
+    /OUTLIER_METHODS_STORAGE_PREFIX/,
+  );
+  assert.match(
+    preparationGovernance,
+    /OUTLIER_GLOBAL_METHOD_STORAGE_PREFIX/,
   );
   assert.match(modelDevelopmentDocument, /"Global strategy"/);
   assert.match(modelDevelopmentDocument, /"Global method"/);

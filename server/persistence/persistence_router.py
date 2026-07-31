@@ -15,6 +15,10 @@ from ..security.security_store import (
 )
 from ..core.session_checkpoint import discard_modeling_scopes, flush_checkpoint
 from ..datasets.dataset_registry import unlink_all_project_datasets
+from ..evidence.evidence_identity import (
+    assert_evidence_lineage_immutable,
+    authorize_and_normalize_evidence,
+)
 from ..analytics.result_cache import RESULT_CACHE
 from ..analytics.resource_governance import CONCURRENCY
 from ..scoring_runs.scoring_run_service import archive_scoring_runs_for_project
@@ -344,6 +348,17 @@ def _evidence_record(project_id: str, evidence_id: str, payload: Dict[str, Any],
     }.get(requested_status, requested_status)
     if status not in {"generated", "captured", "ready", "approved", "stale", "rejected"}:
         status = "generated"
+    payload_json = (
+        payload
+        if payload.get("lineage_contract") == "canonical_dataset_version"
+        else _pick(
+            payload,
+            "payload",
+            "payloadJson",
+            "payload_json",
+            default=payload,
+        )
+    )
     return {
         "evidence_id": evidence_id,
         "project_id": project_id,
@@ -359,19 +374,44 @@ def _evidence_record(project_id: str, evidence_id: str, payload: Dict[str, Any],
         "created_at": _pick(payload, "createdAt", "created_at"),
         "captured_at": _pick(payload, "capturedAt", "captured_at"),
         "approved_at": _pick(payload, "approvedAt", "approved_at"),
-        "payload_json": _pick(payload, "payload", "payloadJson", "payload_json", default=payload),
+        "payload_json": payload_json,
     }
 
 
 @router.post("/projects/{project_id}/evidence")
 def create_evidence(project_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
-    _authorize_project(project_id, user, "edit", allow_missing=True)
-    evidence_id = _id("evidence", payload, "evidenceId", "evidence_id")
+    normalized = authorize_and_normalize_evidence(
+        payload,
+        user,
+        path_project_id=project_id,
+    )
+    evidence_id = _id("evidence", normalized, "evidenceId", "evidence_id")
 
     def operation() -> Dict[str, Any]:
         service = _service()
-        service.ensure_project(project_id, user)
-        return service.evidence.upsert(_evidence_record(project_id, evidence_id, payload, user))
+        existing = service.evidence.get(evidence_id)
+        if existing and existing.get("project_id") != project_id:
+            raise HTTPException(
+                status_code=404,
+                detail="ATLAS evidence record was not found under this project.",
+            )
+        effective = normalized
+        if existing:
+            effective = authorize_and_normalize_evidence(
+                {
+                    **(existing.get("payload_json") or {}),
+                    **payload,
+                },
+                user,
+                path_project_id=project_id,
+            )
+            assert_evidence_lineage_immutable(
+                existing.get("payload_json") or {},
+                effective,
+            )
+        return service.evidence.upsert(
+            _evidence_record(project_id, evidence_id, effective, user)
+        )
 
     record = _execute(operation)
     action = "evidence.artifact.captured" if record.get("status") in {"captured", "ready", "approved"} else "evidence.artifact.generated"
@@ -381,8 +421,6 @@ def create_evidence(project_id: str, payload: Dict[str, Any], user: Dict[str, An
 
 @router.put("/projects/{project_id}/evidence/{evidence_id}")
 def update_evidence(project_id: str, evidence_id: str, payload: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
-    _authorize_project(project_id, user, "edit")
-
     def operation() -> Dict[str, Any]:
         service = _service()
         existing = service.evidence.get(evidence_id) or {}
@@ -391,7 +429,19 @@ def update_evidence(project_id: str, evidence_id: str, payload: Dict[str, Any], 
         if existing and existing.get("project_id") != project_id:
             raise HTTPException(status_code=404, detail="ATLAS evidence record was not found under this project.")
         merged = {**(existing.get("payload_json") or {}), **payload}
-        return service.evidence.upsert(_evidence_record(project_id, evidence_id, merged, user))
+        normalized = authorize_and_normalize_evidence(
+            merged,
+            user,
+            path_project_id=project_id,
+        )
+        if existing:
+            assert_evidence_lineage_immutable(
+                existing.get("payload_json") or {},
+                normalized,
+            )
+        return service.evidence.upsert(
+            _evidence_record(project_id, evidence_id, normalized, user)
+        )
 
     record = _execute(operation)
     action = "evidence.artifact.captured" if record.get("status") in {"captured", "ready", "approved"} else "evidence.artifact.generated"

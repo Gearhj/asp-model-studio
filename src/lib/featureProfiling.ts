@@ -1,4 +1,8 @@
 import type { LocalDataset } from "./localDataset";
+import {
+  assertExactDatasetIdentity,
+  requireLocalDatasetCanonicalIdentity,
+} from "./datasetIdentity";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
@@ -40,6 +44,11 @@ export type FeatureProfileRow = {
 
 export type FeatureProfileResponse = {
   ok: boolean;
+  project_id?: string;
+  dataset_id?: string;
+  dataset_version_id?: string;
+  /** Compatibility alias; authoritative backend responses derive it from dataset_version_id. */
+  dataset_version?: string;
   profileScope: FeatureProfileScope;
   profiledRowCount: number;
   registeredRowCount: number;
@@ -235,12 +244,20 @@ export function profileFeaturesInBrowser(
 }
 
 export async function fetchFullFeatureProfile(dataset: LocalDataset, projectId: string): Promise<FeatureProfileResponse> {
+  const identity = requireLocalDatasetCanonicalIdentity(
+    projectId,
+    dataset,
+    "Feature profiling dataset identity",
+  );
   const response = await fetch(`${API_BASE}/data/feature-profile`, {
     method: "POST",
     credentials: "include",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       project_id: projectId,
+      expected_dataset_id: identity.dataset_id,
+      expected_dataset_version_id: identity.dataset_version_id,
+      dataset_version: identity.dataset_version_id,
       target: dataset.target,
       event_value: dataset.event_value,
       non_event_value: dataset.non_event_value,
@@ -250,6 +267,7 @@ export async function fetchFullFeatureProfile(dataset: LocalDataset, projectId: 
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok || !payload?.ok) throw new Error(payload?.detail ?? "Full-dataset predictor profiling is unavailable.");
+  assertExactDatasetIdentity(identity, payload, "Full-dataset feature profile response");
   return payload as FeatureProfileResponse;
 }
 

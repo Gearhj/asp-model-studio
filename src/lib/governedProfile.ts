@@ -14,6 +14,8 @@
 //
 // The browser NEVER decides scope. Every governance field is read, not derived.
 
+import { assertExactDatasetIdentity } from "./datasetIdentity";
+
 const API_BASE =
   (import.meta.env?.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
   "http://127.0.0.1:8001/api";
@@ -316,6 +318,21 @@ export async function fetchTargetProfile(
       );
     }
     const result = payload as TargetProfileResult;
+    if (request.datasetId && request.versionId) {
+      assertExactDatasetIdentity(
+        {
+          project_id: request.projectId,
+          dataset_id: request.datasetId,
+          dataset_version_id: request.versionId,
+        },
+        {
+          project_id: result.analysisScope?.projectId,
+          dataset_id: result.datasetId,
+          dataset_version_id: result.datasetVersionId,
+        },
+        "Governed target-profile response",
+      );
+    }
     results.set(key, result);
     return result;
   })();

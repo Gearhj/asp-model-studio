@@ -33,10 +33,12 @@ _SECURITY_DB_PATH = _TEST_DATA_ROOT / f"atlas_scope_security_{_RUN_ID}.db"
 _PERSISTENCE_DB_PATH = _TEST_DATA_ROOT / f"atlas_scope_persistence_{_RUN_ID}.db"
 _CHECKPOINT_PATH = _TEST_DATA_ROOT / f"atlas_scope_checkpoint_{_RUN_ID}.json"
 _LIBRARY_ROOT = Path(tempfile.mkdtemp(prefix=f"atlas_scope_library_{_RUN_ID}_"))
+_EVIDENCE_ROOT = _TEST_DATA_ROOT / f"atlas_scope_evidence_{_RUN_ID}"
 os.environ["ATLAS_SECURITY_DB_PATH"] = str(_SECURITY_DB_PATH)
 os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH)
 os.environ["ATLAS_CHECKPOINT_PATH"] = str(_CHECKPOINT_PATH)
 os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(_LIBRARY_ROOT)
+os.environ["ATLAS_EVIDENCE_ROOT"] = str(_EVIDENCE_ROOT)
 os.environ.setdefault("ATLAS_AUTH_ENABLED", "true")
 os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
 
@@ -71,6 +73,7 @@ def _cleanup() -> None:
                     if attempt < 24:
                         time.sleep(0.2)
     checkpoint.CHECKPOINT_PATH.unlink(missing_ok=True)
+    shutil.rmtree(_EVIDENCE_ROOT, ignore_errors=True)
 
 
 def _register(label: str) -> TestClient:
@@ -122,6 +125,11 @@ def _register_dataset(client: TestClient, project_id: str, frame: pd.DataFrame, 
         "datasetId": dataset_id, "versionId": version_id, "role": "modeling",
     })
     assert link.status_code == 200, link.text
+    activation = client.post(
+        f"/api/datasets/{dataset_id}/versions/{version_id}/activate",
+        params={"project_id": project_id},
+    )
+    assert activation.status_code == 200, activation.text
     return dataset_id, version_id
 
 

@@ -88,7 +88,47 @@ def get_project_context(
     user: Dict[str, Any] = Depends(require_user),
 ) -> Dict[str, Any]:
     project_id = authorize_modeling_scope(user, project_id, "view")
-    return {"ok": True, "context": build_project_context(project_id), "documents": list_documents(project_id)}
+    context = build_project_context(project_id)
+    context_project = (
+        context.get("project")
+        if isinstance(context, dict)
+        and isinstance(context.get("project"), dict)
+        else {}
+    )
+    resolved_project_id = str(
+        context_project.get("projectId") or ""
+    )
+    if resolved_project_id != project_id:
+        audit_event(
+            "model_documentation.project_context.integrity_failure",
+            "project",
+            project_id,
+            "failure",
+            user_id=user.get("userId") or user.get("user_id"),
+            reason=(
+                "Resolved Model Documentation context did not match the "
+                "authorized project."
+            ),
+            metadata={
+                "projectId": project_id,
+                "resolvedProjectId": resolved_project_id,
+                "auditTitle": (
+                    "Model Documentation Context Integrity Failure"
+                ),
+            },
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "ATLAS could not safely resolve the requested project "
+                "context."
+            ),
+        )
+    return {
+        "ok": True,
+        "context": context,
+        "documents": list_documents(project_id),
+    }
 
 
 @router.post("/model-documentation/create")

@@ -26,6 +26,7 @@ from server.features.feature_service import (  # noqa: E402
     get_manifest,
     preview_features,
 )
+import server.features.feature_service as feature_service_module  # noqa: E402
 from server.features.feature_types import FeatureDefinitionInput  # noqa: E402
 from server.preprocessing.missing_router import (  # noqa: E402
     MissingApplyRequest,
@@ -44,6 +45,42 @@ import server.preprocessing.missing_router as missing_router_module  # noqa: E40
 
 PROJECT_ID = "preparation-premium-test"
 USER = {"userId": "preparation-premium-owner"}
+DATASET_ID = "dataset-preparation-premium"
+DATASET_VERSION_ID = "dataset-version-preparation-premium-v1"
+
+
+def canonical_identity() -> dict[str, str]:
+    return {
+        "project_id": PROJECT_ID,
+        "dataset_id": DATASET_ID,
+        "dataset_version_id": DATASET_VERSION_ID,
+    }
+
+
+def resolve_test_identity(
+    project_id: str = "",
+    *,
+    expected_dataset_id: str = "",
+    expected_dataset_version_id: str = "",
+    legacy_dataset_version: str = "",
+    **_kwargs,
+) -> dict[str, str]:
+    identity = canonical_identity()
+    resolved_project_id = str(project_id or DATASTORE.meta.get("project_id") or "")
+    if resolved_project_id != identity["project_id"]:
+        raise AssertionError("Test requested a different project identity.")
+    supplied = {
+        "dataset_id": str(expected_dataset_id or ""),
+        "dataset_version_id": str(
+            expected_dataset_version_id or legacy_dataset_version or ""
+        ),
+    }
+    if any(
+        value and value != identity[key]
+        for key, value in supplied.items()
+    ):
+        raise AssertionError("Test requested a different dataset identity.")
+    return identity
 
 
 def frame_with_heloc_semantics(null_value: float | None = None) -> pd.DataFrame:
@@ -84,11 +121,25 @@ def configure(frame: pd.DataFrame, include_target_source_in_selection: bool = Fa
     ]
     if include_target_source_in_selection:
         selected.insert(0, "RiskPerformance")
-    DATASTORE.meta["selected_columns"] = selected
-    DATASTORE.meta["dataset_version"] = "heloc-prep-v1"
+    DATASTORE.meta.update(
+        {
+            **canonical_identity(),
+            "dataset_version": DATASET_VERSION_ID,
+            "selected_columns": selected,
+        }
+    )
 
 
 class PredictorAuthorizationTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.original_feature_identity = feature_service_module._active_identity
+        feature_service_module._active_identity = resolve_test_identity
+
+    @classmethod
+    def tearDownClass(cls):
+        feature_service_module._active_identity = cls.original_feature_identity
+
     def tearDown(self):
         DATASTORE.reset_all()
 
@@ -155,6 +206,7 @@ class PredictorAuthorizationTests(unittest.TestCase):
                 definition,
                 {"ExternalRiskEstimate", "AverageMInFile"},
                 set(),
+                canonical_identity(),
             )
 
 
@@ -247,15 +299,24 @@ class MissingValidationTests(unittest.TestCase):
     def setUpClass(cls):
         cls.original_authorize = missing_router_module.authorize_modeling_scope
         cls.original_save = missing_router_module.save_checkpoint
+        cls.original_missing_identity = (
+            missing_router_module.assert_expected_active_identity
+        )
         missing_router_module.authorize_modeling_scope = (
             lambda user, project_id, permission: project_id
         )
         missing_router_module.save_checkpoint = lambda: True
+        missing_router_module.assert_expected_active_identity = (
+            resolve_test_identity
+        )
 
     @classmethod
     def tearDownClass(cls):
         missing_router_module.authorize_modeling_scope = cls.original_authorize
         missing_router_module.save_checkpoint = cls.original_save
+        missing_router_module.assert_expected_active_identity = (
+            cls.original_missing_identity
+        )
 
     def tearDown(self):
         DATASTORE.reset_all()
@@ -263,7 +324,15 @@ class MissingValidationTests(unittest.TestCase):
     def test_special_values_are_not_true_nulls(self):
         frame = frame_with_heloc_semantics()
         configure(frame)
-        payload = missing_summary(PROJECT_ID, user=USER)
+        payload = missing_summary(
+            PROJECT_ID,
+            expected_dataset_id=DATASET_ID,
+            expected_dataset_version_id=DATASET_VERSION_ID,
+            dataset_id=None,
+            dataset_version_id=None,
+            dataset_version=None,
+            user=USER,
+        )
         external = payload["stats"]["ExternalRiskEstimate"]
         self.assertEqual(external["missing"], 0)
         self.assertEqual(external["special_value_count"], 3)
@@ -294,6 +363,15 @@ class MissingValidationTests(unittest.TestCase):
 
 
 class FeaturePreviewSafetyTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.original_feature_identity = feature_service_module._active_identity
+        feature_service_module._active_identity = resolve_test_identity
+
+    @classmethod
+    def tearDownClass(cls):
+        feature_service_module._active_identity = cls.original_feature_identity
+
     def tearDown(self):
         DATASTORE.reset_all()
 

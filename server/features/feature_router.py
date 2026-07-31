@@ -26,10 +26,21 @@ router = APIRouter()
 
 
 @router.get("/features/manifest")
-def feature_manifest(project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)):
+def feature_manifest(
+    project_id: str = Query(...),
+    expected_dataset_id: str = Query(""),
+    expected_dataset_version_id: str = Query(""),
+    dataset_version: str = Query(""),
+    user: Dict[str, Any] = Depends(require_user),
+):
     authorize_modeling_scope(user, project_id, "view")
     try:
-        return get_manifest()
+        return get_manifest(
+            project_id,
+            expected_dataset_id=expected_dataset_id,
+            expected_dataset_version_id=expected_dataset_version_id,
+            legacy_dataset_version=dataset_version,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -59,12 +70,18 @@ def save_feature_manifest(request: FeatureManifestUpdateRequest, user: Dict[str,
 
 @router.post("/features/preview")
 def feature_preview(request: FeaturePreviewRequest, user: Dict[str, Any] = Depends(require_user)):
-    authorize_modeling_scope(user, request.project_id, "view")
+    # Preview persists a governed preview hash and refreshed manifest, so it
+    # is a mutation even though it does not materialize the feature frame.
+    authorize_modeling_scope(user, request.project_id, "edit")
     try:
         result = preview_features(
             request.features,
             request.preview_limit,
             request.manifest_version,
+            project_id=request.project_id,
+            expected_dataset_id=request.dataset_id,
+            expected_dataset_version_id=request.dataset_version_id,
+            legacy_dataset_version=request.dataset_version,
         )
         audit_event(
             "modeling.feature_manifest.previewed",
@@ -88,7 +105,14 @@ def feature_preview(request: FeaturePreviewRequest, user: Dict[str, Any] = Depen
 def feature_materialize(request: FeatureMaterializeRequest, user: Dict[str, Any] = Depends(require_user)):
     authorize_modeling_scope(user, request.project_id, "edit")
     try:
-        result = materialize_manifest(request.manifest_version, request.preview_hash)
+        result = materialize_manifest(
+            request.manifest_version,
+            request.preview_hash,
+            project_id=request.project_id,
+            expected_dataset_id=request.dataset_id,
+            expected_dataset_version_id=request.dataset_version_id,
+            legacy_dataset_version=request.dataset_version,
+        )
         audit_event(
             "modeling.feature_manifest.materialized",
             "project",
@@ -114,6 +138,10 @@ def feature_confirm(request: FeatureConfirmRequest, user: Dict[str, Any] = Depen
         result = confirm_manifest(
             request.manifest_version,
             request.materialization_hash,
+            project_id=request.project_id,
+            expected_dataset_id=request.dataset_id,
+            expected_dataset_version_id=request.dataset_version_id,
+            legacy_dataset_version=request.dataset_version,
         )
         audit_event(
             "modeling.feature_manifest.confirmed",
@@ -134,10 +162,23 @@ def feature_confirm(request: FeatureConfirmRequest, user: Dict[str, Any] = Depen
 
 
 @router.delete("/features/{feature_id}")
-def remove_feature(feature_id: str, project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)):
+def remove_feature(
+    feature_id: str,
+    project_id: str = Query(...),
+    expected_dataset_id: str = Query(""),
+    expected_dataset_version_id: str = Query(""),
+    dataset_version: str = Query(""),
+    user: Dict[str, Any] = Depends(require_user),
+):
     authorize_modeling_scope(user, project_id, "edit")
     try:
-        result = delete_feature(feature_id, project_id)
+        result = delete_feature(
+            feature_id,
+            project_id,
+            expected_dataset_id=expected_dataset_id,
+            expected_dataset_version_id=expected_dataset_version_id,
+            legacy_dataset_version=dataset_version,
+        )
         audit_event(
             "modeling.feature_manifest.feature_removed",
             "project",

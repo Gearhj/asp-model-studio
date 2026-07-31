@@ -27,13 +27,16 @@ from server.core.dataset_store import DATASTORE
 from server.eda.eda_service import eda_service
 from server.eda.workspace_service import eda_workspace_service
 from server.eda.workspace_types import EDAWorkspaceRequest
+import server.eda.workspace_service as eda_workspace_module
 from server.evaluation.eval_service import EVAL
 from server.preprocessing.feature_profile_service import profile_features
 from server.preprocessing.missing_router import MissingApplyRequest, MissingRule, apply_missing_values, missing_summary
 from server.preprocessing.outlier_router import OutlierApplyRequest, OutlierSummaryRequest, apply_outlier_treatments, outliers_summary
 from server.preprocessing.quality_profile_service import profile_active_dataset
+import server.preprocessing.feature_profile_service as feature_profile_module
 import server.preprocessing.missing_router as missing_router_module
 import server.preprocessing.outlier_router as outlier_router_module
+import server.preprocessing.quality_profile_service as quality_profile_module
 
 REPAIR_TEST_PROJECT_ID = "repair-test-project"
 REPAIR_TEST_OWNER_USER_ID = "repair-test-owner"
@@ -66,6 +69,7 @@ from server.training.training_job_types import TrainingJobRequest
 from server.training.training_preflight_service import training_preflight
 from server.training.trainer_router import get_last_train
 import server.training.training_job_service as job_module
+import server.training.training_preflight_service as training_preflight_module
 import server.training.trainer_router as trainer_router_module
 
 
@@ -83,16 +87,87 @@ def build_frame(rows: int = 360) -> pd.DataFrame:
     )
 
 
+def canonical_identity() -> dict[str, str]:
+    return {
+        "project_id": REPAIR_TEST_PROJECT_ID,
+        "dataset_id": "ds-repair-test",
+        "dataset_version_id": "repair-test-v2",
+    }
+
+
+def resolve_test_identity(
+    project_id: str,
+    *,
+    expected_dataset_id: str = "",
+    expected_dataset_version_id: str = "",
+    legacy_dataset_version: str = "",
+    **_kwargs,
+) -> dict[str, str]:
+    identity = canonical_identity()
+    assert str(project_id) == identity["project_id"]
+    assert not expected_dataset_id or expected_dataset_id == identity["dataset_id"]
+    supplied_version = expected_dataset_version_id or legacy_dataset_version
+    assert (
+        not supplied_version
+        or supplied_version == identity["dataset_version_id"]
+    )
+    return identity
+
+
+def validate_test_checkpoint(
+    store,
+    *,
+    owner_user_id: str = "",
+    project_id: str = "",
+):
+    identity = canonical_identity()
+    if project_id and project_id != identity["project_id"]:
+        return False, "The test project identity changed.", None
+    if any(
+        str(store.meta.get(key) or "") != value
+        for key, value in identity.items()
+    ):
+        return False, "The test dataset identity changed.", None
+    return True, "", identity
+
+
+def resolve_result_context_identity(
+    project_id: str,
+    *,
+    expected_dataset_id: str = "",
+    expected_dataset_version_id: str = "",
+    legacy_dataset_version: str = "",
+    **_kwargs,
+) -> dict[str, str]:
+    identity = canonical_identity()
+    identity["project_id"] = str(project_id)
+    assert not expected_dataset_id or expected_dataset_id == identity["dataset_id"]
+    supplied_version = expected_dataset_version_id or legacy_dataset_version
+    assert (
+        not supplied_version
+        or supplied_version == identity["dataset_version_id"]
+    )
+    return identity
+
+
 def configure_manifest(frame: pd.DataFrame) -> None:
     DATASTORE.reset_all()
     DATASTORE.set_raw(frame)
     DATASTORE.set_target("target")
+    DATASTORE.meta.update(canonical_identity())
     DATASTORE.meta["selected_columns"] = ["amount", "velocity", "amount_velocity"]
     DATASTORE.meta["dataset_version"] = "repair-test-v2"
     DATASTORE.meta["source"] = {"kind": "dataset_library", "datasetId": "ds-repair-test"}
     DATASTORE.meta["feature_manifest"] = {
+        **canonical_identity(),
         "manifest_version": "fm-repair-test-v2",
+        "manifest_hash": "fm-repair-test-v2",
         "dataset_version": "repair-test-v2",
+        "validation_status": "passed",
+        "materialization_status": "current",
+        "materialized_manifest_hash": "fm-repair-test-v2",
+        "confirmation_status": "confirmed",
+        "confirmed_manifest_hash": "fm-repair-test-v2",
         "features": [
             {"feature_name": "amount", "origin": "original", "selected": True, "eligibility_status": "eligible"},
             {"feature_name": "velocity", "origin": "original", "selected": True, "eligibility_status": "eligible"},
@@ -118,12 +193,26 @@ def create_governed_split(frame: pd.DataFrame) -> None:
     result = split_service.make_dev_split(frame, "target", ["amount", "velocity", "amount_velocity"], config)
     DATASTORE.set_splits(result.X_train, result.X_test, result.y_train, result.y_test)
     DATASTORE.meta["split_status"] = "current"
+    validation_design = {
+        **canonical_identity(),
+        "validation_design_id": "validation-design-repair-test-v2",
+        "design_version": "validation-design-version-repair-test-v2",
+        "feature_manifest_hash": "fm-repair-test-v2",
+        "status": "approved",
+        "development_dataset": {
+            "dataset_id": "ds-repair-test",
+            "dataset_version_id": "repair-test-v2",
+        },
+    }
     DATASTORE.meta["split_record"] = {
+        **canonical_identity(),
         "split_id": "split-repair-test-v2",
         "dataset_version": "repair-test-v2",
         "feature_manifest_version": "fm-repair-test-v2",
         "selected_features": ["amount", "velocity", "amount_velocity"],
         "config": config,
+        "validation_design": validation_design,
+        "completion_gates": {},
     }
 
 
@@ -136,9 +225,12 @@ def request(models: list[str] | None = None) -> TrainingJobRequest:
         target="target",
         event_value=1,
         problem_type="classification",
+        dataset_version_id="repair-test-v2",
         dataset_version="repair-test-v2",
         feature_manifest_version="fm-repair-test-v2",
         split_id="split-repair-test-v2",
+        validation_design_id="validation-design-repair-test-v2",
+        validation_design_version="validation-design-version-repair-test-v2",
         project_id="repair-test-project",
         dataset_id="ds-repair-test",
         non_event_value=0,
@@ -165,9 +257,51 @@ def main() -> None:
     original_outlier_authz = outlier_router_module.authorize_modeling_scope
     original_missing_authz = missing_router_module.authorize_modeling_scope
     original_trainer_authz = trainer_router_module.authorize_modeling_scope
+    original_eda_identity = (
+        eda_workspace_module.assert_expected_active_identity
+    )
+    original_outlier_identity = (
+        outlier_router_module.assert_expected_active_identity
+    )
+    original_missing_identity = (
+        missing_router_module.assert_expected_active_identity
+    )
+    original_preflight_identity = (
+        training_preflight_module.assert_expected_active_identity
+    )
+    original_checkpoint_identity = job_module.validate_checkpoint_identity
+    original_quality_identity = (
+        quality_profile_module.assert_expected_active_identity
+    )
+    original_feature_profile_identity = (
+        feature_profile_module.assert_expected_active_identity
+    )
+    original_trainer_identity = (
+        trainer_router_module.assert_expected_active_identity
+    )
     outlier_router_module.authorize_modeling_scope = _skip_modeling_scope_authorization
     missing_router_module.authorize_modeling_scope = _skip_modeling_scope_authorization
     trainer_router_module.authorize_modeling_scope = _skip_modeling_scope_authorization
+    outlier_router_module.assert_expected_active_identity = (
+        resolve_test_identity
+    )
+    missing_router_module.assert_expected_active_identity = (
+        resolve_test_identity
+    )
+    training_preflight_module.assert_expected_active_identity = resolve_test_identity
+    job_module.validate_checkpoint_identity = validate_test_checkpoint
+    quality_profile_module.assert_expected_active_identity = (
+        resolve_test_identity
+    )
+    feature_profile_module.assert_expected_active_identity = (
+        resolve_test_identity
+    )
+    trainer_router_module.assert_expected_active_identity = (
+        resolve_result_context_identity
+    )
+    eda_workspace_module.assert_expected_active_identity = (
+        resolve_test_identity
+    )
     try:
         frame = build_frame()
 
@@ -201,7 +335,17 @@ def main() -> None:
         assert outlier_application["application"]["changed_values"] >= 1
         assert DATASTORE.meta["processed_stage"] == "outliers"
 
-        missing_profile = missing_summary(project_id=REPAIR_TEST_PROJECT_ID, event_value=1, problem_type="classification", user={})
+        missing_profile = missing_summary(
+            project_id=REPAIR_TEST_PROJECT_ID,
+            event_value=1,
+            problem_type="classification",
+            expected_dataset_id="ds-repair-test",
+            expected_dataset_version_id="repair-test-v2",
+            dataset_id=None,
+            dataset_version_id=None,
+            dataset_version=None,
+            user={},
+        )
         assert missing_profile["scope"] == "full_dataset"
         assert missing_profile["rows"] == len(preprocessing_frame)
         assert missing_profile["stats"]["velocity"]["missing"] == 12
@@ -228,6 +372,28 @@ def main() -> None:
         outlier_router_module.authorize_modeling_scope = original_outlier_authz
         missing_router_module.authorize_modeling_scope = original_missing_authz
         trainer_router_module.authorize_modeling_scope = original_trainer_authz
+        eda_workspace_module.assert_expected_active_identity = (
+            original_eda_identity
+        )
+        outlier_router_module.assert_expected_active_identity = (
+            original_outlier_identity
+        )
+        missing_router_module.assert_expected_active_identity = (
+            original_missing_identity
+        )
+        training_preflight_module.assert_expected_active_identity = (
+            original_preflight_identity
+        )
+        job_module.validate_checkpoint_identity = original_checkpoint_identity
+        quality_profile_module.assert_expected_active_identity = (
+            original_quality_identity
+        )
+        feature_profile_module.assert_expected_active_identity = (
+            original_feature_profile_identity
+        )
+        trainer_router_module.assert_expected_active_identity = (
+            original_trainer_identity
+        )
 
 
 def _run_remaining_checks(frame: pd.DataFrame, outlier_profile: dict, missing_profile: dict) -> None:

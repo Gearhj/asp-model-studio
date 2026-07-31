@@ -4,9 +4,13 @@ from pathlib import Path
 from typing import Any, Dict, Tuple
 
 import pandas as pd
+from fastapi import HTTPException
 
 from ..core.dataset_store import DATASTORE
-from ..datasets.dataset_registry import latest_version_id, require_dataset, version_dir
+from ..datasets.dataset_identity import (
+    active_dataset_identity,
+    resolve_registered_version,
+)
 from .errors import InsufficientDataError
 
 
@@ -15,17 +19,47 @@ def load_dataset(payload: Dict[str, Any]) -> Tuple[pd.DataFrame, Dict[str, Any]]
     dataset_id = str(payload.get("dataset_id") or payload.get("datasetId") or "").strip()
     version_id = str(payload.get("dataset_version_id") or payload.get("datasetVersionId") or payload.get("versionId") or "").strip()
     if dataset_id:
-        dataset = require_dataset(dataset_id)
-        version_id = version_id or str(latest_version_id(dataset) or "")
-        path: Path = version_dir(dataset_id, version_id) / "data_full.csv"
-        if not path.exists():
-            raise InsufficientDataError("Full dataset artifact is not loaded. Reopen or reload the confirmed dataset before running analysis.")
-        return pd.read_csv(path, low_memory=False), {"dataset_id": dataset_id, "dataset_version_id": version_id, "dataset_name": dataset.get("name"), "profile_scope": "full_dataset", "path": str(path)}
+        if not version_id:
+            raise InsufficientDataError(
+                "An exact dataset_version_id is required; ATLAS will not select "
+                "the latest Dataset Library version."
+            )
+        try:
+            identity = resolve_registered_version(dataset_id, version_id)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise InsufficientDataError(str(getattr(exc, "detail", exc))) from exc
+        path = Path(identity["artifact_path"])
+        return pd.read_csv(path, low_memory=False), {
+            "dataset_id": identity["dataset_id"],
+            "dataset_version_id": identity["dataset_version_id"],
+            "dataset_name": identity["dataset"].get("name"),
+            "profile_scope": "full_dataset",
+            "path": str(path),
+        }
     df = DATASTORE.get_active_df(include_target=True)
     if df is None or df.empty:
         raise InsufficientDataError("A governed dataset reference or active full dataset is required before analysis.")
+    project_id = str(
+        payload.get("project_id")
+        or payload.get("projectId")
+        or DATASTORE.meta.get("project_id")
+        or ""
+    ).strip()
+    try:
+        identity = active_dataset_identity(project_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise InsufficientDataError(str(getattr(exc, "detail", exc))) from exc
     source = DATASTORE.meta.get("source") or {}
-    return df, {"dataset_id": source.get("datasetId"), "dataset_version_id": DATASTORE.meta.get("dataset_version"), "dataset_name": source.get("filename"), "profile_scope": "active_session_full_dataset"}
+    return df, {
+        "dataset_id": identity["dataset_id"],
+        "dataset_version_id": identity["dataset_version_id"],
+        "dataset_name": source.get("filename"),
+        "profile_scope": "active_session_full_dataset",
+    }
 
 
 def require_columns(df: pd.DataFrame, *columns: str | None) -> None:

@@ -18,10 +18,14 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, Literal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from .core.modeling_scope import authorize_modeling_scope
+from .datasets.dataset_identity import (
+    active_dataset_identity,
+    assert_expected_active_identity,
+)
 from .security.security_store import require_user
 
 from .code_execution.sas_compatible import SUPPORTED_PROCS, run_sas_compatible
@@ -368,6 +372,29 @@ def run_python(request: PythonRunRequest, user: Dict[str, Any] = Depends(require
     # an authenticated user could run code bound to another project's dataset.
     if request.projectId:
         authorize_modeling_scope(user, request.projectId, "view")
+        context = request.context or {}
+        requested_dataset_id = str(context.get("datasetId") or "").strip()
+        requested_version_id = str(context.get("versionId") or "").strip()
+        try:
+            active_dataset_identity(
+                request.projectId,
+                user=user,
+            )
+        except HTTPException:
+            # A workspace draft may execute only preview-bound code. If a
+            # caller claims governed identity, it must resolve exactly.
+            if requested_dataset_id or requested_version_id:
+                raise
+        else:
+            # Once the project has a governed dataset, omitting its identity
+            # would downgrade execution to ungoverned preview rows.
+            assert_expected_active_identity(
+                request.projectId,
+                expected_dataset_id=requested_dataset_id,
+                expected_dataset_version_id=requested_version_id,
+                require_expected=True,
+                user=user,
+            )
     return run_python_request(request)
 
 

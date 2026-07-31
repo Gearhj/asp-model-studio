@@ -1,6 +1,9 @@
 import { getCachedProjectId } from "./activeProjectContext";
 import { getCachedUserId } from "./authSession";
-import { loadLocalDataset, localDatasetVersion, type LocalDataset } from "./localDataset";
+import {
+  requireLocalDatasetCanonicalIdentity,
+} from "./datasetIdentity";
+import { loadLocalDataset, type LocalDataset } from "./localDataset";
 
 export type CodeContextLanguage = "python" | "sas";
 
@@ -222,17 +225,21 @@ function fallbackDatasetIdentity(dataset: LocalDataset | null, projectId: string
   const library = dataset?.dataset_library;
   const access = dataset?.data_access;
   const name = text(library?.datasetName) || text(access?.fileName) || text(access?.sourceLabel) || "Unresolved dataset";
-  const versionMaterial = dataset ? localDatasetVersion(dataset) : `${projectId}:no-dataset`;
+  let canonical: ReturnType<typeof requireLocalDatasetCanonicalIdentity> | null =
+    null;
+  try {
+    canonical = requireLocalDatasetCanonicalIdentity(
+      projectId,
+      dataset,
+      "Code-context dataset identity",
+    );
+  } catch {
+    // Code drafting may still render an explicit unresolved state, but it must
+    // never mint a browser hash that resembles a registered dataset version.
+  }
   return {
-    datasetId:
-      text(library?.datasetId) ||
-      text(access?.datasetId) ||
-      `browser-dataset:${stableCodeContextHash(`${projectId}|${name}|${versionMaterial}`)}`,
-    datasetVersion:
-      text(library?.versionId) ||
-      text(dataset?.dataset_version) ||
-      text(access?.version) ||
-      `browser-version:${stableCodeContextHash(versionMaterial)}`,
+    datasetId: canonical?.dataset_id ?? "",
+    datasetVersion: canonical?.dataset_version_id ?? "",
     datasetName: leafName(name),
   };
 }

@@ -1,5 +1,6 @@
 # server/training/trainer_router.py
 
+from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -16,6 +17,7 @@ from ..core.dataset_store import DATASTORE
 from ..core.modeling_scope import authorize_modeling_scope
 from ..core.result_store import RESULTS
 from ..core.session_checkpoint import schedule_checkpoint_save
+from ..datasets.dataset_identity import assert_expected_active_identity
 from ..security.security_store import audit_event, require_user
 
 
@@ -24,6 +26,11 @@ router = APIRouter()
 
 class ModelSelectionDecisionRequest(BaseModel):
     project_id: str
+    dataset_id: str = ""
+    dataset_version_id: str = ""
+    # Compatibility expectation only; canonical identity remains the exact
+    # Dataset Library version resolved by the backend.
+    dataset_version: str = ""
     training_job_id: str
     validation_design_id: str = ""
     validation_design_version: str = ""
@@ -38,6 +45,168 @@ class ModelSelectionDecisionRequest(BaseModel):
     fairness_validation_prerequisites: str = Field(default="", max_length=4000)
     deployment_constraints: str = Field(default="", max_length=4000)
     reviewer_notes: str = Field(default="", max_length=4000)
+
+
+def _current_store(proxy: Any) -> Any:
+    current = getattr(proxy, "current", None)
+    return current() if callable(current) else proxy
+
+
+def _record_matches_identity(
+    record: dict[str, Any],
+    identity: dict[str, Any],
+) -> bool:
+    if not record:
+        return False
+    if any(
+        not str(record.get(key) or "").strip()
+        or str(record.get(key) or "") != str(identity.get(key) or "")
+        for key in ("project_id", "dataset_id", "dataset_version_id")
+    ):
+        return False
+    compatibility_version = str(record.get("dataset_version") or "").strip()
+    return (
+        not compatibility_version
+        or compatibility_version == str(identity["dataset_version_id"])
+    )
+
+
+def _last_summary_context_error(
+    summary: dict[str, Any],
+    identity: dict[str, Any],
+    store: Any,
+) -> str:
+    """Fail closed unless the summary matches the full active training input."""
+    manifest = (
+        store.meta.get("feature_manifest")
+        if isinstance(store.meta.get("feature_manifest"), dict)
+        else {}
+    )
+    split_record = (
+        store.meta.get("split_record")
+        if isinstance(store.meta.get("split_record"), dict)
+        else {}
+    )
+    validation_design = (
+        split_record.get("validation_design")
+        if isinstance(split_record.get("validation_design"), dict)
+        else {}
+    )
+    top_level_design = (
+        store.meta.get("validation_design")
+        if isinstance(store.meta.get("validation_design"), dict)
+        else {}
+    )
+    if not _record_matches_identity(manifest, identity):
+        return (
+            "The last training run cannot be used because the active feature "
+            "manifest is missing or belongs to another dataset version."
+        )
+    if not _record_matches_identity(split_record, identity):
+        return (
+            "The last training run cannot be used because the active split is "
+            "missing or belongs to another dataset version."
+        )
+    if not _record_matches_identity(validation_design, identity):
+        return (
+            "The last training run cannot be used because the active "
+            "Validation Design is missing or belongs to another dataset version."
+        )
+    if top_level_design and (
+        not _record_matches_identity(top_level_design, identity)
+        or str(top_level_design.get("validation_design_id") or "")
+        != str(validation_design.get("validation_design_id") or "")
+        or str(top_level_design.get("design_version") or "")
+        != str(validation_design.get("design_version") or "")
+    ):
+        return (
+            "The last training run cannot be used because the active "
+            "Validation Design records are inconsistent."
+        )
+    if str(store.meta.get("split_status") or "") != "current" or any(
+        part is None for part in store.get_splits()
+    ):
+        return (
+            "The last training run cannot be used because the governed "
+            "validation split is no longer current."
+        )
+
+    manifest_version = str(
+        manifest.get("manifest_hash") or manifest.get("manifest_version") or ""
+    )
+    split_id = str(split_record.get("split_id") or "")
+    validation_design_id = str(
+        validation_design.get("validation_design_id") or ""
+    )
+    validation_design_version = str(
+        validation_design.get("design_version") or ""
+    )
+    if (
+        not manifest_version
+        or not split_id
+        or not validation_design_id
+        or not validation_design_version
+        or str(split_record.get("feature_manifest_version") or "")
+        != manifest_version
+        or str(validation_design.get("feature_manifest_hash") or "")
+        != manifest_version
+    ):
+        return (
+            "The last training run cannot be used because the active feature, "
+            "split, and Validation Design contract is incomplete or inconsistent."
+        )
+
+    expected = {
+        "project_id": str(identity["project_id"]),
+        "dataset_id": str(identity["dataset_id"]),
+        "dataset_version_id": str(identity["dataset_version_id"]),
+        "feature_manifest_version": manifest_version,
+        "split_id": split_id,
+        "validation_design_id": validation_design_id,
+        "validation_design_version": validation_design_version,
+    }
+    if any(
+        not str(summary.get(key) or "").strip()
+        or str(summary.get(key) or "") != value
+        for key, value in expected.items()
+    ):
+        return (
+            "The last training run does not match the active dataset, feature "
+            "manifest, split, or Validation Design. Train models again."
+        )
+    compatibility_version = str(summary.get("dataset_version") or "").strip()
+    if (
+        compatibility_version
+        and compatibility_version != str(identity["dataset_version_id"])
+    ):
+        return (
+            "The last training run contains conflicting dataset version "
+            "identifiers. Train models again."
+        )
+    try:
+        summary_revision = int(summary.get("data_revision"))
+    except (TypeError, ValueError):
+        summary_revision = -1
+    if summary_revision != int(store.data_revision):
+        return (
+            "The last training run belongs to an older governed data revision. "
+            "Train models again."
+        )
+    for record, label in (
+        (split_record, "split"),
+        (validation_design, "Validation Design"),
+    ):
+        if record.get("data_revision") not in (None, ""):
+            try:
+                record_revision = int(record.get("data_revision"))
+            except (TypeError, ValueError):
+                record_revision = -1
+            if record_revision != int(store.data_revision):
+                return (
+                    f"The active {label} belongs to an older governed data "
+                    "revision. Rebuild Balance & Split."
+                )
+    return ""
 
 
 # Stage 4 (ATLAS_MODELING_STATE_ISOLATION_PLAN.md): TRAINING_JOBS project
@@ -156,13 +325,38 @@ def cancel_queued_training_models(
 @router.get("/model/train/decision")
 def get_model_selection_decision(
     project_id: str = Query(...),
+    expected_dataset_id: str = Query(""),
+    expected_dataset_version_id: str = Query(""),
     user: Dict[str, Any] = Depends(require_user),
 ) -> Dict[str, Any]:
     authorize_modeling_scope(user, project_id, "view")
+    identity = assert_expected_active_identity(
+        project_id,
+        expected_dataset_id=expected_dataset_id,
+        expected_dataset_version_id=expected_dataset_version_id,
+        require_expected=True,
+        user=user,
+    )
     decision = DATASTORE.meta.get("model_selection_decision")
+    if isinstance(decision, dict):
+        if any(
+            str(decision.get(key) or "") != str(identity.get(key) or "")
+            for key in ("project_id", "dataset_id", "dataset_version_id")
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "The saved model-selection decision does not belong to "
+                    "the exact active Dataset Library version."
+                ),
+            )
     return json_safe(
         {
             "ok": True,
+            "project_id": identity["project_id"],
+            "dataset_id": identity["dataset_id"],
+            "dataset_version_id": identity["dataset_version_id"],
+            "dataset_version": identity["dataset_version_id"],
             "decision": decision if isinstance(decision, dict) else None,
         }
     )
@@ -174,6 +368,23 @@ def save_model_selection_decision(
     user: Dict[str, Any] = Depends(require_user),
 ) -> Dict[str, Any]:
     authorize_modeling_scope(user, request.project_id, "edit")
+    scoped_store = _current_store(DATASTORE)
+    with scoped_store.state_lock:
+        active_identity = assert_expected_active_identity(
+            request.project_id,
+            expected_dataset_id=request.dataset_id,
+            expected_dataset_version_id=request.dataset_version_id,
+            legacy_dataset_version=request.dataset_version,
+            require_expected=True,
+            user=user,
+            store=scoped_store,
+        )
+        input_revision = int(scoped_store.data_revision)
+        validation_design = deepcopy(
+            scoped_store.meta.get("validation_design")
+            if isinstance(scoped_store.meta.get("validation_design"), dict)
+            else {}
+        )
     if request.status == "approved":
         raise HTTPException(
             status_code=409,
@@ -192,6 +403,17 @@ def save_model_selection_decision(
         raise HTTPException(
             status_code=404,
             detail="The governed training job was not found in this project.",
+        )
+    if any(
+        str(job.get(key) or "") != str(active_identity.get(key) or "")
+        for key in ("dataset_id", "dataset_version_id")
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The governed training job does not belong to the exact "
+                "active Dataset Library version."
+            ),
         )
     candidates = {
         str(row.get("key"))
@@ -213,11 +435,31 @@ def save_model_selection_decision(
             status_code=400,
             detail="Invalid challenger candidates: " + ", ".join(invalid_challengers),
         )
-    validation_design = (
-        DATASTORE.meta.get("validation_design")
-        if isinstance(DATASTORE.meta.get("validation_design"), dict)
-        else {}
-    )
+    if any(
+        str(validation_design.get(key) or "")
+        != str(active_identity.get(key) or "")
+        for key in ("project_id", "dataset_id", "dataset_version_id")
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The active Validation Design does not belong to the exact "
+                "active Dataset Library version."
+            ),
+        )
+    if (
+        str(job.get("validation_design_id") or "")
+        != str(validation_design.get("validation_design_id") or "")
+        or str(job.get("validation_design_version") or "")
+        != str(validation_design.get("design_version") or "")
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The governed training job no longer matches the active "
+                "Validation Design."
+            ),
+        )
     if (
         request.validation_design_id
         and request.validation_design_id
@@ -239,6 +481,8 @@ def save_model_selection_decision(
     decided_at = datetime.now(timezone.utc).isoformat()
     identity = {
         "project_id": request.project_id,
+        "dataset_id": active_identity["dataset_id"],
+        "dataset_version_id": active_identity["dataset_version_id"],
         "training_job_id": request.training_job_id,
         "champion_model": request.champion_model,
         "challenger_models": request.challenger_models,
@@ -249,6 +493,10 @@ def save_model_selection_decision(
     decision = {
         "decision_id": f"model-decision-{hashlib.sha256(encoded.encode('utf-8')).hexdigest()[:16]}",
         **request.model_dump(),
+        "project_id": active_identity["project_id"],
+        "dataset_id": active_identity["dataset_id"],
+        "dataset_version_id": active_identity["dataset_version_id"],
+        "dataset_version": active_identity["dataset_version_id"],
         "validation_design_id": validation_design.get("validation_design_id"),
         "validation_design_version": validation_design.get("design_version"),
         "feature_manifest_version": job.get("feature_manifest_version"),
@@ -268,7 +516,52 @@ def save_model_selection_decision(
             in {request.champion_model, *request.challenger_models}
         },
     }
-    DATASTORE.meta["model_selection_decision"] = decision
+    with scoped_store.state_lock:
+        assert_expected_active_identity(
+            request.project_id,
+            expected_dataset_id=active_identity["dataset_id"],
+            expected_dataset_version_id=active_identity[
+                "dataset_version_id"
+            ],
+            require_expected=True,
+            user=user,
+            store=scoped_store,
+        )
+        current_validation_design = (
+            scoped_store.meta.get("validation_design")
+            if isinstance(
+                scoped_store.meta.get("validation_design"),
+                dict,
+            )
+            else {}
+        )
+        if (
+            int(scoped_store.data_revision) != input_revision
+            or str(
+                current_validation_design.get("validation_design_id") or ""
+            )
+            != str(validation_design.get("validation_design_id") or "")
+            or str(current_validation_design.get("design_version") or "")
+            != str(validation_design.get("design_version") or "")
+            or any(
+                str(current_validation_design.get(key) or "")
+                != str(active_identity.get(key) or "")
+                for key in (
+                    "project_id",
+                    "dataset_id",
+                    "dataset_version_id",
+                )
+            )
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "The governed dataset or Validation Design changed while "
+                    "the model-selection proposal was being recorded. Reload "
+                    "Model Training and try again."
+                ),
+            )
+        scoped_store.meta["model_selection_decision"] = decision
     audit_event(
         "modeling.model_selection.decision",
         "project",
@@ -437,6 +730,8 @@ def train_models(request: Dict[str, Any], user: Dict[str, Any] = Depends(require
 @router.get("/train/last")
 def get_last_train(
     project_id: str = Query(...),
+    dataset_id: str = "",
+    dataset_version_id: str = "",
     dataset_version: str = "",
     target: str = "",
     problem_type: str = "",
@@ -461,27 +756,48 @@ def get_last_train(
     project's own summary.
     """
     authorize_modeling_scope(user, project_id, "view")
-    last = RESULTS.get_last_summary()
-    if last:
-        expected = {
-            "project_id": project_id,
-            "dataset_version": dataset_version,
-            "target": target,
-            "problem_type": problem_type,
-        }
-        labels = {
-            "project_id": "project",
-            "dataset_version": "dataset version",
-            "target": "target",
-            "problem_type": "problem type",
-        }
-        for key, label in labels.items():
-            expected_value = str(expected.get(key) or "").strip()
-            actual_value = str(last.get(key) or "").strip()
-            if expected_value and expected_value != actual_value:
-                return json_safe({
-                    "ok": True,
-                    "summary": None,
-                    "context_error": f"The last training run does not match the current {label}. Train models for this project before continuing.",
-                })
+    scoped_store = _current_store(DATASTORE)
+    scoped_results = _current_store(RESULTS)
+    with scoped_store.state_lock:
+        identity = assert_expected_active_identity(
+            project_id,
+            expected_dataset_id=dataset_id,
+            expected_dataset_version_id=dataset_version_id,
+            legacy_dataset_version=dataset_version,
+            require_expected=True,
+            user=user,
+            store=scoped_store,
+        )
+        last = scoped_results.get_last_summary()
+        if last:
+            context_error = _last_summary_context_error(
+                last,
+                identity,
+                scoped_store,
+            )
+            if not context_error:
+                for key, label, requested_value in (
+                    ("target", "target", target),
+                    ("problem_type", "problem type", problem_type),
+                ):
+                    requested = str(requested_value or "").strip()
+                    actual = str(last.get(key) or "").strip()
+                    if requested and requested != actual:
+                        context_error = (
+                            "The last training run does not match the current "
+                            f"{label}. Train models for this project before "
+                            "continuing."
+                        )
+                        break
+            if context_error:
+                return json_safe(
+                    {
+                        "ok": True,
+                        "summary": None,
+                        "context_error": (
+                            "The last training run does not match the current "
+                            f"project context. {context_error}"
+                        ),
+                    }
+                )
     return json_safe({"ok": True, "summary": last})

@@ -24,6 +24,10 @@
     {
       "path": "tests/sqlite_persistence_backend_test.py",
       "description": "Persistence behavior plus explicit loopback development identity integration"
+    },
+    {
+      "path": "tests/model_documentation_project_context_test.py",
+      "description": "Fail-closed Model Documentation project-context identity, enrichment isolation, and authorization"
     }
   ],
   "structural": [
@@ -40,6 +44,7 @@
     "tests/project_access_consolidation_test.py",
     "tests/validation_segregation_of_duties_test.py",
     "tests/sqlite_persistence_backend_test.py",
+    "tests/model_documentation_project_context_test.py",
     "tests/userManagement.test.mjs"
   ]
 }

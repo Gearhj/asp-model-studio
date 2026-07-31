@@ -60,7 +60,15 @@ class MissingTableFirstBackendTest(unittest.TestCase):
         previous_target = DATASTORE.target
         previous_meta = dict(DATASTORE.meta)
         DATASTORE.target = "bad_flag"
-        DATASTORE.meta = {"dataset_version": "test-v1"}
+        identity = {
+            "project_id": "project-test",
+            "dataset_id": "dataset-test",
+            "dataset_version_id": "dataset-version-test-v1",
+        }
+        DATASTORE.meta = {
+            **identity,
+            "dataset_version": identity["dataset_version_id"],
+        }
         try:
             with (
                 patch.object(
@@ -87,11 +95,23 @@ class MissingTableFirstBackendTest(unittest.TestCase):
                         "target_source_excluded": [],
                     },
                 ),
+                patch.object(
+                    missing_router,
+                    "assert_expected_active_identity",
+                    return_value=identity,
+                ),
             ):
                 payload = missing_router.missing_summary(
                     project_id="project-test",
                     event_value=1,
                     problem_type="classification",
+                    expected_dataset_id=identity["dataset_id"],
+                    expected_dataset_version_id=identity[
+                        "dataset_version_id"
+                    ],
+                    dataset_id=None,
+                    dataset_version_id=None,
+                    dataset_version=None,
                     user={"id": "user-test"},
                 )
         finally:

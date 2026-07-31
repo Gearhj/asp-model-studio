@@ -9,6 +9,14 @@ export type LocalDataset = {
   problem_type?: "classification" | "regression";
   registered_row_count?: number;
   browser_data_complete?: boolean;
+  /** Canonical Dataset Library asset identifier returned by the backend. */
+  dataset_id?: string;
+  /** Canonical immutable Dataset Library version identifier returned by the backend. */
+  dataset_version_id?: string;
+  /**
+   * @deprecated Compatibility-only field for old browser snapshots. It is not
+   * canonical identity and must never be promoted to dataset_version_id.
+   */
   dataset_version?: string;
   event_value?: unknown;
   non_event_value?: unknown;
@@ -120,6 +128,11 @@ function normalizeSelectedDataset(dataset: Partial<LocalDataset>): LocalDataset 
         : undefined,
     registered_row_count: Number.isFinite(Number(dataset.registered_row_count)) ? Number(dataset.registered_row_count) : dataset.rows.length,
     browser_data_complete: dataset.browser_data_complete === true,
+    dataset_id: typeof dataset.dataset_id === "string" && dataset.dataset_id.trim() ? dataset.dataset_id.trim() : undefined,
+    dataset_version_id:
+      typeof dataset.dataset_version_id === "string" && dataset.dataset_version_id.trim()
+        ? dataset.dataset_version_id.trim()
+        : undefined,
     dataset_version: typeof dataset.dataset_version === "string" ? dataset.dataset_version : undefined,
     event_value: dataset.event_value,
     non_event_value: dataset.non_event_value,

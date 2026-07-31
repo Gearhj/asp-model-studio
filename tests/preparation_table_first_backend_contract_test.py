@@ -27,6 +27,22 @@ import server.preprocessing.missing_router as missing_router_module  # noqa: E40
 
 PROJECT_ID = "table-first-contract"
 USER = {"userId": "table-first-contract-owner"}
+DATASET_ID = "dataset-table-first-contract"
+DATASET_VERSION_ID = "dataset-version-table-first-v1"
+
+
+def canonical_identity() -> dict[str, str]:
+    return {
+        "project_id": PROJECT_ID,
+        "dataset_id": DATASET_ID,
+        "dataset_version_id": DATASET_VERSION_ID,
+    }
+
+
+def resolve_test_identity(project_id: str, **_kwargs) -> dict[str, str]:
+    if str(project_id) != PROJECT_ID:
+        raise AssertionError("Test requested a different project identity.")
+    return canonical_identity()
 
 
 def modeling_frame(*, include_true_null: bool = True) -> pd.DataFrame:
@@ -55,21 +71,35 @@ def configure(frame: pd.DataFrame) -> None:
     DATASTORE.reset_all()
     DATASTORE.set_raw(frame)
     DATASTORE.set_target("bad_flag")
-    DATASTORE.meta["selected_columns"] = ["signal_driver", "secondary"]
-    DATASTORE.meta["dataset_version"] = "table-first-v1"
+    DATASTORE.meta.update(
+        {
+            **canonical_identity(),
+            "dataset_version": DATASET_VERSION_ID,
+            "selected_columns": ["signal_driver", "secondary"],
+        }
+    )
 
 
 class TableFirstBackendContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
         cls.original_authorize = missing_router_module.authorize_modeling_scope
+        cls.original_missing_identity = (
+            missing_router_module.assert_expected_active_identity
+        )
         missing_router_module.authorize_modeling_scope = (
             lambda user, project_id, permission: project_id
+        )
+        missing_router_module.assert_expected_active_identity = (
+            resolve_test_identity
         )
 
     @classmethod
     def tearDownClass(cls) -> None:
         missing_router_module.authorize_modeling_scope = cls.original_authorize
+        missing_router_module.assert_expected_active_identity = (
+            cls.original_missing_identity
+        )
 
     def tearDown(self) -> None:
         DATASTORE.reset_all()
@@ -162,7 +192,16 @@ class TableFirstBackendContractTests(unittest.TestCase):
     ) -> None:
         configure(modeling_frame())
 
-        payload = missing_summary(PROJECT_ID, event_value=1, user=USER)
+        payload = missing_summary(
+            PROJECT_ID,
+            event_value=1,
+            expected_dataset_id=DATASET_ID,
+            expected_dataset_version_id=DATASET_VERSION_ID,
+            dataset_id=None,
+            dataset_version_id=None,
+            dataset_version=None,
+            user=USER,
+        )
         row = payload["stats"]["signal_driver"]
 
         self.assertEqual(payload["scope"], "full_dataset")
@@ -216,7 +255,16 @@ class TableFirstBackendContractTests(unittest.TestCase):
     ) -> None:
         configure(modeling_frame(include_true_null=False))
 
-        payload = missing_summary(PROJECT_ID, event_value=1, user=USER)
+        payload = missing_summary(
+            PROJECT_ID,
+            event_value=1,
+            expected_dataset_id=DATASET_ID,
+            expected_dataset_version_id=DATASET_VERSION_ID,
+            dataset_id=None,
+            dataset_version_id=None,
+            dataset_version=None,
+            user=USER,
+        )
         row = payload["stats"]["signal_driver"]
 
         self.assertEqual(row["missing"], 0)

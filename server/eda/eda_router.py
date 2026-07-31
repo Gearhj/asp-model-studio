@@ -47,6 +47,7 @@ def _raise_documentation_validation(
         if exc.code
         in {
             "eda_documentation_context_mismatch",
+            "eda_evidence_context_mismatch",
             "eda_governed_context_incomplete",
             "eda_project_scope_mismatch",
         }
@@ -66,12 +67,21 @@ def _raise_documentation_validation(
 @router.get("/documentation/{project_id}")
 def get_eda_documentation(
     project_id: str,
+    expected_dataset_id: str = Query(...),
+    expected_dataset_version_id: str = Query(...),
     user: Dict[str, Any] = Depends(require_user),
 ):
     """Read the canonical EDA documentation state consumed by MDD."""
 
     authorize_modeling_scope(user, project_id, "view")
-    return eda_documentation_service.get_state(project_id)
+    try:
+        return eda_documentation_service.get_state(
+            project_id,
+            expected_dataset_id=expected_dataset_id,
+            expected_dataset_version_id=expected_dataset_version_id,
+        )
+    except EDADocumentationValidationError as exc:
+        _raise_documentation_validation(exc)
 
 
 @router.post("/documentation/draft")
@@ -111,12 +121,17 @@ def invalidate_eda_documentation(
     """Explicitly mark the current approval stale after an upstream change."""
 
     authorize_modeling_scope(user, project_id, "edit")
-    return eda_documentation_service.invalidate(
-        project_id,
-        request.reason,
-        user,
-        upstream_revision=request.upstream_revision,
-    )
+    try:
+        return eda_documentation_service.invalidate(
+            project_id,
+            request.reason,
+            user,
+            upstream_revision=request.upstream_revision,
+            expected_dataset_id=request.expected_dataset_id,
+            expected_dataset_version_id=request.expected_dataset_version_id,
+        )
+    except EDADocumentationValidationError as exc:
+        _raise_documentation_validation(exc)
 
 
 @router.post("/workspace/{section}")

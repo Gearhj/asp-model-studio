@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from copy import deepcopy
+from functools import wraps
 import hashlib
 import json
 from datetime import datetime, timezone
@@ -13,7 +15,12 @@ from pydantic import BaseModel, Field
 from ..core.dataset_store import DATASTORE
 from ..core.json_safety import json_safe
 from ..core.modeling_scope import authorize_modeling_scope
+from ..core.pretraining_invalidation import invalidate_downstream_training_state
 from ..core.session_checkpoint import save_checkpoint
+from ..datasets.dataset_identity import (
+    assert_expected_active_identity,
+    coalesce_identity_expectations,
+)
 from ..security.security_store import require_user
 from .outlier_service import outlier_service
 from .feature_profile_service import information_value
@@ -28,6 +35,16 @@ router = APIRouter()
 MISSING_STRINGS = {"", "na", "n/a", "null", "none", "nan", "missing"}
 
 
+def _state_locked_read(function):
+    @wraps(function)
+    def wrapped(*args, **kwargs):
+        scoped_store = DATASTORE.current()
+        with scoped_store.state_lock:
+            return function(*args, **kwargs)
+
+    return wrapped
+
+
 class MissingRule(BaseModel):
     strategy: str = "None"
     constantValue: Optional[Any] = None
@@ -38,12 +55,81 @@ class MissingApplyRequest(BaseModel):
     config: Dict[str, MissingRule] = Field(default_factory=dict)
     event_value: Any = None
     problem_type: str | None = None
+    expected_dataset_id: str | None = None
+    expected_dataset_version_id: str | None = None
+    dataset_id: str | None = None
+    dataset_version_id: str | None = None
+    dataset_version: str | None = None
 
 
 class MissingValidateRequest(BaseModel):
     project_id: str
     event_value: Any = None
     problem_type: str | None = None
+    expected_dataset_id: str | None = None
+    expected_dataset_version_id: str | None = None
+    dataset_id: str | None = None
+    dataset_version_id: str | None = None
+    dataset_version: str | None = None
+
+
+def _active_request_identity(
+    request: Any,
+    user: Dict[str, Any],
+) -> Dict[str, Any]:
+    dataset_id, dataset_version_id, legacy_version = (
+        coalesce_identity_expectations(
+            expected_dataset_id=request.expected_dataset_id,
+            expected_dataset_version_id=request.expected_dataset_version_id,
+            dataset_id=request.dataset_id,
+            dataset_version_id=request.dataset_version_id,
+            legacy_dataset_version=request.dataset_version,
+        )
+    )
+    return assert_expected_active_identity(
+        request.project_id,
+        expected_dataset_id=dataset_id,
+        expected_dataset_version_id=dataset_version_id,
+        legacy_dataset_version=legacy_version,
+        require_expected=True,
+        user=user,
+    )
+
+
+def _identity_fields(identity: Dict[str, Any]) -> Dict[str, str]:
+    dataset_version_id = str(identity["dataset_version_id"])
+    return {
+        "project_id": str(identity["project_id"]),
+        "dataset_id": str(identity["dataset_id"]),
+        "dataset_version_id": dataset_version_id,
+        # Compatibility alias only; canonical identity remains dataset_version_id.
+        "dataset_version": dataset_version_id,
+    }
+
+
+def _record_matches_identity(
+    record: Any,
+    identity: Dict[str, Any],
+) -> bool:
+    legacy = str(record.get("dataset_version") or "") if isinstance(record, dict) else ""
+    return (
+        isinstance(record, dict)
+        and record.get("project_id") == identity["project_id"]
+        and record.get("dataset_id") == identity["dataset_id"]
+        and record.get("dataset_version_id") == identity["dataset_version_id"]
+        and (not legacy or legacy == identity["dataset_version_id"])
+    )
+
+
+def _source_stage(identity: Dict[str, Any]) -> str:
+    return (
+        "outlier_treated"
+        if _record_matches_identity(
+            DATASTORE.meta.get("outlier_application"),
+            identity,
+        )
+        else "registered_dataset"
+    )
 
 
 def _normalize_missing(df: pd.DataFrame) -> pd.DataFrame:
@@ -120,8 +206,17 @@ def _config_signature(payload: dict[str, Any]) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
 
 
-def _pre_missing_df() -> pd.DataFrame:
+def _pre_missing_df(identity: Dict[str, Any]) -> pd.DataFrame:
+    prior = DATASTORE.meta.get("outlier_application")
     if DATASTORE.meta.get("processed_stage") == "outliers" and DATASTORE.processed_df is not None:
+        if not _record_matches_identity(prior, identity):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "The active outlier-treated frame is not bound to the exact "
+                    "active Dataset Library version."
+                ),
+            )
         current = DATASTORE.get_active_df()
         if current is not None and not current.empty:
             return current
@@ -129,8 +224,15 @@ def _pre_missing_df() -> pd.DataFrame:
     source = DATASTORE.get_raw_active_df()
     if source is None or source.empty:
         raise HTTPException(status_code=400, detail="No full registered dataset is loaded.")
-    prior = DATASTORE.meta.get("outlier_application")
-    if isinstance(prior, dict) and isinstance(prior.get("config"), dict):
+    if isinstance(prior, dict) and not _record_matches_identity(prior, identity):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The saved outlier treatment belongs to a different dataset "
+                "identity. Reconfirm outlier treatment for the active version."
+            ),
+        )
+    if _record_matches_identity(prior, identity) and isinstance(prior.get("config"), dict):
         try:
             source, _ = outlier_service.apply(
                 source,
@@ -283,14 +385,37 @@ def _distribution_profile(values: pd.Series) -> dict[str, Any]:
 
 
 @router.get("/summary")
+@_state_locked_read
 def missing_summary(
     project_id: str = Query(...),
     event_value: Any = Query(default=None),
     problem_type: str | None = Query(default=None),
+    expected_dataset_id: str | None = Query(default=None),
+    expected_dataset_version_id: str | None = Query(default=None),
+    dataset_id: str | None = Query(default=None),
+    dataset_version_id: str | None = Query(default=None),
+    dataset_version: str | None = Query(default=None),
     user: Dict[str, Any] = Depends(require_user),
 ) -> Dict[str, Any]:
     authorize_modeling_scope(user, project_id, "view")
-    work = _normalize_missing(_pre_missing_df())
+    resolved_dataset_id, resolved_version_id, legacy_version = (
+        coalesce_identity_expectations(
+            expected_dataset_id=expected_dataset_id,
+            expected_dataset_version_id=expected_dataset_version_id,
+            dataset_id=dataset_id,
+            dataset_version_id=dataset_version_id,
+            legacy_dataset_version=dataset_version,
+        )
+    )
+    identity = assert_expected_active_identity(
+        project_id,
+        expected_dataset_id=resolved_dataset_id,
+        expected_dataset_version_id=resolved_version_id,
+        legacy_dataset_version=legacy_version,
+        require_expected=True,
+        user=user,
+    )
+    work = _normalize_missing(_pre_missing_df(identity))
     target = DATASTORE.target if DATASTORE.target in work.columns else None
     y = work[target] if target else None
     resolved_problem = problem_type if problem_type in {"classification", "regression"} else "classification"
@@ -379,9 +504,12 @@ def missing_summary(
             **relationship,
         }
         columns.append({"name": col, "dtype": _display_dtype(work[col]), "role": "feature"})
+    application = DATASTORE.meta.get("missing_application")
+    validation = DATASTORE.meta.get("missing_validation")
     return json_safe({
         "ok": True,
         "scope": "full_dataset",
+        **_identity_fields(identity),
         "rows": total,
         "columns": columns,
         "stats": stats,
@@ -390,10 +518,17 @@ def missing_summary(
         "event_value": resolved_event,
         "event_rate": event_rate,
         "rare_event": bool(event_rate is not None and event_rate < 0.05),
-        "source_stage": "outlier_treated" if DATASTORE.meta.get("outlier_application") else "registered_dataset",
-        "dataset_version": DATASTORE.meta.get("dataset_version") or "unversioned",
-        "application": DATASTORE.meta.get("missing_application"),
-        "validation": DATASTORE.meta.get("missing_validation"),
+        "source_stage": _source_stage(identity),
+        "application": (
+            application
+            if _record_matches_identity(application, identity)
+            else None
+        ),
+        "validation": (
+            validation
+            if _record_matches_identity(validation, identity)
+            else None
+        ),
         "predictor_authorization": authorization,
     })
 
@@ -406,18 +541,50 @@ def validate_missing_values(
     """Record a governed no-treatment decision without materializing a frame."""
 
     authorize_modeling_scope(user, request.project_id, "edit")
-    work = _normalize_missing(_pre_missing_df())
-    features = _feature_columns(work)
+    scoped_store = DATASTORE.current()
+    with scoped_store.state_lock:
+        identity = _active_request_identity(request, user)
+        input_revision = int(scoped_store.data_revision)
+        work = _normalize_missing(_pre_missing_df(identity)).copy()
+        features = _feature_columns(work)
+        source_stage = _source_stage(identity)
+        prior_validation = deepcopy(
+            scoped_store.meta.get("missing_validation")
+        )
     missing_cells = int(work[features].isna().sum().sum()) if features else 0
     if missing_cells:
         raise HTTPException(
             status_code=409,
             detail="Null values are present. Select and apply a governed treatment or explicitly preserve them.",
         )
+    if (
+        _record_matches_identity(prior_validation, identity)
+        and prior_validation.get("source_stage") == source_stage
+        and int(prior_validation.get("row_count") or -1) == int(len(work))
+        and int(prior_validation.get("predictor_count") or -1) == len(features)
+        and not DATASTORE.meta.get("missing_application")
+    ):
+        with scoped_store.state_lock:
+            if int(scoped_store.data_revision) != input_revision:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "The governed dataset or preparation state changed "
+                        "while missing values were being validated. Reload "
+                        "the current plan before continuing."
+                    ),
+                )
+        return json_safe({
+            "ok": True,
+            "scope": "full_dataset",
+            **_identity_fields(identity),
+            "validation": prior_validation,
+            "idempotent": True,
+        })
     validation = {
         "validated_at": datetime.now(timezone.utc).isoformat(),
-        "dataset_version": DATASTORE.meta.get("dataset_version") or "unversioned",
-        "source_stage": "outlier_treated" if DATASTORE.meta.get("outlier_application") else "registered_dataset",
+        **_identity_fields(identity),
+        "source_stage": source_stage,
         "row_count": int(len(work)),
         "predictor_count": len(features),
         "missing_cells": 0,
@@ -426,21 +593,57 @@ def validate_missing_values(
         "backend_materialization": False,
         "statement": "Validated, no treatment required.",
     }
-    DATASTORE.meta["missing_validation"] = validation
-    DATASTORE.meta.pop("missing_application", None)
-    DATASTORE.meta.pop("missing_config", None)
+    with scoped_store.state_lock:
+        assert_expected_active_identity(
+            request.project_id,
+            expected_dataset_id=identity["dataset_id"],
+            expected_dataset_version_id=identity["dataset_version_id"],
+            user=user,
+            store=scoped_store,
+        )
+        if int(scoped_store.data_revision) != input_revision:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "The governed dataset or preparation state changed while "
+                    "missing values were being validated. Reload and validate "
+                    "again."
+                ),
+            )
+        scoped_store.meta["missing_validation"] = validation
+        scoped_store.meta.pop("missing_application", None)
+        scoped_store.meta.pop("missing_config", None)
+        invalidate_downstream_training_state(
+            "The governed missing-value validation changed.",
+            store=scoped_store,
+            split_status="stale",
+        )
     if not save_checkpoint():
         raise HTTPException(
             status_code=500,
             detail="Missing-value validation completed, but ATLAS could not persist the workflow checkpoint.",
         )
-    return json_safe({"ok": True, "scope": "full_dataset", "validation": validation})
+    return json_safe({
+        "ok": True,
+        "scope": "full_dataset",
+        **_identity_fields(identity),
+        "validation": validation,
+    })
 
 
 @router.post("/apply")
 def apply_missing_values(request: MissingApplyRequest, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     authorize_modeling_scope(user, request.project_id, "edit")
-    work = _normalize_missing(_pre_missing_df())
+    scoped_store = DATASTORE.current()
+    with scoped_store.state_lock:
+        identity = _active_request_identity(request, user)
+        input_revision = int(scoped_store.data_revision)
+        source = _pre_missing_df(identity).copy()
+        source_stage = _source_stage(identity)
+        prior_application = deepcopy(
+            scoped_store.meta.get("missing_application")
+        )
+    work = _normalize_missing(source)
     features = set(_feature_columns(work))
     before = int(work[list(features)].isna().sum().sum()) if features else 0
     if before == 0:
@@ -448,6 +651,32 @@ def apply_missing_values(request: MissingApplyRequest, user: Dict[str, Any] = De
             status_code=409,
             detail="No null imputation is required for the current modeling population. Use validation instead of materialization.",
         )
+    payload = _config_payload(request.config)
+    config_signature = _config_signature(payload)
+    if (
+        _record_matches_identity(prior_application, identity)
+        and prior_application.get("config_signature") == config_signature
+        and prior_application.get("source_stage") == source_stage
+        and DATASTORE.meta.get("processed_stage") == "missing_values"
+        and DATASTORE.processed_df is not None
+    ):
+        with scoped_store.state_lock:
+            if int(scoped_store.data_revision) != input_revision:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "The governed dataset or preparation state changed "
+                        "while the missing-value plan was being evaluated. "
+                        "Reload the current plan before continuing."
+                    ),
+                )
+        return json_safe({
+            "ok": True,
+            "scope": "full_dataset",
+            **_identity_fields(identity),
+            "application": prior_application,
+            "idempotent": True,
+        })
     dropped_rows = 0
     applied: List[Dict[str, Any]] = []
 
@@ -492,29 +721,51 @@ def apply_missing_values(request: MissingApplyRequest, user: Dict[str, Any] = De
         work[col] = series.fillna(fill_value)
         applied.append({"feature": col, "strategy": rule.strategy, "filled": missing_before, "value": str(fill_value)})
 
-    payload = _config_payload(request.config)
     application = {
         "applied_at": datetime.now(timezone.utc).isoformat(),
-        "dataset_version": DATASTORE.meta.get("dataset_version") or "unversioned",
+        **_identity_fields(identity),
         "config": payload,
-        "config_signature": _config_signature(payload),
-        "source_stage": "outlier_treated" if DATASTORE.meta.get("outlier_application") else "registered_dataset",
-        "rows_before": int(len(_pre_missing_df())),
+        "config_signature": config_signature,
+        "source_stage": source_stage,
+        "rows_before": int(len(source)),
         "rows_after": int(len(work)),
         "missing_before": before,
         "missing_after": int(work[list(features)].isna().sum().sum()) if features else 0,
         "dropped_rows": int(dropped_rows),
         "treatments": applied,
     }
-    DATASTORE.set_processed(work)
-    DATASTORE.meta["processed_stage"] = "missing_values"
-    DATASTORE.meta["missing_config"] = payload
-    DATASTORE.meta["missing_application"] = application
-    DATASTORE.meta.pop("missing_validation", None)
-    DATASTORE.meta["split_status"] = "stale"
-    manifest = DATASTORE.meta.get("feature_manifest")
-    if isinstance(manifest, dict):
-        manifest["split_status"] = "stale"
+    with scoped_store.state_lock:
+        assert_expected_active_identity(
+            request.project_id,
+            expected_dataset_id=identity["dataset_id"],
+            expected_dataset_version_id=identity["dataset_version_id"],
+            user=user,
+            store=scoped_store,
+        )
+        if int(scoped_store.data_revision) != input_revision:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "The governed dataset or preparation state changed while "
+                    "missing-value treatments were being calculated. Reload "
+                    "and apply the plan again."
+                ),
+            )
+        scoped_store.set_processed(work)
+        scoped_store.meta["processed_stage"] = "missing_values"
+        scoped_store.meta["missing_config"] = payload
+        scoped_store.meta["missing_application"] = application
+        scoped_store.meta.pop("missing_validation", None)
+        invalidate_downstream_training_state(
+            "The governed missing-value treatment changed.",
+            store=scoped_store,
+            split_status="stale",
+        )
     if not save_checkpoint():
         raise HTTPException(status_code=500, detail="Missing-value treatments were applied, but ATLAS could not persist the workflow checkpoint.")
-    return json_safe({"ok": True, "scope": "full_dataset", "application": application})
+    return json_safe({
+        "ok": True,
+        "scope": "full_dataset",
+        **_identity_fields(identity),
+        "application": application,
+    })

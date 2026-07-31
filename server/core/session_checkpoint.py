@@ -15,6 +15,7 @@ import pandas as pd
 from . import dataset_store as dataset_store_module
 from . import result_store as result_store_module
 from .dataset_store import UNSCOPED_PROJECT, get_scoped_dataset_store
+from .dataset_state_keys import PRETRAINING_STATE_KEYS
 from .result_store import get_scoped_result_store
 
 
@@ -285,6 +286,7 @@ def _decode(value: Any) -> Any:
 
 def _encode_dataset(store: Any) -> Dict[str, Any]:
     return {
+        "data_revision": int(getattr(store, "data_revision", 0)),
         "raw_df": _encode(store.raw_df),
         "processed_df": _encode(store.processed_df),
         "target": store.target,
@@ -316,6 +318,10 @@ def _encode_results(store: Any) -> Dict[str, Any]:
 
 
 def _apply_dataset(store: Any, fields: Dict[str, Any]) -> None:
+    try:
+        store.data_revision = max(0, int(fields.get("data_revision") or 0))
+    except (TypeError, ValueError):
+        store.data_revision = 0
     store.raw_df = _decode(fields.get("raw_df"))
     store.processed_df = _decode(fields.get("processed_df"))
     store.target = fields.get("target")
@@ -335,6 +341,105 @@ def _apply_results(store: Any, fields: Dict[str, Any]) -> None:
     store.final_model = None
     store.final_model_metadata = _decode(fields.get("final_model_metadata"))
     store.scoring_reference = _decode(fields.get("scoring_reference"))
+
+
+def _record_has_exact_identity(
+    record: Any,
+    identity: Dict[str, Any],
+) -> bool:
+    if not isinstance(record, dict):
+        return False
+    if any(
+        str(record.get(key) or "") != str(identity.get(key) or "")
+        for key in ("project_id", "dataset_id", "dataset_version_id")
+    ):
+        return False
+    legacy_version = str(record.get("dataset_version") or "").strip()
+    return (
+        not legacy_version
+        or legacy_version == str(identity["dataset_version_id"])
+    )
+
+
+def _checkpoint_pretraining_lineage_errors(
+    store: Any,
+    identity: Dict[str, Any],
+) -> List[str]:
+    """Reject retained derived state that cannot prove its exact source."""
+    errors: List[str] = []
+    identity_bound_keys = (
+        "outlier_application",
+        "missing_application",
+        "missing_validation",
+        "feature_manifest",
+        "feature_preview",
+        "validation_design",
+        "split_record",
+        "training_execution",
+        "model_selection_decision",
+    )
+    for key in identity_bound_keys:
+        record = store.meta.get(key)
+        if record is not None and not _record_has_exact_identity(
+            record,
+            identity,
+        ):
+            errors.append(f"{key} lacks the exact canonical dataset identity")
+
+    stage = str(store.meta.get("processed_stage") or "")
+    stage_record = {
+        "outliers": "outlier_application",
+        "missing_values": "missing_application",
+        "feature_engineering": "feature_manifest",
+    }.get(stage)
+    if store.processed_df is not None:
+        if not stage_record:
+            errors.append("processed_df has no governed processed_stage")
+        elif not _record_has_exact_identity(
+            store.meta.get(stage_record),
+            identity,
+        ):
+            errors.append(
+                f"processed_df cannot be proven by {stage_record}"
+            )
+
+    has_splits = any(
+        value is not None
+        for value in (
+            store.X_train,
+            store.X_test,
+            store.y_train,
+            store.y_test,
+        )
+    )
+    if has_splits and not _record_has_exact_identity(
+        store.meta.get("split_record"),
+        identity,
+    ):
+        errors.append("restored split frames lack an exact split_record")
+    return errors
+
+
+def _quarantine_checkpoint_pretraining_state(
+    store: Any,
+    errors: List[str],
+) -> None:
+    """Keep the exact source/target but discard unverifiable derivatives."""
+    store.processed_df = None
+    store.X_train = None
+    store.X_test = None
+    store.y_train = None
+    store.y_test = None
+    for key in PRETRAINING_STATE_KEYS:
+        # Target and exact source identity remain authoritative; every derived
+        # contract must be rebuilt from the immutable registered artifact.
+        store.meta.pop(key, None)
+    store.meta["pretraining_state_status"] = "stale"
+    store.meta["pretraining_state_reason"] = (
+        "Checkpoint-derived state was quarantined because its exact Dataset "
+        "Library lineage could not be proven: " + "; ".join(errors)
+    )
+    store.data_revision += 1
 
 
 def _is_dataset_store_empty(store: Any) -> bool:
@@ -439,21 +544,47 @@ def save_checkpoint() -> bool:
     skipped_empty = 0
 
     datastore_scopes: List[Dict[str, Any]] = []
+    results_scopes: List[Dict[str, Any]] = []
+    paired_result_scopes: Set[Tuple[str, str]] = set()
     for (user_id, project_id), store in list(dataset_store_module._DATASTORES.items()):
         if not _scope_is_live(user_id, project_id, live_projects, live_users):
             skipped_orphaned += 1
             continue
-        if _is_dataset_store_empty(store):
-            skipped_empty += 1
-            continue
-        datastore_scopes.append({
-            "owner_user_id": user_id,
-            "project_id": project_id,
-            "dataset": _encode_dataset(store),
-        })
+        scope_key = (user_id, project_id)
+        paired_results = result_store_module._RESULT_STORES.get(scope_key)
+        # Training finalization, dataset activation, and preparation
+        # invalidation all use this same per-scope lock. Encode the DatasetStore
+        # and its paired ResultStore in one critical section so a checkpoint
+        # can never combine pre-mutation dataset metadata with post-mutation
+        # model results (or vice versa).
+        with store.state_lock:
+            if _is_dataset_store_empty(store):
+                skipped_empty += 1
+                continue
+            datastore_scopes.append({
+                "owner_user_id": user_id,
+                "project_id": project_id,
+                "dataset": _encode_dataset(store),
+            })
+            if paired_results is not None:
+                paired_result_scopes.add(scope_key)
+                if _is_result_store_empty(paired_results):
+                    skipped_empty += 1
+                else:
+                    results_scopes.append({
+                        "owner_user_id": user_id,
+                        "project_id": project_id,
+                        "results": _encode_results(paired_results),
+                    })
 
-    results_scopes: List[Dict[str, Any]] = []
+    # Preserve the existing non-HTTP/legacy save behavior for result-only
+    # scopes. Schema-v2 restore intentionally suppresses these because they
+    # have no exact paired Dataset Library identity, but retaining them in the
+    # serialized diagnostic snapshot avoids silently discarding historical
+    # state at save time.
     for (user_id, project_id), store in list(result_store_module._RESULT_STORES.items()):
+        if (user_id, project_id) in paired_result_scopes:
+            continue
         if not _scope_is_live(user_id, project_id, live_projects, live_users):
             skipped_orphaned += 1
             continue
@@ -775,6 +906,9 @@ def load_checkpoint() -> bool:
     skipped_orphaned = 0
 
     restored_datasets = 0
+    invalid_dataset_identities = 0
+    invalid_dataset_scopes: Set[Tuple[str, str]] = set()
+    valid_dataset_scopes: Set[Tuple[str, str]] = set()
     for entry in datastore_scopes:
         parsed = _parse_scope_entry(entry, "dataset")
         if parsed is None:
@@ -783,10 +917,81 @@ def load_checkpoint() -> bool:
         if not _scope_is_live(scope_key[0], scope_key[1], live_projects, live_users):
             skipped_orphaned += 1
             continue
-        _apply_dataset(get_scoped_dataset_store(scope_key), fields)
+        store = get_scoped_dataset_store(scope_key)
+        _apply_dataset(store, fields)
+        # Every non-empty DATASTORE checkpoint record is dataset-bound.  A
+        # target-only, split-only, or legacy-meta record must therefore prove
+        # the same exact immutable identity as a record carrying raw data.
+        has_dataset_state = not _is_dataset_store_empty(store)
+        if has_dataset_state:
+            from ..datasets.dataset_identity import (
+                invalidate_dataset_identity,
+                validate_checkpoint_identity,
+            )
+
+            valid, reason, identity = validate_checkpoint_identity(
+                store,
+                owner_user_id=scope_key[0],
+                project_id=scope_key[1],
+            )
+            if not valid or identity is None:
+                invalid_dataset_scopes.add(scope_key)
+                # RESULTS is the paired model state for the same
+                # (owner_user_id, project_id) scope.  Remove any stale
+                # in-memory copy immediately and suppress the checkpoint's
+                # paired results record below.
+                result_store_module.discard_scoped_result_store(scope_key)
+                invalidate_dataset_identity(
+                    "Checkpoint dataset identity is stale or invalid: " + reason,
+                    store=store,
+                    clear_frames=True,
+                )
+                invalid_dataset_identities += 1
+                LOGGER.warning(
+                    "Restored checkpoint scope %r as blocked state because its exact "
+                    "Dataset Library version could not be resolved: %s",
+                    scope_key,
+                    reason,
+                )
+            else:
+                try:
+                    # Reload the exact immutable source artifact. Processed data
+                    # and valid split state remain the checkpoint's downstream
+                    # snapshot, but raw authority never comes from an unchecked
+                    # checkpoint frame or a latest/first-version fallback.
+                    store.raw_df = pd.read_csv(identity["artifact_path"])
+                    lineage_errors = _checkpoint_pretraining_lineage_errors(
+                        store,
+                        identity,
+                    )
+                    if lineage_errors:
+                        _quarantine_checkpoint_pretraining_state(
+                            store,
+                            lineage_errors,
+                        )
+                        LOGGER.warning(
+                            "Quarantined unverifiable pre-training checkpoint "
+                            "state for scope %r: %s",
+                            scope_key,
+                            "; ".join(lineage_errors),
+                        )
+                    else:
+                        valid_dataset_scopes.add(scope_key)
+                except Exception as exc:
+                    reason = f"The exact registered dataset artifact could not be reloaded: {exc}"
+                    invalid_dataset_scopes.add(scope_key)
+                    result_store_module.discard_scoped_result_store(scope_key)
+                    invalidate_dataset_identity(
+                        "Checkpoint dataset identity is stale or invalid: " + reason,
+                        store=store,
+                        clear_frames=True,
+                    )
+                    invalid_dataset_identities += 1
+                    LOGGER.warning("Blocked checkpoint scope %r: %s", scope_key, reason)
         restored_datasets += 1
 
     restored_results = 0
+    skipped_invalid_results = 0
     for entry in results_scopes:
         parsed = _parse_scope_entry(entry, "results")
         if parsed is None:
@@ -795,11 +1000,33 @@ def load_checkpoint() -> bool:
         if not _scope_is_live(scope_key[0], scope_key[1], live_projects, live_users):
             skipped_orphaned += 1
             continue
+        if (
+            scope_key in invalid_dataset_scopes
+            or scope_key not in valid_dataset_scopes
+        ):
+            # Fail closed: summaries, availability flags, JSON-safe model
+            # artifacts, final-model metadata, and scoring references cannot
+            # survive when their paired dataset version did not validate or
+            # when no paired DatasetStore checkpoint exists at all.
+            result_store_module.discard_scoped_result_store(scope_key)
+            skipped_invalid_results += 1
+            LOGGER.warning(
+                "Skipping checkpoint RESULTS scope %r because its paired "
+                "Dataset Library identity is absent or invalid.",
+                scope_key,
+            )
+            continue
         _apply_results(get_scoped_result_store(scope_key), fields)
         restored_results += 1
 
     LOGGER.info(
-        "Restored workflow checkpoint %s: %d DATASTORE scope(s), %d RESULTS scope(s) (skipped %d orphaned).",
-        CHECKPOINT_PATH, restored_datasets, restored_results, skipped_orphaned,
+        "Restored workflow checkpoint %s: %d DATASTORE scope(s), %d RESULTS scope(s) "
+        "(skipped %d orphaned and %d invalid paired RESULTS; blocked %d invalid dataset identities).",
+        CHECKPOINT_PATH,
+        restored_datasets,
+        restored_results,
+        skipped_orphaned,
+        skipped_invalid_results,
+        invalid_dataset_identities,
     )
     return True

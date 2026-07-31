@@ -65,6 +65,13 @@ class EDAPredictorVisualContractTests(unittest.TestCase):
         DATASTORE.reset_all()
         DATASTORE.set_raw(_frame())
         DATASTORE.set_target(TARGET)
+        DATASTORE.meta.update(
+            {
+                "project_id": PROJECT_ID,
+                "dataset_id": "dataset-heloc-predictor",
+                "dataset_version_id": "heloc-predictor-v1",
+            }
+        )
         DATASTORE.meta["selected_columns"] = [
             "RiskPerformance",
             "outcome_code",
@@ -100,9 +107,19 @@ class EDAPredictorVisualContractTests(unittest.TestCase):
                 for feature in ("RiskPerformance", "outcome_code")
             ],
         }
+        self.identity_patch = patch(
+            "server.eda.workspace_service.assert_expected_active_identity",
+            return_value={
+                "project_id": PROJECT_ID,
+                "dataset_id": "dataset-heloc-predictor",
+                "dataset_version_id": "heloc-predictor-v1",
+            },
+        )
+        self.identity_patch.start()
         eda_workspace_service._cache.clear()
 
     def tearDown(self) -> None:
+        self.identity_patch.stop()
         eda_workspace_service._cache.clear()
         DATASTORE.reset_all()
 

@@ -1,3 +1,8 @@
+import {
+  assertExactDatasetIdentity,
+  type CanonicalDatasetIdentity,
+} from "./datasetIdentity";
+
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
   "http://127.0.0.1:8001/api";
@@ -14,6 +19,9 @@ export type FeatureOrigin =
   | "other";
 
 export type FeatureManifestRow = {
+  project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
   feature_id: string;
   feature_name: string;
   display_name: string;
@@ -52,8 +60,12 @@ export type PipelineStep = {
 
 export type FeatureManifest = {
   ok: boolean;
+  project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
   manifest_version: string;
   manifest_hash: string;
+  /** Compatibility alias; the backend must derive it from dataset_version_id. */
   dataset_version: string;
   features: FeatureManifestRow[];
   pipeline_steps: PipelineStep[];
@@ -97,6 +109,10 @@ export type FeatureDraft = Pick<FeatureManifestRow,
 
 export type FeaturePreview = {
   ok: boolean;
+  project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
+  dataset_version: string;
   scope: "rendered_sample";
   manifest_hash: string;
   preview_hash: string;
@@ -120,39 +136,84 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
-export function getFeatureManifest(projectId: string) {
-  return request<FeatureManifest>(`/features/manifest?project_id=${encodeURIComponent(projectId)}`);
-}
-
-export function saveFeatureManifest(projectId: string, features: FeatureDraft[], pipelineSteps: PipelineStep[], datasetVersion = "") {
-  return request<FeatureManifest>("/features/manifest", {
-    method: "POST",
-    body: JSON.stringify({ project_id: projectId, features, pipeline_steps: pipelineSteps, dataset_version: datasetVersion }),
+function identityQuery(identity: CanonicalDatasetIdentity) {
+  const query = new URLSearchParams({
+    project_id: identity.project_id,
+    expected_dataset_id: identity.dataset_id,
+    expected_dataset_version_id: identity.dataset_version_id,
   });
+  return query.toString();
 }
 
-export function previewFeaturePlan(
-  projectId: string,
+function verifyIdentity<T extends {
+  project_id?: unknown;
+  dataset_id?: unknown;
+  dataset_version_id?: unknown;
+  dataset_version?: unknown;
+}>(identity: CanonicalDatasetIdentity, payload: T, context: string): T {
+  assertExactDatasetIdentity(identity, payload, context);
+  return payload;
+}
+
+export async function getFeatureManifest(identity: CanonicalDatasetIdentity) {
+  const payload = await request<FeatureManifest>(
+    `/features/manifest?${identityQuery(identity)}`,
+  );
+  return verifyIdentity(identity, payload, "Feature Manifest response");
+}
+
+export async function saveFeatureManifest(
+  identity: CanonicalDatasetIdentity,
+  features: FeatureDraft[],
+  pipelineSteps: PipelineStep[],
+) {
+  const payload = await request<FeatureManifest>("/features/manifest", {
+    method: "POST",
+    body: JSON.stringify({
+      project_id: identity.project_id,
+      dataset_id: identity.dataset_id,
+      dataset_version_id: identity.dataset_version_id,
+      dataset_version: identity.dataset_version_id,
+      features,
+      pipeline_steps: pipelineSteps,
+    }),
+  });
+  return verifyIdentity(identity, payload, "Saved Feature Manifest response");
+}
+
+export async function previewFeaturePlan(
+  identity: CanonicalDatasetIdentity,
   features: FeatureDraft[],
   previewLimit = 20,
   signal?: AbortSignal,
   manifestVersion = "",
 ) {
-  return request<FeaturePreview>("/features/preview", {
+  const payload = await request<FeaturePreview>("/features/preview", {
     method: "POST",
     signal,
     body: JSON.stringify({
-      project_id: projectId,
+      project_id: identity.project_id,
+      dataset_id: identity.dataset_id,
+      dataset_version_id: identity.dataset_version_id,
+      dataset_version: identity.dataset_version_id,
       features,
       preview_limit: previewLimit,
       manifest_version: manifestVersion,
     }),
   });
+  return verifyIdentity(identity, payload, "Feature preview response");
 }
 
-export function materializeFeatureManifest(projectId: string, manifestVersion: string, previewHash = "") {
-  return request<{
+export async function materializeFeatureManifest(
+  identity: CanonicalDatasetIdentity,
+  manifestVersion: string,
+  previewHash = "",
+) {
+  const payload = await request<{
     ok: boolean;
+    project_id: string;
+    dataset_id: string;
+    dataset_version_id: string;
     manifest_version: string;
     manifest_hash: string;
     materialization_hash: string;
@@ -168,28 +229,43 @@ export function materializeFeatureManifest(projectId: string, manifestVersion: s
   }>("/features/materialize", {
     method: "POST",
     body: JSON.stringify({
-      project_id: projectId,
+      project_id: identity.project_id,
+      dataset_id: identity.dataset_id,
+      dataset_version_id: identity.dataset_version_id,
+      dataset_version: identity.dataset_version_id,
       manifest_version: manifestVersion,
       preview_hash: previewHash,
     }),
   });
+  return verifyIdentity(identity, payload, "Feature materialization response");
 }
 
-export function confirmFeatureManifest(
-  projectId: string,
+export async function confirmFeatureManifest(
+  identity: CanonicalDatasetIdentity,
   manifestVersion: string,
   materializationHash: string,
 ) {
-  return request<FeatureManifest>("/features/confirm", {
+  const payload = await request<FeatureManifest>("/features/confirm", {
     method: "POST",
     body: JSON.stringify({
-      project_id: projectId,
+      project_id: identity.project_id,
+      dataset_id: identity.dataset_id,
+      dataset_version_id: identity.dataset_version_id,
+      dataset_version: identity.dataset_version_id,
       manifest_version: manifestVersion,
       materialization_hash: materializationHash,
     }),
   });
+  return verifyIdentity(identity, payload, "Feature confirmation response");
 }
 
-export function removeFeature(projectId: string, featureId: string) {
-  return request<FeatureManifest>(`/features/${encodeURIComponent(featureId)}?project_id=${encodeURIComponent(projectId)}`, { method: "DELETE" });
+export async function removeFeature(
+  identity: CanonicalDatasetIdentity,
+  featureId: string,
+) {
+  const payload = await request<FeatureManifest>(
+    `/features/${encodeURIComponent(featureId)}?${identityQuery(identity)}`,
+    { method: "DELETE" },
+  );
+  return verifyIdentity(identity, payload, "Feature removal response");
 }

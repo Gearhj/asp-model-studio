@@ -67,9 +67,20 @@ def resolve_source(user: Dict[str, Any], request: AnalyticalQueryRequest) -> Res
     if request.sourceType == SourceType.REGISTERED:
         if not request.datasetId:
             raise HTTPException(status_code=400, detail="datasetId is required for a registered-source query.")
+        if not request.versionId:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "versionId is required for a registered-source query; "
+                    "ATLAS will not substitute the latest Dataset Library version."
+                ),
+            )
         dataset = require_dataset(request.datasetId)  # raises 403/404 on ACL failure -- this IS the authorization check
         versions = dataset.get("versions", [])
-        version = next((v for v in versions if v.get("versionId") == request.versionId), versions[-1] if versions else None)
+        version = next(
+            (v for v in versions if v.get("versionId") == request.versionId),
+            None,
+        )
         if not version:
             raise HTTPException(status_code=404, detail="Dataset version not found.")
         version_id = version.get("versionId")

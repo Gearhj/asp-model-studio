@@ -9,6 +9,7 @@ from typing import Any, Dict, List
 
 from ..analytics.analytics_store import list_insights as list_analytics_insights
 from ..datasets.dataset_registry import load_registry, project_dataset_links, write_json
+from ..persistence import get_persistence_service
 from ..projects.project_registry import list_backend_projects
 from .mdd_framework import DOCUMENT_STATUSES, family_for_project, template_sections
 
@@ -174,37 +175,181 @@ def list_documents(project_id: str | None = None) -> List[Dict[str, Any]]:
     return documents
 
 
+def _mapping(value: Any) -> Dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
+def _first_nonempty(
+    sources: List[Dict[str, Any]],
+    *keys: str,
+    default: Any = "",
+) -> Any:
+    for source in sources:
+        for key in keys:
+            value = source.get(key)
+            if value not in (None, "", [], {}):
+                return value
+    return default
+
+
+def _relational_project_context(
+    relational_project: Dict[str, Any],
+    project_id: str,
+) -> Dict[str, Any]:
+    metadata = _mapping(relational_project.get("metadata_json"))
+    snapshot = _mapping(metadata.get("snapshot"))
+    snapshot_project = _mapping(snapshot.get("project"))
+    project_context = _mapping(metadata.get("projectContext"))
+    snapshot_context = _mapping(snapshot.get("projectContext"))
+    fraud_details = _mapping(project_context.get("fraudDetails"))
+    snapshot_fraud_details = _mapping(snapshot_context.get("fraudDetails"))
+    sources = [
+        metadata,
+        snapshot,
+        snapshot_project,
+        project_context,
+        snapshot_context,
+    ]
+
+    linked_datasets = _first_nonempty(
+        sources,
+        "linkedDatasets",
+        default=[],
+    )
+    if not isinstance(linked_datasets, list):
+        linked_datasets = []
+
+    return {
+        "projectId": project_id,
+        "name": relational_project.get("project_name")
+        or "Untitled ATLAS Project",
+        "projectType": relational_project.get("project_type")
+        or relational_project.get("workflow_type")
+        or "unknown",
+        "taskType": _first_nonempty(
+            sources,
+            "taskType",
+            "task",
+            default="unknown",
+        ),
+        "target": _first_nonempty(
+            sources,
+            "target",
+            "targetColumn",
+            "targetVariable",
+            default=(
+                fraud_details.get("targetColumnName")
+                or snapshot_fraud_details.get("targetColumnName")
+                or ""
+            ),
+        ),
+        "championModel": _first_nonempty(
+            sources,
+            "championModel",
+            "champion",
+            default="",
+        ),
+        "linkedDatasets": linked_datasets,
+        "createdAt": relational_project.get("created_at") or "",
+        "lastSavedAt": relational_project.get("updated_at") or "",
+        "storageLocation": "persistence_database",
+        "recoveryStatus": "No exact legacy enrichment record found",
+    }
+
+
+def _enrich_exact_legacy_project(
+    project: Dict[str, Any],
+    legacy_project: Dict[str, Any] | None,
+) -> Dict[str, Any]:
+    if not legacy_project:
+        return project
+
+    enriched = {**project}
+    if enriched.get("taskType") in (None, "", "unknown"):
+        enriched["taskType"] = (
+            legacy_project.get("taskType")
+            or legacy_project.get("task")
+            or "unknown"
+        )
+    if not enriched.get("target"):
+        enriched["target"] = legacy_project.get("target") or ""
+    if not enriched.get("championModel"):
+        enriched["championModel"] = (
+            legacy_project.get("championModel")
+            or legacy_project.get("champion")
+            or ""
+        )
+    if not enriched.get("linkedDatasets"):
+        legacy_datasets = legacy_project.get("linkedDatasets")
+        enriched["linkedDatasets"] = (
+            legacy_datasets if isinstance(legacy_datasets, list) else []
+        )
+    enriched["storageLocation"] = (
+        legacy_project.get("storageLocation")
+        or enriched.get("storageLocation")
+        or "persistence_database"
+    )
+    enriched["recoveryStatus"] = (
+        legacy_project.get("recoveryStatus")
+        or "Exact legacy enrichment record applied"
+    )
+    return enriched
+
+
 def build_project_context(project_id: str) -> Dict[str, Any]:
+    requested_project_id = str(project_id or "").strip()
+    relational_project = get_persistence_service().projects.get(
+        requested_project_id
+    )
+    if not relational_project:
+        raise LookupError(
+            "Model Documentation project context requires an exact "
+            "relational project."
+        )
+
     projects = list_backend_projects(include_recovery_candidates=True)
-    project = next((item for item in projects if str(item.get("projectId")) == str(project_id)), None)
-    if not project and projects:
-        project = projects[0]
-    if not project:
-        project = {
-            "projectId": project_id,
-            "name": "Untitled ATLAS Project",
-            "projectType": "unknown",
-            "taskType": "unknown",
-            "target": "",
-            "linkedDatasets": [],
-            "recoveryStatus": "No backend project registry record found",
-        }
-    linked = project_dataset_links(str(project.get("projectId") or project_id))
+    legacy_project = next(
+        (
+            item
+            for item in projects
+            if str(item.get("projectId") or "") == requested_project_id
+        ),
+        None,
+    )
+    project = _enrich_exact_legacy_project(
+        _relational_project_context(
+            relational_project,
+            requested_project_id,
+        ),
+        legacy_project,
+    )
+
+    linked = project_dataset_links(requested_project_id)
     datasets = enrich_linked_datasets(project, linked)
-    analytics = list_analytics_insights(project_id=str(project.get("projectId") or project_id))
+    analytics = list_analytics_insights(project_id=requested_project_id)
     diagnostics = [
         item
         for item in analytics
         if item.get("analysisType") == "model_diagnostics"
         or str(item.get("createdIn") or "").lower() == "atlas model diagnostics"
     ]
+    normalized_project = normalize_project(project)
+    if str(normalized_project.get("projectId") or "") != requested_project_id:
+        raise RuntimeError(
+            "Model Documentation project context identity mismatch."
+        )
     return {
-        "project": normalize_project(project),
+        "project": normalized_project,
         "datasets": datasets,
         "analyticsInsights": analytics,
         "chartInsights": [item for item in analytics if item.get("analysisType") == "chart_studio"],
         "diagnosticInsights": diagnostics,
         "recoveredShell": "recovered" in str(project.get("storageLocation") or project.get("recoveryStatus") or "").lower(),
+        "contextStatus": (
+            "exact_legacy_enrichment"
+            if legacy_project
+            else "relational_project_only"
+        ),
         "generatedAt": now_iso(),
     }
 

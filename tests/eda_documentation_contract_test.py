@@ -19,10 +19,37 @@ from server.eda.documentation_types import EDADocumentationPayload
 PROJECT_ID = "project-eda-docs"
 
 
+def _evidence(**updates):
+    value = {
+        "evidenceId": "ev-eda-overview",
+        "lineage_contract": "canonical_dataset_version",
+        "project_id": PROJECT_ID,
+        "dataset_id": "dataset-heloc",
+        "dataset_version_id": "heloc-v1",
+        "projectId": PROJECT_ID,
+        "datasetIds": ["dataset-heloc"],
+        "evidenceType": "eda",
+        "title": "Stored EDA overview evidence",
+        "artifactChecksum": "sha256:server-authoritative",
+        "lineage": {
+            "project_id": PROJECT_ID,
+            "dataset_id": "dataset-heloc",
+            "dataset_version_id": "heloc-v1",
+            "lineage_contract": "canonical_dataset_version",
+            "projectId": PROJECT_ID,
+            "datasetId": "dataset-heloc",
+            "datasetVersion": "heloc-v1",
+        },
+    }
+    value.update(updates)
+    return value
+
+
 def _context(**updates):
     value = {
         "project_id": PROJECT_ID,
         "dataset_id": "dataset-heloc",
+        "dataset_version_id": "heloc-v1",
         "dataset_version": "heloc-v1",
         "target": "bad_flag",
         "predictor_manifest_id": "pm-heloc-v1",
@@ -40,6 +67,7 @@ def _payload(**updates) -> EDADocumentationPayload:
     value = {
         "project_id": PROJECT_ID,
         "dataset_id": "dataset-heloc",
+        "dataset_version_id": "heloc-v1",
         "dataset_version": "heloc-v1",
         "target": "bad_flag",
         "predictor_manifest_id": "pm-heloc-v1",
@@ -111,9 +139,11 @@ class EDADocumentationContractTests(unittest.TestCase):
         workspace_tmp.mkdir(parents=True, exist_ok=True)
         self.tempdir = tempfile.TemporaryDirectory(dir=workspace_tmp)
         self.context = _context()
+        self.evidence = {"ev-eda-overview": _evidence()}
         self.service = EDADocumentationService(
             Path(self.tempdir.name),
             context_provider=lambda _project_id: dict(self.context),
+            evidence_provider=lambda evidence_id: self.evidence.get(evidence_id),
         )
         self.user = {
             "userId": "reviewer-17",
@@ -138,8 +168,104 @@ class EDADocumentationContractTests(unittest.TestCase):
             ["RiskPerformance"],
         )
         self.assertEqual(len(state["draft"]["evidence_references"]), 1)
+        evidence = state["draft"]["evidence_references"][0]
+        self.assertEqual(evidence["title"], "Stored EDA overview evidence")
+        self.assertEqual(
+            evidence["uri"],
+            "/evidence-graph?evidenceId=ev-eda-overview",
+        )
+        self.assertEqual(
+            evidence["checksum"],
+            "sha256:server-authoritative",
+        )
+        self.assertEqual(evidence["evidence_type"], "eda")
+        self.assertEqual(state["dataset_version_id"], "heloc-v1")
+        self.assertEqual(state["draft"]["dataset_version_id"], "heloc-v1")
+        self.assertEqual(state["draft"]["dataset_version"], "heloc-v1")
         self.assertTrue(
             state["draft"]["validation"]["ready_for_confirmation"]
+        )
+
+    def test_evidence_reference_requires_exact_canonical_triple(self) -> None:
+        invalid_items = {
+            "missing": None,
+            "legacy-unscoped": {
+                "evidenceId": "ev-eda-overview",
+                "projectId": PROJECT_ID,
+                "datasetIds": ["dataset-heloc"],
+            },
+            "other-project": _evidence(
+                project_id="project-other",
+                projectId="project-other",
+            ),
+            "other-dataset": _evidence(
+                dataset_id="dataset-other",
+                datasetIds=["dataset-other"],
+            ),
+            "other-version": _evidence(dataset_version_id="heloc-v2"),
+            "contradictory-lineage": _evidence(
+                lineage={
+                    "project_id": PROJECT_ID,
+                    "dataset_id": "dataset-heloc",
+                    "dataset_version_id": "heloc-v2",
+                },
+            ),
+        }
+        for label, item in invalid_items.items():
+            with self.subTest(label=label):
+                self.evidence["ev-eda-overview"] = item
+                with self.assertRaises(
+                    EDADocumentationValidationError
+                ) as raised:
+                    self.service.upsert_draft(_payload(), self.user)
+                self.assertEqual(
+                    raised.exception.code,
+                    "eda_evidence_context_mismatch",
+                )
+        self.assertFalse(any(Path(self.tempdir.name).glob("*.json")))
+
+    def test_confirmation_rechecks_evidence_identity_after_draft(self) -> None:
+        self.service.upsert_draft(_payload(), self.user)
+        self.evidence["ev-eda-overview"] = _evidence(
+            dataset_version_id="heloc-v2",
+        )
+        with self.assertRaises(EDADocumentationValidationError) as raised:
+            self.service.confirm(_payload(), self.user)
+        self.assertEqual(
+            raised.exception.code,
+            "eda_evidence_context_mismatch",
+        )
+        state = self.service.get_state(PROJECT_ID)
+        self.assertIsNotNone(state["draft"])
+        self.assertIsNone(state["current_approved"])
+
+    def test_state_read_rejects_a_different_expected_version(self) -> None:
+        current = self.service.get_state(
+            PROJECT_ID,
+            expected_dataset_id="dataset-heloc",
+            expected_dataset_version_id="heloc-v1",
+        )
+        self.assertEqual(current["dataset_version_id"], "heloc-v1")
+        with self.assertRaises(EDADocumentationValidationError) as raised:
+            self.service.get_state(
+                PROJECT_ID,
+                expected_dataset_id="dataset-heloc",
+                expected_dataset_version_id="heloc-v2",
+            )
+        self.assertEqual(
+            raised.exception.code,
+            "eda_documentation_context_mismatch",
+        )
+
+    def test_legacy_version_alias_is_compare_only(self) -> None:
+        with self.assertRaises(EDADocumentationValidationError) as raised:
+            self.service.upsert_draft(
+                _payload(dataset_version="browser-profile-version"),
+                self.user,
+            )
+        self.assertEqual(
+            raised.exception.code,
+            "eda_documentation_context_mismatch",
         )
 
     def test_confirmation_freezes_snapshot_with_server_actor(self) -> None:
@@ -208,6 +334,7 @@ class EDADocumentationContractTests(unittest.TestCase):
 
     def test_dataset_version_change_invalidates_and_reopen_restores_state(self) -> None:
         self.service.confirm(_payload(), self.user)
+        self.context["dataset_version_id"] = "heloc-v2"
         self.context["dataset_version"] = "heloc-v2"
         self.context["data_revision"] = 8
         stale = self.service.get_state(PROJECT_ID)

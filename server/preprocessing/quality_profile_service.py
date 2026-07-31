@@ -9,6 +9,8 @@ import numpy as np
 import pandas as pd
 
 from ..core.dataset_store import DATASTORE
+from ..core.modeling_scope import active_project_id
+from ..datasets.dataset_identity import assert_expected_active_identity
 
 
 _DATE_NAME = re.compile(r"(^|_)(date|datetime|timestamp|time|dt)($|_)", re.IGNORECASE)
@@ -80,7 +82,29 @@ def governed_time_field(name: str, series: pd.Series) -> dict[str, str] | None:
     return _legitimate_date_range(name, series)
 
 
-def profile_active_dataset(target: str | None = None, event_value: Any = None) -> dict[str, Any]:
+def profile_active_dataset(
+    target: str | None = None,
+    event_value: Any = None,
+    *,
+    project_id: str = "",
+    expected_dataset_id: str = "",
+    expected_dataset_version_id: str = "",
+    legacy_dataset_version: str = "",
+    user: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    resolved_project_id = str(
+        project_id
+        or active_project_id()
+        or DATASTORE.meta.get("project_id")
+        or ""
+    ).strip()
+    identity = assert_expected_active_identity(
+        resolved_project_id,
+        expected_dataset_id=expected_dataset_id,
+        expected_dataset_version_id=expected_dataset_version_id,
+        legacy_dataset_version=legacy_dataset_version,
+        user=user,
+    )
     df = DATASTORE.get_base_df()
     if df is None or df.empty:
         raise ValueError("No full backend dataset is loaded.")
@@ -186,17 +210,27 @@ def profile_active_dataset(target: str | None = None, event_value: Any = None) -
     if columns_with_missing:
         warnings.append(f"{columns_with_missing} column(s) contain missing values.")
     readiness = "needs_review" if warnings else "ready"
-    source = DATASTORE.meta.get("source") if isinstance(DATASTORE.meta, dict) else {}
-    version = DATASTORE.meta.get("dataset_version") or (source.get("version") if isinstance(source, dict) else None)
-
+    identity = assert_expected_active_identity(
+        resolved_project_id,
+        expected_dataset_id=identity["dataset_id"],
+        expected_dataset_version_id=identity["dataset_version_id"],
+        user=user,
+    )
     return {
         "ok": True,
+        "project_id": identity["project_id"],
+        "dataset_id": identity["dataset_id"],
+        "dataset_version_id": identity["dataset_version_id"],
+        "dataset_version": identity["dataset_version_id"],
+        "datasetId": identity["dataset_id"],
+        "datasetVersionId": identity["dataset_version_id"],
+        # Transitional display compatibility; always the canonical ID.
+        "datasetVersion": identity["dataset_version_id"],
         "profileScope": "full_dataset",
         "profiledRowCount": row_count,
         "registeredRowCount": row_count,
         "columnCount": column_count,
         "generatedAt": datetime.now(timezone.utc).isoformat(),
-        "datasetVersion": version,
         "datasetHash": _dataset_hash(df),
         "duplicateRows": duplicate_rows,
         "duplicateIdCandidates": duplicate_ids,
@@ -215,4 +249,3 @@ def profile_active_dataset(target: str | None = None, event_value: Any = None) -
         "warnings": warnings,
         "readinessStatus": readiness,
     }
-

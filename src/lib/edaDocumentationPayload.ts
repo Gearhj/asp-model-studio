@@ -209,6 +209,7 @@ function buildSections(
           : "ready_for_reviewer_confirmation",
       governed_dataset: {
         dataset_id: input.datasetId,
+        dataset_version_id: input.datasetVersion,
         dataset_version: input.datasetVersion,
       },
     },
@@ -397,6 +398,7 @@ export function buildEdaDocumentationPayload(
   const contentIdentity = {
     project_id: input.projectId,
     dataset_id: input.datasetId,
+    dataset_version_id: input.datasetVersion,
     dataset_version: input.datasetVersion,
     target: input.target,
     predictor_manifest_id: input.predictorManifestId,
@@ -487,6 +489,7 @@ export function buildEdaDocumentationPayload(
   return {
     project_id: input.projectId,
     dataset_id: input.datasetId,
+    dataset_version_id: input.datasetVersion,
     dataset_version: input.datasetVersion,
     target: input.target,
     predictor_manifest_id: input.predictorManifestId,

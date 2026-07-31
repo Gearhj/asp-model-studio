@@ -375,7 +375,7 @@ export default function ProjectOverview() {
           </AtlasCard>
           <div className="grid gap-5">
             <CompactListPanel icon={<FileClock size={18} />} title="Recent Decisions" items={decisions.map((entry, index) => ({ key: `${entry.id ?? entry.timestamp ?? index}`, title: entry.subject, detail: `${entry.workflowStep} / ${entry.actionType}` }))} empty="No decisions logged yet." />
-            <CompactListPanel icon={<FlaskConical size={18} />} title="Recent Experiments" items={experiments.map((experiment, index) => ({ key: `${experiment.experimentId ?? experiment.modelType ?? index}`, title: experiment.modelType, detail: `${experiment.champion ? "Champion" : "Challenger"} / ${experiment.datasetVersion}` }))} empty="No experiments recorded yet." />
+            <CompactListPanel icon={<FlaskConical size={18} />} title="Recent Experiments" items={experiments.map((experiment, index) => ({ key: `${experiment.experimentId ?? experiment.modelType ?? index}`, title: experiment.modelType, detail: `${experiment.champion ? "Champion" : "Challenger"} / ${experiment.dataset_version_id}` }))} empty="No experiments recorded yet." />
           </div>
         </div>
       ),

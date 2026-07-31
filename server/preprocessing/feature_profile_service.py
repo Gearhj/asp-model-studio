@@ -7,6 +7,8 @@ import numpy as np
 import pandas as pd
 
 from ..core.dataset_store import DATASTORE
+from ..core.modeling_scope import active_project_id
+from ..datasets.dataset_identity import assert_expected_active_identity
 
 
 _SYSTEM_FIELD = re.compile(r"(^|_)(atlas|system|row)(_id|_key|_split|_metadata)?($|_)", re.IGNORECASE)
@@ -116,7 +118,26 @@ def profile_features(
     target: str | None = None,
     event_value: Any = None,
     problem_type: str | None = None,
+    *,
+    project_id: str = "",
+    expected_dataset_id: str = "",
+    expected_dataset_version_id: str = "",
+    legacy_dataset_version: str = "",
+    user: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    resolved_project_id = str(
+        project_id
+        or active_project_id()
+        or DATASTORE.meta.get("project_id")
+        or ""
+    ).strip()
+    identity = assert_expected_active_identity(
+        resolved_project_id,
+        expected_dataset_id=expected_dataset_id,
+        expected_dataset_version_id=expected_dataset_version_id,
+        legacy_dataset_version=legacy_dataset_version,
+        user=user,
+    )
     df = DATASTORE.get_base_df()
     if df is None or df.empty:
         raise ValueError("No full backend dataset is loaded.")
@@ -196,8 +217,19 @@ def profile_features(
             "featureManifestVersion": manifest.get("manifest_version"),
         })
 
+    identity = assert_expected_active_identity(
+        resolved_project_id,
+        expected_dataset_id=identity["dataset_id"],
+        expected_dataset_version_id=identity["dataset_version_id"],
+        user=user,
+    )
     return {
         "ok": True,
+        "project_id": identity["project_id"],
+        "dataset_id": identity["dataset_id"],
+        "dataset_version_id": identity["dataset_version_id"],
+        # Transitional response compatibility only.
+        "dataset_version": identity["dataset_version_id"],
         "profileScope": "full_dataset",
         "profiledRowCount": int(df.shape[0]),
         "registeredRowCount": int(df.shape[0]),

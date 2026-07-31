@@ -1,3 +1,5 @@
+import type { CanonicalDatasetIdentity } from "./datasetIdentity";
+
 export const DATASET_API_BASE =
   (import.meta.env?.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
   "http://127.0.0.1:8001/api";
@@ -44,6 +46,12 @@ export type DatasetSummary = {
   archived?: boolean;
   versionCount: number;
   latestVersion?: DatasetVersionSummary;
+  /** Exact immutable version created by a dataset-creation response. */
+  created_dataset_version_id?: string;
+  /** Camel-case transport alias for created_dataset_version_id. */
+  createdDatasetVersionId?: string;
+  /** Exact immutable version descriptor created by this response. */
+  created_version?: DatasetVersionSummary;
   access?: { userId: string; role: string }[];
   linkedProjects?: { projectId: string; versionId: string; datasetRole: string }[];
   datasetRole?: string;
@@ -82,6 +90,23 @@ export type ProjectDatasetLink = {
   linkedAt: string;
   dataset: DatasetSummary;
 };
+
+/** Authoritative identity and activated data shape returned by the backend. */
+export type DatasetActivationResponse = CanonicalDatasetIdentity & {
+  ok: true;
+  row_count: number;
+  column_count: number;
+  headers: string[];
+  selected_columns: string[];
+};
+
+export type WorkspaceDatasetRegistrationResponse =
+  CanonicalDatasetIdentity & {
+    ok: true;
+    dataset: DatasetSummary;
+    created_dataset_version_id: string;
+    created_version: DatasetVersionSummary;
+  };
 
 export type SystemDiagnostics = {
   ok: boolean;
@@ -147,11 +172,10 @@ export async function registerDataset(input: { name: string; description?: strin
 /** Registers the CURRENT project's already-uploaded workspace dataset (transformed
  * or not) as a durable, versioned Dataset Library asset linked to this project. */
 export async function registerWorkspaceDataset(input: { projectId: string; name: string; description?: string; domain?: string; tags?: string[] }) {
-  const payload = await jsonFetch<{ ok: true; dataset: DatasetSummary }>("/datasets/register-workspace", {
+  return jsonFetch<WorkspaceDatasetRegistrationResponse>("/datasets/register-workspace", {
     method: "POST",
     body: JSON.stringify(input),
   });
-  return payload.dataset;
 }
 
 /** Reviewable duplicate suggestions for the registration flow -- never used to
@@ -177,7 +201,7 @@ export async function getDatasetPreview(datasetId: string, versionId: string) {
 }
 
 export async function activateDatasetVersion(datasetId: string, versionId: string, projectId: string) {
-  return jsonFetch<{ ok: true; datasetId: string; versionId: string; row_count: number; column_count: number; headers: string[]; selected_columns: string[] }>(
+  return jsonFetch<DatasetActivationResponse>(
     `/datasets/${datasetId}/versions/${versionId}/activate?project_id=${encodeURIComponent(projectId)}`,
     { method: "POST" },
   );
