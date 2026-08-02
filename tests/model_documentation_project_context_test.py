@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import tempfile
 import time
 import unittest
 from unittest.mock import patch
@@ -34,12 +35,17 @@ DATASET_ROOT = RUN_ROOT / "datasets"
 PROJECT_ROOT = RUN_ROOT / "projects"
 ANALYTICS_ROOT = RUN_ROOT / "analytics"
 DOCUMENT_ROOT = RUN_ROOT / "model_documentation"
+BACKUP_ROOT = Path(
+    tempfile.mkdtemp(prefix=f"atlas_model_documentation_backups_{uuid.uuid4().hex}_")
+)
 RUN_ID = uuid.uuid4().hex[:10]
 
+os.environ["ATLAS_SECURITY_ROOT"] = str(SECURITY_DB.parent)
 os.environ["ATLAS_SECURITY_DB_PATH"] = str(SECURITY_DB)
 os.environ["ATLAS_SQLITE_PATH"] = str(PERSISTENCE_DB)
 os.environ["ATLAS_CHECKPOINT_PATH"] = str(CHECKPOINT_PATH)
 os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(DATASET_ROOT)
+os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(BACKUP_ROOT)
 os.environ["ATLAS_AUTH_ENABLED"] = "true"
 os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
 
@@ -54,6 +60,7 @@ from server.persistence import initialize_persistence  # noqa: E402
 from server.projects import project_registry  # noqa: E402
 from server.security import security_store  # noqa: E402
 from server.security.security_store import init_security_store  # noqa: E402
+import server.core.session_checkpoint as checkpoint  # noqa: E402
 
 
 PROJECT_A = f"synthetic-context-a-{RUN_ID}"
@@ -67,6 +74,26 @@ B_SENTINEL = f"PROJECT-B-SENTINEL-{RUN_ID}"
 
 
 def configure_isolated_artifact_paths() -> None:
+    security_root = SECURITY_DB.parent.resolve()
+    security_db = SECURITY_DB.resolve()
+    persistence_db = PERSISTENCE_DB.resolve()
+    os.environ["ATLAS_SECURITY_ROOT"] = str(security_root)
+    os.environ["ATLAS_SECURITY_DB_PATH"] = str(security_db)
+    os.environ["ATLAS_SQLITE_PATH"] = str(persistence_db)
+    os.environ["ATLAS_AUTH_ENABLED"] = "true"
+    os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
+    security_store.SECURITY_ROOT = security_root
+    security_store.DB_PATH = security_db
+    security_store.ATLAS_AUTH_ENABLED = True
+    security_store.ATLAS_ALLOW_PUBLIC_REGISTRATION = True
+    dataset_root = DATASET_ROOT.resolve()
+    backup_root = BACKUP_ROOT.resolve()
+    os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(dataset_root)
+    os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(backup_root)
+    dataset_registry.ARTIFACT_ROOT = dataset_root
+    dataset_registry.REGISTRY_PATH = dataset_root / "registry.json"
+    dataset_registry.USERS_PATH = dataset_root / "users.json"
+    dataset_registry.PROJECT_LINKS_PATH = dataset_root / "project_links.json"
     project_registry.PROJECT_ARTIFACT_ROOT = PROJECT_ROOT
     project_registry.PROJECT_REGISTRY_PATH = (
         PROJECT_ROOT / "project_registry.json"
@@ -77,6 +104,36 @@ def configure_isolated_artifact_paths() -> None:
     documentation_store.DOCUMENT_INDEX_PATH = (
         DOCUMENT_ROOT / "document_index.json"
     )
+    expected_checkpoint = CHECKPOINT_PATH.resolve()
+    os.environ["ATLAS_CHECKPOINT_PATH"] = str(expected_checkpoint)
+    checkpoint.CHECKPOINT_PATH = expected_checkpoint
+    assert security_store.SECURITY_ROOT.resolve() == security_root
+    assert security_store.DB_PATH.resolve() == security_db
+    assert Path(os.environ["ATLAS_SQLITE_PATH"]).resolve() == persistence_db
+    assert dataset_registry.ARTIFACT_ROOT.resolve() == dataset_root
+    assert Path(os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"]).resolve() == backup_root
+    assert checkpoint.CHECKPOINT_PATH.resolve() == expected_checkpoint
+
+
+def setUpModule() -> None:
+    configure_isolated_artifact_paths()
+
+
+def cleanup_isolated_artifacts() -> None:
+    configure_isolated_artifact_paths()
+    checkpoint.flush_checkpoint()
+    for base in (SECURITY_DB, PERSISTENCE_DB):
+        for suffix in ("", "-wal", "-shm"):
+            target = Path(f"{base}{suffix}")
+            for attempt in range(20):
+                try:
+                    target.unlink(missing_ok=True)
+                    break
+                except PermissionError:
+                    if attempt < 19:
+                        time.sleep(0.1)
+    shutil.rmtree(RUN_ROOT, ignore_errors=True)
+    shutil.rmtree(BACKUP_ROOT, ignore_errors=True)
 
 
 def register(label: str) -> tuple[TestClient, dict]:
@@ -231,6 +288,7 @@ class ModelDocumentationProjectContextTest(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.owner_a.close()
         cls.owner_b.close()
+        cleanup_isolated_artifacts()
 
     def setUp(self) -> None:
         project_registry.save_project_registry(

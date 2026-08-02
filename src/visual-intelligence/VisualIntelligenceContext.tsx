@@ -22,6 +22,7 @@ import { getScoringRun } from "../scoring-runs/scoringRunClient";
 import { clearVisualDataForProject } from "./dataAccessLayer";
 import { useInteractionStore } from "./interactionStore";
 import type { ProblemType, VisualDatasetReference } from "./types";
+import { usePredictiveIdentity } from "../components/PredictiveIdentityProvider";
 
 export type VisualIntelligenceContextValue = {
   baseReference: VisualDatasetReference | null;
@@ -65,6 +66,7 @@ export function setScoringRunInUrl(scoringRunId: string | null): void {
 
 export function VisualIntelligenceProvider({ children }: { children: ReactNode }) {
   const projectId = useWorkflowStore((state) => state.projectId);
+  const { readiness: identityReadiness } = usePredictiveIdentity();
   const [urlScoringRunId, setUrlScoringRunId] = useState<string | null>(() => scoringRunIdFromUrl());
   const selectScoringRun = (scoringRunId: string | null) => {
     setScoringRunInUrl(scoringRunId);
@@ -129,11 +131,16 @@ export function VisualIntelligenceProvider({ children }: { children: ReactNode }
       };
     }
 
-    resolveTaskContext(projectId).then((task) => {
+    const exactIdentity = identityReadiness.status === "ready"
+      ? identityReadiness.identity
+      : null;
+    resolveTaskContext(exactIdentity, undefined).then((task) => {
       if (cancelled) return;
       const reference: VisualDatasetReference = {
         authenticatedUserId: userId,
         projectId,
+        datasetId: exactIdentity?.dataset_id,
+        versionId: exactIdentity?.dataset_version_id,
         sourceType: "workspace",
         problemType: task.problemType ?? undefined,
         target: task.target ?? undefined,
@@ -144,7 +151,13 @@ export function VisualIntelligenceProvider({ children }: { children: ReactNode }
     return () => {
       cancelled = true;
     };
-  }, [projectId, urlScoringRunId]);
+  }, [
+    identityReadiness.identity?.dataset_id,
+    identityReadiness.identity?.dataset_version_id,
+    identityReadiness.status,
+    projectId,
+    urlScoringRunId,
+  ]);
 
   return <VisualIntelligenceContext.Provider value={value}>{children}</VisualIntelligenceContext.Provider>;
 }

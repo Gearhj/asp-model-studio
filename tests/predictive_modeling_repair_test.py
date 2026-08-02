@@ -18,10 +18,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 # (feature materialization, evaluation) schedule checkpoint saves that would
 # CLOBBER the live backend's .runtime/workflow_checkpoint.json from this
 # separate process, silently dropping the backend's resident scopes from disk.
-os.environ.setdefault(
-    "ATLAS_CHECKPOINT_PATH",
-    str(Path(tempfile.gettempdir()) / f"atlas_repair_test_checkpoint_{uuid.uuid4().hex[:8]}.json"),
+_TEST_RUN_ID = uuid.uuid4().hex[:8]
+_TEST_CHECKPOINT_PATH = (
+    Path(tempfile.gettempdir())
+    / f"atlas_repair_test_checkpoint_{_TEST_RUN_ID}.json"
 )
+_TEST_PERSISTENCE_PATH = (
+    Path(tempfile.gettempdir())
+    / f"atlas_repair_test_persistence_{_TEST_RUN_ID}.db"
+)
+os.environ["ATLAS_CHECKPOINT_PATH"] = str(_TEST_CHECKPOINT_PATH)
+os.environ["ATLAS_SQLITE_PATH"] = str(_TEST_PERSISTENCE_PATH)
 
 from server.core.dataset_store import DATASTORE
 from server.eda.eda_service import eda_service
@@ -29,6 +36,7 @@ from server.eda.workspace_service import eda_workspace_service
 from server.eda.workspace_types import EDAWorkspaceRequest
 import server.eda.workspace_service as eda_workspace_module
 from server.evaluation.eval_service import EVAL
+from server.persistence import initialize_persistence
 from server.preprocessing.feature_profile_service import profile_features
 from server.preprocessing.missing_router import MissingApplyRequest, MissingRule, apply_missing_values, missing_summary
 from server.preprocessing.outlier_router import OutlierApplyRequest, OutlierSummaryRequest, apply_outlier_treatments, outliers_summary
@@ -67,7 +75,11 @@ from server.splitting.split_service import split_service
 from server.training.training_job_service import TRAINING_JOBS
 from server.training.training_job_types import TrainingJobRequest
 from server.training.training_preflight_service import training_preflight
-from server.training.trainer_router import get_last_train
+from server.training.trainer_router import (
+    ModelSelectionDecisionRequest,
+    get_last_train,
+    save_model_selection_decision,
+)
 import server.training.training_job_service as job_module
 import server.training.training_preflight_service as training_preflight_module
 import server.training.trainer_router as trainer_router_module
@@ -155,6 +167,7 @@ def configure_manifest(frame: pd.DataFrame) -> None:
     DATASTORE.set_raw(frame)
     DATASTORE.set_target("target")
     DATASTORE.meta.update(canonical_identity())
+    DATASTORE.meta["dataset_identity_status"] = "current"
     DATASTORE.meta["selected_columns"] = ["amount", "velocity", "amount_velocity"]
     DATASTORE.meta["dataset_version"] = "repair-test-v2"
     DATASTORE.meta["source"] = {"kind": "dataset_library", "datasetId": "ds-repair-test"}
@@ -189,6 +202,10 @@ def create_governed_split(frame: pd.DataFrame) -> None:
         "minority_share": 0.5,
         "problem_type": "classification",
         "event_value": 1,
+        "fold_method": "stratified_k_fold",
+        "fold_count": 3,
+        "repeats": 1,
+        "shuffle": True,
     }
     result = split_service.make_dev_split(frame, "target", ["amount", "velocity", "amount_velocity"], config)
     DATASTORE.set_splits(result.X_train, result.X_test, result.y_train, result.y_test)
@@ -199,6 +216,7 @@ def create_governed_split(frame: pd.DataFrame) -> None:
         "design_version": "validation-design-version-repair-test-v2",
         "feature_manifest_hash": "fm-repair-test-v2",
         "status": "approved",
+        "strategy": "holdout",
         "development_dataset": {
             "dataset_id": "ds-repair-test",
             "dataset_version_id": "repair-test-v2",
@@ -208,20 +226,43 @@ def create_governed_split(frame: pd.DataFrame) -> None:
         **canonical_identity(),
         "split_id": "split-repair-test-v2",
         "dataset_version": "repair-test-v2",
+        "target": "target",
         "feature_manifest_version": "fm-repair-test-v2",
         "selected_features": ["amount", "velocity", "amount_velocity"],
+        "n_train": len(result.X_train),
+        "n_test": len(result.X_test),
+        "training_population_id": "development:split-repair-test-v2",
+        "selection_partition_id": "development:split-repair-test-v2",
+        "holdout_population_id": "holdout:split-repair-test-v2",
+        "final_holdout_partition_id": "holdout:split-repair-test-v2",
+        "fold_definition_id": "fold-definition-repair-test-v2",
+        "final_holdout_status": "sealed",
+        "holdout_isolation_status": "verified",
+        "cv_design": {
+            "method": "stratified_k_fold",
+            "fold_count": 3,
+            "repeats": 1,
+            "shuffle": True,
+        },
+        "fold_architecture": result.fold_architecture,
+        "cv_execution_splits": result.fold_architecture["execution_splits"],
         "config": config,
         "validation_design": validation_design,
         "completion_gates": {},
     }
+    DATASTORE.meta["validation_design"] = validation_design
 
 
-def request(models: list[str] | None = None) -> TrainingJobRequest:
+def request(
+    models: list[str] | None = None,
+    *,
+    calibrate: bool = True,
+) -> TrainingJobRequest:
     return TrainingJobRequest(
         models=models or ["logreg", "dtree"],
         k_folds=3,
         max_parallel=2,
-        calibrate=True,
+        calibrate=calibrate,
         target="target",
         event_value=1,
         problem_type="classification",
@@ -254,6 +295,7 @@ def wait_for_job(job_id: str, timeout: float = 30.0):
 
 
 def main() -> None:
+    initialize_persistence()
     original_outlier_authz = outlier_router_module.authorize_modeling_scope
     original_missing_authz = missing_router_module.authorize_modeling_scope
     original_trainer_authz = trainer_router_module.authorize_modeling_scope
@@ -279,6 +321,7 @@ def main() -> None:
     original_trainer_identity = (
         trainer_router_module.assert_expected_active_identity
     )
+    original_trainer_audit = trainer_router_module.audit_event
     outlier_router_module.authorize_modeling_scope = _skip_modeling_scope_authorization
     missing_router_module.authorize_modeling_scope = _skip_modeling_scope_authorization
     trainer_router_module.authorize_modeling_scope = _skip_modeling_scope_authorization
@@ -299,6 +342,7 @@ def main() -> None:
     trainer_router_module.assert_expected_active_identity = (
         resolve_result_context_identity
     )
+    trainer_router_module.audit_event = lambda *_args, **_kwargs: None
     eda_workspace_module.assert_expected_active_identity = (
         resolve_test_identity
     )
@@ -394,6 +438,10 @@ def main() -> None:
         trainer_router_module.assert_expected_active_identity = (
             original_trainer_identity
         )
+        trainer_router_module.audit_event = original_trainer_audit
+        for suffix in ("", "-wal", "-shm"):
+            Path(f"{_TEST_PERSISTENCE_PATH}{suffix}").unlink(missing_ok=True)
+        _TEST_CHECKPOINT_PATH.unlink(missing_ok=True)
 
 
 def _run_remaining_checks(frame: pd.DataFrame, outlier_profile: dict, missing_profile: dict) -> None:
@@ -408,13 +456,37 @@ def _run_remaining_checks(frame: pd.DataFrame, outlier_profile: dict, missing_pr
     assert rows["target"]["eligibilityStatus"] == "excluded"
     assert rows["split_indicator"]["eligibilityStatus"] == "excluded"
 
+    # Target-directed EDA is authorized only against the exact current
+    # materialized development partition. Provision that durable split
+    # contract for these direct service calls; the sealed holdout remains
+    # inaccessible to the analytical contract.
+    create_governed_split(frame)
+    exact_eda_identity = {
+        "expected_dataset_id": "ds-repair-test",
+        "expected_dataset_version_id": "repair-test-v2",
+        "dataset_version": "repair-test-v2",
+    }
     ten_bin_profile = eda_workspace_service.section(
         "predictors",
-        EDAWorkspaceRequest(project_id=REPAIR_TEST_PROJECT_ID, target="target", event_value=1, problem_type="classification", histogram_bins=10),
+        EDAWorkspaceRequest(
+            project_id=REPAIR_TEST_PROJECT_ID,
+            target="target",
+            event_value=1,
+            problem_type="classification",
+            histogram_bins=10,
+            **exact_eda_identity,
+        ),
     )
     forty_bin_profile = eda_workspace_service.section(
         "predictors",
-        EDAWorkspaceRequest(project_id=REPAIR_TEST_PROJECT_ID, target="target", event_value=1, problem_type="classification", histogram_bins=40),
+        EDAWorkspaceRequest(
+            project_id=REPAIR_TEST_PROJECT_ID,
+            target="target",
+            event_value=1,
+            problem_type="classification",
+            histogram_bins=40,
+            **exact_eda_identity,
+        ),
     )
     ten_bin_amount = next(row for row in ten_bin_profile["numeric"] if row["feature"] == "amount")
     forty_bin_amount = next(row for row in forty_bin_profile["numeric"] if row["feature"] == "amount")
@@ -431,6 +503,8 @@ def _run_remaining_checks(frame: pd.DataFrame, outlier_profile: dict, missing_pr
     assert len(dedicated_histogram["edges"]) == 31
     assert dedicated_histogram["row_count"] == len(frame) - 1
 
+    # Restore the explicit no-split fixture used by the next preflight checks.
+    configure_manifest(frame)
     missing_split = training_preflight(request())
     assert missing_split["ready"] is False
     assert any("validation split" in error.lower() for error in missing_split["blocking_errors"])
@@ -453,7 +527,9 @@ def _run_remaining_checks(frame: pd.DataFrame, outlier_profile: dict, missing_pr
     started = time.perf_counter()
     created = TRAINING_JOBS.create(request(), owner_user_id=REPAIR_TEST_OWNER_USER_ID)
     assert time.perf_counter() - started < 2.0, "Job creation must return before model fitting finishes."
-    assert created["status"] == "queued"
+    # The returned lifecycle snapshot may advance immediately on the worker;
+    # the complete history assertion below still proves the queued transition.
+    assert created["status"] in {"queued", "preparing", "running", "complete"}
     assert created["creation_duration_ms"] >= 0
     job, transitions = wait_for_job(created["job_id"])
     assert job["overall_status"] == "complete", job
@@ -488,95 +564,17 @@ def _run_remaining_checks(frame: pd.DataFrame, outlier_profile: dict, missing_pr
     assert mismatched_last["summary"] is None
     assert "current project" in mismatched_last["context_error"].lower()
 
-    interpretation_context = {
-        "project_id": "repair-test-project",
-        "dataset_version": "repair-test-v2",
-        "target": "target",
-        "problem_type": "classification",
-    }
-    importance = EVAL.feature_importance("logreg", interpretation_context)
-    assert importance["ok"] is True, importance
-    assert importance["rows"], importance
-    assert {row["feature"] for row in importance["rows"]}.issubset({"amount", "velocity", "amount_velocity"})
-    assert importance["method"] != "unavailable"
-
-    mismatched_importance = EVAL.feature_importance(
-        "logreg",
-        {**interpretation_context, "dataset_version": "wrong-version"},
+    # Complete all additional candidate-training checks before the governed
+    # Evaluation package exposes the sealed holdout for the selected model.
+    diagnostic_created = TRAINING_JOBS.create(
+        request(["gnb", "iso"], calibrate=False),
+        owner_user_id=REPAIR_TEST_OWNER_USER_ID,
     )
-    assert mismatched_importance["ok"] is False
-    assert "dataset version" in mismatched_importance["error"].lower()
-
-    pdp = EVAL.pdp("logreg", "amount", interpretation_context)
-    sensitivity = EVAL.sensitivity("logreg", "amount", interpretation_context)
-    shap = EVAL.shap_summary("logreg", interpretation_context)
-    assert pdp["ok"] is True and len(pdp["rows"]) >= 5, pdp
-    assert sensitivity["ok"] is True and len(sensitivity["rows"]) == 5, sensitivity
-    assert shap["ok"] is True and shap["rows"], shap
-
-    selected_final = EVAL.save_selected_model_as_final("dtree", context=interpretation_context)
-    assert selected_final["ok"] is True, selected_final
-    assert selected_final["metadata"]["feature_manifest_version"] == "fm-repair-test-v2"
-    assert selected_final["metadata"]["split_id"] == "split-repair-test-v2"
-    assert selected_final["metadata"]["training_job_id"] == job["job_id"]
-
-    rfe = EVAL.rfe("logreg", keep=2, context=interpretation_context)
-    assert rfe["ok"] is True, rfe
-    assert len(rfe["rows"]) == 3
-    assert rfe["selected_count"] == 2
-    assert rfe["curve"]
-    # Stage B.5 regression: save_rfe_model must reject a save whose context (dataset_version,
-    # target, problem_type, project_id) does not match the trained artifact's own recorded
-    # metadata -- this is the backend half of the guardrail that a stale frontend snapshot of
-    # dataset_version/target (fixed in Step09_Interpretation.tsx's interpretationContextQuery)
-    # must not be able to bypass. A save that slips a mismatched context through here would
-    # silently corrupt final-model identity; Scoring's own readiness check depends on this
-    # metadata being trustworthy.
-    mismatched_save = EVAL.save_rfe_model(
-        "dtree", keep=2,
-        context={**interpretation_context, "dataset_version": "wrong-version"},
-    )
-    assert mismatched_save["ok"] is False, mismatched_save
-    assert "dataset version" in mismatched_save["error"].lower()
-
-    saved_final = EVAL.save_rfe_model("dtree", keep=2, context=interpretation_context)
-    assert saved_final["ok"] is True, saved_final
-    assert saved_final["metadata"]["source_model"] == "dtree"
-    assert saved_final["metadata"]["source_estimator_class"] == "DecisionTreeClassifier"
-    assert "Decision Tree" in saved_final["metadata"]["name"]
-    assert saved_final["metadata"]["project_id"] == "repair-test-project"
-    assert saved_final["metadata"]["dataset_version"] == "repair-test-v2"
-    final_status = EVAL.final_model_status()
-    assert final_status["ready"] is True
-    assert final_status["metadata"]["feature_count"] == 2
-    train_scoring = EVAL.score_development_split(dataset_type="train", model_name="final")
-    assert train_scoring["ok"] is True, train_scoring
-    assert train_scoring["rows"] == len(DATASTORE.X_train)
-    assert train_scoring["model"]["source_model"] == "dtree"
-    assert train_scoring["scoring_diagnostics"]["model_feature_count"] == 2
-    assert train_scoring["scoring_diagnostics"]["matched_feature_count"] == 2
-    assert train_scoring["scoring_diagnostics"]["constant_prediction"] is False
-
-    # P0 lifecycle regression: an upstream feature-contract change must make
-    # an otherwise resident final artifact unavailable. It must not silently
-    # remain scoreable merely because the in-memory fitted object still exists.
-    DATASTORE.meta["feature_manifest"]["manifest_version"] = "fm-repair-test-stale"
-    stale_status = EVAL.final_model_status()
-    assert stale_status["artifact_present"] is True
-    assert stale_status["ready"] is False
-    assert stale_status["stale"] is True
-    assert "feature manifest" in stale_status["blocker"].lower()
-    stale_scoring = EVAL.score_development_split(dataset_type="train", model_name="final")
-    assert stale_scoring["ok"] is False
-    assert stale_scoring["stale_model"] is True
-    assert "feature manifest" in stale_scoring["error"].lower()
-    DATASTORE.meta["feature_manifest"]["manifest_version"] = "fm-repair-test-v2"
-    assert EVAL.final_model_status()["ready"] is True
-
-    diagnostic_created = TRAINING_JOBS.create(request(["gnb", "iso"]), owner_user_id=REPAIR_TEST_OWNER_USER_ID)
     diagnostic_job, _ = wait_for_job(diagnostic_created["job_id"])
     assert diagnostic_job["overall_status"] == "complete", diagnostic_job
-    diagnostic_results = {row["key"]: row for row in diagnostic_job["partial_results"]}
+    diagnostic_results = {
+        row["key"]: row for row in diagnostic_job["partial_results"]
+    }
     assert diagnostic_results["gnb"]["champion_eligible"] is True
     assert diagnostic_results["iso"]["kind"] == "anomaly"
     assert diagnostic_results["iso"]["champion_eligible"] is False
@@ -593,7 +591,10 @@ def _run_remaining_checks(frame: pd.DataFrame, outlier_profile: dict, missing_pr
 
     job_module.train_models = fail_one_model
     try:
-        partial_created = TRAINING_JOBS.create(request(), owner_user_id=REPAIR_TEST_OWNER_USER_ID)
+        partial_created = TRAINING_JOBS.create(
+            request(),
+            owner_user_id=REPAIR_TEST_OWNER_USER_ID,
+        )
         partial_job, _ = wait_for_job(partial_created["job_id"])
         assert partial_job["overall_status"] == "complete"
         assert partial_job["completed_count"] == 1
@@ -610,18 +611,164 @@ def _run_remaining_checks(frame: pd.DataFrame, outlier_profile: dict, missing_pr
 
     job_module.train_models = slow_model
     try:
-        cancel_created = TRAINING_JOBS.create(request(["logreg", "dtree"]), owner_user_id=REPAIR_TEST_OWNER_USER_ID)
-        cancelled = TRAINING_JOBS.cancel(cancel_created["job_id"], owner_user_id=REPAIR_TEST_OWNER_USER_ID, project_id=REPAIR_TEST_PROJECT_ID)
+        cancel_created = TRAINING_JOBS.create(
+            request(["logreg", "dtree"]),
+            owner_user_id=REPAIR_TEST_OWNER_USER_ID,
+        )
+        cancelled = TRAINING_JOBS.cancel(
+            cancel_created["job_id"],
+            owner_user_id=REPAIR_TEST_OWNER_USER_ID,
+            project_id=REPAIR_TEST_PROJECT_ID,
+        )
         assert cancelled and cancelled["cancellation_requested"] is True
         cancelled_job, _ = wait_for_job(cancel_created["job_id"])
         assert cancelled_job["overall_status"] == "cancelled"
     finally:
         job_module.train_models = original_train_models
 
-    DATASTORE.y_test = pd.Series([0] * len(DATASTORE.y_test), name="target")
+    development_target = DATASTORE.y_train.copy()
+    DATASTORE.y_train = pd.Series(
+        [0] * len(development_target),
+        index=development_target.index,
+        name="target",
+    )
     one_class = training_preflight(request())
     assert one_class["ready"] is False
-    assert any("holdout target" in error.lower() for error in one_class["blocking_errors"])
+    assert any(
+        "training target does not contain exactly two classes" in error.lower()
+        for error in one_class["blocking_errors"]
+    )
+    DATASTORE.y_train = development_target
+
+    # Auxiliary lifecycle checks intentionally replace RESULTS.last_summary.
+    # Re-run the selected governed portfolio so Evaluation resolves the exact
+    # candidate artifacts from the same training_job_id carried below.
+    selected_created = TRAINING_JOBS.create(
+        request(),
+        owner_user_id=REPAIR_TEST_OWNER_USER_ID,
+    )
+    job, _ = wait_for_job(selected_created["job_id"])
+    assert job["overall_status"] == "complete", job
+
+    ranked_by_key = {row["key"]: row for row in job["summary"]["ranked"]}
+    selection = save_model_selection_decision(
+        ModelSelectionDecisionRequest(
+            project_id=REPAIR_TEST_PROJECT_ID,
+            dataset_id="ds-repair-test",
+            dataset_version_id="repair-test-v2",
+            dataset_version="repair-test-v2",
+            training_job_id=job["job_id"],
+            validation_design_id="validation-design-repair-test-v2",
+            validation_design_version="validation-design-version-repair-test-v2",
+            champion_model="logreg",
+            challenger_models=["dtree"],
+            status="proposed",
+            primary_metric="roc_auc",
+            rationale=(
+                "Lock the transparent baseline for isolated exact-lineage "
+                "Evaluation contract verification."
+            ),
+        ),
+        user={
+            "userId": REPAIR_TEST_OWNER_USER_ID,
+            "displayName": "Repair Test Owner",
+        },
+    )
+    assert selection["ok"] is True, selection
+    candidate_decision_id = selection["decision"]["candidate_decision_id"]
+    assert candidate_decision_id
+
+    def exact_candidate_context(model_key: str) -> dict[str, str]:
+        contract = ranked_by_key[model_key]["candidate_contract"]
+        return {
+            "project_id": contract["project_id"],
+            "dataset_id": contract["training_dataset_id"],
+            "dataset_version_id": contract["training_dataset_version_id"],
+            "candidate_id": contract["candidate_id"],
+            "training_job_id": contract["training_job_id"],
+            "training_run_id": contract["training_run_id"],
+            "feature_manifest_version": contract["feature_manifest_version"],
+            "validation_design_id": contract["validation_design_id"],
+            "validation_design_version": contract["validation_design_version"],
+            "split_id": contract["split_id"],
+            "target": contract["target_name"],
+            "problem_type": contract["problem_type"],
+            "candidate_decision_id": candidate_decision_id,
+        }
+
+    logreg_context = exact_candidate_context("logreg")
+    logreg_candidate_id = logreg_context["candidate_id"]
+    importance = EVAL.feature_importance(logreg_candidate_id, logreg_context)
+    assert importance["ok"] is True, importance
+    assert importance["rows"], importance
+    assert {row["feature"] for row in importance["rows"]}.issubset({"amount", "velocity", "amount_velocity"})
+    assert importance["method"] != "unavailable"
+
+    mismatched_importance = EVAL.feature_importance(
+        logreg_candidate_id,
+        {**logreg_context, "dataset_version_id": "wrong-version"},
+    )
+    assert mismatched_importance["ok"] is False
+    assert "dataset_version_id" in mismatched_importance["error"].lower()
+
+    pdp = EVAL.pdp(logreg_candidate_id, "amount", logreg_context)
+    sensitivity = EVAL.sensitivity(logreg_candidate_id, "amount", logreg_context)
+    shap = EVAL.shap_summary(logreg_candidate_id, logreg_context)
+    assert pdp["ok"] is True and len(pdp["rows"]) >= 5, pdp
+    assert sensitivity["ok"] is True and len(sensitivity["rows"]) == 5, sensitivity
+    assert shap["ok"] is True and shap["rows"], shap
+
+    evaluation_command = EVAL.get_evaluation_command_center(
+        logreg_candidate_id,
+        context=logreg_context,
+    )
+    assert evaluation_command["ok"] is True, evaluation_command
+    completed_evaluation = EVAL.bind_evaluation_package(
+        logreg_candidate_id,
+        logreg_context,
+        evaluation_command,
+        "command_center",
+        actor_user_id=REPAIR_TEST_OWNER_USER_ID,
+    )
+    assert completed_evaluation["ok"] is True, completed_evaluation
+    evaluation_package_id = completed_evaluation["evaluation_package_id"]
+    selected_final = EVAL.save_selected_model_as_final(
+        logreg_candidate_id,
+        context=logreg_context,
+        evaluation_package_id=evaluation_package_id,
+    )
+    assert selected_final["ok"] is True, selected_final
+    assert selected_final["_fitted_object"] is not None
+    assert selected_final["metadata"]["feature_manifest_version"] == "fm-repair-test-v2"
+    assert selected_final["metadata"]["split_id"] == "split-repair-test-v2"
+    assert selected_final["metadata"]["training_job_id"] == job["job_id"]
+    assert selected_final["metadata"]["candidate_id"] == logreg_candidate_id
+    assert selected_final["metadata"]["evaluation_package_id"] == evaluation_package_id
+
+    rfe = EVAL.rfe(logreg_candidate_id, keep=2, context=logreg_context)
+    assert rfe["ok"] is True, rfe
+    assert len(rfe["rows"]) == 3
+    assert rfe["selected_count"] == 2
+    assert rfe["curve"]
+    # Phase 2B1: RFE is training-only analysis. It cannot publish a refitted
+    # object under the frozen candidate's contract, even with a valid package.
+    mismatched_save = EVAL.save_rfe_model(
+        logreg_candidate_id,
+        keep=2,
+        context={**logreg_context, "dataset_version_id": "wrong-version"},
+        evaluation_package_id=evaluation_package_id,
+    )
+    assert mismatched_save["ok"] is False, mismatched_save
+    assert "dataset_version_id" in mismatched_save["error"].lower()
+
+    blocked_rfe_save = EVAL.save_rfe_model(
+        logreg_candidate_id,
+        keep=2,
+        context=logreg_context,
+        evaluation_package_id=evaluation_package_id,
+    )
+    assert blocked_rfe_save["ok"] is False, blocked_rfe_save
+    assert "cannot publish" in blocked_rfe_save["error"].lower()
 
     print({
         "quality_rows": quality["profiledRowCount"],
@@ -634,8 +781,8 @@ def _run_remaining_checks(frame: pd.DataFrame, outlier_profile: dict, missing_pr
         "importance_rows": len(importance["rows"]),
         "pdp_rows": len(pdp["rows"]),
         "rfe_rows": len(rfe["rows"]),
-        "final_model_ready": final_status["ready"],
-        "scored_train_rows": train_scoring["rows"],
+        "exact_candidate_handoff_ready": selected_final["ok"],
+        "rfe_publication_blocked": True,
         "targetless_diagnostic_not_champion": True,
         "partial_failure_isolated": True,
         "cancel_status": cancelled_job["overall_status"],

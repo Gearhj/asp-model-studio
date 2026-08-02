@@ -50,7 +50,6 @@ for (const field of [
 for (const functionName of [
   "getEdaDocumentationState",
   "saveEdaDocumentationDraft",
-  "confirmEdaDocumentation",
   "invalidateEdaDocumentation",
   "publishEdaDocumentationUpdate",
   "subscribeEdaDocumentationUpdates",
@@ -61,6 +60,12 @@ for (const functionName of [
     `EDA documentation client must export ${functionName}.`
   );
 }
+
+assert.match(
+  client,
+  /export const confirmEdaDocumentation = completeEdaDocumentation;/,
+  "The legacy confirmation export must remain a direct alias of the single governed completion path."
+);
 
 assert.match(
   client,

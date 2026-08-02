@@ -13,14 +13,24 @@ const TMP_DIR = fileURLToPath(new URL("../.tmp/target-distribution-tests", impor
 
 async function compile() {
   await rm(TMP_DIR, { recursive: true, force: true });
+  const identitySource = await readFile(
+    new URL("src/lib/datasetIdentity.ts", ROOT),
+    "utf8",
+  );
+  const identityOutput = ts.transpileModule(identitySource, {
+    compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
+  }).outputText;
   const source = await readFile(new URL("src/lib/targetDistributionApi.ts", ROOT), "utf8");
   // `import.meta.env` is Vite-specific; neutralize it for the Node test runtime.
-  const patched = source.replace(/import\.meta\.env\?\.\w+ as string \| undefined/g, "undefined");
+  const patched = source
+    .replace(/import\.meta\.env\?\.\w+ as string \| undefined/g, "undefined")
+    .replace('from "./datasetIdentity";', 'from "./datasetIdentity.js";');
   const output = ts.transpileModule(patched, {
     compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const outPath = path.join(TMP_DIR, "targetDistributionApi.js");
   await mkdir(path.dirname(outPath), { recursive: true });
+  await writeFile(path.join(TMP_DIR, "datasetIdentity.js"), identityOutput, "utf8");
   await writeFile(outPath, output, "utf8");
   return import(pathToFileURL(outPath).href);
 }
@@ -51,14 +61,16 @@ const BASE_REQUEST = {
 function stubFetch({ delayMs = 0, payload = null, fail = false } = {}) {
   const calls = [];
   globalThis.fetch = async (url, init) => {
-    calls.push({ url, body: JSON.parse(init.body) });
+    const body = JSON.parse(init.body);
+    calls.push({ url, body });
     if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
     if (fail) return { ok: false, json: async () => ({ detail: "boom" }) };
     return {
       ok: true,
       json: async () => payload ?? {
-        ok: true, supported: true, resolution: "exact", datasetId: BASE_REQUEST.datasetId,
-        versionId: BASE_REQUEST.versionId, target: BASE_REQUEST.target,
+        ok: true, supported: true, resolution: "exact", projectId: body.projectId,
+        datasetId: body.datasetId,
+        versionId: body.versionId, target: body.target,
         classDistribution: [
           { value: "0", count: 170524, percent: 0.9978933 },
           { value: "1", count: 360, percent: 0.0021067 },
@@ -121,6 +133,7 @@ test("StrictMode cleanup cancels only its caller; the remount exits loading and 
         ok: true,
         supported: true,
         resolution: "exact",
+        projectId: BASE_REQUEST.projectId,
         datasetId: BASE_REQUEST.datasetId,
         versionId: BASE_REQUEST.versionId,
         target: BASE_REQUEST.target,

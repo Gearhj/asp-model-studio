@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from ..db import json_dumps, now_iso
+from ..db import decode_row, json_dumps, now_iso
 from .base_repository import BaseRepository
 
 
@@ -106,3 +106,162 @@ class ProjectRepository(BaseRepository):
             ),
         )
         return self.get_workflow_state(project_id) or {}
+
+    def upsert_workflow_history(
+        self,
+        project_id: str,
+        record: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Persist browser-reported history without accepting lineage authority.
+
+        Effective completion and canonical dataset identity are calculated by
+        backend activation/artifact reconciliation.  A browser save may append
+        historical completion, but it cannot replace those server-owned fields.
+        ``BEGIN IMMEDIATE`` also prevents a racing browser save from clobbering
+        an activation transaction that just reconciled the workflow.
+        """
+        self.ensure(project_id)
+        connection = self.database.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            previous = decode_row(
+                connection.execute(
+                    "SELECT * FROM workflow_state WHERE project_id = ?",
+                    (project_id,),
+                ).fetchone()
+            ) or {}
+            previous_completed = [
+                str(step)
+                for step in (previous.get("completed_steps_json") or [])
+                if str(step)
+            ]
+            incoming_completed = [
+                str(step)
+                for step in (record.get("completed_steps_json") or [])
+                if str(step)
+            ]
+            historical_completed = list(
+                dict.fromkeys([*previous_completed, *incoming_completed])
+            )
+
+            previous_status = dict(previous.get("workflow_status_json") or {})
+            incoming_status = dict(record.get("workflow_status_json") or {})
+            server_fields = {
+                "datasetIdentity",
+                "hasDataset",
+                "historicalCompletedSteps",
+                "effectiveCompletedSteps",
+                "effectiveCurrentStepId",
+                "effectiveSteps",
+                "identityValidity",
+                # Overall completion is server authority.  A browser may
+                # append historical step observations, but it cannot promote
+                # the project by posting ``status = complete``.
+                "status",
+                "steps",
+            }
+            workflow_status = {
+                **previous_status,
+                **{
+                    key: value
+                    for key, value in incoming_status.items()
+                    if key not in server_fields
+                },
+            }
+            workflow_status["historicalCompletedSteps"] = historical_completed
+            # Browser status labels are presentation history, not durable
+            # completion evidence. Derive this audit map only from the append-
+            # only completed-step list so an omitted step cannot be smuggled in
+            # as `workflowStatus.steps.stepXX = complete`.
+            workflow_status["steps"] = {
+                step: "complete" for step in historical_completed
+            }
+
+            # A legacy workflow row has no server-derived effective view.  Fail
+            # closed until an explicit durable activation reconciles it.
+            if not isinstance(previous_status.get("identityValidity"), dict):
+                independent = [
+                    step for step in historical_completed if step == "step00"
+                ]
+                effective_steps = {
+                    step: {
+                        "effectiveStatus": (
+                            "complete" if step in independent else "pending"
+                        ),
+                        "lineageStatus": (
+                            "current" if step in independent else "missing"
+                        ),
+                        "reason": (
+                            "Identity-independent project context remains current."
+                            if step in independent
+                            else "No exact durable active Dataset Library version has reconciled this workflow."
+                        ),
+                        "artifactIds": [],
+                    }
+                    for step in historical_completed
+                }
+                workflow_status.update(
+                    {
+                        "datasetIdentity": None,
+                        "hasDataset": False,
+                        "effectiveCompletedSteps": independent,
+                        "effectiveCurrentStepId": "step01",
+                        "effectiveSteps": effective_steps,
+                        "identityValidity": {
+                            "status": "missing",
+                            "reason": (
+                                "No exact durable active Dataset Library version "
+                                "has reconciled this workflow."
+                            ),
+                            "historicalCompletionPreserved": True,
+                        },
+                    }
+                )
+            else:
+                for key in server_fields - {"historicalCompletedSteps", "steps"}:
+                    if key in previous_status:
+                        workflow_status[key] = previous_status[key]
+
+            timestamp = record.get("updated_at") or now_iso()
+            connection.execute(
+                """
+                INSERT INTO workflow_state (
+                  project_id, current_step_id, completed_steps_json,
+                  workflow_status_json, step_evidence_status_json, updated_at,
+                  completed_by
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(project_id) DO UPDATE SET
+                  current_step_id = excluded.current_step_id,
+                  completed_steps_json = excluded.completed_steps_json,
+                  workflow_status_json = excluded.workflow_status_json,
+                  step_evidence_status_json = excluded.step_evidence_status_json,
+                  updated_at = excluded.updated_at,
+                  completed_by = excluded.completed_by
+                """,
+                (
+                    project_id,
+                    record.get("current_step_id"),
+                    json_dumps(historical_completed, []),
+                    json_dumps(workflow_status, {}),
+                    json_dumps(
+                        record.get("step_evidence_status_json")
+                        or previous.get("step_evidence_status_json"),
+                        {},
+                    ),
+                    timestamp,
+                    record.get("completed_by"),
+                ),
+            )
+            saved = decode_row(
+                connection.execute(
+                    "SELECT * FROM workflow_state WHERE project_id = ?",
+                    (project_id,),
+                ).fetchone()
+            ) or {}
+            connection.commit()
+            return saved
+        except Exception:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()

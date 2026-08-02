@@ -10,6 +10,8 @@ export type CanonicalDatasetIdentity = {
   project_id: string;
   dataset_id: string;
   dataset_version_id: string;
+  /** Monotonic revision of the durable project-scoped active selection. */
+  activation_revision?: number;
   dataset_version_label?: string;
   dataset_content_hash?: string;
   dataset_schema_hash?: string;
@@ -20,6 +22,7 @@ export type CanonicalDatasetIdentityInput = {
   project_id?: unknown;
   dataset_id?: unknown;
   dataset_version_id?: unknown;
+  activation_revision?: unknown;
   dataset_version_label?: unknown;
   dataset_content_hash?: unknown;
   dataset_schema_hash?: unknown;
@@ -72,6 +75,22 @@ function optionalIdentifier(value: unknown): string | undefined {
   return identifier || undefined;
 }
 
+function optionalActivationRevision(value: unknown, context: string): number | undefined {
+  if (value == null || value === "") return undefined;
+  const revision = typeof value === "number"
+    ? value
+    : typeof value === "string" && /^\d+$/.test(value.trim())
+      ? Number(value.trim())
+      : Number.NaN;
+  if (!Number.isSafeInteger(revision) || revision < 1) {
+    throw new DatasetIdentityError(
+      "missing_canonical_identity",
+      `${context} contains an invalid activation_revision (durable activation revision).`,
+    );
+  }
+  return revision;
+}
+
 /**
  * Validates canonical identity without deriving it from a browser hash,
  * deprecated dataset_version value, Dataset Library ordering, or another
@@ -102,9 +121,14 @@ export function requireCanonicalDatasetIdentity(
   };
   for (const [field, value] of Object.entries(optionalFields)) {
     if (value) {
-      (identity as Record<string, string>)[field] = value;
+      (identity as unknown as Record<string, unknown>)[field] = value;
     }
   }
+  const activationRevision = optionalActivationRevision(
+    input.activation_revision,
+    context,
+  );
+  if (activationRevision != null) identity.activation_revision = activationRevision;
   return identity;
 }
 

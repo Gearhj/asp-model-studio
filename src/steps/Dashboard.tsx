@@ -20,10 +20,10 @@ import AtlasStatusBadge from "../components/ui/AtlasStatusBadge";
 import { getWorkflowDefinition } from "../config/workflows";
 import { saveActiveProjectBeforeNavigation } from "../lib/localProjects";
 import { buildEscalationQueue, loadProductionModels } from "../lib/modelMonitoring";
-import { useWorkflowStore } from "../state/useWorkflowStore";
+import { selectEffectiveWorkflowSteps, useWorkflowStore } from "../state/useWorkflowStore";
 
 export default function Dashboard() {
-  const workflowSteps = useWorkflowStore((state) => state.workflowSteps);
+  const workflowSteps = useWorkflowStore(selectEffectiveWorkflowSteps);
   const workflowId = useWorkflowStore((state) => state.workflowId);
   const projectName = useWorkflowStore((state) => state.projectName);
   const hasDataset = useWorkflowStore((state) => state.hasDataset);

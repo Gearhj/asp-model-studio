@@ -14,6 +14,7 @@ import io
 import os
 import shutil
 import sys
+import tempfile
 import time
 import unittest
 import uuid
@@ -34,13 +35,18 @@ _PERSISTENCE_DB_PATH = _TEST_DATA_ROOT / "persistence.db"
 _CHECKPOINT_PATH = _TEST_DATA_ROOT / "workflow_checkpoint.json"
 _LIBRARY_ROOT = _TEST_DATA_ROOT / "dataset_library"
 _LIBRARY_ROOT.mkdir(parents=True, exist_ok=True)
+_BACKUP_ROOT = Path(
+    tempfile.mkdtemp(prefix=f"atlas_canonical_identity_backups_{uuid.uuid4().hex}_")
+)
 
 _ENVIRONMENT_OVERRIDES = {
+    "ATLAS_SECURITY_ROOT": str(_SECURITY_DB_PATH.parent),
     "ATLAS_SECURITY_DB_PATH": str(_SECURITY_DB_PATH),
     "ATLAS_SQLITE_PATH": str(_PERSISTENCE_DB_PATH),
     "ATLAS_CHECKPOINT_PATH": str(_CHECKPOINT_PATH),
     "ATLAS_DATASET_LIBRARY_ROOT": str(_LIBRARY_ROOT),
-    "ATLAS_AUTH_ENABLED": os.environ.get("ATLAS_AUTH_ENABLED", "true"),
+    "ATLAS_DATASET_LIBRARY_BACKUP_ROOT": str(_BACKUP_ROOT),
+    "ATLAS_AUTH_ENABLED": "true",
     "ATLAS_ALLOW_PUBLIC_REGISTRATION": "true",
 }
 _ORIGINAL_ENVIRONMENT = {
@@ -54,6 +60,7 @@ from fastapi.testclient import TestClient  # noqa: E402
 from server.main import app  # noqa: E402
 from server.persistence import initialize_persistence  # noqa: E402
 from server.security.security_store import init_security_store  # noqa: E402
+import server.security.security_store as security_store  # noqa: E402
 import server.core.dataset_store as dataset_store_module  # noqa: E402
 import server.core.result_store as result_store_module  # noqa: E402
 import server.core.session_checkpoint as checkpoint  # noqa: E402
@@ -65,7 +72,68 @@ ACCESS_METADATA_ID = "20260729212115-f471e706"
 _CLIENTS: list[TestClient] = []
 
 
+def _bind_security_and_persistence_paths() -> None:
+    """Rebind import-cached authorities after another collected test module."""
+    expected_security_root = _SECURITY_DB_PATH.parent.resolve()
+    expected_security_db = _SECURITY_DB_PATH.resolve()
+    expected_persistence_db = _PERSISTENCE_DB_PATH.resolve()
+    os.environ["ATLAS_SECURITY_ROOT"] = str(expected_security_root)
+    os.environ["ATLAS_SECURITY_DB_PATH"] = str(expected_security_db)
+    os.environ["ATLAS_SQLITE_PATH"] = str(expected_persistence_db)
+    os.environ["ATLAS_AUTH_ENABLED"] = "true"
+    os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
+    security_store.SECURITY_ROOT = expected_security_root
+    security_store.DB_PATH = expected_security_db
+    security_store.ATLAS_AUTH_ENABLED = True
+    security_store.ATLAS_ALLOW_PUBLIC_REGISTRATION = True
+    assert Path(os.environ["ATLAS_SECURITY_DB_PATH"]).resolve() == expected_security_db
+    assert Path(os.environ["ATLAS_SQLITE_PATH"]).resolve() == expected_persistence_db
+    assert security_store.SECURITY_ROOT.resolve() == expected_security_root
+    assert security_store.DB_PATH.resolve() == expected_security_db
+
+
+def _bind_dataset_library_paths() -> None:
+    """Rebind every cached registry path to this suite's owned root."""
+    expected_root = _LIBRARY_ROOT.resolve()
+    expected_backup_root = _BACKUP_ROOT.resolve()
+    os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(expected_root)
+    os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(expected_backup_root)
+    dataset_registry.ARTIFACT_ROOT = expected_root
+    dataset_registry.REGISTRY_PATH = dataset_registry.ARTIFACT_ROOT / "registry.json"
+    dataset_registry.USERS_PATH = dataset_registry.ARTIFACT_ROOT / "users.json"
+    dataset_registry.PROJECT_LINKS_PATH = (
+        dataset_registry.ARTIFACT_ROOT / "project_links.json"
+    )
+    assert Path(os.environ["ATLAS_DATASET_LIBRARY_ROOT"]).resolve() == expected_root
+    assert Path(os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"]).resolve() == expected_backup_root
+    assert dataset_registry.ARTIFACT_ROOT.resolve() == expected_root
+    assert dataset_registry.REGISTRY_PATH.resolve() == expected_root / "registry.json"
+    assert dataset_registry.USERS_PATH.resolve() == expected_root / "users.json"
+    assert dataset_registry.PROJECT_LINKS_PATH.resolve() == expected_root / "project_links.json"
+
+
+def _bind_checkpoint_path() -> None:
+    """Keep this suite isolated even when ``server.main`` was imported first."""
+    expected = _CHECKPOINT_PATH.resolve()
+    os.environ["ATLAS_CHECKPOINT_PATH"] = str(expected)
+    checkpoint.CHECKPOINT_PATH = expected
+    assert Path(os.environ["ATLAS_CHECKPOINT_PATH"]).resolve() == expected
+    assert checkpoint.CHECKPOINT_PATH.resolve() == expected
+
+
+_bind_security_and_persistence_paths()
+_bind_dataset_library_paths()
+_bind_checkpoint_path()
+
+
+def setUpModule() -> None:
+    _bind_security_and_persistence_paths()
+    _bind_dataset_library_paths()
+    _bind_checkpoint_path()
+
+
 def _cleanup() -> None:
+    checkpoint.flush_checkpoint()
     for base in (_SECURITY_DB_PATH, _PERSISTENCE_DB_PATH):
         for suffix in ("", "-wal", "-shm"):
             target = Path(f"{base}{suffix}")
@@ -80,11 +148,17 @@ def _cleanup() -> None:
 
 
 def _cleanup_process_state() -> None:
+    # This function runs both from tearDownClass and again via atexit. Restore
+    # the owned cache/env bindings before either pass can flush checkpoint work.
+    _bind_security_and_persistence_paths()
+    _bind_dataset_library_paths()
+    _bind_checkpoint_path()
     for client in list(_CLIENTS):
         client.close()
     _CLIENTS.clear()
     _cleanup()
     shutil.rmtree(_TEST_DATA_ROOT, ignore_errors=True)
+    shutil.rmtree(_BACKUP_ROOT, ignore_errors=True)
     for key, value in _ORIGINAL_ENVIRONMENT.items():
         if value is None:
             os.environ.pop(key, None)
@@ -192,6 +266,7 @@ def _configure_target(
 class CanonicalDatasetIdentityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        _bind_security_and_persistence_paths()
         _cleanup()
         init_security_store()
         initialize_persistence()

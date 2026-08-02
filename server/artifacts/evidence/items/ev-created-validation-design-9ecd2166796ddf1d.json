@@ -1,0 +1,623 @@
+{
+  "project_id": "atlas-mrzpau4t",
+  "dataset_id": "ds_heloc_train_6bdb184b_05905",
+  "dataset_version_id": "v_1785186305905_6bdb184b",
+  "lineage_contract": "canonical_dataset_version",
+  "lineage": {
+    "manifestVersion": "fm-d366e0c1cc6c8514",
+    "splitId": "split-bcae4b2fbeed4d719f73",
+    "trainingPopulationId": "population-train-bcae4b2fbeed",
+    "holdoutPopulationId": "population-untouched_holdout-bcae4b2fbeed",
+    "project_id": "atlas-mrzpau4t",
+    "dataset_id": "ds_heloc_train_6bdb184b_05905",
+    "dataset_version_id": "v_1785186305905_6bdb184b",
+    "lineage_contract": "canonical_dataset_version",
+    "projectId": "atlas-mrzpau4t",
+    "datasetId": "ds_heloc_train_6bdb184b_05905",
+    "datasetVersion": "v_1785186305905_6bdb184b"
+  },
+  "projectName": "Credit Card Transaction Fraud Model - TEST",
+  "evidenceType": "governance",
+  "title": "Created Validation Design",
+  "summary": "undefined predictors were bound to undefined and split split-bcae4b2fbeed4d719f73. Cross-validation, holdout protection, external references, and training-only balancing are governed here.",
+  "sourcePage": "Balance & Split",
+  "sourceRoute": "/step06",
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Feature Engineering",
+    "Development Test and OOT Data",
+    "Candidate Models"
+  ],
+  "tags": [
+    "predictive_modeling",
+    "feature_gate",
+    "validation_design",
+    "cross_validation"
+  ],
+  "status": "ready",
+  "importance": "high",
+  "payload": {
+    "ok": true,
+    "status": "current",
+    "ready": true,
+    "readiness_reason": "Ready for next step. Validation split is current.",
+    "has_split": true,
+    "project_id": "atlas-mrzpau4t",
+    "dataset_id": "ds_heloc_train_6bdb184b_05905",
+    "dataset_version_id": "v_1785186305905_6bdb184b",
+    "dataset_version": "v_1785186305905_6bdb184b",
+    "data_revision": 26,
+    "split_id": "split-bcae4b2fbeed4d719f73",
+    "config_hash": "bcae4b2fbeed4d719f73",
+    "selected_feature_hash": "7fa52f22c55eaeb8cac7",
+    "split_config_hash": "48282c5b4e4a8dcb70d7",
+    "balancing_config_hash": "6a99d4d5ae1f4ae3ca51",
+    "created_at": "2026-08-01T20:45:47.611692+00:00",
+    "target": "bad_flag",
+    "event_value": 1,
+    "feature_manifest_version": "fm-d366e0c1cc6c8514",
+    "selected_features": [
+      "ExternalRiskEstimate",
+      "MSinceOldestTradeOpen",
+      "MSinceMostRecentTradeOpen",
+      "AverageMInFile",
+      "NumSatisfactoryTrades",
+      "NumTrades60Ever2DerogPubRec",
+      "NumTrades90Ever2DerogPubRec",
+      "PercentTradesNeverDelq",
+      "MSinceMostRecentDelq",
+      "MaxDelq2PublicRecLast12M",
+      "MaxDelqEver",
+      "NumTotalTrades",
+      "NumTradesOpeninLast12M",
+      "PercentInstallTrades",
+      "MSinceMostRecentInqexcl7days",
+      "NumInqLast6M",
+      "NumInqLast6Mexcl7days",
+      "NetFractionRevolvingBurden",
+      "NetFractionInstallBurden",
+      "NumRevolvingTradesWBalance",
+      "NumInstallTradesWBalance",
+      "NumBank2NatlTradesWHighUtilization",
+      "PercentTradesWBalance"
+    ],
+    "config": {
+      "split_strategy": "hybrid",
+      "test_size": 0.2,
+      "random_seed": 42,
+      "stratify": true,
+      "balance_method": "none",
+      "minority_share": 0.5,
+      "problem_type": "classification",
+      "event_value": 1,
+      "test_dataset_id": "",
+      "test_dataset_version_id": "",
+      "test_target_field": "bad_flag",
+      "oot_dataset_id": "",
+      "oot_dataset_version_id": "",
+      "oot_target_field": "bad_flag",
+      "external_validation_mode": "none",
+      "fold_method": "stratified_k_fold",
+      "fold_count": 5,
+      "repeats": 1,
+      "inner_fold_count": 3,
+      "group_field": "",
+      "time_field": "",
+      "shuffle": true,
+      "scoring_fold_requirements": "Every validation fold must contain both target classes.",
+      "tuning_scope": "within_training_population",
+      "final_holdout_policy": "untouched_until_final_comparison",
+      "holdout_protection_confirmed": true,
+      "cv_design_approved": true,
+      "schema_compatibility_confirmed": false,
+      "target_mapping_verified": false,
+      "balancing_scope": "training_population_only",
+      "class_weight_policy": "none",
+      "threshold_optimization_policy": "evaluation_only",
+      "focal_loss_policy": "disabled",
+      "approval_note": "Standard ATLAS design: cross-validation inside the training population plus an untouched final holdout. The single creation action records the governed contract.",
+      "development_dataset_id": "ds_heloc_train_6bdb184b_05905",
+      "development_dataset_version_id": "v_1785186305905_6bdb184b",
+      "target": "bad_flag"
+    },
+    "distributions": {
+      "full_dataset": {
+        "rows": 6275,
+        "valid_rows": 6275,
+        "missing_rows": 0,
+        "classes": {
+          "0": 3000,
+          "1": 3275
+        },
+        "event_value": 1,
+        "events": 3275,
+        "non_events": 3000,
+        "event_rate": 0.5219123505976095
+      },
+      "train_before_balancing": {
+        "rows": 5020,
+        "valid_rows": 5020,
+        "missing_rows": 0,
+        "classes": {
+          "0": 2400,
+          "1": 2620
+        },
+        "event_value": 1,
+        "events": 2620,
+        "non_events": 2400,
+        "event_rate": 0.5219123505976095
+      },
+      "train_after_balancing": {
+        "rows": 5020,
+        "valid_rows": 5020,
+        "missing_rows": 0,
+        "classes": {
+          "0": 2400,
+          "1": 2620
+        },
+        "event_value": 1,
+        "events": 2620,
+        "non_events": 2400,
+        "event_rate": 0.5219123505976095
+      },
+      "holdout_untouched": {
+        "rows": 1255,
+        "valid_rows": 1255,
+        "missing_rows": 0,
+        "classes": {
+          "0": 600,
+          "1": 655
+        },
+        "event_value": 1,
+        "events": 655,
+        "non_events": 600,
+        "event_rate": 0.5219123505976095
+      },
+      "cv_folds": [
+        {
+          "repeat": 1,
+          "fold": 1,
+          "rows": 1004,
+          "valid_rows": 1004,
+          "missing_rows": 0,
+          "classes": {
+            "0": 480,
+            "1": 524
+          },
+          "event_value": 1,
+          "events": 524,
+          "non_events": 480,
+          "event_rate": 0.5219123505976095
+        },
+        {
+          "repeat": 1,
+          "fold": 2,
+          "rows": 1004,
+          "valid_rows": 1004,
+          "missing_rows": 0,
+          "classes": {
+            "0": 480,
+            "1": 524
+          },
+          "event_value": 1,
+          "events": 524,
+          "non_events": 480,
+          "event_rate": 0.5219123505976095
+        },
+        {
+          "repeat": 1,
+          "fold": 3,
+          "rows": 1004,
+          "valid_rows": 1004,
+          "missing_rows": 0,
+          "classes": {
+            "0": 480,
+            "1": 524
+          },
+          "event_value": 1,
+          "events": 524,
+          "non_events": 480,
+          "event_rate": 0.5219123505976095
+        },
+        {
+          "repeat": 1,
+          "fold": 4,
+          "rows": 1004,
+          "valid_rows": 1004,
+          "missing_rows": 0,
+          "classes": {
+            "0": 480,
+            "1": 524
+          },
+          "event_value": 1,
+          "events": 524,
+          "non_events": 480,
+          "event_rate": 0.5219123505976095
+        },
+        {
+          "repeat": 1,
+          "fold": 5,
+          "rows": 1004,
+          "valid_rows": 1004,
+          "missing_rows": 0,
+          "classes": {
+            "0": 480,
+            "1": 524
+          },
+          "event_value": 1,
+          "events": 524,
+          "non_events": 480,
+          "event_rate": 0.5219123505976095
+        }
+      ]
+    },
+    "validation_design": {
+      "project_id": "atlas-mrzpau4t",
+      "dataset_id": "ds_heloc_train_6bdb184b_05905",
+      "dataset_version_id": "v_1785186305905_6bdb184b",
+      "dataset_version": "v_1785186305905_6bdb184b",
+      "data_revision": 26,
+      "validation_design_id": "validation-design-882c46ba273a3cca2eb7",
+      "design_version": "vd-882c46ba273a3cca2eb7",
+      "strategy": "hybrid",
+      "development_dataset": {
+        "dataset_id": "ds_heloc_train_6bdb184b_05905",
+        "dataset_version_id": "v_1785186305905_6bdb184b",
+        "version_id": "v_1785186305905_6bdb184b",
+        "dataset_version": "v_1785186305905_6bdb184b"
+      },
+      "training_population_id": "population-train-bcae4b2fbeed",
+      "selection_partition_id": "population-train-bcae4b2fbeed",
+      "holdout_population_id": "population-untouched_holdout-bcae4b2fbeed",
+      "final_holdout_partition_id": "population-untouched_holdout-bcae4b2fbeed",
+      "final_holdout_status": "sealed",
+      "holdout_isolation_status": "verified",
+      "fold_definition_id": "fold-72ae65e03983d37a00fd",
+      "test_reference": null,
+      "oot_reference": null,
+      "split_seed": 42,
+      "stratification": true,
+      "group_field": null,
+      "time_field": null,
+      "fold_method": "stratified_k_fold",
+      "number_of_folds": 5,
+      "number_of_repeats": 1,
+      "tuning_scope": "within_training_population",
+      "final_holdout_use_policy": "untouched_until_final_comparison",
+      "balancing_scope": "training_population_only",
+      "balancing_policy": {
+        "method": "none",
+        "scope": "training_population_only",
+        "minority_share": 0.5,
+        "class_weight_policy": "none",
+        "threshold_optimization_policy": "evaluation_only",
+        "focal_loss_policy": "disabled",
+        "synthetic_rows_added": 0,
+        "rows_removed": 0,
+        "holdout_untouched": true,
+        "test_untouched": true,
+        "oot_untouched": true,
+        "selection_resampling_status": "not_applied"
+      },
+      "approved_by": {
+        "user_id": "user_d8bbe3ff73a84fb5",
+        "display_name": "James"
+      },
+      "approved_at": "2026-08-01T20:45:47.611692+00:00",
+      "approval_note": "Standard ATLAS design: cross-validation inside the training population plus an untouched final holdout. The single creation action records the governed contract.",
+      "feature_manifest_hash": "fm-d366e0c1cc6c8514",
+      "target": "bad_flag",
+      "selected_feature_hash": "7fa52f22c55eaeb8cac7",
+      "status": "approved"
+    },
+    "training_population_id": "population-train-bcae4b2fbeed",
+    "selection_partition_id": "population-train-bcae4b2fbeed",
+    "holdout_population_id": "population-untouched_holdout-bcae4b2fbeed",
+    "final_holdout_partition_id": "population-untouched_holdout-bcae4b2fbeed",
+    "final_holdout_status": "sealed",
+    "holdout_isolation_status": "verified",
+    "fold_definition_id": "fold-72ae65e03983d37a00fd",
+    "test_reference": null,
+    "oot_reference": null,
+    "cv_design": {
+      "method": "stratified_k_fold",
+      "fold_count": 5,
+      "repeats": 1,
+      "group_field": null,
+      "time_field": null,
+      "shuffle": true,
+      "random_seed": 42,
+      "tuning_scope": "within_training_population",
+      "scoring_fold_requirements": "Every validation fold must contain both target classes.",
+      "nested": false,
+      "inner_folds": null,
+      "approved": true,
+      "execution_fold_count": 5,
+      "fold_definition_id": "fold-72ae65e03983d37a00fd"
+    },
+    "fold_architecture": {
+      "enabled": true,
+      "method": "stratified_k_fold",
+      "fold_count": 5,
+      "repeats": 1,
+      "shuffle": true,
+      "random_seed": 42,
+      "group_field": null,
+      "time_field": null,
+      "nested": false,
+      "inner_folds": null,
+      "fold_size_consistent": true,
+      "folds": [
+        {
+          "sequence": 1,
+          "repeat": 1,
+          "fold": 1,
+          "train_rows": 4016,
+          "validation_rows": 1004,
+          "train_distribution": {
+            "rows": 4016,
+            "valid_rows": 4016,
+            "missing_rows": 0,
+            "classes": {
+              "0": 1920,
+              "1": 2096
+            },
+            "event_value": 1,
+            "events": 2096,
+            "non_events": 1920,
+            "event_rate": 0.5219123505976095
+          },
+          "validation_distribution": {
+            "rows": 1004,
+            "valid_rows": 1004,
+            "missing_rows": 0,
+            "classes": {
+              "0": 480,
+              "1": 524
+            },
+            "event_value": 1,
+            "events": 524,
+            "non_events": 480,
+            "event_rate": 0.5219123505976095
+          },
+          "validation_groups": null
+        },
+        {
+          "sequence": 2,
+          "repeat": 1,
+          "fold": 2,
+          "train_rows": 4016,
+          "validation_rows": 1004,
+          "train_distribution": {
+            "rows": 4016,
+            "valid_rows": 4016,
+            "missing_rows": 0,
+            "classes": {
+              "0": 1920,
+              "1": 2096
+            },
+            "event_value": 1,
+            "events": 2096,
+            "non_events": 1920,
+            "event_rate": 0.5219123505976095
+          },
+          "validation_distribution": {
+            "rows": 1004,
+            "valid_rows": 1004,
+            "missing_rows": 0,
+            "classes": {
+              "0": 480,
+              "1": 524
+            },
+            "event_value": 1,
+            "events": 524,
+            "non_events": 480,
+            "event_rate": 0.5219123505976095
+          },
+          "validation_groups": null
+        },
+        {
+          "sequence": 3,
+          "repeat": 1,
+          "fold": 3,
+          "train_rows": 4016,
+          "validation_rows": 1004,
+          "train_distribution": {
+            "rows": 4016,
+            "valid_rows": 4016,
+            "missing_rows": 0,
+            "classes": {
+              "0": 1920,
+              "1": 2096
+            },
+            "event_value": 1,
+            "events": 2096,
+            "non_events": 1920,
+            "event_rate": 0.5219123505976095
+          },
+          "validation_distribution": {
+            "rows": 1004,
+            "valid_rows": 1004,
+            "missing_rows": 0,
+            "classes": {
+              "0": 480,
+              "1": 524
+            },
+            "event_value": 1,
+            "events": 524,
+            "non_events": 480,
+            "event_rate": 0.5219123505976095
+          },
+          "validation_groups": null
+        },
+        {
+          "sequence": 4,
+          "repeat": 1,
+          "fold": 4,
+          "train_rows": 4016,
+          "validation_rows": 1004,
+          "train_distribution": {
+            "rows": 4016,
+            "valid_rows": 4016,
+            "missing_rows": 0,
+            "classes": {
+              "0": 1920,
+              "1": 2096
+            },
+            "event_value": 1,
+            "events": 2096,
+            "non_events": 1920,
+            "event_rate": 0.5219123505976095
+          },
+          "validation_distribution": {
+            "rows": 1004,
+            "valid_rows": 1004,
+            "missing_rows": 0,
+            "classes": {
+              "0": 480,
+              "1": 524
+            },
+            "event_value": 1,
+            "events": 524,
+            "non_events": 480,
+            "event_rate": 0.5219123505976095
+          },
+          "validation_groups": null
+        },
+        {
+          "sequence": 5,
+          "repeat": 1,
+          "fold": 5,
+          "train_rows": 4016,
+          "validation_rows": 1004,
+          "train_distribution": {
+            "rows": 4016,
+            "valid_rows": 4016,
+            "missing_rows": 0,
+            "classes": {
+              "0": 1920,
+              "1": 2096
+            },
+            "event_value": 1,
+            "events": 2096,
+            "non_events": 1920,
+            "event_rate": 0.5219123505976095
+          },
+          "validation_distribution": {
+            "rows": 1004,
+            "valid_rows": 1004,
+            "missing_rows": 0,
+            "classes": {
+              "0": 480,
+              "1": 524
+            },
+            "event_value": 1,
+            "events": 524,
+            "non_events": 480,
+            "event_rate": 0.5219123505976095
+          },
+          "validation_groups": null
+        }
+      ]
+    },
+    "compatibility_matrix": {
+      "status": "not_applicable",
+      "populations": {}
+    },
+    "validation_risks": [
+      {
+        "risk": "Low event count",
+        "status": "low",
+        "detail": "3275 events in the governed population."
+      },
+      {
+        "risk": "Fold insufficiency",
+        "status": "low",
+        "detail": "Every validation fold contains both classes."
+      },
+      {
+        "risk": "Target imbalance",
+        "status": "low",
+        "detail": "Governed event rate 52.19%."
+      },
+      {
+        "risk": "Group leakage",
+        "status": "not_applicable",
+        "detail": "No group constraint selected."
+      },
+      {
+        "risk": "Time leakage",
+        "status": "not_applicable",
+        "detail": "No time constraint selected."
+      },
+      {
+        "risk": "Schema mismatch",
+        "status": "low",
+        "detail": "No external population is required."
+      },
+      {
+        "risk": "Holdout reuse",
+        "status": "low",
+        "detail": "untouched_until_final_comparison"
+      },
+      {
+        "risk": "OOT unavailable",
+        "status": "not_applicable",
+        "detail": "No OOT population is part of this approved strategy."
+      }
+    ],
+    "completion_gates": {
+      "validation_strategy_selected": true,
+      "dataset_versions_pinned": true,
+      "schema_compatibility_verified": true,
+      "target_mapping_verified": true,
+      "feature_manifest_current": true,
+      "target_and_target_source_excluded": true,
+      "populations_created": true,
+      "event_coverage_sufficient": true,
+      "holdout_protection_confirmed": true,
+      "cv_design_approved": true,
+      "balancing_policy_recorded": true
+    },
+    "balancing_policy": {
+      "method": "none",
+      "scope": "training_population_only",
+      "minority_share": 0.5,
+      "class_weight_policy": "none",
+      "threshold_optimization_policy": "evaluation_only",
+      "focal_loss_policy": "disabled",
+      "synthetic_rows_added": 0,
+      "rows_removed": 0,
+      "holdout_untouched": true,
+      "test_untouched": true,
+      "oot_untouched": true,
+      "selection_resampling_status": "not_applied"
+    },
+    "confirmation_actor": {
+      "user_id": "user_d8bbe3ff73a84fb5",
+      "display_name": "James"
+    },
+    "confirmation_time": "2026-08-01T20:45:47.611692+00:00",
+    "evaluation_population_role": "untouched_holdout",
+    "n_train": 5020,
+    "n_test": 1255,
+    "original_train_rows": 5020,
+    "duration_ms": 340,
+    "execution_ms": 340
+  },
+  "projectId": "atlas-mrzpau4t",
+  "datasetIds": [
+    "ds_heloc_train_6bdb184b_05905"
+  ],
+  "evidenceId": "ev-created-validation-design-9ecd2166796ddf1d",
+  "governance": {},
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-31T22:00:09.937735+00:00",
+  "capturedAt": "2026-07-31T22:00:09.937735+00:00",
+  "updatedAt": "2026-08-01T20:45:48.961063+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 86
+}

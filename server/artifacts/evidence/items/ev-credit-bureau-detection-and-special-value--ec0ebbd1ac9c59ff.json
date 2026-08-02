@@ -1,0 +1,946 @@
+{
+  "projectId": "atlas-mrzpau4t",
+  "projectName": "Credit Card Transaction Fraud Model - TEST",
+  "evidenceType": "dataset",
+  "title": "Credit Bureau Detection and Special-Value Review",
+  "summary": "3 bureau variables and 3,037 special-value-bearing rows were reviewed using governed full-population evidence.",
+  "sourcePage": "Data Acquisition",
+  "sourceRoute": "/step01?section=credit-bureau-review",
+  "datasetIds": [],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Data Sources",
+    "Data Quality",
+    "Feature Engineering"
+  ],
+  "tags": [
+    "predictive_modeling",
+    "bureau_review",
+    "special_values"
+  ],
+  "status": "draft",
+  "importance": "high",
+  "lineage": {
+    "scope": "full_dataset",
+    "rowCount": 6275,
+    "target": "atlas_split",
+    "metadataSource": "none"
+  },
+  "payload": {
+    "detected": true,
+    "confidence": 0.6,
+    "reasons": [
+      "The variable name contains bureau or credit-attribute terminology.",
+      "917 rows contain configured bureau special values.",
+      "2,641 rows contain configured bureau special values.",
+      "893 rows contain configured bureau special values."
+    ],
+    "variables": [
+      {
+        "variable": "ExternalRiskEstimate",
+        "confidence": 0.48689243027888446,
+        "reasons": [
+          "The variable name contains bureau or credit-attribute terminology.",
+          "357 rows contain configured bureau special values."
+        ],
+        "datatype": "int64",
+        "special_value_count": 357,
+        "special_value_frequency": 0.056892430278884465,
+        "ordinary_value_count": 5918,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Unknown or unscorable response",
+            "count": 357,
+            "frequency": 0.056892430278884465,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          }
+        ],
+        "metadata": null,
+        "likely_bureau": false
+      },
+      {
+        "variable": "MSinceOldestTradeOpen",
+        "confidence": 0.5158964143426295,
+        "reasons": [
+          "The variable name contains bureau or credit-attribute terminology.",
+          "539 rows contain configured bureau special values."
+        ],
+        "datatype": "int64",
+        "special_value_count": 539,
+        "special_value_frequency": 0.08589641434262948,
+        "ordinary_value_count": 5736,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Unknown or unscorable response",
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": -8,
+            "definition": "Frozen, blocked, or unavailable",
+            "count": 134,
+            "frequency": 0.021354581673306772,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": 96,
+            "definition": "Bureau exception",
+            "count": 9,
+            "frequency": 0.0014342629482071714,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": 97,
+            "definition": "Suppressed value",
+            "count": 19,
+            "frequency": 0.0030278884462151393,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": 98,
+            "definition": "Unavailable value",
+            "count": 12,
+            "frequency": 0.0019123505976095618,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": 99,
+            "definition": "Unknown value",
+            "count": 13,
+            "frequency": 0.0020717131474103584,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          }
+        ],
+        "metadata": null,
+        "likely_bureau": false
+      },
+      {
+        "variable": "MSinceMostRecentTradeOpen",
+        "confidence": 0.48609561752988045,
+        "reasons": [
+          "The variable name contains bureau or credit-attribute terminology.",
+          "352 rows contain configured bureau special values."
+        ],
+        "datatype": "float64",
+        "special_value_count": 352,
+        "special_value_frequency": 0.05609561752988048,
+        "ordinary_value_count": 5923,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Unknown or unscorable response",
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          }
+        ],
+        "metadata": null,
+        "likely_bureau": false
+      },
+      {
+        "variable": "NumSatisfactoryTrades",
+        "confidence": 0.48609561752988045,
+        "reasons": [
+          "The variable name contains bureau or credit-attribute terminology.",
+          "352 rows contain configured bureau special values."
+        ],
+        "datatype": "int64",
+        "special_value_count": 352,
+        "special_value_frequency": 0.05609561752988048,
+        "ordinary_value_count": 5923,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Unknown or unscorable response",
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          }
+        ],
+        "metadata": null,
+        "likely_bureau": false
+      },
+      {
+        "variable": "NumTrades60Ever2DerogPubRec",
+        "confidence": 0.48609561752988045,
+        "reasons": [
+          "The variable name contains bureau or credit-attribute terminology.",
+          "352 rows contain configured bureau special values."
+        ],
+        "datatype": "float64",
+        "special_value_count": 352,
+        "special_value_frequency": 0.05609561752988048,
+        "ordinary_value_count": 5923,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Unknown or unscorable response",
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          }
+        ],
+        "metadata": null,
+        "likely_bureau": false
+      },
+      {
+        "variable": "NumTrades90Ever2DerogPubRec",
+        "confidence": 0.48609561752988045,
+        "reasons": [
+          "The variable name contains bureau or credit-attribute terminology.",
+          "352 rows contain configured bureau special values."
+        ],
+        "datatype": "int64",
+        "special_value_count": 352,
+        "special_value_frequency": 0.05609561752988048,
+        "ordinary_value_count": 5923,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Unknown or unscorable response",
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          }
+        ],
+        "metadata": null,
+        "likely_bureau": false
+      },
+      {
+        "variable": "PercentTradesNeverDelq",
+        "confidence": 0.5761354581673306,
+        "reasons": [
+          "The variable name contains bureau or credit-attribute terminology.",
+          "917 rows contain configured bureau special values."
+        ],
+        "datatype": "float64",
+        "special_value_count": 917,
+        "special_value_frequency": 0.14613545816733067,
+        "ordinary_value_count": 5358,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Unknown or unscorable response",
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": 96,
+            "definition": "Bureau exception",
+            "count": 247,
+            "frequency": 0.039362549800796814,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": 97,
+            "definition": "Suppressed value",
+            "count": 221,
+            "frequency": 0.03521912350597609,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": 98,
+            "definition": "Unavailable value",
+            "count": 93,
+            "frequency": 0.014820717131474103,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": 99,
+            "definition": "Unknown value",
+            "count": 4,
+            "frequency": 0.0006374501992031873,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          }
+        ],
+        "metadata": null,
+        "likely_bureau": true
+      },
+      {
+        "variable": "MaxDelq2PublicRecLast12M",
+        "confidence": 0.48609561752988045,
+        "reasons": [
+          "The variable name contains bureau or credit-attribute terminology.",
+          "352 rows contain configured bureau special values."
+        ],
+        "datatype": "int64",
+        "special_value_count": 352,
+        "special_value_frequency": 0.05609561752988048,
+        "ordinary_value_count": 5923,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Unknown or unscorable response",
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          }
+        ],
+        "metadata": null,
+        "likely_bureau": false
+      },
+      {
+        "variable": "NumTotalTrades",
+        "confidence": 0.48609561752988045,
+        "reasons": [
+          "The variable name contains bureau or credit-attribute terminology.",
+          "352 rows contain configured bureau special values."
+        ],
+        "datatype": "float64",
+        "special_value_count": 352,
+        "special_value_frequency": 0.05609561752988048,
+        "ordinary_value_count": 5923,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Unknown or unscorable response",
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          }
+        ],
+        "metadata": null,
+        "likely_bureau": false
+      },
+      {
+        "variable": "NumTradesOpeninLast12M",
+        "confidence": 0.48609561752988045,
+        "reasons": [
+          "The variable name contains bureau or credit-attribute terminology.",
+          "352 rows contain configured bureau special values."
+        ],
+        "datatype": "float64",
+        "special_value_count": 352,
+        "special_value_frequency": 0.05609561752988048,
+        "ordinary_value_count": 5923,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Unknown or unscorable response",
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          }
+        ],
+        "metadata": null,
+        "likely_bureau": false
+      },
+      {
+        "variable": "PercentInstallTrades",
+        "confidence": 0.48609561752988045,
+        "reasons": [
+          "The variable name contains bureau or credit-attribute terminology.",
+          "352 rows contain configured bureau special values."
+        ],
+        "datatype": "int64",
+        "special_value_count": 352,
+        "special_value_frequency": 0.05609561752988048,
+        "ordinary_value_count": 5923,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Unknown or unscorable response",
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          }
+        ],
+        "metadata": null,
+        "likely_bureau": false
+      },
+      {
+        "variable": "NetFractionRevolvingBurden",
+        "confidence": 0.5150996015936254,
+        "reasons": [
+          "The variable name contains bureau or credit-attribute terminology.",
+          "534 rows contain configured bureau special values."
+        ],
+        "datatype": "float64",
+        "special_value_count": 534,
+        "special_value_frequency": 0.08509960159362549,
+        "ordinary_value_count": 5741,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Unknown or unscorable response",
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": -8,
+            "definition": "Frozen, blocked, or unavailable",
+            "count": 106,
+            "frequency": 0.01689243027888446,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": 96,
+            "definition": "Bureau exception",
+            "count": 13,
+            "frequency": 0.0020717131474103584,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": 97,
+            "definition": "Suppressed value",
+            "count": 25,
+            "frequency": 0.00398406374501992,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": 98,
+            "definition": "Unavailable value",
+            "count": 22,
+            "frequency": 0.00350597609561753,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": 99,
+            "definition": "Unknown value",
+            "count": 16,
+            "frequency": 0.002549800796812749,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          }
+        ],
+        "metadata": null,
+        "likely_bureau": false
+      },
+      {
+        "variable": "NetFractionInstallBurden",
+        "confidence": 0.6,
+        "reasons": [
+          "The variable name contains bureau or credit-attribute terminology.",
+          "2,641 rows contain configured bureau special values."
+        ],
+        "datatype": "int64",
+        "special_value_count": 2641,
+        "special_value_frequency": 0.42087649402390437,
+        "ordinary_value_count": 3634,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Unknown or unscorable response",
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": -8,
+            "definition": "Frozen, blocked, or unavailable",
+            "count": 2059,
+            "frequency": 0.32812749003984065,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": 96,
+            "definition": "Bureau exception",
+            "count": 61,
+            "frequency": 0.009721115537848605,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": 97,
+            "definition": "Suppressed value",
+            "count": 58,
+            "frequency": 0.009243027888446215,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": 98,
+            "definition": "Unavailable value",
+            "count": 58,
+            "frequency": 0.009243027888446215,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": 99,
+            "definition": "Unknown value",
+            "count": 53,
+            "frequency": 0.00844621513944223,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          }
+        ],
+        "metadata": null,
+        "likely_bureau": true
+      },
+      {
+        "variable": "NumRevolvingTradesWBalance",
+        "confidence": 0.49980079681274897,
+        "reasons": [
+          "The variable name contains bureau or credit-attribute terminology.",
+          "438 rows contain configured bureau special values."
+        ],
+        "datatype": "float64",
+        "special_value_count": 438,
+        "special_value_frequency": 0.069800796812749,
+        "ordinary_value_count": 5837,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Unknown or unscorable response",
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": -8,
+            "definition": "Frozen, blocked, or unavailable",
+            "count": 86,
+            "frequency": 0.013705179282868525,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          }
+        ],
+        "metadata": null,
+        "likely_bureau": false
+      },
+      {
+        "variable": "NumInstallTradesWBalance",
+        "confidence": 0.5723107569721115,
+        "reasons": [
+          "The variable name contains bureau or credit-attribute terminology.",
+          "893 rows contain configured bureau special values."
+        ],
+        "datatype": "int64",
+        "special_value_count": 893,
+        "special_value_frequency": 0.14231075697211154,
+        "ordinary_value_count": 5382,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Unknown or unscorable response",
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": -8,
+            "definition": "Frozen, blocked, or unavailable",
+            "count": 541,
+            "frequency": 0.08621513944223108,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          }
+        ],
+        "metadata": null,
+        "likely_bureau": true
+      },
+      {
+        "variable": "NumBank2NatlTradesWHighUtilization",
+        "confidence": 0.5390039840637451,
+        "reasons": [
+          "The variable name contains bureau or credit-attribute terminology.",
+          "684 rows contain configured bureau special values."
+        ],
+        "datatype": "int64",
+        "special_value_count": 684,
+        "special_value_frequency": 0.10900398406374502,
+        "ordinary_value_count": 5591,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Unknown or unscorable response",
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": -8,
+            "definition": "Frozen, blocked, or unavailable",
+            "count": 332,
+            "frequency": 0.05290836653386454,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          }
+        ],
+        "metadata": null,
+        "likely_bureau": false
+      },
+      {
+        "variable": "PercentTradesWBalance",
+        "confidence": 0.48800796812749003,
+        "reasons": [
+          "The variable name contains bureau or credit-attribute terminology.",
+          "364 rows contain configured bureau special values."
+        ],
+        "datatype": "float64",
+        "special_value_count": 364,
+        "special_value_frequency": 0.05800796812749004,
+        "ordinary_value_count": 5911,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Unknown or unscorable response",
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": -8,
+            "definition": "Frozen, blocked, or unavailable",
+            "count": 10,
+            "frequency": 0.0015936254980079682,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          },
+          {
+            "value": 96,
+            "definition": "Bureau exception",
+            "count": 2,
+            "frequency": 0.00031872509960159364,
+            "event_count": null,
+            "event_rate": null,
+            "regular_event_rate": null,
+            "event_rate_delta": null,
+            "recommended_handling": "Review domain mapping before treatment"
+          }
+        ],
+        "metadata": null,
+        "likely_bureau": false
+      }
+    ],
+    "rowsWithSpecialValues": 3037,
+    "declaration": "auto",
+    "variableDefaults": [
+      {
+        "variable": "NetFractionInstallBurden",
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-29T15:23:46.130Z"
+      },
+      {
+        "variable": "PercentTradesNeverDelq",
+        "handling": "preserve_informative",
+        "rationale": "",
+        "updatedAt": "2026-07-28T21:38:46.359Z"
+      },
+      {
+        "variable": "NumInstallTradesWBalance",
+        "handling": "preserve_informative",
+        "rationale": "",
+        "updatedAt": "2026-07-28T21:38:46.359Z"
+      }
+    ],
+    "valueOverrides": [
+      {
+        "variable": "NumInstallTradesWBalance",
+        "value": -8,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:38.734Z",
+        "override": true
+      },
+      {
+        "variable": "NumInstallTradesWBalance",
+        "value": -9,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:36.774Z",
+        "override": true
+      },
+      {
+        "variable": "NetFractionInstallBurden",
+        "value": 99,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:34.270Z",
+        "override": true
+      },
+      {
+        "variable": "NetFractionInstallBurden",
+        "value": 98,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:32.398Z",
+        "override": true
+      },
+      {
+        "variable": "NetFractionInstallBurden",
+        "value": 97,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:30.558Z",
+        "override": true
+      },
+      {
+        "variable": "NetFractionInstallBurden",
+        "value": 96,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:28.478Z",
+        "override": true
+      },
+      {
+        "variable": "NetFractionInstallBurden",
+        "value": -8,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:26.191Z",
+        "override": true
+      },
+      {
+        "variable": "NetFractionInstallBurden",
+        "value": -9,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:24.054Z",
+        "override": true
+      },
+      {
+        "variable": "PercentTradesNeverDelq",
+        "value": 99,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:21.886Z",
+        "override": true
+      },
+      {
+        "variable": "PercentTradesNeverDelq",
+        "value": 98,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:19.678Z",
+        "override": true
+      },
+      {
+        "variable": "PercentTradesNeverDelq",
+        "value": 97,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:17.142Z",
+        "override": true
+      },
+      {
+        "variable": "PercentTradesNeverDelq",
+        "value": 96,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:15.078Z",
+        "override": true
+      },
+      {
+        "variable": "PercentTradesNeverDelq",
+        "value": -9,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:11.894Z",
+        "override": true
+      }
+    ],
+    "reviewerRationale": "",
+    "reviewStatus": "draft",
+    "reviewer": "Current ATLAS user",
+    "reviewedAt": "2026-07-29T21:17:18.072223+00:00",
+    "semanticSeparation": {
+      "nullMissingValues": "separate",
+      "parseFailures": "separate",
+      "ordinaryOutliers": "separate"
+    }
+  },
+  "evidenceId": "ev-credit-bureau-detection-and-special-value--ec0ebbd1ac9c59ff",
+  "governance": {},
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-27T21:12:40.207147+00:00",
+  "capturedAt": "2026-07-27T21:12:40.207147+00:00",
+  "updatedAt": "2026-07-29T21:20:46.652097+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 71
+}

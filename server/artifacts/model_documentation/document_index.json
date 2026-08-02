@@ -1,6 +1,67 @@
 {
   "documents": [
     {
+      "createdAt": "2026-07-29T22:14:48.889918+00:00",
+      "documentId": "doc-atlas-mrzpau4t-1785363288",
+      "projectId": "atlas-mrzpau4t",
+      "projectName": "Recovered Classification Predictive Model",
+      "quality": {
+        "checks": [
+          {
+            "detail": "0 of 25 required sections complete.",
+            "id": "required_sections",
+            "label": "Required sections complete",
+            "status": "pass"
+          },
+          {
+            "detail": "Dataset inventory evidence is attached.",
+            "id": "dataset_lineage",
+            "label": "Dataset lineage documented",
+            "status": "pass"
+          },
+          {
+            "detail": "Target definition draft is available.",
+            "id": "target_definition",
+            "label": "Target definition documented",
+            "status": "pass"
+          },
+          {
+            "detail": "Attach evaluation or diagnostic evidence.",
+            "id": "performance_table",
+            "label": "Model performance table",
+            "status": "warning"
+          },
+          {
+            "detail": "Interpretability narrative is drafted.",
+            "id": "model_interpretation",
+            "label": "Model interpretation",
+            "status": "pass"
+          },
+          {
+            "detail": "Monitoring plan draft is available.",
+            "id": "monitoring_plan",
+            "label": "Monitoring plan",
+            "status": "pass"
+          },
+          {
+            "detail": "3 governance note(s) detected.",
+            "id": "governance_notes",
+            "label": "Fair Lending / governance notes",
+            "status": "pass"
+          }
+        ],
+        "completionPct": 0,
+        "exportReady": false,
+        "governanceWarningsCount": 3,
+        "missingEvidenceCount": 0,
+        "requiredSectionsComplete": 0,
+        "requiredSectionsTotal": 25,
+        "sectionsNeedingReview": 26
+      },
+      "templateType": "model_development_document",
+      "updatedAt": "2026-08-01T19:18:07.260636+00:00"
+    },
+    {
       "createdAt": "2026-07-14T14:31:16.100642+00:00",
       "documentId": "doc-atlas-mrih2gqp-1784039476",
       "projectId": "atlas-mrik5piw",

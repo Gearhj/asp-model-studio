@@ -9,6 +9,14 @@ import {
 import { upsertProjectSnapshot } from "../lib/localProjects";
 import { restoreProjectSnapshotArtifacts } from "../lib/projectPersistence";
 import { setCachedProjectId } from "../lib/activeProjectContext";
+import {
+  requireCanonicalDatasetIdentity,
+  type CanonicalDatasetIdentity,
+} from "../lib/datasetIdentity";
+import {
+  deriveEffectiveWorkflowView,
+  type EffectiveWorkflowStep,
+} from "../lib/workflowEffectiveState";
 
 type StepId =
   | "dashboard"
@@ -46,13 +54,16 @@ export type WorkflowProjectSnapshot = {
   workflowSteps: WorkflowStep[];
   currentStepId: string;
   hasDataset?: boolean;
+  /** Exact, backend-verified Dataset Library binding. Never inferred from hasDataset. */
+  datasetIdentity?: CanonicalDatasetIdentity | null;
   projectTools?: ProjectToolState;
   persistedLocalState?: unknown;
   restoreWarnings?: string[];
 };
 
-type WorkflowState = {
+export type WorkflowState = {
   hasDataset: boolean;
+  datasetIdentity: CanonicalDatasetIdentity | null;
   projectId: string;
   modelId: string;
   projectName: string;
@@ -60,6 +71,13 @@ type WorkflowState = {
   workflowId: string;
   workflowSteps: WorkflowStep[];
   currentStepId: string;
+  /** Historical completion stays in workflowSteps; these fields are ephemeral backend reconciliation. */
+  effectiveWorkflowSteps: EffectiveWorkflowStep[];
+  effectiveCurrentStepId: string;
+  historicalCompletedSteps: string[];
+  effectiveCompletedSteps: string[];
+  effectiveIdentityValidity: string;
+  effectiveStateAuthoritative: boolean;
   restoreWarnings: string[];
   projectTools: ProjectToolState;
 
@@ -69,6 +87,7 @@ type WorkflowState = {
   paths: Record<StepId, string>;
 
   setHasDataset: (v: boolean) => void;
+  setDatasetIdentity: (identity: CanonicalDatasetIdentity | null) => void;
   setModelId: (modelId: string) => void;
   setProjectName: (name: string) => void;
   setProjectType: (projectType: ProjectType) => void;
@@ -76,6 +95,8 @@ type WorkflowState = {
   loadProjectSnapshot: (snapshot: WorkflowProjectSnapshot) => void;
   setCurrentStepId: (id: string) => void;
   setWorkflowStepStatus: (id: string, status: WorkflowStep["status"]) => void;
+  applyAuthoritativeWorkflowState: (backendState: unknown) => void;
+  invalidateEffectiveWorkflow: (identityValidity?: string) => void;
   setStepStatus: (id: StepId, s: StepStatus) => void;
   markComplete: (id: StepId) => void;
   markWorkflowStepComplete: (id: string) => void;
@@ -187,9 +208,47 @@ function projectId() {
   return `atlas-${Date.now().toString(36)}`;
 }
 
-function snapshotFromState(state: Pick<WorkflowState, "hasDataset" | "projectId" | "modelId" | "projectName" | "projectType" | "workflowId" | "workflowSteps" | "currentStepId" | "projectTools">): WorkflowProjectSnapshot {
+function normalizedDatasetIdentity(value: unknown, expectedProjectId: string) {
+  try {
+    const identity = requireCanonicalDatasetIdentity(
+      value && typeof value === "object" ? value : null,
+      "Persisted workflow dataset identity",
+    );
+    return identity.project_id === expectedProjectId ? identity : null;
+  } catch {
+    return null;
+  }
+}
+
+function effectiveView(
+  workflowSteps: WorkflowStep[],
+  projectType: ProjectType,
+  datasetIdentity: CanonicalDatasetIdentity | null,
+  backendState?: unknown,
+) {
+  return deriveEffectiveWorkflowView({
+    workflowSteps,
+    projectType,
+    datasetIdentity,
+    backendState,
+  });
+}
+
+function effectiveStateFields(view: ReturnType<typeof effectiveView>) {
+  return {
+    effectiveWorkflowSteps: view.effectiveWorkflowSteps,
+    effectiveCurrentStepId: view.effectiveCurrentStepId,
+    historicalCompletedSteps: view.historicalCompletedSteps,
+    effectiveCompletedSteps: view.effectiveCompletedSteps,
+    effectiveIdentityValidity: view.identityValidity,
+    effectiveStateAuthoritative: view.authoritative,
+  };
+}
+
+function snapshotFromState(state: Pick<WorkflowState, "hasDataset" | "datasetIdentity" | "projectId" | "modelId" | "projectName" | "projectType" | "workflowId" | "workflowSteps" | "currentStepId" | "projectTools">): WorkflowProjectSnapshot {
   return {
     hasDataset: state.hasDataset,
+    datasetIdentity: state.datasetIdentity,
     projectId: state.projectId,
     modelId: state.modelId,
     projectName: state.projectName,
@@ -211,15 +270,24 @@ function persistActiveProject(state: ReturnType<typeof useWorkflowStore.getState
 
 export const useWorkflowStore = create<WorkflowState>()(
   persist(
-    (set, get) => ({
+    (set, get) => {
+      const initialWorkflowSteps = workflowStepsWithStatus(defaultWorkflow.steps);
+      const initialEffective = effectiveView(
+        initialWorkflowSteps,
+        "predictive-modeling",
+        null,
+      );
+      return ({
       hasDataset: false,
+      datasetIdentity: null,
       projectId: projectId(),
       modelId: "",
       projectName: "Untitled ATLAS Project",
       projectType: "predictive-modeling",
       workflowId: defaultWorkflow.id,
-      workflowSteps: workflowStepsWithStatus(defaultWorkflow.steps),
+      workflowSteps: initialWorkflowSteps,
       currentStepId: defaultWorkflow.steps[0]?.id ?? "step00",
+      ...effectiveStateFields(initialEffective),
       restoreWarnings: [],
       projectTools: defaultProjectTools,
 
@@ -230,7 +298,32 @@ export const useWorkflowStore = create<WorkflowState>()(
       paths: workflowPaths,
 
       setHasDataset: (v) => {
-        set({ hasDataset: v });
+        set((state) => ({
+          hasDataset: v,
+          ...(!v
+            ? effectiveStateFields(effectiveView(
+                state.workflowSteps,
+                state.projectType,
+                null,
+              ))
+            : {}),
+        }));
+        persistActiveProject(get());
+      },
+
+      setDatasetIdentity: (identity) => {
+        const projectId = get().projectId;
+        const canonical = identity
+          ? normalizedDatasetIdentity(identity, projectId)
+          : null;
+        set((state) => ({
+          datasetIdentity: canonical,
+          ...effectiveStateFields(effectiveView(
+            state.workflowSteps,
+            state.projectType,
+            canonical,
+          )),
+        }));
         persistActiveProject(get());
       },
 
@@ -248,11 +341,13 @@ export const useWorkflowStore = create<WorkflowState>()(
         {
           set((state) => {
             const workflow = getWorkflowForProjectType(projectType);
+            const workflowSteps = workflowStepsWithStatus(workflow.steps, state.steps);
             return {
               projectType,
               workflowId: workflow.id,
-              workflowSteps: workflowStepsWithStatus(workflow.steps, state.steps),
+              workflowSteps,
               currentStepId: workflow.steps[0]?.id ?? state.currentStepId,
+              ...effectiveStateFields(effectiveView(workflowSteps, projectType, state.datasetIdentity)),
             };
           });
           persistActiveProject(get());
@@ -264,15 +359,19 @@ export const useWorkflowStore = create<WorkflowState>()(
             const workflow = workflowSteps
               ? { id: workflowId ?? "custom-workflow", steps: workflowSteps }
               : getWorkflowDefinition(workflowId ?? getWorkflowForProjectType(projectType).id);
+            const nextWorkflowSteps = workflowStepsWithStatus(workflow.steps, state.steps);
             return {
               projectId: projectId(),
+              hasDataset: false,
+              datasetIdentity: null,
               modelId: modelId?.trim() ?? state.modelId,
               projectName: projectName?.trim() || "Untitled ATLAS Project",
               projectType,
               workflowId: workflow.id,
-              workflowSteps: workflowStepsWithStatus(workflow.steps, state.steps),
+              workflowSteps: nextWorkflowSteps,
               currentStepId: workflow.steps[0]?.id ?? "step00",
               restoreWarnings: [],
+              ...effectiveStateFields(effectiveView(nextWorkflowSteps, projectType, null)),
             };
           });
           persistActiveProject(get());
@@ -286,9 +385,14 @@ export const useWorkflowStore = create<WorkflowState>()(
             const workflowSteps = Array.isArray(snapshot.workflowSteps) && snapshot.workflowSteps.length
               ? mergeWorkflowStepsWithDefinition(snapshot.workflowSteps, workflow.id, state.steps)
               : workflowStepsWithStatus(workflow.steps, state.steps);
+            const datasetIdentity = normalizedDatasetIdentity(
+              snapshot.datasetIdentity,
+              snapshot.projectId,
+            );
             return {
               hasDataset: Boolean(snapshot.hasDataset ?? state.hasDataset),
               projectId: snapshot.projectId || projectId(),
+              datasetIdentity,
               modelId: snapshot.modelId ?? "",
               projectName: snapshot.projectName?.trim() || "Untitled ATLAS Project",
               projectType: snapshot.projectType ?? workflow.projectType,
@@ -297,6 +401,13 @@ export const useWorkflowStore = create<WorkflowState>()(
               currentStepId: normalizeLegacyStepId(snapshot.currentStepId, workflowSteps),
               projectTools: { ...defaultProjectTools, ...(snapshot.projectTools ?? {}) },
               restoreWarnings,
+              // Browser/imported snapshots preserve audit history only. They
+              // never carry effective validity into a reopened session.
+              ...effectiveStateFields(effectiveView(
+                workflowSteps,
+                snapshot.projectType ?? workflow.projectType,
+                datasetIdentity,
+              )),
             };
           });
           persistActiveProject(get());
@@ -309,41 +420,101 @@ export const useWorkflowStore = create<WorkflowState>()(
 
       setWorkflowStepStatus: (id, status) =>
         {
-          set((state) => ({
-            workflowSteps: state.workflowSteps.map((step) => (step.id === id ? { ...step, status } : step)),
-          }));
+          set((state) => {
+            const workflowSteps = state.workflowSteps.map((step) => (step.id === id ? { ...step, status } : step));
+            return {
+              workflowSteps,
+              ...(state.projectType === "predictive-modeling"
+                ? {}
+                : effectiveStateFields(effectiveView(workflowSteps, state.projectType, state.datasetIdentity))),
+            };
+          });
           persistActiveProject(get());
         },
 
+      applyAuthoritativeWorkflowState: (backendState) => {
+        set((state) => effectiveStateFields(effectiveView(
+          state.workflowSteps,
+          state.projectType,
+          state.datasetIdentity,
+          backendState,
+        )));
+      },
+
+      invalidateEffectiveWorkflow: (identityValidity = "unverified") => {
+        set((state) => {
+          const retainedProjectContext = state.effectiveWorkflowSteps.find(
+            (step) => step.id === "step00" && (step.status === "complete" || step.status === "skipped"),
+          );
+          const backendState = {
+            historicalCompletedSteps: state.workflowSteps
+              .filter((step) => step.status === "complete" || step.status === "skipped")
+              .map((step) => step.id),
+            effectiveCompletedSteps: retainedProjectContext ? [retainedProjectContext.id] : [],
+            effectiveCurrentStepId: state.projectType === "predictive-modeling" ? "step01" : state.currentStepId,
+            workflowStatus: {
+              identityValidity,
+              effectiveSteps: retainedProjectContext
+                ? { [retainedProjectContext.id]: retainedProjectContext.status }
+                : {},
+            },
+          };
+          return effectiveStateFields(effectiveView(
+            state.workflowSteps,
+            state.projectType,
+            state.datasetIdentity,
+            backendState,
+          ));
+        });
+      },
+
       setStepStatus: (id, s) =>
         {
-          set((state) => ({
-            steps: { ...state.steps, [id]: s },
-            workflowSteps: state.workflowSteps.map((step) =>
-              step.id === id ? { ...step, status: s === "completed" ? "complete" : s } : step
-            ),
-          }));
+          set((state) => {
+            const workflowSteps: WorkflowStep[] = state.workflowSteps.map((step) =>
+              step.id === id ? { ...step, status: s === "completed" ? "complete" as const : s } : step
+            );
+            return {
+              steps: { ...state.steps, [id]: s },
+              workflowSteps,
+              ...(state.projectType === "predictive-modeling"
+                ? {}
+                : effectiveStateFields(effectiveView(workflowSteps, state.projectType, state.datasetIdentity))),
+            };
+          });
           persistActiveProject(get());
         },
 
       markComplete: (id) =>
         {
-          set((state) => ({
-            steps: { ...state.steps, [id]: "completed" },
-            workflowSteps: state.workflowSteps.map((step) =>
-              step.id === id ? { ...step, status: "complete" } : step
-            ),
-          }));
+          set((state) => {
+            const workflowSteps: WorkflowStep[] = state.workflowSteps.map((step) =>
+              step.id === id ? { ...step, status: "complete" as const } : step
+            );
+            return {
+              steps: { ...state.steps, [id]: "completed" },
+              workflowSteps,
+              ...(state.projectType === "predictive-modeling"
+                ? {}
+                : effectiveStateFields(effectiveView(workflowSteps, state.projectType, state.datasetIdentity))),
+            };
+          });
           persistActiveProject(get());
         },
 
       markWorkflowStepComplete: (id) =>
         {
-          set((state) => ({
-            workflowSteps: state.workflowSteps.map((step) =>
-              step.id === id ? { ...step, status: "complete" } : step
-            ),
-          }));
+          set((state) => {
+            const workflowSteps: WorkflowStep[] = state.workflowSteps.map((step) =>
+              step.id === id ? { ...step, status: "complete" as const } : step
+            );
+            return {
+              workflowSteps,
+              ...(state.projectType === "predictive-modeling"
+                ? {}
+                : effectiveStateFields(effectiveView(workflowSteps, state.projectType, state.datasetIdentity))),
+            };
+          });
           persistActiveProject(get());
         },
 
@@ -364,6 +535,13 @@ export const useWorkflowStore = create<WorkflowState>()(
               currentStepId: workflowSteps.some((step) => step.id === state.currentStepId)
                 ? state.currentStepId
                 : workflowSteps[0]?.id ?? state.currentStepId,
+              effectiveWorkflowSteps: workflowSteps.map((step) => ({
+                ...step,
+                status: state.effectiveWorkflowSteps.find((effective) => effective.id === step.id)?.status ?? "pending",
+              })),
+              effectiveCurrentStepId: workflowSteps.some((step) => step.id === state.effectiveCurrentStepId)
+                ? state.effectiveCurrentStepId
+                : workflowSteps[0]?.id ?? state.effectiveCurrentStepId,
             };
           });
           if (changed) persistActiveProject(get());
@@ -391,26 +569,46 @@ export const useWorkflowStore = create<WorkflowState>()(
       },
 
       reset: () =>
-        set({
+        {
+          const workflowSteps = workflowStepsWithStatus(defaultWorkflow.steps);
+          set({
           hasDataset: false,
+          datasetIdentity: null,
           projectId: projectId(),
           modelId: "",
           projectName: "Untitled ATLAS Project",
           projectType: "predictive-modeling",
           workflowId: defaultWorkflow.id,
-          workflowSteps: workflowStepsWithStatus(defaultWorkflow.steps),
+          workflowSteps,
           currentStepId: defaultWorkflow.steps[0]?.id ?? "step00",
           restoreWarnings: [],
           steps: { ...initialSteps },
-        }),
-    }),
+          ...effectiveStateFields(effectiveView(workflowSteps, "predictive-modeling", null)),
+          });
+        },
+    });
+    },
     {
       name: "ds-workflow-store",
       storage: createJSONStorage(() => sessionStorage),
-      version: 6,
-      migrate: (persisted: any) => ({
-        ...persisted,
+      version: 8,
+      migrate: (persisted: any) => {
+        const {
+          effectiveWorkflowSteps: _effectiveWorkflowSteps,
+          effectiveCurrentStepId: _effectiveCurrentStepId,
+          historicalCompletedSteps: _historicalCompletedSteps,
+          effectiveCompletedSteps: _effectiveCompletedSteps,
+          effectiveIdentityValidity: _effectiveIdentityValidity,
+          effectiveStateAuthoritative: _effectiveStateAuthoritative,
+          ...historical
+        } = persisted ?? {};
+        return ({
+        ...historical,
         projectId: persisted?.projectId ?? projectId(),
+        datasetIdentity: normalizedDatasetIdentity(
+          persisted?.datasetIdentity,
+          persisted?.projectId ?? "",
+        ),
         modelId: persisted?.modelId ?? "",
         projectName: persisted?.projectName ?? "Untitled ATLAS Project",
         projectType: persisted?.projectType ?? "predictive-modeling",
@@ -427,10 +625,38 @@ export const useWorkflowStore = create<WorkflowState>()(
           : workflowStepsWithStatus(defaultWorkflow.steps, persisted?.steps ?? {})),
         restoreWarnings: [],
         projectTools: { ...defaultProjectTools, ...(persisted?.projectTools ?? {}) },
-      }),
+        });
+      },
+      // Effective validity is backend-derived and intentionally ephemeral.
+      // Session/local storage may preserve audit history, but can never grant
+      // current workflow validity after a reload.
+      partialize: (state) => {
+        const {
+          effectiveWorkflowSteps: _effectiveWorkflowSteps,
+          effectiveCurrentStepId: _effectiveCurrentStepId,
+          historicalCompletedSteps: _historicalCompletedSteps,
+          effectiveCompletedSteps: _effectiveCompletedSteps,
+          effectiveIdentityValidity: _effectiveIdentityValidity,
+          effectiveStateAuthoritative: _effectiveStateAuthoritative,
+          ...persisted
+        } = state;
+        return persisted;
+      },
     }
   )
 );
+
+export function selectEffectiveWorkflowSteps(state: WorkflowState) {
+  return state.projectType === "predictive-modeling"
+    ? state.effectiveWorkflowSteps
+    : state.workflowSteps;
+}
+
+export function selectEffectiveCurrentStepId(state: WorkflowState) {
+  return state.projectType === "predictive-modeling"
+    ? state.effectiveCurrentStepId
+    : state.currentStepId;
+}
 
 // Keep the lightweight ambient projectId cache (src/lib/activeProjectContext.ts)
 // in sync so src/lib/localDataset.ts can resolve the active project for its

@@ -119,7 +119,8 @@ export function EventRateShapeGallery({
     [limit, rows]
   );
   const baseline =
-    finite(populationEventRate) ?? weightedBaseline(galleryRows[0]);
+    weightedBaseline(galleryRows[0]) ??
+    (galleryRows.length ? null : finite(populationEventRate));
   const maximumRate = Math.max(
     0.01,
     baseline ?? 0,
@@ -175,10 +176,12 @@ export function EventRateShapeGallery({
   return (
     <InsightSection
       testId="event-rate-shape-gallery"
+      anchorId="eda-predictors-shape-gallery"
       icon={<LineChart size={18} aria-hidden="true" />}
       eyebrow="Target behavior comparison"
       title="Event-Rate Shape Gallery"
       question="How does target behavior vary across predictors?"
+      scopeNote="Development Population · target-directed event-rate bands and baseline · sealed final holdout excluded"
       action={
         <div className="flex flex-wrap gap-2">
           <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
@@ -346,7 +349,7 @@ export function EventRateShapeGallery({
             })}
           </div>
           <p className="mt-3 text-xs leading-5 text-slate-500">
-            Dashed line: full-population event-rate baseline. Curves use the
+            Dashed line: Development Population event-rate baseline. Curves use the
             quantile aggregates already returned in the single Predictor
             response; no per-predictor chart request is issued.
           </p>
@@ -545,10 +548,12 @@ export function PredictorQualityMatrix({
   return (
     <InsightSection
       testId="predictor-quality-matrix"
+      anchorId="eda-predictors-quality-matrix"
       icon={<Grid3X3 size={18} aria-hidden="true" />}
       eyebrow="Comparable quality dimensions"
       title="Predictor Quality Matrix"
       question="Where are quality or treatment risks?"
+      scopeNote="Mixed scope · IV, monotonicity, and VIF use the Development Population; missingness, outliers, distinct counts, skew, and special-value burden use the Full Governed Population"
       action={
         <button
           type="button"
@@ -621,8 +626,10 @@ export function PredictorQualityMatrix({
         >
           <title id="quality-matrix-title">Predictor Quality Matrix</title>
           <desc id="quality-matrix-desc">
-            Normalized heatmap of authorized predictors by eight quality
-            dimensions. Raw values are available by keyboard focus and hover.
+            Governed mixed-scope normalized heatmap of authorized predictors by
+            eight quality dimensions. Target-directed metrics use the Development
+            Population and structural metrics use the Full Governed Population.
+            Raw values are available by keyboard focus and hover.
           </desc>
           <defs>
             <pattern
@@ -887,10 +894,12 @@ export function MissingnessSpecialValueMap({
   return (
     <InsightSection
       testId="missingness-special-value-map"
+      anchorId="eda-predictors-special-values"
       icon={<AlertTriangle size={18} aria-hidden="true" />}
       eyebrow="Exceptional-value structure"
       title="Missingness / Special-Value Map"
       question="What exceptional values require treatment?"
+      scopeNote="Full Governed Population · structural missingness, ordinary outliers, and bureau-special inventory"
       action={
         <button
           type="button"
@@ -951,7 +960,8 @@ export function MissingnessSpecialValueMap({
           </title>
           <desc id="special-map-desc">
             Mutually exclusive ordinary inlier, ordinary outlier, null-missing,
-            and bureau-special shares for authorized predictors.
+            and bureau-special shares for authorized predictors across the Full
+            Governed Population.
           </desc>
           {[0, 0.25, 0.5, 0.75, 1].map((tick) => (
             <g key={tick}>
@@ -1143,23 +1153,28 @@ export function MissingnessSpecialValueMap({
 
 function InsightSection({
   testId,
+  anchorId,
   icon,
   eyebrow,
   title,
   question,
+  scopeNote,
   action,
   children,
 }: {
   testId: string;
+  anchorId: string;
   icon: React.ReactNode;
   eyebrow: string;
   title: string;
   question: string;
+  scopeNote: string;
   action?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
     <section
+      id={anchorId}
       className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
       data-testid={testId}
     >
@@ -1177,6 +1192,12 @@ function InsightSection({
             </h3>
             <p className="mt-1 text-sm leading-6 text-slate-600">
               {question}
+            </p>
+            <p
+              className="mt-2 text-xs font-semibold leading-5 text-indigo-800"
+              data-testid={`${testId}-scope`}
+            >
+              {scopeNote}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">

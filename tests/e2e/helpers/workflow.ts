@@ -21,8 +21,8 @@ const GATING_ACTION_LABELS = [
   "Save predictor selections",
   "Create Validation Split",
   "Rebuild Validation Split",
-  // Interpretation (step09): final model must be RFE-selected and saved before Scoring unlocks.
-  "Run RFE",
+  // Interpretation (step09): the exact evaluated candidate must be saved before Scoring unlocks.
+  // RFE is optional analysis and is deliberately not a progression gate.
   "Save as Final Model",
 ];
 

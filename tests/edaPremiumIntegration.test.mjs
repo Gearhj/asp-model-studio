@@ -20,6 +20,7 @@ const sources = {
   styles: read("src/components/eda/eda-premium.css"),
   payload: read("src/lib/edaDocumentationPayload.ts"),
   findings: read("src/lib/edaFindings.ts"),
+  findingGovernance: read("src/lib/edaFindingGovernance.ts"),
   api: read("src/lib/edaDocumentationApi.ts"),
   mdd: read(
     "src/components/documentation/EdaDocumentationLiveLink.tsx",
@@ -80,6 +81,39 @@ vm.runInNewContext(
   { filename: "edaFindings.test.js" },
 );
 
+const compiledFindingGovernance = ts.transpileModule(
+  sources.findingGovernance,
+  {
+    compilerOptions: commonJsCompilerOptions,
+    fileName: "edaFindingGovernance.ts",
+  },
+).outputText;
+const findingGovernanceModule = { exports: {} };
+vm.runInNewContext(
+  compiledFindingGovernance,
+  {
+    module: findingGovernanceModule,
+    exports: findingGovernanceModule.exports,
+    require(specifier) {
+      if (specifier === "./edaFindings") return findingsModule.exports;
+      throw new Error(`Unexpected governance test import: ${specifier}`);
+    },
+    console,
+    JSON,
+    Math,
+    Object,
+    Number,
+    String,
+    Array,
+    Boolean,
+    Map,
+    Set,
+    Date,
+    Error,
+  },
+  { filename: "edaFindingGovernance.test.js" },
+);
+
 const compiledPayload = ts.transpileModule(sources.payload, {
   compilerOptions: {
     ...commonJsCompilerOptions,
@@ -107,6 +141,9 @@ vm.runInNewContext(
       }
       if (specifier === "./edaDocumentationApi") return {};
       if (specifier === "./edaFindings") return findingsModule.exports;
+      if (specifier === "./edaFindingGovernance") {
+        return findingGovernanceModule.exports;
+      }
       throw new Error(`Unexpected payload test import: ${specifier}`);
     },
     console,
@@ -117,6 +154,7 @@ vm.runInNewContext(
     String,
     Array,
     Boolean,
+    Set,
   },
   { filename: "edaDocumentationPayload.test.js" },
 );
@@ -141,6 +179,8 @@ const baseInput = {
   },
   findings: {
     commentary: "Reviewed the full governed HELOC population.",
+    overallConclusion:
+      "Governed EDA evidence is suitable for documented carry-forward.",
     status: "accepted",
     duplicateTreatment: "review",
   },
@@ -264,6 +304,54 @@ const baseInput = {
     findings: { findings: [], carry_forward: {} },
   },
 };
+const governedContract = {
+  artifact_id: "eda-contract-heathash",
+  artifact_hash: "contract-hash-1",
+  analysis_scope: "development_population",
+  analysis_population_id: "development-split-1",
+  rows_used: 8367,
+  rows_excluded: 2092,
+  special_value_policy_id: "eda-special-policy-1",
+  binning_specification: {
+    method: "quantile_actual_value_boundaries",
+    requested_bins: 10,
+  },
+  calculation_method: {
+    iv_woe: "quantile_actual_value_boundaries_additive_smoothing",
+    correlation: ["pearson", "spearman"],
+    vif: "complete_case_ols_r_squared",
+  },
+  created_at: "2026-08-01T10:00:00Z",
+  predictor_artifacts: { duplicated_nested_payload: true },
+  relationship_artifact: { duplicated_nested_payload: true },
+};
+const governedPredictorArtifacts = {
+  ExternalRiskEstimate: {
+    artifact_id: "eda-predictor-external-risk",
+    artifact_hash: "predictor-hash-1",
+    iv_artifact_id: "eda-iv-external-risk",
+    iv_woe: {
+      binning_method: "development_population_quantile_actual_value_boundaries",
+      special_value_treatment:
+        "separate_named_groups_outside_ordinary_quantiles",
+    },
+    ordinary_outlier: {
+      calculation_method: "1.5_iqr_over_ordinary_valid_numeric_values_only",
+      excludes_bureau_special_values: true,
+    },
+  },
+};
+const governedRelationshipArtifact = {
+  artifact_id: "eda-relationships-heloc",
+  artifact_hash: "relationships-hash-1",
+  correlation_method: ["pearson", "spearman"],
+  vif_method: "complete_case_ols_r_squared",
+};
+baseInput.sections.overview.governed_analytical_contract = governedContract;
+baseInput.sections.predictors.governed_predictor_artifacts =
+  governedPredictorArtifacts;
+baseInput.sections.relationships.governed_relationship_artifact =
+  governedRelationshipArtifact;
 const generated = buildPayload(baseInput);
 
 check("1. Overview has a deliberate analytical launch hierarchy", () => {
@@ -367,6 +455,98 @@ check("11. Canonical EDA documentation payload is generated for all six sections
   assert.equal(generated.unresolved_blocking_findings.length, 0);
 });
 
+check("11b. Governed artifact identity and methods reach MDD without duplicate nesting", () => {
+  const contract = generated.sections.overview.governed_analytical_contract;
+  assert.equal(contract.artifact_id, governedContract.artifact_id);
+  assert.equal(contract.artifact_hash, governedContract.artifact_hash);
+  assert.equal(contract.created_at, governedContract.created_at);
+  assert.equal(contract.predictor_artifacts, undefined);
+  assert.equal(contract.relationship_artifact, undefined);
+  assert.equal(
+    generated.sections.predictors.governed_predictor_artifacts
+      .ExternalRiskEstimate.iv_woe.binning_method,
+    governedPredictorArtifacts.ExternalRiskEstimate.iv_woe.binning_method,
+  );
+  assert.equal(
+    generated.sections.predictors.governed_predictor_artifacts
+      .ExternalRiskEstimate.ordinary_outlier.calculation_method,
+    governedPredictorArtifacts.ExternalRiskEstimate.ordinary_outlier
+      .calculation_method,
+  );
+  assert.equal(
+    generated.sections.relationships.governed_relationship_artifact.artifact_id,
+    governedRelationshipArtifact.artifact_id,
+  );
+});
+
+check("11c. Volatile artifact execution metadata does not change EDA analysis identity", () => {
+  const reloaded = JSON.parse(JSON.stringify(baseInput));
+  reloaded.sections.overview.governed_analytical_contract.created_at =
+    "2026-08-01T11:00:00Z";
+  reloaded.sections.predictors.governed_predictor_artifacts.ExternalRiskEstimate.generated_at =
+    "2026-08-01T11:00:00Z";
+  reloaded.sections.relationships.governed_relationship_artifact.cache_status =
+    "hit";
+  reloaded.sections.overview.duration_ms = 999;
+  reloaded.sections.overview.cache_status = "hit";
+  const afterRestart = buildPayload(reloaded);
+  assert.equal(afterRestart.eda_analysis_version, generated.eda_analysis_version);
+  assert.equal(
+    afterRestart.sections.overview.governed_analytical_contract.created_at,
+    "2026-08-01T11:00:00Z",
+  );
+});
+
+check("11d. Exact backend documentation record wins over browser-local review state", () => {
+  const recovered = payloadModule.exports.hydrateEdaFindingsFromDocumentation(
+    {
+      ...generated,
+      updated_at: "2026-08-01T12:00:00Z",
+      duplicate_decision:
+        "Keep duplicate rows as documented repeated observations.",
+      reviewer_record: {
+        ...generated.reviewer_record,
+        overall_conclusion: "Recovered governed conclusion.",
+        reviewer_commentary: "Recovered governed commentary.",
+        overall_review_status: "accepted_with_conditions",
+        required_conditions: ["Independent validation review."],
+      },
+      sections: {
+        ...generated.sections,
+        findings: {
+          ...generated.sections.findings,
+          parent_findings: [
+            {
+              parent_id: "eda-parent-recovered",
+              reviewer_disposition: "rejected",
+              reviewer_rationale: "Reviewed and not adopted.",
+              downstream_destination: null,
+              suggested_transformation: "No transformation",
+            },
+          ],
+        },
+      },
+    },
+    {
+      commentary: "Stale browser commentary.",
+      status: "draft",
+      overallConclusion: "Stale browser conclusion.",
+    },
+  );
+  assert.equal(recovered.commentary, "Recovered governed commentary.");
+  assert.equal(recovered.overallConclusion, "Recovered governed conclusion.");
+  assert.equal(recovered.status, "accepted_with_conditions");
+  assert.equal(recovered.duplicateTreatment, "keep");
+  assert.equal(
+    recovered.parentDecisions["eda-parent-recovered"].disposition,
+    "rejected",
+  );
+  assert.deepEqual(
+    Array.from(recovered.requiredConditions),
+    ["Independent validation review."],
+  );
+});
+
 check("12. Confirmation persists a server snapshot consumed by MDD", () => {
   includesAll(sources.step, [
     "confirmEdaDocumentation",
@@ -374,7 +554,10 @@ check("12. Confirmation persists a server snapshot consumed by MDD", () => {
     "getEdaDocumentationState",
   ]);
   includesAll(sources.studio, ["<EdaDocumentationLiveLink", "projectId={projectId}"]);
-  includesAll(sources.backend, ["def confirm(", "current_confirmation_id", "approvals"]);
+  includesAll(sources.api, ["/eda/completion", "idempotency_key"]);
+  includesAll(sources.router, ["EDACompletionRequest", "complete_eda_governance"]);
+  includesAll(sources.backend, ["def complete(", "completion_sequence", "current_confirmation_id", "approvals"]);
+  includesAll(sources.step, ["evidenceId", "sourceRunReference"]);
 });
 
 check("13. Upstream changes save a separate draft and mark approval stale", () => {

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import {
   CalendarClock,
   CheckCircle2,
-  ChevronDown,
   CircleAlert,
   CircleDot,
   Database,
@@ -1714,39 +1713,21 @@ export default function Step06BalancingSplit() {
           )}
         </AtlasWorkflowSection>
 
-        <details className="prep-reference-disclosure">
-          <summary>
-            <span>
-              <span className="prep-reference-disclosure__title">
-                Advanced balancing settings (optional)
+        <section data-testid="advanced-balancing-settings">
+          <AtlasWorkflowSection
+            eyebrow="Training population only"
+            title="Advanced Balancing Settings"
+            description={`Current policy: ${balanceMethodLabel(balanceMethod)}. Balancing can modify only training rows; it never changes the untouched holdout, TEST, or OOT populations.`}
+            tone="neutral"
+            action={
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
+                Recommended: No balancing required
               </span>
-              <span className="prep-reference-disclosure__description">
-                Current policy: {balanceMethodLabel(balanceMethod)} · training
-                population only · holdout remains unchanged
-              </span>
-            </span>
-            <span className="flex items-center gap-2">
-              <span className="prep-state-pill prep-state-pill--success">
-                Recommended: no balancing
-              </span>
-              <ChevronDown size={16} />
-            </span>
-          </summary>
-          <div className="prep-reference-disclosure__body">
-            <AtlasWorkflowSection
-              eyebrow="Training population only"
-              title="Training-Only Balancing Policy"
-              description="Balancing can modify only training rows. It never changes the untouched holdout, TEST, or OOT populations."
-              tone="neutral"
-              action={
-                <span className="rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-800">
-                  Recommended: No balancing required
-                </span>
-              }
-            >
-          {isClassification ? (
-            <>
-              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            }
+          >
+            {isClassification ? (
+              <>
+                <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                 <BalanceMethodCard
                   active={balanceMethod === "none"}
                   title="No resampling"
@@ -1783,8 +1764,8 @@ export default function Step06BalancingSplit() {
                     markDesignChanged();
                   }}
                 />
-              </div>
-              <div className="mt-3 grid gap-3 sm:grid-cols-3">
+                </div>
+                <div className="mt-3 grid gap-3 sm:grid-cols-3">
                 <label>
                   <span className="atlas-label">Class weights</span>
                   <select
@@ -1833,61 +1814,51 @@ export default function Step06BalancingSplit() {
                   <br />
                   Focal loss: supported models only, currently disabled
                 </div>
+                </div>
+                {balanceMethod !== "none" ? (
+                  <AtlasAttentionPanel
+                    title="Fold-local resampling required"
+                    tone="warning"
+                  >
+                    ATLAS will not apply global resampling before
+                    cross-validation. Choose No resampling or compatible class
+                    weights.
+                  </AtlasAttentionPanel>
+                ) : null}
+              </>
+            ) : (
+              <div className="text-sm leading-6 text-slate-600">
+                Class balancing is not applicable to regression. Training and
+                validation populations retain their observed distributions.
               </div>
-              {balanceMethod !== "none" ? (
-                <AtlasAttentionPanel
-                  title="Fold-local resampling required"
-                  tone="warning"
-                >
-                  ATLAS will not apply global resampling before
-                  cross-validation. Choose No resampling or compatible class
-                  weights.
-                </AtlasAttentionPanel>
-              ) : null}
-            </>
-          ) : (
-            <div className="text-sm leading-6 text-slate-600">
-              Class balancing is not applicable to regression. Training and
-              validation populations retain their observed distributions.
-            </div>
-          )}
-            </AtlasWorkflowSection>
-          </div>
-        </details>
+            )}
+          </AtlasWorkflowSection>
+        </section>
 
-        <details
-          className="atlas-workflow-section"
-          data-testid="advanced-external-validation"
-        >
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
-            <span>
-              <span className="block text-sm font-semibold text-slate-950">
-                Advanced: External Validation Data
-              </span>
-              <span className="mt-1 block text-xs text-slate-600">
-                Optional TEST and OOT datasets are closed by default and are
-                not required for the standard workflow.
-              </span>
-            </span>
-            <span className="flex items-center gap-2">
+        <section data-testid="advanced-external-validation">
+          <AtlasWorkflowSection
+            eyebrow="Optional governed validation"
+            title="Advanced External Validation Data"
+            description="Attach separate TEST or out-of-time datasets when they are part of the validation design. These controls remain visible so the full evaluation architecture can be reviewed before training."
+            tone="neutral"
+            action={
               <span className="rounded-full border border-slate-200 bg-white px-2.5 py-1 text-[10px] font-semibold uppercase text-slate-600">
                 {externalValidationMode === "none"
                   ? "Not enabled"
                   : externalValidationMode.replace("_", " + ")}
               </span>
-              <ChevronDown size={17} />
-            </span>
-          </summary>
-          <div className="mt-4 border-t border-slate-200 pt-4">
-            <p className="text-xs leading-5 text-slate-600">
-              External validation datasets are optional. They may also be
-              attached later during Scoring and Out-of-Time Validation.
-              Supported governed architectures remain Holdout from Current
-              Development Dataset, Separate TEST Dataset, Separate TEST and
-              OOT Datasets, Cross-Validation Strategy, and Hybrid Holdout plus
-              Cross-Validation.
-            </p>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+            }
+          >
+            <div className="mt-4 border-t border-slate-200 pt-4">
+              <p className="text-xs leading-5 text-slate-600">
+                External validation datasets are optional. They may also be
+                attached later during Scoring and Out-of-Time Validation.
+                Supported governed architectures remain Holdout from Current
+                Development Dataset, Separate TEST Dataset, Separate TEST and
+                OOT Datasets, Cross-Validation Strategy, and Hybrid Holdout plus
+                Cross-Validation.
+              </p>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
               {[
                 ["none", "No external dataset"],
                 ["test", "Use separate TEST dataset"],
@@ -1915,12 +1886,12 @@ export default function Step06BalancingSplit() {
                   {label}
                 </label>
               ))}
-            </div>
-            {separateTestEnabled || ootEnabled ? (
-              <div
-                className="mt-4 grid gap-4 lg:grid-cols-2"
-                data-testid="external-validation-datasets"
-              >
+              </div>
+              {separateTestEnabled || ootEnabled ? (
+                <div
+                  className="mt-4 grid gap-4 lg:grid-cols-2"
+                  data-testid="external-validation-datasets"
+                >
                 {separateTestEnabled ? (
                   <ExternalDatasetPicker
                     role="TEST"
@@ -1961,43 +1932,36 @@ export default function Step06BalancingSplit() {
                     }}
                   />
                 ) : null}
-              </div>
-            ) : null}
-          </div>
-        </details>
+                </div>
+              ) : null}
+            </div>
+          </AtlasWorkflowSection>
+        </section>
 
-        <details
-          className="atlas-workflow-section"
-          data-testid="compact-final-predictor-review"
-        >
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
-            <span>
-              <span className="block text-sm font-semibold text-slate-950">
-                Final Predictor Review
+        <section data-testid="compact-final-predictor-review">
+          <AtlasWorkflowSection
+            eyebrow="Training input contract"
+            title="Final Predictor Review"
+            description={`${selected.length} included · ${Math.max(
+              0,
+              eligibleFeatures.length - selected.length,
+            )} excluded · ${engineeredSelected} engineered · manifest ${
+              manifestCurrent ? "current" : "requires attention"
+            }`}
+            tone={manifestCurrent ? "success" : "warning"}
+            action={
+              <span className="flex flex-wrap items-center justify-end gap-2">
+                <a href="/step05" className="atlas-secondary-button">
+                  Return to Feature Engineering
+                </a>
+                <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-800">
+                  View Full Predictor Contract
+                </span>
               </span>
-              <span className="mt-1 block text-xs text-slate-600">
-                {selected.length} included ·{" "}
-                {Math.max(0, eligibleFeatures.length - selected.length)}{" "}
-                excluded · {engineeredSelected} engineered · manifest{" "}
-                {manifestCurrent ? "current" : "requires attention"}
-              </span>
-            </span>
-            <span className="flex items-center gap-2">
-              <a
-                href="/step05"
-                className="atlas-secondary-button"
-                onClick={(event) => event.stopPropagation()}
-              >
-                Return to Feature Engineering
-              </a>
-              <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-semibold text-blue-800">
-                View Full Predictor Contract
-              </span>
-              <ChevronDown size={17} />
-            </span>
-          </summary>
-          <div className="mt-4 border-t border-slate-200 pt-4">
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
+            }
+          >
+            <div className="mt-4 border-t border-slate-200 pt-4">
+              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5">
               <Metric label="Eligible" value={eligibleFeatures.length} />
               <Metric
                 label="Included"
@@ -2027,8 +1991,8 @@ export default function Step06BalancingSplit() {
                 }
                 tone="success"
               />
-            </div>
-            <div className="mt-4 flex flex-col gap-2 xl:flex-row xl:items-end xl:justify-between">
+              </div>
+              <div className="mt-4 flex flex-col gap-2 xl:flex-row xl:items-end xl:justify-between">
               <label className="min-w-64 flex-1">
                 <span className="atlas-label">Search predictors</span>
                 <span className="relative block">
@@ -2082,9 +2046,9 @@ export default function Step06BalancingSplit() {
                   Save predictor changes
                 </button>
               </div>
-            </div>
-            <div className="mt-4 max-h-[460px] overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm">
-              <table className="w-full min-w-[720px] table-fixed border-separate border-spacing-0 text-xs">
+              </div>
+              <div className="mt-4 max-h-[460px] overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm">
+                <table className="w-full min-w-[720px] table-fixed border-separate border-spacing-0 text-xs">
                 <thead className="sticky top-0 z-20 bg-slate-950 text-white shadow-sm">
                   <tr>
                     <th className="w-14 px-3 py-3 text-left">Use</th>
@@ -2115,10 +2079,11 @@ export default function Step06BalancingSplit() {
                     />
                   ))}
                 </tbody>
-              </table>
+                </table>
+              </div>
             </div>
-          </div>
-        </details>
+          </AtlasWorkflowSection>
+        </section>
 
         <AtlasWorkflowSection
           eyebrow="Exact completion path"

@@ -34,6 +34,8 @@ PRETRAINING_STATE_KEYS = (
     "validation_design",
     "target_prevalence",
     "training_execution",
+    "training_model_portfolio",
+    "training_preflight",
     "model_selection_decision",
     "active_training_job_id",
 )

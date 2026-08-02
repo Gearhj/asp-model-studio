@@ -264,7 +264,10 @@ export async function listEvidence(filters: Record<string, string | undefined> =
   return payload.items;
 }
 
-export async function createEvidence(input: Partial<EvidenceItem>) {
+export async function createEvidence(
+  input: Partial<EvidenceItem>,
+  options: { requireDatabaseMirror?: boolean } = {},
+) {
   const canonicalClaimed =
     input.lineage_contract === "canonical_dataset_version" ||
     Boolean(input.project_id || input.dataset_id || input.dataset_version_id);
@@ -282,7 +285,21 @@ export async function createEvidence(input: Partial<EvidenceItem>) {
       "Evidence persistence response",
     );
   }
-  if (payload.evidence.projectId) void saveEvidenceToDatabase(payload.evidence.projectId, payload.evidence as unknown as Record<string, unknown>);
+  if (payload.evidence.projectId) {
+    const mirrored = await saveEvidenceToDatabase(
+      payload.evidence.projectId,
+      payload.evidence as unknown as Record<string, unknown>,
+    );
+    if (options.requireDatabaseMirror && !mirrored) {
+      throw new Error(
+        "The governed evidence was created, but its durable project record could not be verified.",
+      );
+    }
+  } else if (options.requireDatabaseMirror) {
+    throw new Error(
+      "The governed evidence response did not include a project identifier for durable persistence.",
+    );
+  }
   return payload.evidence;
 }
 

@@ -540,8 +540,12 @@ _TEST_DATA_ROOT.mkdir(parents=True, exist_ok=True)
 _RUN_ID = uuid.uuid4().hex[:10]
 _SECURITY_DB_PATH = _TEST_DATA_ROOT / f"atlas_modeling_state_security_{_RUN_ID}.db"
 _PERSISTENCE_DB_PATH = _TEST_DATA_ROOT / f"atlas_modeling_state_persistence_{_RUN_ID}.db"
+_LIBRARY_ROOT = Path(tempfile.mkdtemp(prefix=f"atlas_modeling_state_library_{_RUN_ID}_"))
+_BACKUP_ROOT = Path(tempfile.mkdtemp(prefix=f"atlas_modeling_state_backups_{_RUN_ID}_"))
 os.environ["ATLAS_SECURITY_DB_PATH"] = str(_SECURITY_DB_PATH)
 os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH)
+os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(_LIBRARY_ROOT)
+os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(_BACKUP_ROOT)
 os.environ.setdefault("ATLAS_AUTH_ENABLED", "true")
 os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
 # Stage 6.1: isolate this suite's checkpoint writes. The checkpoint is a
@@ -567,13 +571,58 @@ import server.core.dataset_store as dataset_store_module  # noqa: E402
 import server.core.result_store as result_store_module  # noqa: E402
 import server.core.session_checkpoint as session_checkpoint_module  # noqa: E402
 import server.training.training_job_service as training_job_service_module  # noqa: E402
+from server.datasets import dataset_registry  # noqa: E402
 from server.core.dataset_store import get_scoped_dataset_store  # noqa: E402
 from server.core.metadata_router import SetSamplePayload  # noqa: E402
 from server.core.result_store import get_scoped_result_store  # noqa: E402
 from server.splitting.split_service import split_service  # noqa: E402
 
 
+def _bind_dataset_library_paths() -> None:
+    """Rebind every cached registry path to this suite's owned root."""
+    expected_root = _LIBRARY_ROOT.resolve()
+    expected_backup_root = _BACKUP_ROOT.resolve()
+    os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(expected_root)
+    os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(expected_backup_root)
+    dataset_registry.ARTIFACT_ROOT = expected_root
+    dataset_registry.REGISTRY_PATH = dataset_registry.ARTIFACT_ROOT / "registry.json"
+    dataset_registry.USERS_PATH = dataset_registry.ARTIFACT_ROOT / "users.json"
+    dataset_registry.PROJECT_LINKS_PATH = (
+        dataset_registry.ARTIFACT_ROOT / "project_links.json"
+    )
+    assert Path(os.environ["ATLAS_DATASET_LIBRARY_ROOT"]).resolve() == expected_root
+    assert Path(os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"]).resolve() == expected_backup_root
+    assert dataset_registry.ARTIFACT_ROOT.resolve() == expected_root
+    assert dataset_registry.REGISTRY_PATH.resolve() == expected_root / "registry.json"
+    assert dataset_registry.USERS_PATH.resolve() == expected_root / "users.json"
+    assert dataset_registry.PROJECT_LINKS_PATH.resolve() == expected_root / "project_links.json"
+
+
+def _set_checkpoint_path(path: Path) -> Path:
+    expected = path.resolve()
+    os.environ["ATLAS_CHECKPOINT_PATH"] = str(expected)
+    session_checkpoint_module.CHECKPOINT_PATH = expected
+    assert Path(os.environ["ATLAS_CHECKPOINT_PATH"]).resolve() == expected
+    assert session_checkpoint_module.CHECKPOINT_PATH.resolve() == expected
+    return expected
+
+
+def _bind_checkpoint_path() -> None:
+    """Keep this suite isolated even when ``server.main`` was imported first."""
+    _set_checkpoint_path(_CHECKPOINT_PATH)
+
+
+_bind_dataset_library_paths()
+_bind_checkpoint_path()
+
+
+def setUpModule() -> None:
+    _bind_dataset_library_paths()
+    _bind_checkpoint_path()
+
+
 def _cleanup_db_files() -> None:
+    session_checkpoint_module.flush_checkpoint()
     try:
         _CHECKPOINT_PATH.unlink(missing_ok=True)
     except PermissionError:
@@ -588,6 +637,8 @@ def _cleanup_db_files() -> None:
                 except PermissionError:
                     if attempt < 24:
                         time.sleep(0.2)
+    shutil.rmtree(_LIBRARY_ROOT, ignore_errors=True)
+    shutil.rmtree(_BACKUP_ROOT, ignore_errors=True)
 
 
 def _register(label: str) -> tuple[TestClient, str]:
@@ -1642,10 +1693,10 @@ class CheckpointRestoreTests(unittest.TestCase, _DatastoreDictIsolationMixin):
         self._snapshot_global_stores()
         self._original_checkpoint_path = session_checkpoint_module.CHECKPOINT_PATH
         self._temp_dir = Path(tempfile.mkdtemp(prefix="atlas_checkpoint_test_"))
-        session_checkpoint_module.CHECKPOINT_PATH = self._temp_dir / "workflow_checkpoint.json"
+        _set_checkpoint_path(self._temp_dir / "workflow_checkpoint.json")
 
     def tearDown(self) -> None:
-        session_checkpoint_module.CHECKPOINT_PATH = self._original_checkpoint_path
+        _set_checkpoint_path(self._original_checkpoint_path)
         shutil.rmtree(self._temp_dir, ignore_errors=True)
         self._restore_global_stores()
 
@@ -1861,10 +1912,10 @@ class CheckpointMultiScopeRestartTests(unittest.TestCase, _DatastoreDictIsolatio
         self._snapshot_global_stores()
         self._original_checkpoint_path = session_checkpoint_module.CHECKPOINT_PATH
         self._temp_dir = Path(tempfile.mkdtemp(prefix="atlas_checkpoint_multiscope_test_"))
-        session_checkpoint_module.CHECKPOINT_PATH = self._temp_dir / "workflow_checkpoint.json"
+        _set_checkpoint_path(self._temp_dir / "workflow_checkpoint.json")
 
     def tearDown(self) -> None:
-        session_checkpoint_module.CHECKPOINT_PATH = self._original_checkpoint_path
+        _set_checkpoint_path(self._original_checkpoint_path)
         shutil.rmtree(self._temp_dir, ignore_errors=True)
         self._restore_global_stores()
 
@@ -2049,10 +2100,10 @@ class TrainingJobCheckpointPolicyTests(unittest.TestCase, _DatastoreDictIsolatio
         self._snapshot_global_stores()
         self._original_checkpoint_path = session_checkpoint_module.CHECKPOINT_PATH
         self._temp_dir = Path(tempfile.mkdtemp(prefix="atlas_checkpoint_jobs_test_"))
-        session_checkpoint_module.CHECKPOINT_PATH = self._temp_dir / "workflow_checkpoint.json"
+        _set_checkpoint_path(self._temp_dir / "workflow_checkpoint.json")
 
     def tearDown(self) -> None:
-        session_checkpoint_module.CHECKPOINT_PATH = self._original_checkpoint_path
+        _set_checkpoint_path(self._original_checkpoint_path)
         shutil.rmtree(self._temp_dir, ignore_errors=True)
         self._restore_global_stores()
 
@@ -2136,10 +2187,10 @@ class CheckpointAtomicWriteTests(unittest.TestCase, _DatastoreDictIsolationMixin
         self._snapshot_global_stores()
         self._original_checkpoint_path = session_checkpoint_module.CHECKPOINT_PATH
         self._temp_dir = Path(tempfile.mkdtemp(prefix="atlas_checkpoint_atomic_test_"))
-        session_checkpoint_module.CHECKPOINT_PATH = self._temp_dir / "workflow_checkpoint.json"
+        _set_checkpoint_path(self._temp_dir / "workflow_checkpoint.json")
 
     def tearDown(self) -> None:
-        session_checkpoint_module.CHECKPOINT_PATH = self._original_checkpoint_path
+        _set_checkpoint_path(self._original_checkpoint_path)
         shutil.rmtree(self._temp_dir, ignore_errors=True)
         self._restore_global_stores()
 
@@ -2190,10 +2241,10 @@ class CheckpointCorruptionAndVersioningTests(unittest.TestCase, _DatastoreDictIs
         self._snapshot_global_stores()
         self._original_checkpoint_path = session_checkpoint_module.CHECKPOINT_PATH
         self._temp_dir = Path(tempfile.mkdtemp(prefix="atlas_checkpoint_corrupt_test_"))
-        session_checkpoint_module.CHECKPOINT_PATH = self._temp_dir / "workflow_checkpoint.json"
+        _set_checkpoint_path(self._temp_dir / "workflow_checkpoint.json")
 
     def tearDown(self) -> None:
-        session_checkpoint_module.CHECKPOINT_PATH = self._original_checkpoint_path
+        _set_checkpoint_path(self._original_checkpoint_path)
         shutil.rmtree(self._temp_dir, ignore_errors=True)
         self._restore_global_stores()
 
@@ -2323,6 +2374,7 @@ class CheckpointSubprocessRestartTests(unittest.TestCase):
     def _run(self, script: str) -> subprocess.CompletedProcess:
         env = dict(os.environ)
         env["ATLAS_CHECKPOINT_TEST_PATH"] = str(self._checkpoint_path)
+        env["ATLAS_CHECKPOINT_PATH"] = str(self._checkpoint_path.resolve())
         return subprocess.run(
             [sys.executable, "-c", script],
             cwd=str(ROOT),

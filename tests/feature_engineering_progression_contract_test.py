@@ -6,19 +6,20 @@ import tempfile
 import unittest
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-os.environ.setdefault(
-    "ATLAS_CHECKPOINT_PATH",
-    str(
-        Path(tempfile.gettempdir())
-        / f"atlas_feature_progression_{uuid.uuid4().hex[:10]}.json"
-    ),
+CHECKPOINT_PATH = (
+    Path(__file__).resolve().parents[1] / ".tmp"
+    / f"atlas_feature_progression_{uuid.uuid4().hex[:10]}.json"
 )
+CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
+os.environ["ATLAS_CHECKPOINT_PATH"] = str(CHECKPOINT_PATH)
 
 from server.core.dataset_store import DATASTORE  # noqa: E402
+import server.core.session_checkpoint as checkpoint  # noqa: E402
 from server.features.feature_service import (  # noqa: E402
     _apply_feature,
     confirm_manifest,
@@ -34,6 +35,53 @@ from server.features.feature_types import (  # noqa: E402
 
 
 PROJECT_ID = "feature-progression-contract"
+DATASET_ID = "ds-feature-progression-contract"
+DATASET_VERSION_ID = "feature-progression-v1"
+
+
+def bind_checkpoint_path() -> None:
+    expected = CHECKPOINT_PATH.resolve()
+    os.environ["ATLAS_CHECKPOINT_PATH"] = str(expected)
+    checkpoint.CHECKPOINT_PATH = expected
+    assert checkpoint.CHECKPOINT_PATH.resolve() == expected
+
+
+bind_checkpoint_path()
+
+
+def setUpModule() -> None:
+    bind_checkpoint_path()
+
+
+def identity_kwargs() -> dict[str, str]:
+    return {
+        "project_id": PROJECT_ID,
+        "expected_dataset_id": DATASET_ID,
+        "expected_dataset_version_id": DATASET_VERSION_ID,
+        "legacy_dataset_version": DATASET_VERSION_ID,
+    }
+
+
+def assert_test_identity(
+    project_id: str,
+    *,
+    expected_dataset_id: str = "",
+    expected_dataset_version_id: str = "",
+    legacy_dataset_version: str = "",
+    require_expected: bool = False,
+    **_unused,
+) -> dict[str, str]:
+    """Stand in for the catalog authority in this feature-logic unit suite."""
+    if require_expected:
+        assert expected_dataset_id == DATASET_ID
+        assert expected_dataset_version_id == DATASET_VERSION_ID
+    assert project_id == PROJECT_ID
+    assert not legacy_dataset_version or legacy_dataset_version == DATASET_VERSION_ID
+    return {
+        "project_id": PROJECT_ID,
+        "dataset_id": DATASET_ID,
+        "dataset_version_id": DATASET_VERSION_ID,
+    }
 
 
 def governed_frame() -> pd.DataFrame:
@@ -72,6 +120,10 @@ def configure() -> None:
         "trade_count",
     ]
     DATASTORE.meta["dataset_version"] = "feature-progression-v1"
+    DATASTORE.meta["project_id"] = PROJECT_ID
+    DATASTORE.meta["dataset_id"] = DATASET_ID
+    DATASTORE.meta["dataset_version_id"] = DATASET_VERSION_ID
+    DATASTORE.meta["dataset_identity_status"] = "current"
 
 
 def safe_definition() -> FeatureDefinitionInput:
@@ -88,12 +140,41 @@ def safe_definition() -> FeatureDefinitionInput:
 
 
 class FeatureEngineeringProgressionBackendTests(unittest.TestCase):
+    def setUp(self) -> None:
+        # Dataset identity is covered by the API identity suites. This unit
+        # suite supplies one exact, immutable catalog identity so it can focus
+        # on feature authorization, hashing, preview, and materialization.
+        self.identity_patch = patch(
+            "server.features.feature_service.assert_expected_active_identity",
+            side_effect=assert_test_identity,
+        )
+        self.identity_patch.start()
+        self.manifest_directory = tempfile.TemporaryDirectory(
+            prefix="atlas_feature_progression_manifests_",
+            dir=CHECKPOINT_PATH.parent,
+        )
+        self.manifest_root_patch = patch.dict(
+            os.environ,
+            {"ATLAS_FEATURE_MANIFEST_ROOT": self.manifest_directory.name},
+        )
+        self.manifest_root_patch.start()
+        bind_checkpoint_path()
+
     def tearDown(self) -> None:
+        self.manifest_root_patch.stop()
+        self.manifest_directory.cleanup()
+        self.identity_patch.stop()
         DATASTORE.reset_all()
+
+    @classmethod
+    def tearDownClass(cls) -> None:
+        bind_checkpoint_path()
+        checkpoint.flush_checkpoint()
+        CHECKPOINT_PATH.unlink(missing_ok=True)
 
     def test_client_selection_cannot_reintroduce_target_or_target_source(self):
         configure()
-        manifest = get_manifest()
+        manifest = get_manifest(**identity_kwargs())
         names = {row["feature_name"] for row in manifest["features"]}
         self.assertNotIn("bad_flag", names)
         source = next(
@@ -135,7 +216,9 @@ class FeatureEngineeringProgressionBackendTests(unittest.TestCase):
             update_manifest(
                 FeatureManifestUpdateRequest(
                     project_id=PROJECT_ID,
-                    dataset_version="feature-progression-v1",
+                    dataset_id=DATASET_ID,
+                    dataset_version_id=DATASET_VERSION_ID,
+                    dataset_version=DATASET_VERSION_ID,
                     features=[unsafe],
                 )
             )
@@ -161,7 +244,7 @@ class FeatureEngineeringProgressionBackendTests(unittest.TestCase):
 
     def test_reviewer_deselection_of_ordinary_original_is_hash_stable(self):
         configure()
-        initial = get_manifest()
+        initial = get_manifest(**identity_kwargs())
         trade_count = next(
             row
             for row in initial["features"]
@@ -178,7 +261,9 @@ class FeatureEngineeringProgressionBackendTests(unittest.TestCase):
         saved = update_manifest(
             FeatureManifestUpdateRequest(
                 project_id=PROJECT_ID,
-                dataset_version="feature-progression-v1",
+                dataset_id=DATASET_ID,
+                dataset_version_id=DATASET_VERSION_ID,
+                dataset_version=DATASET_VERSION_ID,
                 features=[deselected],
             )
         )
@@ -191,7 +276,7 @@ class FeatureEngineeringProgressionBackendTests(unittest.TestCase):
         self.assertFalse(saved_row["selected"])
         self.assertEqual(saved_row["exclusion_reason"], reviewer_reason)
 
-        refreshed = get_manifest()
+        refreshed = get_manifest(**identity_kwargs())
         refreshed_row = next(
             row
             for row in refreshed["features"]
@@ -208,11 +293,13 @@ class FeatureEngineeringProgressionBackendTests(unittest.TestCase):
         manifest = update_manifest(
             FeatureManifestUpdateRequest(
                 project_id=PROJECT_ID,
-                dataset_version="feature-progression-v1",
+                dataset_id=DATASET_ID,
+                dataset_version_id=DATASET_VERSION_ID,
+                dataset_version=DATASET_VERSION_ID,
                 features=[definition],
             )
         )
-        refreshed = get_manifest()
+        refreshed = get_manifest(**identity_kwargs())
         self.assertEqual(
             refreshed["manifest_hash"],
             manifest["manifest_hash"],
@@ -220,22 +307,33 @@ class FeatureEngineeringProgressionBackendTests(unittest.TestCase):
         )
 
         with self.assertRaisesRegex(ValueError, "Materialize"):
-            confirm_manifest(manifest["manifest_hash"], "")
+            confirm_manifest(
+                manifest["manifest_hash"],
+                "",
+                **identity_kwargs(),
+            )
         with self.assertRaisesRegex(ValueError, "Preview"):
-            materialize_manifest(manifest["manifest_hash"], "")
+            materialize_manifest(
+                manifest["manifest_hash"],
+                "",
+                **identity_kwargs(),
+            )
 
         preview = preview_features(
             [definition],
             20,
             manifest["manifest_hash"],
+            **identity_kwargs(),
         )
         materialized = materialize_manifest(
             manifest["manifest_hash"],
             preview["preview_hash"],
+            **identity_kwargs(),
         )
         confirmed = confirm_manifest(
             manifest["manifest_hash"],
             materialized["materialization_hash"],
+            **identity_kwargs(),
         )
 
         self.assertEqual(confirmed["confirmation_status"], "confirmed")
@@ -254,11 +352,13 @@ class FeatureEngineeringProgressionBackendTests(unittest.TestCase):
         manifest = update_manifest(
             FeatureManifestUpdateRequest(
                 project_id=PROJECT_ID,
-                dataset_version="feature-progression-v1",
+                dataset_id=DATASET_ID,
+                dataset_version_id=DATASET_VERSION_ID,
+                dataset_version=DATASET_VERSION_ID,
                 features=[definition],
             )
         )
-        refreshed = get_manifest()
+        refreshed = get_manifest(**identity_kwargs())
         self.assertEqual(
             refreshed["manifest_hash"],
             manifest["manifest_hash"],
@@ -268,31 +368,31 @@ class FeatureEngineeringProgressionBackendTests(unittest.TestCase):
             [definition],
             20,
             manifest["manifest_hash"],
+            **identity_kwargs(),
         )
         materialized = materialize_manifest(
             manifest["manifest_hash"],
             preview["preview_hash"],
+            **identity_kwargs(),
         )
         confirm_manifest(
             manifest["manifest_hash"],
             materialized["materialization_hash"],
+            **identity_kwargs(),
         )
 
         changed = definition.model_copy(
             update={
-                "origin": "arithmetic",
-                "transformation_type": "arithmetic",
-                "formula_or_rule": "bureau_score + trade_count",
-                "config": {
-                    "operation": "add",
-                    "preserve_bureau_special_values": True,
-                },
+                "formula_or_rule": "bureau_score * trade_count (reviewed contract)",
+                "user_rationale": "Updated reviewer rationale changes the governed contract.",
             }
         )
         stale = update_manifest(
             FeatureManifestUpdateRequest(
                 project_id=PROJECT_ID,
-                dataset_version="feature-progression-v1",
+                dataset_id=DATASET_ID,
+                dataset_version_id=DATASET_VERSION_ID,
+                dataset_version=DATASET_VERSION_ID,
                 features=[changed],
             )
         )

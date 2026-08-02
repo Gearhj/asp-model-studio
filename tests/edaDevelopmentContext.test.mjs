@@ -29,13 +29,14 @@ assert.doesNotMatch(
   "The explanatory paragraph must be removed."
 );
 // Renamed, not replaced with another instructional card.
-assert.match(eda, /title="Predictor Inventory and Investigation"/, "The functional area must be renamed.");
+assert.match(eda, /title="Detailed Predictor Profiles"/, "The functional area must have a concise inventory title.");
 
 // Retained controls.
 assert.match(eda, /placeholder="Search predictors"/, "Search must be retained.");
 assert.match(eda, /Sort by target signal/, "Sort must be retained.");
 assert.match(eda, /Show \{value\}/, "Page-size control must be retained.");
-assert.match(eda, /AtlasDataScopeBadge scope="full_dataset"/, "The full-dataset scope indicator must be retained.");
+assert.match(eda, /Full Governed Population · structure/, "The structural scope indicator must be retained.");
+assert.match(eda, /Development Population · target signal/, "The target-directed scope indicator must be explicit.");
 
 // --- EDA-PREDICTORS/inventory behavior is preserved ------------------------
 
@@ -69,7 +70,7 @@ assert.match(
 assert.match(
   eda,
   /<PredictorDistributionExplorer/,
-  "Development EDA must mount the full-population predictor explorer."
+  "Development EDA must mount the governed mixed-scope predictor explorer."
 );
 assert.doesNotMatch(
   eda,
@@ -88,13 +89,13 @@ assert.doesNotMatch(
 );
 assert.match(
   distribution,
-  /Full-population visual intelligence/,
-  "The predictor explorer needs an explicit full-population development scope."
+  /Governed mixed-scope visual intelligence/,
+  "The predictor explorer needs an explicit governed mixed-scope label."
 );
 assert.match(
   distribution,
-  /Server-aggregated bins, statistical markers, target behavior, missingness/,
-  "The explorer needs a development-scoped purpose statement."
+  /Distribution, statistical markers, missingness, and outlier bounds use the Full[\s\S]*Development Population/,
+  "The explorer needs an explicit structural-versus-target-directed scope statement."
 );
 assert.match(
   distribution,

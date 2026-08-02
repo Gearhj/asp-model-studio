@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import sys
 import threading
@@ -71,7 +72,7 @@ class DatasetIdentityClearTests(unittest.TestCase):
             PRETRAINING_STATE_KEYS,
         )
 
-    def test_invalid_status_cannot_be_read_as_an_active_identity(self) -> None:
+    def test_invalid_runtime_cache_cannot_bypass_authentication(self) -> None:
         store = DatasetStore()
         store.meta.update(
             {
@@ -91,8 +92,8 @@ class DatasetIdentityClearTests(unittest.TestCase):
                 store=store,
             )
 
-        self.assertEqual(raised.exception.status_code, 409)
-        self.assertIn("artifact is unavailable", str(raised.exception.detail))
+        self.assertEqual(raised.exception.status_code, 401)
+        self.assertIn("authenticated user is required", str(raised.exception.detail))
 
 
 class InvalidCheckpointResultsSuppressionTests(unittest.TestCase):
@@ -110,9 +111,15 @@ class InvalidCheckpointResultsSuppressionTests(unittest.TestCase):
         )
         self._temp_dir.mkdir(parents=True)
         checkpoint.CHECKPOINT_PATH = self._temp_dir / "workflow_checkpoint.json"
+        self._checkpoint_environment = mock.patch.dict(
+            os.environ,
+            {"ATLAS_CHECKPOINT_PATH": str(checkpoint.CHECKPOINT_PATH)},
+        )
+        self._checkpoint_environment.start()
 
     def tearDown(self) -> None:
         checkpoint.CHECKPOINT_PATH = self._original_checkpoint_path
+        self._checkpoint_environment.stop()
         shutil.rmtree(self._temp_dir, ignore_errors=True)
         dataset_store_module._DATASTORES.clear()
         dataset_store_module._DATASTORES.update(self._datasets_snapshot)

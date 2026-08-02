@@ -1084,6 +1084,14 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
     cv_execution_splits = (
         result.fold_architecture.get("execution_splits") or []
     )
+    fold_definition_id = "fold-" + _stable_hash(
+        {
+            "training_population_id": training_population_id,
+            "method": result.fold_architecture.get("method"),
+            "random_seed": result.fold_architecture.get("random_seed"),
+            "execution_splits": cv_execution_splits,
+        }
+    )[:20]
     fold_event_failure = any(
         fold.get("validation_distribution", {}).get("events") == 0
         or fold.get("validation_distribution", {}).get("non_events") == 0
@@ -1233,6 +1241,7 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
         if result.fold_architecture.get("enabled")
         else True,
         "execution_fold_count": len(cv_execution_splits),
+        "fold_definition_id": fold_definition_id,
     }
     balancing_policy = {
         "method": payload.balance_method,
@@ -1246,6 +1255,7 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
         "holdout_untouched": True,
         "test_untouched": True,
         "oot_untouched": True,
+        "selection_resampling_status": "not_applied",
     }
     validation_design = {
         **_identity_fields(identity),
@@ -1261,7 +1271,12 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
             "dataset_version": current_dataset_version,
         },
         "training_population_id": training_population_id,
+        "selection_partition_id": training_population_id,
         "holdout_population_id": holdout_population_id,
+        "final_holdout_partition_id": holdout_population_id,
+        "final_holdout_status": "sealed" if holdout_population_id else "not_applicable",
+        "holdout_isolation_status": "verified",
+        "fold_definition_id": fold_definition_id,
         "test_reference": test_reference,
         "oot_reference": oot_reference,
         "split_seed": payload.random_seed,
@@ -1300,7 +1315,12 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
         "distributions": distributions,
         "validation_design": validation_design,
         "training_population_id": training_population_id,
+        "selection_partition_id": training_population_id,
         "holdout_population_id": holdout_population_id,
+        "final_holdout_partition_id": holdout_population_id,
+        "final_holdout_status": "sealed" if holdout_population_id else "not_applicable",
+        "holdout_isolation_status": "verified",
+        "fold_definition_id": fold_definition_id,
         "test_reference": test_reference,
         "oot_reference": oot_reference,
         "cv_design": cv_design,

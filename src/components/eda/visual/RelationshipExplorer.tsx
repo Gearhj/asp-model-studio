@@ -69,6 +69,8 @@ export type RelationshipPairMetric = {
 export type RelationshipSampleResponse = {
   ok: boolean;
   scope: "rendered_sample";
+  source_population?: "development_population";
+  final_holdout_accessed?: boolean;
   project_id: string;
   dataset_id: string;
   dataset_version_id: string;
@@ -851,11 +853,12 @@ export default function RelationshipExplorer({
       className="bg-white p-4 sm:p-5"
       aria-labelledby="relationship-explorer-title"
       data-testid="relationship-explorer"
+      data-source-population="development_population"
     >
       <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <div className="text-[11px] font-bold uppercase tracking-[0.16em] text-indigo-700">
-            Governed visual sample · Relationship Explorer
+            Development Population · bounded visual sample
           </div>
           <h3
             id="relationship-explorer-title"
@@ -864,9 +867,10 @@ export default function RelationshipExplorer({
             Configure and explore
           </h3>
           <p className="mt-1 max-w-4xl text-sm text-slate-600">
-            Explore one server-authorized bounded sample in 2D, density, or 3D.
-            Modes, camera, opacity, grid, legend, target coloring, and range
-            highlighting reuse the same sample.
+            Explore one deterministic server-authorized sample drawn from eligible
+            Development Population rows in 2D, density, or 3D. The sealed final
+            holdout is excluded. Modes, target coloring, and range highlighting
+            reuse this same disclosed sample.
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1281,12 +1285,12 @@ export default function RelationshipExplorer({
           ) : null}
 
           <div
-            className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2 xl:grid-cols-4"
+            className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 sm:grid-cols-2 xl:grid-cols-5"
             aria-live="polite"
           >
             <div>
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Population
+                Development population
               </div>
               <div className="mt-1 text-xl font-bold tabular-nums text-slate-950">
                 {response.population_rows.toLocaleString()}
@@ -1298,6 +1302,14 @@ export default function RelationshipExplorer({
               </div>
               <div className="mt-1 text-xl font-bold tabular-nums text-slate-950">
                 {response.eligible_rows.toLocaleString()}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Ineligible / excluded
+              </div>
+              <div className="mt-1 text-xl font-bold tabular-nums text-slate-950">
+                {Math.max(0, response.population_rows - response.eligible_rows).toLocaleString()}
               </div>
             </div>
             <div>
@@ -1323,11 +1335,13 @@ export default function RelationshipExplorer({
           <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
             This view uses {response.returned_rows.toLocaleString()} deterministically
             sampled rows from {response.eligible_rows.toLocaleString()} complete-case
-            rows in a governed population of{" "}
-            {response.population_rows.toLocaleString()}. Visual separation,
-            clustering, or overlap does not establish predictor usefulness or
-            model quality. Confirm any hypothesis with full-population
-            statistics and governed validation.
+            rows in a Development Population of {response.population_rows.toLocaleString()}.
+            {" "}{Math.max(0, response.population_rows - response.eligible_rows).toLocaleString()} rows
+            were ineligible before rendering because required analysis values were
+            unavailable or governed as special values. The sealed final holdout is
+            excluded. Visual separation, clustering, or overlap does not establish
+            predictor usefulness or model quality; confirm hypotheses with Development
+            Population correlation/VIF and governed validation.
           </div>
 
           <details className="rounded-xl border border-slate-200 bg-white p-3">
@@ -1337,7 +1351,8 @@ export default function RelationshipExplorer({
             <div className="mt-3 max-h-80 overflow-auto">
               <table className="min-w-full border-collapse text-xs">
                 <caption className="sr-only">
-                  Bounded relationship sample. Raw target values are not
+                  Bounded relationship sample from eligible Development Population
+                  rows. The sealed final holdout is excluded. Raw target values are not
                   included.
                 </caption>
                 <thead className="sticky top-0 bg-slate-100">

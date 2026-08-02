@@ -35,8 +35,13 @@ _TEST_DATA_ROOT.mkdir(exist_ok=True)
 _RUN_ID = uuid.uuid4().hex[:10]
 _SECURITY_DB_PATH = _TEST_DATA_ROOT / f"atlas_checkpoint_lifecycle_security_{_RUN_ID}.db"
 _PERSISTENCE_DB_PATH = _TEST_DATA_ROOT / f"atlas_checkpoint_lifecycle_persistence_{_RUN_ID}.db"
+_LIBRARY_ROOT = _TEST_DATA_ROOT / f"atlas_checkpoint_lifecycle_library_{_RUN_ID}"
+_BACKUP_ROOT = Path(tempfile.mkdtemp(prefix=f"atlas_checkpoint_lifecycle_backups_{_RUN_ID}_"))
+os.environ["ATLAS_SECURITY_ROOT"] = str(_SECURITY_DB_PATH.parent)
 os.environ["ATLAS_SECURITY_DB_PATH"] = str(_SECURITY_DB_PATH)
 os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH)
+os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(_LIBRARY_ROOT)
+os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(_BACKUP_ROOT)
 os.environ.setdefault("ATLAS_AUTH_ENABLED", "true")
 os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
 # Isolate this suite's checkpoint writes from the real dev backend's file
@@ -50,7 +55,9 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from server.main import app  # noqa: E402
 from server.persistence import initialize_persistence  # noqa: E402
+from server.persistence.service import get_persistence_service  # noqa: E402
 from server.security.security_store import init_security_store  # noqa: E402
+import server.security.security_store as security_store  # noqa: E402
 
 import server.core.dataset_store as dataset_store_module  # noqa: E402
 import server.core.result_store as result_store_module  # noqa: E402
@@ -58,9 +65,75 @@ import server.core.session_checkpoint as checkpoint  # noqa: E402
 from server.core.checkpoint_inspect import inspect_checkpoint  # noqa: E402
 from server.core.dataset_store import get_scoped_dataset_store  # noqa: E402
 from server.core.result_store import get_scoped_result_store  # noqa: E402
+from server.datasets import dataset_registry  # noqa: E402
+
+
+def _bind_security_and_persistence_paths() -> None:
+    """Rebind import-cached authorities after another collected test module."""
+    expected_security_root = _SECURITY_DB_PATH.parent.resolve()
+    expected_security_db = _SECURITY_DB_PATH.resolve()
+    expected_persistence_db = _PERSISTENCE_DB_PATH.resolve()
+    os.environ["ATLAS_SECURITY_ROOT"] = str(expected_security_root)
+    os.environ["ATLAS_SECURITY_DB_PATH"] = str(expected_security_db)
+    os.environ["ATLAS_SQLITE_PATH"] = str(expected_persistence_db)
+    os.environ["ATLAS_AUTH_ENABLED"] = "true"
+    os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
+    security_store.SECURITY_ROOT = expected_security_root
+    security_store.DB_PATH = expected_security_db
+    security_store.ATLAS_AUTH_ENABLED = True
+    security_store.ATLAS_ALLOW_PUBLIC_REGISTRATION = True
+    assert Path(os.environ["ATLAS_SECURITY_DB_PATH"]).resolve() == expected_security_db
+    assert Path(os.environ["ATLAS_SQLITE_PATH"]).resolve() == expected_persistence_db
+    assert security_store.SECURITY_ROOT.resolve() == expected_security_root
+    assert security_store.DB_PATH.resolve() == expected_security_db
+
+
+def _bind_dataset_library_paths() -> None:
+    """Rebind every cached registry path to this suite's owned root."""
+    expected_root = _LIBRARY_ROOT.resolve()
+    expected_backup_root = _BACKUP_ROOT.resolve()
+    os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(expected_root)
+    os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(expected_backup_root)
+    dataset_registry.ARTIFACT_ROOT = expected_root
+    dataset_registry.REGISTRY_PATH = dataset_registry.ARTIFACT_ROOT / "registry.json"
+    dataset_registry.USERS_PATH = dataset_registry.ARTIFACT_ROOT / "users.json"
+    dataset_registry.PROJECT_LINKS_PATH = (
+        dataset_registry.ARTIFACT_ROOT / "project_links.json"
+    )
+    assert Path(os.environ["ATLAS_DATASET_LIBRARY_ROOT"]).resolve() == expected_root
+    assert Path(os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"]).resolve() == expected_backup_root
+    assert dataset_registry.ARTIFACT_ROOT.resolve() == expected_root
+    assert dataset_registry.REGISTRY_PATH.resolve() == expected_root / "registry.json"
+    assert dataset_registry.USERS_PATH.resolve() == expected_root / "users.json"
+    assert dataset_registry.PROJECT_LINKS_PATH.resolve() == expected_root / "project_links.json"
+
+
+def _set_checkpoint_path(path: Path) -> Path:
+    expected = path.resolve()
+    os.environ["ATLAS_CHECKPOINT_PATH"] = str(expected)
+    checkpoint.CHECKPOINT_PATH = expected
+    assert Path(os.environ["ATLAS_CHECKPOINT_PATH"]).resolve() == expected
+    assert checkpoint.CHECKPOINT_PATH.resolve() == expected
+    return expected
+
+
+def _bind_checkpoint_path() -> None:
+    _set_checkpoint_path(_CHECKPOINT_ENV_PATH)
+
+
+_bind_security_and_persistence_paths()
+_bind_dataset_library_paths()
+_bind_checkpoint_path()
+
+
+def setUpModule() -> None:
+    _bind_security_and_persistence_paths()
+    _bind_dataset_library_paths()
+    _bind_checkpoint_path()
 
 
 def _cleanup_db_files() -> None:
+    checkpoint.flush_checkpoint()
     try:
         _CHECKPOINT_ENV_PATH.unlink(missing_ok=True)
     except PermissionError:
@@ -75,6 +148,8 @@ def _cleanup_db_files() -> None:
                 except PermissionError:
                     if attempt < 24:
                         time.sleep(0.2)
+    shutil.rmtree(_LIBRARY_ROOT, ignore_errors=True)
+    shutil.rmtree(_BACKUP_ROOT, ignore_errors=True)
 
 
 def _register(label: str) -> tuple[TestClient, str]:
@@ -100,11 +175,112 @@ def _create_project(client: TestClient, name: str) -> str:
 
 
 def _populate_dataset_scope(user_id: str, project_id: str, marker: str) -> None:
+    frame = pd.DataFrame({"amount": [1.0, 2.0, 3.0], "marker": [marker] * 3})
+    identity_token = uuid.uuid5(
+        uuid.NAMESPACE_URL,
+        # Active dataset selection is project-scoped. Collaborators may own
+        # private runtime caches, but they cannot select different canonical
+        # versions for the same project.
+        f"atlas-checkpoint-lifecycle:{_RUN_ID}:{project_id}",
+    ).hex
+    dataset_id = f"checkpoint-dataset-{identity_token[:16]}"
+    version_id = f"checkpoint-version-{identity_token[16:]}"
+    relative_artifact = (
+        Path(dataset_id) / "versions" / version_id / "data_full.csv"
+    )
+    artifact_path = dataset_registry.ARTIFACT_ROOT / relative_artifact
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
+    if not artifact_path.exists():
+        frame.to_csv(artifact_path, index=False)
+
+    registry = dataset_registry.load_registry()
+    datasets = list(registry.get("datasets", []))
+    existing_dataset = next(
+        (item for item in datasets if item.get("datasetId") == dataset_id),
+        None,
+    )
+    if existing_dataset is None:
+        datasets.append(
+            {
+                "datasetId": dataset_id,
+                "name": f"Checkpoint fixture {project_id}",
+                "ownerUserId": user_id,
+                "archived": False,
+                "access": [{"userId": user_id, "role": "owner"}],
+                "linkedProjects": [
+                    {
+                        "projectId": project_id,
+                        "versionId": version_id,
+                        "datasetRole": "modeling",
+                    }
+                ],
+                "versions": [
+                    {
+                        "versionId": version_id,
+                        "fullDataPath": relative_artifact.as_posix(),
+                        "rowCount": len(frame),
+                        "columnCount": len(frame.columns),
+                        "hash": f"fixture-hash-{identity_token}",
+                    }
+                ],
+            }
+        )
+    else:
+        grants = list(existing_dataset.get("access") or [])
+        if not any(item.get("userId") == user_id for item in grants):
+            grants.append({"userId": user_id, "role": "viewer"})
+        existing_dataset["access"] = grants
+    dataset_registry.save_registry({"datasets": datasets})
+
+    links = dataset_registry.load_links()
+    exact_link = {
+        "projectId": project_id,
+        "datasetId": dataset_id,
+        "versionId": version_id,
+        "datasetRole": "modeling",
+        "linkedBy": user_id,
+    }
+    links["links"] = [
+        item
+        for item in links.get("links", [])
+        if not (
+            item.get("projectId") == project_id
+            and item.get("datasetId") == dataset_id
+        )
+    ] + [exact_link]
+    dataset_registry.save_links(links)
+
+    activation_revision = 0
+    persistence = get_persistence_service()
+    if persistence.projects.get(project_id) is not None:
+        activation = persistence.project_dataset_activations.activate_exact(
+            project_id=project_id,
+            dataset_id=dataset_id,
+            dataset_version_id=version_id,
+            actor_user_id=user_id,
+            metadata={"source": "checkpoint_lifecycle_fixture"},
+        )
+        activation_revision = int(
+            (activation.get("active_selection") or {}).get("activation_revision")
+            or 0
+        )
+
     store = get_scoped_dataset_store((user_id, project_id))
     store.reset_all()
-    store.set_raw(pd.DataFrame({"amount": [1.0, 2.0, 3.0], "marker": [marker] * 3}))
+    store.set_raw(frame)
     store.set_target("amount")
-    store.meta["selected_columns"] = ["marker"]
+    store.meta.update(
+        {
+            "project_id": project_id,
+            "dataset_id": dataset_id,
+            "dataset_version_id": version_id,
+            "dataset_version": version_id,
+            "dataset_identity_status": "current",
+            "activation_revision": activation_revision,
+            "dataset_content_hash": f"fixture-hash-{identity_token}",
+            "selected_columns": ["marker"],
+        }
+    )
 
 
 def _populate_result_scope(user_id: str, project_id: str, marker: str) -> None:
@@ -126,6 +302,7 @@ def _simulate_restart() -> bool:
 class CheckpointLifecycleTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        _bind_security_and_persistence_paths()
         _cleanup_db_files()
         init_security_store()
         initialize_persistence()
@@ -135,13 +312,18 @@ class CheckpointLifecycleTests(unittest.TestCase):
         _cleanup_db_files()
 
     def setUp(self) -> None:
+        _bind_dataset_library_paths()
         self._datasets_snapshot = dict(dataset_store_module._DATASTORES)
         self._results_snapshot = dict(result_store_module._RESULT_STORES)
         dataset_store_module._DATASTORES.clear()
         result_store_module._RESULT_STORES.clear()
         self._original_checkpoint_path = checkpoint.CHECKPOINT_PATH
-        self._temp_dir = Path(tempfile.mkdtemp(prefix="atlas_checkpoint_lifecycle_"))
-        checkpoint.CHECKPOINT_PATH = self._temp_dir / "workflow_checkpoint.json"
+        self._temp_dir = (
+            _TEST_DATA_ROOT
+            / f"atlas_checkpoint_lifecycle_case_{uuid.uuid4().hex}"
+        )
+        self._temp_dir.mkdir(parents=True, exist_ok=False)
+        _set_checkpoint_path(self._temp_dir / "workflow_checkpoint.json")
         self._original_debounce = checkpoint.CHECKPOINT_DEBOUNCE_SECONDS
         self._original_max_pending = checkpoint.CHECKPOINT_MAX_PENDING_SECONDS
         self._original_warning = checkpoint.CHECKPOINT_SIZE_WARNING_BYTES
@@ -151,7 +333,7 @@ class CheckpointLifecycleTests(unittest.TestCase):
         # at the temp directory, so the background writer can never write to
         # the real checkpoint after this test ends.
         checkpoint.flush_checkpoint()
-        checkpoint.CHECKPOINT_PATH = self._original_checkpoint_path
+        _set_checkpoint_path(self._original_checkpoint_path)
         checkpoint.CHECKPOINT_DEBOUNCE_SECONDS = self._original_debounce
         checkpoint.CHECKPOINT_MAX_PENDING_SECONDS = self._original_max_pending
         checkpoint.CHECKPOINT_SIZE_WARNING_BYTES = self._original_warning

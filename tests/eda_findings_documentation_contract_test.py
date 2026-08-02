@@ -9,6 +9,7 @@ def payload(decision):
     return {
         "project_id": "project-heloc",
         "dataset_id": "ds-heloc",
+        "dataset_version_id": "heloc-v1",
         "dataset_version": "heloc-v1",
         "target": "bad_flag",
         "predictor_manifest_id": "eda-pm-heloc",

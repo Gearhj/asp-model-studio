@@ -18,6 +18,7 @@ export type Model = {
   createdAt: string;
   updatedAt: string;
   currentVersionId: string | null;
+  currentVersionGeneration?: number;
   archived: boolean | number;
   archivedAt: string | null;
   tags: string[];
@@ -33,6 +34,9 @@ export type ModelVersion = {
   datasetId: string | null;
   datasetVersionId: string | null;
   featureManifestVersion: string | null;
+  candidateId?: string | null;
+  validationDesignId?: string | null;
+  splitId?: string | null;
   algorithm: string | null;
   algorithmVersion: string | null;
   hyperparameters: Record<string, unknown>;
@@ -44,6 +48,12 @@ export type ModelVersion = {
   artifactFormat: string | null;
   trainingTimestamp: string | null;
   checksum: string | null;
+  publicationStatus?: "staging" | "finalized" | "quarantined" | "legacy_invalid";
+  lineageStatus?: "verified" | "unresolved" | "invalid";
+  quarantineReason?: string | null;
+  artifactVerifiedAt?: string | null;
+  finalizedAt?: string | null;
+  idempotencyKey?: string | null;
   approvalStatus: ApprovalStatus;
   validationStatus: ValidationStatus;
   documentationStatus: DocumentationStatus;

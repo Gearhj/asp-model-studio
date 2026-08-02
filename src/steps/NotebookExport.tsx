@@ -2,6 +2,9 @@ import { useMemo, useState } from "react";
 import { Download, NotebookTabs, RefreshCw } from "lucide-react";
 import BrandLogo from "../components/BrandLogo";
 import { buildWorkflowNotebook, exportWorkflowNotebookJson, exportWorkflowPythonScript } from "../lib/notebookExport";
+import { DatasetIdentityError } from "../lib/datasetIdentity";
+import { usePredictiveIdentity } from "../components/PredictiveIdentityProvider";
+import { Link } from "react-router-dom";
 
 function downloadText(filename: string, content: string, type: string) {
   const blob = new Blob([content], { type });
@@ -15,7 +18,39 @@ function downloadText(filename: string, content: string, type: string) {
 
 export default function NotebookExport() {
   const [version, setVersion] = useState(0);
-  const notebook = useMemo(() => buildWorkflowNotebook(), [version]);
+  const { readiness, retry } = usePredictiveIdentity();
+  const notebookResolution = useMemo(() => {
+    if (readiness.status !== "ready") return { notebook: null, error: "" };
+    try {
+      return { notebook: buildWorkflowNotebook(), error: "" };
+    } catch (error) {
+      if (error instanceof DatasetIdentityError) {
+        return {
+          notebook: null,
+          error: "The governed notebook cannot be built until the exact registered dataset version is restored.",
+        };
+      }
+      throw error;
+    }
+  }, [
+    readiness.identity?.dataset_id,
+    readiness.identity?.dataset_version_id,
+    readiness.status,
+    version,
+  ]);
+  const notebook = notebookResolution.notebook;
+  if (!notebook) {
+    return (
+      <section className="rounded-xl border border-amber-200 bg-amber-50 p-6 text-amber-950" data-testid="notebook-export-identity-disabled">
+        <h1 className="text-lg font-semibold">Notebook export requires a verified dataset version</h1>
+        <p className="mt-2 max-w-3xl text-sm leading-6">{notebookResolution.error || readiness.message}</p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link to="/step01" className="atlas-primary-button">Open Data Acquisition</Link>
+          <button type="button" className="atlas-secondary-button" onClick={retry}>Retry verification</button>
+        </div>
+      </section>
+    );
+  }
   const sections = notebook.cells
     .filter((cell) => cell.cell_type === "markdown" && /^## \d+\./.test(cell.source))
     .map((cell) => cell.source.split("\n")[0].replace(/^##\s*/, ""));

@@ -694,12 +694,42 @@ def save_section(document_id: str, section_payload: Dict[str, Any]) -> Dict[str,
 
 def attach_evidence(document_id: str, section_id: str, evidence: Dict[str, Any]) -> Dict[str, Any]:
     document = load_document(document_id)
+    matched = False
     for section in document.get("sections") or []:
         if section.get("sectionId") == section_id:
-            section.setdefault("attachedEvidence", []).append(evidence)
+            matched = True
+            evidence_id = str(
+                evidence.get("evidenceId")
+                or evidence.get("evidence_id")
+                or evidence.get("sourceRef")
+                or ""
+            ).strip()
+            attached = list(section.get("attachedEvidence") or [])
+            if evidence_id:
+                replaced = False
+                for index, existing in enumerate(attached):
+                    existing_id = str(
+                        existing.get("evidenceId")
+                        or existing.get("evidence_id")
+                        or existing.get("sourceRef")
+                        or ""
+                    ).strip()
+                    if existing_id == evidence_id:
+                        attached[index] = evidence
+                        replaced = True
+                        break
+                if not replaced:
+                    attached.append(evidence)
+            elif evidence not in attached:
+                attached.append(evidence)
+            section["attachedEvidence"] = attached
             if section.get("status") in {"missing_evidence", "needs_evidence", "draft"}:
                 section["status"] = "ready_for_review"
             break
+    if not matched:
+        raise ValueError(
+            f"Model documentation section '{section_id}' was not found."
+        )
     document["quality"] = quality_check(document, document.get("contextSummary") or build_project_context(document.get("projectId", "")))
     return save_document(document)
 

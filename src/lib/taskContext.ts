@@ -21,10 +21,8 @@
 //      available before any model has been trained (e.g. during Data Acquisition/EDA).
 //   3. null -- honestly unknown, not defaulted to either problem type.
 import { inferLocalProblemType, loadLocalDataset } from "./localDataset";
-
-const API_BASE =
-  (import.meta.env?.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
-  "http://127.0.0.1:8001/api";
+import type { CanonicalDatasetIdentity } from "./datasetIdentity";
+import { requestScopedTrainingHistory } from "./scopedTrainingHistory";
 
 export type ProblemType = "classification" | "regression";
 
@@ -68,30 +66,38 @@ export function deriveTaskContext(
   return { problemType, target: dataset?.target ?? null, source: "local-cache" };
 }
 
-async function fetchBackendTaskContext(projectId: string): Promise<TaskContext> {
-  try {
-    const response = await fetch(`${API_BASE}/train/last?project_id=${encodeURIComponent(projectId)}`, { credentials: "include" });
-    if (!response.ok) return localFallback();
-    const payload = await response.json();
-    return deriveTaskContext(payload?.summary ?? null);
-  } catch {
-    return localFallback();
-  }
+async function fetchBackendTaskContext(
+  identity: CanonicalDatasetIdentity,
+  signal?: AbortSignal,
+): Promise<TaskContext> {
+  const result = await requestScopedTrainingHistory<{ problem_type?: string; target?: string }>(
+    identity,
+    signal,
+  );
+  return result.status === "success"
+    ? deriveTaskContext(result.summary)
+    : localFallback();
 }
 
 /** Resolve the current project's task context, preferring backend training truth over the
  *  browser's local dataset cache. Cached per projectId for the lifetime of the page. */
-export function resolveTaskContext(projectId: string): Promise<TaskContext> {
-  if (!projectId) return Promise.resolve(localFallback());
-  const cached = cache.get(projectId);
+export function resolveTaskContext(
+  identity: CanonicalDatasetIdentity | null,
+  signal?: AbortSignal,
+): Promise<TaskContext> {
+  if (!identity) return Promise.resolve(localFallback());
+  const cacheKey = `${identity.project_id}:${identity.dataset_id}:${identity.dataset_version_id}`;
+  const cached = cache.get(cacheKey);
   if (cached) return cached;
-  const promise = fetchBackendTaskContext(projectId);
-  cache.set(projectId, promise);
+  const promise = fetchBackendTaskContext(identity, signal);
+  cache.set(cacheKey, promise);
   return promise;
 }
 
 /** Drop the cached resolution for a project -- call when a new training run completes so
  *  the next resolveTaskContext() call re-asks the backend instead of serving a stale answer. */
 export function invalidateTaskContext(projectId: string): void {
-  cache.delete(projectId);
+  for (const key of cache.keys()) {
+    if (key.startsWith(`${projectId}:`)) cache.delete(key);
+  }
 }

@@ -2,8 +2,6 @@
 
 from copy import deepcopy
 from datetime import datetime, timezone
-import hashlib
-import json
 from typing import Dict, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -11,13 +9,24 @@ from pydantic import BaseModel, Field
 
 from .trainer_service import TRAINER
 from .training_job_service import TRAINING_JOBS
-from .training_job_types import TrainingJobRequest
+from .training_job_types import TrainingJobRequest, TrainingPortfolioRequest
+from .candidate_contract import (
+    CandidateContractError,
+    assert_candidate_contract_intact,
+    canonical_contract_hash,
+    classify_selection_integrity,
+)
 from ..core.json_safety import json_safe
 from ..core.dataset_store import DATASTORE
 from ..core.modeling_scope import authorize_modeling_scope
 from ..core.result_store import RESULTS
 from ..core.session_checkpoint import schedule_checkpoint_save
 from ..datasets.dataset_identity import assert_expected_active_identity
+from ..persistence.service import get_persistence_service
+from ..persistence.repositories.holdout_governance_repository import (
+    HoldoutGovernanceConflictError,
+    HoldoutGovernanceStateError,
+)
 from ..security.security_store import audit_event, require_user
 
 
@@ -69,6 +78,135 @@ def _record_matches_identity(
         not compatibility_version
         or compatibility_version == str(identity["dataset_version_id"])
     )
+
+
+def _ui_decision_from_durable(record: dict[str, Any]) -> dict[str, Any]:
+    snapshot = (
+        record.get("ranking_snapshot_json")
+        if isinstance(record.get("ranking_snapshot_json"), list)
+        else []
+    )
+    if canonical_contract_hash(snapshot) != str(
+        record.get("ranking_snapshot_hash") or ""
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The durable candidate ranking snapshot failed canonical hash verification."
+            ),
+        )
+    champion = next(
+        (
+            row
+            for row in snapshot
+            if isinstance(row, dict)
+            and str(row.get("candidate_id") or "")
+            == str(record.get("candidate_id") or "")
+        ),
+        {},
+    )
+    if (
+        str(champion.get("candidate_contract_hash") or "")
+        != str(record.get("selected_candidate_contract_hash") or "")
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The durable selected candidate contract hash does not match "
+                "the immutable ranking snapshot."
+            ),
+        )
+    challenger_models = [
+        str(row.get("key") or row.get("algorithm_id") or "")
+        for row in snapshot
+        if isinstance(row, dict)
+        and str(row.get("candidate_id") or "")
+        != str(record.get("candidate_id") or "")
+        and str(row.get("key") or row.get("algorithm_id") or "")
+    ]
+    return {
+        "decision_id": record.get("candidate_decision_id"),
+        "candidate_decision_id": record.get("candidate_decision_id"),
+        "decision_status": record.get("decision_status"),
+        "status": record.get("decision_status") or "locked",
+        "project_id": record.get("project_id"),
+        "dataset_id": record.get("dataset_id"),
+        "dataset_version_id": record.get("dataset_version_id"),
+        "dataset_version": record.get("dataset_version_id"),
+        "feature_manifest_id": record.get("feature_manifest_id"),
+        "feature_manifest_hash": record.get("feature_manifest_hash"),
+        "treatment_manifest_id": record.get("treatment_manifest_id"),
+        "treatment_manifest_hash": record.get("treatment_manifest_hash"),
+        "materialization_id": record.get("materialization_id"),
+        "final_holdout_partition_id": record.get(
+            "final_holdout_partition_id"
+        ),
+        "validation_design_id": record.get("validation_design_id"),
+        "validation_design_version": record.get(
+            "validation_design_version_id"
+        ),
+        "split_id": record.get("split_id"),
+        "training_job_id": record.get("training_job_id"),
+        "training_run_id": record.get("training_run_id"),
+        "candidate_id": record.get("candidate_id"),
+        "selected_candidate_id": record.get("candidate_id"),
+        "selected_candidate_contract_hash": record.get(
+            "selected_candidate_contract_hash"
+        ),
+        "champion_model": champion.get("key")
+        or champion.get("algorithm_id"),
+        "challenger_models": challenger_models,
+        "challenger_candidate_ids": [
+            str(row.get("candidate_id") or "")
+            for row in snapshot
+            if isinstance(row, dict)
+            and str(row.get("candidate_id") or "")
+            != str(record.get("candidate_id") or "")
+            and str(row.get("candidate_id") or "")
+        ],
+        "primary_metric": record.get("selection_metric_name"),
+        "locked_threshold": record.get("locked_threshold"),
+        "threshold_source": record.get("threshold_source"),
+        "threshold_locked_at": record.get("threshold_locked_at"),
+        "threshold_policy_hash": record.get("threshold_policy_hash"),
+        "rationale": record.get("selection_rationale"),
+        "selection_metric": {
+            "selection_metric_name": record.get("selection_metric_name"),
+            "selection_metric_value": record.get("selection_metric_value"),
+            "selection_metric_source": record.get("selection_metric_source"),
+            "selection_partition_id": record.get("selection_partition_id"),
+            "fold_definition_id": record.get("fold_definition_id"),
+            "fold_count": record.get("fold_count"),
+            "fold_values": record.get("fold_values_json") or [],
+            "mean": record.get("selection_metric_mean"),
+            "standard_deviation": record.get("selection_metric_std"),
+            "out_of_fold_prediction_artifact_id": record.get(
+                "out_of_fold_prediction_artifact_id"
+            ),
+            "threshold_source": record.get("threshold_source"),
+            "calibration_source": record.get("calibration_source"),
+            "created_at": record.get("selection_metric_created_at"),
+        },
+        "candidate_metrics": {
+            str(row.get("key") or row.get("algorithm_id") or ""): row
+            for row in snapshot
+            if isinstance(row, dict)
+        },
+        "selection_integrity_status": record.get(
+            "selection_integrity_status"
+        ),
+        "holdout_isolation_status": record.get(
+            "holdout_isolation_status"
+        ),
+        "actor": {"user_id": record.get("actor")},
+        "selection_ranking_snapshot_hash": record.get(
+            "ranking_snapshot_hash"
+        ),
+        "selection_locked_at": record.get("selection_locked_at"),
+        "decided_at": record.get("selection_locked_at"),
+        "decision_contract_hash": record.get("decision_contract_hash"),
+        "durable": True,
+    }
 
 
 def _last_summary_context_error(
@@ -221,6 +359,81 @@ def _last_summary_context_error(
 # scope is threaded through job creation and background execution.
 
 
+@router.get("/model/train/selection")
+def get_training_model_selection(
+    project_id: str = Query(...),
+    dataset_id: str = Query(...),
+    dataset_version_id: str = Query(...),
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    authorize_modeling_scope(user, project_id, "view")
+    try:
+        portfolio = TRAINING_JOBS.get_portfolio(
+            project_id=project_id,
+            dataset_id=dataset_id,
+            dataset_version_id=dataset_version_id,
+        )
+        return json_safe({"ok": True, **portfolio})
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="ATLAS could not read the governed model portfolio.",
+        ) from exc
+
+
+@router.post("/model/train/selection")
+def save_training_model_selection(
+    request: TrainingPortfolioRequest,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    authorize_modeling_scope(user, request.project_id, "edit")
+    try:
+        portfolio = TRAINING_JOBS.save_portfolio(
+            request,
+            persisted_by=str(user.get("userId") or ""),
+        )
+        return json_safe({"ok": True, **portfolio})
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="ATLAS could not persist the governed model portfolio.",
+        ) from exc
+
+
+@router.get("/model/train/preflight")
+def get_latest_training_preflight(
+    project_id: str = Query(...),
+    dataset_id: str = Query(...),
+    dataset_version_id: str = Query(...),
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    authorize_modeling_scope(user, project_id, "view")
+    try:
+        result = TRAINING_JOBS.latest_preflight(
+            project_id=project_id,
+            dataset_id=dataset_id,
+            dataset_version_id=dataset_version_id,
+        )
+        return json_safe({"ok": True, "preflight": result})
+    except HTTPException:
+        raise
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="ATLAS could not read the authoritative training preflight.",
+        ) from exc
+
+
 @router.post("/model/train/jobs")
 def create_training_job(request: TrainingJobRequest, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     authorize_modeling_scope(user, request.project_id, "edit")
@@ -245,8 +458,15 @@ def create_training_job(request: TrainingJobRequest, user: Dict[str, Any] = Depe
             user_id=user.get("userId"),
         )
         return json_safe({"ok": True, **result})
-    except Exception as exc:
+    except HTTPException:
+        raise
+    except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="ATLAS could not create the governed training job.",
+        ) from exc
 
 
 @router.post("/model/train/preflight")
@@ -254,14 +474,37 @@ def run_training_preflight(request: TrainingJobRequest, user: Dict[str, Any] = D
     authorize_modeling_scope(user, request.project_id, "view")
     try:
         return json_safe(TRAINING_JOBS.preflight(request))
-    except Exception as exc:
+    except HTTPException:
+        raise
+    except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="ATLAS could not validate the governed training request.",
+        ) from exc
 
 
 @router.get("/model/train/jobs/active")
 def get_active_training_jobs(project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     authorize_modeling_scope(user, project_id, "view")
-    return json_safe({"ok": True, "jobs": TRAINING_JOBS.active(owner_user_id=str(user.get("userId") or ""), project_id=project_id)})
+    owner_user_id = str(user.get("userId") or "")
+    jobs = TRAINING_JOBS.active(
+        owner_user_id=owner_user_id,
+        project_id=project_id,
+    )
+    latest_job = TRAINING_JOBS.latest(
+        owner_user_id=owner_user_id,
+        project_id=project_id,
+    )
+    return json_safe(
+        {
+            "ok": True,
+            "jobs": jobs,
+            "active_job": jobs[0] if jobs else None,
+            "latest_job": latest_job,
+        }
+    )
 
 
 @router.get("/model/train/jobs/{job_id}")
@@ -327,8 +570,30 @@ def get_model_selection_decision(
     project_id: str = Query(...),
     expected_dataset_id: str = Query(""),
     expected_dataset_version_id: str = Query(""),
+    candidate_decision_id: str = Query(""),
+    validation_design_id: str = Query(""),
+    validation_design_version: str = Query(""),
+    split_id: str = Query(""),
+    training_run_id: str = Query(""),
+    candidate_id: str = Query(""),
     user: Dict[str, Any] = Depends(require_user),
 ) -> Dict[str, Any]:
+    candidate_decision_id = (
+        candidate_decision_id if isinstance(candidate_decision_id, str) else ""
+    )
+    validation_design_id = (
+        validation_design_id if isinstance(validation_design_id, str) else ""
+    )
+    validation_design_version = (
+        validation_design_version
+        if isinstance(validation_design_version, str)
+        else ""
+    )
+    split_id = split_id if isinstance(split_id, str) else ""
+    training_run_id = (
+        training_run_id if isinstance(training_run_id, str) else ""
+    )
+    candidate_id = candidate_id if isinstance(candidate_id, str) else ""
     authorize_modeling_scope(user, project_id, "view")
     identity = assert_expected_active_identity(
         project_id,
@@ -337,10 +602,10 @@ def get_model_selection_decision(
         require_expected=True,
         user=user,
     )
-    decision = DATASTORE.meta.get("model_selection_decision")
-    if isinstance(decision, dict):
+    cached = DATASTORE.meta.get("model_selection_decision")
+    if isinstance(cached, dict):
         if any(
-            str(decision.get(key) or "") != str(identity.get(key) or "")
+            str(cached.get(key) or "") != str(identity.get(key) or "")
             for key in ("project_id", "dataset_id", "dataset_version_id")
         ):
             raise HTTPException(
@@ -350,6 +615,39 @@ def get_model_selection_decision(
                     "the exact active Dataset Library version."
                 ),
             )
+    else:
+        cached = {}
+    exact = {
+        "candidate_decision_id": candidate_decision_id
+        or str(cached.get("candidate_decision_id") or cached.get("decision_id") or ""),
+        "validation_design_id": validation_design_id
+        or str(cached.get("validation_design_id") or ""),
+        "validation_design_version_id": validation_design_version
+        or str(cached.get("validation_design_version") or ""),
+        "split_id": split_id or str(cached.get("split_id") or ""),
+        "training_run_id": training_run_id
+        or str(cached.get("training_run_id") or ""),
+        "candidate_id": candidate_id or str(cached.get("candidate_id") or ""),
+    }
+    decision = None
+    recovery_status = "exact_identity_required"
+    if all(str(value or "").strip() for value in exact.values()):
+        durable = get_persistence_service().holdout_governance.get_selection_decision_exact(
+            project_id=str(identity["project_id"]),
+            dataset_id=str(identity["dataset_id"]),
+            dataset_version_id=str(identity["dataset_version_id"]),
+            **exact,
+        )
+        if durable is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    "The exact immutable model-selection decision was not found. "
+                    "ATLAS did not substitute a latest, algorithm, or browser-only decision."
+                ),
+            )
+        decision = _ui_decision_from_durable(durable)
+        recovery_status = "exact_durable_record"
     return json_safe(
         {
             "ok": True,
@@ -357,7 +655,9 @@ def get_model_selection_decision(
             "dataset_id": identity["dataset_id"],
             "dataset_version_id": identity["dataset_version_id"],
             "dataset_version": identity["dataset_version_id"],
-            "decision": decision if isinstance(decision, dict) else None,
+            "decision": decision,
+            "decision_recovery_status": recovery_status,
+            "fallback_used": False,
         }
     )
 
@@ -369,6 +669,7 @@ def save_model_selection_decision(
 ) -> Dict[str, Any]:
     authorize_modeling_scope(user, request.project_id, "edit")
     scoped_store = _current_store(DATASTORE)
+    scoped_results = _current_store(RESULTS)
     with scoped_store.state_lock:
         active_identity = assert_expected_active_identity(
             request.project_id,
@@ -400,9 +701,71 @@ def save_model_selection_decision(
         project_id=request.project_id,
     )
     if not job:
+        # Completed training summaries are persisted beyond the in-memory job
+        # worker.  After a backend restart the user must still be able to bind
+        # a provisional selection to that exact governed run.
+        last_summary = scoped_results.get_last_summary()
+        if (
+            isinstance(last_summary, dict)
+            and str(last_summary.get("training_job_id") or "")
+            == request.training_job_id
+            and str(last_summary.get("project_id") or "")
+            == request.project_id
+            and str(last_summary.get("dataset_id") or "")
+            == active_identity["dataset_id"]
+            and str(last_summary.get("dataset_version_id") or "")
+            == active_identity["dataset_version_id"]
+            and str(last_summary.get("status") or "") == "complete"
+        ):
+            job = {
+                "partial_ranked_results": last_summary.get("ranked") or [],
+                "dataset_id": last_summary.get("dataset_id"),
+                "dataset_version_id": last_summary.get(
+                    "dataset_version_id"
+                ),
+                "feature_manifest_version": last_summary.get(
+                    "feature_manifest_version"
+                ),
+                "split_id": last_summary.get("split_id"),
+                "validation_design_id": last_summary.get(
+                    "validation_design_id"
+                ),
+                "validation_design_version": last_summary.get(
+                    "validation_design_version"
+                ),
+                "overall_status": last_summary.get("status"),
+                "requested_models": last_summary.get("requested_models") or [],
+                "completed_models": last_summary.get("completed_models") or [],
+                "failed_models": last_summary.get("failed") or [],
+                "finished_count": len(last_summary.get("completed_models") or [])
+                + len(last_summary.get("failed") or []),
+                "total_count": len(last_summary.get("requested_models") or []),
+                "queued_models": [],
+                "current_models": [],
+            }
+    if not job:
         raise HTTPException(
             status_code=404,
-            detail="The governed training job was not found in this project.",
+            detail=(
+                "The governed training job was not found in this project. "
+                "Run Model Training again before recording a proposal."
+            ),
+        )
+    total_count = int(job.get("total_count") or 0)
+    finished_count = int(job.get("finished_count") or 0)
+    if (
+        str(job.get("overall_status") or "") != "complete"
+        or total_count < 1
+        or finished_count != total_count
+        or bool(job.get("queued_models"))
+        or bool(job.get("current_models"))
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "The training portfolio is not terminal and complete. ATLAS "
+                "will not lock a candidate from a partial leaderboard."
+            ),
         )
     if any(
         str(job.get(key) or "") != str(active_identity.get(key) or "")
@@ -415,20 +778,65 @@ def save_model_selection_decision(
                 "active Dataset Library version."
             ),
         )
-    candidates = {
-        str(row.get("key"))
-        for row in job.get("partial_ranked_results") or []
-        if isinstance(row, dict) and row.get("champion_eligible", True)
-    }
-    if request.champion_model not in candidates:
+    candidate_rows: dict[str, dict[str, Any]] = {}
+    invalid_candidate_reasons: dict[str, str] = {}
+    for row in job.get("partial_ranked_results") or []:
+        if not isinstance(row, dict) or not row.get("champion_eligible", True):
+            continue
+        key = str(row.get("key") or "")
+        contract = row.get("candidate_contract")
+        integrity = classify_selection_integrity(
+            contract if isinstance(contract, dict) else row
+        )
+        if integrity != "verified":
+            invalid_candidate_reasons[key] = integrity
+            continue
+        try:
+            assert_candidate_contract_intact(contract)
+        except (CandidateContractError, TypeError) as exc:
+            invalid_candidate_reasons[key] = str(exc)
+            continue
+        if any(
+            str(contract.get(field) or "") != str(expected or "")
+            for field, expected in (
+                ("project_id", active_identity["project_id"]),
+                ("dataset_id", active_identity["dataset_id"]),
+                (
+                    "dataset_version_id",
+                    active_identity["dataset_version_id"],
+                ),
+                ("training_job_id", request.training_job_id),
+                ("split_id", job.get("split_id")),
+                (
+                    "validation_design_id",
+                    job.get("validation_design_id"),
+                ),
+                (
+                    "validation_design_version",
+                    job.get("validation_design_version"),
+                ),
+            )
+        ):
+            invalid_candidate_reasons[key] = (
+                "candidate contract does not match the exact requested training lineage"
+            )
+            continue
+        candidate_rows[key] = row
+    if request.champion_model not in candidate_rows:
+        reason = invalid_candidate_reasons.get(request.champion_model)
         raise HTTPException(
-            status_code=400,
-            detail="The proposed champion is not an eligible completed candidate.",
+            status_code=409 if reason else 400,
+            detail=(
+                "The proposed champion is non-promotable because its governed "
+                f"selection integrity is not verified: {reason}"
+                if reason
+                else "The proposed champion is not an eligible completed candidate."
+            ),
         )
     invalid_challengers = [
         model
         for model in request.challenger_models
-        if model not in candidates or model == request.champion_model
+        if model not in candidate_rows or model == request.champion_model
     ]
     if invalid_challengers:
         raise HTTPException(
@@ -478,44 +886,142 @@ def save_model_selection_decision(
             status_code=409,
             detail="The Validation Design version changed. Refresh the training decision.",
         )
-    decided_at = datetime.now(timezone.utc).isoformat()
-    identity = {
+    selected_row = candidate_rows[request.champion_model]
+    selected_contract = selected_row["candidate_contract"]
+    selection_metric = selected_contract["selection_metric"]
+    threshold_configuration = selected_contract["threshold_configuration"]
+    decision_identity = {
         "project_id": request.project_id,
         "dataset_id": active_identity["dataset_id"],
         "dataset_version_id": active_identity["dataset_version_id"],
-        "training_job_id": request.training_job_id,
-        "champion_model": request.champion_model,
-        "challenger_models": request.challenger_models,
-        "status": request.status,
-        "validation_design_version": validation_design.get("design_version"),
-    }
-    encoded = json.dumps(identity, sort_keys=True, separators=(",", ":"))
-    decision = {
-        "decision_id": f"model-decision-{hashlib.sha256(encoded.encode('utf-8')).hexdigest()[:16]}",
-        **request.model_dump(),
-        "project_id": active_identity["project_id"],
-        "dataset_id": active_identity["dataset_id"],
-        "dataset_version_id": active_identity["dataset_version_id"],
-        "dataset_version": active_identity["dataset_version_id"],
-        "validation_design_id": validation_design.get("validation_design_id"),
-        "validation_design_version": validation_design.get("design_version"),
-        "feature_manifest_version": job.get("feature_manifest_version"),
+        "validation_design_id": validation_design.get(
+            "validation_design_id"
+        ),
+        "validation_design_version_id": validation_design.get(
+            "design_version"
+        ),
         "split_id": job.get("split_id"),
-        "actor": {
-            "user_id": user.get("userId"),
-            "display_name": user.get("displayName")
-            or user.get("email")
-            or "Current ATLAS user",
-        },
-        "decided_at": decided_at,
-        "candidate_metrics": {
-            str(row.get("key")): row
-            for row in job.get("partial_ranked_results") or []
-            if isinstance(row, dict)
-            and str(row.get("key"))
-            in {request.champion_model, *request.challenger_models}
-        },
+        "training_job_id": request.training_job_id,
+        "training_run_id": selected_contract.get("training_run_id"),
+        "candidate_id": selected_contract.get("candidate_id"),
+        "final_holdout_partition_id": selected_contract.get(
+            "final_holdout_partition_id"
+        ),
     }
+    candidate_decision_id = (
+        "model-decision-"
+        + canonical_contract_hash(decision_identity)[:20]
+    )
+    selected_keys = {
+        request.champion_model,
+        *request.challenger_models,
+    }
+    ranking_snapshot = [
+        {
+            "rank": rank,
+            "key": str(row.get("key") or ""),
+            "algorithm_id": str(
+                (row.get("candidate_contract") or {}).get("algorithm_id")
+                or row.get("key")
+                or ""
+            ),
+            "name": str(row.get("name") or row.get("key") or ""),
+            "candidate_id": str(row.get("candidate_id") or ""),
+            "training_run_id": str(row.get("training_run_id") or ""),
+            "selection_metric": deepcopy(row.get("selection_metric") or {}),
+            "selection_integrity_status": row.get(
+                "selection_integrity_status"
+            ),
+            "holdout_isolation_status": row.get(
+                "holdout_isolation_status"
+            ),
+            "candidate_contract_hash": (
+                row.get("candidate_contract") or {}
+            ).get("contract_hash"),
+        }
+        for rank, row in enumerate(
+            job.get("partial_ranked_results") or [], start=1
+        )
+        if isinstance(row, dict) and str(row.get("key") or "") in selected_keys
+    ]
+    ranking_snapshot_hash = canonical_contract_hash(ranking_snapshot)
+    decided_at = datetime.now(timezone.utc).isoformat()
+    actor_id = str(user.get("userId") or "")
+    durable_record = {
+        "candidate_decision_id": candidate_decision_id,
+        "decision_status": "locked",
+        **decision_identity,
+        "feature_manifest_id": selected_contract.get(
+            "feature_manifest_id"
+        ),
+        "feature_manifest_hash": selected_contract.get(
+            "feature_manifest_hash"
+        ),
+        "treatment_manifest_id": selected_contract.get(
+            "treatment_manifest_id"
+        ),
+        "treatment_manifest_hash": selected_contract.get(
+            "treatment_manifest_hash"
+        ),
+        "materialization_id": selected_contract.get("materialization_id"),
+        "selected_candidate_contract_hash": selected_contract.get(
+            "contract_hash"
+        ),
+        "selection_metric_name": selection_metric[
+            "selection_metric_name"
+        ],
+        "selection_metric_value": selection_metric[
+            "selection_metric_value"
+        ],
+        "selection_metric_source": selection_metric[
+            "selection_metric_source"
+        ],
+        "selection_metric_created_at": selection_metric["created_at"],
+        "selection_partition_id": selection_metric[
+            "selection_partition_id"
+        ],
+        "fold_definition_id": selection_metric["fold_definition_id"],
+        "fold_count": selection_metric["fold_count"],
+        "fold_values_json": selection_metric["fold_values"],
+        "selection_metric_mean": selection_metric["mean"],
+        "selection_metric_std": selection_metric[
+            "standard_deviation"
+        ],
+        "out_of_fold_prediction_artifact_id": selection_metric[
+            "out_of_fold_prediction_artifact_id"
+        ],
+        "threshold_source": selection_metric["threshold_source"],
+        "locked_threshold": threshold_configuration.get(
+            "locked_threshold"
+        ),
+        "threshold_locked_at": threshold_configuration.get(
+            "threshold_locked_at"
+        ),
+        "threshold_policy_hash": threshold_configuration.get(
+            "threshold_policy_hash"
+        ),
+        "calibration_source": selection_metric["calibration_source"],
+        "ranking_snapshot_json": ranking_snapshot,
+        "ranking_snapshot_hash": ranking_snapshot_hash,
+        "selection_rationale": request.rationale,
+        "selection_locked_at": decided_at,
+        "actor": actor_id,
+        "selection_integrity_status": "verified",
+        "selection_integrity_reason": (
+            "Candidate ranking uses exact governed out-of-fold training evidence only."
+        ),
+        "holdout_isolation_status": "verified",
+        "holdout_isolation_reason": (
+            "The final holdout remained sealed through candidate selection and threshold policy lock."
+        ),
+        "integrity_classified_at": decided_at,
+        "integrity_classified_by": actor_id,
+        "created_at": decided_at,
+    }
+    durable_record["decision_contract_hash"] = canonical_contract_hash(
+        durable_record
+    )
+    durable_decision: dict[str, Any]
     with scoped_store.state_lock:
         assert_expected_active_identity(
             request.project_id,
@@ -561,6 +1067,80 @@ def save_model_selection_decision(
                     "Model Training and try again."
                 ),
             )
+        repository = get_persistence_service().holdout_governance
+        try:
+            durable_decision = repository.insert_selection_decision_if_unexposed(
+                durable_record,
+                final_holdout_partition_id=str(
+                    selected_contract.get("final_holdout_partition_id") or ""
+                ),
+            )
+        except (
+            HoldoutGovernanceConflictError,
+            HoldoutGovernanceStateError,
+        ) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        decision = _ui_decision_from_durable(durable_decision)
+        decision.update(
+            {
+                "decision_id": candidate_decision_id,
+                "candidate_decision_id": candidate_decision_id,
+                "candidate_id": selected_contract.get("candidate_id"),
+                "selected_candidate_id": selected_contract.get(
+                    "candidate_id"
+                ),
+                "selected_candidate_contract_hash": selected_contract.get(
+                    "contract_hash"
+                ),
+                "training_run_id": selected_contract.get("training_run_id"),
+                "project_id": active_identity["project_id"],
+                "dataset_id": active_identity["dataset_id"],
+                "dataset_version_id": active_identity[
+                    "dataset_version_id"
+                ],
+                "dataset_version": active_identity[
+                    "dataset_version_id"
+                ],
+                "validation_design_id": validation_design.get(
+                    "validation_design_id"
+                ),
+                "validation_design_version": validation_design.get(
+                    "design_version"
+                ),
+                "feature_manifest_version": job.get(
+                    "feature_manifest_version"
+                ),
+                "feature_manifest_id": selected_contract.get(
+                    "feature_manifest_id"
+                ),
+                "feature_manifest_hash": selected_contract.get(
+                    "feature_manifest_hash"
+                ),
+                "treatment_manifest_id": selected_contract.get(
+                    "treatment_manifest_id"
+                ),
+                "treatment_manifest_hash": selected_contract.get(
+                    "treatment_manifest_hash"
+                ),
+                "materialization_id": selected_contract.get(
+                    "materialization_id"
+                ),
+                "split_id": job.get("split_id"),
+                "actor": {
+                    "user_id": user.get("userId"),
+                    "display_name": user.get("displayName")
+                    or user.get("email")
+                    or "Current ATLAS user",
+                },
+                "decided_at": durable_decision.get(
+                    "selection_locked_at"
+                ),
+                "durable": True,
+                "fallback_used": False,
+            }
+        )
+        # The durable insert/read is authoritative. This browser-session copy
+        # is only a checkpointable cache for exact-key recovery.
         scoped_store.meta["model_selection_decision"] = decision
     audit_event(
         "modeling.model_selection.decision",
@@ -619,7 +1199,7 @@ def get_model_availability(
 @router.post("/model/train")
 def train_models(request: Dict[str, Any], user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     """
-    Core training endpoint used by the Step06 Training page.
+    Retired synchronous training endpoint retained only to fail closed.
 
     Request body (from Step06_Train.tsx):
 
@@ -651,80 +1231,16 @@ def train_models(request: Dict[str, Any], user: Dict[str, Any] = Depends(require
         status: string   // mirrors summary.status
       }
     """
-    try:
-        models = request.get("models") or []
-        if not isinstance(models, list) or not models:
-            raise ValueError("No models selected for training.")
-
-        k_folds = int(request.get("k_folds", 5))
-        max_parallel = int(request.get("max_parallel", 1))
-        calibrate = bool(request.get("calibrate", False))
-        use_pca = bool(request.get("use_pca", False))
-        grid_search = bool(request.get("grid_search", False))
-        grid_search_level = str(request.get("grid_search_level", "quick"))
-        model_params = request.get("model_params") or {}
-        if not isinstance(model_params, dict):
-            model_params = {}
-        project_id = str(request.get("project_id") or "")
-        dataset_version = str(request.get("dataset_version") or "")
-        target = str(request.get("target") or "")
-        problem_type = str(request.get("problem_type") or "")
-        authorize_modeling_scope(user, project_id, "edit")
-
-        typed_request = TrainingJobRequest(
-            models=models,
-            k_folds=k_folds,
-            max_parallel=max_parallel,
-            calibrate=calibrate,
-            use_pca=use_pca,
-            grid_search=grid_search,
-            grid_search_level=grid_search_level,
-            model_params=model_params,
-            project_id=project_id,
-            dataset_version=dataset_version,
-            target=target,
-            problem_type=problem_type,
-            event_value=request.get("event_value"),
-            feature_manifest_version=str(request.get("feature_manifest_version") or ""),
-            split_id=str(request.get("split_id") or ""),
-        )
-        preflight = TRAINING_JOBS.preflight(typed_request)
-        if not preflight["ready"]:
-            raise ValueError("Training preflight blocked execution: " + " | ".join(preflight["blocking_errors"]))
-
-        summary = TRAINER.train(
-            models=models,
-            k_folds=k_folds,
-            max_parallel=max_parallel,
-            calibrate=calibrate,
-            use_pca=use_pca,
-            grid_search=grid_search,
-            grid_search_level=grid_search_level,
-            model_params=model_params,
-            project_id=project_id,
-            dataset_version=dataset_version,
-            target=target,
-            problem_type=problem_type,
-        )
-
-        rows = summary.get("n_train")
-        status = summary.get("status", "ok")
-        schedule_checkpoint_save()
-
-        return json_safe({
-            "ok": True,
-            "summary": summary,
-            "rows": rows,
-            "status": status,
-        })
-
-    except HTTPException:
-        # Let authorize_modeling_scope's 400/403/404 propagate with their
-        # real status codes instead of being flattened to 500 below.
-        raise
-    except Exception as e:
-        # Frontend will show a "training failed" banner if this bubbles up
-        raise HTTPException(status_code=500, detail=str(e))
+    project_id = str(request.get("project_id") or "")
+    authorize_modeling_scope(user, project_id, "edit")
+    raise HTTPException(
+        status_code=410,
+        detail=(
+            "Synchronous model training has been retired because it cannot "
+            "provide the governed atomic commit contract. Use "
+            "POST /api/model/train/jobs."
+        ),
+    )
 
 
 @router.get("/train/last")

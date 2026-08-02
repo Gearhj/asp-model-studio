@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import CopilotCard from "../components/CopilotCard";
 import ModeSwitcher from "../components/ModeSwitcher";
@@ -8,12 +8,19 @@ import Sidebar from "../components/Sidebar";
 import AtlasProgressBar from "../components/ui/AtlasProgressBar";
 import { ExportsPage, OpenProject, SettingsPage } from "../steps/ProjectUtilityPages";
 import { AccountPage, AdminUsersPage, AuditPage, LoginPage, RegisterPage } from "../steps/AuthPages";
-import { useWorkflowStore } from "../state/useWorkflowStore";
+import { selectEffectiveWorkflowSteps, useWorkflowStore } from "../state/useWorkflowStore";
 import { buildBreadcrumbs, breadcrumbText } from "../lib/breadcrumbs";
 import { logout, me } from "../lib/auth";
+import { setCachedUserId } from "../lib/authSession";
+import { loadModelingMode } from "../lib/modelingMode";
 import type { AtlasUser } from "../lib/datasetLibrary";
 import { getUnreadNotificationCount } from "../lib/adminSharing";
 import { PanelRightClose, PanelRightOpen, Sparkles } from "lucide-react";
+import ErrorBoundary from "../components/ErrorBoundary";
+import {
+  PredictiveIdentityGate,
+  PredictiveIdentityProvider,
+} from "../components/PredictiveIdentityProvider";
 
 const ExperimentalDesignWorkflowPage = lazy(() => import("../features/experimental-design/pages/ExperimentalDesignWorkflowPage"));
 const Dashboard = lazy(() => import("../steps/Dashboard"));
@@ -71,10 +78,14 @@ export default function ModelingApp() {
   const [authChecked, setAuthChecked] = useState(false);
   const [authUser, setAuthUser] = useState<AtlasUser | null>(null);
   const [guideMode, setGuideMode] = useState<"full" | "compact" | "hidden">(() => (localStorage.getItem("atlas-guide-mode") as "full" | "compact" | "hidden") || "full");
-  const workflowSteps = useWorkflowStore((state) => state.workflowSteps);
+  const [edaPowerGuideCollapsed, setEdaPowerGuideCollapsed] = useState(
+    () => location.pathname === "/step02" && loadModelingMode() === "advanced",
+  );
+  const workflowSteps = useWorkflowStore(selectEffectiveWorkflowSteps);
   const workflowId = useWorkflowStore((state) => state.workflowId);
   const normalizeWorkflowOrder = useWorkflowStore((state) => state.normalizeWorkflowOrder);
   const projectName = useWorkflowStore((state) => state.projectName);
+  const projectId = useWorkflowStore((state) => state.projectId);
   const restoreWarnings = useWorkflowStore((state) => state.restoreWarnings);
   const completed = workflowSteps.filter((step) => step.status === "complete").length;
   const progress = Math.round((completed / Math.max(1, workflowSteps.length)) * 100);
@@ -116,6 +127,23 @@ export default function ModelingApp() {
     }
   }, [normalizeWorkflowOrder, workflowId]);
 
+  useEffect(() => {
+    const synchronizeEdaPowerLayout = () => {
+      setEdaPowerGuideCollapsed(
+        location.pathname === "/step02" && loadModelingMode() === "advanced",
+      );
+    };
+    synchronizeEdaPowerLayout();
+    window.addEventListener("modeling-mode-updated", synchronizeEdaPowerLayout);
+    window.addEventListener("storage", synchronizeEdaPowerLayout);
+    return () => {
+      window.removeEventListener("modeling-mode-updated", synchronizeEdaPowerLayout);
+      window.removeEventListener("storage", synchronizeEdaPowerLayout);
+    };
+  }, [location.pathname]);
+
+  const effectiveGuideMode = edaPowerGuideCollapsed ? "hidden" : guideMode;
+
   const cycleGuideMode = () => {
     setGuideMode((current) => {
       const next = current === "full" ? "compact" : current === "compact" ? "hidden" : "full";
@@ -145,6 +173,7 @@ export default function ModelingApp() {
   }
 
   return (
+    <PredictiveIdentityProvider>
     <div className="atlas-app-bg min-h-screen">
       <div className="flex min-h-screen">
         <Sidebar />
@@ -215,11 +244,22 @@ export default function ModelingApp() {
           <PrivateDemoBanner />
 
           <main className="min-w-0 flex-1 px-3 py-4 sm:px-4 lg:px-6 xl:px-8">
-            <div className={`mx-auto grid w-full max-w-[1880px] gap-4 ${isFullWidthStudioRoute || guideMode === "hidden" ? "xl:grid-cols-1" : guideMode === "compact" ? "xl:grid-cols-[minmax(0,1fr)_74px]" : "xl:grid-cols-[minmax(0,1fr)_320px]"}`}>
+            <div
+              className={`mx-auto grid w-full max-w-[1880px] gap-4 ${isFullWidthStudioRoute || effectiveGuideMode === "hidden" ? "xl:grid-cols-1" : effectiveGuideMode === "compact" ? "xl:grid-cols-[minmax(0,1fr)_74px]" : "xl:grid-cols-[minmax(0,1fr)_320px]"}`}
+              data-eda-power-guide-layout={edaPowerGuideCollapsed ? "drawer-collapsed" : "available"}
+            >
               <div className="min-w-0">
-                {!isFullWidthStudioRoute && guideMode === "hidden" && (
+                {!isFullWidthStudioRoute && effectiveGuideMode === "hidden" && (
                   <div className="mb-3 flex justify-end">
-                    <button type="button" onClick={cycleGuideMode} className="atlas-secondary-button" title="Restore ATLAS Guide"><PanelRightOpen size={15} /> Restore ATLAS Guide</button>
+                    <button
+                      type="button"
+                      onClick={() => edaPowerGuideCollapsed ? setEdaPowerGuideCollapsed(false) : cycleGuideMode()}
+                      className="atlas-secondary-button"
+                      title="Restore ATLAS Guide"
+                      data-testid={edaPowerGuideCollapsed ? "eda-power-user-guide-restore" : undefined}
+                    >
+                      <PanelRightOpen size={15} /> Restore ATLAS Guide
+                    </button>
                   </div>
                 )}
                 {restoreWarnings.length > 0 && (
@@ -263,6 +303,10 @@ export default function ModelingApp() {
                     </div>
                   }
                 >
+                <ErrorBoundary
+                  title="This workflow route could not be rendered safely."
+                  resetKey={`${projectId}:${location.pathname}`}
+                >
                 <Routes>
                   <Route path="/login" element={<Navigate to="/dashboard" replace />} />
                   <Route path="/register" element={<Navigate to="/dashboard" replace />} />
@@ -282,7 +326,18 @@ export default function ModelingApp() {
                   <Route path="/validation/:validationId" element={<ValidationCaseDetail />} />
                   <Route path="/project-validation/:projectId" element={<ValidationCaseDetail />} />
                   <Route path="/projects/new" element={<NewProject />} />
-                  <Route path="/projects/open" element={<OpenProject />} />
+                  <Route
+                    path="/projects/open"
+                    element={(
+                      <OpenProject
+                        onSessionExpired={() => {
+                          setCachedUserId(null);
+                          setAuthUser(null);
+                          navigate("/login", { replace: true });
+                        }}
+                      />
+                    )}
+                  />
                   <Route path="/templates" element={<WorkflowTemplates />} />
                   <Route path="/datasets" element={<DatasetLibrary />} />
                   <Route path="/visual-intelligence-lab" element={<VisualIntelligenceLab />} />
@@ -313,18 +368,18 @@ export default function ModelingApp() {
                   <Route path="/step00" element={<Step00ProjectContext />} />
                   <Route path="/step01" element={<Step01DataAcquisition />} />
                   <Route path="/step01b" element={<Navigate to="/step01?section=credit-bureau-review" replace />} />
-                  <Route path="/step02" element={<Step02EDA />} />
-                  <Route path="/step03" element={<Step03Outliers />} />
-                  <Route path="/step04" element={<Step04MissingValues />} />
-                  <Route path="/step05" element={<Step05EncodingScaling />} />
-                  <Route path="/step06" element={<Step06BalancingSplit />} />
-                  <Route path="/step07" element={<Step07Train />} />
-                  <Route path="/step08" element={<Step08Evaluation />} />
-                  <Route path="/step09" element={<Step09Interpretation />} />
-                  <Route path="/step10" element={<Step10Scoring />} />
-                  <Route path="/step11" element={<Step11ModelDevelopmentDocument />} />
-                  <Route path="/step12" element={<Step12ModelImplementation />} />
-                  <Route path="/step13" element={<Step13ModelMonitoring />} />
+                  <Route path="/step02" element={<PredictiveRoute><Step02EDA /></PredictiveRoute>} />
+                  <Route path="/step03" element={<PredictiveRoute><Step03Outliers /></PredictiveRoute>} />
+                  <Route path="/step04" element={<PredictiveRoute><Step04MissingValues /></PredictiveRoute>} />
+                  <Route path="/step05" element={<PredictiveRoute><Step05EncodingScaling /></PredictiveRoute>} />
+                  <Route path="/step06" element={<PredictiveRoute><Step06BalancingSplit /></PredictiveRoute>} />
+                  <Route path="/step07" element={<PredictiveRoute><Step07Train /></PredictiveRoute>} />
+                  <Route path="/step08" element={<PredictiveRoute><Step08Evaluation /></PredictiveRoute>} />
+                  <Route path="/step09" element={<PredictiveRoute><Step09Interpretation /></PredictiveRoute>} />
+                  <Route path="/step10" element={<PredictiveRoute><Step10Scoring /></PredictiveRoute>} />
+                  <Route path="/step11" element={<PredictiveRoute><Step11ModelDevelopmentDocument /></PredictiveRoute>} />
+                  <Route path="/step12" element={<PredictiveRoute><Step12ModelImplementation /></PredictiveRoute>} />
+                  <Route path="/step13" element={<PredictiveRoute><Step13ModelMonitoring /></PredictiveRoute>} />
                   <Route
                     path="/workflow/:workflowId/:stepNumber"
                     element={
@@ -341,18 +396,19 @@ export default function ModelingApp() {
                   />
                   <Route path="*" element={<Navigate to="/dashboard" replace />} />
                 </Routes>
+                </ErrorBoundary>
                 </Suspense>
               </div>
-              {!isFullWidthStudioRoute && guideMode !== "hidden" && (
-                guideMode === "full" ? (
+              {!isFullWidthStudioRoute && effectiveGuideMode !== "hidden" && (
+                effectiveGuideMode === "full" ? (
                   <aside className="relative min-w-0">
                     <button type="button" onClick={cycleGuideMode} title="Compact ATLAS Guide" className="absolute right-2 top-2 z-10 rounded-lg border border-slate-200 bg-white p-1.5 text-slate-600 shadow-sm hover:bg-slate-50"><PanelRightClose size={15} /></button>
                     <CopilotCard />
                   </aside>
                 ) : (
                   <aside className="flex min-h-[120px] flex-col items-center gap-3 rounded-xl border border-slate-200 bg-white py-3 shadow-sm">
-                    <button type="button" onClick={cycleGuideMode} title={guideMode === "compact" ? "Hide ATLAS Guide" : "Restore ATLAS Guide"} className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-slate-700 hover:bg-white">{guideMode === "compact" ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}</button>
-                    {guideMode === "compact" && <><Sparkles size={18} className="text-blue-600" /><span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 [writing-mode:vertical-rl]">Guide ready</span></>}
+                    <button type="button" onClick={cycleGuideMode} title={effectiveGuideMode === "compact" ? "Hide ATLAS Guide" : "Restore ATLAS Guide"} className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-slate-700 hover:bg-white">{effectiveGuideMode === "compact" ? <PanelRightClose size={16} /> : <PanelRightOpen size={16} />}</button>
+                    {effectiveGuideMode === "compact" && <><Sparkles size={18} className="text-blue-600" /><span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500 [writing-mode:vertical-rl]">Guide ready</span></>}
                   </aside>
                 )
               )}
@@ -361,7 +417,12 @@ export default function ModelingApp() {
         </div>
       </div>
     </div>
+    </PredictiveIdentityProvider>
   );
+}
+
+function PredictiveRoute({ children }: { children: ReactNode }) {
+  return <PredictiveIdentityGate>{children}</PredictiveIdentityGate>;
 }
 
 function HeaderUserMenu({ user, onLogout }: { user: AtlasUser | null; onLogout: () => Promise<void> }) {

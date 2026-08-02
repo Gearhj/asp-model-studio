@@ -39,8 +39,8 @@ assert.doesNotMatch(pythonGenerator, /Path\(/, "Generated Python must not constr
 assert.match(panel, /ATLAS provides df from the authorized project dataset and version/, "Generated code must document the governed runtime contract.");
 assert.match(panel, /Runtime objects: df, TARGET, SELECTED_FEATURES, ATLAS_DATASET_PATH/, "The runtime contract must be stated in generated code.");
 // The governed identity is sent with every run so the server resolves the artifact.
-assert.match(panel, /datasetId: activeLibrary\?\.datasetId \?\? ""/, "datasetId must travel with the execution request.");
-assert.match(panel, /versionId: activeLibrary\?\.versionId \?\? ""/, "versionId must travel with the execution request.");
+assert.match(panel, /datasetId: activeDatasetIdentity\?\.dataset_id \?\? ""/, "datasetId must travel with the execution request.");
+assert.match(panel, /versionId: activeDatasetIdentity\?\.dataset_version_id \?\? ""/, "versionId must travel with the execution request.");
 assert.match(panel, /selectedFeatures: activeDataset\?\.selected_columns \?\? \[\]/, "Selected features must travel with the request.");
 
 // --- Runtime contract shown above the editor -------------------------------

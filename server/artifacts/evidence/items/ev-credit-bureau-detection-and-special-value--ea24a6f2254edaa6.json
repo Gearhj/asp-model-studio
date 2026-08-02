@@ -1,0 +1,184 @@
+{
+  "projectId": "atlas-ms6okr5d",
+  "projectName": "Home Value Estimator - REGRESSION TEST",
+  "evidenceType": "dataset",
+  "title": "Credit Bureau Detection and Special-Value Review",
+  "summary": "No credit bureau data was confirmed after automated and manual review.",
+  "sourcePage": "Data Acquisition",
+  "sourceRoute": "/step01?section=credit-bureau-review",
+  "datasetIds": [],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Data Sources",
+    "Data Quality",
+    "Feature Engineering"
+  ],
+  "tags": [
+    "predictive_modeling",
+    "bureau_review",
+    "special_values"
+  ],
+  "status": "ready",
+  "importance": "high",
+  "lineage": {
+    "scope": "full_dataset",
+    "rowCount": 12384,
+    "target": "MedHouseVal",
+    "metadataSource": "none"
+  },
+  "payload": {
+    "detected": false,
+    "confidence": 0,
+    "reasons": [],
+    "variables": [],
+    "rowsWithSpecialValues": 0,
+    "declaration": "auto",
+    "variableDefaults": [
+      {
+        "variable": "PercentTradesNeverDelq",
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-29T22:30:11.073Z"
+      },
+      {
+        "variable": "NetFractionInstallBurden",
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-29T15:23:46.130Z"
+      },
+      {
+        "variable": "NumInstallTradesWBalance",
+        "handling": "preserve_informative",
+        "rationale": "",
+        "updatedAt": "2026-07-28T21:38:46.359Z"
+      }
+    ],
+    "valueOverrides": [
+      {
+        "variable": "NumInstallTradesWBalance",
+        "value": -8,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:38.734Z",
+        "override": true
+      },
+      {
+        "variable": "NumInstallTradesWBalance",
+        "value": -9,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:36.774Z",
+        "override": true
+      },
+      {
+        "variable": "NetFractionInstallBurden",
+        "value": 99,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:34.270Z",
+        "override": true
+      },
+      {
+        "variable": "NetFractionInstallBurden",
+        "value": 98,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:32.398Z",
+        "override": true
+      },
+      {
+        "variable": "NetFractionInstallBurden",
+        "value": 97,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:30.558Z",
+        "override": true
+      },
+      {
+        "variable": "NetFractionInstallBurden",
+        "value": 96,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:28.478Z",
+        "override": true
+      },
+      {
+        "variable": "NetFractionInstallBurden",
+        "value": -8,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:26.191Z",
+        "override": true
+      },
+      {
+        "variable": "NetFractionInstallBurden",
+        "value": -9,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:24.054Z",
+        "override": true
+      },
+      {
+        "variable": "PercentTradesNeverDelq",
+        "value": 99,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:21.886Z",
+        "override": true
+      },
+      {
+        "variable": "PercentTradesNeverDelq",
+        "value": 98,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:19.678Z",
+        "override": true
+      },
+      {
+        "variable": "PercentTradesNeverDelq",
+        "value": 97,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:17.142Z",
+        "override": true
+      },
+      {
+        "variable": "PercentTradesNeverDelq",
+        "value": 96,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:15.078Z",
+        "override": true
+      },
+      {
+        "variable": "PercentTradesNeverDelq",
+        "value": -9,
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-07-27T21:12:11.894Z",
+        "override": true
+      }
+    ],
+    "reviewerRationale": "",
+    "reviewStatus": "confirmed",
+    "reviewer": "Current ATLAS user",
+    "reviewedAt": "2026-07-29T22:55:34.710217+00:00",
+    "confirmedAt": "2026-07-29T22:55:45.665Z",
+    "semanticSeparation": {
+      "nullMissingValues": "separate",
+      "parseFailures": "separate",
+      "ordinaryOutliers": "separate"
+    }
+  },
+  "evidenceId": "ev-credit-bureau-detection-and-special-value--ea24a6f2254edaa6",
+  "governance": {},
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-29T22:55:45.783226+00:00",
+  "capturedAt": "2026-07-29T22:55:45.783226+00:00",
+  "updatedAt": "2026-07-29T22:55:45.783226+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 71
+}

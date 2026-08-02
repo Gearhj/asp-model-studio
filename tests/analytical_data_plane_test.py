@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import io
 import os
+import shutil
 import sys
 import tempfile
 import time
@@ -28,14 +29,24 @@ sys.path.insert(0, str(_REPO_ROOT))
 _TEST_DATA_ROOT = _REPO_ROOT / ".tmp"
 _TEST_DATA_ROOT.mkdir(exist_ok=True)
 _RUN_ID = uuid.uuid4().hex[:10]
+_SUITE_ROOT = _TEST_DATA_ROOT / f"atlas_analytics_{_RUN_ID}"
 _SECURITY_DB_PATH = _TEST_DATA_ROOT / f"atlas_analytics_security_{_RUN_ID}.db"
 _PERSISTENCE_DB_PATH = _TEST_DATA_ROOT / f"atlas_analytics_persistence_{_RUN_ID}.db"
 _CHECKPOINT_PATH = _TEST_DATA_ROOT / f"atlas_analytics_checkpoint_{_RUN_ID}.json"
-_LIBRARY_ROOT = Path(tempfile.mkdtemp(prefix=f"atlas_analytics_library_{_RUN_ID}_"))
+_LIBRARY_ROOT = _SUITE_ROOT / "dataset-library"
+_BACKUP_ROOT = Path(tempfile.mkdtemp(prefix=f"atlas_analytics_backups_{_RUN_ID}_"))
+_EVIDENCE_ROOT = _TEST_DATA_ROOT / f"atlas_analytics_evidence_{_RUN_ID}"
+_MODEL_ARTIFACT_ROOT = _TEST_DATA_ROOT / f"atlas_analytics_models_{_RUN_ID}"
+_SCORING_ARTIFACT_ROOT = _TEST_DATA_ROOT / f"atlas_analytics_scoring_{_RUN_ID}"
+os.environ["ATLAS_SECURITY_ROOT"] = str(_SECURITY_DB_PATH.parent)
 os.environ["ATLAS_SECURITY_DB_PATH"] = str(_SECURITY_DB_PATH)
 os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH)
 os.environ["ATLAS_CHECKPOINT_PATH"] = str(_CHECKPOINT_PATH)
 os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(_LIBRARY_ROOT)
+os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(_BACKUP_ROOT)
+os.environ["ATLAS_EVIDENCE_ROOT"] = str(_EVIDENCE_ROOT)
+os.environ["ATLAS_MODEL_REGISTRY_ARTIFACT_ROOT"] = str(_MODEL_ARTIFACT_ROOT)
+os.environ["ATLAS_SCORING_RUN_ARTIFACT_ROOT"] = str(_SCORING_ARTIFACT_ROOT)
 os.environ.setdefault("ATLAS_AUTH_ENABLED", "true")
 os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
 
@@ -44,15 +55,89 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from server.main import app  # noqa: E402
 from server.persistence import initialize_persistence  # noqa: E402
+from server.persistence import db as persistence_db  # noqa: E402
+from server.persistence import service as persistence_service  # noqa: E402
+from server.security import security_store  # noqa: E402
 from server.security.security_store import init_security_store  # noqa: E402
 import server.core.session_checkpoint as checkpoint  # noqa: E402
 from server.analytics import result_cache  # noqa: E402
 from server.analytics.query_planner import PlannerInputs, plan, PlanningRejection  # noqa: E402
 from server.analytics.query_contract import ApproximationPolicy, Operation, SourceType  # noqa: E402
 from server.analytics.resource_governance import LIMITS  # noqa: E402
+from server.datasets import dataset_registry  # noqa: E402
+from server.evidence import evidence_store  # noqa: E402
+from server.model_registry import model_artifacts  # noqa: E402
+from server.scoring_runs import scoring_run_artifacts  # noqa: E402
+
+
+def _bind_dataset_library_paths() -> None:
+    """Rebind every cached registry path to this suite's owned root."""
+    expected_root = _LIBRARY_ROOT.resolve()
+    expected_backup_root = _BACKUP_ROOT.resolve()
+    os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(expected_root)
+    os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(expected_backup_root)
+    dataset_registry.ARTIFACT_ROOT = expected_root
+    dataset_registry.REGISTRY_PATH = dataset_registry.ARTIFACT_ROOT / "registry.json"
+    dataset_registry.USERS_PATH = dataset_registry.ARTIFACT_ROOT / "users.json"
+    dataset_registry.PROJECT_LINKS_PATH = (
+        dataset_registry.ARTIFACT_ROOT / "project_links.json"
+    )
+    assert Path(os.environ["ATLAS_DATASET_LIBRARY_ROOT"]).resolve() == expected_root
+    assert Path(os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"]).resolve() == expected_backup_root
+    assert dataset_registry.ARTIFACT_ROOT.resolve() == expected_root
+    assert dataset_registry.REGISTRY_PATH.resolve() == expected_root / "registry.json"
+    assert dataset_registry.USERS_PATH.resolve() == expected_root / "users.json"
+    assert dataset_registry.PROJECT_LINKS_PATH.resolve() == expected_root / "project_links.json"
+
+
+def _bind_checkpoint_path() -> None:
+    """Keep this suite isolated even when ``server.main`` was imported first."""
+    expected = _CHECKPOINT_PATH.resolve()
+    os.environ["ATLAS_CHECKPOINT_PATH"] = str(expected)
+    checkpoint.CHECKPOINT_PATH = expected
+    assert Path(os.environ["ATLAS_CHECKPOINT_PATH"]).resolve() == expected
+    assert checkpoint.CHECKPOINT_PATH.resolve() == expected
+
+
+def _bind_isolated_runtime_paths() -> None:
+    """Rebind all cached storage authorities to this suite's UUID paths."""
+    os.environ["ATLAS_SECURITY_ROOT"] = str(_SECURITY_DB_PATH.parent.resolve())
+    os.environ["ATLAS_SECURITY_DB_PATH"] = str(_SECURITY_DB_PATH.resolve())
+    os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH.resolve())
+    os.environ["ATLAS_EVIDENCE_ROOT"] = str(_EVIDENCE_ROOT.resolve())
+    os.environ["ATLAS_MODEL_REGISTRY_ARTIFACT_ROOT"] = str(_MODEL_ARTIFACT_ROOT.resolve())
+    os.environ["ATLAS_SCORING_RUN_ARTIFACT_ROOT"] = str(_SCORING_ARTIFACT_ROOT.resolve())
+    os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
+    security_store.SECURITY_ROOT = _SECURITY_DB_PATH.parent.resolve()
+    security_store.DB_PATH = _SECURITY_DB_PATH.resolve()
+    security_store.ATLAS_AUTH_ENABLED = True
+    security_store.ATLAS_ALLOW_PUBLIC_REGISTRATION = True
+    persistence_db._database = persistence_db.Database(_PERSISTENCE_DB_PATH)
+    persistence_service._service = None
+    evidence_store.EVIDENCE_ROOT = _EVIDENCE_ROOT.resolve()
+    evidence_store.ITEMS_ROOT = evidence_store.EVIDENCE_ROOT / "items"
+    evidence_store.REGISTRY_PATH = evidence_store.EVIDENCE_ROOT / "evidence_registry.json"
+    model_artifacts.ARTIFACT_ROOT = _MODEL_ARTIFACT_ROOT.resolve()
+    scoring_run_artifacts.ARTIFACT_ROOT = _SCORING_ARTIFACT_ROOT.resolve()
+    _bind_dataset_library_paths()
+    _bind_checkpoint_path()
+
+    assert security_store.DB_PATH == _SECURITY_DB_PATH.resolve()
+    assert persistence_db.get_database().path == _PERSISTENCE_DB_PATH.resolve()
+    assert evidence_store.EVIDENCE_ROOT == _EVIDENCE_ROOT.resolve()
+    assert model_artifacts.ARTIFACT_ROOT == _MODEL_ARTIFACT_ROOT.resolve()
+    assert scoring_run_artifacts.ARTIFACT_ROOT == _SCORING_ARTIFACT_ROOT.resolve()
+
+
+_bind_isolated_runtime_paths()
+
+
+def setUpModule() -> None:
+    _bind_isolated_runtime_paths()
 
 
 def _cleanup_db_files() -> None:
+    checkpoint.flush_checkpoint()
     for base in (_SECURITY_DB_PATH, _PERSISTENCE_DB_PATH):
         for suffix in ("", "-wal", "-shm"):
             target = Path(f"{base}{suffix}")
@@ -63,7 +148,11 @@ def _cleanup_db_files() -> None:
                 except PermissionError:
                     if attempt < 24:
                         time.sleep(0.2)
-    checkpoint.CHECKPOINT_PATH.unlink(missing_ok=True)
+    _CHECKPOINT_PATH.unlink(missing_ok=True)
+    shutil.rmtree(_EVIDENCE_ROOT, ignore_errors=True)
+    shutil.rmtree(_MODEL_ARTIFACT_ROOT, ignore_errors=True)
+    shutil.rmtree(_SCORING_ARTIFACT_ROOT, ignore_errors=True)
+    shutil.rmtree(_BACKUP_ROOT, ignore_errors=True)
 
 
 def _register(label: str) -> TestClient:
@@ -96,6 +185,34 @@ def _upload_workspace_frame(client: TestClient, project_id: str, rows: int = 300
         "target": "target", "selected_columns": ["amount", "category"],
     })
     assert response.status_code == 200, response.text
+
+
+def _register_link_activate_frame(
+    client: TestClient,
+    project_id: str,
+    frame: pd.DataFrame,
+    name: str,
+) -> tuple[str, str]:
+    upload = client.post(
+        "/api/datasets/upload",
+        files={"file": (f"{name}.csv", io.BytesIO(frame.to_csv(index=False).encode("utf-8")), "text/csv")},
+        data={"name": name, "description": "analytical data-plane test asset"},
+    )
+    assert upload.status_code == 200, upload.text
+    dataset = upload.json()["dataset"]
+    dataset_id = dataset["datasetId"]
+    version_id = dataset["created_dataset_version_id"]
+    link = client.post(
+        f"/api/projects/{project_id}/datasets/link",
+        json={"datasetId": dataset_id, "versionId": version_id, "datasetRole": "modeling"},
+    )
+    assert link.status_code == 200, link.text
+    activation = client.post(
+        f"/api/datasets/{dataset_id}/versions/{version_id}/activate",
+        params={"project_id": project_id},
+    )
+    assert activation.status_code == 200, activation.text
+    return dataset_id, version_id
 
 
 class QueryPlannerTests(unittest.TestCase):
@@ -259,10 +376,13 @@ class AnalyticalQueryEndpointTests(unittest.TestCase):
 
 
 class RegressionEvaluationSourceTests(unittest.TestCase):
-    """Uses the evaluation-result sourceType against a real trained model, mirroring
-    the pattern already established by the Regression Stage B / Visual Intelligence
-    Foundation seeding helpers -- verifies regression_diagnostics/residual_distribution/
-    qq_points work end-to-end through the real training pipeline, not synthetic frames."""
+    """Verify the analytical plane honors final-holdout isolation.
+
+    Candidate training may persist aggregate ranking metrics, but it must not
+    expose final-holdout row-level ``y_true``/``y_score`` arrays.  Consequently
+    the legacy ``evaluation-result`` adapter resolves an empty bounded frame
+    until the separate Evaluation workflow creates an authorized package.
+    """
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -277,31 +397,43 @@ class RegressionEvaluationSourceTests(unittest.TestCase):
             "feature_b": [float((i * 3) % 23) for i in range(400)],
             "MedHouseVal": [round(0.5 + (i % 11) * 0.31, 3) for i in range(400)],
         })
-        files = {"file": ("reg.csv", io.BytesIO(df.to_csv(index=False).encode("utf-8")), "text/csv")}
-        response = self.client.post("/api/data/upload_csv", data={"project_id": self.project_id}, files=files)
+        dataset_id, version_id = _register_link_activate_frame(
+            self.client, self.project_id, df, f"analytics-regression-{uuid.uuid4().hex[:8]}"
+        )
+        identity = {"dataset_id": dataset_id, "dataset_version_id": version_id}
+        response = self.client.post("/api/data/set_target", json={"project_id": self.project_id, "target": "MedHouseVal", "selected_columns": ["feature_a", "feature_b"], "expected_dataset_id": dataset_id, "expected_dataset_version_id": version_id})
         self.assertEqual(response.status_code, 200, response.text)
-        response = self.client.post("/api/data/set_target", json={"project_id": self.project_id, "target": "MedHouseVal", "selected_columns": ["feature_a", "feature_b"]})
+        response = self.client.post("/api/outliers/apply", json={"project_id": self.project_id, "config": {}, "global_method": "IQR_1_5", "target": "MedHouseVal", "problem_type": "regression", "acknowledged_high_impact": True, **identity})
         self.assertEqual(response.status_code, 200, response.text)
-        response = self.client.post("/api/outliers/apply", json={"project_id": self.project_id, "config": {}, "global_method": "IQR_1_5", "target": "MedHouseVal", "problem_type": "regression"})
+        response = self.client.post("/api/missing/validate", json={"project_id": self.project_id, "problem_type": "regression", **identity})
         self.assertEqual(response.status_code, 200, response.text)
-        response = self.client.post("/api/missing/apply", json={"project_id": self.project_id, "config": {}, "problem_type": "regression"})
-        self.assertEqual(response.status_code, 200, response.text)
-        response = self.client.post("/api/features/manifest", json={"project_id": self.project_id, "features": [], "pipeline_steps": [], "dataset_version": ""})
+        response = self.client.post("/api/features/manifest", json={"project_id": self.project_id, "features": [], "pipeline_steps": [], **identity})
         self.assertEqual(response.status_code, 200, response.text)
         manifest_version = response.json().get("manifest_version") or ""
-        response = self.client.post("/api/features/materialize", json={"project_id": self.project_id, "manifest_version": manifest_version})
+        response = self.client.post("/api/features/materialize", json={"project_id": self.project_id, "manifest_version": manifest_version, **identity})
+        self.assertEqual(response.status_code, 200, response.text)
+        materialization_hash = str(response.json()["materialization_hash"])
+        response = self.client.post("/api/features/confirm", json={"project_id": self.project_id, "manifest_version": manifest_version, "materialization_hash": materialization_hash, **identity})
         self.assertEqual(response.status_code, 200, response.text)
         response = self.client.post("/api/balancing_split/config", json={
-            "project_id": self.project_id, "split_strategy": "holdout", "test_size": 0.2, "random_seed": 42, "stratify": False,
+            "project_id": self.project_id, "split_strategy": "hybrid", "test_size": 0.2, "random_seed": 42, "stratify": False,
             "balance_method": "none", "problem_type": "regression", "event_value": None,
-            "selected_features": ["feature_a", "feature_b"], "feature_manifest_version": manifest_version, "dataset_version": "",
+            "selected_features": ["feature_a", "feature_b"], "feature_manifest_version": manifest_version,
+            "fold_method": "k_fold", "fold_count": 2, "cv_design_approved": True,
+            "holdout_protection_confirmed": True, "final_holdout_policy": "untouched_until_final_comparison", **identity,
         })
         self.assertEqual(response.status_code, 200, response.text)
-        split_id = response.json().get("split_id") or ""
+        split = response.json()
+        split_id = split.get("split_id") or ""
+        validation_design = split["validation_design"]
         response = self.client.post("/api/model/train/jobs", json={
             "models": ["linreg"], "k_folds": 2, "max_parallel": 1, "calibrate": False,
             "target": "MedHouseVal", "event_value": None, "non_event_value": None, "problem_type": "regression",
-            "dataset_version": "", "feature_manifest_version": manifest_version, "split_id": split_id, "project_id": self.project_id,
+            "feature_manifest_version": manifest_version, "split_id": split_id, "project_id": self.project_id,
+            "validation_design_id": validation_design["validation_design_id"],
+            "validation_design_version": validation_design["design_version"],
+            "selected_original_features": ["feature_a", "feature_b"], "primary_metric": "rmse",
+            "candidate_strategy": "analytical_data_plane_test", **identity,
         })
         self.assertEqual(response.status_code, 200, response.text)
         job_id = response.json()["job_id"]
@@ -315,7 +447,7 @@ class RegressionEvaluationSourceTests(unittest.TestCase):
             time.sleep(1)
         self.assertEqual(status, "complete")
 
-    def test_regression_diagnostics_matches_independently_computed_metrics(self):
+    def test_candidate_training_does_not_expose_final_holdout_diagnostics(self):
         response = self.client.post("/api/analytics/queries", json={
             "projectId": self.project_id, "sourceType": "evaluation-result", "modelId": "linreg",
             "operation": "regression_diagnostics", "aggregations": {"targetColumn": "actual", "predictionColumn": "prediction"},
@@ -323,25 +455,28 @@ class RegressionEvaluationSourceTests(unittest.TestCase):
         })
         self.assertEqual(response.status_code, 200, response.text)
         result = response.json()["result"]
-        self.assertGreater(result["rowCount"], 0)
-        self.assertIsNotNone(result["rmse"])
-        # RMSE must be sqrt(MSE) -- an internal consistency check independent of the training run itself.
-        self.assertAlmostEqual(result["rmse"] ** 2, result["mse"], places=6)
+        self.assertEqual(result["rowCount"], 0)
+        self.assertIsNone(result["mae"])
+        self.assertIsNone(result["mse"])
+        self.assertIsNone(result["rmse"])
+        self.assertIsNone(result["r2"])
 
-    def test_residual_distribution_and_qq_points_are_shaped_correctly(self):
+    def test_candidate_training_does_not_expose_final_holdout_residual_rows(self):
         residual = self.client.post("/api/analytics/queries", json={
             "projectId": self.project_id, "sourceType": "evaluation-result", "modelId": "linreg",
             "operation": "residual_distribution", "aggregations": {"targetColumn": "actual", "predictionColumn": "prediction"}, "binning": 12,
         })
         self.assertEqual(residual.status_code, 200, residual.text)
-        self.assertEqual(len(residual.json()["result"]["bins"]), 12)
+        self.assertEqual(residual.json()["result"]["bins"], [])
+        self.assertIsNone(residual.json()["result"]["meanResidual"])
+        self.assertIsNone(residual.json()["result"]["medianResidual"])
 
         qq = self.client.post("/api/analytics/queries", json={
             "projectId": self.project_id, "sourceType": "evaluation-result", "modelId": "linreg",
             "operation": "qq_points", "aggregations": {"targetColumn": "actual", "predictionColumn": "prediction"},
         })
         self.assertEqual(qq.status_code, 200, qq.text)
-        self.assertGreater(len(qq.json()["result"]["points"]), 0)
+        self.assertEqual(qq.json()["result"]["points"], [])
 
 
 def _teardown_module():

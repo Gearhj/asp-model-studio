@@ -19,7 +19,9 @@ const TMP_DIR = fileURLToPath(new URL("../.tmp/data-acquisition-status-tests", i
 
 async function transpile(sourcePath, outputName) {
   const source = await readFile(new URL(sourcePath, ROOT), "utf8");
-  const patched = source.replace(/import\.meta\.env\?\.\w+ as string \| undefined/g, "undefined");
+  const patched = source
+    .replace(/import\.meta\.env\?\.\w+ as string \| undefined/g, "undefined")
+    .replace(/from "(\.\/[^".]+)"/g, 'from "$1.js"');
   const output = ts.transpileModule(patched, {
     compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
   }).outputText;
@@ -30,6 +32,7 @@ async function transpile(sourcePath, outputName) {
 }
 
 await rm(TMP_DIR, { recursive: true, force: true });
+await transpile("src/lib/datasetIdentity.ts", "datasetIdentity.js");
 const status = await transpile("src/lib/dataAcquisitionStatus.ts", "dataAcquisitionStatus.js");
 const profile = await transpile("src/lib/governedProfile.ts", "governedProfile.js");
 const step01 = await readFile(new URL("src/steps/Step01_DataAcquisition.tsx", ROOT), "utf8");

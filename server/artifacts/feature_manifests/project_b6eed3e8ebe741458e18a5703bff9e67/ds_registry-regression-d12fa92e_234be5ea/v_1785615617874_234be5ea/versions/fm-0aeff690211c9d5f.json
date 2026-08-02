@@ -1,0 +1,43 @@
+{
+  "dataset_id": "ds_registry-regression-d12fa92e_234be5ea",
+  "dataset_version_id": "v_1785615617874_234be5ea",
+  "definition_checksum": "aa2e118b26395072d61f9b81616bd2b98882a934632872dd5717c40ec3c367f6",
+  "features": [
+    {
+      "config": {},
+      "display_name": "feature_a",
+      "exclusion_reason": "",
+      "feature_id": "original-75c3e713e9fa",
+      "feature_name": "feature_a",
+      "formula_or_rule": "feature_a",
+      "origin": "original",
+      "output_datatype": "float64",
+      "selected": true,
+      "source_features": [
+        "feature_a"
+      ],
+      "transformation_type": "source_column",
+      "user_rationale": ""
+    },
+    {
+      "config": {},
+      "display_name": "feature_b",
+      "exclusion_reason": "",
+      "feature_id": "original-537884973c04",
+      "feature_name": "feature_b",
+      "formula_or_rule": "feature_b",
+      "origin": "original",
+      "output_datatype": "float64",
+      "selected": true,
+      "source_features": [
+        "feature_b"
+      ],
+      "transformation_type": "source_column",
+      "user_rationale": ""
+    }
+  ],
+  "manifest_hash": "fm-0aeff690211c9d5f",
+  "persisted_at": "2026-08-01T20:20:24.759836+00:00",
+  "pipeline_steps": [],
+  "project_id": "project_b6eed3e8ebe741458e18a5703bff9e67"
+}

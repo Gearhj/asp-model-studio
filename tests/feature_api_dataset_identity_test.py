@@ -5,6 +5,7 @@ import io
 import os
 import shutil
 import sys
+import tempfile
 import time
 import unittest
 import uuid
@@ -21,11 +22,14 @@ PERSISTENCE_DB = TEST_ROOT / f"feature_api_identity_persistence_{RUN_ID}.db"
 CHECKPOINT = TEST_ROOT / f"feature_api_identity_checkpoint_{RUN_ID}.json"
 LIBRARY_ROOT = TEST_ROOT / f"feature_api_identity_library_{RUN_ID}"
 LIBRARY_ROOT.mkdir(parents=True, exist_ok=True)
+BACKUP_ROOT = Path(tempfile.mkdtemp(prefix=f"feature_api_identity_backups_{RUN_ID}_"))
 
 os.environ["ATLAS_SECURITY_DB_PATH"] = str(SECURITY_DB)
+os.environ["ATLAS_SECURITY_ROOT"] = str(SECURITY_DB.parent)
 os.environ["ATLAS_SQLITE_PATH"] = str(PERSISTENCE_DB)
 os.environ["ATLAS_CHECKPOINT_PATH"] = str(CHECKPOINT)
 os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(LIBRARY_ROOT)
+os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(BACKUP_ROOT)
 os.environ["ATLAS_AUTH_ENABLED"] = "true"
 os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
 
@@ -33,11 +37,72 @@ import pandas as pd  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from server.main import app  # noqa: E402
+from server.datasets import dataset_registry  # noqa: E402
 from server.persistence import initialize_persistence  # noqa: E402
 from server.security.security_store import init_security_store  # noqa: E402
+import server.security.security_store as security_store  # noqa: E402
+import server.core.session_checkpoint as checkpoint  # noqa: E402
+
+
+def _bind_security_and_persistence_paths() -> None:
+    """Rebind import-cached authorities after another collected test module."""
+    expected_security_root = SECURITY_DB.parent.resolve()
+    expected_security_db = SECURITY_DB.resolve()
+    expected_persistence_db = PERSISTENCE_DB.resolve()
+    os.environ["ATLAS_SECURITY_ROOT"] = str(expected_security_root)
+    os.environ["ATLAS_SECURITY_DB_PATH"] = str(expected_security_db)
+    os.environ["ATLAS_SQLITE_PATH"] = str(expected_persistence_db)
+    os.environ["ATLAS_AUTH_ENABLED"] = "true"
+    os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
+    security_store.SECURITY_ROOT = expected_security_root
+    security_store.DB_PATH = expected_security_db
+    security_store.ATLAS_AUTH_ENABLED = True
+    security_store.ATLAS_ALLOW_PUBLIC_REGISTRATION = True
+    assert Path(os.environ["ATLAS_SECURITY_DB_PATH"]).resolve() == expected_security_db
+    assert Path(os.environ["ATLAS_SQLITE_PATH"]).resolve() == expected_persistence_db
+    assert security_store.SECURITY_ROOT.resolve() == expected_security_root
+    assert security_store.DB_PATH.resolve() == expected_security_db
+
+
+def _bind_dataset_library_paths() -> None:
+    root = LIBRARY_ROOT.resolve()
+    backup_root = BACKUP_ROOT.resolve()
+    os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(root)
+    os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(backup_root)
+    dataset_registry.ARTIFACT_ROOT = root
+    dataset_registry.REGISTRY_PATH = root / "registry.json"
+    dataset_registry.USERS_PATH = root / "users.json"
+    dataset_registry.PROJECT_LINKS_PATH = root / "project_links.json"
+    assert Path(os.environ["ATLAS_DATASET_LIBRARY_ROOT"]).resolve() == root
+    assert Path(os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"]).resolve() == backup_root
+    assert dataset_registry.ARTIFACT_ROOT.resolve() == root
+
+
+def _bind_checkpoint_path() -> None:
+    """Keep this suite isolated even when ``server.main`` was imported first."""
+    expected = CHECKPOINT.resolve()
+    os.environ["ATLAS_CHECKPOINT_PATH"] = str(expected)
+    checkpoint.CHECKPOINT_PATH = expected
+    assert Path(os.environ["ATLAS_CHECKPOINT_PATH"]).resolve() == expected
+    assert checkpoint.CHECKPOINT_PATH.resolve() == expected
+
+
+_bind_security_and_persistence_paths()
+_bind_dataset_library_paths()
+_bind_checkpoint_path()
+
+
+def setUpModule() -> None:
+    _bind_security_and_persistence_paths()
+    _bind_checkpoint_path()
+    _bind_dataset_library_paths()
 
 
 def cleanup() -> None:
+    _bind_security_and_persistence_paths()
+    _bind_dataset_library_paths()
+    _bind_checkpoint_path()
+    checkpoint.flush_checkpoint()
     for base in (SECURITY_DB, PERSISTENCE_DB):
         for suffix in ("", "-wal", "-shm"):
             target = Path(f"{base}{suffix}")
@@ -50,6 +115,7 @@ def cleanup() -> None:
                         time.sleep(0.1)
     CHECKPOINT.unlink(missing_ok=True)
     shutil.rmtree(LIBRARY_ROOT, ignore_errors=True)
+    shutil.rmtree(BACKUP_ROOT, ignore_errors=True)
 
 
 class FeatureApiDatasetIdentityTests(unittest.TestCase):
@@ -57,6 +123,10 @@ class FeatureApiDatasetIdentityTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cleanup()
         LIBRARY_ROOT.mkdir(parents=True, exist_ok=True)
+        BACKUP_ROOT.mkdir(parents=True, exist_ok=True)
+        _bind_security_and_persistence_paths()
+        _bind_dataset_library_paths()
+        _bind_checkpoint_path()
         init_security_store()
         initialize_persistence()
         cls.client = TestClient(app)

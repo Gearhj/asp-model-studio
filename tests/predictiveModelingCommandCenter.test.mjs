@@ -46,7 +46,7 @@ test("Feature Engineering presents a governed, readable transformation contract"
     assert.ok(featureUi.includes(heading), `missing transformation column: ${heading}`);
   }
   assert.match(featureUi, /data-testid="feature-set-review"/);
-  assert.match(featureUi, /max-h-\[28rem\][\s\S]*overflow-auto/);
+  assert.match(featureUi, /max-h-\[32rem\][\s\S]*overflow-auto/);
   assert.match(featureUi, /visibleReviewFeatures\.map/);
   for (const action of [
     "Review details",
@@ -102,6 +102,18 @@ test("Feature Engineering makes the seven-stage execution pipeline and hash gate
 });
 
 test("Validation Design owns all five strategies, folds, protections, and visuals", () => {
+  assert.match(validationUi, /title="Training and Validation Design"/);
+  for (const testId of [
+    "advanced-balancing-settings",
+    "advanced-external-validation",
+    "compact-final-predictor-review",
+  ]) {
+    assert.match(validationUi, new RegExp(`<section data-testid="${testId}">`));
+    assert.doesNotMatch(
+      validationUi,
+      new RegExp(`<details[^>]*data-testid="${testId}"`),
+    );
+  }
   for (const strategy of [
     "Holdout from Current Development Dataset",
     "Separate TEST Dataset",
@@ -186,10 +198,10 @@ test("Training execution, diagnostic separation, and governed proposal are expli
     "Metrics persisted",
     "Diagnostic only",
     "Performance versus Interpretability frontier",
-    "multi-metric profile",
+    "Only verified non-holdout selection evidence appears here",
     "Calibration treatment versus discrimination",
     "Runtime versus performance",
-    "Champion / Challenger Decision Matrix",
+    "Candidate decision lock",
   ]) {
     assert.ok(trainingUi.includes(phrase), `missing training behavior: ${phrase}`);
   }

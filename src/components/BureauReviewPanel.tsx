@@ -36,14 +36,52 @@ import { logDecision } from "../lib/decisionJournal";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const handlingLabels: Record<BureauHandling, string> = {
-  preserve_informative: "Preserve as numeric sentinel",
-  convert_to_missing: "Convert to missing",
-  convert_to_category: "Convert to labeled category",
-  documented_domain_mapping: "Map to governed replacement",
-  exclude_variable: "Exclude from modeling",
-  leave_unchanged: "Leave unchanged",
-  custom: "Review required / custom",
+  preserve_informative: "Leave value unchanged (governed special code)",
+  convert_to_missing: "Treat as missing for imputation",
+  convert_to_category: "Create special-value indicator (dummy variable)",
+  documented_domain_mapping: "Impute with a valid governed value",
+  exclude_variable: "Exclude feature from modeling",
+  leave_unchanged: "Leave value unchanged",
+  custom: "Custom treatment (requires rationale)",
 };
+
+const primaryHandlingChoices: BureauHandling[] = [
+  "convert_to_category",
+  "documented_domain_mapping",
+  "exclude_variable",
+  "preserve_informative",
+];
+
+const handlingHelp: Record<BureauHandling, string> = {
+  preserve_informative:
+    "Keep the observed special code as-is in the predictor.",
+  convert_to_missing:
+    "Treat the special code as missing so it can be handled in the Missing Values step.",
+  convert_to_category:
+    "Create a separate 0/1 indicator that identifies rows with this special-value state.",
+  documented_domain_mapping:
+    "Replace the special code with a documented value that is valid for this predictor.",
+  exclude_variable:
+    "Remove this predictor from the modeling feature set.",
+  leave_unchanged:
+    "Keep the observed special code as-is in the predictor.",
+  custom:
+    "Record a different governed treatment and explain the rationale.",
+};
+
+function selectableHandlingEntries(current?: BureauHandling) {
+  const values =
+    current && !primaryHandlingChoices.includes(current)
+      ? [current, ...primaryHandlingChoices]
+      : primaryHandlingChoices;
+  return values.map((value) => ({
+    value,
+    label:
+      current === value && !primaryHandlingChoices.includes(value)
+        ? `${handlingLabels[value]} (saved policy)`
+        : handlingLabels[value],
+  }));
+}
 
 const destructiveTreatments = new Set<BureauHandling>([
   "convert_to_missing",
@@ -741,6 +779,15 @@ export default function BureauReviewPanel({
                         remain distinct from null missing values, parse
                         failures, and ordinary outliers.
                       </p>
+                      <p
+                        className="mt-2 max-w-4xl rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs font-medium leading-5 text-slate-700"
+                        data-testid="special-value-treatment-help"
+                      >
+                        Choose the modeling outcome in plain language: create
+                        an indicator (dummy) variable, impute with a valid
+                        value, exclude the predictor from modeling, or leave
+                        the special value unchanged.
+                      </p>
                     </div>
                     <span
                       className={`rounded-full border px-3 py-1 text-xs font-semibold ${
@@ -822,7 +869,7 @@ export default function BureauReviewPanel({
                       </div>
                       <label className="mt-2 block">
                         <span className="atlas-label">
-                          Default treatment
+                          Treatment action
                         </span>
                         <select
                           className="atlas-input mt-1"
@@ -835,7 +882,7 @@ export default function BureauReviewPanel({
                             )
                           }
                         >
-                          <option value="all">All treatments</option>
+                          <option value="all">All treatment actions</option>
                           {Object.entries(handlingLabels).map(
                             ([value, label]) => (
                               <option key={value} value={value}>
@@ -1051,7 +1098,7 @@ function VariableTreatmentWorkspace({
           <div className="grid min-w-[280px] gap-2">
             <label>
               <span className="atlas-label">
-                Variable-level default treatment
+                Default action for special values
               </span>
               <select
                 className="atlas-input mt-1"
@@ -1062,12 +1109,18 @@ function VariableTreatmentWorkspace({
                   })
                 }
               >
-                {Object.entries(handlingLabels).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
+                {selectableHandlingEntries(policy.handling).map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
                   </option>
                 ))}
               </select>
+              <span
+                className="mt-1 block text-xs leading-5 text-slate-600"
+                data-testid="selected-special-value-treatment-help"
+              >
+                {handlingHelp[policy.handling]}
+              </span>
             </label>
             {policyNeedsRationale ? (
               <label>
@@ -1134,9 +1187,9 @@ function VariableTreatmentWorkspace({
               <TableHeader className="w-36 text-right">
                 Event-rate difference
               </TableHeader>
-              <TableHeader className="w-56">Default handling</TableHeader>
+              <TableHeader className="w-56">Default action</TableHeader>
               <TableHeader className="w-64">
-                Override handling
+                Override action
               </TableHeader>
               <TableHeader className="w-80">Rationale</TableHeader>
               <TableHeader className="w-32">Review state</TableHeader>
@@ -1211,13 +1264,13 @@ function VariableTreatmentWorkspace({
                         }
                       >
                         <option value="">Use variable default</option>
-                        {Object.entries(handlingLabels).map(
-                          ([value, label]) => (
-                            <option key={value} value={value}>
-                              {label}
-                            </option>
-                          ),
-                        )}
+                        {selectableHandlingEntries(
+                          override?.handling ?? policy.handling,
+                        ).map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
                       </select>
                       {override ? (
                         <span className="rounded-full border border-violet-200 bg-violet-50 px-2 py-1 text-[9px] font-bold uppercase text-violet-800">

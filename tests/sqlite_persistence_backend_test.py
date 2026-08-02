@@ -5,17 +5,49 @@ import os
 import socket
 import sqlite3
 import subprocess
+import shutil
 import sys
 import time
 import unittest
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+_REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_REPOSITORY_ROOT))
+_TEMP_PARENT = _REPOSITORY_ROOT / ".tmp"
+_TEMP_PARENT.mkdir(parents=True, exist_ok=True)
+_TEST_ROOT = (
+    _TEMP_PARENT / f"atlas_sqlite_persistence_{uuid.uuid4().hex}"
+).resolve()
+_SECURITY_ROOT = _TEST_ROOT / "security"
+_SECURITY_DB = _SECURITY_ROOT / "atlas_security.db"
+_PERSISTENCE_DB = _TEST_ROOT / "persistence" / "atlas_local.db"
+_CHECKPOINT_PATH = _TEST_ROOT / "checkpoint" / "workflow_checkpoint.json"
+_DATASET_LIBRARY_ROOT = _TEST_ROOT / "dataset-library"
+_EVIDENCE_ROOT = _TEST_ROOT / "evidence"
+_MODEL_ARTIFACT_ROOT = _TEST_ROOT / "model-registry"
+_SCORING_ARTIFACT_ROOT = _TEST_ROOT / "scoring-runs"
+_ISOLATED_ENVIRONMENT = {
+    "ATLAS_SECURITY_ROOT": str(_SECURITY_ROOT),
+    "ATLAS_SECURITY_DB_PATH": str(_SECURITY_DB),
+    "ATLAS_SQLITE_PATH": str(_PERSISTENCE_DB),
+    "ATLAS_CHECKPOINT_PATH": str(_CHECKPOINT_PATH),
+    "ATLAS_DATASET_LIBRARY_ROOT": str(_DATASET_LIBRARY_ROOT),
+    "ATLAS_EVIDENCE_ROOT": str(_EVIDENCE_ROOT),
+    "ATLAS_MODEL_REGISTRY_ARTIFACT_ROOT": str(_MODEL_ARTIFACT_ROOT),
+    "ATLAS_SCORING_RUN_ARTIFACT_ROOT": str(_SCORING_ARTIFACT_ROOT),
+}
+os.environ.update(_ISOLATED_ENVIRONMENT)
 
+from server.core import session_checkpoint  # noqa: E402
+from server.datasets import dataset_registry  # noqa: E402
+from server.evidence import evidence_store  # noqa: E402
+from server.model_registry import model_artifacts  # noqa: E402
+from server.persistence import db as persistence_db  # noqa: E402
 from server.persistence.db import Database, PersistenceUnavailableError
 from server.persistence.persistence_router import (
     _evidence_record,
@@ -25,7 +57,67 @@ from server.persistence.persistence_router import (
     update_project,
 )
 from server.persistence.service import PersistenceService
+from server.persistence import service as persistence_service  # noqa: E402
+from server.scoring_runs import scoring_run_artifacts  # noqa: E402
 from server.security import security_store
+
+
+_CHECKED_IN_MUTABLE_ROOTS = tuple(
+    path.resolve()
+    for path in (
+        _REPOSITORY_ROOT / ".runtime",
+        _REPOSITORY_ROOT / "server" / "data",
+        _REPOSITORY_ROOT / "server" / "artifacts" / "datasets",
+        _REPOSITORY_ROOT / "server" / "artifacts" / "security",
+        _REPOSITORY_ROOT / "server" / "artifacts" / "evidence",
+        _REPOSITORY_ROOT / "server" / "artifacts" / "model_registry",
+        _REPOSITORY_ROOT / "server" / "artifacts" / "scoring_runs",
+    )
+)
+
+
+def _assert_isolated_path(path: Path, label: str, root: Path = _TEST_ROOT) -> None:
+    resolved = Path(path).expanduser().resolve()
+    if resolved != root and root not in resolved.parents:
+        raise AssertionError(f"{label} escaped the suite-owned temporary root: {resolved}")
+    for forbidden in _CHECKED_IN_MUTABLE_ROOTS:
+        if resolved == forbidden or forbidden in resolved.parents:
+            raise AssertionError(f"{label} targets checked-in runtime state: {resolved}")
+
+
+def _rebind_isolated_runtime(database_path: Path = _PERSISTENCE_DB) -> None:
+    """Rebind cached module constants before every test, regardless of import order."""
+    environment = {
+        **_ISOLATED_ENVIRONMENT,
+        "ATLAS_SQLITE_PATH": str(database_path),
+    }
+    os.environ.update(environment)
+    dataset_registry.ARTIFACT_ROOT = _DATASET_LIBRARY_ROOT
+    dataset_registry.REGISTRY_PATH = _DATASET_LIBRARY_ROOT / "registry.json"
+    dataset_registry.USERS_PATH = _DATASET_LIBRARY_ROOT / "users.json"
+    dataset_registry.PROJECT_LINKS_PATH = _DATASET_LIBRARY_ROOT / "project_links.json"
+    session_checkpoint.CHECKPOINT_PATH = _CHECKPOINT_PATH
+    evidence_store.EVIDENCE_ROOT = _EVIDENCE_ROOT
+    evidence_store.ITEMS_ROOT = _EVIDENCE_ROOT / "items"
+    evidence_store.REGISTRY_PATH = _EVIDENCE_ROOT / "evidence_registry.json"
+    model_artifacts.ARTIFACT_ROOT = _MODEL_ARTIFACT_ROOT
+    scoring_run_artifacts.ARTIFACT_ROOT = _SCORING_ARTIFACT_ROOT
+    security_store.SECURITY_ROOT = _SECURITY_ROOT
+    security_store.DB_PATH = _SECURITY_DB
+    persistence_db._database = Database(database_path)
+    persistence_service._service = None
+
+    for label, path in (
+        ("security root", security_store.SECURITY_ROOT),
+        ("security database", security_store.DB_PATH),
+        ("persistence database", persistence_db.get_database().path),
+        ("checkpoint", session_checkpoint.CHECKPOINT_PATH),
+        ("dataset library", dataset_registry.ARTIFACT_ROOT),
+        ("evidence root", evidence_store.EVIDENCE_ROOT),
+        ("model artifact root", model_artifacts.ARTIFACT_ROOT),
+        ("scoring artifact root", scoring_run_artifacts.ARTIFACT_ROOT),
+    ):
+        _assert_isolated_path(path, label)
 
 
 TEST_USER = {
@@ -54,9 +146,15 @@ def _request_json(url: str, headers: dict[str, str] | None = None) -> tuple[int,
 
 
 class SqlitePersistenceBackendTest(unittest.TestCase):
+    @classmethod
+    def tearDownClass(cls) -> None:
+        shutil.rmtree(_TEST_ROOT, ignore_errors=True)
+
     def setUp(self) -> None:
-        self.database_path = Path(__file__).resolve().parents[1] / "server" / "data" / "atlas_persistence_test.db"
+        self.database_path = _PERSISTENCE_DB
+        _rebind_isolated_runtime(self.database_path)
         self._remove_database_files()
+        security_store.init_security_store()
         self.database = Database(self.database_path)
         self.health = self.database.initialize()
         self.service = PersistenceService(self.database)
@@ -78,6 +176,19 @@ class SqlitePersistenceBackendTest(unittest.TestCase):
     def _remove_database_files(self) -> None:
         for suffix in ("", "-wal", "-shm"):
             Path(f"{self.database_path}{suffix}").unlink(missing_ok=True)
+
+    def test_mutable_runtime_bindings_never_target_checked_in_roots(self) -> None:
+        for label, path in (
+            ("security database", security_store.DB_PATH),
+            ("persistence database", persistence_db.get_database().path),
+            ("checkpoint", session_checkpoint.CHECKPOINT_PATH),
+            ("dataset registry", dataset_registry.REGISTRY_PATH),
+            ("project links", dataset_registry.PROJECT_LINKS_PATH),
+            ("evidence registry", evidence_store.REGISTRY_PATH),
+            ("model artifact root", model_artifacts.ARTIFACT_ROOT),
+            ("scoring artifact root", scoring_run_artifacts.ARTIFACT_ROOT),
+        ):
+            _assert_isolated_path(path, label)
 
     def test_database_initialization_creates_required_tables_without_dropping_data(self) -> None:
         expected = {
@@ -610,14 +721,19 @@ class SqlitePersistenceBackendTest(unittest.TestCase):
         self.assertNotIn("X-ATLAS-USER-ID", str(payload))
 
     def test_http_health_and_projects_accept_seeded_admin_header(self) -> None:
-        repository_root = Path(__file__).resolve().parents[1]
+        repository_root = _REPOSITORY_ROOT
         port = _available_port()
-        data_root = repository_root / "server" / "data"
-        data_root.mkdir(parents=True, exist_ok=True)
         test_prefix = f"atlas_api_context_{os.getpid()}_{port}"
-        security_database = data_root / f"{test_prefix}_security.db"
-        persistence_database = data_root / f"{test_prefix}_persistence.db"
-        checkpoint_path = data_root / f"{test_prefix}_workflow_state.json"
+        data_root = _TEST_ROOT / "http" / test_prefix
+        data_root.mkdir(parents=True, exist_ok=True)
+        security_root = data_root / "security"
+        security_database = security_root / "atlas_security.db"
+        persistence_database = data_root / "persistence" / "atlas_local.db"
+        checkpoint_path = data_root / "checkpoint" / "workflow_checkpoint.json"
+        dataset_library_root = data_root / "dataset-library"
+        evidence_root = data_root / "evidence"
+        model_artifact_root = data_root / "model-registry"
+        scoring_artifact_root = data_root / "scoring-runs"
         test_database_files = [
             Path(f"{database}{suffix}")
             for database in (security_database, persistence_database)
@@ -636,11 +752,27 @@ class SqlitePersistenceBackendTest(unittest.TestCase):
                 "ATLAS_ENABLE_DEV_USER_HEADER": "true",
                 "ATLAS_ENABLE_LOCAL_USER_BOOTSTRAP": "true",
                 "ATLAS_LOCAL_ADMIN_USER_ID": SEEDED_ADMIN_USER_ID,
+                "ATLAS_SECURITY_ROOT": str(security_root),
                 "ATLAS_SECURITY_DB_PATH": str(security_database),
                 "ATLAS_SQLITE_PATH": str(persistence_database),
                 "ATLAS_CHECKPOINT_PATH": str(checkpoint_path),
+                "ATLAS_DATASET_LIBRARY_ROOT": str(dataset_library_root),
+                "ATLAS_EVIDENCE_ROOT": str(evidence_root),
+                "ATLAS_MODEL_REGISTRY_ARTIFACT_ROOT": str(model_artifact_root),
+                "ATLAS_SCORING_RUN_ARTIFACT_ROOT": str(scoring_artifact_root),
             }
         )
+        for variable in (
+            "ATLAS_SECURITY_ROOT",
+            "ATLAS_SECURITY_DB_PATH",
+            "ATLAS_SQLITE_PATH",
+            "ATLAS_CHECKPOINT_PATH",
+            "ATLAS_DATASET_LIBRARY_ROOT",
+            "ATLAS_EVIDENCE_ROOT",
+            "ATLAS_MODEL_REGISTRY_ARTIFACT_ROOT",
+            "ATLAS_SCORING_RUN_ARTIFACT_ROOT",
+        ):
+            _assert_isolated_path(Path(environment[variable]), variable)
         command = [
             sys.executable,
             "-m",

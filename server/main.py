@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Dict, Any, List
 import io
+import logging
 import os
 
 import pandas as pd
@@ -39,9 +40,12 @@ from .features.feature_router import router as feature_router
 from .evaluation.eval_router import router as eval_router
 from .python_execution import router as python_execution_router
 from .datasets.dataset_router import router as dataset_library_router
+from .datasets.dataset_integrity import run_bounded_integrity_scan
+from .datasets.dataset_integrity_router import router as dataset_integrity_router
 from .datasets.dataset_registry import create_dataset_from_dataframe, link_project
 from .datasets.dataset_identity import (
-    resolve_project_dataset_identity,
+    invalidate_dataset_identity,
+    resolve_registered_version,
     stamp_active_dataset_identity,
 )
 from .security.security_router import router as security_router
@@ -77,6 +81,9 @@ from .experimental_design.router import router as experimental_design_router
 from .optimization.optimization_router import router as optimization_router
 from .persistence import PersistenceUnavailableError, get_persistence_service, initialize_persistence
 from .persistence.persistence_router import router as persistence_router
+from .persistence.repositories.project_dataset_activation_repository import (
+    project_dataset_activation_lock,
+)
 from .registry.router import router as registry_router
 from .validation.router import router as validation_router
 from .monitoring.router import router as monitoring_router
@@ -86,7 +93,8 @@ MAX_UPLOAD_BYTES = int(os.getenv("ATLAS_MAX_UPLOAD_BYTES", str(250 * 1024 * 1024
 MAX_UPLOAD_ROWS = int(os.getenv("ATLAS_MAX_UPLOAD_ROWS", "500000"))
 MAX_UPLOAD_COLUMNS = int(os.getenv("ATLAS_MAX_UPLOAD_COLUMNS", "750"))
 MAX_UPLOAD_SAMPLE_ROWS = int(os.getenv("ATLAS_MAX_UPLOAD_SAMPLE_ROWS", "5000"))
-ALLOWED_UPLOAD_EXTENSIONS = {".csv", ".txt"}
+ALLOWED_UPLOAD_EXTENSIONS = {".csv", ".txt", ".json"}
+LOGGER = logging.getLogger("atlas.data_upload")
 PUBLIC_API_PATHS = {
     "/api/health",
     "/api/persistence/health",
@@ -181,14 +189,43 @@ def create_app() -> FastAPI:
         if summary["warnings"]:
             print("ATLAS local security settings: " + "; ".join(summary["warnings"]))
         init_security_store()
+        security_users = list_users()
+        persistence_database = None
         try:
             initialize_persistence()
             service = get_persistence_service()
-            for security_user in list_users():
+            persistence_database = service.database
+            for security_user in security_users:
                 service.sync_user(security_user)
         except PersistenceUnavailableError as exc:
             # Browser and legacy JSON persistence remain available when SQLite cannot start.
             print(f"ATLAS SQLite persistence unavailable; local fallback remains active: {exc}")
+        try:
+            known_users = {
+                str(security_user.get("userId") or ""): security_user
+                for security_user in security_users
+                if security_user.get("userId")
+            }
+            integrity = run_bounded_integrity_scan(
+                database=persistence_database,
+                user_resolver=known_users.get,
+            )
+            app.state.dataset_library_integrity = integrity
+            LOGGER.info(
+                "Dataset Library startup integrity scan completed: status=%s records=%s",
+                integrity["status"],
+                integrity["reconciliation"]["record_count"],
+            )
+        except Exception as exc:  # pragma: no cover - startup must remain available
+            app.state.dataset_library_integrity = {
+                "status": "scan_failed",
+                "error_type": type(exc).__name__,
+                "automatic_recovery_performed": False,
+            }
+            LOGGER.error(
+                "Dataset Library startup integrity scan failed safely: %s",
+                type(exc).__name__,
+            )
         load_checkpoint()
 
     @app.on_event("shutdown")
@@ -217,7 +254,7 @@ def create_app() -> FastAPI:
         filename = file.filename or ""
         extension = os.path.splitext(filename)[1].lower()
         if extension not in ALLOWED_UPLOAD_EXTENSIONS:
-            raise HTTPException(status_code=400, detail="Only CSV or TXT delimited uploads are accepted by this endpoint.")
+            raise HTTPException(status_code=400, detail="Only CSV, TXT, or JSON uploads are accepted by this endpoint.")
 
         content = await file.read()
         if len(content) > MAX_UPLOAD_BYTES:
@@ -227,7 +264,11 @@ def create_app() -> FastAPI:
             )
 
         try:
-            df = pd.read_csv(io.BytesIO(content))
+            df = (
+                pd.read_json(io.BytesIO(content))
+                if extension == ".json"
+                else pd.read_csv(io.BytesIO(content))
+            )
         except Exception as exc:
             raise HTTPException(status_code=400, detail=f"Failed to read CSV: {exc}")
 
@@ -264,45 +305,112 @@ def create_app() -> FastAPI:
                     "version created by this upload."
                 ),
             )
-        link_project(project_id, dataset_id, dataset_version_id, "development")
-        identity = resolve_project_dataset_identity(
-            project_id,
+        resolved = resolve_registered_version(
             dataset_id,
             dataset_version_id,
             user=user,
         )
-
+        actor_user_id = str(user.get("userId") or "").strip()
+        if not actor_user_id:
+            raise HTTPException(
+                status_code=401,
+                detail="An authenticated user is required for dataset activation.",
+            )
         scoped_store = DATASTORE.current()
         scoped_results = RESULTS.current()
-        with scoped_store.state_lock:
-            scoped_store.set_raw(df)
-            target = _infer_target(df)
-            columns = [str(c) for c in df.columns]
-            selected_columns = [col for col in columns if col != target]
-            scoped_store.meta["selected_columns"] = selected_columns
-            canonical = stamp_active_dataset_identity(
-                identity,
-                store=scoped_store,
+        activation_guard = project_dataset_activation_lock(project_id)
+        activation_guard.acquire()
+        try:
+            activation = get_persistence_service().project_dataset_activations.activate_exact(
+                project_id=project_id,
+                dataset_id=dataset_id,
+                dataset_version_id=dataset_version_id,
+                actor_user_id=actor_user_id,
+                metadata={
+                    "datasetRole": "development",
+                    "requestedDatasetVersionId": dataset_version_id,
+                    "source": "data_acquisition_upload",
+                },
             )
-            scoped_store.meta["source"] = {
-                "kind": "dataset_library",
-                "dataset_id": canonical["dataset_id"],
-                "dataset_version_id": canonical["dataset_version_id"],
-                "datasetId": canonical["dataset_id"],
-                "versionId": canonical["dataset_version_id"],
-                "filename": filename,
-                "rows": int(df.shape[0]),
-                "columns": int(df.shape[1]),
-                "target": target,
-                "selected_columns": selected_columns,
-            }
-            invalidate_downstream_training_state(
-                "A newly uploaded exact Dataset Library version was activated.",
-                store=scoped_store,
-                result_store=scoped_results,
-                split_status="not_created",
-                # set_raw already advanced the guarded revision.
-                bump_revision=False,
+        except BaseException:
+            activation_guard.release()
+            raise
+        active_selection = activation.get("active_selection") or {}
+        identity = {
+            **resolved,
+            "project_id": project_id,
+            "project_link": activation.get("link") or {},
+            "active_selection": active_selection,
+            "activation_revision": int(active_selection.get("activation_revision") or 0),
+        }
+        with scoped_store.state_lock:
+            try:
+                scoped_store.set_raw(df)
+                target = _infer_target(df)
+                scoped_store.set_target(target)
+                columns = [str(c) for c in df.columns]
+                selected_columns = [col for col in columns if col != target]
+                scoped_store.meta["selected_columns"] = selected_columns
+                canonical = stamp_active_dataset_identity(
+                    identity,
+                    store=scoped_store,
+                )
+                scoped_store.meta["activation_revision"] = identity["activation_revision"]
+                scoped_store.meta["source"] = {
+                    "kind": "dataset_library",
+                    "dataset_id": canonical["dataset_id"],
+                    "dataset_version_id": canonical["dataset_version_id"],
+                    "datasetId": canonical["dataset_id"],
+                    "versionId": canonical["dataset_version_id"],
+                    "filename": filename,
+                    "rows": int(df.shape[0]),
+                    "columns": int(df.shape[1]),
+                    "target": target,
+                    "selected_columns": selected_columns,
+                }
+                invalidate_downstream_training_state(
+                    "A newly uploaded exact Dataset Library version was activated.",
+                    store=scoped_store,
+                    result_store=scoped_results,
+                    split_status="not_created",
+                    # set_raw already advanced the guarded revision.
+                    bump_revision=False,
+                )
+            except Exception as exc:
+                try:
+                    get_persistence_service().project_dataset_activations.record_contradiction(
+                        project_id=project_id,
+                        actor_user_id=actor_user_id,
+                        reason="Runtime workspace hydration failed after durable upload activation.",
+                        metadata={"operation": "upload_csv"},
+                    )
+                except Exception as contradiction_exc:  # pragma: no cover - diagnostic best effort
+                    LOGGER.error(
+                        "Unable to persist upload activation contradiction for project=%s: %s",
+                        project_id,
+                        contradiction_exc,
+                    )
+                invalidate_dataset_identity(
+                    "The durable uploaded dataset selection could not be hydrated into the workspace.",
+                    store=scoped_store,
+                    clear_frames=True,
+                )
+                activation_guard.release()
+                raise HTTPException(
+                    status_code=500,
+                    detail="The uploaded dataset was registered but its exact version was not activated because workspace hydration failed.",
+                ) from exc
+        activation_guard.release()
+        try:
+            link_project(project_id, dataset_id, dataset_version_id, "development")
+        except Exception as exc:  # pragma: no cover - legacy projection is best effort
+            LOGGER.warning(
+                "Durable upload activation succeeded but legacy link projection failed "
+                "for project=%s dataset=%s version=%s: %s",
+                project_id,
+                dataset_id,
+                dataset_version_id,
+                exc,
             )
         schedule_checkpoint_save()
         sample_df = df.head(max(1, min(MAX_UPLOAD_SAMPLE_ROWS, int(df.shape[0]))))
@@ -329,6 +437,9 @@ def create_app() -> FastAPI:
             "sample_rows": df_to_records(sample_df),
             "sample_row_count": int(sample_df.shape[0]),
             "max_upload_mb": int(MAX_UPLOAD_BYTES // (1024 * 1024)),
+            "activation_revision": int(active_selection.get("activation_revision") or 0),
+            "link": activation.get("link") or {},
+            "active_selection": active_selection,
         }
 
     # -------------------------------------------------------------------------
@@ -362,6 +473,7 @@ def create_app() -> FastAPI:
     app.include_router(notifications_router, prefix="/api", tags=["Notifications"])
     app.include_router(security_router, prefix="/api", tags=["Security"])
     app.include_router(dataset_library_router, prefix="/api", tags=["Dataset Library"], dependencies=authenticated)
+    app.include_router(dataset_integrity_router, prefix="/api", tags=["Dataset Library Integrity"], dependencies=authenticated)
     app.include_router(project_registry_router, prefix="/api", tags=["Project Registry"], dependencies=authenticated)
     app.include_router(persistence_router, prefix="/api", tags=["Persistence"])
     app.include_router(registry_router, prefix="/api", tags=["Registry"], dependencies=authenticated)

@@ -19,12 +19,22 @@ export type ProjectPersistenceBundle = {
   decisions: PersistedRecord[];
 };
 
-class PersistenceHttpError extends Error {
+export class PersistenceHttpError extends Error {
   status: number;
 
   constructor(status: number, message: string) {
     super(message);
+    this.name = "PersistenceHttpError";
     this.status = status;
+  }
+}
+
+export class PersistenceResponseValidationError extends Error {
+  readonly code = "invalid_response";
+
+  constructor(message: string) {
+    super(message);
+    this.name = "PersistenceResponseValidationError";
   }
 }
 
@@ -87,16 +97,33 @@ function workflowStatePayload(snapshot: WorkflowProjectSnapshot) {
     .map((step) => step.id);
   return {
     currentStepId: snapshot.currentStepId,
+    // Browser state may append historical audit completion only. Effective
+    // completion is calculated server-side from the durable active selection
+    // and exact governed artifacts and is never accepted from this payload.
+    historicalCompletedSteps: completedSteps,
     completedSteps,
     workflowStatus: {
       workflowId: snapshot.workflowId,
       projectType: snapshot.projectType,
       steps: Object.fromEntries(snapshot.workflowSteps.map((step) => [step.id, step.status ?? "pending"])),
       hasDataset: Boolean(snapshot.hasDataset),
+      datasetIdentity: snapshot.datasetIdentity ?? null,
     },
     stepEvidenceStatus: {},
     updatedAt: new Date().toISOString(),
   };
+}
+
+/** Persist an exact workflow snapshot and report whether the authoritative
+ * project record accepted it. Callers that gate navigation can await this
+ * instead of relying on the normal debounced compatibility mirror. */
+export async function saveWorkflowStateToDatabase(snapshot: WorkflowProjectSnapshot) {
+  return mirrorToDatabase(snapshot.projectId, () =>
+    persistenceRequest(`/projects/${encodeURIComponent(snapshot.projectId)}/workflow-state`, {
+      method: "PUT",
+      body: JSON.stringify(workflowStatePayload(snapshot)),
+    }),
+  );
 }
 
 function readOptimizationState(projectId: string) {
@@ -344,9 +371,27 @@ export async function getProjectFromDatabase(projectId: string) {
   return payload.project;
 }
 
-export async function listProjectsFromDatabase() {
-  const payload = await persistenceRequest<{ ok: boolean; projects: PersistedRecord[] }>("/projects", { method: "GET" });
+export async function listProjectsFromDatabase(signal?: AbortSignal) {
+  const payload = await persistenceRequest<{ ok: boolean; projects: PersistedRecord[] }>("/projects", { method: "GET", signal });
+  if (!payload || !Array.isArray(payload.projects)) {
+    throw new PersistenceResponseValidationError(
+      "The project registry returned an invalid response: expected a projects array.",
+    );
+  }
   return payload.projects;
+}
+
+export async function getProjectWorkflowStateFromDatabase(projectId: string, signal?: AbortSignal) {
+  try {
+    const payload = await persistenceRequest<{ ok: boolean; workflowState: PersistedRecord | null }>(
+      `/projects/${encodeURIComponent(projectId)}/workflow-state`,
+      { method: "GET", signal },
+    );
+    return payload.workflowState ?? null;
+  } catch (error) {
+    if (error instanceof PersistenceHttpError && error.status === 404) return null;
+    throw error;
+  }
 }
 
 export async function deleteProjectFromDatabase(projectId: string) {

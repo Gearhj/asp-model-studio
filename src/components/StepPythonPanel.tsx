@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { Code2 } from "lucide-react";
 import { CodeWorkspacePanel } from "./code/CodeWorkspacePanel";
 import {
@@ -15,7 +15,10 @@ import {
 import { logDecision } from "../lib/decisionJournal";
 import { loadDataAccessMetadata } from "../lib/enterpriseDataAccess";
 import { loadLocalDataset } from "../lib/localDataset";
-import { requireLocalDatasetCanonicalIdentity } from "../lib/datasetIdentity";
+import {
+  DatasetIdentityError,
+  requireLocalDatasetCanonicalIdentity,
+} from "../lib/datasetIdentity";
 import {
   acknowledgeCodeDraftContext,
   buildCurrentCodeContext,
@@ -30,13 +33,15 @@ import {
   type CodeDraftEnvelope,
 } from "../lib/codeContextSafety";
 import {
-  getNotebookSections,
+  getNotebookSectionsForRoute,
+  notebookRouteSupported,
   USER_STEP_PYTHON_CODE_KEY,
   USER_STEP_SAS_CODE_KEY,
   type NotebookSection,
 } from "../lib/notebookExport";
 import { createCodeCell, createNotebookCell, saveNotebook } from "../lib/notebookStudio";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { usePredictiveIdentity } from "./PredictiveIdentityProvider";
 
 type SasRunMode = "saspy" | "compatible" | "template" | "external";
 
@@ -52,10 +57,6 @@ function readCode(key: string) {
 function writeCode(key: string, value: Record<string, string>) {
   localStorage.setItem(key, JSON.stringify(value));
   window.dispatchEvent(new CustomEvent("step-code-updated"));
-}
-
-function sectionsForRoute(route: string) {
-  return getNotebookSections().filter((section) => section.routes.includes(route));
 }
 
 function combinedGeneratedCode(sections: NotebookSection[]) {
@@ -210,7 +211,7 @@ function sasStatus(diagnostics: SasDiagnostics | null, mode: SasRunMode) {
 
 export default function StepPythonPanel() {
   const location = useLocation();
-  const sections = useMemo(() => sectionsForRoute(location.pathname), [location.pathname]);
+  const { readiness, retry: retryIdentity } = usePredictiveIdentity();
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
   const currentStepId = useWorkflowStore((state) => state.currentStepId);
@@ -233,6 +234,36 @@ export default function StepPythonPanel() {
   // CODE-DATAACQ-001: capability comes from the backend, never from a hard-coded
   // badge. Until it resolves the panel reports "Checking runtime", not "Executable".
   const [pythonCapability, setPythonCapability] = useState<PythonCapability | null>(null);
+
+  const supportsRoute = notebookRouteSupported(location.pathname);
+  const sectionResolution = useMemo(() => {
+    if (!supportsRoute || !expanded || readiness.status !== "ready") {
+      return { sections: [] as NotebookSection[], error: "" };
+    }
+    try {
+      return {
+        sections: getNotebookSectionsForRoute(location.pathname),
+        error: "",
+      };
+    } catch (error) {
+      if (error instanceof DatasetIdentityError) {
+        return {
+          sections: [] as NotebookSection[],
+          error: "The governed notebook cannot be constructed until the exact dataset identity is restored.",
+        };
+      }
+      throw error;
+    }
+  }, [
+    datasetContextRevision,
+    expanded,
+    location.pathname,
+    readiness.identity?.dataset_id,
+    readiness.identity?.dataset_version_id,
+    readiness.status,
+    supportsRoute,
+  ]);
+  const sections = sectionResolution.sections;
 
   const sectionKey = sections[0]?.sectionKey ?? "";
   const generatedPython = generatedPythonForRoute(
@@ -314,7 +345,7 @@ export default function StepPythonPanel() {
   }, [location.pathname, projectId, sectionKey, sections]);
 
   useEffect(() => {
-    if (!expanded) return;
+    if (!expanded || readiness.status !== "ready") return;
     let alive = true;
     fetchPythonCapability()
       .then((capability) => alive && setPythonCapability(capability))
@@ -329,10 +360,10 @@ export default function StepPythonPanel() {
     return () => {
       alive = false;
     };
-  }, [expanded]);
+  }, [expanded, readiness.status]);
 
   useEffect(() => {
-    if (!expanded) return;
+    if (!expanded || readiness.status !== "ready") return;
     fetchSasDiagnostics()
       .then((diagnostics) => {
         setSasDiagnostics(diagnostics);
@@ -344,9 +375,9 @@ export default function StepPythonPanel() {
         setSasDiagnostics(null);
         setSasMode("template");
       });
-  }, [expanded]);
+  }, [expanded, readiness.status]);
 
-  if (!sections.length) return null;
+  if (!supportsRoute) return null;
   const pythonContextEvaluation = evaluateCodeDraftContext(
     pythonDraftEnvelope,
     pythonCodeContext,
@@ -561,7 +592,18 @@ ${codeContextSummary(currentContext).map((line) => `- ${line}`).join("\n")}`,
         </span>
         <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">{expanded ? "Hide" : "Show"}</span>
       </button>
-      {expanded && (
+      {expanded && (readiness.status !== "ready" || sectionResolution.error || sections.length === 0) ? (
+        <div className="border-t border-amber-200 bg-amber-50 p-4 text-sm text-amber-950" data-testid="step-python-panel-identity-disabled">
+          <div className="font-semibold">Governed code export is not available yet.</div>
+          <p className="mt-1 leading-6">
+            {sectionResolution.error || readiness.message || "Verify the active registered Dataset Library version before opening generated code."}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link to="/step01" className="atlas-primary-button">Open Data Acquisition</Link>
+            <button type="button" className="atlas-secondary-button" onClick={retryIdentity}>Retry identity verification</button>
+          </div>
+        </div>
+      ) : expanded ? (
         <div className="border-t border-slate-200 p-4">
           <div className="mb-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-end">
             <div>
@@ -646,7 +688,7 @@ ${codeContextSummary(currentContext).map((line) => `- ${line}`).join("\n")}`,
             ]}
           />
         </div>
-      )}
+      ) : null}
     </section>
   );
 }

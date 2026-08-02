@@ -438,6 +438,36 @@ function ApprovedDocumentation({
                   Marked stale {formatDateTime(record.stale_at)}
                 </p>
               ) : null}
+              {record.mdd_staleness?.changed_source_fields?.length ? (
+                <div className="mt-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide">
+                    Changed source fields
+                  </div>
+                  <ul className="mt-1 space-y-1 text-xs">
+                    {record.mdd_staleness.changed_source_fields.map((field) => (
+                      <li key={field}>
+                        <code>{field}</code>
+                      </li>
+                    ))}
+                  </ul>
+                  <p className="mt-2 text-xs">
+                    {record.mdd_staleness.analytical_staleness
+                      ? "Analytical staleness: governed source evidence changed."
+                      : "Narrative-only staleness: analytical evidence remains unchanged."}
+                  </p>
+                </div>
+              ) : null}
+              <button
+                type="button"
+                className="mt-3 rounded-md border border-rose-300 bg-white px-3 py-2 text-xs font-semibold text-rose-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-600"
+                onClick={() =>
+                  document
+                    .getElementById("eda-documentation-draft")
+                    ?.scrollIntoView({ behavior: "smooth", block: "start" })
+                }
+              >
+                Review stale documentation
+              </button>
             </div>
           ) : null}
           <RecordMetadata record={record} />
@@ -467,6 +497,7 @@ function DraftDocumentation({
   const changedLineage = findChangedLineage(record, approved);
   return (
     <section
+      id="eda-documentation-draft"
       className="min-w-0 rounded-xl border border-amber-200 bg-amber-50/40 p-4"
       aria-labelledby="draft-eda-documentation-title"
     >

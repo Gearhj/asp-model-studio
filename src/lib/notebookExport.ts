@@ -706,6 +706,37 @@ export function getNotebookSections() {
   return buildSections();
 }
 
+/** Identity-free route metadata used by the collapsed code panel. */
+export const NOTEBOOK_EXPORT_ROUTES = [
+  "/step00",
+  "/step01",
+  "/step01b",
+  "/step02",
+  "/step03",
+  "/step04",
+  "/step05",
+  "/step06",
+  "/step07",
+  "/step08",
+  "/step09",
+  "/step10",
+  "/project-overview",
+  "/governance-report",
+] as const;
+
+export function notebookRouteSupported(route: string) {
+  return (NOTEBOOK_EXPORT_ROUTES as readonly string[]).includes(route);
+}
+
+/**
+ * Governed construction remains strict. Callers must invoke this only after
+ * route-level identity readiness is `ready` and only when the user requests
+ * the panel/export.
+ */
+export function getNotebookSectionsForRoute(route: string) {
+  return getNotebookSections().filter((section) => section.routes.includes(route));
+}
+
 function contextSummaryMarkdown(title: string, draft: CodeDraftEnvelope, currentContext: ReturnType<typeof buildCurrentCodeContext>) {
   return `### ${title}
 

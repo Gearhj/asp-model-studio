@@ -20,6 +20,7 @@ from ..analytics.target_intelligence_service import (
 )
 from ..core.dataset_store import DATASTORE
 from ..datasets.dataset_identity import assert_expected_active_identity
+from ..evidence.evidence_store import upsert_evidence
 from ..preprocessing.bureau_registry import BUREAU_SPECIAL_VALUES, name_signals
 from ..preprocessing.feature_profile_service import information_value
 from ..preprocessing.quality_profile_service import governed_time_field
@@ -31,9 +32,25 @@ from ..analytics.target_intelligence_service import (
 )
 from .workspace_types import (
     EDARelationshipSampleRequest,
+    EDAVifResolutionDecisionRequest,
+    EDAVifResolutionPlanRequest,
     EDAVifSimulationRequest,
     EDAWorkspaceRequest,
     TargetByPredictorRequest,
+)
+from .vif_plan_store import (
+    get_feature_recommendations,
+    get_plan,
+    list_feature_recommendations,
+    record_plan_decision,
+    save_generated_plan,
+)
+from .vif_resolution import build_vif_resolution_plan, plan_hash
+from .analytical_contract import (
+    EDAAnalyticalContractError,
+    build_governed_eda_contract,
+    classify_feature_values,
+    resolve_development_partition,
 )
 
 
@@ -166,110 +183,42 @@ def _bureau_special_profile(
     field merely because it appears in the shared bureau registry.
     """
 
-    review = (
-        DATASTORE.meta.get("bureau_review")
-        if isinstance(DATASTORE.meta.get("bureau_review"), dict)
-        else {}
+    classification = classify_feature_values(
+        feature,
+        series,
+        meta=DATASTORE.meta,
+        target=target,
+        event_value=event,
     )
-    review_variables = (
-        review.get("variables")
-        if isinstance(review.get("variables"), list)
-        else []
-    )
-    review_row = next(
-        (
-            row
-            for row in review_variables
-            if isinstance(row, dict)
-            and str(row.get("variable") or "").casefold() == feature.casefold()
-        ),
-        None,
-    )
-    source = (
-        DATASTORE.meta.get("source")
-        if isinstance(DATASTORE.meta.get("source"), dict)
-        else {}
-    )
-    source_label = " ".join(
-        str(source.get(key) or "")
-        for key in ("filename", "datasetName", "name")
-    )
-    heloc_source = "heloc" in source_label.casefold()
-    signals = name_signals(feature)
-    identified = bool(
-        heloc_source
-        or signals
-        or (
-            review_row
-            and (
-                review_row.get("likely_bureau")
-                or review_row.get("metadata")
-                or int(review_row.get("special_value_count") or 0) > 0
-            )
-        )
-    )
-
-    if heloc_source:
-        definitions = {
-            float(value): label
-            for value, label in BUREAU_SPECIAL_VALUES.items()
-            if float(value) in {-7.0, -8.0, -9.0}
-        }
-    else:
-        definitions = {
-            float(value): label for value, label in BUREAU_SPECIAL_VALUES.items()
-        }
-    special_mask = (
-        numeric.isin(list(definitions))
-        if identified
-        else pd.Series(False, index=series.index, dtype=bool)
-    )
-    # Actual nulls remain exclusively in the missingness metric.
-    special_mask = special_mask & series.notna()
+    special_mask = classification["masks"]["bureau_special_value"]
     special_count = int(special_mask.sum())
-    regular_mask = numeric.notna() & ~special_mask
-    regular_event_rate = (
-        _event_rate(target[regular_mask], event)
-        if event is not None
-        else None
-    )
-    value_rows: list[dict[str, Any]] = []
-    if special_count:
-        counts = numeric[special_mask].value_counts()
-        for raw_value, count in counts.head(10).items():
-            value = float(raw_value)
-            value_mask = special_mask & (numeric == value)
-            value_rows.append(
-                {
-                    "value": int(value) if value.is_integer() else value,
-                    "definition": definitions.get(
-                        value,
-                        "Configured bureau special value",
-                    ),
-                    "count": int(count),
-                    "prevalence": float(count / max(len(series), 1)),
-                    "event_rate": (
-                        _event_rate(target[value_mask], event)
-                        if event is not None
-                        else None
-                    ),
-                }
-            )
-    basis = []
-    if heloc_source:
-        basis.append("registered_heloc_source")
-    if signals:
-        basis.append("server_bureau_name_signal")
-    if review_row:
-        basis.append("governed_bureau_review")
+    regular_mask = classification["masks"]["ordinary_valid_value"]
+    regular_event_rate = classification["ordinary_event_rate"]
+    value_rows = [
+        {
+            "value": group["code"],
+            "definition": group["definition"],
+            "count": group["rows"],
+            "prevalence": group["population_share"],
+            "event_rate": group["event_rate"],
+            "event_count": group["event_count"],
+            "valid_value_event_rate_difference": group[
+                "valid_value_event_rate_difference"
+            ],
+            "event_rate_confidence_interval_95": group[
+                "event_rate_confidence_interval_95"
+            ],
+        }
+        for group in classification["special_groups"]
+    ]
     return special_mask, {
-        "identified": identified,
+        "identified": bool(classification["special_identification_basis"]),
         "count": special_count,
         "prevalence": special_count / max(len(series), 1),
         "regular_numeric_count": int(regular_mask.sum()),
         "regular_event_rate": regular_event_rate,
         "values": value_rows,
-        "identification_basis": basis,
+        "identification_basis": classification["special_identification_basis"],
         "missing_values_included": False,
     }
 
@@ -424,24 +373,60 @@ def _predictor_authorization(
         else:
             preliminary.append(column)
 
-    # Detection runs against the server-held source frame, including fields
-    # already removed from the active selection. This preserves target-source
-    # lineage without allowing those fields back into the eligible allowlist.
-    detection_frame = (
-        lineage_frame
-        if lineage_frame is not None
-        and target in lineage_frame.columns
-        and not lineage_frame.empty
-        else frame
-    )
-    lineage_candidates = [
-        str(column) for column in detection_frame.columns if str(column) != target
-    ]
-    target_sources = _detect_frame_target_sources(
-        detection_frame,
-        target,
-        lineage_candidates,
-    )
+    # Preserve explicit upstream target-source decisions first. Dynamic
+    # deterministic-source detection is itself target-directed, so it may use
+    # only the exact materialized development indices/target. It never scans
+    # the full lineage frame or sealed holdout.
+    target_sources: dict[str, dict[str, Any]] = {}
+    for name, row in manifest_by_name.items():
+        reason = str(row.get("exclusion_reason") or "")
+        role = str(row.get("role") or row.get("feature_role") or "")
+        explicitly_target_source = bool(
+            row.get("is_target_source")
+            or role.casefold() == "target_source"
+            or "target source" in reason.casefold()
+            or "deterministic source" in reason.casefold()
+        )
+        if explicitly_target_source:
+            target_sources[name] = {
+                "field": name,
+                "target": target,
+                "relationship": "governed_upstream_target_source",
+                "mapping": [],
+            }
+
+    scoped_store = DATASTORE.current()
+    development_features = scoped_store.X_train
+    development_target = scoped_store.y_train
+    if (
+        isinstance(development_features, pd.DataFrame)
+        and isinstance(development_target, pd.Series)
+        and not development_features.empty
+        and development_features.index.equals(development_target.index)
+    ):
+        if (
+            lineage_frame is not None
+            and not lineage_frame.empty
+            and development_features.index.isin(lineage_frame.index).all()
+        ):
+            detection_frame = lineage_frame.loc[development_features.index].copy()
+        else:
+            detection_frame = development_features.copy()
+        detection_frame[target] = development_target
+        lineage_candidates = [
+            str(column) for column in detection_frame.columns if str(column) != target
+        ]
+        detected = _detect_frame_target_sources(
+            detection_frame,
+            target,
+            lineage_candidates,
+        )
+        target_sources.update(
+            {
+                name: {**payload, "analysis_scope": "development_population"}
+                for name, payload in detected.items()
+            }
+        )
     authorized = [column for column in preliminary if column not in target_sources]
 
     manifest_excluded: dict[str, dict[str, Any]] = {}
@@ -542,6 +527,7 @@ def _monotonicity(rows: list[dict[str, Any]]) -> str:
 class EDAWorkspaceService:
     def __init__(self, max_cache_entries: int = 36) -> None:
         self._cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
+        self._contract_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._max_cache_entries = max_cache_entries
 
     def _dataset(self, request: EDAWorkspaceRequest) -> tuple[pd.DataFrame, str, pd.Series, str, Any, dict[str, Any]]:
@@ -586,8 +572,20 @@ class EDAWorkspaceService:
         ]
         df = active.loc[:, [*keep, target]].copy()
         y = df[target]
-        problem = _problem_type(y, request.problem_type)
-        event = _event_value(y, request.event_value) if problem == "classification" else None
+        scoped_store = DATASTORE.current()
+        development_target = scoped_store.y_train
+        target_for_decision = (
+            development_target
+            if isinstance(development_target, pd.Series)
+            and not development_target.empty
+            else y
+        )
+        problem = _problem_type(target_for_decision, request.problem_type)
+        event = (
+            _event_value(target_for_decision, request.event_value)
+            if problem == "classification"
+            else None
+        )
         return df, str(target), y, problem, event, authorization
 
     def _workspace_scope(
@@ -644,6 +642,31 @@ class EDAWorkspaceService:
         fingerprint: str,
     ) -> str:
         source_frame = DATASTORE.get_base_df()
+        scoped_store = DATASTORE.current()
+        split_record = (
+            scoped_store.meta.get("split_record")
+            if isinstance(scoped_store.meta.get("split_record"), dict)
+            else {}
+        )
+        development_fingerprint = None
+        if (
+            isinstance(scoped_store.X_train, pd.DataFrame)
+            and isinstance(scoped_store.y_train, pd.Series)
+        ):
+            digest = hashlib.sha256()
+            digest.update(
+                pd.util.hash_pandas_object(
+                    scoped_store.X_train,
+                    index=True,
+                ).values.tobytes()
+            )
+            digest.update(
+                pd.util.hash_pandas_object(
+                    scoped_store.y_train,
+                    index=True,
+                ).values.tobytes()
+            )
+            development_fingerprint = digest.hexdigest()
         payload = {
             "section": section,
             "project_id": request.project_id,
@@ -652,6 +675,9 @@ class EDAWorkspaceService:
             # authorized workspace from reusing another workspace's response.
             "workspace_instance": id(source_frame) if source_frame is not None else None,
             "data_revision": int(getattr(DATASTORE, "data_revision", 0)),
+            "split_id": split_record.get("split_id"),
+            "split_status": scoped_store.meta.get("split_status"),
+            "development_fingerprint": development_fingerprint,
             # Content identity, so a replacement upload with the same shape can
             # never be served the previous dataset's cached section.
             "workspace_fingerprint": fingerprint,
@@ -676,17 +702,809 @@ class EDAWorkspaceService:
         }
         return hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode("utf-8")).hexdigest()
 
+    def _governed_contract(
+        self,
+        *,
+        request: EDAWorkspaceRequest,
+        df: pd.DataFrame,
+        target: str,
+        event: Any,
+        authorization: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Resolve the single development-scoped artifact shared by all tabs."""
+
+        scoped_store = DATASTORE.current()
+        split_record = (
+            scoped_store.meta.get("split_record")
+            if isinstance(scoped_store.meta.get("split_record"), dict)
+            else {}
+        )
+        development_digest = hashlib.sha256()
+        if isinstance(scoped_store.X_train, pd.DataFrame):
+            development_digest.update(
+                pd.util.hash_pandas_object(
+                    scoped_store.X_train,
+                    index=True,
+                ).values.tobytes()
+            )
+        if isinstance(scoped_store.y_train, pd.Series):
+            development_digest.update(
+                pd.util.hash_pandas_object(
+                    scoped_store.y_train,
+                    index=True,
+                ).values.tobytes()
+            )
+        source = (
+            scoped_store.meta.get("source")
+            if isinstance(scoped_store.meta.get("source"), dict)
+            else {}
+        )
+        cache_identity = {
+            "project_id": request.project_id,
+            "dataset_id": scoped_store.meta.get("dataset_id"),
+            "dataset_version_id": scoped_store.meta.get("dataset_version_id"),
+            "target": target,
+            "event": event,
+            "predictor_manifest_id": authorization.get("manifest_version"),
+            "split_id": split_record.get("split_id"),
+            "split_status": scoped_store.meta.get("split_status"),
+            "data_revision": int(getattr(scoped_store, "data_revision", 0)),
+            "development_fingerprint": development_digest.hexdigest(),
+            "full_population_fingerprint": self._fingerprint(df, target, source),
+        }
+        cache_key = hashlib.sha256(
+            json.dumps(cache_identity, sort_keys=True, default=str).encode("utf-8")
+        ).hexdigest()
+        if cache_key in self._contract_cache:
+            contract = self._contract_cache.pop(cache_key)
+            self._contract_cache[cache_key] = contract
+            return contract
+        contract = build_governed_eda_contract(
+            project_id=request.project_id,
+            full_frame=df,
+            target=target,
+            event_value=event,
+            authorization=authorization,
+            store=scoped_store,
+            requested_bins=10,
+        )
+        self._contract_cache[cache_key] = contract
+        while len(self._contract_cache) > min(self._max_cache_entries, 12):
+            self._contract_cache.popitem(last=False)
+        return contract
+
+    @staticmethod
+    def _legacy_special_profile(artifact: dict[str, Any]) -> dict[str, Any]:
+        special = artifact.get("special_values") or {}
+        groups = special.get("groups") or []
+        counts = (
+            (artifact.get("value_classification") or {}).get(
+                "development_counts"
+            )
+            or {}
+        )
+        return {
+            "identified": bool(groups),
+            "count": int(counts.get("bureau_special_value") or 0),
+            "prevalence": sum(
+                float(group.get("population_share") or 0) for group in groups
+            ),
+            "regular_numeric_count": int(counts.get("ordinary_valid_value") or 0),
+            "regular_event_rate": (artifact.get("special_values") or {}).get(
+                "ordinary_valid_event_rate"
+            ),
+            "values": [
+                {
+                    "value": group.get("code"),
+                    "definition": group.get("definition"),
+                    "count": int(group.get("rows") or 0),
+                    "prevalence": group.get("population_share"),
+                    "event_rate": group.get("event_rate"),
+                    "valid_value_event_rate_difference": group.get(
+                        "valid_value_event_rate_difference"
+                    ),
+                    "event_rate_confidence_interval_95": group.get(
+                        "event_rate_confidence_interval_95"
+                    ),
+                }
+                for group in groups
+            ],
+            "identification_basis": special.get("identified_by") or [],
+            "missing_values_included": False,
+            "policy_id": special.get("policy"),
+        }
+
+    def _harmonize_with_governed_contract(
+        self,
+        *,
+        section: str,
+        result: dict[str, Any],
+        contract: dict[str, Any],
+        request: EDAWorkspaceRequest,
+    ) -> None:
+        """Keep compatibility fields aligned with one authoritative artifact."""
+
+        predictor_artifacts = contract["predictor_artifacts"]
+        relationship = contract["relationship_artifact"]
+        result["governed_analytical_contract"] = contract
+        result["governed_target_artifact"] = contract["target_artifact"]
+        result["governed_predictor_artifacts"] = predictor_artifacts
+        result["governed_relationship_artifact"] = relationship
+        result["governed_analysis_scope"] = {
+            "analysis_scope": contract["analysis_scope"],
+            "analysis_population_id": contract["analysis_population_id"],
+            "population_rows": contract["population_rows"],
+            "rows_used": contract["rows_used"],
+            "rows_excluded": contract["rows_excluded"],
+            "exclusion_reasons": contract["exclusion_reasons"],
+            "split_id": contract["split_id"],
+            "final_holdout_accessed": False,
+            "final_holdout_used_for_selection": False,
+        }
+
+        if section == "target":
+            result["development_target_profile"] = contract["target_artifact"]
+
+        if section == "target" and isinstance(result.get("predictor_preview"), dict):
+            ranked = sorted(
+                predictor_artifacts.values(),
+                key=lambda item: abs(float(item.get("iv") or 0)),
+                reverse=True,
+            )
+            preview_limit = min(5, len(ranked))
+            preview_rows = []
+            for artifact in ranked[:preview_limit]:
+                ordinary_bin_type = (
+                    "ordinary_valid_range"
+                    if artifact.get("is_numeric")
+                    else "ordinary_category"
+                )
+                ordinary_bins = [
+                    row
+                    for row in (artifact.get("iv_woe") or {}).get("bins") or []
+                    if row.get("bin_type") == ordinary_bin_type
+                ][: int(request.predictor_visual_shape_limit)]
+                preview_rows.append(
+                    {
+                        "feature": artifact["feature"],
+                        "kind": "numeric" if artifact.get("is_numeric") else "categorical",
+                        "iv": artifact["iv"],
+                        "iv_artifact_id": artifact["iv_artifact_id"],
+                        "monotonicity": (
+                            artifact.get("monotonicity") or {}
+                        ).get("valid_value_shape"),
+                        "monotonicity_artifact_id": artifact[
+                            "monotonicity_artifact_id"
+                        ],
+                        "event_rate_spread": (
+                            max(
+                                float(row["event_rate"])
+                                for row in ordinary_bins
+                                if row.get("event_rate") is not None
+                            )
+                            - min(
+                                float(row["event_rate"])
+                                for row in ordinary_bins
+                                if row.get("event_rate") is not None
+                            )
+                            if sum(
+                                row.get("event_rate") is not None
+                                for row in ordinary_bins
+                            )
+                            >= 2
+                            else None
+                        ),
+                        "groups": [
+                            {
+                                "label": row["label"],
+                                "count": row["count"],
+                                "event_count": row["event_count"],
+                                "event_rate": row["event_rate"],
+                                "minimum": row.get("lower"),
+                                "maximum": row.get("upper"),
+                            }
+                            for row in ordinary_bins
+                        ],
+                    }
+                )
+            result["predictor_preview"] = {
+                "scope": "development_population",
+                "analysis_population_id": contract["analysis_population_id"],
+                "split_id": contract["split_id"],
+                "population_rows": contract["rows_used"],
+                "predictor_limit": preview_limit,
+                "shape_limit": int(request.predictor_visual_shape_limit),
+                "candidate_count": len(ranked),
+                "returned_predictors": len(preview_rows),
+                "request_mode": "governed_shared_analytical_contract",
+                "server_authorized_predictors_only": True,
+                "target_excluded": True,
+                "final_holdout_accessed": False,
+                "raw_observations_included": False,
+                "predictors": preview_rows,
+            }
+
+        if section == "predictors":
+            vif_by_feature = relationship.get("vif_by_feature") or {}
+            for collection in [
+                *(result.get("numeric") or []),
+                *(result.get("categorical") or []),
+            ]:
+                feature = str(collection.get("feature") or "")
+                artifact = predictor_artifacts.get(feature)
+                if not artifact:
+                    continue
+                iv_woe = artifact["iv_woe"]
+                monotonicity = artifact["monotonicity"]
+                ordinary_bin_type = (
+                    "ordinary_valid_range"
+                    if artifact.get("is_numeric")
+                    else "ordinary_category"
+                )
+                ordinary_bins = [
+                    row
+                    for row in iv_woe["bins"]
+                    if row.get("bin_type") == ordinary_bin_type
+                ]
+                collection.update(
+                    {
+                        "missing_count": int(
+                            (
+                                artifact.get("value_classification") or {}
+                            ).get("full_population_counts", {}).get("true_null")
+                            or 0
+                        ),
+                        "missing_rate": int(
+                            (
+                                artifact.get("value_classification") or {}
+                            ).get("full_population_counts", {}).get("true_null")
+                            or 0
+                        )
+                        / max(contract["population_rows"], 1),
+                        "iv": artifact["iv"],
+                        "correlation_with_target": artifact.get(
+                            "correlation_with_target"
+                        ),
+                        "iv_artifact_id": artifact["iv_artifact_id"],
+                        "iv_woe": iv_woe,
+                        "monotonicity": monotonicity["valid_value_shape"],
+                        "regular_monotonicity": monotonicity[
+                            "valid_value_shape"
+                        ],
+                        "monotonicity_artifact_id": monotonicity["artifact_id"],
+                        "analysis_scope": "development_population",
+                        "analysis_population_id": contract[
+                            "analysis_population_id"
+                        ],
+                        "event_rate_by_quantile": [
+                            {
+                                "bucket": row["label"],
+                                "count": row["count"],
+                                "events": row["event_count"],
+                                "event_rate": row["event_rate"],
+                                "minimum": row["lower"],
+                                "maximum": row["upper"],
+                            }
+                            for row in ordinary_bins
+                        ],
+                        "bureau_special": self._legacy_special_profile(artifact),
+                        "ordinary_outlier_count": artifact[
+                            "ordinary_outlier"
+                        ]["count"],
+                        "ordinary_outlier_rate": artifact[
+                            "ordinary_outlier"
+                        ]["rate"],
+                        "ordinary_outlier_denominator": artifact[
+                            "ordinary_outlier"
+                        ]["denominator"],
+                        "vif": (vif_by_feature.get(feature) or {}).get("vif"),
+                        "vif_status": (vif_by_feature.get(feature) or {}).get(
+                            "status", "not_available"
+                        ),
+                    }
+                )
+            for visual in result.get("predictor_visual_profiles") or []:
+                feature = str(visual.get("feature") or "")
+                artifact = predictor_artifacts.get(feature)
+                if not artifact:
+                    continue
+                metrics = visual.setdefault("metrics", {})
+                full_counts = (
+                    (artifact.get("value_classification") or {}).get(
+                        "full_population_counts"
+                    )
+                    or {}
+                )
+                development_counts = (
+                    (artifact.get("value_classification") or {}).get(
+                        "development_counts"
+                    )
+                    or {}
+                )
+                full_missing = int(full_counts.get("true_null") or 0)
+                visual["missing"] = {
+                    **(visual.get("missing") or {}),
+                    "count": full_missing,
+                    "rate": full_missing / max(contract["population_rows"], 1),
+                    "development_count": int(
+                        development_counts.get("true_null") or 0
+                    ),
+                    "structural_scope": "full_governed_population",
+                    "event_rate_scope": "development_population",
+                    "semantics": "null_only",
+                }
+                decision_special = self._legacy_special_profile(artifact)
+                full_special = int(full_counts.get("bureau_special_value") or 0)
+                decision_special.update(
+                    {
+                        "count": full_special,
+                        "prevalence": full_special
+                        / max(contract["population_rows"], 1),
+                        "regular_numeric_count": int(
+                            full_counts.get("ordinary_valid_value") or 0
+                        ),
+                        "development_count": int(
+                            development_counts.get("bureau_special_value") or 0
+                        ),
+                        "structural_scope": "full_governed_population",
+                        "event_rate_scope": "development_population",
+                    }
+                )
+                visual["bureau_special"] = decision_special
+                visual["ordinary_outlier"] = {
+                    "count": int(artifact["ordinary_outlier"]["count"] or 0),
+                    "rate": artifact["ordinary_outlier"]["rate"],
+                    "denominator": int(
+                        artifact["ordinary_outlier"]["denominator"] or 0
+                    ),
+                    "excludes_nulls": True,
+                    "excludes_bureau_special_values": True,
+                    "semantics": "regular_numeric_iqr_only",
+                    "structural_scope": "full_governed_population",
+                }
+                metrics.update(
+                    {
+                        "iv": artifact["iv"],
+                        "missing_rate": visual["missing"]["rate"],
+                        "special_prevalence": decision_special["prevalence"],
+                        "monotonicity": artifact["monotonicity"][
+                            "valid_value_shape"
+                        ],
+                        "vif": (
+                            (vif_by_feature.get(feature) or {}).get("vif")
+                            if artifact.get("is_numeric")
+                            else None
+                        ),
+                        "vif_status": (
+                            (vif_by_feature.get(feature) or {}).get(
+                                "status", "not_available"
+                            )
+                            if artifact.get("is_numeric")
+                            else "not_applicable_categorical"
+                        ),
+                    }
+                )
+                ordinary_bin_type = (
+                    "ordinary_valid_range"
+                    if artifact.get("is_numeric")
+                    else "ordinary_category"
+                )
+                shape_rows = [
+                    row
+                    for row in artifact["iv_woe"]["bins"]
+                    if row.get("bin_type") == ordinary_bin_type
+                ][: int(request.predictor_visual_shape_limit)]
+                visual["event_rate_shape"] = {
+                    "kind": "quantile" if artifact.get("is_numeric") else "top_levels",
+                    "scope": "development_population",
+                    "analysis_population_id": contract["analysis_population_id"],
+                    "population_rows": contract["rows_used"],
+                    "limit": int(request.predictor_visual_shape_limit),
+                    "groups": [
+                        {
+                            "label": row["label"],
+                            "count": row["count"],
+                            "population_rate": row["count"] / max(contract["rows_used"], 1),
+                            "event_rate": row["event_rate"],
+                            "event_count": row["event_count"],
+                            "minimum": row.get("lower"),
+                            "maximum": row.get("upper"),
+                        }
+                        for row in shape_rows
+                    ],
+                    "returned_groups": len(shape_rows),
+                    "truncated": len(shape_rows) < artifact["iv_woe"]["effective_nonempty_bins"],
+                    "raw_observations_included": False,
+                    "final_holdout_accessed": False,
+                }
+                visual["scope"] = "governed_mixed_scope"
+                visual["population_rows"] = contract["population_rows"]
+                visual["descriptive_scope"] = "full_governed_population"
+                visual["target_directed_scope"] = "development_population"
+                visual["target_directed_rows"] = contract["rows_used"]
+                visual["artifact_id"] = artifact["artifact_id"]
+
+        if section == "relationships":
+            correlation = relationship["correlation"]
+            strong_pairs: list[dict[str, Any]] = []
+            correlation_columns = correlation["columns"]
+            pearson_matrix = correlation["pearson_matrix"]
+            for left_index, left in enumerate(correlation_columns):
+                for right_index in range(left_index + 1, len(correlation_columns)):
+                    value = pearson_matrix[left_index][right_index]
+                    if value is not None and abs(float(value)) >= 0.7:
+                        strong_pairs.append(
+                            {
+                                "feature_a": left,
+                                "feature_b": correlation_columns[right_index],
+                                "correlation": value,
+                                "relationship_artifact_id": relationship["artifact_id"],
+                            }
+                        )
+            strong_pairs.sort(
+                key=lambda row: abs(float(row["correlation"])), reverse=True
+            )
+            pairwise_features = [
+                str(feature)
+                for feature in request.pairwise_features[:6]
+                if feature in predictor_artifacts
+                and (predictor_artifacts[feature] or {}).get("is_numeric")
+            ]
+            pairwise_records: list[dict[str, Any]] = []
+            pairwise_eligible_rows = 0
+            if pairwise_features:
+                scoped_store = DATASTORE.current()
+                development_features = scoped_store.X_train
+                development_target = scoped_store.y_train
+                if isinstance(development_features, pd.DataFrame) and isinstance(development_target, pd.Series):
+                    sample = development_features.loc[:, pairwise_features].apply(
+                        pd.to_numeric, errors="coerce"
+                    )
+                    for feature in pairwise_features:
+                        codes = {
+                            float(group["code"])
+                            for group in (
+                                predictor_artifacts[feature].get("special_values")
+                                or {}
+                            ).get("development_groups")
+                            or []
+                        }
+                        if codes:
+                            sample[feature] = sample[feature].mask(
+                                sample[feature].isin(codes)
+                            )
+                    sample["__event__"] = development_target.astype(str).eq(
+                        str(contract["positive_value"])
+                    )
+                    sample = sample.dropna(subset=pairwise_features)
+                    pairwise_eligible_rows = int(len(sample))
+                    bounded = sample.head(request.rendered_sample_limit)
+                    pairwise_records = [
+                        {
+                            str(key): _json_value(value)
+                            for key, value in row.items()
+                        }
+                        for row in bounded.to_dict(orient="records")
+                    ]
+            result.update(
+                {
+                    "correlation_columns": correlation["columns"],
+                    "correlation_matrix": correlation["pearson_matrix"],
+                    "correlation_spearman_matrix": correlation[
+                        "spearman_matrix"
+                    ],
+                    "correlation_n_matrix": correlation[
+                        "pairwise_row_counts"
+                    ],
+                    "correlation_scope": correlation,
+                    "strong_pairs": strong_pairs[:100],
+                    "vif": relationship["vif"],
+                    "vif_scope": relationship["vif_scope"],
+                    "target_association": [
+                        {
+                            "feature": artifact["feature"],
+                            "iv": artifact["iv"],
+                            "iv_artifact_id": artifact["iv_artifact_id"],
+                            "correlation_with_target": artifact.get(
+                                "correlation_with_target"
+                            ),
+                            "monotonicity": artifact["monotonicity"][
+                                "valid_value_shape"
+                            ],
+                            "monotonicity_artifact_id": artifact[
+                                "monotonicity_artifact_id"
+                            ],
+                            "analysis_scope": "development_population",
+                        }
+                        for artifact in sorted(
+                            predictor_artifacts.values(),
+                            key=lambda item: abs(
+                                float(
+                                    item.get("iv")
+                                    or item.get("correlation_with_target")
+                                    or 0
+                                )
+                            ),
+                            reverse=True,
+                        )
+                    ],
+                    "pairwise_features": pairwise_features,
+                    "pairwise_sample": pairwise_records,
+                    "pairwise_scope": (
+                        "bounded_visual_sample" if pairwise_features else "unavailable"
+                    ),
+                    "pairwise_rows": len(pairwise_records),
+                    "pairwise_event_rows": sum(
+                        bool(row.get("__event__")) for row in pairwise_records
+                    ),
+                    "pairwise_scope_disclosure": {
+                        "source_population": "development_population",
+                        "analysis_population_id": contract[
+                            "analysis_population_id"
+                        ],
+                        "population_rows": contract["rows_used"],
+                        "eligible_rows": pairwise_eligible_rows,
+                        "rows_excluded": contract["rows_used"]
+                        - pairwise_eligible_rows,
+                        "exclusion_reasons": [
+                            "true_null",
+                            "bureau_special_value",
+                            "parse_failure",
+                            "non_finite",
+                            "incomplete_pairwise_case",
+                        ],
+                        "rendered_rows": len(pairwise_records),
+                        "sample_limit": request.rendered_sample_limit,
+                        "special_value_representation": "excluded",
+                        "final_holdout_accessed": False,
+                    },
+                }
+            )
+
+        if section == "distribution":
+            feature = str(result.get("feature") or request.feature or "")
+            artifact = predictor_artifacts.get(feature)
+            if artifact:
+                ordinary_distribution = artifact.get("ordinary_distribution") or {}
+                ordinary_histogram = [
+                    {
+                        **row,
+                        "key": f"ordinary:{row.get('bin')}:{row.get('lower')}:{row.get('upper')}",
+                        "valid_share": row.get("share"),
+                        "event_count": None,
+                        "non_event_count": None,
+                        "event_rate": None,
+                    }
+                    for row in ordinary_distribution.get("histogram") or []
+                ]
+                result.update(
+                    {
+                        "engine": "governed_eda_analytical_contract",
+                        "iv": artifact["iv"],
+                        "iv_by_bin": artifact["iv_woe"]["bins"],
+                        "requested_bins": artifact["iv_woe"]["requested_bins"],
+                        "returned_bins": artifact["iv_woe"][
+                            "effective_nonempty_bins"
+                        ],
+                        "effective_bins": artifact["iv_woe"][
+                            "effective_nonempty_bins"
+                        ],
+                        "binning_specification": artifact["iv_woe"],
+                        "special_value_groups": artifact["special_values"][
+                            "groups"
+                        ],
+                        "histogram": ordinary_histogram,
+                        "bins": ordinary_histogram,
+                        "ordinary_distribution": ordinary_distribution,
+                        "ordinary_outlier": artifact["ordinary_outlier"],
+                        "predictor_artifact_id": artifact["artifact_id"],
+                        "target_directed_scope": "development_population",
+                    }
+                )
+                selected_subset = result.get("selected_subset") or {}
+                full_frame = DATASTORE.get_active_df()
+                if isinstance(full_frame, pd.DataFrame) and feature in full_frame.columns:
+                    full_numeric = pd.to_numeric(
+                        full_frame[feature], errors="coerce"
+                    ).replace([np.inf, -np.inf], np.nan)
+                    full_codes = {
+                        float(group["code"])
+                        for group in (
+                            artifact.get("special_values") or {}
+                        ).get("full_population_groups")
+                        or []
+                    }
+                    ordinary_mask = full_numeric.notna() & ~full_numeric.isin(full_codes)
+                    ordinary_values = full_numeric[ordinary_mask]
+                    lower = selected_subset.get("minimum")
+                    upper = selected_subset.get("maximum")
+                    selection_mask = ordinary_mask
+                    if lower is not None:
+                        selection_mask &= full_numeric.ge(float(lower))
+                    if upper is not None:
+                        selection_mask &= full_numeric.le(float(upper))
+                    selected_values = full_numeric[selection_mask]
+                    development_row_count = int(
+                        selected_subset.get("row_count") or 0
+                    )
+                    development_event_count = selected_subset.get("event_count")
+                    development_target_rate = selected_subset.get("target_rate")
+                    quantiles = (
+                        selected_values.quantile([0.25, 0.5, 0.75])
+                        if len(selected_values)
+                        else pd.Series(dtype=float)
+                    )
+                    selected_subset.update(
+                        {
+                            "row_count": int(len(selected_values)),
+                            "population_share": len(selected_values)
+                            / max(contract["population_rows"], 1),
+                            "valid_share": len(selected_values)
+                            / max(len(ordinary_values), 1),
+                            "mean": _finite(selected_values.mean()),
+                            "median": _finite(selected_values.median()),
+                            "standard_deviation": _finite(selected_values.std()),
+                            "q1": _finite(quantiles.loc[0.25])
+                            if len(selected_values)
+                            else None,
+                            "q3": _finite(quantiles.loc[0.75])
+                            if len(selected_values)
+                            else None,
+                            "minimum_value": _finite(selected_values.min()),
+                            "maximum_value": _finite(selected_values.max()),
+                            "development_row_count": development_row_count,
+                            "development_event_count": development_event_count,
+                            "target_rate": development_target_rate,
+                            "target_rate_scope": "development_population",
+                            "descriptive_scope": "full_governed_population",
+                            "lower_percentile": float(
+                                (ordinary_values < float(lower)).mean()
+                            )
+                            if len(ordinary_values) and lower is not None
+                            else None,
+                            "upper_percentile": float(
+                                (ordinary_values <= float(upper)).mean()
+                            )
+                            if len(ordinary_values) and upper is not None
+                            else None,
+                        }
+                    )
+                    result["selected_subset"] = selected_subset
+                    result["selected_range"] = selected_subset
+                statistics = result.setdefault("statistics", {})
+                full_counts = (
+                    artifact.get("value_classification") or {}
+                ).get("full_population_counts") or {}
+                missing_bucket = result.setdefault("missing_bucket", {})
+                development_missing_count = int(
+                    missing_bucket.get("count") or 0
+                )
+                development_missing_events = missing_bucket.get("event_count")
+                development_missing_rate = missing_bucket.get("event_rate")
+                structural_missing = int(full_counts.get("true_null") or 0) + int(
+                    full_counts.get("parse_failure") or 0
+                )
+                missing_bucket.update(
+                    {
+                        "count": structural_missing,
+                        "share": structural_missing
+                        / max(contract["population_rows"], 1),
+                        "development_count": development_missing_count,
+                        "development_event_count": development_missing_events,
+                        "event_rate": development_missing_rate,
+                        "event_rate_scope": "development_population",
+                        "descriptive_scope": "full_governed_population",
+                    }
+                )
+                statistics.update(
+                    {
+                        "count": int(full_counts.get("ordinary_valid_value") or 0),
+                        "missing_count": int(full_counts.get("true_null") or 0),
+                        "parse_failure_count": int(full_counts.get("parse_failure") or 0),
+                        "bureau_special_value_count": int(full_counts.get("bureau_special_value") or 0),
+                        "outlier_lower": artifact["ordinary_outlier"]["lower_cutoff"],
+                        "outlier_upper": artifact["ordinary_outlier"]["upper_cutoff"],
+                        "outlier_count": artifact["ordinary_outlier"]["count"],
+                        "ordinary_outlier_rate": artifact["ordinary_outlier"]["rate"],
+                    }
+                )
+
     def _cached(self, section: str, request: EDAWorkspaceRequest, factory: Callable[..., dict[str, Any]]) -> dict[str, Any]:
         df, target, y, problem, event, authorization = self._dataset(request)
         source = DATASTORE.meta.get("source") if isinstance(DATASTORE.meta.get("source"), dict) else {}
         fingerprint = self._fingerprint(df, target, source)
+        # Resolve and validate the exact governed development contract before
+        # any section factory runs.  Legacy factories contain target-directed
+        # calculations; feeding them the full frame would let the sealed final
+        # holdout influence a result even when the harmonizer later replaced
+        # the serialized field. Only the descriptive Overview factory retains
+        # the full governed population; decision-facing Findings are generated
+        # from development so holdout-only changes cannot alter recommendations.
+        contract = self._governed_contract(
+            request=request,
+            df=df,
+            target=target,
+            event=event,
+            authorization=authorization,
+        )
         key = self._key(section, request, df, target, authorization, fingerprint)
         if key in self._cache:
             cached = self._cache.pop(key)
             self._cache[key] = cached
             return {**cached, "cache_status": "hit"}
         started = time.perf_counter()
-        result = factory(df, target, y, problem, event, request)
+        if section == "overview":
+            factory_df = df
+            factory_y = y
+        else:
+            development, development_target, _development_scope = resolve_development_partition(
+                store=DATASTORE.current(),
+                identity={
+                    "project_id": contract["project_id"],
+                    "dataset_id": contract["dataset_id"],
+                    "dataset_version_id": contract["dataset_version_id"],
+                },
+                target=target,
+                authorized_predictors=authorization["authorized_predictors"],
+                predictor_manifest_id=contract["predictor_manifest_id"],
+            )
+            factory_df = development.copy(deep=True)
+            factory_df[target] = development_target
+            factory_y = development_target
+        result = factory(factory_df, target, factory_y, problem, event, request)
+        if section == "target":
+            # Full-population class prevalence and target-only quality are
+            # descriptive and may remain available. Predictor, segment, and
+            # time comparisons above were calculated on development only.
+            full_profile = (
+                self._classification_target(y, event)
+                if problem == "classification"
+                else self._regression_target(y, request.histogram_bins)
+            )
+            development_quality = dict(result.get("target_quality") or {})
+            full_quality = self._target_quality(
+                df,
+                target,
+                y,
+                problem,
+                event,
+                full_profile,
+                include_leakage=False,
+            )
+            for key in (
+                "target_derived_candidates",
+                "post_outcome_candidates",
+                "perfect_relationship_candidates",
+            ):
+                full_quality[key] = development_quality.get(key, [])
+            full_quality.update(
+                {
+                    "structural_scope": "full_governed_population",
+                    "target_directed_scope": "development_population",
+                    "target_directed_rows": contract["rows_used"],
+                    "split_id": contract["split_id"],
+                    "final_holdout_accessed": False,
+                }
+            )
+            result.update(
+                {
+                    "profile": full_profile,
+                    "identity": self._target_identity(
+                        df, target, y, problem, event, full_profile
+                    ),
+                    "full_population_assessment": self._full_population_assessment(
+                        target, problem, full_profile
+                    ),
+                    "target_quality": full_quality,
+                    "target_directed_scope": "development_population",
+                }
+            )
+        self._harmonize_with_governed_contract(
+            section=section,
+            result=result,
+            contract=contract,
+            request=request,
+        )
         scope = self._workspace_scope(
             df,
             target,
@@ -694,15 +1512,43 @@ class EDAWorkspaceService:
             f"eda.workspace.{section}",
             fingerprint,
         )
+        decision_scope = {
+            "contractVersion": contract["contract_version"],
+            "mode": "governed_version",
+            "label": "Development Population",
+            "projectId": contract["project_id"],
+            "datasetId": contract["dataset_id"],
+            "datasetVersionId": contract["dataset_version_id"],
+            "target": contract["target"],
+            "populationRows": contract["rows_used"],
+            "fullGovernedPopulationRows": contract["population_rows"],
+            "rowsExcluded": contract["rows_excluded"],
+            "exclusionReasons": contract["exclusion_reasons"],
+            "analysisPopulationId": contract["analysis_population_id"],
+            "splitId": contract["split_id"],
+            "exact": True,
+            "sampled": False,
+            "immutableVersion": True,
+            "evidenceEligible": True,
+            "mddEligible": True,
+            "decisionReady": True,
+            "analysisSource": f"eda.governed_analytical_contract.{section}",
+            "artifactId": contract["artifact_id"],
+            "artifactHash": contract["artifact_hash"],
+            "finalHoldoutAccessed": False,
+            "finalHoldoutUsedForSelection": False,
+        }
         result.update({
             "ok": True,
             "section": section,
-            "scope": "full_dataset",
-            # Governance scope. `scope` above is the long-standing DATA scope
-            # label ("full_dataset" vs a preview); `analysis_scope` is the new
-            # GOVERNANCE contract, and the two answer different questions.
-            "analysis_scope": scope,
-            "scope_identity": scope_identity(scope),
+            "scope": "development_population",
+            "descriptive_scope": "full_governed_population",
+            # `analysis_scope` is the authoritative decision scope. Preserve
+            # the old in-memory workspace descriptor only under an explicitly
+            # compatibility-labeled field so it cannot contradict governance.
+            "analysis_scope": decision_scope,
+            "workspace_compatibility_scope": scope,
+            "scope_identity": f"governed-eda:{contract['artifact_hash']}",
             "row_count": int(len(df)),
             "column_count": int(df.shape[1]),
             "project_id": request.project_id,
@@ -1048,16 +1894,10 @@ class EDAWorkspaceService:
         }
 
     def target_by_predictor(self, request: TargetByPredictorRequest) -> dict[str, Any]:
-        """On-demand grouped event rate over the full in-memory population.
+        """On-demand grouped event rate over the exact development population.
 
-        The pandas twin of `compute_target_by_predictor`: same request shape,
-        same bounded response shape, same summary function. It exists so the
-        Target tab's Run Analysis control is usable for a project whose dataset
-        is loaded in the backend but not registered as an immutable Dataset
-        Library version -- rather than being a permanently disabled button.
-
-        Only grouped counts are returned. The predictor column and the target
-        column never leave the server.
+        The durable split must be current and identity-matched. Only grouped
+        counts leave the server; final-holdout frames are never read.
         """
         scoped_store = DATASTORE.current()
         with scoped_store.state_lock:
@@ -1087,8 +1927,33 @@ class EDAWorkspaceService:
         if request.analysis_type not in {"numeric_quantile", "categorical"}:
             raise ValueError("Unsupported analysis type. Use 'numeric_quantile' or 'categorical'.")
 
-        frame = pd.DataFrame({"value": df[predictor], "event": (y.astype(str) == str(event)).astype(int)})
-        frame = frame[y.notna()]
+        contract = self._governed_contract(
+            request=base,
+            df=df,
+            target=target,
+            event=event,
+            authorization=_authorization,
+        )
+        artifact = contract["predictor_artifacts"].get(predictor)
+        if not artifact:
+            raise EDAAnalyticalContractError(
+                f"No current governed predictor artifact exists for '{predictor}'."
+            )
+        scoped_store = DATASTORE.current()
+        development_features = scoped_store.X_train
+        development_target = scoped_store.y_train
+        # `_governed_contract` has already validated exact identity, split,
+        # feature manifest, row count, and index alignment. Read only the two
+        # development objects here for the bounded display groups.
+        if not isinstance(development_features, pd.DataFrame) or not isinstance(development_target, pd.Series):
+            raise EDAAnalyticalContractError("The governed development partition is unavailable.")
+        frame = pd.DataFrame(
+            {
+                "value": development_features[predictor],
+                "event": development_target.astype(str).eq(str(event)).astype(int),
+            }
+        )
+        frame = frame[development_target.notna()]
         analyzed_rows = int(len(frame))
 
         rows: list[dict[str, Any]] = []
@@ -1109,25 +1974,57 @@ class EDAWorkspaceService:
             }
 
         if request.analysis_type == "numeric_quantile":
+            iv_bins = (artifact.get("iv_woe") or {}).get("bins") or []
+            ordinary_bins = [
+                row for row in iv_bins
+                if row.get("bin_type") == "ordinary_valid_range"
+            ]
             numeric = pd.to_numeric(frame["value"], errors="coerce")
-            present = frame[numeric.notna()].assign(numeric=numeric[numeric.notna()])
+            special_codes = {
+                str(group.get("code"))
+                for group in (artifact.get("special_values") or {}).get("development_groups") or []
+            }
+            special_mask = numeric.map(lambda value: str(int(value)) if pd.notna(value) and float(value).is_integer() else str(value)).isin(special_codes)
+            present = frame[numeric.notna() & ~special_mask].assign(
+                numeric=numeric[numeric.notna() & ~special_mask]
+            )
             absent = frame[numeric.isna()]
             if present.empty:
                 raise ValueError(f"'{predictor}' has no numeric values to band.")
             bands = max(2, min(int(request.bands), 20))
-            # Rank-then-qcut mirrors the NTILE the DuckDB path uses: equal-population
-            # bands even when a value is heavily repeated.
-            buckets = pd.qcut(present["numeric"].rank(method="first"), q=min(bands, len(present)), labels=False, duplicates="drop")
-            for index in sorted(pd.unique(buckets.dropna())):
-                subset = present[buckets == index]
-                rows.append(_entry(
-                    "label", f"Q{int(index) + 1}", subset,
-                    band=int(index) + 1,
-                    lowerBound=_finite(subset["numeric"].min()),
-                    upperBound=_finite(subset["numeric"].max()),
-                    meanValue=_finite(subset["numeric"].mean()),
-                    isMissingGroup=False,
-                ))
+            for row in ordinary_bins:
+                rows.append(
+                    {
+                        "label": row["label"],
+                        "population": int(row["count"]),
+                        "eventCount": int(row["event_count"]),
+                        "eventRate": row["event_rate"],
+                        "smallGroup": int(row["count"]) < SMALL_GROUP_MIN_ROWS or int(row["event_count"]) < SMALL_GROUP_MIN_EVENTS,
+                        "band": int(row["bin_index"]),
+                        "lowerBound": row["lower"],
+                        "upperBound": row["upper"],
+                        "meanValue": None,
+                        "isMissingGroup": False,
+                        "isBureauSpecialGroup": False,
+                        "governedBinLabel": True,
+                    }
+                )
+            for group in (artifact.get("special_values") or {}).get("development_groups") or []:
+                rows.append(
+                    {
+                        "label": f"{group['code']}: {group['definition']}",
+                        "population": int(group["rows"]),
+                        "eventCount": int(group["event_count"]),
+                        "eventRate": group["event_rate"],
+                        "smallGroup": int(group["rows"]) < SMALL_GROUP_MIN_ROWS or int(group["event_count"]) < SMALL_GROUP_MIN_EVENTS,
+                        "band": 0,
+                        "lowerBound": None,
+                        "upperBound": None,
+                        "meanValue": None,
+                        "isMissingGroup": False,
+                        "isBureauSpecialGroup": True,
+                    }
+                )
             if len(absent):
                 missing_group = _entry("label", "Missing", absent, band=0, lowerBound=None, upperBound=None, meanValue=None, isMissingGroup=True)
             label_key = "label"
@@ -1158,7 +2055,9 @@ class EDAWorkspaceService:
                 })
             extras = {
                 "requestedBands": bands,
-                "returnedBands": len(rows),
+                "returnedBands": len(ordinary_bins),
+                "effectiveBands": len(ordinary_bins),
+                "collapsedBoundaryExplanation": (artifact.get("iv_woe") or {}).get("collapsed_boundary_explanation"),
                 "boxPlotByTarget": box_plot_by_target,
             }
         else:
@@ -1200,11 +2099,29 @@ class EDAWorkspaceService:
         )
         population_event_rate = (total_events / total_population) if total_population else None
 
-        scope = self._workspace_scope(df, str(target), request.project_id, "eda.target_by_predictor")
+        scope = {
+            "contractVersion": contract["contract_version"],
+            "mode": "governed_version",
+            "label": "Development Population",
+            "projectId": contract["project_id"],
+            "datasetId": contract["dataset_id"],
+            "datasetVersionId": contract["dataset_version_id"],
+            "target": contract["target"],
+            "populationRows": contract["rows_used"],
+            "analysisPopulationId": contract["analysis_population_id"],
+            "splitId": contract["split_id"],
+            "exact": True,
+            "sampled": False,
+            "immutableVersion": True,
+            "evidenceEligible": True,
+            "mddEligible": True,
+            "analysisSource": "eda.governed_analytical_contract.target_by_predictor",
+            "finalHoldoutAccessed": False,
+        }
         return {
             "ok": True,
             "supported": bool(rows),
-            "source": "eda_full_population",
+            "source": "eda_exact_development_population",
             "analysisScope": scope,
             "scopeIdentity": scope_identity(scope),
             "project_id": request.project_id,
@@ -1228,10 +2145,17 @@ class EDAWorkspaceService:
                 rows, label_key=label_key, missing_group=missing_group, other_group=other_group,
                 population_event_rate=population_event_rate, analysis_type=request.analysis_type,
             ),
-            "engine": "pandas",
+            "engine": "governed_eda_analytical_contract",
             "resolution": "exact",
-            "scope": "full_dataset",
+            "scope": "development_population",
             "sourceRowCount": analyzed_rows,
+            "artifactId": artifact["artifact_id"],
+            "artifactHash": artifact["artifact_hash"],
+            "ivArtifactId": artifact["iv_artifact_id"],
+            "monotonicityArtifactId": artifact["monotonicity_artifact_id"],
+            "governed_analytical_contract": contract,
+            "finalHoldoutAccessed": False,
+            "finalHoldoutUsedForSelection": False,
             "cached": False,
             "durationMs": int((time.perf_counter() - started) * 1000),
             **extras,
@@ -1258,19 +2182,34 @@ class EDAWorkspaceService:
             expected_dataset_version_id=request.expected_dataset_version_id,
             dataset_version=request.dataset_version,
         )
-        df, target, _y, _problem, _event, authorization = self._dataset(base)
+        df, target, _y, _problem, event, authorization = self._dataset(base)
+        contract = self._governed_contract(
+            request=base,
+            df=df,
+            target=target,
+            event=event,
+            authorization=authorization,
+        )
         excluded = str(request.excluded_feature or "").strip()
         if excluded == target or excluded not in authorization["authorized_predictors"] or excluded not in df.columns:
             raise ValueError(f"Predictor '{excluded}' is not authorized for a VIF scenario.")
 
-        numeric_data: dict[str, pd.Series] = {}
-        for column in authorization["authorized_predictors"]:
-            if column not in df.columns:
-                continue
-            numeric, is_numeric = _numeric_series(df[column])
-            if is_numeric and numeric.notna().sum() >= 3:
-                numeric_data[column] = numeric
-        numeric_df = pd.DataFrame(numeric_data)
+        development, _development_target, _scope = resolve_development_partition(
+            store=DATASTORE.current(),
+            identity={
+                "project_id": contract["project_id"],
+                "dataset_id": contract["dataset_id"],
+                "dataset_version_id": contract["dataset_version_id"],
+            },
+            target=target,
+            authorized_predictors=authorization["authorized_predictors"],
+            predictor_manifest_id=contract["predictor_manifest_id"],
+        )
+        numeric_df = self._governed_ordinary_numeric_frame(
+            development,
+            contract,
+            authorization["authorized_predictors"],
+        )
         vif_frame, vif_scope = self._prepare_vif_frame(
             numeric_df,
             required_feature=excluded,
@@ -1316,9 +2255,404 @@ class EDAWorkspaceService:
                 "remaining_predictors": len(after),
             },
             "predictor_authorization": authorization,
-            "scope": "bounded_backend_computation",
+            "scope": "development_population",
             "vif_scope": vif_scope,
+            "governed_relationship_artifact_id": contract[
+                "relationship_artifact"
+            ]["artifact_id"],
+            "current_vif_artifact_basis": "governed_development_ordinary_numeric_complete_case",
+            "final_holdout_accessed": False,
             "duration_ms": int((time.perf_counter() - started) * 1000),
+        }
+
+    def vif_resolution_plan(
+        self,
+        request: EDAVifResolutionPlanRequest,
+    ) -> dict[str, Any]:
+        """Generate and persist a non-mutating, development-only VIF plan."""
+
+        scoped_store = DATASTORE.current()
+        with scoped_store.state_lock:
+            return self._vif_resolution_plan_locked(request)
+
+    def _vif_resolution_plan_locked(
+        self,
+        request: EDAVifResolutionPlanRequest,
+    ) -> dict[str, Any]:
+        started = time.perf_counter()
+        scoped_store = DATASTORE.current()
+        base = EDAWorkspaceRequest(
+            project_id=request.project_id,
+            target=request.target,
+            event_value=request.event_value,
+            problem_type=request.problem_type,
+            expected_dataset_id=request.expected_dataset_id,
+            expected_dataset_version_id=request.expected_dataset_version_id,
+            dataset_version=request.dataset_version,
+        )
+        df, target, _y, problem, event, authorization = self._dataset(base)
+        identity = assert_expected_active_identity(
+            request.project_id,
+            expected_dataset_id=request.expected_dataset_id,
+            expected_dataset_version_id=request.expected_dataset_version_id,
+            legacy_dataset_version=request.dataset_version,
+            require_expected=True,
+        )
+        authorized = [
+            str(feature)
+            for feature in authorization.get("authorized_predictors", [])
+            if str(feature) in df.columns
+        ]
+        protected = sorted(set(request.protected_predictors))
+        unauthorized_protected = [feature for feature in protected if feature not in authorized]
+        if unauthorized_protected:
+            raise ValueError(
+                "Protected predictors must belong to the exact authorized predictor set: "
+                + ", ".join(unauthorized_protected)
+            )
+        allowed_actions = list(dict.fromkeys(request.allowed_actions))
+        if not allowed_actions:
+            raise ValueError("Select at least one permitted VIF resolution action.")
+
+        # A Dataset Library frame does not acquire authoritative partition
+        # semantics merely because it contains a column named ``atlas_split``.
+        # Balance & Split owns the exact development partition in X_train /
+        # y_train and binds it to an exact-identity split_record.  Reading the
+        # active full frame here previously let all 6,275 HELOC rows influence
+        # a plan even though 1,255 of them were already sealed as final holdout.
+        development, development_target, resolved_scope = resolve_development_partition(
+            store=scoped_store,
+            identity={
+                "project_id": identity["project_id"],
+                "dataset_id": identity["dataset_id"],
+                "dataset_version_id": identity["dataset_version_id"],
+            },
+            target=target,
+            authorized_predictors=authorized,
+            predictor_manifest_id=str(authorization.get("manifest_version") or ""),
+        )
+        analysis_df = development.copy(deep=True)
+        analysis_df[target] = development_target
+        development_scope = "exact_materialized_development_partition_only"
+        target_informed_evidence = "exact_development_partition_only"
+        split_field = "governed_split_record"
+        split_id = resolved_scope["split_id"]
+        final_holdout_rows_excluded = int(resolved_scope["rows_excluded"])
+        exact_development_partition = True
+
+        contract = self._governed_contract(
+            request=base,
+            df=df,
+            target=target,
+            event=event,
+            authorization=authorization,
+        )
+
+        numeric_df = self._governed_ordinary_numeric_frame(
+            development,
+            contract,
+            authorized,
+        )
+        vif_frame, vif_scope = self._prepare_vif_frame(numeric_df)
+        if vif_frame.shape[1] < 2:
+            raise ValueError("At least two authorized numeric predictors are required for a VIF resolution plan.")
+
+        target_series = analysis_df[target]
+        profiles: dict[str, dict[str, Any]] = {}
+        event_indicator = (
+            target_series.astype(str).eq(str(event)).astype(float)
+            if problem == "classification" and event is not None
+            else pd.to_numeric(target_series, errors="coerce")
+        )
+        for feature in vif_frame.columns:
+            artifact = contract["predictor_artifacts"][str(feature)]
+            counts = (
+                (artifact.get("value_classification") or {}).get(
+                    "development_counts"
+                )
+                or {}
+            )
+            ordinary = numeric_df[str(feature)]
+            signal = (
+                ordinary.corr(event_indicator)
+                if exact_development_partition
+                else None
+            )
+            population = max(len(development), 1)
+            missingness = int(counts.get("true_null") or 0) / population
+            parse_failure = int(counts.get("parse_failure") or 0) / population
+            special_burden = (
+                int(counts.get("bureau_special_value") or 0) / population
+            )
+            profiles[str(feature)] = {
+                "development_signal": abs(float(signal)) if pd.notna(signal) else None,
+                "signal_metric": (
+                    "absolute_point_biserial_correlation"
+                    if problem == "classification"
+                    else "absolute_development_correlation"
+                )
+                if exact_development_partition
+                else "disabled_without_exact_development_partition",
+                "signal_scope": development_scope,
+                "missingness": missingness,
+                "parse_failure_burden": parse_failure,
+                "special_value_burden": special_burden,
+                "predictor_artifact_id": artifact["artifact_id"],
+                "special_value_policy_id": contract["special_value_policy_id"],
+                "interpretability": 1.0,
+                "production_availability": 1.0,
+                "data_quality": max(
+                    0.0,
+                    1.0 - missingness - parse_failure - special_burden,
+                ),
+            }
+
+        analysis = build_vif_resolution_plan(
+            frame=vif_frame,
+            vif_calculator=self._vif,
+            profiles=profiles,
+            model_family=request.intended_model_family,
+            target_threshold=float(request.target_vif_threshold),
+            objective=request.resolution_objective,
+            protected_predictors=protected,
+            allowed_actions=allowed_actions,
+            correlation_threshold=float(request.correlation_threshold),
+            preference_weights=request.preference_weights.model_dump(),
+            maximum_removals=int(request.maximum_removals),
+        )
+        analysis["analysis_scope"].update(
+            {
+                "target_informed_evidence": target_informed_evidence,
+                "development_population": development_scope,
+                "development_rows": int(len(analysis_df)),
+                "sealed_final_holdout_rows_excluded": final_holdout_rows_excluded,
+                "split_field_used": split_field,
+                "split_id": split_id or None,
+                "exact_development_partition_resolved": exact_development_partition,
+                "vif_scope": vif_scope,
+                "governed_relationship_artifact_id": contract[
+                    "relationship_artifact"
+                ]["artifact_id"],
+                "current_vif_artifact_basis": "governed_development_ordinary_numeric_complete_case",
+            }
+        )
+        plan_basis = {
+            "project_id": request.project_id,
+            "dataset_id": identity["dataset_id"],
+            "dataset_version_id": identity["dataset_version_id"],
+            "inputs": request.model_dump(mode="json"),
+            "current": analysis["current"],
+            "proposed": analysis["proposed"],
+        }
+        digest = plan_hash(plan_basis)
+        record = save_generated_plan(
+            {
+                "ok": True,
+                "plan_id": f"vif-plan-{digest[:16]}",
+                "plan_hash": digest,
+                "project_id": request.project_id,
+                "dataset_id": identity["dataset_id"],
+                "dataset_version_id": identity["dataset_version_id"],
+                "dataset_version": identity["dataset_version_id"],
+                "target": target,
+                "predictor_authorization": authorization,
+                "inputs": request.model_dump(mode="json"),
+                **analysis,
+                "duration_ms": int((time.perf_counter() - started) * 1000),
+            }
+        )
+        return record
+
+    def vif_resolution_decision(
+        self,
+        request: EDAVifResolutionDecisionRequest,
+        *,
+        actor_id: str,
+    ) -> dict[str, Any]:
+        """Record plan governance without changing data or the feature manifest."""
+
+        identity = assert_expected_active_identity(
+            request.project_id,
+            expected_dataset_id=request.expected_dataset_id,
+            expected_dataset_version_id=request.expected_dataset_version_id,
+            legacy_dataset_version=request.dataset_version,
+            require_expected=True,
+        )
+        plan = get_plan(
+            request.project_id,
+            identity["dataset_id"],
+            identity["dataset_version_id"],
+            request.plan_id,
+        )
+        if plan is None:
+            raise ValueError("The exact VIF resolution plan was not found.")
+        if request.action == "send_to_feature_engineering" and plan.get("status") not in {
+            "accepted",
+            "partially_accepted",
+            "sent_to_feature_engineering",
+        }:
+            raise ValueError("Accept all or selected cluster recommendations before sending them to Feature Engineering.")
+        cluster_ids = set(request.selected_cluster_ids)
+        if request.action == "accept_selected" and not cluster_ids:
+            raise ValueError("Select at least one cluster recommendation to accept.")
+        known_clusters = {str(cluster.get("cluster_id")) for cluster in plan.get("clusters", [])}
+        unknown = sorted(cluster_ids - known_clusters)
+        if unknown:
+            raise ValueError("Unknown VIF cluster selection: " + ", ".join(unknown))
+
+        accepted = request.action in {
+            "accept_complete",
+            "accept_selected",
+            "send_to_feature_engineering",
+        }
+        recommendations: list[dict[str, Any]] = []
+        decision_cluster_ids = set(cluster_ids)
+        if accepted:
+            if request.action == "accept_complete":
+                selected = known_clusters
+            elif request.action == "accept_selected":
+                selected = cluster_ids
+            else:
+                selected: set[str] = set()
+                for disposition in plan.get("decision_history", []):
+                    if disposition.get("action") == "accept_complete":
+                        selected.update(known_clusters)
+                    elif disposition.get("action") == "accept_selected":
+                        selected.update(
+                            str(value)
+                            for value in disposition.get("selected_cluster_ids", [])
+                            if str(value) in known_clusters
+                        )
+                if not selected:
+                    raise ValueError(
+                        "No accepted VIF cluster recommendations are available to send."
+                    )
+                decision_cluster_ids = set(selected)
+            for cluster in plan.get("clusters", []):
+                cluster_id = str(cluster.get("cluster_id"))
+                if cluster_id not in selected:
+                    continue
+                tie = cluster.get("tie_case")
+                action = str(cluster.get("recommended_action") or "defer")
+                if tie:
+                    action = "defer"
+                recommendations.append(
+                    {
+                        "recommendation_id": f"{request.plan_id}:{cluster_id}",
+                        "source_plan_id": request.plan_id,
+                        "cluster_id": cluster_id,
+                        "action": action,
+                        "features": list(cluster.get("features") or []),
+                        "proposed_exclusions": list(cluster.get("proposed_exclusions") or []),
+                        "protected_features": list(cluster.get("protected_features") or []),
+                        "tie_case": tie,
+                        "rationale": str(cluster.get("rationale") or ""),
+                        "status": "draft_recommendation",
+                        "governed_feature_set_changed": False,
+                        "dataset_mutated": False,
+                    }
+                )
+        updated = record_plan_decision(
+            project_id=request.project_id,
+            dataset_id=identity["dataset_id"],
+            dataset_version_id=identity["dataset_version_id"],
+            plan_id=request.plan_id,
+            action=request.action,
+            selected_cluster_ids=list(decision_cluster_ids),
+            rationale=request.rationale,
+            modifications=request.modifications,
+            recommendations=recommendations,
+            actor_id=actor_id,
+        )
+        evidence = None
+        if accepted:
+            evidence = upsert_evidence(
+                {
+                    "lineage_contract": "canonical_dataset_version",
+                    "project_id": request.project_id,
+                    "dataset_id": identity["dataset_id"],
+                    "dataset_version_id": identity["dataset_version_id"],
+                    "projectId": request.project_id,
+                    "datasetIds": [identity["dataset_id"]],
+                    "evidenceType": "vif",
+                    "title": "Governed VIF Resolution Plan",
+                    "summary": (
+                        f"VIF plan {request.plan_id} recorded {len(recommendations)} draft "
+                        "Feature Engineering recommendation(s). No predictor or dataset was changed."
+                    ),
+                    "sourcePage": "Exploratory Data Analysis",
+                    "sourceRoute": "/step02?tab=relationships",
+                    "artifactType": "vif_resolution_plan",
+                    "artifactId": request.plan_id,
+                    "status": "ready",
+                    "importance": "high",
+                    "supportsSections": ["feature_engineering", "correlation_vif"],
+                    "createdBy": actor_id,
+                    "governance": {
+                        "recommendations_only": True,
+                        "governed_feature_set_changed": False,
+                        "dataset_mutated": False,
+                        "development_population_only": True,
+                        "final_holdout_accessed": False,
+                    },
+                }
+            )
+        queue = get_feature_recommendations(
+            request.project_id,
+            identity["dataset_id"],
+            identity["dataset_version_id"],
+            request.plan_id,
+        )
+        return {
+            "ok": True,
+            "project_id": request.project_id,
+            "dataset_id": identity["dataset_id"],
+            "dataset_version_id": identity["dataset_version_id"],
+            "dataset_version": identity["dataset_version_id"],
+            "plan_id": request.plan_id,
+            "status": updated.get("status"),
+            "decision": updated.get("decision_history", [])[-1],
+            "feature_recommendations": queue,
+            "evidence": evidence,
+            "governed_feature_set_changed": False,
+            "dataset_mutated": False,
+        }
+
+    def vif_feature_recommendations(
+        self,
+        *,
+        project_id: str,
+        expected_dataset_id: str,
+        expected_dataset_version_id: str,
+    ) -> dict[str, Any]:
+        identity = assert_expected_active_identity(
+            project_id,
+            expected_dataset_id=expected_dataset_id,
+            expected_dataset_version_id=expected_dataset_version_id,
+            require_expected=True,
+        )
+        records = list_feature_recommendations(
+            project_id,
+            identity["dataset_id"],
+            identity["dataset_version_id"],
+        )
+        recommendations = [
+            recommendation
+            for record in records
+            for recommendation in record.get("recommendations", [])
+        ]
+        return {
+            "ok": True,
+            "project_id": project_id,
+            "dataset_id": identity["dataset_id"],
+            "dataset_version_id": identity["dataset_version_id"],
+            "dataset_version": identity["dataset_version_id"],
+            "recommendation_contract": "draft_feature_engineering_recommendations",
+            "records": records,
+            "recommendations": recommendations,
+            "count": len(recommendations),
+            "governed_feature_set_changed": False,
+            "dataset_mutated": False,
         }
 
     def relationship_sample(
@@ -1350,7 +2684,42 @@ class EDAWorkspaceService:
             expected_dataset_version_id=request.expected_dataset_version_id,
             dataset_version=request.dataset_version,
         )
-        df, target, y, problem, event, authorization = self._dataset(base)
+        full_df, target, full_y, problem, event, authorization = self._dataset(base)
+        contract = self._governed_contract(
+            request=base,
+            df=full_df,
+            target=target,
+            event=event,
+            authorization=authorization,
+        )
+        development, development_target, _development_scope = resolve_development_partition(
+            store=DATASTORE.current(),
+            identity={
+                "project_id": contract["project_id"],
+                "dataset_id": contract["dataset_id"],
+                "dataset_version_id": contract["dataset_version_id"],
+            },
+            target=target,
+            authorized_predictors=authorization["authorized_predictors"],
+            predictor_manifest_id=contract["predictor_manifest_id"],
+        )
+        # All target-colored relationship points and pair metrics are derived
+        # from development only. Meaning-bearing special codes are excluded
+        # from ordinary numeric axes using the same predictor artifacts as the
+        # rest of EDA.
+        df = development.copy(deep=True)
+        for feature, artifact in contract["predictor_artifacts"].items():
+            if feature not in df.columns or not artifact.get("is_numeric"):
+                continue
+            codes = {
+                float(group["code"])
+                for group in (artifact.get("special_values") or {}).get("groups") or []
+            }
+            if codes:
+                numeric = pd.to_numeric(df[feature], errors="coerce")
+                df.loc[numeric.isin(codes), feature] = np.nan
+        df[target] = development_target
+        y = development_target
         dataset_version = str(DATASTORE.meta.get("dataset_version_id") or "unresolved")
         manifest_id = str(authorization["manifest_version"])
         if request.dataset_version and str(request.dataset_version) != dataset_version:
@@ -1442,7 +2811,10 @@ class EDAWorkspaceService:
             if isinstance(DATASTORE.meta.get("source"), dict)
             else {}
         )
-        fingerprint = self._fingerprint(df, target, source)
+        # Sampling and caching are keyed by the governed development artifact,
+        # not a fingerprint that includes the sealed holdout target.  A
+        # holdout-only change therefore cannot perturb a target-colored point.
+        fingerprint = contract["relationship_artifact"]["artifact_hash"]
         cache_payload = {
             "section": "relationship-sample",
             "project_id": request.project_id,
@@ -1451,6 +2823,10 @@ class EDAWorkspaceService:
             "workspace_fingerprint": fingerprint,
             "dataset_version": dataset_version,
             "manifest_id": manifest_id,
+            "split_id": contract["split_id"],
+            "governed_relationship_artifact_id": contract[
+                "relationship_artifact"
+            ]["artifact_id"],
             "target": target,
             "event_value": request.event_value,
             "problem_type": request.problem_type,
@@ -1633,24 +3009,38 @@ class EDAWorkspaceService:
             }
             points.append(point)
 
-        analysis_scope = self._workspace_scope(
-            df,
-            target,
-            request.project_id,
-            "eda.relationship_sample",
-            fingerprint,
-        )
+        analysis_scope = {
+            "contractVersion": contract["contract_version"],
+            "mode": "governed_version",
+            "label": "Development Population",
+            "projectId": contract["project_id"],
+            "datasetId": contract["dataset_id"],
+            "datasetVersionId": contract["dataset_version_id"],
+            "target": contract["target"],
+            "populationRows": contract["rows_used"],
+            "fullGovernedPopulationRows": contract["population_rows"],
+            "rowsExcluded": contract["rows_excluded"],
+            "analysisPopulationId": contract["analysis_population_id"],
+            "splitId": contract["split_id"],
+            "exact": True,
+            "sampled": eligible_rows > int(request.sample_limit),
+            "artifactId": contract["artifact_id"],
+            "artifactHash": contract["artifact_hash"],
+            "finalHoldoutAccessed": False,
+            "finalHoldoutUsedForSelection": False,
+        }
         result = {
             "ok": True,
             "scope": "rendered_sample",
             "analysis_scope": analysis_scope,
-            "scope_identity": scope_identity(analysis_scope),
+            "scope_identity": f"governed-eda:{contract['artifact_hash']}",
             "project_id": request.project_id,
             "dataset_id": DATASTORE.meta.get("dataset_id"),
             "dataset_version_id": DATASTORE.meta.get("dataset_version_id"),
             "dataset_version": dataset_version,
             "predictor_manifest_id": manifest_id,
             "population_rows": int(len(df)),
+            "full_governed_population_rows": contract["population_rows"],
             "eligible_rows": eligible_rows,
             "requested_rows": int(request.sample_limit),
             "returned_rows": int(len(points)),
@@ -1677,6 +3067,10 @@ class EDAWorkspaceService:
             "governance": {
                 "authorized_fields": sorted(authorized),
                 "target_source_excluded": authorization["target_source_excluded"],
+                "analysis_population": "development_population",
+                "special_value_representation": "excluded_from_ordinary_numeric_axes",
+                "final_holdout_accessed": False,
+                "final_holdout_used_for_selection": False,
             },
             "generated_at": _now(),
             "duration_ms": int((time.perf_counter() - started) * 1000),
@@ -1787,7 +3181,17 @@ class EDAWorkspaceService:
             "distinct_value_count": int(y.dropna().nunique()),
         }
 
-    def _target_quality(self, df, target, y, problem, event, profile) -> dict[str, Any]:
+    def _target_quality(
+        self,
+        df,
+        target,
+        y,
+        problem,
+        event,
+        profile,
+        *,
+        include_leakage: bool = True,
+    ) -> dict[str, Any]:
         """Part I: focused target measurability review.
 
         Reuses the same conservative name families and the same duplicate
@@ -1828,7 +3232,11 @@ class EDAWorkspaceService:
         duplicate_mask = df.duplicated(keep=False) & y.notna()
         duplicate_target_rows = int(df[duplicate_mask].duplicated().sum())
 
-        candidates = self._leakage_candidates(df, target, y, problem, event)
+        candidates = (
+            self._leakage_candidates(df, target, y, problem, event)
+            if include_leakage
+            else []
+        )
 
         return {
             "missing_target_count": missing_count,
@@ -2540,26 +3948,25 @@ class EDAWorkspaceService:
         numeric_df: pd.DataFrame,
         required_feature: str | None = None,
     ) -> tuple[pd.DataFrame, dict[str, Any]]:
-        """Create one deterministic bounded cohort for comparable VIF runs."""
+        """Create the exact governed complete-case cohort used everywhere."""
 
-        maximum_rows = 20_000
-        predictor_cap = 25
         clean = numeric_df.replace([np.inf, -np.inf], np.nan)
         variances = clean.var(skipna=True).replace(0, np.nan).dropna().sort_values(ascending=False)
         selected = [
             str(column)
-            for column in variances.index[:predictor_cap]
+            for column in variances.index
             if column in clean.columns
         ]
-        if required_feature and required_feature in clean.columns and required_feature not in selected:
-            selected = [*selected[: predictor_cap - 1], required_feature]
         work = clean.loc[:, selected].dropna() if selected else pd.DataFrame(index=clean.index)
         complete_case_rows = int(len(work))
-        sampled = complete_case_rows > maximum_rows
-        if sampled:
-            work = work.sample(maximum_rows, random_state=42)
+        # Correlation/Relationships, temporary simulation, and Auto-VIF all use
+        # this exact cohort. No sampling or predictor cap may create divergent
+        # VIF values for the same governed identity.
+        sampled = False
+        maximum_rows = max(20_000, complete_case_rows)
+        predictor_cap = len(selected)
         scope = {
-            "scope": "bounded_backend_computation",
+            "scope": "governed_exact_development_complete_case",
             "population_rows": int(len(numeric_df)),
             "complete_case_rows": complete_case_rows,
             "rows_used": int(len(work)),
@@ -2571,6 +3978,38 @@ class EDAWorkspaceService:
             "required_feature": required_feature,
         }
         return work, scope
+
+    @staticmethod
+    def _governed_ordinary_numeric_frame(
+        development: pd.DataFrame,
+        contract: dict[str, Any],
+        features: list[str],
+    ) -> pd.DataFrame:
+        """Apply the contract's special/null policy before correlation or VIF."""
+
+        numeric: dict[str, pd.Series] = {}
+        artifacts = contract.get("predictor_artifacts") or {}
+        for feature in features:
+            artifact = artifacts.get(str(feature))
+            if (
+                not artifact
+                or not artifact.get("is_numeric")
+                or feature not in development.columns
+            ):
+                continue
+            values = pd.to_numeric(
+                development[feature], errors="coerce"
+            ).replace([np.inf, -np.inf], np.nan)
+            special_codes = {
+                float(group["code"])
+                for group in (artifact.get("special_values") or {}).get("groups")
+                or []
+            }
+            if special_codes:
+                values = values.mask(values.isin(special_codes))
+            if int(values.notna().sum()) >= 3:
+                numeric[str(feature)] = values
+        return pd.DataFrame(numeric, index=development.index)
 
     def _vif(self, work: pd.DataFrame) -> list[dict[str, Any]]:
         if work.shape[1] < 2 or len(work) < 5:
@@ -2618,8 +4057,9 @@ class EDAWorkspaceService:
             "segment_field": segment_field,
             "time_profile": time_rows,
             "segment_profile": segment_rows,
-            "time_scope": "full_dataset" if time_rows else "unavailable",
-            "segment_scope": "full_dataset" if segment_rows else "unavailable",
+            "time_scope": "development_population" if time_rows else "unavailable",
+            "segment_scope": "development_population" if segment_rows else "unavailable",
+            "final_holdout_accessed": False,
             "out_of_time_suggestion": self._oot_suggestion(time_rows),
         }
 

@@ -314,7 +314,11 @@ test("Predictive workflow keeps Project Context concise and downstream regressio
 
 test("Interpretation renders structured decision tree logic instead of raw tree dump", async () => {
   const source = await readFile(new URL("../src/steps/Step09_Interpretation.tsx", import.meta.url), "utf8");
-  assert.match(source, /\/eval\/tree\?model=/);
+  assert.match(source, /candidateRequestParams\(selectedCandidate\)/);
+  assert.match(source, /params\.set\("evaluation_package_id", requestedEvaluationPackageId\)/);
+  assert.match(source, /params\.set\("candidate_decision_id", requestedCandidateDecisionId\)/);
+  assert.match(source, /\/eval\/tree\?max_depth=4&\$\{interpretationContextQuery\}/);
+  assert.doesNotMatch(source, /\/eval\/tree\?model=/);
   assert.match(source, /DecisionTreeExplanation/);
   assert.match(source, /Terminal Decision Rules/);
   assert.match(source, /Decision Path Diagram/);
@@ -359,7 +363,7 @@ test("EDA and Interpretation handle classification-specific predictive workflow 
   for (const term of [
     "target_profile",
     "Target balance",
-    "Full-population class prevalence",
+    "Full Governed Population class prevalence",
     "Non-event",
     "Event",
     "Rare-event safeguards are required",
@@ -419,15 +423,20 @@ test("Linear Regression interpretation path is scoped to current project and rej
   assert.match(trainerRouter, /project_id = str\(request\.get\("project_id"\)/);
   assert.match(trainerService, /artifact_metadata/);
   assert.match(trainerService, /training_run_id/);
-  assert.match(trainingJobService, /"training_run_id": job\["job_id"\]/);
+  assert.match(trainingJobService, /"training_run_id": job\["training_run_id"\]/);
   assert.match(trainingJobService, /"project_id": request\.project_id/);
   assert.match(trainingJobService, /"dataset_version_id": job\["dataset_version_id"\]/);
   assert.match(resultStore, /model_artifact_metadata/);
   assert.match(resultStore, /get_model_artifact_metadata/);
   assert.match(evalRouter, /\/interpretation\/debug/);
   assert.match(evalService, /_artifact_context_mismatch/);
-  assert.match(evalService, /The selected model artifact does not match the current/);
-  assert.match(evalService, /Please retrain/);
+  assert.match(
+    evalService,
+    /def _artifact_context_mismatch[\s\S]*?_resolve_candidate_lineage\(model_name, expected\)[\s\S]*?return error/
+  );
+  assert.match(evalService, /The requested \{field\} does not match the exact active evaluation workspace/);
+  assert.match(evalService, /The candidate artifact does not match the exact \{field\}/);
+  assert.match(evalService, /The active evaluation workspace is missing exact canonical lineage/);
   assert.match(trainingPreflight, /manifest_selected/);
   assert.match(trainingPreflight, /unexpected_features/);
   assert.match(trainingPreflight, /training split contains predictors outside the approved manifest/);

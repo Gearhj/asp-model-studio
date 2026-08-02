@@ -47,15 +47,15 @@ const METRICS: Array<{
   label: string;
   kind: "rate" | "number" | "score";
 }> = [
-  { key: "signal", label: "IV / absolute target association", kind: "score" },
-  { key: "eventRateSpread", label: "Event-rate spread", kind: "rate" },
-  { key: "missingRate", label: "Null missingness", kind: "rate" },
-  { key: "outlierRate", label: "Outlier prevalence", kind: "rate" },
-  { key: "distinctRatio", label: "Distinct-count ratio", kind: "rate" },
-  { key: "skewness", label: "Skewness", kind: "number" },
-  { key: "monotonicityScore", label: "Monotonic direction score", kind: "number" },
-  { key: "vif", label: "VIF", kind: "number" },
-  { key: "specialValueRate", label: "Bureau special-value rate", kind: "rate" },
+  { key: "signal", label: "IV / target association (Development)", kind: "score" },
+  { key: "eventRateSpread", label: "Event-rate spread (Development)", kind: "rate" },
+  { key: "missingRate", label: "Null missingness (Full governed)", kind: "rate" },
+  { key: "outlierRate", label: "Outlier prevalence (Full governed)", kind: "rate" },
+  { key: "distinctRatio", label: "Distinct-count ratio (Full governed)", kind: "rate" },
+  { key: "skewness", label: "Skewness (Full governed)", kind: "number" },
+  { key: "monotonicityScore", label: "Monotonic direction (Development)", kind: "number" },
+  { key: "vif", label: "VIF (Development)", kind: "number" },
+  { key: "specialValueRate", label: "Bureau special-value rate (Full governed)", kind: "rate" },
 ];
 
 export default function PredictorSignalLandscape(
@@ -246,13 +246,16 @@ export default function PredictorSignalLandscape(
             <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-600">
               Which predictors stand out? Compare signal, target shape, and
               quality dimensions. Bubble size represents distinct-count scale;
-              color represents null missingness.
+              color represents null missingness. This is a governed mixed-scope
+              view: IV, event-rate shape, monotonicity, and VIF use the
+              Development Population; missingness, outliers, and distinct counts
+              use the Full Governed Population.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs">
             <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 font-semibold text-emerald-800">
               <ShieldCheck size={13} aria-hidden="true" />
-              Server-authorized · full-population aggregates
+              Mixed scope · Development signal · Full governed structure
             </span>
             <button
               type="button"
@@ -334,8 +337,10 @@ export default function PredictorSignalLandscape(
             Predictor Signal Landscape
           </title>
           <desc id="predictor-landscape-desc">
-            Interactive bubble plot of authorized predictors. Use Tab to focus
-            a predictor and Enter or Space to synchronize it with the
+            Interactive mixed-scope bubble plot of authorized predictors.
+            Target-directed signal uses the Development Population while
+            structural quality counts use the Full Governed Population. Use Tab
+            to focus a predictor and Enter or Space to synchronize it with the
             Distribution Explorer.
           </desc>
           {x.ticks(6).map((tick) => (
@@ -641,6 +646,7 @@ function landscapeAriaLabel(
 ) {
   return [
     row.feature,
+    "governed mixed scope: Development Population signal and Full Governed Population structure",
     `${xConfig.label} ${formatPredictorMetric(
       metricValue(row, xConfig.key),
       xConfig.kind

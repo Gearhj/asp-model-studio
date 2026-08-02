@@ -11,6 +11,7 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from server.training.training_job_service import TrainingJobService  # noqa: E402
+from server.training.candidate_contract import complete_training_contract  # noqa: E402
 
 
 class TrainingJobScopeIdentityTests(unittest.TestCase):
@@ -59,6 +60,41 @@ class TrainingJobScopeIdentityTests(unittest.TestCase):
             },
             "per_model_history": {"logreg": []},
         }
+        self.job["contract"] = complete_training_contract(
+            {
+                **self.identity,
+                "data_revision": 7,
+                "target": "bad_flag",
+                "problem_type": "classification",
+                "event_value": 1,
+                "non_event_value": 0,
+                "feature_manifest_version": "manifest-1",
+                "selected_original_features": ["feature_a"],
+                "selected_engineered_features": [],
+                "preprocessing_pipeline": [],
+                "split_id": "split-1",
+                "validation_design_id": "design-1",
+                "validation_design_version": "design-version-1",
+                "training_population_id": "training-population-1",
+                "selection_partition_id": "training-population-1",
+                "holdout_population_id": "holdout-population-1",
+                "final_holdout_partition_id": "holdout-population-1",
+                "fold_definition_id": "fold-definition-1",
+                "final_holdout_status": "sealed",
+                "holdout_isolation_status": "verified",
+                "selection_resampling_status": "not_applied",
+                "random_seed": 42,
+                "calibration_configuration": {"requested": False},
+                "runtime_environment": {},
+            },
+            feature_manifest=self.store.meta["feature_manifest"],
+            store_meta=self.store.meta,
+            training_job_id="job-1",
+            training_run_id="run-1",
+            created_by="user-1",
+            created_at="2026-07-31T12:00:00+00:00",
+            primary_metric="roc_auc",
+        )
 
     def checkpoint_result(self, *_args, **_kwargs):
         return True, "", dict(self.identity)

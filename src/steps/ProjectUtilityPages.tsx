@@ -35,10 +35,26 @@ import {
 } from "../lib/projectRecovery";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { getWorkflowDefinition, type ProjectType } from "../config/workflows";
-import { deleteProjectFromDatabase, getProjectPersistenceBundle, listProjectsFromDatabase } from "../lib/serverPersistence";
+import {
+  deleteProjectFromDatabase,
+  getProjectWorkflowStateFromDatabase,
+  listProjectsFromDatabase,
+} from "../lib/serverPersistence";
+import {
+  createProjectRegistryLoadController,
+  formatProjectRegistryLoadError,
+  initialProjectRegistryLoadState,
+  isProjectRegistryAbortError,
+  validateProjectRegistryResponse,
+  type ProjectRegistryLoadController,
+} from "../lib/projectRegistryLoadState";
 import { normalizeOptimizationTemplateId, storeOptimizationTemplateId } from "../config/optimizationTemplates";
+import { deriveEffectiveWorkflowView } from "../lib/workflowEffectiveState";
 
 const OPEN_PROJECT_VIEW_MODE_KEY = "atlas-open-project-view-mode";
+// Effective readiness is held only after an authenticated backend fetch.
+// Imported/browser metadata may preserve history, but it cannot grant validity.
+const authoritativeWorkflowReadinessByProject = new Map<string, unknown>();
 
 type ViewMode = "card" | "detail";
 type ProjectSortKey = "projectName" | "projectType" | "task" | "target" | "progress" | "lastModified" | "created" | "recoveryStatus";
@@ -62,68 +78,202 @@ function mergeProjectRecords(local: LocalProjectRecord[], backend: LocalProjectR
         ...persisted.snapshot,
         ...project.snapshot,
         templateId: project.snapshot.templateId || persisted.snapshot.templateId,
+        // A browser snapshot may enrich presentation, but it cannot replace
+        // durable workflow history or canonical identity returned by backend.
+        workflowSteps: persisted.snapshot.workflowSteps,
+        currentStepId: persisted.snapshot.currentStepId,
+        hasDataset: persisted.snapshot.hasDataset,
+        datasetIdentity: persisted.snapshot.datasetIdentity,
       },
     } : project);
   });
   return [...merged.values()];
 }
 
-async function loadDatabaseProjects(): Promise<LocalProjectRecord[]> {
-  const projects = await listProjectsFromDatabase();
-  const records = await Promise.all(projects.map(async (project) => {
-    const projectId = String(project.projectId || "");
-    if (!projectId) return null;
-    const bundle = await getProjectPersistenceBundle(projectId);
-    const workflowId = String(project.workflowType || "predictive-modeling");
-    const workflow = getWorkflowDefinition(workflowId);
-    const completed = new Set(Array.isArray(bundle.workflowState?.completedSteps) ? bundle.workflowState.completedSteps.map(String) : []);
-    const persistedStatuses = bundle.workflowState?.workflowStatus?.steps ?? {};
-    const workflowSteps = workflow.steps.map((step) => ({
-      ...step,
-      status: completed.has(step.id) || persistedStatuses[step.id] === "complete"
-        ? "complete" as const
-        : persistedStatuses[step.id] === "skipped"
-          ? "skipped" as const
-          : persistedStatuses[step.id] === "in_progress"
-            ? "in_progress" as const
-            : "pending" as const,
-    }));
-    const metadata = project.metadata && typeof project.metadata === "object" ? project.metadata : {};
-    const snapshot = {
-      projectId,
-      modelId: String(metadata.modelId || ""),
-      projectName: String(project.projectName || "Untitled ATLAS Project"),
-      projectType: String(project.projectType || workflow.projectType) as ProjectType,
-      workflowId,
-      templateId: project.templateId ? String(project.templateId) : undefined,
-      workflowSteps,
-      currentStepId: String(bundle.workflowState?.currentStepId || workflowSteps.find((step) => step.status !== "complete")?.id || workflowSteps[workflowSteps.length - 1]?.id || ""),
-      hasDataset: Boolean(metadata.hasDataset),
-      restoreWarnings: ["Restored from the ATLAS backend registry. Large governed artifacts remain in SQLite and linked source storage."],
-    };
-    return {
-      projectId,
-      modelId: snapshot.modelId,
-      projectName: snapshot.projectName,
-      projectType: snapshot.projectType,
-      workflowId,
-      createdAt: String(project.createdAt || project.updatedAt || new Date().toISOString()),
-      lastModified: String(project.updatedAt || project.createdAt || new Date().toISOString()),
-      source: "database" as const,
-      restoreStatus: "Backend Registry",
-      backendMetadata: metadata,
-      snapshot,
-    } satisfies LocalProjectRecord;
+function databaseProjectRecord(
+  project: Record<string, any>,
+  workflowState: Record<string, any> | null = null,
+): LocalProjectRecord {
+  const projectId = String(project.projectId);
+  if (workflowState) authoritativeWorkflowReadinessByProject.set(projectId, workflowState);
+  const workflowId = String(project.workflowType || "predictive-modeling");
+  const workflow = getWorkflowDefinition(workflowId);
+  const completed = new Set(
+    Array.isArray(workflowState?.historicalCompletedSteps)
+      ? workflowState.historicalCompletedSteps.map(String)
+      : Array.isArray(workflowState?.completedSteps)
+        ? workflowState.completedSteps.map(String)
+        : [],
+  );
+  const persistedStatuses = workflowState?.workflowStatus?.steps ?? {};
+  const workflowSteps = workflow.steps.map((step) => ({
+    ...step,
+    status: completed.has(step.id) || persistedStatuses[step.id] === "complete"
+      ? "complete" as const
+      : persistedStatuses[step.id] === "skipped"
+        ? "skipped" as const
+        : persistedStatuses[step.id] === "in_progress"
+          ? "in_progress" as const
+          : "pending" as const,
   }));
-  return records.filter(Boolean) as LocalProjectRecord[];
+  const metadata = project.metadata && typeof project.metadata === "object" ? project.metadata : {};
+  const snapshot = {
+    projectId,
+    modelId: String(metadata.modelId || ""),
+    projectName: String(project.projectName || "Untitled ATLAS Project"),
+    projectType: String(project.projectType || workflow.projectType) as ProjectType,
+    workflowId,
+    templateId: project.templateId ? String(project.templateId) : undefined,
+    workflowSteps,
+    currentStepId: String(
+      workflowState?.currentStepId
+      || workflowSteps.find((step) => step.status !== "complete")?.id
+      || workflowSteps[workflowSteps.length - 1]?.id
+      || "",
+    ),
+    hasDataset: Boolean(metadata.hasDataset),
+    datasetIdentity: workflowState?.workflowStatus?.datasetIdentity ?? null,
+    restoreWarnings: [
+      "Restored from the ATLAS backend registry. Large governed artifacts remain in SQLite and linked source storage.",
+    ],
+  };
+  return {
+    projectId,
+    modelId: snapshot.modelId,
+    projectName: snapshot.projectName,
+    projectType: snapshot.projectType,
+    workflowId,
+    createdAt: String(project.createdAt || project.updatedAt || new Date().toISOString()),
+    lastModified: String(project.updatedAt || project.createdAt || new Date().toISOString()),
+    source: "database" as const,
+    restoreStatus: "Backend Registry",
+    backendMetadata: {
+      ...metadata,
+      workflowReadiness: workflowState,
+    },
+    snapshot,
+  } satisfies LocalProjectRecord;
 }
 
-export function OpenProject() {
+async function loadDatabaseProjects(signal: AbortSignal): Promise<LocalProjectRecord[]> {
+  const payloadProjects = await listProjectsFromDatabase(signal);
+  const projects = validateProjectRegistryResponse<Record<string, any>>(payloadProjects);
+  authoritativeWorkflowReadinessByProject.clear();
+  return projects.map((project) => databaseProjectRecord(project));
+}
+
+function databaseProjectRecordWithWorkflowState(
+  record: LocalProjectRecord,
+  workflowState: Record<string, any> | null,
+): LocalProjectRecord {
+  if (workflowState) authoritativeWorkflowReadinessByProject.set(record.projectId, workflowState);
+  else authoritativeWorkflowReadinessByProject.delete(record.projectId);
+  const workflow = getWorkflowDefinition(record.workflowId);
+  const completed = new Set(
+    Array.isArray(workflowState?.historicalCompletedSteps)
+      ? workflowState.historicalCompletedSteps.map(String)
+      : Array.isArray(workflowState?.completedSteps)
+        ? workflowState.completedSteps.map(String)
+        : [],
+  );
+  const persistedStatuses = workflowState?.workflowStatus?.steps ?? {};
+  const workflowSteps = workflow.steps.map((step) => ({
+    ...step,
+    status: completed.has(step.id) || persistedStatuses[step.id] === "complete"
+      ? "complete" as const
+      : persistedStatuses[step.id] === "skipped"
+        ? "skipped" as const
+        : persistedStatuses[step.id] === "in_progress"
+          ? "in_progress" as const
+          : "pending" as const,
+  }));
+  return {
+    ...record,
+    backendMetadata: {
+      ...(record.backendMetadata ?? {}),
+      workflowReadiness: workflowState,
+    },
+    snapshot: {
+      ...record.snapshot,
+      workflowSteps,
+      currentStepId: String(
+        workflowState?.currentStepId
+        || workflowSteps.find((step) => step.status !== "complete")?.id
+        || workflowSteps[workflowSteps.length - 1]?.id
+        || "",
+      ),
+      datasetIdentity: workflowState?.workflowStatus?.datasetIdentity ?? null,
+    },
+  };
+}
+
+function backendWorkflowReadiness(project: LocalProjectRecord) {
+  return authoritativeWorkflowReadinessByProject.get(project.projectId) ?? null;
+}
+
+function projectEffectiveWorkflow(project: LocalProjectRecord) {
+  return deriveEffectiveWorkflowView({
+    workflowSteps: project.snapshot.workflowSteps,
+    projectType: project.snapshot.projectType,
+    datasetIdentity: project.snapshot.datasetIdentity,
+    backendState: backendWorkflowReadiness(project),
+  });
+}
+
+async function enrichDatabaseProjectWorkflows(
+  records: LocalProjectRecord[],
+  signal: AbortSignal,
+): Promise<LocalProjectRecord[]> {
+  if (records.length === 0) return records;
+
+  // Workflow progress is useful launcher enrichment, but it is not the
+  // authoritative project registry. Keep it bounded and failure-isolated so a
+  // single stale/missing project state cannot discard a valid project list.
+  const enriched = [...records];
+  let nextIndex = 0;
+  const workerCount = Math.min(8, records.length);
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    while (nextIndex < records.length) {
+      if (signal.aborted) {
+        const abortError = new Error("Project registry load was superseded.");
+        abortError.name = "AbortError";
+        throw abortError;
+      }
+      const index = nextIndex;
+      nextIndex += 1;
+      try {
+        const workflowState = await getProjectWorkflowStateFromDatabase(records[index].projectId, signal);
+        enriched[index] = databaseProjectRecordWithWorkflowState(records[index], workflowState);
+      } catch (error) {
+        if (signal.aborted || isProjectRegistryAbortError(error)) throw error;
+        enriched[index] = records[index];
+      }
+    }
+  }));
+  return enriched;
+}
+
+type OpenProjectProps = {
+  onSessionExpired?: () => void;
+};
+
+export function OpenProject({ onSessionExpired }: OpenProjectProps = {}) {
   const navigate = useNavigate();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [projects, setProjects] = useState<LocalProjectRecord[]>([]);
   const [backendProjects, setBackendProjects] = useState<LocalProjectRecord[]>([]);
   const [importMessage, setImportMessage] = useState("");
+  const [registryLoadState, setRegistryLoadState] = useState(
+    () => initialProjectRegistryLoadState<LocalProjectRecord>(),
+  );
+  const registryLoaderRef = useRef<ProjectRegistryLoadController<LocalProjectRecord> | null>(null);
+  const handledAuthenticationRequestRef = useRef(0);
+  if (!registryLoaderRef.current) {
+    registryLoaderRef.current = createProjectRegistryLoadController<LocalProjectRecord>({
+      loadProjects: loadDatabaseProjects,
+      onStateChange: setRegistryLoadState,
+    });
+  }
   const [registryStatus, setRegistryStatus] = useState<LocalProjectsRegistryStatus>(() => ({
     ok: true,
     corrupted: false,
@@ -132,8 +282,11 @@ export function OpenProject() {
     validProjects: [],
   }));
   const loadProjectSnapshot = useWorkflowStore((state) => state.loadProjectSnapshot);
+  const applyAuthoritativeWorkflowState = useWorkflowStore((state) => state.applyAuthoritativeWorkflowState);
+  const invalidateEffectiveWorkflow = useWorkflowStore((state) => state.invalidateEffectiveWorkflow);
   const workflowState = useWorkflowStore((state) => ({
     hasDataset: state.hasDataset,
+    datasetIdentity: state.datasetIdentity,
     projectId: state.projectId,
     modelId: state.modelId,
     projectName: state.projectName,
@@ -193,25 +346,66 @@ export function OpenProject() {
   }, []);
 
   useEffect(() => {
-    let active = true;
-    void loadDatabaseProjects()
-      .then((records) => {
-        if (!active) return;
-        setBackendProjects(records);
-        setProjects((current) => mergeProjectRecords(current, records));
+    const loader = registryLoaderRef.current;
+    if (!loader) return undefined;
+    void loader.load();
+    return () => loader.dispose();
+  }, []);
+
+  useEffect(() => {
+    if (registryLoadState.status !== "success") return undefined;
+    const requestId = registryLoadState.requestId;
+    const records = registryLoadState.projects;
+    const controller = new AbortController();
+    void enrichDatabaseProjectWorkflows(records, controller.signal)
+      .then((enriched) => {
+        if (controller.signal.aborted) return;
+        setRegistryLoadState((current) => (
+          current.status === "success" && current.requestId === requestId
+            ? { ...current, projects: enriched }
+            : current
+        ));
       })
       .catch((error) => {
-        if (!active) return;
-        setImportMessage((current) => current || (error instanceof Error ? `Backend project registry unavailable: ${error.message}` : "Backend project registry unavailable."));
+        if (!controller.signal.aborted && !isProjectRegistryAbortError(error)) {
+          // Enrichment is deliberately non-authoritative. The valid list stays
+          // rendered even if a late workflow-progress read cannot complete.
+        }
       });
-    return () => { active = false; };
-  }, []);
+    return () => controller.abort();
+    // The request identity starts one enrichment pass. Updating its project
+    // records must not recursively start another pass.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registryLoadState.requestId, registryLoadState.status]);
+
+  useEffect(() => {
+    const backendRecords = registryLoadState.status === "success" ? registryLoadState.projects : [];
+    setBackendProjects(backendRecords);
+    setProjects((current) => {
+      const browserProjects = current.filter((project) => project.source !== "database");
+      return mergeProjectRecords(browserProjects, backendRecords);
+    });
+
+    if (
+      registryLoadState.status === "error"
+      && registryLoadState.error?.kind === "authentication"
+      && handledAuthenticationRequestRef.current !== registryLoadState.requestId
+    ) {
+      handledAuthenticationRequestRef.current = registryLoadState.requestId;
+      onSessionExpired?.();
+    }
+  }, [onSessionExpired, registryLoadState]);
+
+  const retryProjectRegistry = () => {
+    void registryLoaderRef.current?.load();
+  };
 
   const displayProjects = useMemo(() => {
     const needle = projectQuery.trim().toLowerCase();
     const filteredProjects = projects.filter((project) => {
-      const progress = projectProgress(project.snapshot.workflowSteps);
-      const currentStage = currentWorkflowStage(project.snapshot.workflowSteps, project.snapshot.currentStepId);
+      const effective = projectEffectiveWorkflow(project);
+      const progress = projectProgress(effective.effectiveWorkflowSteps);
+      const currentStage = currentWorkflowStage(effective.effectiveWorkflowSteps, effective.effectiveCurrentStepId);
       const linkedDatasets = inferLinkedDatasets(project);
       const storageLocation = inferProjectStorageLocation(project);
       const recoveryStatus = inferProjectRecoveryStatus(project);
@@ -264,7 +458,14 @@ export function OpenProject() {
       localStorage.setItem(`atlas-optimization-transportation:${project.projectId}`, JSON.stringify(optimizationState));
     }
     loadProjectSnapshot(project.snapshot);
-    const route = currentWorkflowStage(project.snapshot.workflowSteps, project.snapshot.currentStepId)?.route || "/project-overview";
+    const backendReadiness = backendWorkflowReadiness(project);
+    if (backendReadiness) applyAuthoritativeWorkflowState(backendReadiness);
+    else invalidateEffectiveWorkflow("unverified");
+    const effective = projectEffectiveWorkflow(project);
+    const route = currentWorkflowStage(
+      effective.effectiveWorkflowSteps,
+      effective.effectiveCurrentStepId,
+    )?.route || "/project-overview";
     navigate(route);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -459,10 +660,21 @@ export function OpenProject() {
     registryStatus.corrupted ||
     recoveryCandidates.length > 0;
 
-  const projectListSection = projects.length === 0 ? (
-    <EmptyProjects />
+  const projectRegistryIsLoading = registryLoadState.status === "idle" || registryLoadState.status === "loading";
+  const projectListSection = projects.length === 0 && projectRegistryIsLoading ? (
+    <section
+      data-testid="project-registry-loading"
+      className="rounded-xl border border-slate-200/80 bg-white/90 p-8 text-center shadow-sm"
+    >
+      <div className="text-sm font-semibold text-slate-800">Loading ATLAS projects…</div>
+      <p className="mt-2 text-sm text-slate-500">Reading the authenticated project registry.</p>
+    </section>
+  ) : projects.length === 0 ? (
+    <div data-testid="project-registry-empty">
+      <EmptyProjects />
+    </div>
   ) : (
-    <section className="space-y-3">
+    <section data-testid="project-registry-list" className="space-y-3">
       <div className="flex flex-col gap-3 rounded-xl border border-slate-200/80 bg-white/90 p-4 shadow-sm lg:flex-row lg:items-end lg:justify-between">
         <div>
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">Browser Projects</h2>
@@ -593,6 +805,56 @@ export function OpenProject() {
             </button>
           </div>
         )}
+        <div
+          data-testid="project-registry-status"
+          data-state={registryLoadState.status}
+          aria-live="polite"
+        >
+          {projectRegistryIsLoading && (
+            <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+              Loading the authenticated ATLAS project registry…
+            </div>
+          )}
+          {registryLoadState.status === "error" && registryLoadState.error && (
+            <div
+              data-testid="project-registry-error"
+              data-error-kind={registryLoadState.error.kind}
+              role="alert"
+              className="mt-4 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-950"
+            >
+              <div className="flex items-start gap-3">
+                <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold">
+                    {registryLoadState.error.kind === "authentication"
+                      ? "ATLAS sign-in required"
+                      : registryLoadState.error.kind === "authorization"
+                        ? "Project registry access denied"
+                        : registryLoadState.error.kind === "response"
+                          ? "Project registry response could not be used"
+                          : "Project registry request failed"}
+                  </div>
+                  <p className="mt-1">{formatProjectRegistryLoadError(registryLoadState.error)}</p>
+                  <button
+                    type="button"
+                    data-testid="project-registry-retry"
+                    onClick={retryProjectRegistry}
+                    className="mt-3 inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-white px-3 py-2 text-sm font-semibold text-rose-950 shadow-sm hover:bg-rose-100"
+                  >
+                    <RefreshCw size={15} />
+                    Retry project registry
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+          {registryLoadState.status === "success" && (
+            <span className="sr-only">Project registry loaded successfully.</span>
+          )}
+          {registryLoadState.status === "empty" && (
+            <span className="sr-only">Project registry loaded successfully with no projects.</span>
+          )}
+        </div>
         {false && (projects.length === 0 || registryStatus.volatileFallback || diagnostics.lastRegistryWriteError) && (
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
             <div className="flex items-start gap-3">
@@ -862,8 +1124,9 @@ function ProjectCard({
   onRename: (event: React.MouseEvent, project: LocalProjectRecord) => void;
   onDelete: (event: React.MouseEvent, project: LocalProjectRecord) => void;
 }) {
-  const progress = projectProgress(project.snapshot.workflowSteps);
-  const currentStage = currentWorkflowStage(project.snapshot.workflowSteps, project.snapshot.currentStepId);
+  const effective = projectEffectiveWorkflow(project);
+  const progress = projectProgress(effective.effectiveWorkflowSteps);
+  const currentStage = currentWorkflowStage(effective.effectiveWorkflowSteps, effective.effectiveCurrentStepId);
   const label = workflowLabel(project.projectType, project.workflowId);
 
   return (
@@ -981,8 +1244,9 @@ function EnterpriseProjectTable({
         </thead>
         <tbody className="divide-y divide-slate-100">
           {projects.map((project) => {
-            const progress = projectProgress(project.snapshot.workflowSteps);
-            const currentStage = currentWorkflowStage(project.snapshot.workflowSteps, project.snapshot.currentStepId);
+            const effective = projectEffectiveWorkflow(project);
+            const progress = projectProgress(effective.effectiveWorkflowSteps);
+            const currentStage = currentWorkflowStage(effective.effectiveWorkflowSteps, effective.effectiveCurrentStepId);
             const percent = progress.total ? Math.round((progress.complete / progress.total) * 100) : 0;
             const linkedDatasets = inferLinkedDatasets(project);
             return (
@@ -1087,8 +1351,9 @@ function ProjectDetailTable({
         </thead>
         <tbody className="divide-y divide-slate-100">
           {projects.map((project) => {
-            const progress = projectProgress(project.snapshot.workflowSteps);
-            const currentStage = currentWorkflowStage(project.snapshot.workflowSteps, project.snapshot.currentStepId);
+            const effective = projectEffectiveWorkflow(project);
+            const progress = projectProgress(effective.effectiveWorkflowSteps);
+            const currentStage = currentWorkflowStage(effective.effectiveWorkflowSteps, effective.effectiveCurrentStepId);
             return (
               <tr key={project.projectId} className={project.projectId === activeProjectId ? "bg-blue-50/70" : "odd:bg-white even:bg-slate-50/60"}>
                 <td className="px-3 py-3">
@@ -1220,8 +1485,8 @@ function inferProjectRecoveryStatus(project: LocalProjectRecord) {
 }
 
 function compareProjectRows(a: LocalProjectRecord, b: LocalProjectRecord, key: ProjectSortKey) {
-  const progressA = projectProgress(a.snapshot.workflowSteps);
-  const progressB = projectProgress(b.snapshot.workflowSteps);
+  const progressA = projectProgress(projectEffectiveWorkflow(a).effectiveWorkflowSteps);
+  const progressB = projectProgress(projectEffectiveWorkflow(b).effectiveWorkflowSteps);
   const values: Record<ProjectSortKey, [string | number, string | number]> = {
     projectName: [a.projectName, b.projectName],
     projectType: [workflowLabel(a.projectType, a.workflowId), workflowLabel(b.projectType, b.workflowId)],
@@ -1302,6 +1567,7 @@ export function ExportsPage() {
 export function SettingsPage() {
   const workflowState = useWorkflowStore((state) => ({
     hasDataset: state.hasDataset,
+    datasetIdentity: state.datasetIdentity,
     projectId: state.projectId,
     modelId: state.modelId,
     projectName: state.projectName,

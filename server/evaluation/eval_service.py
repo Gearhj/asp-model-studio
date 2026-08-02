@@ -1,5 +1,6 @@
 from typing import Any, Dict, List, Tuple
-from datetime import datetime
+from datetime import datetime, timezone
+import copy
 import hashlib
 import json
 import re
@@ -9,6 +10,82 @@ import pandas as pd
 
 from ..core.dataset_store import DATASTORE
 from ..core.result_store import RESULTS
+from ..governance.selection_integrity import (
+    SelectionIntegrityError,
+    assert_evaluation_package_integrity,
+    assert_locked_candidate_decision,
+    assert_selection_integrity,
+)
+from ..persistence.service import PersistenceService, get_persistence_service
+from ..training.candidate_contract import (
+    CandidateContractError,
+    assert_candidate_contract_intact,
+)
+
+
+EXACT_EVALUATION_CONTEXT_FIELDS = (
+    "project_id",
+    "dataset_id",
+    "dataset_version_id",
+    "candidate_id",
+    "training_job_id",
+    "training_run_id",
+    "feature_manifest_version",
+    "validation_design_id",
+    "validation_design_version",
+    "split_id",
+    "target",
+    "problem_type",
+)
+
+
+def _lineage_value(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="microseconds").replace(
+        "+00:00", "Z"
+    )
+
+
+def _frozen_candidate_threshold_policy(
+    candidate_contract: Dict[str, Any],
+) -> tuple[float | None, str]:
+    """Read the exact pre-exposure threshold from the frozen candidate."""
+
+    configuration = candidate_contract.get("threshold_configuration")
+    if not isinstance(configuration, dict):
+        raise CandidateContractError(
+            "The candidate has no frozen threshold configuration."
+        )
+    source = _lineage_value(configuration.get("threshold_source"))
+    problem_type = _lineage_value(
+        candidate_contract.get("problem_type")
+        or (candidate_contract.get("target_definition") or {}).get(
+            "problem_type"
+        )
+    ).casefold()
+    if problem_type == "regression" and source == "not_applicable":
+        return None, source
+    raw_value = configuration.get("locked_threshold")
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError):
+        raise CandidateContractError(
+            "The candidate has no numeric threshold locked before holdout use."
+        )
+    if (
+        not source
+        or source == "final_holdout"
+        or not np.isfinite(value)
+        or value < 0.0
+        or value > 1.0
+    ):
+        raise CandidateContractError(
+            "The candidate threshold policy is invalid or holdout-derived."
+        )
+    return value, source
 
 try:
     from scipy import stats as scipy_stats
@@ -34,6 +111,7 @@ try:
     from sklearn.inspection import permutation_importance
     from sklearn.base import clone
     from sklearn.calibration import CalibratedClassifierCV
+    from sklearn.model_selection import train_test_split
     from sklearn.linear_model import LinearRegression, LogisticRegression
     from sklearn.decomposition import PCA
     from sklearn.cluster import KMeans
@@ -57,6 +135,7 @@ except Exception:  # pragma: no cover
     permutation_importance = None
     clone = None
     CalibratedClassifierCV = None
+    train_test_split = None
     LinearRegression = None
     LogisticRegression = None
     PCA = None
@@ -93,82 +172,2289 @@ def _filter_target_derived_rows(rows: List[Dict[str, Any]], feature_key: str = "
 
 
 class EvaluationService:
+    def __init__(self, persistence_service: PersistenceService | None = None) -> None:
+        # Resolve the process service lazily in production so tests can inject
+        # an isolated temporary SQLite database without touching runtime state.
+        self._persistence_service = persistence_service
+
+    def _governance_repository(self):
+        service = self._persistence_service or get_persistence_service()
+        return service.holdout_governance
+
+    @staticmethod
+    def _runtime_decision_from_durable(record: Dict[str, Any]) -> Dict[str, Any]:
+        selection_metric = {
+            "selection_metric_name": record.get("selection_metric_name"),
+            "selection_metric_value": record.get("selection_metric_value"),
+            "selection_metric_source": record.get("selection_metric_source"),
+            "selection_partition_id": record.get("selection_partition_id"),
+            "fold_definition_id": record.get("fold_definition_id"),
+            "fold_count": record.get("fold_count"),
+            "fold_values": list(record.get("fold_values_json") or []),
+            "mean": record.get("selection_metric_mean"),
+            "standard_deviation": record.get("selection_metric_std"),
+            "out_of_fold_prediction_artifact_id": record.get(
+                "out_of_fold_prediction_artifact_id"
+            ),
+            "threshold_source": record.get("threshold_source"),
+            "calibration_source": record.get("calibration_source"),
+            "created_at": record.get("selection_metric_created_at"),
+        }
+        return {
+            "decision_id": record.get("candidate_decision_id"),
+            "status": record.get("decision_status"),
+            "selected_candidate_id": record.get("candidate_id"),
+            "project_id": record.get("project_id"),
+            "dataset_id": record.get("dataset_id"),
+            "dataset_version_id": record.get("dataset_version_id"),
+            "feature_manifest_id": record.get("feature_manifest_id"),
+            "feature_manifest_version": record.get("feature_manifest_hash"),
+            "treatment_manifest_id": record.get("treatment_manifest_id"),
+            "treatment_manifest_hash": record.get("treatment_manifest_hash"),
+            "materialization_id": record.get("materialization_id"),
+            "validation_design_id": record.get("validation_design_id"),
+            "validation_design_version": record.get(
+                "validation_design_version_id"
+            ),
+            "split_id": record.get("split_id"),
+            "final_holdout_partition_id": record.get(
+                "final_holdout_partition_id"
+            ),
+            "training_job_id": record.get("training_job_id"),
+            "training_run_id": record.get("training_run_id"),
+            "selected_candidate_contract_hash": record.get(
+                "selected_candidate_contract_hash"
+            ),
+            "locked_threshold": record.get("locked_threshold"),
+            "threshold_source": record.get("threshold_source"),
+            "threshold_locked_at": record.get("threshold_locked_at"),
+            "threshold_policy_hash": record.get("threshold_policy_hash"),
+            "selection_metric": selection_metric,
+            "selection_ranking_snapshot": list(
+                record.get("ranking_snapshot_json") or []
+            ),
+            "selection_ranking_snapshot_hash": record.get(
+                "ranking_snapshot_hash"
+            ),
+            "selection_rationale": record.get("selection_rationale"),
+            "selection_locked_at": record.get("selection_locked_at"),
+            "actor": {"user_id": record.get("actor")},
+            "selection_integrity_status": record.get(
+                "selection_integrity_status"
+            ),
+            "holdout_isolation_status": record.get(
+                "holdout_isolation_status"
+            ),
+            "decision_contract_hash": record.get("decision_contract_hash"),
+            "created_at": record.get("created_at"),
+        }
+
+    @staticmethod
+    def _lineage_error(message: str, model_name: str = "") -> Dict[str, Any]:
+        return {
+            "ok": False,
+            "error": message,
+            "lineage_error": True,
+            "candidate_id": _lineage_value(model_name),
+        }
+
+    def _locked_decision_for_candidate(
+        self,
+        candidate: Dict[str, Any],
+        context: Dict[str, Any] | None,
+    ) -> tuple[Dict[str, Any] | None, str]:
+        requested_decision_id = _lineage_value(
+            (context or {}).get("candidate_decision_id")
+        )
+        if not requested_decision_id:
+            return None, (
+                "Evaluation requires the exact candidate_decision_id. "
+                "The final holdout remains sealed until selection is locked."
+            )
+        contract = candidate.get("candidate_contract")
+        contract = contract if isinstance(contract, dict) else candidate
+        exact = {
+            "candidate_decision_id": requested_decision_id,
+            "project_id": _lineage_value(contract.get("project_id")),
+            "dataset_id": _lineage_value(contract.get("dataset_id")),
+            "dataset_version_id": _lineage_value(
+                contract.get("dataset_version_id")
+            ),
+            "validation_design_id": _lineage_value(
+                contract.get("validation_design_id")
+            ),
+            "validation_design_version_id": _lineage_value(
+                contract.get("validation_design_version")
+                or contract.get("validation_design_version_id")
+            ),
+            "split_id": _lineage_value(contract.get("split_id")),
+            "training_run_id": _lineage_value(contract.get("training_run_id")),
+            "candidate_id": _lineage_value(contract.get("candidate_id")),
+        }
+        if any(not value for value in exact.values()):
+            return None, (
+                "The candidate contract is missing exact lineage required to "
+                "recover its durable selection lock."
+            )
+        try:
+            durable = self._governance_repository().get_selection_decision_exact(
+                **exact
+            )
+        except Exception:
+            return None, (
+                "The durable candidate-decision registry is unavailable; the "
+                "final holdout remains sealed."
+            )
+        if not isinstance(durable, dict):
+            return None, (
+                "No exact durable locked candidate decision exists; the final "
+                "holdout remains sealed."
+            )
+        decision = self._runtime_decision_from_durable(durable)
+        mirror = DATASTORE.meta.get("model_selection_decision")
+        if isinstance(mirror, dict) and (
+            _lineage_value(mirror.get("decision_id")) != requested_decision_id
+            or _lineage_value(mirror.get("selected_candidate_id"))
+            != _lineage_value(decision.get("selected_candidate_id"))
+        ):
+            return None, (
+                "The browser/session candidate-decision mirror conflicts with "
+                "the exact durable lock."
+            )
+        try:
+            assert_locked_candidate_decision(decision, candidate)
+        except SelectionIntegrityError as exc:
+            return None, str(exc)
+        return copy.deepcopy(decision), ""
+
+    @staticmethod
+    def _active_evaluation_lineage() -> tuple[Dict[str, str], str]:
+        meta = DATASTORE.meta if isinstance(DATASTORE.meta, dict) else {}
+        dataset_identity_status = _lineage_value(
+            meta.get("dataset_identity_status")
+        ).casefold()
+        if dataset_identity_status != "current":
+            return {}, (
+                _lineage_value(meta.get("dataset_identity_error"))
+                or "The active Dataset Library identity is not current. Reactivate the exact version and retrain."
+            )
+
+        manifest = meta.get("feature_manifest")
+        manifest = manifest if isinstance(manifest, dict) else {}
+        split_record = meta.get("split_record")
+        split_record = split_record if isinstance(split_record, dict) else {}
+        validation_design = split_record.get("validation_design")
+        validation_design = validation_design if isinstance(validation_design, dict) else {}
+        X_train, X_test, y_train, y_test = DATASTORE.get_splits()
+
+        lineage = {
+            "project_id": _lineage_value(meta.get("project_id")),
+            "dataset_id": _lineage_value(meta.get("dataset_id")),
+            "dataset_version_id": _lineage_value(meta.get("dataset_version_id")),
+            "feature_manifest_version": _lineage_value(manifest.get("manifest_hash")),
+            "validation_design_id": _lineage_value(validation_design.get("validation_design_id")),
+            "validation_design_version": _lineage_value(validation_design.get("design_version")),
+            "split_id": _lineage_value(split_record.get("split_id")),
+            "target": _lineage_value(DATASTORE.target),
+        }
+        missing = [field for field, value in lineage.items() if not value]
+        if missing:
+            return {}, (
+                "The active evaluation workspace is missing exact canonical lineage: "
+                + ", ".join(missing)
+                + ". Reconfirm preparation, recreate the governed split, and retrain."
+            )
+        if _lineage_value(meta.get("split_status")).casefold() != "current":
+            return {}, "The governed split is stale. Recreate it and retrain before evaluation."
+        if not all(value is not None for value in (X_train, X_test, y_train, y_test)):
+            return {}, "The exact governed train/holdout split is not materialized. Retrain before evaluation."
+        if _lineage_value(manifest.get("confirmation_status")).casefold() != "confirmed":
+            return {}, "The active feature manifest is not confirmed. Confirm and retrain before evaluation."
+        if _lineage_value(manifest.get("materialization_status")).casefold() != "current":
+            return {}, "The active feature manifest is stale. Materialize and retrain before evaluation."
+        if _lineage_value(validation_design.get("status")).casefold() != "approved":
+            return {}, "The active validation design is not approved. Approve it and retrain before evaluation."
+
+        for field in ("project_id", "dataset_id", "dataset_version_id"):
+            split_value = _lineage_value(split_record.get(field))
+            if not split_value or split_value != lineage[field]:
+                return {}, f"The governed split does not match the active {field}. Recreate it and retrain."
+        split_manifest = _lineage_value(split_record.get("feature_manifest_version"))
+        if not split_manifest or split_manifest != lineage["feature_manifest_version"]:
+            return {}, "The governed split does not match the active feature manifest. Recreate it and retrain."
+        design_dataset = validation_design.get("development_dataset")
+        design_dataset = design_dataset if isinstance(design_dataset, dict) else {}
+        if (
+            _lineage_value(design_dataset.get("dataset_id")) != lineage["dataset_id"]
+            or _lineage_value(design_dataset.get("dataset_version_id"))
+            != lineage["dataset_version_id"]
+        ):
+            return {}, "The validation design does not bind the exact active Dataset Library version."
+        return lineage, ""
+
+    @staticmethod
+    def _resolve_registered_candidate_lineage(
+        requested: Dict[str, str],
+        active: Dict[str, str],
+        context: Dict[str, Any],
+    ) -> tuple[Dict[str, Any] | None, str]:
+        """Recover one explicit durable version without volatile result state."""
+
+        version = context.get("_registered_version")
+        artifact = context.get("_registered_artifact")
+        requested_version_id = _lineage_value(context.get("model_version_id"))
+        if not requested_version_id:
+            return None, (
+                "An explicit model_version_id is required for registered-model recovery; "
+                "ATLAS will not load the latest or current model automatically."
+            )
+        if not isinstance(version, dict) or artifact is None:
+            return None, "The explicit registered model version or its verified artifact is unavailable."
+        if _lineage_value(version.get("modelVersionId")) != requested_version_id:
+            return None, "The registry returned a different model_version_id."
+        if (
+            _lineage_value(version.get("publicationStatus")).casefold() != "finalized"
+            or _lineage_value(version.get("lineageStatus")).casefold() != "verified"
+        ):
+            return None, "The explicit registered model version is not finalized with verified lineage."
+
+        version_lineage = version.get("lineage")
+        version_lineage = version_lineage if isinstance(version_lineage, dict) else {}
+        model_contract = version.get("modelContract")
+        model_contract = model_contract if isinstance(model_contract, dict) else {}
+        contract_candidates = [
+            source.get("candidateContract")
+            for source in (version, version_lineage, model_contract)
+            if isinstance(source.get("candidateContract"), dict)
+        ]
+        if not contract_candidates:
+            return None, "The registered model version is missing its frozen candidate contract."
+        contract_hashes: set[str] = set()
+        canonical_contracts: set[str] = set()
+        for contract in contract_candidates:
+            try:
+                assert_candidate_contract_intact(contract)
+            except CandidateContractError as exc:
+                return None, f"The registered candidate contract is invalid: {exc}"
+            contract_hashes.add(_lineage_value(contract.get("contract_hash")))
+            canonical_contracts.add(
+                json.dumps(
+                    contract,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=False,
+                    default=str,
+                )
+            )
+        if "" in contract_hashes or len(contract_hashes) != 1:
+            return None, "The registered model version contains conflicting candidate contracts."
+        if len(canonical_contracts) != 1:
+            return None, "The registered model version contains contradictory candidate-contract content."
+        candidate_contract = copy.deepcopy(contract_candidates[0])
+
+        sources = (version, version_lineage, model_contract, candidate_contract)
+        aliases = {
+            "project_id": ("projectId", "project_id"),
+            "dataset_id": (
+                "datasetId", "dataset_id", "trainingDatasetId", "training_dataset_id"
+            ),
+            "dataset_version_id": (
+                "datasetVersionId", "dataset_version_id",
+                "trainingDatasetVersionId", "training_dataset_version_id",
+            ),
+            "candidate_id": ("candidateId", "candidate_id"),
+            "training_job_id": ("trainingJobId", "training_job_id"),
+            "training_run_id": ("trainingRunId", "training_run_id"),
+            "feature_manifest_version": (
+                "featureManifestVersion", "featureManifestHash",
+                "feature_manifest_version", "feature_manifest_hash",
+            ),
+            "validation_design_id": ("validationDesignId", "validation_design_id"),
+            "validation_design_version": (
+                "validationDesignVersion", "validation_design_version"
+            ),
+            "split_id": ("splitId", "split_id"),
+            "target": ("target", "targetName", "target_name"),
+            "problem_type": ("problemType", "problem_type"),
+        }
+        for field, field_aliases in aliases.items():
+            values = {
+                _lineage_value(source.get(alias))
+                for source in sources
+                for alias in field_aliases
+                if _lineage_value(source.get(alias))
+            }
+            if field == "problem_type":
+                target_definition = candidate_contract.get("target_definition")
+                if isinstance(target_definition, dict):
+                    problem_type = _lineage_value(target_definition.get("problem_type"))
+                    if problem_type:
+                        values.add(problem_type)
+            if not values:
+                return None, f"The registered model version is missing its exact {field} binding."
+            if values != {requested[field]}:
+                return None, f"The registered model version does not match the exact {field}."
+            if field in active and requested[field] != active[field]:
+                return None, f"The registered model version does not match the active {field}."
+
+        contract_hash = next(iter(contract_hashes))
+        published_contract_hashes = {
+            _lineage_value(source.get(key))
+            for source in (version, version_lineage, model_contract)
+            for key in ("candidateContractHash", "candidate_contract_hash")
+            if _lineage_value(source.get(key))
+        }
+        if published_contract_hashes and published_contract_hashes != {contract_hash}:
+            return None, "The registered model version candidate-contract hash is inconsistent."
+
+        algorithm_id = _lineage_value(candidate_contract.get("algorithm_id"))
+        if not algorithm_id:
+            return None, "The registered candidate contract is missing its algorithm_id."
+        interpretation_summary = version.get("interpretationSummary")
+        interpretation_summary = (
+            interpretation_summary if isinstance(interpretation_summary, dict) else {}
+        )
+        trained_feature_names = interpretation_summary.get("selectedFeatures")
+        if not isinstance(trained_feature_names, list):
+            X_train, _, _, _ = DATASTORE.get_splits()
+            trained_feature_names = list(X_train.columns) if X_train is not None else []
+        metrics = version.get("metricsSummary")
+        metrics = metrics if isinstance(metrics, dict) else {}
+        hyperparameters = candidate_contract.get("hyperparameter_manifest")
+        hyperparameters = hyperparameters if isinstance(hyperparameters, dict) else {}
+        candidate = {
+            **metrics,
+            "key": algorithm_id,
+            "name": _lineage_value(version.get("algorithm")) or algorithm_id,
+            "candidate_id": requested["candidate_id"],
+            "candidate_contract": candidate_contract,
+            "best_params": copy.deepcopy(hyperparameters),
+            "kind": "supervised",
+            "target_usage": "supervised",
+            "champion_eligible": True,
+        }
+        raw_result = {
+            "task": requested["problem_type"],
+            "metrics": copy.deepcopy(metrics),
+            "best_params": copy.deepcopy(hyperparameters),
+        }
+        summary = {
+            **{field: value for field, value in requested.items() if field != "candidate_id"},
+            "ranked": [candidate],
+            "raw": {algorithm_id: raw_result},
+        }
+        artifact_metadata = {
+            **requested,
+            "model_key": algorithm_id,
+            "candidate_contract": candidate_contract,
+            "trained_feature_names": [str(value) for value in trained_feature_names],
+            "registry_model_version_id": requested_version_id,
+        }
+        return {
+            "lineage": requested,
+            "active_lineage": active,
+            "summary": summary,
+            "candidate": candidate,
+            "candidate_contract": candidate_contract,
+            "algorithm_id": algorithm_id,
+            "raw_result": raw_result,
+            "artifact": artifact,
+            "artifact_metadata": artifact_metadata,
+            "registered_version": version,
+        }, ""
+
+    def _resolve_candidate_lineage(
+        self,
+        model_name: str,
+        context: Dict[str, Any] | None,
+    ) -> tuple[Dict[str, Any] | None, str]:
+        requested = {
+            field: _lineage_value((context or {}).get(field))
+            for field in EXACT_EVALUATION_CONTEXT_FIELDS
+        }
+        missing = [field for field, value in requested.items() if not value]
+        if missing:
+            return None, (
+                "Evaluation requires exact lineage fields: "
+                + ", ".join(missing)
+                + ". Reload the governed candidate context."
+            )
+        if requested["candidate_id"] != _lineage_value(model_name):
+            return None, "The requested candidate_id does not match the selected model candidate."
+        if requested["problem_type"] not in {"classification", "regression"}:
+            return None, "The selected candidate has an unsupported problem type."
+
+        active, active_error = self._active_evaluation_lineage()
+        if active_error:
+            return None, active_error
+        for field, active_value in active.items():
+            if requested.get(field) != active_value:
+                return None, f"The requested {field} does not match the exact active evaluation workspace."
+
+        if (context or {}).get("_registered_version") is not None or (
+            context or {}
+        ).get("_registered_artifact") is not None:
+            resolved, registered_error = self._resolve_registered_candidate_lineage(
+                requested,
+                active,
+                context or {},
+            )
+            if registered_error or not resolved:
+                return resolved, registered_error
+            guarded_candidate = {
+                **resolved["candidate_contract"],
+                **resolved["candidate"],
+            }
+            try:
+                assert_selection_integrity(guarded_candidate)
+            except SelectionIntegrityError as exc:
+                return None, str(exc)
+            decision, decision_error = self._locked_decision_for_candidate(
+                guarded_candidate,
+                context,
+            )
+            if decision_error:
+                return None, decision_error
+            resolved["candidate_decision"] = decision
+            resolved["lineage"] = {
+                **resolved["lineage"],
+                "candidate_decision_id": _lineage_value(
+                    decision.get("decision_id")
+                ),
+            }
+            return self._attach_final_holdout(resolved, context)
+
+        # The scoped result cache is not treated as "latest" selection. It is
+        # usable only when its immutable job id and every lineage field exactly
+        # match the request and active workspace below.
+        summary = RESULTS.get_last_summary()
+        if not isinstance(summary, dict):
+            return None, "The exact requested training run is unavailable. Retrain the selected candidate."
+        summary_lineage = {
+            "project_id": _lineage_value(summary.get("project_id")),
+            "dataset_id": _lineage_value(summary.get("dataset_id")),
+            "dataset_version_id": _lineage_value(summary.get("dataset_version_id")),
+            "training_job_id": _lineage_value(summary.get("training_job_id")),
+            "training_run_id": _lineage_value(summary.get("training_run_id")),
+            "feature_manifest_version": _lineage_value(summary.get("feature_manifest_version")),
+            "validation_design_id": _lineage_value(summary.get("validation_design_id")),
+            "validation_design_version": _lineage_value(summary.get("validation_design_version")),
+            "split_id": _lineage_value(summary.get("split_id")),
+            "target": _lineage_value(summary.get("target")),
+            "problem_type": _lineage_value(summary.get("problem_type")),
+        }
+        for field, requested_value in requested.items():
+            if field == "candidate_id":
+                continue
+            actual = summary_lineage.get(field, "")
+            if not actual:
+                return None, f"The requested training run is missing its {field} binding. Retrain it."
+            if actual != requested_value:
+                return None, f"The requested training run does not match the exact {field}."
+
+        ranked_matches = []
+        for row in summary.get("ranked") or []:
+            if not isinstance(row, dict):
+                continue
+            row_contract = row.get("candidate_contract")
+            contract_candidate_id = (
+                _lineage_value(row_contract.get("candidate_id"))
+                if isinstance(row_contract, dict)
+                else ""
+            )
+            row_candidate_id = _lineage_value(row.get("candidate_id"))
+            if row_candidate_id and contract_candidate_id and row_candidate_id != contract_candidate_id:
+                return None, "A candidate row contains conflicting immutable candidate identifiers."
+            if (row_candidate_id or contract_candidate_id) == requested["candidate_id"]:
+                ranked_matches.append(row)
+        if len(ranked_matches) != 1:
+            return None, "The requested candidate is not uniquely present in the exact training run."
+        candidate = ranked_matches[0]
+        candidate_contract = candidate.get("candidate_contract")
+        if not isinstance(candidate_contract, dict):
+            return None, "The requested candidate is missing its frozen candidate contract."
+        try:
+            assert_candidate_contract_intact(candidate_contract)
+        except CandidateContractError as exc:
+            return None, f"The requested candidate contract is invalid: {exc}"
+        try:
+            assert_selection_integrity({**candidate_contract, **candidate})
+        except SelectionIntegrityError as exc:
+            return None, str(exc)
+        if _lineage_value(candidate.get("candidate_id")) != requested["candidate_id"]:
+            return None, "The candidate row does not match the requested immutable candidate_id."
+        if _lineage_value(candidate_contract.get("candidate_id")) != requested["candidate_id"]:
+            return None, "The frozen candidate contract does not match the requested candidate_id."
+
+        algorithm_id = _lineage_value(candidate_contract.get("algorithm_id"))
+        if not algorithm_id or _lineage_value(candidate.get("key")) != algorithm_id:
+            return None, "The candidate algorithm binding is missing or contradictory."
+        training_run_id = _lineage_value(summary.get("training_run_id"))
+        if not training_run_id:
+            return None, "The exact requested training run is missing its immutable training_run_id."
+        candidate_contract_lineage = {
+            "project_id": _lineage_value(candidate_contract.get("project_id")),
+            "dataset_id": _lineage_value(candidate_contract.get("dataset_id")),
+            "dataset_version_id": _lineage_value(candidate_contract.get("dataset_version_id")),
+            "candidate_id": _lineage_value(candidate_contract.get("candidate_id")),
+            "training_job_id": _lineage_value(candidate_contract.get("training_job_id")),
+            "training_run_id": _lineage_value(candidate_contract.get("training_run_id")),
+            "feature_manifest_version": _lineage_value(candidate_contract.get("feature_manifest_hash")),
+            "validation_design_id": _lineage_value(candidate_contract.get("validation_design_id")),
+            "validation_design_version": _lineage_value(candidate_contract.get("validation_design_version")),
+            "split_id": _lineage_value(candidate_contract.get("split_id")),
+            "target": _lineage_value(candidate_contract.get("target_name")),
+            "problem_type": _lineage_value(
+                (candidate_contract.get("target_definition") or {}).get("problem_type")
+                if isinstance(candidate_contract.get("target_definition"), dict)
+                else ""
+            ),
+        }
+        for field, actual in candidate_contract_lineage.items():
+            if not actual:
+                return None, f"The frozen candidate contract is missing its {field} binding."
+            if actual != requested[field]:
+                return None, f"The frozen candidate contract does not match the exact {field}."
+        if _lineage_value(candidate_contract.get("candidate_state")).casefold() != "complete":
+            return None, "The requested candidate is not in the immutable complete state."
+        if (
+            candidate.get("champion_eligible") is False
+            or candidate_contract.get("champion_eligible") is False
+            or _lineage_value(candidate.get("kind")).casefold() == "anomaly"
+            or _lineage_value(candidate.get("target_usage")).casefold() in {"none", "unsupervised"}
+        ):
+            return None, "The requested candidate is unsupported for governed Evaluation and Interpretation."
+
+        raw_results = summary.get("raw")
+        raw_results = raw_results if isinstance(raw_results, dict) else {}
+        raw_result = raw_results.get(algorithm_id)
+        if not isinstance(raw_result, dict):
+            return None, "The requested candidate has no exact persisted training result."
+        if _lineage_value(raw_result.get("task")) not in ("", requested["problem_type"]):
+            return None, "The candidate training result has a conflicting problem type."
+
+        metadata = RESULTS.get_model_artifact_metadata(algorithm_id)
+        artifact = RESULTS.get_model_artifact(algorithm_id)
+        if artifact is None or not isinstance(metadata, dict) or not metadata:
+            return None, "The requested candidate artifact is unavailable for the exact training run."
+        artifact_training_job = _lineage_value(metadata.get("training_job_id"))
+        artifact_training_run = _lineage_value(metadata.get("training_run_id"))
+        if artifact_training_job != requested["training_job_id"]:
+            return None, "The candidate artifact does not match the exact training_job_id."
+        if artifact_training_run != training_run_id:
+            return None, "The candidate artifact does not match the exact training_run_id."
+        metadata_contract = metadata.get("candidate_contract")
+        if not isinstance(metadata_contract, dict):
+            return None, "The candidate artifact is missing its frozen candidate contract."
+        try:
+            assert_candidate_contract_intact(metadata_contract)
+        except CandidateContractError as exc:
+            return None, f"The candidate artifact contract is invalid: {exc}"
+        if _lineage_value(metadata_contract.get("contract_hash")) != _lineage_value(candidate_contract.get("contract_hash")):
+            return None, "The candidate artifact contract does not match the ranked candidate contract."
+        artifact_lineage = {
+            "project_id": _lineage_value(metadata.get("project_id")),
+            "dataset_id": _lineage_value(metadata.get("dataset_id")),
+            "dataset_version_id": _lineage_value(metadata.get("dataset_version_id")),
+            "candidate_id": _lineage_value(metadata.get("candidate_id")),
+            "training_job_id": artifact_training_job,
+            "training_run_id": artifact_training_run,
+            "feature_manifest_version": _lineage_value(metadata.get("feature_manifest_version")),
+            "validation_design_id": _lineage_value(metadata.get("validation_design_id")),
+            "validation_design_version": _lineage_value(metadata.get("validation_design_version")),
+            "split_id": _lineage_value(metadata.get("split_id")),
+            "target": _lineage_value(metadata.get("target")),
+            "problem_type": _lineage_value(metadata.get("problem_type")),
+        }
+        for field, requested_value in requested.items():
+            actual = artifact_lineage.get(field, "")
+            if not actual:
+                return None, f"The candidate artifact is missing its {field} binding. Retrain it."
+            if actual != requested_value:
+                return None, f"The candidate artifact does not match the exact {field}."
+        if _lineage_value(metadata.get("model_key")) != algorithm_id:
+            return None, "The candidate artifact does not match the frozen algorithm_id."
+
+        guarded_candidate = {**candidate_contract, **candidate}
+        decision, decision_error = self._locked_decision_for_candidate(
+            guarded_candidate,
+            context,
+        )
+        if decision_error:
+            return None, decision_error
+        resolved = {
+            "lineage": {
+                **requested,
+                "candidate_decision_id": _lineage_value(
+                    decision.get("decision_id")
+                ),
+            },
+            "active_lineage": active,
+            "summary": summary,
+            "candidate": candidate,
+            "candidate_contract": candidate_contract,
+            "algorithm_id": algorithm_id,
+            "raw_result": raw_result,
+            "artifact": artifact,
+            "artifact_metadata": metadata,
+            "candidate_decision": decision,
+        }
+        return self._attach_final_holdout(resolved, context)
+
+    @staticmethod
+    def _holdout_metrics(
+        task: str,
+        y_true: np.ndarray,
+        y_score: np.ndarray,
+        *,
+        n_features: int,
+        threshold: float | None,
+    ) -> Dict[str, Any]:
+        if task == "regression":
+            mse = float(mean_squared_error(y_true, y_score)) if mean_squared_error else None
+            r2 = float(r2_score(y_true, y_score)) if r2_score else None
+            n_obs = int(len(y_true))
+            adjusted_r2 = (
+                float(1 - (1 - r2) * (n_obs - 1) / (n_obs - n_features - 1))
+                if r2 is not None and n_obs > n_features + 1
+                else None
+            )
+            return {
+                "mae": float(mean_absolute_error(y_true, y_score)) if mean_absolute_error else None,
+                "mse": mse,
+                "rmse": float(np.sqrt(mse)) if mse is not None else None,
+                "r2": r2,
+                "adjusted_r2": adjusted_r2,
+            }
+        if threshold is None:
+            raise ValueError(
+                "A classification final-holdout evaluation requires the exact "
+                "pre-exposure threshold lock."
+            )
+        predicted = (y_score >= threshold).astype(int)
+        auc = (
+            float(roc_auc_score(y_true, y_score))
+            if roc_auc_score is not None and len(np.unique(y_true)) == 2
+            else None
+        )
+        pr_auc = (
+            float(average_precision_score(y_true, y_score))
+            if average_precision_score is not None and len(np.unique(y_true)) == 2
+            else None
+        )
+        return {
+            "auc": auc,
+            "roc_auc": auc,
+            "pr_auc": pr_auc,
+            "accuracy": float(accuracy_score(y_true, predicted)) if accuracy_score else None,
+            "precision": float(precision_score(y_true, predicted, zero_division=0)) if precision_score else None,
+            "recall": float(recall_score(y_true, predicted, zero_division=0)) if recall_score else None,
+            "f1": float(f1_score(y_true, predicted, zero_division=0)) if f1_score else None,
+            "confusion_matrix": (
+                confusion_matrix(y_true, predicted, labels=[0, 1]).tolist()
+                if confusion_matrix is not None
+                else None
+            ),
+        }
+
+    def _open_final_holdout(
+        self,
+        resolved: Dict[str, Any],
+        context: Dict[str, Any] | None,
+    ) -> tuple[Dict[str, Any] | None, str]:
+        """Open one exact final holdout only after immutable candidate lock.
+
+        This is the sole boundary that turns the sealed DatasetStore holdout
+        into candidate predictions.  It writes a separate exposure record and
+        never mutates the training summary, ranking row, or selection decision.
+        """
+
+        lineage = resolved["lineage"]
+        candidate_id = lineage["candidate_id"]
+        decision = resolved.get("candidate_decision") or {}
+        decision_id = _lineage_value(decision.get("decision_id"))
+        candidate_contract = resolved["candidate_contract"]
+        scoped_store = DATASTORE.current()
+        scoped_results = RESULTS.current()
+        algorithm_id = _lineage_value(resolved.get("algorithm_id"))
+        registered_candidate = isinstance(resolved.get("registered_version"), dict)
+
+        # Snapshot the exact workspace, candidate artifact, and holdout under
+        # the same store -> result lock order used by preparation invalidation.
+        # The durable exposure is opened before either lock is released, so a
+        # split rebuild cannot interleave a new population with old lineage.
+        with scoped_store.state_lock:
+            with scoped_results.state_lock:
+                active, active_error = self._active_evaluation_lineage()
+                if active_error:
+                    return None, active_error
+                for field, active_value in active.items():
+                    if _lineage_value(lineage.get(field)) != active_value:
+                        return None, (
+                            f"The active {field} changed before final-holdout "
+                            "exposure. Reopen the exact governed candidate."
+                        )
+
+                split_record = scoped_store.meta.get("split_record")
+                split_record = (
+                    copy.deepcopy(split_record)
+                    if isinstance(split_record, dict)
+                    else {}
+                )
+                partition_id = _lineage_value(
+                    split_record.get("holdout_population_id")
+                    or split_record.get("final_holdout_partition_id")
+                )
+                if not partition_id:
+                    return None, (
+                        "The governed split has no exact final-holdout "
+                        "partition identity."
+                    )
+                _, live_holdout, _, live_target = scoped_store.get_splits()
+                if (
+                    live_holdout is None
+                    or live_target is None
+                    or len(live_target) == 0
+                ):
+                    return None, (
+                        "The exact final holdout is unavailable. Recreate the "
+                        "governed split."
+                    )
+                X_holdout = live_holdout.copy(deep=True)
+                y_holdout = pd.Series(live_target).copy(deep=True)
+                snapshot_revision = int(scoped_store.data_revision)
+
+                if registered_candidate:
+                    artifact = resolved.get("artifact")
+                    metadata = copy.deepcopy(
+                        resolved.get("artifact_metadata") or {}
+                    )
+                else:
+                    current_summary = scoped_results.last_training_summary
+                    if (
+                        not isinstance(current_summary, dict)
+                        or _lineage_value(
+                            current_summary.get("training_job_id")
+                        )
+                        != lineage["training_job_id"]
+                        or _lineage_value(
+                            current_summary.get("training_run_id")
+                        )
+                        != lineage["training_run_id"]
+                    ):
+                        return None, (
+                            "The exact training run changed before final-holdout "
+                            "exposure. Retrain the candidate."
+                        )
+                    current_matches = [
+                        row
+                        for row in current_summary.get("ranked") or []
+                        if isinstance(row, dict)
+                        and _lineage_value(row.get("candidate_id"))
+                        == candidate_id
+                    ]
+                    if len(current_matches) != 1:
+                        return None, (
+                            "The exact candidate changed before final-holdout "
+                            "exposure. Retrain the candidate."
+                        )
+                    current_ranked_contract = current_matches[0].get(
+                        "candidate_contract"
+                    )
+                    if (
+                        not isinstance(current_ranked_contract, dict)
+                        or _lineage_value(
+                            current_ranked_contract.get("contract_hash")
+                        )
+                        != _lineage_value(
+                            candidate_contract.get("contract_hash")
+                        )
+                    ):
+                        return None, (
+                            "The ranked candidate contract changed before "
+                            "final-holdout exposure. Retrain the candidate."
+                        )
+                    artifact = scoped_results.model_artifacts.get(algorithm_id)
+                    metadata = copy.deepcopy(
+                        scoped_results.model_artifact_metadata.get(
+                            algorithm_id
+                        )
+                        or {}
+                    )
+                    current_contract = metadata.get("candidate_contract")
+                    if (
+                        artifact is None
+                        or not isinstance(current_contract, dict)
+                        or _lineage_value(current_contract.get("contract_hash"))
+                        != _lineage_value(candidate_contract.get("contract_hash"))
+                    ):
+                        return None, (
+                            "The exact candidate artifact changed before "
+                            "final-holdout exposure. Retrain the candidate."
+                        )
+                if artifact is None:
+                    return None, (
+                        "The exact candidate artifact is unavailable for "
+                        "final-holdout evaluation."
+                    )
+
+                try:
+                    threshold, threshold_source = (
+                        _frozen_candidate_threshold_policy(
+                            candidate_contract
+                        )
+                    )
+                except CandidateContractError as exc:
+                    return None, str(exc)
+                decision_threshold = decision.get("locked_threshold")
+                threshold_locked_at = _lineage_value(
+                    decision.get("threshold_locked_at")
+                )
+                if (
+                    not threshold_locked_at
+                    or _lineage_value(decision.get("threshold_source"))
+                    != threshold_source
+                    or (
+                        threshold_source != "not_applicable"
+                        and (
+                            isinstance(decision_threshold, bool)
+                            or not isinstance(
+                                decision_threshold, (int, float)
+                            )
+                            or float(decision_threshold) != threshold
+                        )
+                    )
+                ):
+                    return None, (
+                        "The exact candidate threshold does not match the "
+                        "durable pre-exposure decision lock."
+                    )
+                exposure_identity = {
+                    "project_id": lineage["project_id"],
+                    "dataset_id": lineage["dataset_id"],
+                    "dataset_version_id": lineage["dataset_version_id"],
+                    "validation_design_id": lineage["validation_design_id"],
+                    "validation_design_version_id": lineage[
+                        "validation_design_version"
+                    ],
+                    "split_id": lineage["split_id"],
+                    "final_holdout_partition_id": partition_id,
+                    "candidate_decision_id": decision_id,
+                    "candidate_id": candidate_id,
+                    "feature_manifest_id": candidate_contract.get(
+                        "feature_manifest_id"
+                    ),
+                    "feature_manifest_hash": candidate_contract.get(
+                        "feature_manifest_hash"
+                    ),
+                    "treatment_manifest_id": candidate_contract.get(
+                        "treatment_manifest_id"
+                    ),
+                    "treatment_manifest_hash": candidate_contract.get(
+                        "treatment_manifest_hash"
+                    ),
+                    "materialization_id": candidate_contract.get(
+                        "materialization_id"
+                    ),
+                }
+                exposure_contract_hash = self._canonical_content_hash(
+                    exposure_identity
+                )
+                exposure_id = "holdout-exposure-" + exposure_contract_hash[:24]
+                opened_by = (
+                    _lineage_value((context or {}).get("_actor_user_id"))
+                    or "authenticated_user"
+                )
+                now = _utc_now_iso()
+                try:
+                    governance = self._governance_repository()
+                    durable_exposure = governance.seal_holdout_exposure_if_absent(
+                        {
+                            "holdout_exposure_id": exposure_id,
+                            **exposure_identity,
+                            "final_holdout_status": "sealed",
+                            "selection_locked_at": _lineage_value(
+                                decision.get("selection_locked_at")
+                            ),
+                            "sealed_at": now,
+                            "exposure_contract_hash": exposure_contract_hash,
+                            "created_at": now,
+                            "updated_at": now,
+                        }
+                    )
+                    durable_status = _lineage_value(
+                        durable_exposure.get("final_holdout_status")
+                    ).casefold()
+                    if durable_status == "invalidated":
+                        return None, (
+                            "The exact final-holdout exposure was invalidated. "
+                            "Create a new governed holdout before further "
+                            "candidate work."
+                        )
+                    if durable_status == "sealed":
+                        durable_exposure = governance.mark_holdout_opened(
+                            exposure_id,
+                            opened_by=opened_by,
+                            opened_at=now,
+                        )
+                        durable_status = "opened"
+                    if durable_status not in {"opened", "evaluated"}:
+                        return None, (
+                            "The exact final holdout is not available for "
+                            "governed Evaluation."
+                        )
+                except Exception:
+                    return None, (
+                        "The durable final-holdout exposure could not be "
+                        "recorded; no holdout result is available."
+                    )
+
+        existing = RESULTS.get_holdout_evaluation(candidate_id)
+        if isinstance(existing, dict):
+            if _lineage_value(existing.get("status")).casefold() == "invalidated":
+                return None, "The final holdout exposure for this candidate was invalidated. Create a new governed holdout."
+            expected = {
+                "candidate_id": candidate_id,
+                "candidate_decision_id": decision_id,
+                "final_holdout_partition_id": partition_id,
+                "project_id": lineage["project_id"],
+                "dataset_id": lineage["dataset_id"],
+                "dataset_version_id": lineage["dataset_version_id"],
+                "split_id": lineage["split_id"],
+                "holdout_exposure_id": exposure_id,
+            }
+            if any(_lineage_value(existing.get(key)) != value for key, value in expected.items()):
+                return None, "The persisted final-holdout exposure conflicts with the exact locked candidate."
+            existing["status"] = durable_status
+            existing["evaluation_package_id"] = durable_exposure.get(
+                "evaluation_package_id"
+            )
+            return existing, ""
+
+        prior_partition_exposures = RESULTS.get_holdout_evaluations_for_partition(
+            partition_id
+        )
+        conflicting_exposures = [
+            value
+            for key, value in prior_partition_exposures.items()
+            if key != candidate_id
+            and _lineage_value(value.get("status")).casefold()
+            in {"opened", "evaluated", "invalidated"}
+        ]
+        if conflicting_exposures:
+            return None, (
+                "This final-holdout partition was already exposed for another "
+                "candidate decision. Create a newly governed final holdout or "
+                "classify the subsequent work as development-only."
+            )
+
+        trained_features = [
+            str(value)
+            for value in metadata.get("trained_feature_names") or []
+        ]
+        if trained_features:
+            missing = [name for name in trained_features if name not in X_holdout.columns]
+            if missing:
+                return None, "The final holdout is missing trained predictors: " + ", ".join(missing)
+            holdout_frame = X_holdout.loc[:, trained_features].copy()
+        else:
+            holdout_frame = X_holdout.copy()
+
+        task = _lineage_value(lineage.get("problem_type")).casefold()
+        if task == "regression":
+            y_true = pd.to_numeric(pd.Series(y_holdout), errors="coerce").to_numpy(dtype=float)
+            if np.isnan(y_true).any():
+                return None, "The final-holdout regression target contains non-numeric or missing values."
+            y_score = np.asarray(artifact.predict(holdout_frame), dtype=float)
+        elif task == "classification":
+            target_definition = candidate_contract.get("target_definition")
+            target_definition = target_definition if isinstance(target_definition, dict) else {}
+            positive_class = target_definition.get("positive_class")
+            if positive_class is None:
+                positive_class = candidate_contract.get("positive_class")
+            if positive_class is None:
+                return None, "The frozen candidate contract has no positive-class definition."
+            y_true = np.asarray(
+                [int(str(value) == str(positive_class)) for value in pd.Series(y_holdout)],
+                dtype=int,
+            )
+            if len(np.unique(y_true)) != 2:
+                return None, "The final holdout does not contain both governed target classes."
+            positive_index = int(candidate_contract.get("positive_class_index", 1) or 1)
+            if hasattr(artifact, "predict_proba"):
+                probabilities = np.asarray(artifact.predict_proba(holdout_frame), dtype=float)
+                artifact_classes = list(getattr(artifact, "classes_", []))
+                if artifact_classes and positive_index in artifact_classes:
+                    column = artifact_classes.index(positive_index)
+                else:
+                    column = min(max(positive_index, 0), probabilities.shape[1] - 1)
+                y_score = probabilities[:, column]
+            elif hasattr(artifact, "decision_function"):
+                raw = np.asarray(artifact.decision_function(holdout_frame), dtype=float)
+                y_score = 1.0 / (1.0 + np.exp(-np.clip(raw, -40.0, 40.0)))
+            else:
+                y_score = np.asarray(artifact.predict(holdout_frame), dtype=float)
+            y_score = np.clip(y_score, 0.0, 1.0)
+        else:
+            return None, "The selected candidate has an unsupported supervised task."
+
+        if len(y_true) != len(y_score):
+            return None, "Final-holdout predictions do not match the governed population size."
+        metrics = self._holdout_metrics(
+            task,
+            y_true,
+            y_score,
+            n_features=len(holdout_frame.columns),
+            threshold=threshold,
+        )
+        opened_at = _lineage_value(durable_exposure.get("first_opened_at")) or now
+        digest_payload = {
+            "candidate_id": candidate_id,
+            "candidate_decision_id": decision_id,
+            "final_holdout_partition_id": partition_id,
+            "y_true": y_true.tolist(),
+            "y_score": y_score.tolist(),
+        }
+        prediction_digest = hashlib.sha256(
+            json.dumps(digest_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        exposure = {
+            **lineage,
+            "holdout_exposure_id": exposure_id,
+            "candidate_decision_id": decision_id,
+            "final_holdout_partition_id": partition_id,
+            "status": durable_status,
+            "first_opened_at": opened_at,
+            "opened_by": durable_exposure.get("opened_by") or opened_by,
+            "evaluation_package_id": durable_exposure.get(
+                "evaluation_package_id"
+            ),
+            "threshold": threshold,
+            "threshold_source": threshold_source,
+            "threshold_locked_at": threshold_locked_at,
+            "recommendations_derived_from_final_holdout": False,
+            "holdout_prediction_digest": prediction_digest,
+            "metrics": metrics,
+            "y_true": y_true.tolist(),
+            "y_score": y_score.tolist(),
+            "created_at": opened_at,
+        }
+        # Prediction can be expensive, so it runs outside the workspace locks.
+        # Before publishing even the volatile cache, revalidate the revision,
+        # exact artifact, active lineage, and durable exposure while holding
+        # the same lock order as invalidation.
+        with scoped_store.state_lock:
+            with scoped_results.state_lock:
+                if int(scoped_store.data_revision) != snapshot_revision:
+                    return None, (
+                        "The governed dataset changed during final-holdout "
+                        "evaluation. The result was discarded."
+                    )
+                current_active, current_error = self._active_evaluation_lineage()
+                if current_error or any(
+                    _lineage_value(lineage.get(field)) != value
+                    for field, value in current_active.items()
+                ):
+                    return None, (
+                        "The governed lineage changed during final-holdout "
+                        "evaluation. The result was discarded."
+                    )
+                if (
+                    not registered_candidate
+                    and scoped_results.model_artifacts.get(algorithm_id)
+                    is not artifact
+                ):
+                    return None, (
+                        "The candidate artifact changed during final-holdout "
+                        "evaluation. The result was discarded."
+                    )
+                if not registered_candidate:
+                    final_summary = scoped_results.last_training_summary
+                    final_matches = [
+                        row
+                        for row in (
+                            (final_summary or {}).get("ranked") or []
+                        )
+                        if isinstance(row, dict)
+                        and _lineage_value(row.get("candidate_id"))
+                        == candidate_id
+                    ]
+                    final_contract = (
+                        final_matches[0].get("candidate_contract")
+                        if len(final_matches) == 1
+                        else None
+                    )
+                    if (
+                        not isinstance(final_contract, dict)
+                        or _lineage_value(final_contract.get("contract_hash"))
+                        != _lineage_value(
+                            candidate_contract.get("contract_hash")
+                        )
+                    ):
+                        return None, (
+                            "The candidate contract changed during final-holdout "
+                            "evaluation. The result was discarded."
+                        )
+                try:
+                    durable_latest = governance.get_holdout_exposure_exact(
+                        holdout_exposure_id=exposure_id,
+                        project_id=lineage["project_id"],
+                        dataset_version_id=lineage["dataset_version_id"],
+                        split_id=lineage["split_id"],
+                        final_holdout_partition_id=partition_id,
+                        candidate_decision_id=decision_id,
+                        candidate_id=candidate_id,
+                    )
+                except Exception:
+                    durable_latest = None
+                latest_status = _lineage_value(
+                    (durable_latest or {}).get("final_holdout_status")
+                ).casefold()
+                if latest_status not in {"opened", "evaluated"}:
+                    return None, (
+                        "The durable final-holdout exposure changed during "
+                        "evaluation. The result was discarded."
+                    )
+                exposure["status"] = latest_status
+                exposure["evaluation_package_id"] = (
+                    durable_latest or {}
+                ).get("evaluation_package_id")
+                persisted, _ = scoped_results.set_holdout_evaluation_if_absent(
+                    candidate_id,
+                    exposure,
+                )
+        return persisted, ""
+
+    def _attach_final_holdout(
+        self,
+        resolved: Dict[str, Any],
+        context: Dict[str, Any] | None,
+    ) -> tuple[Dict[str, Any] | None, str]:
+        exposure, error = self._open_final_holdout(resolved, context)
+        if error or not exposure:
+            return None, error
+        attached = dict(resolved)
+        attached["holdout_exposure"] = exposure
+        attached["raw_result"] = {
+            **(resolved.get("raw_result") or {}),
+            "task": resolved["lineage"]["problem_type"],
+            "metrics": copy.deepcopy(exposure.get("metrics") or {}),
+            "y_true": list(exposure.get("y_true") or []),
+            "y_score": list(exposure.get("y_score") or []),
+            "metric_class": "final_holdout",
+            "metric_source": "final_holdout",
+        }
+        return attached, ""
+
+    @staticmethod
+    def _lineage_digest(prefix: str, payload: Dict[str, Any]) -> str:
+        encoded = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            default=str,
+        ).encode("utf-8")
+        return f"{prefix}-{hashlib.sha256(encoded).hexdigest()[:24]}"
+
+    @staticmethod
+    def _canonical_content_hash(payload: Dict[str, Any]) -> str:
+        encoded = json.dumps(
+            payload,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            default=str,
+        ).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    def _evaluation_package_identity(
+        self,
+        lineage: Dict[str, str],
+        payload: Dict[str, Any],
+        analysis_type: str,
+    ) -> tuple[str, str, Dict[str, Any], str]:
+        normalized_analysis_type = _lineage_value(analysis_type)
+        completion_content_hash = self._canonical_content_hash(payload)
+        evaluation_configuration = (
+            copy.deepcopy(payload.get("evaluation_configuration"))
+            if isinstance(payload.get("evaluation_configuration"), dict)
+            else {}
+        )
+        holdout_prediction_digest = _lineage_value(
+            payload.get("holdout_prediction_digest")
+        )
+        identity: Dict[str, Any] = {
+            **lineage,
+            "candidate_decision_id": _lineage_value(
+                payload.get("candidate_decision_id")
+            ),
+            "final_holdout_partition_id": _lineage_value(
+                payload.get("final_holdout_partition_id")
+            ),
+            "selection_evidence": copy.deepcopy(
+                payload.get("selection_evidence") or {}
+            ),
+            "holdout_exposure": copy.deepcopy(
+                payload.get("holdout_exposure") or {}
+            ),
+            "analysis_type": normalized_analysis_type,
+            "completion_content_hash": completion_content_hash,
+        }
+        if normalized_analysis_type == "command_center":
+            identity.update(
+                {
+                    "evaluation_configuration": evaluation_configuration,
+                    "holdout_prediction_digest": holdout_prediction_digest,
+                }
+            )
+        return (
+            self._lineage_digest("evalpkg", identity),
+            completion_content_hash,
+            evaluation_configuration,
+            holdout_prediction_digest,
+        )
+
+    @staticmethod
+    def _command_center_is_complete(payload: Any) -> bool:
+        if not isinstance(payload, dict) or payload.get("ok") is not True:
+            return False
+        problem_type = _lineage_value(payload.get("problem_type")).casefold()
+        if problem_type == "regression":
+            stability = payload.get("stability")
+            metrics = (
+                stability.get("test_metrics")
+                if isinstance(stability, dict)
+                else None
+            )
+            return bool(
+                isinstance(metrics, dict)
+                and all(metrics.get(key) is not None for key in ("rmse", "mae", "r2"))
+                and _lineage_value(payload.get("holdout_prediction_digest"))
+                and int(payload.get("observation_count") or 0) > 0
+            )
+        threshold = payload.get("threshold")
+        lift = payload.get("lift")
+        calibration = payload.get("calibration")
+        stability = payload.get("stability")
+        return bool(
+            isinstance(threshold, dict)
+            and isinstance(threshold.get("confusion"), list)
+            and isinstance(lift, dict)
+            and isinstance(lift.get("deciles"), list)
+            and isinstance(calibration, dict)
+            and isinstance(stability, dict)
+            and isinstance(stability.get("test_metrics"), dict)
+            and _lineage_value(payload.get("holdout_prediction_digest"))
+            and int(payload.get("observation_count") or 0) > 0
+        )
+
+    @staticmethod
+    def _evaluation_contract_bindings(
+        candidate_contract: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        return {
+            "target_contract_id": _lineage_value(
+                candidate_contract.get("target_contract_id")
+            ),
+            "target_definition": copy.deepcopy(
+                candidate_contract.get("target_definition")
+            ),
+            "feature_manifest_id": _lineage_value(
+                candidate_contract.get("feature_manifest_id")
+            ),
+            "feature_manifest_hash": _lineage_value(
+                candidate_contract.get("feature_manifest_hash")
+            ),
+            "predictor_manifest_hash": _lineage_value(
+                candidate_contract.get("predictor_manifest_hash")
+            ),
+            "treatment_manifest_hash": _lineage_value(
+                candidate_contract.get("treatment_manifest_hash")
+            ),
+            "selection_metric": copy.deepcopy(
+                candidate_contract.get("selection_metric") or {}
+            ),
+            "selection_integrity_status": _lineage_value(
+                candidate_contract.get("selection_integrity_status")
+            ),
+            "holdout_isolation_status": _lineage_value(
+                candidate_contract.get("holdout_isolation_status")
+            ),
+        }
+
+    def _persist_completed_evaluation_package(
+        self,
+        *,
+        package: Dict[str, Any],
+        lineage: Dict[str, str],
+        candidate_contract: Dict[str, Any],
+        decision: Dict[str, Any],
+        exposure: Dict[str, Any],
+        actor_user_id: str,
+    ) -> tuple[Dict[str, Any] | None, str]:
+        """Durably commit package evidence before the UI can report success."""
+
+        package_id = _lineage_value(package.get("evaluation_package_id"))
+        exposure_id = _lineage_value(exposure.get("holdout_exposure_id"))
+        selection_metric = package.get("selection_metric")
+        selection_metric = (
+            selection_metric if isinstance(selection_metric, dict) else {}
+        )
+        final_evidence = package.get("final_holdout_evidence")
+        final_evidence = (
+            final_evidence if isinstance(final_evidence, dict) else {}
+        )
+        selection_evidence = package.get("selection_evidence")
+        selection_evidence = (
+            selection_evidence if isinstance(selection_evidence, dict) else {}
+        )
+        threshold_locked_at = _lineage_value(
+            decision.get("threshold_locked_at")
+        )
+        threshold_policy = package.get("threshold_policy")
+        threshold_policy = (
+            threshold_policy if isinstance(threshold_policy, dict) else {}
+        )
+        threshold_policy_hash = self._canonical_content_hash(
+            threshold_policy
+        )
+        selection_metric_created_at = _lineage_value(
+            selection_metric.get("created_at")
+        )
+        out_of_fold_artifact_id = _lineage_value(
+            selection_metric.get("out_of_fold_prediction_artifact_id")
+        )
+        selected_candidate_contract_hash = _lineage_value(
+            candidate_contract.get("contract_hash")
+        )
+        holdout_exposed_at = _lineage_value(exposure.get("first_opened_at"))
+        required = {
+            "evaluation_package_id": package_id,
+            "holdout_exposure_id": exposure_id,
+            "selection metric name": selection_metric.get(
+                "selection_metric_name"
+            )
+            or selection_metric.get("name"),
+            "selection metric value": selection_metric.get(
+                "selection_metric_value"
+            )
+            if selection_metric.get("selection_metric_value") is not None
+            else selection_metric.get("value"),
+            "selection metric source": selection_metric.get(
+                "selection_metric_source"
+            )
+            or selection_metric.get("source"),
+            "selection metric created_at": selection_metric_created_at,
+            "out-of-fold prediction artifact": out_of_fold_artifact_id,
+            "selected candidate contract hash": selected_candidate_contract_hash,
+            "threshold_locked_at": threshold_locked_at,
+            "threshold policy hash": threshold_policy_hash,
+            "holdout_exposed_at": holdout_exposed_at,
+        }
+        if any(value is None or value == "" for value in required.values()):
+            return None, (
+                "The completed Evaluation package is missing durable governance "
+                "evidence: "
+                + ", ".join(
+                    label
+                    for label, value in required.items()
+                    if value is None or value == ""
+                )
+                + "."
+            )
+        if (
+            threshold_policy
+            != {
+                "locked_threshold": decision.get("locked_threshold"),
+                "threshold_source": decision.get("threshold_source"),
+                "threshold_locked_at": decision.get(
+                    "threshold_locked_at"
+                ),
+                "selection_threshold_tuned": False,
+            }
+            or threshold_policy_hash
+            != _lineage_value(decision.get("threshold_policy_hash"))
+            or _lineage_value(package.get("threshold_policy_hash"))
+            != threshold_policy_hash
+            or final_evidence.get("locked_threshold")
+            != decision.get("locked_threshold")
+            or _lineage_value(final_evidence.get("threshold_source"))
+            != _lineage_value(decision.get("threshold_source"))
+        ):
+            return None, (
+                "The completed Evaluation package threshold policy does not "
+                "match the immutable pre-exposure candidate decision."
+            )
+        final_metrics = final_evidence.get("metrics")
+        final_metrics = final_metrics if isinstance(final_metrics, dict) else {}
+        selection_metric_name = required["selection metric name"]
+        selection_metric_value = required["selection metric value"]
+        selection_metric_source = required["selection metric source"]
+        selection_partition_id = selection_metric.get(
+            "selection_partition_id"
+        ) or selection_metric.get("partition_id")
+        metric_definitions = {
+            "selection": {
+                "name": selection_metric_name,
+                "metric_class": "selection",
+                "source": selection_metric_source,
+                "partition_id": selection_partition_id,
+            },
+            "final_holdout": {
+                str(name): {
+                    "metric_class": "final_holdout",
+                    "source": "final_holdout",
+                    "partition_id": exposure.get(
+                        "final_holdout_partition_id"
+                    ),
+                }
+                for name in sorted(final_metrics)
+            },
+        }
+        content_hash = self._canonical_content_hash(package)
+        package_contract_hash = self._canonical_content_hash(
+            {
+                "evaluation_package_id": package_id,
+                "completion_content_hash": package.get(
+                    "completion_content_hash"
+                ),
+                "holdout_prediction_digest": package.get(
+                    "holdout_prediction_digest"
+                ),
+                "candidate_decision_id": decision.get("decision_id"),
+                "holdout_exposure_id": exposure_id,
+                "content_hash": content_hash,
+            }
+        )
+        decision_actor = decision.get("actor")
+        if isinstance(decision_actor, dict):
+            decision_actor = decision_actor.get("user_id")
+        canonical_lineage = {
+            **dict(lineage),
+            "validation_design_version_id": lineage[
+                "validation_design_version"
+            ],
+            "feature_manifest_id": candidate_contract.get(
+                "feature_manifest_id"
+            ),
+            "feature_manifest_hash": candidate_contract.get(
+                "feature_manifest_hash"
+            ),
+            "treatment_manifest_id": candidate_contract.get(
+                "treatment_manifest_id"
+            ),
+            "treatment_manifest_hash": candidate_contract.get(
+                "treatment_manifest_hash"
+            ),
+            "materialization_id": candidate_contract.get("materialization_id")
+            or decision.get("materialization_id"),
+            "evaluation_package_id": package_id,
+            "holdout_exposure_id": exposure_id,
+            "final_holdout_partition_id": exposure.get(
+                "final_holdout_partition_id"
+            ),
+        }
+        record = {
+            "evaluation_package_id": package_id,
+            "package_status": "complete",
+            "project_id": lineage["project_id"],
+            "dataset_id": lineage["dataset_id"],
+            "dataset_version_id": lineage["dataset_version_id"],
+            "feature_manifest_id": candidate_contract.get(
+                "feature_manifest_id"
+            ),
+            "feature_manifest_hash": candidate_contract.get(
+                "feature_manifest_hash"
+            ),
+            "treatment_manifest_id": candidate_contract.get(
+                "treatment_manifest_id"
+            ),
+            "treatment_manifest_hash": candidate_contract.get(
+                "treatment_manifest_hash"
+            ),
+            "materialization_id": candidate_contract.get("materialization_id"),
+            "validation_design_id": lineage["validation_design_id"],
+            "validation_design_version_id": lineage[
+                "validation_design_version"
+            ],
+            "split_id": lineage["split_id"],
+            "training_job_id": lineage["training_job_id"],
+            "training_run_id": lineage["training_run_id"],
+            "candidate_id": lineage["candidate_id"],
+            "selected_candidate_contract_hash": selected_candidate_contract_hash,
+            "candidate_decision_id": decision.get("decision_id"),
+            "holdout_exposure_id": exposure_id,
+            "final_holdout_partition_id": exposure.get(
+                "final_holdout_partition_id"
+            ),
+            "selection_metric_name": selection_metric_name,
+            "selection_metric_value": selection_metric_value,
+            "selection_metric_source": selection_metric_source,
+            "selection_metric_created_at": selection_metric_created_at,
+            "out_of_fold_prediction_artifact_id": out_of_fold_artifact_id,
+            "selection_integrity_status": "verified",
+            "selection_evidence_json": {
+                **selection_evidence,
+                "selection_metric_created_at": selection_metric_created_at,
+                "out_of_fold_prediction_artifact_id": out_of_fold_artifact_id,
+            },
+            "final_holdout_evidence_json": final_evidence,
+            "metric_definitions_json": metric_definitions,
+            "threshold_policy_json": {
+                **threshold_policy,
+                "threshold_policy_hash": threshold_policy_hash,
+            },
+            "locked_threshold": decision.get("locked_threshold"),
+            "threshold_source": decision.get("threshold_source"),
+            "threshold_policy_hash": threshold_policy_hash,
+            "isolation_evidence_json": {
+                "candidate_decision_status": decision.get("status"),
+                "selection_locked_at": decision.get("selection_locked_at"),
+                "final_holdout_status": "evaluated",
+                "holdout_exposed_at": holdout_exposed_at,
+                "recommendations_derived_from_final_holdout": False,
+                "ranking_or_tuning_consumed_final_holdout": False,
+            },
+            "canonical_lineage_json": canonical_lineage,
+            "holdout_isolation_status": "verified",
+            "final_holdout_status": "evaluated",
+            "threshold_locked_at": threshold_locked_at,
+            "holdout_exposed_at": holdout_exposed_at,
+            "recommendations_derived_from_final_holdout": False,
+            "package_integrity_status": "verified",
+            "evaluation_package_contract_hash": package_contract_hash,
+            "content_hash": content_hash,
+            "package_payload_json": package,
+            "created_by": _lineage_value(actor_user_id)
+            or _lineage_value(decision_actor),
+            "created_at": package.get("created_at"),
+        }
+        try:
+            governance = self._governance_repository()
+            durable_package = governance.complete_evaluation_package(
+                record,
+                exposure_id=exposure_id,
+                evaluated_at=package.get("completed_at"),
+            )
+            durable_exposure = governance.get_holdout_exposure_exact(
+                holdout_exposure_id=exposure_id,
+                project_id=lineage["project_id"],
+                dataset_version_id=lineage["dataset_version_id"],
+                split_id=lineage["split_id"],
+                final_holdout_partition_id=exposure.get(
+                    "final_holdout_partition_id"
+                ),
+                candidate_decision_id=decision.get("decision_id"),
+                candidate_id=lineage["candidate_id"],
+            )
+        except Exception:
+            return None, (
+                "The completed Evaluation package could not be committed to the "
+                "authoritative governance registry."
+            )
+        if (
+            _lineage_value(durable_package.get("package_status")).casefold()
+            != "complete"
+            or _lineage_value(
+                durable_package.get("package_integrity_status")
+            ).casefold()
+            != "verified"
+            or _lineage_value(
+                durable_exposure.get("final_holdout_status")
+            ).casefold()
+            != "evaluated"
+            or _lineage_value(durable_exposure.get("evaluation_package_id"))
+            != package_id
+        ):
+            return None, (
+                "The durable Evaluation package or final-holdout exposure did "
+                "not reach its verified terminal state."
+            )
+        return durable_package, ""
+
+    def _completed_evaluation_package(
+        self,
+        lineage: Dict[str, str],
+        evaluation_package_id: str,
+        registered_version: Dict[str, Any] | None = None,
+        candidate_contract: Dict[str, Any] | None = None,
+    ) -> tuple[Dict[str, Any] | None, str]:
+        requested_package_id = _lineage_value(evaluation_package_id)
+        if not requested_package_id:
+            return None, (
+                "An explicit evaluation_package_id is required; ATLAS will not select "
+                "a latest or lineage-only evaluation package."
+            )
+        package = RESULTS.get_evaluation_package(requested_package_id)
+        try:
+            governance = self._governance_repository()
+            durable_row = governance.get_evaluation_package(
+                requested_package_id
+            )
+        except Exception:
+            return None, "The durable Evaluation-package registry is unavailable."
+        if not isinstance(durable_row, dict):
+            if isinstance(registered_version, dict) and _lineage_value(
+                registered_version.get("evaluationPackageId")
+            ) != requested_package_id:
+                return None, (
+                    "The registered model version does not bind the requested "
+                    "evaluation_package_id."
+                )
+            return None, (
+                "The requested Evaluation package is absent from the "
+                "authoritative governance registry."
+            )
+        expected = {
+            "project_id": lineage.get("project_id"),
+            "dataset_id": lineage.get("dataset_id"),
+            "dataset_version_id": lineage.get("dataset_version_id"),
+            "training_run_id": lineage.get("training_run_id"),
+            "candidate_id": lineage.get("candidate_id"),
+            "candidate_decision_id": lineage.get("candidate_decision_id"),
+        }
+        if any(
+            _lineage_value(durable_row.get(field))
+            != _lineage_value(value)
+            for field, value in expected.items()
+        ):
+            return None, (
+                "The durable Evaluation package does not match the exact "
+                "candidate lineage."
+            )
+        durable_payload = durable_row.get("package_payload_json")
+        if not isinstance(durable_payload, dict):
+            return None, (
+                "The durable Evaluation package has no recoverable immutable "
+                "evidence payload."
+            )
+        durable_exposure = governance.get_holdout_exposure(
+            _lineage_value(durable_row.get("holdout_exposure_id"))
+        )
+        if (
+            not isinstance(durable_exposure, dict)
+            or _lineage_value(
+                durable_exposure.get("final_holdout_status")
+            ).casefold()
+            != "evaluated"
+            or _lineage_value(
+                durable_exposure.get("evaluation_package_id")
+            )
+            != requested_package_id
+        ):
+            return None, (
+                "The durable Evaluation package is not bound to an exact "
+                "evaluated, non-invalidated holdout exposure."
+            )
+        if package is not None and package != durable_payload:
+            return None, (
+                "The volatile Evaluation package conflicts with its immutable "
+                "durable payload."
+            )
+        if package is None:
+            persisted, _ = RESULTS.set_evaluation_package_if_absent(
+                requested_package_id,
+                durable_payload,
+            )
+            package = persisted
+        command_center = (
+            ((package or {}).get("analyses") or {}).get("command_center") or {}
+        ).get("payload")
+        if not isinstance(package, dict):
+            return None, "A completed exact evaluation package is required before promotion or interpretation."
+        if not isinstance(command_center, dict):
+            return None, "The requested evaluation package has no completed command-center payload."
+        if not isinstance(candidate_contract, dict):
+            return None, "The requested evaluation package cannot be verified without its frozen candidate contract."
+        expected_contract_bindings = self._evaluation_contract_bindings(
+            candidate_contract
+        )
+        (
+            expected_package_id,
+            expected_content_hash,
+            expected_configuration,
+            expected_holdout_digest,
+        ) = self._evaluation_package_identity(
+            lineage,
+            command_center,
+            "command_center",
+        )
+        if (
+            requested_package_id != expected_package_id
+            or package.get("evaluation_package_id") != expected_package_id
+            or package.get("status") != "complete"
+            or package.get("completion_analysis") != "command_center"
+            or package.get("evaluation_population") != "governed_holdout"
+            or package.get("completion_content_hash") != expected_content_hash
+            or package.get("evaluation_configuration") != expected_configuration
+            or package.get("governed_candidate_contract")
+            != expected_contract_bindings
+            or command_center.get("governed_candidate_contract")
+            != expected_contract_bindings
+            or _lineage_value(package.get("holdout_prediction_digest"))
+            != expected_holdout_digest
+            or not self._command_center_is_complete(command_center)
+            or any(
+                _lineage_value(package.get(field)) != value
+                for field, value in lineage.items()
+            )
+        ):
+            return None, "The persisted evaluation package is incomplete or does not match the exact candidate lineage."
+        guarded_candidate = {**candidate_contract}
+        decision, decision_error = self._locked_decision_for_candidate(
+            guarded_candidate,
+            {
+                "candidate_decision_id": lineage.get(
+                    "candidate_decision_id"
+                )
+            },
+        )
+        if decision_error or not decision:
+            return None, decision_error
+        try:
+            assert_evaluation_package_integrity(
+                package,
+                decision=decision,
+                candidate=guarded_candidate,
+            )
+        except SelectionIntegrityError as exc:
+            return None, str(exc)
+        return package, ""
+
+    def bind_evaluation_package(
+        self,
+        model_name: str,
+        context: Dict[str, Any] | None,
+        payload: Dict[str, Any],
+        analysis_type: str,
+        actor_user_id: str = "",
+    ) -> Dict[str, Any]:
+        resolved, error = self._resolve_candidate_lineage(model_name, context)
+        if error:
+            return self._lineage_error(error, model_name)
+        if not payload.get("ok"):
+            return payload
+        lineage = dict(resolved["lineage"])
+        normalized_analysis_type = _lineage_value(analysis_type)
+        immutable_payload = copy.deepcopy(payload)
+        decision = resolved.get("candidate_decision") or {}
+        exposure = resolved.get("holdout_exposure") or {}
+        selection_metric = copy.deepcopy(
+            resolved["candidate_contract"].get("selection_metric") or {}
+        )
+        if not selection_metric:
+            return self._lineage_error(
+                "The candidate has no verified selection evidence.",
+                model_name,
+            )
+        final_metrics = copy.deepcopy(
+            ((immutable_payload.get("stability") or {}).get("test_metrics") or {})
+        )
+        exposure_status = (
+            "evaluated"
+            if normalized_analysis_type == "command_center"
+            and self._command_center_is_complete(immutable_payload)
+            else "opened"
+        )
+        threshold_configuration = resolved["candidate_contract"].get(
+            "threshold_configuration"
+        )
+        threshold_configuration = (
+            threshold_configuration
+            if isinstance(threshold_configuration, dict)
+            else {}
+        )
+        threshold_policy = {
+            "locked_threshold": threshold_configuration.get(
+                "locked_threshold"
+            ),
+            "threshold_source": threshold_configuration.get(
+                "threshold_source"
+            ),
+            "threshold_locked_at": threshold_configuration.get(
+                "threshold_locked_at"
+            ),
+            "selection_threshold_tuned": False,
+        }
+        threshold_policy_hash = self._canonical_content_hash(
+            threshold_policy
+        )
+        if (
+            _lineage_value(decision.get("threshold_policy_hash"))
+            != threshold_policy_hash
+        ):
+            return self._lineage_error(
+                "The candidate threshold policy does not match the immutable decision lock.",
+                model_name,
+            )
+        immutable_payload.update(
+            {
+                "candidate_decision_id": _lineage_value(decision.get("decision_id")),
+                "selection_evidence": {
+                    "selection_metric": selection_metric,
+                    "selection_metric_created_at": selection_metric.get(
+                        "created_at"
+                    ),
+                    "out_of_fold_prediction_artifact_id": selection_metric.get(
+                        "out_of_fold_prediction_artifact_id"
+                    ),
+                    "selection_integrity_status": "verified",
+                    "holdout_isolation_status": "verified",
+                },
+                "final_holdout_partition_id": _lineage_value(
+                    exposure.get("final_holdout_partition_id")
+                ),
+                "final_holdout_evidence": {
+                    "metric_source": "final_holdout",
+                    "metric_class": "final_holdout",
+                    "final_holdout_partition_id": _lineage_value(
+                        exposure.get("final_holdout_partition_id")
+                    ),
+                    "metrics": final_metrics,
+                    "locked_threshold": exposure.get("threshold"),
+                    "threshold_source": exposure.get("threshold_source"),
+                    "holdout_prediction_digest": exposure.get(
+                        "holdout_prediction_digest"
+                    ),
+                    "created_by": exposure.get("opened_by"),
+                    "created_at": exposure.get("first_opened_at"),
+                },
+                "holdout_exposure": {
+                    "holdout_exposure_id": exposure.get(
+                        "holdout_exposure_id"
+                    ),
+                    "status": exposure_status,
+                    "first_opened_at": exposure.get("first_opened_at"),
+                    "opened_by": exposure.get("opened_by"),
+                    "candidate_decision_id": exposure.get(
+                        "candidate_decision_id"
+                    ),
+                    "evaluation_package_id": None,
+                },
+                "selection_integrity_status": "verified",
+                "holdout_isolation_status": "verified",
+                "isolation_status": "verified",
+                "recommendations_derived_from_final_holdout": False,
+                "threshold_policy": threshold_policy,
+                "threshold_policy_hash": threshold_policy_hash,
+            }
+        )
+        contract_bindings = self._evaluation_contract_bindings(
+            resolved["candidate_contract"]
+        )
+        supplied_bindings = immutable_payload.get("governed_candidate_contract")
+        if supplied_bindings not in (None, contract_bindings):
+            return self._lineage_error(
+                "The evaluation payload conflicts with the frozen target or feature-manifest contract.",
+                model_name,
+            )
+        immutable_payload["governed_candidate_contract"] = contract_bindings
+        (
+            package_id,
+            completion_content_hash,
+            evaluation_configuration,
+            holdout_prediction_digest,
+        ) = self._evaluation_package_identity(
+            lineage,
+            immutable_payload,
+            normalized_analysis_type,
+        )
+        bound_exposure_package_id = _lineage_value(
+            exposure.get("evaluation_package_id")
+        )
+        if (
+            bound_exposure_package_id
+            and bound_exposure_package_id != package_id
+        ):
+            return self._lineage_error(
+                "The final holdout is already bound to another Evaluation package; its locked reporting configuration is immutable.",
+                model_name,
+            )
+        now = _utc_now_iso()
+        existing = RESULTS.get_evaluation_package(package_id) or {}
+        if existing:
+            existing_analysis = (
+                ((existing.get("analyses") or {}).get(normalized_analysis_type) or {}).get("payload")
+            )
+            if (
+                any(
+                    _lineage_value(existing.get(field)) != value
+                    for field, value in lineage.items()
+                )
+                or existing.get("completion_content_hash") != completion_content_hash
+                or existing_analysis != immutable_payload
+            ):
+                return self._lineage_error(
+                    "The content-addressed evaluation package conflicts with persisted immutable content.",
+                    model_name,
+                )
+            if _lineage_value(existing.get("status")).casefold() == "complete":
+                _, durable_error = self._persist_completed_evaluation_package(
+                    package=existing,
+                    lineage=lineage,
+                    candidate_contract=resolved["candidate_contract"],
+                    decision=decision,
+                    exposure=exposure,
+                    actor_user_id=actor_user_id,
+                )
+                if durable_error:
+                    return self._lineage_error(durable_error, model_name)
+            return {
+                **immutable_payload,
+                **lineage,
+                "evaluation_package_id": package_id,
+                "lineage": lineage,
+                "evaluation_package": existing,
+            }
+        try:
+            durable_existing = self._governance_repository().get_evaluation_package(
+                package_id
+            )
+        except Exception:
+            return self._lineage_error(
+                "The durable Evaluation-package registry is unavailable.",
+                model_name,
+            )
+        if isinstance(durable_existing, dict):
+            durable_payload = durable_existing.get("package_payload_json")
+            durable_analysis = (
+                ((durable_payload or {}).get("analyses") or {}).get(
+                    normalized_analysis_type
+                )
+                or {}
+            ).get("payload")
+            expected_durable = {
+                "project_id": lineage["project_id"],
+                "dataset_id": lineage["dataset_id"],
+                "dataset_version_id": lineage["dataset_version_id"],
+                "training_run_id": lineage["training_run_id"],
+                "candidate_id": lineage["candidate_id"],
+                "candidate_decision_id": immutable_payload[
+                    "candidate_decision_id"
+                ],
+                "holdout_exposure_id": exposure.get(
+                    "holdout_exposure_id"
+                ),
+            }
+            if (
+                not isinstance(durable_payload, dict)
+                or any(
+                    _lineage_value(durable_existing.get(field))
+                    != _lineage_value(value)
+                    for field, value in expected_durable.items()
+                )
+                or durable_payload.get("completion_content_hash")
+                != completion_content_hash
+                or durable_analysis != immutable_payload
+            ):
+                return self._lineage_error(
+                    "The durable content-addressed Evaluation package conflicts with the exact request.",
+                    model_name,
+                )
+            _, durable_error = self._persist_completed_evaluation_package(
+                package=durable_payload,
+                lineage=lineage,
+                candidate_contract=resolved["candidate_contract"],
+                decision=decision,
+                exposure=exposure,
+                actor_user_id=actor_user_id,
+            )
+            if durable_error:
+                return self._lineage_error(durable_error, model_name)
+            persisted, _ = RESULTS.set_evaluation_package_if_absent(
+                package_id,
+                durable_payload,
+            )
+            try:
+                RESULTS.mark_holdout_evaluated(
+                    lineage["candidate_id"],
+                    evaluation_package_id=package_id,
+                    evaluated_at=durable_payload.get("completed_at") or now,
+                )
+            except ValueError as exc:
+                return self._lineage_error(str(exc), model_name)
+            return {
+                **immutable_payload,
+                **lineage,
+                "evaluation_package_id": package_id,
+                "lineage": lineage,
+                "evaluation_package": persisted,
+            }
+        analyses = {
+            normalized_analysis_type: {
+            "analysis_type": normalized_analysis_type,
+            "completed_at": now,
+                "payload": immutable_payload,
+            }
+        }
+        command_center = (
+            (analyses.get("command_center") or {}).get("payload")
+            if isinstance(analyses.get("command_center"), dict)
+            else None
+        )
+        complete = self._command_center_is_complete(command_center)
+        package = {
+            "evaluation_package_id": package_id,
+            "artifact_type": "evaluation_package",
+            "status": "complete" if complete else "in_progress",
+            "completion_analysis": "command_center" if complete else None,
+            "evaluation_population": "governed_holdout",
+            "created_at": now,
+            "updated_at": now,
+            "completed_at": now if complete else None,
+            "actor_user_id": _lineage_value(actor_user_id) or None,
+            "completion_content_hash": completion_content_hash,
+            "evaluation_configuration": evaluation_configuration,
+            "governed_candidate_contract": contract_bindings,
+            "holdout_prediction_digest": holdout_prediction_digest,
+            "candidate_decision_id": immutable_payload[
+                "candidate_decision_id"
+            ],
+            "holdout_exposure_id": exposure.get("holdout_exposure_id"),
+            "final_holdout_partition_id": immutable_payload[
+                "final_holdout_partition_id"
+            ],
+            "selection_evidence": immutable_payload["selection_evidence"],
+            "final_holdout_evidence": immutable_payload[
+                "final_holdout_evidence"
+            ],
+            "holdout_exposure": immutable_payload["holdout_exposure"],
+            "selection_metric": selection_metric,
+            "selection_integrity_status": "verified",
+            "holdout_isolation_status": "verified",
+            "isolation_status": "verified",
+            "recommendations_derived_from_final_holdout": False,
+            "threshold_policy": immutable_payload["threshold_policy"],
+            "threshold_policy_hash": immutable_payload[
+                "threshold_policy_hash"
+            ],
+            "analysis_types": sorted(analyses),
+            "analyses": analyses,
+            "holdout": {
+                "observation_count": (command_center or {}).get("observation_count"),
+                "event_count": (command_center or {}).get("event_count"),
+                "event_rate": (command_center or {}).get("event_rate"),
+                "test_status": (command_center or {}).get("test_status"),
+                "oot_status": (command_center or {}).get("oot_status"),
+            },
+            "metrics": ((command_center or {}).get("stability") or {}).get("test_metrics") or {},
+            "threshold": (command_center or {}).get("threshold") or {},
+            "confusion": ((command_center or {}).get("threshold") or {}).get("confusion") or [],
+            "calibration": (command_center or {}).get("calibration") or {},
+            "lift": (command_center or {}).get("lift") or {},
+            **lineage,
+        }
+        if complete:
+            _, durable_error = self._persist_completed_evaluation_package(
+                package=package,
+                lineage=lineage,
+                candidate_contract=resolved["candidate_contract"],
+                decision=decision,
+                exposure=exposure,
+                actor_user_id=actor_user_id,
+            )
+            if durable_error:
+                return self._lineage_error(durable_error, model_name)
+        persisted_package, created = RESULTS.set_evaluation_package_if_absent(
+            package_id,
+            package,
+        )
+        if not created:
+            persisted_analysis = (
+                ((persisted_package.get("analyses") or {}).get(normalized_analysis_type) or {}).get("payload")
+            )
+            if (
+                persisted_package.get("completion_content_hash")
+                != completion_content_hash
+                or persisted_analysis != immutable_payload
+            ):
+                return self._lineage_error(
+                    "The content-addressed evaluation package conflicts with concurrently persisted immutable content.",
+                    model_name,
+                )
+        package = persisted_package
+        if complete:
+            try:
+                RESULTS.mark_holdout_evaluated(
+                    lineage["candidate_id"],
+                    evaluation_package_id=package_id,
+                    evaluated_at=now,
+                )
+            except ValueError as exc:
+                return self._lineage_error(str(exc), model_name)
+        return {
+            **immutable_payload,
+            **lineage,
+            "evaluation_package_id": package_id,
+            "lineage": lineage,
+            "evaluation_package": package,
+        }
+
+    def bind_interpretation_artifact(
+        self,
+        model_name: str,
+        context: Dict[str, Any] | None,
+        payload: Dict[str, Any],
+        analysis_type: str,
+        evaluation_package_id: str,
+    ) -> Dict[str, Any]:
+        resolved, error = self._resolve_candidate_lineage(model_name, context)
+        if error:
+            return self._lineage_error(error, model_name)
+        if not payload.get("ok"):
+            return payload
+        lineage = dict(resolved["lineage"])
+        completed_package, package_error = self._completed_evaluation_package(
+            lineage,
+            evaluation_package_id,
+            (context or {}).get("_registered_version"),
+            resolved["candidate_contract"],
+        )
+        if package_error:
+            return self._lineage_error(package_error, model_name)
+        evaluation_package_id = str(completed_package["evaluation_package_id"])
+        artifact_id = self._lineage_digest(
+            "interpretation",
+            {
+                **lineage,
+                "evaluation_package_id": evaluation_package_id,
+                "analysis_type": _lineage_value(analysis_type),
+            },
+        )
+        artifact = {
+            "interpretation_artifact_id": artifact_id,
+            "artifact_type": "interpretation_artifact",
+            "analysis_type": _lineage_value(analysis_type),
+            "evaluation_package_id": evaluation_package_id,
+            "evaluation_package": completed_package,
+            "evaluation_population": "governed_holdout",
+            **lineage,
+        }
+        return {
+            **payload,
+            **lineage,
+            "evaluation_package_id": evaluation_package_id,
+            "interpretation_artifact_id": artifact_id,
+            "lineage": lineage,
+            "interpretation_artifact": artifact,
+        }
+
+    def registry_promotion_handoff(
+        self,
+        model_name: str,
+        context: Dict[str, Any] | None,
+        metadata: Dict[str, Any],
+        evaluation_package_id: str,
+    ) -> Dict[str, Any]:
+        resolved, error = self._resolve_candidate_lineage(model_name, context)
+        if error:
+            return {"ready": False, "error": error}
+        lineage = dict(resolved["lineage"])
+        completed_package, package_error = self._completed_evaluation_package(
+            lineage,
+            evaluation_package_id,
+            candidate_contract=resolved["candidate_contract"],
+        )
+        if package_error:
+            return {"ready": False, "error": package_error}
+        evaluation_package_id = str(completed_package["evaluation_package_id"])
+        candidate_decision_id = _lineage_value(
+            (resolved.get("candidate_decision") or {}).get("decision_id")
+        )
+        idempotency_key = self._lineage_digest(
+            "promotion",
+            {
+                **lineage,
+                "candidate_decision_id": candidate_decision_id,
+                "evaluation_package_id": evaluation_package_id,
+            },
+        )
+        candidate = resolved["candidate"]
+        candidate_contract = resolved["candidate_contract"]
+        summary = resolved["summary"]
+        return {
+            "ready": True,
+            "registry_persistence": "delegated",
+            "idempotency_key": idempotency_key,
+            "evaluation_package_id": evaluation_package_id,
+            "evaluation_package": completed_package,
+            "exact_version_contract": {
+                **lineage,
+                "candidate_decision_id": candidate_decision_id,
+            },
+            "lineage": {
+                "projectId": lineage["project_id"],
+                "datasetId": lineage["dataset_id"],
+                "datasetVersionId": lineage["dataset_version_id"],
+                "candidateId": lineage["candidate_id"],
+                "trainingJobId": lineage["training_job_id"],
+                "trainingRunId": lineage["training_run_id"],
+                "featureManifestVersion": lineage["feature_manifest_version"],
+                "validationDesignId": lineage["validation_design_id"],
+                "validationDesignVersion": lineage["validation_design_version"],
+                "splitId": lineage["split_id"],
+                "target": lineage["target"],
+                "problemType": lineage["problem_type"],
+                "evaluationPackageId": evaluation_package_id,
+                "candidateDecisionId": candidate_decision_id,
+            },
+            "candidate_decision_id": candidate_decision_id,
+            "candidate_id": lineage["candidate_id"],
+            "training_job_id": lineage["training_job_id"],
+            "training_run_id": lineage["training_run_id"],
+            "algorithm_id": resolved["algorithm_id"],
+            "algorithm_version": candidate_contract.get("algorithm_version"),
+            "candidate_contract": candidate_contract,
+            "hyperparameters": candidate_contract.get("hyperparameter_manifest") or candidate.get("best_params") or {},
+            "training_parameters": {
+                "kFolds": summary.get("k_folds"),
+                "calibrate": summary.get("calibrate"),
+                "gridSearch": summary.get("grid_search"),
+                "gridSearchLevel": summary.get("grid_search_level"),
+            },
+            "evaluation_summary": completed_package,
+            "promotion_metadata": {
+                "source": "evaluation",
+                "status": "proposed",
+                "model_name": metadata.get("name") or lineage["candidate_id"],
+                "metrics": metadata.get("metrics") or {},
+            },
+            "consume_response_fields": ["modelVersion", "promotion"],
+        }
+
     @staticmethod
     def _active_model_binding(expected: Dict[str, Any] | None = None) -> Dict[str, Any]:
         """Return the governed workspace identity that a model may be bound to.
 
-        The active DATASTORE state is authoritative for data, feature, and split
-        identity. The last training summary contributes the immutable training
-        run identity, but is never used to paper over a missing active manifest
-        or split after an upstream change invalidates them.
+        Canonical active state is authoritative. Legacy source metadata and a
+        resident training summary never fill missing dataset identity fields.
         """
         expected = expected or {}
-        summary = RESULTS.get_last_summary() or {}
         manifest = DATASTORE.meta.get("feature_manifest")
         manifest = manifest if isinstance(manifest, dict) else {}
         split_record = DATASTORE.meta.get("split_record")
         split_record = split_record if isinstance(split_record, dict) else {}
         validation_design = split_record.get("validation_design")
-        if not isinstance(validation_design, dict):
-            validation_design = DATASTORE.meta.get("validation_design")
         validation_design = validation_design if isinstance(validation_design, dict) else {}
-        source = DATASTORE.meta.get("source")
-        source = source if isinstance(source, dict) else {}
         X_train, X_test, y_train, y_test = DATASTORE.get_splits()
         split_materialized = all(value is not None for value in (X_train, X_test, y_train, y_test))
 
-        project_id = str(expected.get("project_id") or "").strip()
-        if not project_id:
-            try:
-                from ..core.modeling_scope import active_project_id
-
-                project_id = str(active_project_id() or "").strip()
-            except Exception:
-                project_id = ""
-        if not project_id:
-            # Direct service tests do not establish the HTTP ContextVar. The
-            # summary is still an immutable training-produced binding there.
-            project_id = str(summary.get("project_id") or "").strip()
+        dataset_version_id = _lineage_value(DATASTORE.meta.get("dataset_version_id"))
 
         return {
-            "project_id": project_id,
-            "dataset_id": str(
-                DATASTORE.meta.get("dataset_id")
-                or source.get("datasetId")
-                or source.get("dataset_id")
-                or summary.get("dataset_id")
-                or ""
-            ).strip(),
-            "dataset_version": str(
-                DATASTORE.meta.get("dataset_version")
-                or DATASTORE.meta.get("version_id")
-                or manifest.get("dataset_version")
-                or ""
-            ).strip(),
-            "target": str(DATASTORE.target or "").strip(),
-            "problem_type": str(expected.get("problem_type") or summary.get("problem_type") or "").strip(),
-            "feature_manifest_version": str(
-                manifest.get("manifest_version")
-                or manifest.get("feature_manifest_version")
-                or ""
-            ).strip(),
-            "split_id": str(split_record.get("split_id") or "").strip() if split_materialized else "",
+            "project_id": _lineage_value(DATASTORE.meta.get("project_id")),
+            "dataset_id": _lineage_value(DATASTORE.meta.get("dataset_id")),
+            "dataset_version_id": dataset_version_id,
+            "dataset_version": dataset_version_id,
+            "target": _lineage_value(DATASTORE.target),
+            "problem_type": _lineage_value(expected.get("problem_type")),
+            "feature_manifest_version": _lineage_value(manifest.get("manifest_hash")),
+            "split_id": _lineage_value(split_record.get("split_id")) if split_materialized else "",
             "split_materialized": split_materialized,
-            "validation_design_id": str(
-                validation_design.get("validation_design_id")
-                or validation_design.get("design_id")
-                or ""
-            ).strip(),
-            "validation_design_version": str(
-                validation_design.get("design_version")
-                or validation_design.get("validation_design_version")
-                or ""
-            ).strip(),
-            "training_job_id": str(
-                summary.get("training_job_id")
-                or summary.get("training_run_id")
-                or ""
-            ).strip(),
+            "validation_design_id": _lineage_value(validation_design.get("validation_design_id")),
+            "validation_design_version": _lineage_value(validation_design.get("design_version")),
+            "training_job_id": _lineage_value(expected.get("training_job_id")),
         }
 
     def _final_model_context_mismatch(
@@ -180,9 +2466,20 @@ class EvaluationService:
         metadata = metadata or {}
         binding = self._active_model_binding(expected)
 
+        for key, label in (
+            ("project_id", "project"),
+            ("dataset_id", "dataset"),
+            ("dataset_version_id", "dataset version"),
+            ("target", "target"),
+        ):
+            requested = _lineage_value((expected or {}).get(key))
+            if requested and requested != _lineage_value(binding.get(key)):
+                return f"The requested final-model {label} does not match the exact active workspace."
+
         active_requirements = [
             ("project_id", "project"),
-            ("dataset_version", "dataset version"),
+            ("dataset_id", "dataset"),
+            ("dataset_version_id", "dataset version"),
             ("target", "target"),
             ("feature_manifest_version", "feature manifest"),
             ("split_id", "governed split"),
@@ -196,7 +2493,8 @@ class EvaluationService:
 
         artifact_requirements = [
             ("project_id", "project"),
-            ("dataset_version", "dataset version"),
+            ("dataset_id", "dataset"),
+            ("dataset_version_id", "dataset version"),
             ("target", "target"),
             ("problem_type", "problem type"),
             ("feature_manifest_version", "feature manifest"),
@@ -250,141 +2548,97 @@ class EvaluationService:
         model_name: str,
         expected: Dict[str, Any] | None = None,
     ) -> str:
-        """Validate the selected fitted artifact before promoting it to final."""
-        binding = self._active_model_binding(expected)
-        metadata = RESULTS.get_model_artifact_metadata(model_name) or {}
-        summary = RESULTS.get_last_summary() or {}
-
-        # The active workspace binding is authoritative. Empty or stale
-        # request snapshots must never override current dataset/target identity.
-        basic_mismatch = self._artifact_context_mismatch(model_name, {**(expected or {}), **binding})
-        if basic_mismatch:
-            return basic_mismatch
-        if not binding.get("split_materialized") or not binding.get("split_id"):
-            return "The governed split is no longer current. Recreate the split and retrain before saving a final model."
-
-        checks = [
-            ("feature_manifest_version", "feature manifest"),
-            ("split_id", "governed split"),
-        ]
-        for key, label in checks:
-            current = str(binding.get(key) or "").strip()
-            actual = str(metadata.get(key) or "").strip()
-            if not current:
-                return f"The active workspace has no current {label}. Reconfirm preparation and retrain."
-            if not actual:
-                return f"The selected model artifact is missing its {label} binding. Please retrain this model."
-            if actual != current:
-                return f"The selected model artifact does not match the current {label}. Please retrain this model."
-
-        artifact_run = str(metadata.get("training_run_id") or metadata.get("training_job_id") or "").strip()
-        summary_run = str(summary.get("training_job_id") or summary.get("training_run_id") or "").strip()
-        if not artifact_run:
-            return "The selected model artifact is missing its training job binding. Please retrain this model."
-        if not summary_run or artifact_run != summary_run:
-            return "The selected model artifact is not part of the active training result. Please retrain this model."
-
-        for key, label in (
-            ("validation_design_id", "validation design"),
-            ("validation_design_version", "validation design version"),
-        ):
-            current = str(binding.get(key) or "").strip()
-            actual = str(metadata.get(key) or "").strip()
-            if current and not actual:
-                return f"The selected model artifact is missing its {label} binding. Please retrain this model."
-            if current and actual != current:
-                return f"The selected model artifact does not match the current {label}. Please retrain this model."
-        return ""
+        """Validate one opaque candidate contract before final-model handoff."""
+        _, error = self._resolve_candidate_lineage(model_name, expected)
+        return error
 
     def _final_binding_metadata(
         self,
         model_name: str,
         context: Dict[str, Any] | None = None,
+        evaluation_package_id: str = "",
     ) -> Dict[str, Any]:
-        binding = self._active_model_binding(context)
-        artifact_metadata = RESULTS.get_model_artifact_metadata(model_name) or {}
-        summary = RESULTS.get_last_summary() or {}
+        resolved, error = self._resolve_candidate_lineage(model_name, context)
+        if error:
+            raise ValueError(error)
+        lineage = resolved["lineage"]
+        completed_package, package_error = self._completed_evaluation_package(
+            lineage,
+            evaluation_package_id,
+            candidate_contract=resolved["candidate_contract"],
+        )
+        if package_error:
+            raise ValueError(package_error)
         return {
-            "project_id": binding.get("project_id"),
-            "dataset_id": binding.get("dataset_id") or artifact_metadata.get("dataset_id"),
-            "dataset_version": binding.get("dataset_version"),
-            "target": binding.get("target"),
-            "problem_type": binding.get("problem_type"),
-            "feature_manifest_version": binding.get("feature_manifest_version"),
-            "split_id": binding.get("split_id"),
-            "validation_design_id": binding.get("validation_design_id") or None,
-            "validation_design_version": binding.get("validation_design_version") or None,
-            "training_job_id": (
-                artifact_metadata.get("training_job_id")
-                or artifact_metadata.get("training_run_id")
-                or summary.get("training_job_id")
-                or summary.get("training_run_id")
-            ),
-            "training_run_id": (
-                artifact_metadata.get("training_run_id")
-                or artifact_metadata.get("training_job_id")
-                or summary.get("training_job_id")
-                or summary.get("training_run_id")
-            ),
+            **lineage,
+            "dataset_version": lineage["dataset_version_id"],
+            "evaluation_package_id": completed_package["evaluation_package_id"],
         }
 
     def _artifact_context_mismatch(self, model_name: str, expected: Dict[str, Any] | None = None) -> str:
-        expected = expected or {}
-        metadata = RESULTS.get_model_artifact_metadata(model_name)
-        if not metadata:
-            if any(expected.get(key) for key in ("project_id", "dataset_version", "target", "problem_type")):
-                return "The selected model artifact is not scoped to the current project. Please retrain this model for this project."
-            return ""
-
-        checks = [
-            ("project_id", "project"),
-            ("dataset_version", "dataset version"),
-            ("target", "target"),
-            ("problem_type", "problem type"),
-        ]
-        for key, label in checks:
-            expected_value = str(expected.get(key) or "").strip()
-            actual_value = str(metadata.get(key) or "").strip()
-            if expected_value and actual_value and expected_value != actual_value:
-                return f"The selected model artifact does not match the current {label}. Please retrain {model_name} for this project."
-            if expected_value and not actual_value:
-                return f"The selected model artifact is missing {label} metadata. Please retrain {model_name} for this project."
-        if metadata.get("model_key") and str(metadata.get("model_key")) != str(model_name):
-            return f"The selected model artifact returned key {metadata.get('model_key')}, not {model_name}. Please retrain this model."
-        return ""
+        _, error = self._resolve_candidate_lineage(model_name, expected)
+        return error
 
     def _artifact_debug(self, model_name: str, expected: Dict[str, Any] | None = None) -> Dict[str, Any]:
         expected = expected or {}
-        metadata = RESULTS.get_model_artifact_metadata(model_name)
         summary = RESULTS.get_last_summary() or {}
-        result = self._model_result(model_name) or {}
+        ranked_matches = [
+            row for row in (summary.get("ranked") or [])
+            if isinstance(row, dict)
+            and _lineage_value(row.get("candidate_id")) == _lineage_value(model_name)
+        ]
+        algorithm_id = (
+            _lineage_value((ranked_matches[0].get("candidate_contract") or {}).get("algorithm_id"))
+            if len(ranked_matches) == 1 and isinstance(ranked_matches[0].get("candidate_contract"), dict)
+            else ""
+        )
+        metadata = RESULTS.get_model_artifact_metadata(algorithm_id) if algorithm_id else {}
+        result = ((summary.get("raw") or {}).get(algorithm_id) or {}) if algorithm_id else {}
         return {
-            "selected_model_key": model_name,
+            "selected_candidate_id": model_name,
+            "resolved_algorithm_id": algorithm_id,
             "requested_project_id": expected.get("project_id") or "",
-            "requested_dataset_version": expected.get("dataset_version") or "",
+            "requested_dataset_id": expected.get("dataset_id") or "",
+            "requested_dataset_version_id": expected.get("dataset_version_id") or "",
+            "requested_training_job_id": expected.get("training_job_id") or "",
+            "requested_feature_manifest_version": expected.get("feature_manifest_version") or "",
+            "requested_validation_design_id": expected.get("validation_design_id") or "",
+            "requested_validation_design_version": expected.get("validation_design_version") or "",
+            "requested_split_id": expected.get("split_id") or "",
             "requested_target": expected.get("target") or "",
             "requested_problem_type": expected.get("problem_type") or "",
-            "returned_model_key": metadata.get("model_key") or model_name,
-            "returned_project_id": metadata.get("project_id") or summary.get("project_id") or "",
-            "returned_dataset_version": metadata.get("dataset_version") or summary.get("dataset_version") or "",
-            "returned_target": metadata.get("target") or summary.get("target") or "",
-            "returned_problem_type": metadata.get("problem_type") or result.get("task") or summary.get("problem_type") or "",
-            "training_run_id": metadata.get("training_run_id") or summary.get("training_run_id") or "",
+            "returned_candidate_id": metadata.get("candidate_id") or "",
+            "returned_model_key": metadata.get("model_key") or "",
+            "returned_project_id": metadata.get("project_id") or "",
+            "returned_dataset_id": metadata.get("dataset_id") or "",
+            "returned_dataset_version_id": metadata.get("dataset_version_id") or "",
+            "returned_target": metadata.get("target") or "",
+            "returned_problem_type": metadata.get("problem_type") or result.get("task") or "",
+            "training_run_id": metadata.get("training_job_id") or metadata.get("training_run_id") or "",
             "artifact_has_metadata": bool(metadata),
+            "summary_training_job_id": summary.get("training_job_id") or "",
         }
 
-    def _model_result(self, model_name: str) -> Dict[str, Any] | None:
-        summary = RESULTS.get_last_summary() or {}
-        raw = summary.get("raw") or {}
-        return raw.get(model_name)
+    def _model_result(
+        self,
+        model_name: str,
+        context: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any] | None:
+        resolved, error = self._resolve_candidate_lineage(model_name, context)
+        return None if error else resolved["raw_result"]
 
-    def get_curves(self, model_name: str) -> Dict[str, Any]:
-        result = self._model_result(model_name)
-        if not result:
-            return {"ok": False, "error": "No fitted results found for this model."}
+    def get_curves(
+        self,
+        model_name: str,
+        context: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        resolved, error = self._resolve_candidate_lineage(model_name, context)
+        if error:
+            return self._lineage_error(error, model_name)
+        result = resolved["raw_result"]
 
         metrics = result.get("metrics") or {}
-        task = result.get("task") or (RESULTS.get_last_summary() or {}).get("problem_type")
+        task = result.get("task") or resolved["lineage"]["problem_type"]
         y_true = np.asarray(result.get("y_true") or [], dtype=float)
         y_score = np.asarray(result.get("y_score") or [], dtype=float)
 
@@ -453,10 +2707,15 @@ class EvaluationService:
 
         return response
 
-    def get_deciles(self, model_name: str) -> Dict[str, Any]:
-        result = self._model_result(model_name)
-        if not result:
-            return {"ok": False, "deciles": [], "error": "No fitted results found for this model."}
+    def get_deciles(
+        self,
+        model_name: str,
+        context: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        resolved, error = self._resolve_candidate_lineage(model_name, context)
+        if error:
+            return {**self._lineage_error(error, model_name), "deciles": []}
+        result = resolved["raw_result"]
 
         y_true = np.asarray(result.get("y_true") or [], dtype=float)
         y_score = np.asarray(result.get("y_score") or [], dtype=float)
@@ -487,24 +2746,102 @@ class EvaluationService:
     def get_evaluation_command_center(
         self,
         model_name: str,
-        threshold: float = 0.5,
+        threshold: float | None = None,
         review_capacity: float = 0.1,
+        context: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
-        """Build classifier diagnostics only from the fitted holdout artifact."""
-        result = self._model_result(model_name)
-        if not result:
-            return {"ok": False, "error": "No fitted results found for this model."}
-        if str(result.get("task") or "classification") != "classification":
-            return {"ok": False, "error": "Threshold diagnostics apply only to supervised classification models."}
+        """Build reporting-only diagnostics from the fitted final holdout.
 
+        Threshold recommendations never use final-holdout labels or scores.
+        The supplied threshold is an already governed/user-selected deployment
+        threshold used only to report the final-holdout operating result.
+        """
+        resolved, error = self._resolve_candidate_lineage(model_name, context)
+        if error:
+            return self._lineage_error(error, model_name)
+        result = resolved["raw_result"]
         y_true = np.asarray(result.get("y_true") or [], dtype=float)
         y_score = np.asarray(result.get("y_score") or [], dtype=float)
         if not len(y_true) or not len(y_score) or len(y_true) != len(y_score):
             return {"ok": False, "error": "Persisted holdout labels and scores are unavailable for this model."}
 
+        task = _lineage_value(result.get("task") or resolved["lineage"]["problem_type"]).casefold()
+        selection_metric = copy.deepcopy(
+            resolved["candidate_contract"].get("selection_metric") or {}
+        )
+        holdout_prediction_digest = _lineage_value(
+            (resolved.get("holdout_exposure") or {}).get(
+                "holdout_prediction_digest"
+            )
+        )
+        if not holdout_prediction_digest:
+            return {
+                "ok": False,
+                "error": "The final-holdout exposure has no immutable prediction digest.",
+            }
+        if task == "regression":
+            feature_count = len(resolved["artifact_metadata"].get("trained_feature_names") or [])
+            metrics = self._regression_metrics(
+                pd.Series(y_true),
+                y_score,
+                n_features=feature_count,
+            )
+            residuals = y_true - y_score
+            return {
+                "ok": True,
+                "model": model_name,
+                "problem_type": "regression",
+                "evaluation_role": "TEST",
+                "final_holdout_role": "reporting_only",
+                "test_status": "Available - final holdout (reporting only)",
+                "oot_status": "Not loaded",
+                "observation_count": int(len(y_true)),
+                "evaluation_configuration": {
+                    "problem_type": "regression",
+                    "final_holdout_role": "reporting_only",
+                },
+                "holdout_prediction_digest": holdout_prediction_digest,
+                "residual_diagnostics": {
+                    "mean": float(np.mean(residuals)),
+                    "standard_deviation": float(np.std(residuals)),
+                    "minimum": float(np.min(residuals)),
+                    "p05": float(np.quantile(residuals, 0.05)),
+                    "median": float(np.median(residuals)),
+                    "p95": float(np.quantile(residuals, 0.95)),
+                    "maximum": float(np.max(residuals)),
+                },
+                "prediction_range": {
+                    "actual_minimum": float(np.min(y_true)),
+                    "actual_maximum": float(np.max(y_true)),
+                    "predicted_minimum": float(np.min(y_score)),
+                    "predicted_maximum": float(np.max(y_score)),
+                },
+                "stability": {
+                    "internal_validation_status": "Available - verified training-only selection",
+                    "internal_validation_score": selection_metric.get("value", selection_metric.get("mean")),
+                    "selection_metric": selection_metric,
+                    "test_metrics": metrics,
+                    "oot_metrics": None,
+                },
+            }
+        if task != "classification":
+            return {"ok": False, "error": "The selected candidate has an unsupported supervised task."}
+
         y_true = (y_true > 0.5).astype(int)
         y_score = np.clip(y_score.astype(float), 0.0, 1.0)
-        active_threshold = float(np.clip(threshold, 0.0, 1.0))
+        governed_threshold, governed_threshold_source = (
+            _frozen_candidate_threshold_policy(resolved["candidate_contract"])
+        )
+        active_threshold = (
+            governed_threshold
+            if threshold is None
+            else float(np.clip(threshold, 0.0, 1.0))
+        )
+        active_threshold_source = (
+            governed_threshold_source
+            if threshold is None
+            else "user_supplied_reporting_value"
+        )
         capacity = float(np.clip(review_capacity, 0.001, 1.0))
 
         def threshold_row(value: float) -> Dict[str, Any]:
@@ -536,19 +2873,6 @@ class EvaluationService:
                 "expected_alert_rate": alert_rate,
                 "confusion": [[tn, fp], [fn, tp]],
             }
-
-        unique_scores = np.unique(y_score)
-        if len(unique_scores) > 201:
-            candidate_thresholds = np.quantile(unique_scores, np.linspace(0.0, 1.0, 201))
-        else:
-            candidate_thresholds = unique_scores
-        candidates = [threshold_row(float(value)) for value in candidate_thresholds]
-        max_f1 = max(candidates, key=lambda row: row["f1"])
-        recall_candidates = [row for row in candidates if row["recall"] >= 0.8]
-        precision_candidates = [row for row in candidates if row["precision"] >= 0.8]
-        target_recall = max(recall_candidates, key=lambda row: (row["precision"], row["threshold"])) if recall_candidates else max(candidates, key=lambda row: row["recall"])
-        target_precision = max(precision_candidates, key=lambda row: (row["recall"], -row["threshold"])) if precision_candidates else max(candidates, key=lambda row: row["precision"])
-        capacity_threshold = float(np.quantile(y_score, max(0.0, 1.0 - capacity)))
 
         order = np.argsort(-y_score)
         sorted_true = y_true[order]
@@ -611,24 +2935,37 @@ class EvaluationService:
             calibration_intercept = None
 
         metrics = result.get("metrics") or {}
-        ranked = (RESULTS.get_last_summary() or {}).get("ranked") or []
-        ranked_row = next((row for row in ranked if row.get("key") == model_name), {})
+        ranked_row = resolved["candidate"]
         return {
             "ok": True,
             "model": model_name,
+            "problem_type": "classification",
             "evaluation_role": "TEST",
-            "test_status": "Available - governed holdout",
+            "final_holdout_role": "reporting_only",
+            "test_status": "Available - final holdout (reporting only)",
             "oot_status": "Not loaded",
             "observation_count": int(len(y_true)),
             "event_count": positives,
             "event_rate": base_rate,
+            "evaluation_configuration": {
+                "problem_type": "classification",
+                "threshold": active_threshold,
+                "review_capacity": capacity,
+                "threshold_source": active_threshold_source,
+                "final_holdout_role": "reporting_only",
+            },
+            "holdout_prediction_digest": holdout_prediction_digest,
             "threshold": threshold_row(active_threshold),
             "presets": {
-                "maximize_f1": float(max_f1["threshold"]),
-                "target_recall": float(target_recall["threshold"]),
-                "target_precision": float(target_precision["threshold"]),
-                "review_capacity": capacity_threshold,
-                "current_governed": 0.5,
+                "current_governed": governed_threshold,
+            },
+            "threshold_policy": {
+                "active_threshold": active_threshold,
+                "active_source": active_threshold_source,
+                "governed_threshold": governed_threshold,
+                "governed_source": governed_threshold_source,
+                "final_holdout_role": "reporting_only",
+                "recommendations_derived_from_final_holdout": False,
             },
             "lift": {
                 "base_rate": base_rate,
@@ -644,8 +2981,9 @@ class EvaluationService:
                 "prevalence_correction": "Not applied during Evaluation",
             },
             "stability": {
-                "internal_validation_status": "Available" if ranked_row.get("best_score") is not None else "Not recorded",
-                "internal_validation_score": ranked_row.get("best_score"),
+                "internal_validation_status": "Available - verified training-only selection",
+                "internal_validation_score": selection_metric.get("value", selection_metric.get("mean")),
+                "selection_metric": selection_metric,
                 "test_metrics": {
                     "roc_auc": metrics.get("auc"),
                     "pr_auc": metrics.get("pr_auc"),
@@ -658,10 +2996,15 @@ class EvaluationService:
         }
 
     def _artifact(self, model_name: str, expected: Dict[str, Any] | None = None):
-        mismatch = self._artifact_context_mismatch(model_name, expected)
-        if mismatch:
+        # Scoring/export still pass their already-governed internal algorithm
+        # key. Evaluation and Interpretation always provide exact context and
+        # resolve the opaque candidate_id before accessing that key.
+        if expected is None:
+            return RESULTS.get_model_artifact(model_name)
+        resolved, error = self._resolve_candidate_lineage(model_name, expected)
+        if error:
             return None
-        return RESULTS.get_model_artifact(model_name)
+        return resolved["artifact"]
 
     def _test_data(self):
         X_train, X_test, y_train, y_test = DATASTORE.get_splits()
@@ -798,17 +3141,15 @@ class EvaluationService:
         return {"ok": True, "rows": rows[:30], "method": method, "sample_count": int(len(sample))}
 
     def hyperparameters(self, model_name: str, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
-        mismatch = self._artifact_context_mismatch(model_name, context)
-        if mismatch:
-            return {"ok": False, "error": mismatch, "debug": self._artifact_debug(model_name, context)}
-        result = self._model_result(model_name) or {}
-        summary = RESULTS.get_last_summary() or {}
-        ranked = summary.get("ranked") or []
-        row = next((item for item in ranked if item.get("key") == model_name), {})
+        resolved, error = self._resolve_candidate_lineage(model_name, context)
+        if error:
+            return {"ok": False, "error": error, "lineage_error": True, "debug": self._artifact_debug(model_name, context)}
+        result = resolved["raw_result"]
+        row = resolved["candidate"]
         params = result.get("best_params") or row.get("best_params") or {}
         score = result.get("best_score") or row.get("best_score")
         if not params:
-            model = self._artifact(model_name, context)
+            model = resolved["artifact"]
             estimator = getattr(model, "named_steps", {}).get("model") if hasattr(model, "named_steps") else model
             if estimator is not None and hasattr(estimator, "get_params"):
                 raw_params = estimator.get_params(deep=False)
@@ -1076,11 +3417,17 @@ class EvaluationService:
         walk(0, 0, 0.0, 1.0)
         return {"ok": True, "nodes": nodes, "edges": edges, "max_depth": max_depth, "model_type": "classification" if is_classifier else "regression"}
 
-    def knn_clusters(self, model_name: str, max_points: int = 900) -> Dict[str, Any]:
+    def knn_clusters(
+        self,
+        model_name: str,
+        max_points: int = 900,
+        context: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        resolved, lineage_error = self._resolve_candidate_lineage(model_name, context)
+        if lineage_error:
+            return self._lineage_error(lineage_error, model_name)
         try:
-            model = self._artifact(model_name)
-            if model is None:
-                return {"ok": False, "error": "No fitted model artifact found."}
+            model = resolved["artifact"]
             estimator = getattr(model, "named_steps", {}).get("model") if hasattr(model, "named_steps") else model
             if "kneighbors" not in estimator.__class__.__name__.lower() and not hasattr(estimator, "kneighbors"):
                 return {"ok": False, "error": "The selected model is not a KNN model."}
@@ -1324,30 +3671,31 @@ class EvaluationService:
                 rows.append({"scenario": str(value), "prediction": pred, "delta": pred - baseline})
         return {"ok": True, "baseline": baseline, "sample_count": int(len(sample)), "rows": rows}
 
-    def sensitivity_summary(self, model_name: str, top_n: int = 12) -> Dict[str, Any]:
+    def sensitivity_summary(
+        self,
+        model_name: str,
+        top_n: int = 12,
+        context: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
         excluded_sensitivity_features = {"riskperformance", "bad_flag", "atlas_split"}
-        if model_name in ("final", "final_rfe"):
-            model = RESULTS.get_final_model()
-            final_metadata = RESULTS.get_final_model_metadata() or {}
-            final_features = [
-                str(feature)
-                for feature in (final_metadata.get("features") or [])
-                if str(feature).lower() not in excluded_sensitivity_features
-            ]
-        else:
-            model = self._artifact(model_name)
-            final_features = []
-        if model is None:
-            return {"ok": False, "error": "No fitted model artifact found."}
+        resolved, lineage_error = self._resolve_candidate_lineage(model_name, context)
+        if lineage_error:
+            return self._lineage_error(lineage_error, model_name)
+        model = resolved["artifact"]
+        artifact_features = [
+            str(feature)
+            for feature in (resolved["artifact_metadata"].get("trained_feature_names") or [])
+            if str(feature).lower() not in excluded_sensitivity_features
+        ]
         _, X_test, _, _ = self._test_data()
         if X_test is None or X_test.empty:
             return {"ok": False, "error": "No holdout data is available."}
 
         baseline = float(np.mean(self._predict_score(model, X_test)))
-        if final_features:
-            ordered = [feature for feature in final_features if feature in X_test.columns]
+        if artifact_features:
+            ordered = [feature for feature in artifact_features if feature in X_test.columns]
         else:
-            importance = self.feature_importance(model_name).get("rows", [])
+            importance = self.feature_importance(model_name, context).get("rows", [])
             ordered = [str(row.get("feature", "")).replace("num__", "").replace("cat__", "") for row in importance]
             ordered += [str(col) for col in X_test.columns if str(col) not in ordered]
 
@@ -1428,17 +3776,28 @@ class EvaluationService:
         rows.sort(key=lambda row: row["max_abs_delta"], reverse=True)
         return {"ok": True, "baseline": baseline, "rows": rows}
 
-    def vif_summary(self, model_name: str = "final") -> Dict[str, Any]:
+    def vif_summary(
+        self,
+        model_name: str,
+        context: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
         if LinearRegression is None:
             return {"ok": False, "error": "scikit-learn LinearRegression is unavailable."}
+        resolved, lineage_error = self._resolve_candidate_lineage(model_name, context)
+        if lineage_error:
+            return self._lineage_error(lineage_error, model_name)
         X_train, _, _, _ = DATASTORE.get_splits()
         if X_train is None or X_train.empty:
             return {"ok": False, "error": "No training split is available."}
 
-        metadata = RESULTS.get_final_model_metadata() or {}
-        features = [str(feature) for feature in (metadata.get("features") or []) if str(feature) in X_train.columns]
-        if model_name not in ("final", "final_rfe") or not features:
-            return {"ok": False, "error": "Save a final RFE model before running VIF."}
+        metadata = resolved["artifact_metadata"]
+        features = [
+            str(feature)
+            for feature in (metadata.get("trained_feature_names") or X_train.columns)
+            if str(feature) in X_train.columns
+        ]
+        if not features:
+            return {"ok": False, "error": "The exact candidate has no governed feature contract for VIF."}
 
         numeric_features = []
         work = pd.DataFrame(index=X_train.index)
@@ -1490,23 +3849,27 @@ class EvaluationService:
             "rows": rows,
         }
 
-    def vsi_summary(self, model_name: str, top_n: int = 40) -> Dict[str, Any]:
-        model = self._artifact(model_name)
-        if model is None:
-            return {"ok": False, "error": "No fitted model artifact found."}
+    def vsi_summary(
+        self,
+        model_name: str,
+        top_n: int = 40,
+        context: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        resolved, lineage_error = self._resolve_candidate_lineage(model_name, context)
+        if lineage_error:
+            return self._lineage_error(lineage_error, model_name)
         X_train, X_test, _, _ = DATASTORE.get_splits()
         if X_train is None or X_test is None:
             return {"ok": False, "error": "No train/holdout split is available."}
 
-        final_metadata = RESULTS.get_final_model_metadata() or {}
-        metadata_features = final_metadata.get("features") if model_name in ("final", "final_rfe") else []
+        metadata_features = resolved["artifact_metadata"].get("trained_feature_names") or []
         features = [
             str(feature)
             for feature in (metadata_features or [])
             if str(feature) in X_train.columns and str(feature) in X_test.columns
         ]
         if not features:
-            importance = self.feature_importance(model_name).get("rows", [])
+            importance = self.feature_importance(model_name, context).get("rows", [])
             features = [
                 str(row.get("feature", "")).replace("num__", "").replace("cat__", "")
                 for row in importance
@@ -1632,21 +3995,29 @@ class EvaluationService:
             raise ValueError("This analysis requires a binary target.")
         return encoder.transform(pd.Series(y_train).astype(str)), encoder.transform(pd.Series(y_test).astype(str))
 
-    def _source_estimator_for_refit(self, model_name: str, task: str) -> Tuple[Any, Dict[str, Any]]:
-        artifact = self._artifact(model_name)
-        fallback = LogisticRegression(max_iter=3000, n_jobs=1, class_weight="balanced") if task == "classification" else LinearRegression()
+    def _source_estimator_for_refit(
+        self,
+        model_name: str,
+        task: str,
+        context: Dict[str, Any] | None,
+    ) -> Tuple[Any, Dict[str, Any]]:
+        resolved, error = self._resolve_candidate_lineage(model_name, context)
+        if error:
+            raise ValueError(error)
+        artifact = resolved["artifact"]
         metadata: Dict[str, Any] = {
-            "source_model": model_name,
+            "source_model": resolved["algorithm_id"],
+            "source_candidate_id": model_name,
             "feature_selection_method": "bounded backward elimination with a logistic surrogate" if task == "classification" else "bounded backward elimination with a linear surrogate",
             "source_estimator_class": "",
-            "final_estimator_class": fallback.__class__.__name__,
+            "final_estimator_class": "",
             "calibration_preserved": False,
             "refit_fallback": False,
         }
-        if artifact is None or clone is None:
-            metadata["refit_fallback"] = True
-            metadata["refit_fallback_reason"] = "The selected fitted estimator could not be cloned; ATLAS used the governed transparent fallback."
-            return fallback, metadata
+        if clone is None:
+            raise ValueError(
+                "The selected candidate cannot be refit because estimator cloning is unavailable."
+            )
 
         candidate = artifact.get("model") if isinstance(artifact, dict) else artifact
         outer_calibrated = candidate.__class__.__name__ == "CalibratedClassifierCV"
@@ -1670,32 +4041,67 @@ class EvaluationService:
             metadata["final_estimator_class"] = estimator.__class__.__name__
             return estimator, metadata
         except Exception as exc:
-            metadata["refit_fallback"] = True
-            metadata["refit_fallback_reason"] = f"The selected estimator could not be cloned ({exc}); ATLAS used the governed transparent fallback."
-            return fallback, metadata
+            raise ValueError(
+                f"The selected candidate estimator is unsupported for governed RFE refit: {exc}"
+            ) from exc
 
-    def _source_model_label(self, model_name: str) -> str:
-        summary = RESULTS.get_last_summary() or {}
-        row = next((item for item in (summary.get("ranked") or []) if item.get("key") == model_name), {})
+    def _source_model_label(
+        self,
+        model_name: str,
+        context: Dict[str, Any] | None,
+    ) -> str:
+        resolved, error = self._resolve_candidate_lineage(model_name, context)
+        if error:
+            raise ValueError(error)
+        row = resolved["candidate"]
         return str(row.get("name") or model_name or "Selected Estimator")
 
     def rfe(self, model_name: str = "", keep: int = 10, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
         mismatch = self._artifact_context_mismatch(model_name, context) if model_name else None
         if mismatch:
             return {"ok": False, "error": mismatch, "debug": self._artifact_debug(model_name, context)}
-        X_train, X_test, y_train, y_test = DATASTORE.get_splits()
-        if X_train is None or X_test is None or y_train is None or y_test is None:
+        if train_test_split is None:
+            return {"ok": False, "error": "scikit-learn training-only validation splitting is unavailable."}
+        X_full_train = DATASTORE.X_train
+        y_full_train = DATASTORE.y_train
+        if X_full_train is None or y_full_train is None:
             return {"ok": False, "error": "No training split is available. Train models first."}
-        full_train_rows = int(len(X_train))
-        full_test_rows = int(len(X_test))
+        full_train_rows = int(len(X_full_train))
+        if full_train_rows < 4:
+            return {"ok": False, "error": "RFE requires at least four training rows for internal validation."}
+        y_full_series = pd.Series(np.asarray(y_full_train), index=X_full_train.index)
+        validation_rows = max(2, int(np.ceil(full_train_rows * 0.2)))
+        validation_rows = min(validation_rows, full_train_rows - 2)
+        problem_type = _lineage_value((context or {}).get("problem_type")).casefold()
+        stratify = None
+        if problem_type == "classification":
+            class_counts = y_full_series.astype(str).value_counts()
+            if (
+                len(class_counts) >= 2
+                and int(class_counts.min()) >= 2
+                and validation_rows >= len(class_counts)
+                and full_train_rows - validation_rows >= len(class_counts)
+            ):
+                stratify = y_full_series
+        train_positions, validation_positions = train_test_split(
+            np.arange(full_train_rows),
+            test_size=validation_rows,
+            random_state=42,
+            shuffle=True,
+            stratify=stratify,
+        )
+        X_train = X_full_train.iloc[train_positions].copy()
+        X_test = X_full_train.iloc[validation_positions].copy()
+        y_train = y_full_series.iloc[train_positions].copy()
+        y_test = y_full_series.iloc[validation_positions].copy()
         full_train_index = X_train.index
-        full_test_index = X_test.index
+        validation_index = X_test.index
         if len(X_train) > 15_000:
             X_train = X_train.sample(n=15_000, random_state=42)
             y_train = pd.Series(np.asarray(y_train), index=full_train_index).loc[X_train.index]
         if len(X_test) > 8_000:
             X_test = X_test.sample(n=8_000, random_state=42)
-            y_test = pd.Series(np.asarray(y_test), index=full_test_index).loc[X_test.index]
+            y_test = pd.Series(np.asarray(y_test), index=validation_index).loc[X_test.index]
         prepared_train_all, prepared_test_all, feature_cols = self._prepare_rfe_design(X_train, X_test)
         if len(feature_cols) < 2:
             return {"ok": False, "error": "RFE requires at least two usable features after encoding. Confirm feature selection and preprocessing."}
@@ -1709,7 +4115,13 @@ class EvaluationService:
                 y_train=y_train,
                 y_test=y_test,
             )
-            result.update({"full_train_rows": full_train_rows, "full_test_rows": full_test_rows, "analysis_train_rows": int(len(X_train)), "analysis_test_rows": int(len(X_test))})
+            result.update({
+                "full_train_rows": full_train_rows,
+                "analysis_train_rows": int(len(X_train)),
+                "analysis_validation_rows": int(len(X_test)),
+                "selection_population": "training_internal_validation",
+                "holdout_used": False,
+            })
             return result
         if LogisticRegression is None or LabelEncoder is None or roc_auc_score is None:
             return {"ok": False, "error": "scikit-learn logistic regression metrics are unavailable."}
@@ -1813,7 +4225,7 @@ class EvaluationService:
         best_count = int(best_row["feature_count"])
 
         # Recommend the smallest model that is effectively tied with the best
-        # observed holdout AUC. Do not stop at the first small marginal change:
+        # observed internal-validation AUC. Do not stop at the first small marginal change:
         # RFE curves can dip early and then improve again after noisy features
         # are removed.
         auc_tolerance = 0.001
@@ -1855,9 +4267,10 @@ class EvaluationService:
             "screened_feature_count": screened_feature_count,
             "rfe_candidate_limit": 14,
             "full_train_rows": full_train_rows,
-            "full_test_rows": full_test_rows,
             "analysis_train_rows": int(len(X_train)),
-            "analysis_test_rows": int(len(X_test)),
+            "analysis_validation_rows": int(len(X_test)),
+            "selection_population": "training_internal_validation",
+            "holdout_used": False,
             "rows": ranked_rows,
             "curve": curve_rows,
         }
@@ -1872,13 +4285,21 @@ class EvaluationService:
         y_train: pd.Series | None = None,
         y_test: pd.Series | None = None,
     ) -> Dict[str, Any]:
-        X_train, X_test, stored_y_train, stored_y_test = DATASTORE.get_splits()
-        y_train = y_train if y_train is not None else stored_y_train
-        y_test = y_test if y_test is not None else stored_y_test
         if LinearRegression is None:
             return {"ok": False, "error": "scikit-learn LinearRegression is unavailable."}
-        if prepared_train is None or prepared_test is None:
-            prepared_train, prepared_test, numeric_cols = self._prepare_rfe_design(X_train, X_test)
+        if (
+            prepared_train is None
+            or prepared_test is None
+            or y_train is None
+            or y_test is None
+        ):
+            return {
+                "ok": False,
+                "error": (
+                    "Regression RFE requires the deterministic training-only internal-validation "
+                    "design; final holdout data cannot be used for feature selection."
+                ),
+            }
 
         y_train_arr = pd.to_numeric(pd.Series(y_train), errors="coerce").to_numpy(dtype=float)
         y_test_arr = pd.to_numeric(pd.Series(y_test), errors="coerce").to_numpy(dtype=float)
@@ -2014,136 +4435,43 @@ class EvaluationService:
             "curve": curve_rows,
         }
 
-    def save_rfe_model(self, model_name: str = "", keep: int = 10, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
-        mismatch = self._promotion_context_mismatch(model_name, context) if model_name else None
-        if mismatch:
-            return {"ok": False, "error": mismatch, "debug": self._artifact_debug(model_name, context)}
-        X_train, X_test, y_train, y_test = DATASTORE.get_splits()
-        if X_train is None or X_test is None or y_train is None or y_test is None:
-            return {"ok": False, "error": "No training split is available. Train models first."}
-        if self._is_regression_problem():
-            return self._save_rfe_regression_model(model_name=model_name, keep=keep, context=context)
-        if LogisticRegression is None:
-            return {"ok": False, "error": "scikit-learn LogisticRegression is unavailable."}
-
-        rfe_result = self.rfe(model_name=model_name, keep=keep, context=context)
-        if not rfe_result.get("ok"):
-            return rfe_result
-        selected_features = [
-            row["feature"]
-            for row in rfe_result.get("rows", [])
-            if int(row.get("rank", 9999)) <= int(rfe_result.get("selected_count", keep))
-        ]
-        if not selected_features:
-            return {"ok": False, "error": "RFE did not return any selected features."}
-
-        try:
-            y_train_arr, y_test_arr = self._encode_binary_target(y_train, y_test)
-        except ValueError as exc:
-            return {"ok": False, "error": str(exc)}
-
-        train_all, test_all, dummy_columns = self._prepare_rfe_design(X_train, X_test)
-        selected_features = [feature for feature in selected_features if feature in train_all.columns]
-        if not selected_features:
-            return {"ok": False, "error": "Selected RFE features are unavailable after encoding."}
-        train = train_all[selected_features].copy()
-        test = test_all[selected_features].copy()
-        medians = train.median(numeric_only=True)
-        train = train.fillna(medians)
-        test = test.fillna(medians)
-        means = train.mean()
-        stds = train.std().replace(0, 1).fillna(1)
-        train_scaled = (train - means) / stds
-        test_scaled = (test - means) / stds
-
-        final_estimator, refit_metadata = self._source_estimator_for_refit(model_name, "classification")
-        final_estimator.fit(train_scaled[selected_features], y_train_arr)
-        scores = self._predict_score(final_estimator, test_scaled[selected_features])
-        auc = float(roc_auc_score(y_test_arr, scores)) if roc_auc_score is not None else None
-
-        artifact = {
-            "kind": "rfe_classifier",
-            "model": final_estimator,
-            "features": selected_features,
-            "dummy_columns": dummy_columns,
-            "medians": medians,
-            "means": means,
-            "stds": stds,
-        }
-        metadata = {
-            "source_model": model_name,
-            "model_key": "final_rfe",
-            "name": f"Final RFE {self._source_model_label(model_name)}",
-            **self._final_binding_metadata(model_name, context),
-            "feature_count": len(selected_features),
-            "features": selected_features,
-            "holdout_auc": auc,
-            **refit_metadata,
-        }
-        RESULTS.set_final_model(artifact, metadata)
-        return {"ok": True, "metadata": metadata}
+    def save_rfe_model(
+        self,
+        model_name: str = "",
+        keep: int = 10,
+        context: Dict[str, Any] | None = None,
+        evaluation_package_id: str = "",
+    ) -> Dict[str, Any]:
+        if not model_name:
+            return self._lineage_error(
+                "An exact candidate_id is required; ATLAS will not infer a candidate for RFE.",
+            )
+        resolved, error = self._resolve_candidate_lineage(model_name, context)
+        if error:
+            return self._lineage_error(error, model_name)
+        _, package_error = self._completed_evaluation_package(
+            resolved["lineage"],
+            evaluation_package_id,
+            candidate_contract=resolved["candidate_contract"],
+        )
+        if package_error:
+            return self._lineage_error(package_error, model_name)
+        return self._lineage_error(
+            (
+                "RFE is training-only analysis and cannot publish a derived model artifact. "
+                "Promote the exact frozen candidate through /model/save_final."
+            ),
+            model_name,
+        )
 
     def _save_rfe_regression_model(self, model_name: str = "", keep: int = 10, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
-        X_train, X_test, y_train, y_test = DATASTORE.get_splits()
-        if LinearRegression is None:
-            return {"ok": False, "error": "scikit-learn LinearRegression is unavailable."}
-
-        rfe_result = self.rfe(model_name=model_name, keep=keep, context=context)
-        if not rfe_result.get("ok"):
-            return rfe_result
-        selected_features = [
-            row["feature"]
-            for row in rfe_result.get("rows", [])
-            if int(row.get("rank", 9999)) <= int(rfe_result.get("selected_count", keep))
-        ]
-        if not selected_features:
-            return {"ok": False, "error": "RFE did not return any selected features."}
-
-        train_all, test_all, dummy_columns = self._prepare_rfe_design(X_train, X_test)
-        selected_features = [feature for feature in selected_features if feature in train_all.columns]
-        if not selected_features:
-            return {"ok": False, "error": "Selected RFE features are unavailable after encoding."}
-        train = train_all[selected_features].copy()
-        test = test_all[selected_features].copy()
-        medians = train.median(numeric_only=True)
-        train = train.fillna(medians)
-        test = test.fillna(medians)
-        means = train.mean()
-        stds = train.std().replace(0, 1).fillna(1)
-        train_scaled = (train - means) / stds
-        test_scaled = (test - means) / stds
-
-        y_train_arr = pd.to_numeric(pd.Series(y_train), errors="coerce").to_numpy(dtype=float)
-        y_test_arr = pd.to_numeric(pd.Series(y_test), errors="coerce").to_numpy(dtype=float)
-        final_estimator, refit_metadata = self._source_estimator_for_refit(model_name, "regression")
-        final_estimator.fit(train_scaled[selected_features], y_train_arr)
-        preds = final_estimator.predict(test_scaled[selected_features])
-        metrics = self._regression_metrics(pd.Series(y_test_arr), preds, n_features=len(selected_features))
-
-        artifact = {
-            "kind": "rfe_regressor",
-            "model": final_estimator,
-            "features": selected_features,
-            "dummy_columns": dummy_columns,
-            "medians": medians,
-            "means": means,
-            "stds": stds,
-        }
-        metadata = {
-            "source_model": model_name,
-            "model_key": "final_rfe_regression",
-            "name": f"Final RFE {self._source_model_label(model_name)}",
-            **self._final_binding_metadata(model_name, context),
-            "feature_count": len(selected_features),
-            "features": selected_features,
-            "metrics": metrics,
-            "holdout_rmse": metrics.get("rmse"),
-            "holdout_r2": metrics.get("r2"),
-            "holdout_adjusted_r2": metrics.get("adjusted_r2"),
-            **refit_metadata,
-        }
-        RESULTS.set_final_model(artifact, metadata)
-        return {"ok": True, "metadata": metadata}
+        return self._lineage_error(
+            (
+                "RFE is training-only analysis and cannot publish a derived model artifact. "
+                "Promote the exact frozen candidate through /model/save_final."
+            ),
+            model_name,
+        )
 
     def final_model_status(self, context: Dict[str, Any] | None = None) -> Dict[str, Any]:
         artifact = RESULTS.get_final_model()
@@ -2186,28 +4514,42 @@ class EvaluationService:
         self,
         model_name: str = "",
         context: Dict[str, Any] | None = None,
+        evaluation_package_id: str = "",
     ) -> Dict[str, Any]:
-        summary = RESULTS.get_last_summary() or {}
-        ranked = summary.get("ranked") or []
         if not model_name:
-            model_name = ranked[0].get("key") if ranked else ""
+            return self._lineage_error(
+                "An exact candidate_id is required; ATLAS will not select the first or latest candidate.",
+            )
         mismatch = self._promotion_context_mismatch(model_name, context) if model_name else ""
         if mismatch:
             return {
-                "ok": False,
-                "error": mismatch,
+                **self._lineage_error(mismatch, model_name),
                 "debug": self._artifact_debug(model_name, {**self._active_model_binding(context), **(context or {})}),
             }
-        artifact = self._artifact(model_name)
-        if artifact is None:
-            return {"ok": False, "error": "No fitted model artifact found for the selected model."}
-        row = next((item for item in ranked if item.get("key") == model_name), {})
+        resolved, error = self._resolve_candidate_lineage(model_name, context)
+        if error:
+            return self._lineage_error(error, model_name)
+        artifact = resolved["artifact"]
+        row = resolved["candidate"]
+        algorithm_id = resolved["algorithm_id"]
+        _, package_error = self._completed_evaluation_package(
+            resolved["lineage"],
+            evaluation_package_id,
+            candidate_contract=resolved["candidate_contract"],
+        )
+        if package_error:
+            return self._lineage_error(package_error, model_name)
         X_train, _, _, _ = DATASTORE.get_splits()
         metadata = {
-            "source_model": model_name,
-            "model_key": model_name,
-            "name": row.get("name") or model_name,
-            **self._final_binding_metadata(model_name, context),
+            "source_model": algorithm_id,
+            "source_candidate_id": model_name,
+            "model_key": algorithm_id,
+            "name": row.get("name") or algorithm_id,
+            **self._final_binding_metadata(
+                model_name,
+                context,
+                evaluation_package_id=evaluation_package_id,
+            ),
             "source_estimator_class": artifact.__class__.__name__,
             "final_estimator_class": artifact.__class__.__name__,
             "feature_count": int(len(X_train.columns)) if X_train is not None else None,
@@ -2218,8 +4560,14 @@ class EvaluationService:
                 if row.get(key) is not None
             },
         }
-        RESULTS.set_final_model(artifact, metadata)
-        return {"ok": True, "metadata": metadata}
+        return {
+            "ok": True,
+            "metadata": metadata,
+            # Private transport only: the router passes this exact candidate
+            # object directly into durable publication and never rereads the
+            # mutable scoped final-model slot.
+            "_fitted_object": artifact,
+        }
 
     def _stability_index_numeric(self, expected: pd.Series, actual: pd.Series, bins: int = 10) -> float:
         exp = pd.to_numeric(expected, errors="coerce").dropna()
@@ -2729,7 +5077,7 @@ class EvaluationService:
                 "numeric_features": ["PCA 1", "PCA 2"] + numeric_cols,
             }
 
-        importance = self.feature_importance(model_name).get("rows", [])
+        importance = self.feature_importance(model_name, context).get("rows", [])
         ordered = [row["feature"] for row in importance if row.get("feature") in numeric_cols]
         ordered += [col for col in numeric_cols if col not in ordered]
         x_name = x_feature if x_feature in numeric_cols else ordered[0]

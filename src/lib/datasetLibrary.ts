@@ -1,4 +1,7 @@
-import type { CanonicalDatasetIdentity } from "./datasetIdentity";
+import {
+  assertExactDatasetActivation,
+  type CanonicalDatasetIdentity,
+} from "./datasetIdentity";
 
 export const DATASET_API_BASE =
   (import.meta.env?.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
@@ -98,6 +101,19 @@ export type DatasetActivationResponse = CanonicalDatasetIdentity & {
   column_count: number;
   headers: string[];
   selected_columns: string[];
+  /** Monotonic durable-selection revision committed by the backend. */
+  activation_revision: string | number;
+  /** Durable project-to-dataset authorization/link record. */
+  link: Record<string, unknown> & {
+    link_status: "active";
+  };
+  /** Durable exact active-modeling-version selection. */
+  active_selection: Record<string, unknown> & {
+    activation_status: "active";
+    activation_revision: string | number;
+  };
+  /** Server-reconciled history/effective validity committed with activation. */
+  workflow_effective_state?: unknown;
 };
 
 export type WorkspaceDatasetRegistrationResponse =
@@ -200,11 +216,80 @@ export async function getDatasetPreview(datasetId: string, versionId: string) {
   return payload.preview;
 }
 
+function recordIdentifier(record: Record<string, unknown>, snake: string, camel: string) {
+  const value = record[snake] ?? record[camel];
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function activationRevision(value: unknown, context: string) {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 1) return String(value);
+  if (typeof value === "string" && value.trim()) {
+    const revision = value.trim();
+    if (/^\d+$/.test(revision) && Number(revision) >= 1) return revision;
+  }
+  throw new Error(`${context} did not return a durable activation revision.`);
+}
+
+/**
+ * Rejects a response that merely hydrated process memory. Dataset activation is
+ * complete only after the backend returns the committed authorization link and
+ * exact active-version selection from the same durable revision.
+ */
+export function requireDurableDatasetActivation(
+  expected: CanonicalDatasetIdentity,
+  response: DatasetActivationResponse,
+) {
+  const canonical = assertExactDatasetActivation(expected, response);
+  const link = response?.link;
+  const selection = response?.active_selection;
+  if (!link || typeof link !== "object" || link.link_status !== "active") {
+    throw new Error("Dataset activation did not return an active durable project-dataset link.");
+  }
+  if (!selection || typeof selection !== "object" || selection.activation_status !== "active") {
+    throw new Error("Dataset activation did not return an active durable dataset-version selection.");
+  }
+
+  const linkProjectId = recordIdentifier(link, "project_id", "projectId");
+  const linkDatasetId = recordIdentifier(link, "dataset_id", "datasetId");
+  const linkVersionId = recordIdentifier(link, "dataset_version_id", "versionId");
+  if (linkProjectId !== canonical.project_id || linkDatasetId !== canonical.dataset_id) {
+    throw new Error("The durable project-dataset link does not match the requested project and dataset.");
+  }
+  if (linkVersionId && linkVersionId !== canonical.dataset_version_id) {
+    throw new Error("The durable project-dataset link names a different immutable dataset version.");
+  }
+
+  assertExactDatasetActivation(canonical, {
+    project_id: recordIdentifier(selection, "project_id", "projectId"),
+    dataset_id: recordIdentifier(selection, "dataset_id", "datasetId"),
+    dataset_version_id: recordIdentifier(selection, "dataset_version_id", "datasetVersionId"),
+  });
+  const responseRevision = activationRevision(response.activation_revision, "Dataset activation");
+  const selectionRevision = activationRevision(selection.activation_revision, "Active dataset selection");
+  if (responseRevision !== selectionRevision) {
+    throw new Error("Dataset activation returned contradictory durable selection revisions.");
+  }
+  return {
+    canonical: {
+      ...canonical,
+      activation_revision: Number(responseRevision),
+    },
+    activationRevision: responseRevision,
+  };
+}
+
 export async function activateDatasetVersion(datasetId: string, versionId: string, projectId: string) {
-  return jsonFetch<DatasetActivationResponse>(
+  const expected = {
+    project_id: projectId,
+    dataset_id: datasetId,
+    dataset_version_id: versionId,
+  };
+  const response = await jsonFetch<DatasetActivationResponse>(
     `/datasets/${datasetId}/versions/${versionId}/activate?project_id=${encodeURIComponent(projectId)}`,
     { method: "POST" },
   );
+  requireDurableDatasetActivation(expected, response);
+  return response;
 }
 
 export async function linkDatasetToProject(projectId: string, datasetId: string, versionId: string, datasetRole = "modeling") {

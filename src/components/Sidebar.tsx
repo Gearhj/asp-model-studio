@@ -35,7 +35,7 @@ import {
   Workflow,
 } from "lucide-react";
 import BrandLogo from "./BrandLogo";
-import { useWorkflowStore } from "../state/useWorkflowStore";
+import { selectEffectiveWorkflowSteps, useWorkflowStore } from "../state/useWorkflowStore";
 import { saveActiveProjectBeforeNavigation } from "../lib/localProjects";
 import { loadTransportationOptimizationSnapshot, optimizationWorkflowStepStatus, type OptimizationWorkflowStatus } from "../lib/transportationOptimizationEvidence";
 
@@ -69,7 +69,7 @@ export default function Sidebar() {
   const [compact, setCompact] = useState(() => localStorage.getItem("atlas-sidebar-mode") === "compact");
   const [optimizationVersion, setOptimizationVersion] = useState(0);
   const location = useLocation();
-  const workflowSteps = useWorkflowStore((state) => state.workflowSteps);
+  const workflowSteps = useWorkflowStore(selectEffectiveWorkflowSteps);
   const projectName = useWorkflowStore((state) => state.projectName);
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectType = useWorkflowStore((state) => state.projectType);

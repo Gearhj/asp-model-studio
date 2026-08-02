@@ -1,0 +1,162 @@
+{
+  "dataset_id": "ds_registry-regression-705463ed_234be5ea",
+  "dataset_version_id": "v_1785629507228_234be5ea",
+  "definition_checksum": "b12aeb52eec094dfa0564d6b2d3e1b8b2cd90cb606bd8efaedba793646ace8df",
+  "manifest": {
+    "confirmation_status": "confirmed",
+    "confirmed_at": "2026-08-02T00:11:53.714783+00:00",
+    "confirmed_manifest_hash": "fm-d6660523ef46bd6e",
+    "created_at": "2026-08-02T00:11:51.174552+00:00",
+    "dataset_id": "ds_registry-regression-705463ed_234be5ea",
+    "dataset_version": "v_1785629507228_234be5ea",
+    "dataset_version_id": "v_1785629507228_234be5ea",
+    "definition_checksum": "b12aeb52eec094dfa0564d6b2d3e1b8b2cd90cb606bd8efaedba793646ace8df",
+    "execution_history": [
+      {
+        "detail": "Validated 2 feature definitions and 0 training-only pipeline steps.",
+        "manifest_hash": "fm-d6660523ef46bd6e",
+        "recorded_at": "2026-08-02T00:11:51.388412+00:00",
+        "stage": "validate_definitions",
+        "status": "passed"
+      },
+      {
+        "contract_changed": false,
+        "detail": "Saved the governed feature contract.",
+        "manifest_hash": "fm-d6660523ef46bd6e",
+        "previous_manifest_hash": "fm-d6660523ef46bd6e",
+        "recorded_at": "2026-08-02T00:11:51.388412+00:00",
+        "stage": "save_manifest",
+        "status": "completed"
+      },
+      {
+        "detail": "Materialized 0 engineered features across 400 rows.",
+        "manifest_hash": "fm-d6660523ef46bd6e",
+        "materialization_hash": "mt-e82b1effc2133f34",
+        "recorded_at": "2026-08-02T00:11:52.505050+00:00",
+        "stage": "materialize_full_dataset",
+        "status": "completed"
+      },
+      {
+        "detail": "Confirmed that the materialized dataset exactly matches the governed feature contract.",
+        "manifest_hash": "fm-d6660523ef46bd6e",
+        "materialization_hash": "mt-e82b1effc2133f34",
+        "recorded_at": "2026-08-02T00:11:53.714783+00:00",
+        "stage": "confirm_feature_set",
+        "status": "completed"
+      }
+    ],
+    "features": [
+      {
+        "config": {},
+        "created_at": "2026-08-02T00:11:51.381416+00:00",
+        "created_by": "Data Acquisition",
+        "creation_status": "available",
+        "dataset_id": "ds_registry-regression-705463ed_234be5ea",
+        "dataset_version": "v_1785629507228_234be5ea",
+        "dataset_version_id": "v_1785629507228_234be5ea",
+        "display_name": "feature_a",
+        "eligibility_status": "eligible",
+        "evidence_reference": null,
+        "exclusion_reason": "",
+        "feature_id": "original-75c3e713e9fa",
+        "feature_name": "feature_a",
+        "formula_or_rule": "feature_a",
+        "leakage_status": "reviewed",
+        "materialization_status": "source",
+        "origin": "original",
+        "output_datatype": "float64",
+        "pipeline_status": "not_applicable",
+        "profile_scope": "full_dataset",
+        "project_id": "project_0805a64493a14db28f2ac46e9ce10d00",
+        "selected": true,
+        "source_features": [
+          "feature_a"
+        ],
+        "summary_statistics": {
+          "distinct_count": 17,
+          "maximum": 16.0,
+          "mean": 7.91,
+          "median": 8.0,
+          "minimum": 0.0,
+          "missing_count": 0,
+          "row_count": 400,
+          "standard_deviation": 4.895089376099276
+        },
+        "transformation_type": "source_column",
+        "transformation_version": "source-v1",
+        "user_rationale": ""
+      },
+      {
+        "config": {},
+        "created_at": "2026-08-02T00:11:51.382414+00:00",
+        "created_by": "Data Acquisition",
+        "creation_status": "available",
+        "dataset_id": "ds_registry-regression-705463ed_234be5ea",
+        "dataset_version": "v_1785629507228_234be5ea",
+        "dataset_version_id": "v_1785629507228_234be5ea",
+        "display_name": "feature_b",
+        "eligibility_status": "eligible",
+        "evidence_reference": null,
+        "exclusion_reason": "",
+        "feature_id": "original-537884973c04",
+        "feature_name": "feature_b",
+        "formula_or_rule": "feature_b",
+        "leakage_status": "reviewed",
+        "materialization_status": "source",
+        "origin": "original",
+        "output_datatype": "float64",
+        "pipeline_status": "not_applicable",
+        "profile_scope": "full_dataset",
+        "project_id": "project_0805a64493a14db28f2ac46e9ce10d00",
+        "selected": true,
+        "source_features": [
+          "feature_b"
+        ],
+        "summary_statistics": {
+          "distinct_count": 23,
+          "maximum": 22.0,
+          "mean": 10.965,
+          "median": 11.0,
+          "minimum": 0.0,
+          "missing_count": 0,
+          "row_count": 400,
+          "standard_deviation": 6.648967965030363
+        },
+        "transformation_type": "source_column",
+        "transformation_version": "source-v1",
+        "user_rationale": ""
+      }
+    ],
+    "manifest_hash": "fm-d6660523ef46bd6e",
+    "manifest_version": "fm-d6660523ef46bd6e",
+    "materialization_hash": "mt-e82b1effc2133f34",
+    "materialization_status": "current",
+    "materialized_at": "2026-08-02T00:11:52.505050+00:00",
+    "materialized_manifest_hash": "fm-d6660523ef46bd6e",
+    "ok": true,
+    "persistence_status": "persisted",
+    "pipeline_steps": [],
+    "predictor_authorization": {
+      "authorized_predictors": [
+        "feature_a",
+        "feature_b"
+      ],
+      "excluded_predictors": {},
+      "selected_predictors": [
+        "feature_a",
+        "feature_b"
+      ],
+      "target": "MedHouseVal",
+      "target_source_excluded": []
+    },
+    "preview_hash": "",
+    "project_id": "project_0805a64493a14db28f2ac46e9ce10d00",
+    "split_status": "stale",
+    "updated_at": "2026-08-02T00:11:53.714783+00:00",
+    "validated_at": "2026-08-02T00:11:51.388412+00:00",
+    "validation_status": "passed"
+  },
+  "manifest_hash": "fm-d6660523ef46bd6e",
+  "project_id": "project_0805a64493a14db28f2ac46e9ce10d00",
+  "updated_at": "2026-08-02T00:11:53.955348+00:00"
+}

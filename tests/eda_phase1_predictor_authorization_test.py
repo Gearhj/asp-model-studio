@@ -45,6 +45,7 @@ from server.eda.workspace_service import (  # noqa: E402
     RelationshipSampleValidationError,
     eda_workspace_service,
 )
+from server.eda.analytical_contract import EDAAnalyticalContractError  # noqa: E402
 from server.eda.workspace_types import (  # noqa: E402
     EDAWorkspaceRequest,
     EDAVifSimulationRequest,
@@ -198,6 +199,33 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
                 for feature in sorted(TARGET_SOURCES)
             ],
         }
+        development = frame.iloc[:192]
+        holdout = frame.iloc[192:]
+        selected = sorted(SAFE_PREDICTORS)
+        DATASTORE.set_splits(
+            development.loc[:, selected],
+            holdout.loc[:, selected],
+            development[TARGET],
+            holdout[TARGET],
+        )
+        DATASTORE.meta.update(
+            {
+                "split_status": "current",
+                "split_record": {
+                    "project_id": PROJECT_ID,
+                    "dataset_id": "ds-eda-phase1-synthetic",
+                    "dataset_version_id": "eda-phase1-synthetic-v1",
+                    "split_id": "split-eda-phase1-synthetic-v1",
+                    "target": TARGET,
+                    "feature_manifest_version": "fm-eda-phase1-synthetic-v1",
+                    "selection_partition_id": "population-eda-phase1-development",
+                    "n_train": 192,
+                    "n_test": 48,
+                    "final_holdout_status": "sealed",
+                    "holdout_isolation_status": "verified",
+                },
+            }
+        )
         self.identity_patch = patch(
             "server.eda.workspace_service.assert_expected_active_identity",
             return_value={
@@ -208,6 +236,7 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
         )
         self.identity_patch.start()
         eda_workspace_service._cache.clear()
+        eda_workspace_service._contract_cache.clear()
         for attribute in ("_fingerprint_key", "_fingerprint_value"):
             if hasattr(eda_workspace_service, attribute):
                 delattr(eda_workspace_service, attribute)
@@ -215,6 +244,7 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.identity_patch.stop()
         eda_workspace_service._cache.clear()
+        eda_workspace_service._contract_cache.clear()
         DATASTORE.reset_all()
 
     def _request(
@@ -343,11 +373,9 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
             self.assertNotIn("__target__", row)
             self.assertTrue(TARGET_SOURCES.isdisjoint(row))
         vif_scope = payload.get("vif_scope") or {}
-        self.assertEqual(vif_scope.get("scope"), "bounded_backend_computation")
-        self.assertLessEqual(
-            int(vif_scope.get("rows_used", 0)),
-            int(vif_scope.get("maximum_rows", 0)),
-        )
+        self.assertEqual(vif_scope.get("analysis_population"), "development_population")
+        self.assertLessEqual(int(vif_scope.get("rows_used", 0)), 192)
+        self.assertFalse(payload["analysis_scope"]["finalHoldoutAccessed"])
         self.assertSetEqual(_target_source_excluded(payload), TARGET_SOURCES)
 
     def test_relationship_sample_is_bounded_deterministic_and_target_safe(self) -> None:
@@ -521,15 +549,14 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
         DATASTORE.set_target(TARGET)
         DATASTORE.meta.update(metadata)
 
-        second = eda_workspace_service.section(
-            "distribution",
-            self._request(feature="balance"),
-        )
-        self.assertEqual(second["cache_status"], "miss")
-        self.assertGreater(
-            float(second["statistics"]["minimum"]),
-            float(first["statistics"]["maximum"]),
-        )
+        with self.assertRaisesRegex(
+            EDAAnalyticalContractError,
+            "development partition",
+        ):
+            eda_workspace_service.section(
+                "distribution",
+                self._request(feature="balance"),
+            )
 
     def test_vif_simulation_is_bounded_authorized_and_non_mutating(self) -> None:
         before = DATASTORE.get_base_df().copy(deep=True)
@@ -625,10 +652,18 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
         numeric = pd.to_numeric(population["balance"], errors="coerce")
         mask = numeric.between(20.0, 40.0, inclusive="both")
         selected_values = numeric[mask]
-        selected_target = population.loc[mask, TARGET]
+        development = population.iloc[:192]
+        development_numeric = pd.to_numeric(
+            development["balance"], errors="coerce"
+        )
+        development_mask = development_numeric.between(
+            20.0, 40.0, inclusive="both"
+        )
+        selected_target = development.loc[development_mask, TARGET]
         metrics = _selection_metrics(payload)
 
-        self.assertEqual(payload["scope"], "full_dataset")
+        self.assertEqual(payload["scope"], "development_population")
+        self.assertEqual(payload["descriptive_scope"], "full_governed_population")
         self.assertEqual(payload["row_count"], len(population))
         self.assertEqual(
             int(_metric(metrics, "row_count", "selected_row_count", "count")),
@@ -654,6 +689,8 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
             float(selected_target.mean()),
             places=12,
         )
+        self.assertEqual(metrics["target_rate_scope"], "development_population")
+        self.assertEqual(metrics["descriptive_scope"], "full_governed_population")
 
         bins = payload.get("bins") or payload.get("histogram") or []
         missing = payload.get("missing_bucket") or payload.get("missingBucket")

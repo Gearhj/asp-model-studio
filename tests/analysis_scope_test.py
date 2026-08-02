@@ -29,16 +29,24 @@ sys.path.insert(0, str(_REPO_ROOT))
 _TEST_DATA_ROOT = _REPO_ROOT / ".tmp"
 _TEST_DATA_ROOT.mkdir(exist_ok=True)
 _RUN_ID = uuid.uuid4().hex[:10]
+_SUITE_ROOT = _TEST_DATA_ROOT / f"atlas_scope_{_RUN_ID}"
 _SECURITY_DB_PATH = _TEST_DATA_ROOT / f"atlas_scope_security_{_RUN_ID}.db"
 _PERSISTENCE_DB_PATH = _TEST_DATA_ROOT / f"atlas_scope_persistence_{_RUN_ID}.db"
 _CHECKPOINT_PATH = _TEST_DATA_ROOT / f"atlas_scope_checkpoint_{_RUN_ID}.json"
-_LIBRARY_ROOT = Path(tempfile.mkdtemp(prefix=f"atlas_scope_library_{_RUN_ID}_"))
+_LIBRARY_ROOT = _SUITE_ROOT / "dataset-library"
+_BACKUP_ROOT = Path(tempfile.mkdtemp(prefix=f"atlas_scope_backups_{_RUN_ID}_"))
 _EVIDENCE_ROOT = _TEST_DATA_ROOT / f"atlas_scope_evidence_{_RUN_ID}"
+_MODEL_ARTIFACT_ROOT = _TEST_DATA_ROOT / f"atlas_scope_models_{_RUN_ID}"
+_SCORING_ARTIFACT_ROOT = _TEST_DATA_ROOT / f"atlas_scope_scoring_{_RUN_ID}"
+os.environ["ATLAS_SECURITY_ROOT"] = str(_SECURITY_DB_PATH.parent)
 os.environ["ATLAS_SECURITY_DB_PATH"] = str(_SECURITY_DB_PATH)
 os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH)
 os.environ["ATLAS_CHECKPOINT_PATH"] = str(_CHECKPOINT_PATH)
 os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(_LIBRARY_ROOT)
+os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(_BACKUP_ROOT)
 os.environ["ATLAS_EVIDENCE_ROOT"] = str(_EVIDENCE_ROOT)
+os.environ["ATLAS_MODEL_REGISTRY_ARTIFACT_ROOT"] = str(_MODEL_ARTIFACT_ROOT)
+os.environ["ATLAS_SCORING_RUN_ARTIFACT_ROOT"] = str(_SCORING_ARTIFACT_ROOT)
 os.environ.setdefault("ATLAS_AUTH_ENABLED", "true")
 os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
 
@@ -51,8 +59,88 @@ from server.analytics import analysis_scope as scope_module  # noqa: E402
 from server.analytics import target_intelligence_service as tis  # noqa: E402
 from server.main import app  # noqa: E402
 from server.persistence import initialize_persistence  # noqa: E402
+from server.persistence import db as persistence_db  # noqa: E402
+from server.persistence import service as persistence_service  # noqa: E402
+from server.security import security_store  # noqa: E402
 from server.security.security_store import init_security_store  # noqa: E402
 import server.core.session_checkpoint as checkpoint  # noqa: E402
+from server.datasets import dataset_registry  # noqa: E402
+from server.evidence import evidence_store  # noqa: E402
+from server.model_registry import model_artifacts  # noqa: E402
+from server.scoring_runs import scoring_run_artifacts  # noqa: E402
+
+
+def _bind_dataset_library_paths() -> None:
+    """Rebind every cached registry path to this suite's owned root."""
+    expected_root = _LIBRARY_ROOT.resolve()
+    expected_backup_root = _BACKUP_ROOT.resolve()
+    os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(expected_root)
+    os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(expected_backup_root)
+    dataset_registry.ARTIFACT_ROOT = expected_root
+    dataset_registry.REGISTRY_PATH = dataset_registry.ARTIFACT_ROOT / "registry.json"
+    dataset_registry.USERS_PATH = dataset_registry.ARTIFACT_ROOT / "users.json"
+    dataset_registry.PROJECT_LINKS_PATH = (
+        dataset_registry.ARTIFACT_ROOT / "project_links.json"
+    )
+    assert Path(os.environ["ATLAS_DATASET_LIBRARY_ROOT"]).resolve() == expected_root
+    assert Path(os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"]).resolve() == expected_backup_root
+    assert dataset_registry.ARTIFACT_ROOT.resolve() == expected_root
+    assert dataset_registry.REGISTRY_PATH.resolve() == expected_root / "registry.json"
+    assert dataset_registry.USERS_PATH.resolve() == expected_root / "users.json"
+    assert dataset_registry.PROJECT_LINKS_PATH.resolve() == expected_root / "project_links.json"
+
+
+def _bind_checkpoint_path() -> None:
+    """Keep this suite isolated even when ``server.main`` was imported first."""
+    expected = _CHECKPOINT_PATH.resolve()
+    os.environ["ATLAS_CHECKPOINT_PATH"] = str(expected)
+    checkpoint.CHECKPOINT_PATH = expected
+    assert Path(os.environ["ATLAS_CHECKPOINT_PATH"]).resolve() == expected
+    assert checkpoint.CHECKPOINT_PATH.resolve() == expected
+
+
+def _bind_isolated_runtime_paths() -> None:
+    """Rebind every import-time storage authority after pytest collection.
+
+    Pytest imports all selected modules before running ``setUpModule``.  A prior
+    suite can therefore leave ``server.main`` and its storage modules cached
+    while this module changes the environment.  Rebinding only the Dataset
+    Library and checkpoint paths is insufficient and can either trip the
+    fail-closed guards or target another suite's temporary files.
+    """
+    os.environ["ATLAS_SECURITY_ROOT"] = str(_SECURITY_DB_PATH.parent.resolve())
+    os.environ["ATLAS_SECURITY_DB_PATH"] = str(_SECURITY_DB_PATH.resolve())
+    os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH.resolve())
+    os.environ["ATLAS_EVIDENCE_ROOT"] = str(_EVIDENCE_ROOT.resolve())
+    os.environ["ATLAS_MODEL_REGISTRY_ARTIFACT_ROOT"] = str(_MODEL_ARTIFACT_ROOT.resolve())
+    os.environ["ATLAS_SCORING_RUN_ARTIFACT_ROOT"] = str(_SCORING_ARTIFACT_ROOT.resolve())
+    os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
+    security_store.SECURITY_ROOT = _SECURITY_DB_PATH.parent.resolve()
+    security_store.DB_PATH = _SECURITY_DB_PATH.resolve()
+    security_store.ATLAS_AUTH_ENABLED = True
+    security_store.ATLAS_ALLOW_PUBLIC_REGISTRATION = True
+    persistence_db._database = persistence_db.Database(_PERSISTENCE_DB_PATH)
+    persistence_service._service = None
+    evidence_store.EVIDENCE_ROOT = _EVIDENCE_ROOT.resolve()
+    evidence_store.ITEMS_ROOT = evidence_store.EVIDENCE_ROOT / "items"
+    evidence_store.REGISTRY_PATH = evidence_store.EVIDENCE_ROOT / "evidence_registry.json"
+    model_artifacts.ARTIFACT_ROOT = _MODEL_ARTIFACT_ROOT.resolve()
+    scoring_run_artifacts.ARTIFACT_ROOT = _SCORING_ARTIFACT_ROOT.resolve()
+    _bind_dataset_library_paths()
+    _bind_checkpoint_path()
+
+    assert security_store.DB_PATH == _SECURITY_DB_PATH.resolve()
+    assert persistence_db.get_database().path == _PERSISTENCE_DB_PATH.resolve()
+    assert evidence_store.EVIDENCE_ROOT == _EVIDENCE_ROOT.resolve()
+    assert model_artifacts.ARTIFACT_ROOT == _MODEL_ARTIFACT_ROOT.resolve()
+    assert scoring_run_artifacts.ARTIFACT_ROOT == _SCORING_ARTIFACT_ROOT.resolve()
+
+
+_bind_isolated_runtime_paths()
+
+
+def setUpModule() -> None:
+    _bind_isolated_runtime_paths()
 
 
 CLASS_TRAIN_ROWS = 170_884
@@ -62,6 +150,7 @@ CLASS_TRAIN_EVENT_RATE = 360 / 170_884
 
 
 def _cleanup() -> None:
+    checkpoint.flush_checkpoint()
     for base in (_SECURITY_DB_PATH, _PERSISTENCE_DB_PATH):
         for suffix in ("", "-wal", "-shm"):
             target = Path(f"{base}{suffix}")
@@ -72,8 +161,11 @@ def _cleanup() -> None:
                 except PermissionError:
                     if attempt < 24:
                         time.sleep(0.2)
-    checkpoint.CHECKPOINT_PATH.unlink(missing_ok=True)
+    _CHECKPOINT_PATH.unlink(missing_ok=True)
     shutil.rmtree(_EVIDENCE_ROOT, ignore_errors=True)
+    shutil.rmtree(_MODEL_ARTIFACT_ROOT, ignore_errors=True)
+    shutil.rmtree(_SCORING_ARTIFACT_ROOT, ignore_errors=True)
+    shutil.rmtree(_BACKUP_ROOT, ignore_errors=True)
 
 
 def _register(label: str) -> TestClient:
@@ -140,6 +232,23 @@ def _load_workspace(client: TestClient, project_id: str, frame: pd.DataFrame) ->
         "rows": frame.to_dict(orient="records"),
         "target": "Class",
         "selected_columns": [column for column in frame.columns if column != "Class"],
+    })
+    assert response.status_code == 200, response.text
+
+
+def _configure_governed_target(
+    client: TestClient,
+    project_id: str,
+    dataset_id: str,
+    version_id: str,
+) -> None:
+    """Bind the target to the exact activated Dataset Library version."""
+    response = client.post("/api/data/set_target", json={
+        "project_id": project_id,
+        "target": "Class",
+        "selected_columns": ["V4", "Amount"],
+        "expected_dataset_id": dataset_id,
+        "expected_dataset_version_id": version_id,
     })
     assert response.status_code == 200, response.text
 
@@ -314,7 +423,10 @@ class GovernedScopeEndpointTests(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls) -> None:
+        checkpoint.flush_checkpoint()
+        _CHECKPOINT_PATH.unlink(missing_ok=True)
         shutil.rmtree(_LIBRARY_ROOT, ignore_errors=True)
+        shutil.rmtree(_BACKUP_ROOT, ignore_errors=True)
 
     def setUp(self) -> None:
         self.client = _register("owner")
@@ -323,6 +435,12 @@ class GovernedScopeEndpointTests(unittest.TestCase):
         _load_workspace(self.client, self.project_id, self.frame)
         self.dataset_id, self.version_id = _register_dataset(
             self.client, self.project_id, self.frame, f"scope-asset-{uuid.uuid4().hex[:6]}"
+        )
+        _configure_governed_target(
+            self.client,
+            self.project_id,
+            self.dataset_id,
+            self.version_id,
         )
 
     def _governed_assessment(self):
@@ -346,39 +464,24 @@ class GovernedScopeEndpointTests(unittest.TestCase):
         self.assertEqual(scope["projectId"], self.project_id)
 
     # 2 / 4 ------------------------------------------------------------------
-    def test_workspace_upload_returns_draft_scope_without_inventing_identity(self):
+    def test_workspace_target_analysis_without_exact_identity_fails_closed(self):
+        draft_project = _create_project(self.client, "Draft Scope Project")
+        _load_workspace(self.client, draft_project, self.frame)
         response = self.client.post("/api/eda/workspace/target", json={
-            "project_id": self.project_id, "target": "Class", "event_value": 1, "problem_type": "classification",
+            "project_id": draft_project, "target": "Class", "event_value": 1, "problem_type": "classification",
         })
-        self.assertEqual(response.status_code, 200, response.text)
-        scope = response.json()["analysis_scope"]
-        self.assertEqual(scope["mode"], "workspace_draft")
-        self.assertIsNone(scope["datasetId"])
-        self.assertIsNone(scope["datasetVersionId"])
-        self.assertIsNone(scope["artifactChecksum"])
-        self.assertFalse(scope["evidenceEligible"])
-        self.assertFalse(scope["mddEligible"])
-        self.assertTrue(scope["datasetFingerprint"].startswith("wsfp_"))
-        self.assertIn("not tied to an immutable dataset version", scope["disclosure"])
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertIn("exact expected dataset_id", response.json()["detail"])
 
-    def test_workspace_target_by_predictor_is_draft_scoped(self):
+    def test_workspace_target_by_predictor_without_exact_identity_fails_closed(self):
+        draft_project = _create_project(self.client, "Draft Predictor Scope Project")
+        _load_workspace(self.client, draft_project, self.frame)
         response = self.client.post("/api/eda/target-by-predictor", json={
-            "project_id": self.project_id, "target": "Class", "event_value": 1,
+            "project_id": draft_project, "target": "Class", "event_value": 1,
             "predictor": "V4", "analysis_type": "numeric_quantile", "bands": 5,
         })
-        self.assertEqual(response.status_code, 200, response.text)
-        body = response.json()
-        self.assertEqual(body["analysisScope"]["mode"], "workspace_draft")
-        self.assertIsNone(body["datasetId"])
-        self.assertIsNone(body["versionId"])
-        self.assertEqual(
-            {row["targetClass"] for row in body["boxPlotByTarget"]},
-            {"event", "non_event"},
-        )
-        for row in body["boxPlotByTarget"]:
-            self.assertLessEqual(row["q1"], row["median"])
-            self.assertLessEqual(row["median"], row["q3"])
-            self.assertNotIn("values", row)
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertIn("exact expected dataset_id", response.json()["detail"])
 
     # 5 / 16 / 17 ------------------------------------------------------------
     def test_governed_evidence_save_succeeds_with_immutable_provenance(self):
@@ -474,8 +577,8 @@ class GovernedScopeEndpointTests(unittest.TestCase):
         response = self.client.post("/api/analytics/target-evidence", json={
             "projectId": other_project, "datasetId": self.dataset_id, "versionId": self.version_id, "target": "Class",
         })
-        self.assertEqual(response.status_code, 403, response.text)
-        self.assertIn("not linked to this project", response.json()["detail"])
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertIn("No exact registered Dataset Library version is active", response.json()["detail"])
 
     # 9 ---------------------------------------------------------------------
     def test_unauthorized_user_is_rejected(self):
@@ -507,35 +610,40 @@ class GovernedScopeEndpointTests(unittest.TestCase):
 
     # 10 / 11 ----------------------------------------------------------------
     def test_draft_finding_is_scoped_to_the_workspace_fingerprint(self):
-        workspace = self.client.post("/api/eda/workspace/target", json={
-            "project_id": self.project_id, "target": "Class", "event_value": 1, "problem_type": "classification",
-        }).json()
-        fingerprint = workspace["analysis_scope"]["datasetFingerprint"]
+        draft_project = _create_project(self.client, "Draft Finding Scope Project")
+        _load_workspace(self.client, draft_project, self.frame)
+        fingerprint = scope_module.workspace_fingerprint(
+            self.frame,
+            "Class",
+            {"source": "draft-finding-upload-a"},
+        )
 
         created = self.client.post("/api/analytics/target-findings", json={
-            "projectId": self.project_id, "workspaceFingerprint": fingerprint,
+            "projectId": draft_project, "workspaceFingerprint": fingerprint,
             "target": "Class", "title": "Draft observation on upload A",
         })
         self.assertEqual(created.status_code, 200, created.text)
         self.assertEqual(created.json()["finding"]["scopeMode"], "workspace_draft")
 
         same = self.client.get("/api/analytics/target-findings", params={
-            "projectId": self.project_id, "scopeMode": "workspace_draft",
+            "projectId": draft_project, "scopeMode": "workspace_draft",
             "workspaceFingerprint": fingerprint, "target": "Class",
         })
         self.assertEqual(len(same.json()["findings"]), 1)
 
         # 11 -- a replacement upload produces a different fingerprint, and the
         # earlier draft finding must not follow it.
-        _load_workspace(self.client, self.project_id, _frame(rows=700, event_every=25, seed=99))
-        replaced = self.client.post("/api/eda/workspace/target", json={
-            "project_id": self.project_id, "target": "Class", "event_value": 1, "problem_type": "classification",
-        }).json()
-        new_fingerprint = replaced["analysis_scope"]["datasetFingerprint"]
+        replacement_frame = _frame(rows=700, event_every=25, seed=99)
+        _load_workspace(self.client, draft_project, replacement_frame)
+        new_fingerprint = scope_module.workspace_fingerprint(
+            replacement_frame,
+            "Class",
+            {"source": "draft-finding-upload-b"},
+        )
         self.assertNotEqual(new_fingerprint, fingerprint)
 
         after = self.client.get("/api/analytics/target-findings", params={
-            "projectId": self.project_id, "scopeMode": "workspace_draft",
+            "projectId": draft_project, "scopeMode": "workspace_draft",
             "workspaceFingerprint": new_fingerprint, "target": "Class",
         })
         self.assertEqual(after.json()["findings"], [], "A previous upload's draft findings must not appear.")
@@ -614,45 +722,62 @@ class GovernedScopeEndpointTests(unittest.TestCase):
         self.assertIsNone(legacy[0]["versionId"])
 
     # 14 / 15 ----------------------------------------------------------------
-    def test_scope_transition_produces_a_different_result_identity(self):
+    def test_scope_transition_requires_exact_identity_before_governed_result(self):
+        draft_project = _create_project(self.client, "Draft Transition Scope Project")
+        _load_workspace(self.client, draft_project, self.frame)
         draft = self.client.post("/api/eda/workspace/target", json={
-            "project_id": self.project_id, "target": "Class", "event_value": 1, "problem_type": "classification",
-        }).json()
-        governed = self._governed_assessment().json()
-        self.assertNotEqual(
-            draft["scope_identity"], governed["scopeIdentity"],
-            "A draft result must never satisfy a governed request.",
-        )
-        self.assertEqual(draft["analysis_scope"]["mode"], "workspace_draft")
+            "project_id": draft_project, "target": "Class", "event_value": 1, "problem_type": "classification",
+        })
+        self.assertEqual(draft.status_code, 422, draft.text)
+        self.assertIn("exact expected dataset_id", draft.json()["detail"])
+
+        governed_response = self._governed_assessment()
+        self.assertEqual(governed_response.status_code, 200, governed_response.text)
+        governed = governed_response.json()
         self.assertEqual(governed["analysisScope"]["mode"], "governed_version")
         # 15 -- the governed figures come from the registered artifact, resolved
         # independently of the in-memory frame.
         self.assertEqual(governed["classBalance"]["totalModelingPopulation"], len(self.frame))
 
-    def test_scope_participates_in_the_predictor_cache_identity(self):
+    def test_target_by_predictor_fails_closed_without_current_development_split(self):
         governed = self.client.post("/api/analytics/target-by-predictor", json={
             "projectId": self.project_id, "datasetId": self.dataset_id, "versionId": self.version_id,
             "target": "Class", "predictor": "V4", "analysisType": "numeric_quantile", "eventValue": 1, "bands": 5,
-        }).json()
+        })
+        self.assertEqual(governed.status_code, 409, governed.text)
+        self.assertEqual(
+            governed.json()["detail"]["code"],
+            "eda_analytical_scope_not_current",
+        )
+
+        draft_project = _create_project(self.client, "Draft Cache Scope Project")
+        _load_workspace(self.client, draft_project, self.frame)
         draft = self.client.post("/api/eda/target-by-predictor", json={
-            "project_id": self.project_id, "target": "Class", "event_value": 1,
+            "project_id": draft_project, "target": "Class", "event_value": 1,
             "predictor": "V4", "analysis_type": "numeric_quantile", "bands": 5,
-        }).json()
-        self.assertNotEqual(governed["scopeIdentity"], draft["scopeIdentity"])
-        self.assertEqual(governed["analysisScope"]["mode"], "governed_version")
-        self.assertEqual(draft["analysisScope"]["mode"], "workspace_draft")
+        })
+        self.assertEqual(draft.status_code, 422, draft.text)
+        self.assertIn("exact expected dataset_id", draft.json()["detail"])
 
     # 18 ---------------------------------------------------------------------
     def test_no_filesystem_path_or_population_rows_reach_the_browser(self):
+        draft_project = _create_project(self.client, "Draft Bounded Response Project")
+        _load_workspace(self.client, draft_project, self.frame)
+        governed_assessment = self._governed_assessment()
+        draft_target = self.client.post("/api/eda/workspace/target", json={
+            "project_id": draft_project, "target": "Class", "event_value": 1, "problem_type": "classification",
+        })
+        governed_predictor = self.client.post("/api/analytics/target-by-predictor", json={
+            "projectId": self.project_id, "datasetId": self.dataset_id, "versionId": self.version_id,
+            "target": "Class", "predictor": "V4", "analysisType": "numeric_quantile", "eventValue": 1,
+        })
+        self.assertEqual(governed_assessment.status_code, 200, governed_assessment.text)
+        self.assertEqual(draft_target.status_code, 422, draft_target.text)
+        self.assertEqual(governed_predictor.status_code, 409, governed_predictor.text)
         payloads = [
-            self._governed_assessment().text,
-            self.client.post("/api/eda/workspace/target", json={
-                "project_id": self.project_id, "target": "Class", "event_value": 1, "problem_type": "classification",
-            }).text,
-            self.client.post("/api/analytics/target-by-predictor", json={
-                "projectId": self.project_id, "datasetId": self.dataset_id, "versionId": self.version_id,
-                "target": "Class", "predictor": "V4", "analysisType": "numeric_quantile", "eventValue": 1,
-            }).text,
+            governed_assessment.text,
+            draft_target.text,
+            governed_predictor.text,
         ]
         for body in payloads:
             lowered = body.lower()
@@ -663,31 +788,25 @@ class GovernedScopeEndpointTests(unittest.TestCase):
             self.assertLess(len(body), 60_000, "No response may approach population size.")
 
     # 23 ---------------------------------------------------------------------
-    def test_regression_target_receives_scope_without_classification_sections(self):
+    def test_regression_target_analysis_without_exact_identity_fails_closed(self):
+        regression_project = _create_project(self.client, "Draft Regression Scope Project")
         regression_frame = pd.DataFrame({
             "x1": np.arange(400, dtype=float),
             "x2": np.linspace(0, 5, 400),
             "y": np.linspace(10.0, 900.0, 400),
         })
         _load_workspace_regression = self.client.post("/api/data/set_sample", json={
-            "project_id": self.project_id, "headers": ["x1", "x2", "y"],
+            "project_id": regression_project, "headers": ["x1", "x2", "y"],
             "rows": regression_frame.to_dict(orient="records"),
             "target": "y", "selected_columns": ["x1", "x2"],
         })
         self.assertEqual(_load_workspace_regression.status_code, 200)
 
         response = self.client.post("/api/eda/workspace/target", json={
-            "project_id": self.project_id, "target": "y", "problem_type": "regression",
+            "project_id": regression_project, "target": "y", "problem_type": "regression",
         })
-        self.assertEqual(response.status_code, 200, response.text)
-        body = response.json()
-        # Scope contract applies.
-        self.assertEqual(body["analysis_scope"]["mode"], "workspace_draft")
-        self.assertFalse(body["analysis_scope"]["evidenceEligible"])
-        # Classification-only content is absent.
-        self.assertIsNone(body["full_population_assessment"])
-        self.assertEqual(body["problem_type"], "regression")
-        self.assertNotIn("event_count", body["profile"])
+        self.assertEqual(response.status_code, 422, response.text)
+        self.assertIn("exact expected dataset_id", response.json()["detail"])
 
     def test_draft_summary_export_is_marked_and_governed_export_is_not(self):
         draft = self.client.post("/api/analytics/target-summary-export", json={

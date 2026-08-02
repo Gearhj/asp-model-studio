@@ -1,0 +1,509 @@
+{
+  "dataset_id": "heloc-train",
+  "dataset_version_id": "heloc-contract-v1",
+  "definition_checksum": "d3fc4b30a1112b28fbd3de08ab792a8de0d2e1b07a7169f00047d1687a173c50",
+  "manifest": {
+    "confirmation_status": "required",
+    "confirmed_at": null,
+    "confirmed_manifest_hash": "",
+    "created_at": "2026-08-01T19:41:07.524531+00:00",
+    "dataset_id": "heloc-train",
+    "dataset_version": "heloc-contract-v1",
+    "dataset_version_id": "heloc-contract-v1",
+    "definition_checksum": "d3fc4b30a1112b28fbd3de08ab792a8de0d2e1b07a7169f00047d1687a173c50",
+    "execution_history": [
+      {
+        "detail": "Validated 5 feature definitions and 0 training-only pipeline steps.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "recorded_at": "2026-08-01T19:41:07.554541+00:00",
+        "stage": "validate_definitions",
+        "status": "passed"
+      },
+      {
+        "contract_changed": true,
+        "detail": "Saved the governed feature contract.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "previous_manifest_hash": "fm-66fb5ea33fa372b2",
+        "recorded_at": "2026-08-01T19:41:07.554541+00:00",
+        "stage": "save_manifest",
+        "status": "completed"
+      },
+      {
+        "detail": "Previewed 1 engineered features across 20 rows.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "preview_hash": "pv-5fa0f1b35ec42c93",
+        "recorded_at": "2026-08-01T19:41:07.638953+00:00",
+        "stage": "preview_features",
+        "status": "completed"
+      },
+      {
+        "detail": "Materialized 1 engineered features across 240 rows.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "materialization_hash": "mt-02fd340636237a3d",
+        "recorded_at": "2026-08-01T19:41:07.691570+00:00",
+        "stage": "materialize_full_dataset",
+        "status": "completed"
+      },
+      {
+        "detail": "Confirmed that the materialized dataset exactly matches the governed feature contract.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "materialization_hash": "mt-02fd340636237a3d",
+        "recorded_at": "2026-08-01T19:41:07.724250+00:00",
+        "stage": "confirm_feature_set",
+        "status": "completed"
+      },
+      {
+        "detail": "Validated 5 feature definitions and 0 training-only pipeline steps.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "recorded_at": "2026-08-01T20:07:11.665621+00:00",
+        "stage": "validate_definitions",
+        "status": "passed"
+      },
+      {
+        "contract_changed": false,
+        "detail": "Saved the governed feature contract.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "previous_manifest_hash": "fm-a05f43f2c924b4bc",
+        "recorded_at": "2026-08-01T20:07:11.665621+00:00",
+        "stage": "save_manifest",
+        "status": "completed"
+      },
+      {
+        "detail": "Previewed 1 engineered features across 20 rows.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "preview_hash": "pv-5fa0f1b35ec42c93",
+        "recorded_at": "2026-08-01T20:07:11.742043+00:00",
+        "stage": "preview_features",
+        "status": "completed"
+      },
+      {
+        "detail": "Materialized 1 engineered features across 240 rows.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "materialization_hash": "mt-02fd340636237a3d",
+        "recorded_at": "2026-08-01T20:07:11.798382+00:00",
+        "stage": "materialize_full_dataset",
+        "status": "completed"
+      },
+      {
+        "detail": "Confirmed that the materialized dataset exactly matches the governed feature contract.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "materialization_hash": "mt-02fd340636237a3d",
+        "recorded_at": "2026-08-01T20:07:11.832203+00:00",
+        "stage": "confirm_feature_set",
+        "status": "completed"
+      },
+      {
+        "detail": "Validated 5 feature definitions and 0 training-only pipeline steps.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "recorded_at": "2026-08-01T20:07:42.066455+00:00",
+        "stage": "validate_definitions",
+        "status": "passed"
+      },
+      {
+        "contract_changed": false,
+        "detail": "Saved the governed feature contract.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "previous_manifest_hash": "fm-a05f43f2c924b4bc",
+        "recorded_at": "2026-08-01T20:07:42.066455+00:00",
+        "stage": "save_manifest",
+        "status": "completed"
+      },
+      {
+        "detail": "Previewed 1 engineered features across 20 rows.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "preview_hash": "pv-5fa0f1b35ec42c93",
+        "recorded_at": "2026-08-01T20:07:42.145561+00:00",
+        "stage": "preview_features",
+        "status": "completed"
+      },
+      {
+        "detail": "Materialized 1 engineered features across 240 rows.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "materialization_hash": "mt-02fd340636237a3d",
+        "recorded_at": "2026-08-01T20:07:42.197216+00:00",
+        "stage": "materialize_full_dataset",
+        "status": "completed"
+      },
+      {
+        "detail": "Confirmed that the materialized dataset exactly matches the governed feature contract.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "materialization_hash": "mt-02fd340636237a3d",
+        "recorded_at": "2026-08-01T20:07:42.228200+00:00",
+        "stage": "confirm_feature_set",
+        "status": "completed"
+      },
+      {
+        "detail": "Validated 5 feature definitions and 0 training-only pipeline steps.",
+        "manifest_hash": "fm-f7f4cc4fbc556c64",
+        "recorded_at": "2026-08-01T20:07:42.293121+00:00",
+        "stage": "validate_definitions",
+        "status": "passed"
+      },
+      {
+        "contract_changed": true,
+        "detail": "Saved the governed feature contract.",
+        "manifest_hash": "fm-f7f4cc4fbc556c64",
+        "previous_manifest_hash": "fm-a05f43f2c924b4bc",
+        "recorded_at": "2026-08-01T20:07:42.293121+00:00",
+        "stage": "save_manifest",
+        "status": "completed"
+      },
+      {
+        "detail": "Validated 4 feature definitions and 0 training-only pipeline steps.",
+        "manifest_hash": "fm-66fb5ea33fa372b2",
+        "recorded_at": "2026-08-01T20:07:42.376524+00:00",
+        "stage": "validate_definitions",
+        "status": "passed"
+      },
+      {
+        "contract_changed": true,
+        "detail": "Saved the governed feature contract.",
+        "manifest_hash": "fm-66fb5ea33fa372b2",
+        "previous_manifest_hash": "fm-f7f4cc4fbc556c64",
+        "recorded_at": "2026-08-01T20:07:42.376524+00:00",
+        "stage": "save_manifest",
+        "status": "completed"
+      },
+      {
+        "detail": "Validated 5 feature definitions and 0 training-only pipeline steps.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "recorded_at": "2026-08-01T21:21:55.705176+00:00",
+        "stage": "validate_definitions",
+        "status": "passed"
+      },
+      {
+        "contract_changed": true,
+        "detail": "Saved the governed feature contract.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "previous_manifest_hash": "fm-66fb5ea33fa372b2",
+        "recorded_at": "2026-08-01T21:21:55.705176+00:00",
+        "stage": "save_manifest",
+        "status": "completed"
+      },
+      {
+        "detail": "Previewed 1 engineered features across 20 rows.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "preview_hash": "pv-5fa0f1b35ec42c93",
+        "recorded_at": "2026-08-01T21:21:55.756863+00:00",
+        "stage": "preview_features",
+        "status": "completed"
+      },
+      {
+        "detail": "Materialized 1 engineered features across 240 rows.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "materialization_hash": "mt-02fd340636237a3d",
+        "recorded_at": "2026-08-01T21:21:55.787299+00:00",
+        "stage": "materialize_full_dataset",
+        "status": "completed"
+      },
+      {
+        "detail": "Confirmed that the materialized dataset exactly matches the governed feature contract.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "materialization_hash": "mt-02fd340636237a3d",
+        "recorded_at": "2026-08-01T21:21:55.803919+00:00",
+        "stage": "confirm_feature_set",
+        "status": "completed"
+      },
+      {
+        "detail": "Validated 5 feature definitions and 0 training-only pipeline steps.",
+        "manifest_hash": "fm-f7f4cc4fbc556c64",
+        "recorded_at": "2026-08-01T21:21:55.837237+00:00",
+        "stage": "validate_definitions",
+        "status": "passed"
+      },
+      {
+        "contract_changed": true,
+        "detail": "Saved the governed feature contract.",
+        "manifest_hash": "fm-f7f4cc4fbc556c64",
+        "previous_manifest_hash": "fm-a05f43f2c924b4bc",
+        "recorded_at": "2026-08-01T21:21:55.837237+00:00",
+        "stage": "save_manifest",
+        "status": "completed"
+      },
+      {
+        "detail": "Validated 4 feature definitions and 0 training-only pipeline steps.",
+        "manifest_hash": "fm-66fb5ea33fa372b2",
+        "recorded_at": "2026-08-01T21:21:55.904858+00:00",
+        "stage": "validate_definitions",
+        "status": "passed"
+      },
+      {
+        "contract_changed": true,
+        "detail": "Saved the governed feature contract.",
+        "manifest_hash": "fm-66fb5ea33fa372b2",
+        "previous_manifest_hash": "fm-f7f4cc4fbc556c64",
+        "recorded_at": "2026-08-01T21:21:55.904858+00:00",
+        "stage": "save_manifest",
+        "status": "completed"
+      },
+      {
+        "detail": "Validated 5 feature definitions and 0 training-only pipeline steps.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "recorded_at": "2026-08-02T00:03:40.199133+00:00",
+        "stage": "validate_definitions",
+        "status": "passed"
+      },
+      {
+        "contract_changed": true,
+        "detail": "Saved the governed feature contract.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "previous_manifest_hash": "fm-66fb5ea33fa372b2",
+        "recorded_at": "2026-08-02T00:03:40.199133+00:00",
+        "stage": "save_manifest",
+        "status": "completed"
+      },
+      {
+        "detail": "Previewed 1 engineered features across 20 rows.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "preview_hash": "pv-5fa0f1b35ec42c93",
+        "recorded_at": "2026-08-02T00:03:40.260884+00:00",
+        "stage": "preview_features",
+        "status": "completed"
+      },
+      {
+        "detail": "Materialized 1 engineered features across 240 rows.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "materialization_hash": "mt-02fd340636237a3d",
+        "recorded_at": "2026-08-02T00:03:40.295410+00:00",
+        "stage": "materialize_full_dataset",
+        "status": "completed"
+      },
+      {
+        "detail": "Confirmed that the materialized dataset exactly matches the governed feature contract.",
+        "manifest_hash": "fm-a05f43f2c924b4bc",
+        "materialization_hash": "mt-02fd340636237a3d",
+        "recorded_at": "2026-08-02T00:03:40.320452+00:00",
+        "stage": "confirm_feature_set",
+        "status": "completed"
+      },
+      {
+        "detail": "Validated 5 feature definitions and 0 training-only pipeline steps.",
+        "manifest_hash": "fm-f7f4cc4fbc556c64",
+        "recorded_at": "2026-08-02T00:03:40.360119+00:00",
+        "stage": "validate_definitions",
+        "status": "passed"
+      },
+      {
+        "contract_changed": true,
+        "detail": "Saved the governed feature contract.",
+        "manifest_hash": "fm-f7f4cc4fbc556c64",
+        "previous_manifest_hash": "fm-a05f43f2c924b4bc",
+        "recorded_at": "2026-08-02T00:03:40.360119+00:00",
+        "stage": "save_manifest",
+        "status": "completed"
+      },
+      {
+        "detail": "Validated 4 feature definitions and 0 training-only pipeline steps.",
+        "manifest_hash": "fm-66fb5ea33fa372b2",
+        "recorded_at": "2026-08-02T00:03:40.423585+00:00",
+        "stage": "validate_definitions",
+        "status": "passed"
+      },
+      {
+        "contract_changed": true,
+        "detail": "Saved the governed feature contract.",
+        "manifest_hash": "fm-66fb5ea33fa372b2",
+        "previous_manifest_hash": "fm-f7f4cc4fbc556c64",
+        "recorded_at": "2026-08-02T00:03:40.423585+00:00",
+        "stage": "save_manifest",
+        "status": "completed"
+      }
+    ],
+    "features": [
+      {
+        "config": {},
+        "created_at": "2026-08-01T19:41:07.538316+00:00",
+        "created_by": "Data Acquisition",
+        "creation_status": "available",
+        "dataset_id": "heloc-train",
+        "dataset_version": "heloc-contract-v1",
+        "dataset_version_id": "heloc-contract-v1",
+        "display_name": "bureau_score",
+        "eligibility_status": "eligible",
+        "evidence_reference": null,
+        "exclusion_reason": "",
+        "feature_id": "original-5b12ed042ca0",
+        "feature_name": "bureau_score",
+        "formula_or_rule": "bureau_score",
+        "leakage_status": "reviewed",
+        "materialization_status": "source",
+        "origin": "original",
+        "output_datatype": "float64",
+        "pipeline_status": "not_applicable",
+        "profile_scope": "full_dataset",
+        "project_id": "validation-contract-test",
+        "selected": true,
+        "source_features": [
+          "bureau_score"
+        ],
+        "summary_statistics": {
+          "distinct_count": 120,
+          "maximum": 619.0,
+          "mean": 559.5,
+          "median": 559.5,
+          "minimum": 500.0,
+          "missing_count": 0,
+          "row_count": 240,
+          "standard_deviation": 34.63981331743384
+        },
+        "transformation_type": "source_column",
+        "transformation_version": "source-v1",
+        "user_rationale": ""
+      },
+      {
+        "config": {},
+        "created_at": "2026-08-01T19:41:07.540315+00:00",
+        "created_by": "Data Acquisition",
+        "creation_status": "available",
+        "dataset_id": "heloc-train",
+        "dataset_version": "heloc-contract-v1",
+        "dataset_version_id": "heloc-contract-v1",
+        "display_name": "trade_count",
+        "eligibility_status": "eligible",
+        "evidence_reference": null,
+        "exclusion_reason": "",
+        "feature_id": "original-74cf2751de3b",
+        "feature_name": "trade_count",
+        "formula_or_rule": "trade_count",
+        "leakage_status": "reviewed",
+        "materialization_status": "source",
+        "origin": "original",
+        "output_datatype": "float64",
+        "pipeline_status": "not_applicable",
+        "profile_scope": "full_dataset",
+        "project_id": "validation-contract-test",
+        "selected": true,
+        "source_features": [
+          "trade_count"
+        ],
+        "summary_statistics": {
+          "distinct_count": 18,
+          "maximum": 22.0,
+          "mean": 13.35,
+          "median": 13.0,
+          "minimum": 5.0,
+          "missing_count": 0,
+          "row_count": 240,
+          "standard_deviation": 5.214802648870489
+        },
+        "transformation_type": "source_column",
+        "transformation_version": "source-v1",
+        "user_rationale": ""
+      },
+      {
+        "config": {},
+        "created_at": "2026-08-01T19:41:07.541314+00:00",
+        "created_by": "Data Acquisition",
+        "creation_status": "available",
+        "dataset_id": "heloc-train",
+        "dataset_version": "heloc-contract-v1",
+        "dataset_version_id": "heloc-contract-v1",
+        "display_name": "account_group",
+        "eligibility_status": "excluded",
+        "evidence_reference": null,
+        "exclusion_reason": "Not selected in the governed predictor manifest",
+        "feature_id": "original-1827fbf86ce3",
+        "feature_name": "account_group",
+        "formula_or_rule": "account_group",
+        "leakage_status": "locked",
+        "materialization_status": "source",
+        "origin": "original",
+        "output_datatype": "object",
+        "pipeline_status": "not_applicable",
+        "profile_scope": "full_dataset",
+        "project_id": "validation-contract-test",
+        "selected": false,
+        "source_features": [
+          "account_group"
+        ],
+        "summary_statistics": {
+          "distinct_count": 120,
+          "maximum": null,
+          "mean": null,
+          "median": null,
+          "minimum": null,
+          "missing_count": 0,
+          "row_count": 240,
+          "standard_deviation": null
+        },
+        "transformation_type": "source_column",
+        "transformation_version": "source-v1",
+        "user_rationale": ""
+      },
+      {
+        "config": {},
+        "created_at": "2026-08-01T19:41:07.543313+00:00",
+        "created_by": "Data Acquisition",
+        "creation_status": "available",
+        "dataset_id": "heloc-train",
+        "dataset_version": "heloc-contract-v1",
+        "dataset_version_id": "heloc-contract-v1",
+        "display_name": "observation_date",
+        "eligibility_status": "excluded",
+        "evidence_reference": null,
+        "exclusion_reason": "Not selected in the governed predictor manifest",
+        "feature_id": "original-265ad6062b1c",
+        "feature_name": "observation_date",
+        "formula_or_rule": "observation_date",
+        "leakage_status": "locked",
+        "materialization_status": "source",
+        "origin": "original",
+        "output_datatype": "datetime64[ns]",
+        "pipeline_status": "not_applicable",
+        "profile_scope": "full_dataset",
+        "project_id": "validation-contract-test",
+        "selected": false,
+        "source_features": [
+          "observation_date"
+        ],
+        "summary_statistics": {
+          "distinct_count": 240,
+          "maximum": 1.6931808e+18,
+          "mean": 1.682856e+18,
+          "median": 1.682856e+18,
+          "minimum": 1.6725312e+18,
+          "missing_count": 0,
+          "row_count": 240,
+          "standard_deviation": 5985915629208283.0
+        },
+        "transformation_type": "source_column",
+        "transformation_version": "source-v1",
+        "user_rationale": ""
+      }
+    ],
+    "manifest_hash": "fm-66fb5ea33fa372b2",
+    "manifest_version": "fm-66fb5ea33fa372b2",
+    "materialization_hash": "mt-02fd340636237a3d",
+    "materialization_status": "stale",
+    "materialized_at": "2026-08-02T00:03:40.295410+00:00",
+    "materialized_manifest_hash": "fm-a05f43f2c924b4bc",
+    "ok": true,
+    "persistence_status": "persisted",
+    "pipeline_steps": [],
+    "predictor_authorization": {
+      "authorized_predictors": [
+        "bureau_score",
+        "trade_count"
+      ],
+      "excluded_predictors": {
+        "account_group": "Not selected in the governed predictor manifest",
+        "observation_date": "Not selected in the governed predictor manifest"
+      },
+      "selected_predictors": [
+        "bureau_score",
+        "trade_count"
+      ],
+      "target": "bad_flag",
+      "target_source_excluded": []
+    },
+    "preview_hash": "",
+    "project_id": "validation-contract-test",
+    "split_status": "not_created",
+    "updated_at": "2026-08-02T00:03:40.423585+00:00",
+    "validated_at": "2026-08-02T00:03:40.423585+00:00",
+    "validation_status": "passed"
+  },
+  "manifest_hash": "fm-66fb5ea33fa372b2",
+  "project_id": "validation-contract-test",
+  "updated_at": "2026-08-02T00:03:40.430582+00:00"
+}

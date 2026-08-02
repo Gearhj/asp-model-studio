@@ -1360,13 +1360,14 @@ export default function CorrelationExplorer({
         data-expanded={String(isExpanded)}
         data-view-mode={isExpanded ? "expanded" : matrixViewMode}
         data-testid="correlation-explorer"
+        data-analysis-scope="development_population"
       >
       <header className="rounded-t-2xl border-b border-slate-200 bg-slate-50/80 px-5 py-5 sm:px-6">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="max-w-2xl">
             <div className="mb-2 flex items-center gap-2">
               <span className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-blue-700">
-                Full-population matrix
+                Development Population matrix
               </span>
               <span className="text-xs font-medium text-slate-500">
                 Pearson correlation
@@ -1379,8 +1380,10 @@ export default function CorrelationExplorer({
               Correlation explorer
             </h3>
             <p className="mt-1 text-sm leading-6 text-slate-600">
-              Search, focus, and pin relationships without changing the governed
-              dataset. Ordering and thresholds affect this view and its export only.
+              Pearson correlations use pairwise-complete ordinary values from the
+              Development Population. Nulls and governed special values are excluded,
+              the sealed final holdout is never accessed, and view controls do not
+              change the governed dataset.
             </p>
           </div>
 
@@ -1676,11 +1679,13 @@ export default function CorrelationExplorer({
             aria-labelledby={`${chartId}-svg-title ${chartId}-svg-description`}
             data-testid="correlation-matrix-svg"
           >
-            <title id={`${chartId}-svg-title`}>Interactive correlation matrix</title>
+            <title id={`${chartId}-svg-title`}>Development Population correlation matrix</title>
             <desc id={`${chartId}-svg-description`}>
               {matchingColumns.length} by {matchingColumns.length} Pearson
-              correlation matrix. Use Tab to focus visible cells and Enter to pin
-              a pair. Exact values are also available in the data table below.
+              correlation matrix computed from pairwise-complete ordinary values
+              in the Development Population; the sealed final holdout is excluded.
+              Use Tab to focus visible cells and Enter to pin a pair. Exact values
+              are also available in the data table below.
             </desc>
             <g data-layer="matrix-root">
               <g data-layer="background" />
@@ -1859,9 +1864,10 @@ export default function CorrelationExplorer({
                 {pinnedDetail.pair.b}
               </h4>
               <p className="mt-1 max-w-3xl text-xs leading-5 text-slate-600">
-                Correlation uses pairwise complete observations. VIF values use
-                the separately disclosed bounded complete-case backend cohort;
-                “Not evaluated” means a feature was outside that cohort.
+                Correlation uses pairwise-complete Development Population observations.
+                VIF values use the separately disclosed development complete-case
+                backend cohort; the sealed final holdout is excluded. “Not evaluated”
+                means a feature was outside that cohort.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">

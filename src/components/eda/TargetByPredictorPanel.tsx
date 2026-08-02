@@ -74,9 +74,9 @@ function targetBoxPlotSeries(
 
 /**
  * Event rate per group as bars, event count as a companion line on a second
- * axis, and the population event rate as a reference line -- so a band cannot
+ * axis, and the Development Population event rate as a reference line -- so a band cannot
  * be read as "high risk" without also seeing how few events it holds and how
- * far it actually sits from the population baseline.
+ * far it actually sits from the Development Population baseline.
  */
 function buildOption(result: TargetByPredictorResult, reducedMotion: boolean): EChartsOption {
   const rows: TargetPredictorGroup[] = [
@@ -108,7 +108,7 @@ function buildOption(result: TargetByPredictorResult, reducedMotion: boolean): E
           `<strong>${groupLabel(row)}</strong>` +
           `<br/>Event rate: ${formatEventRate(row.eventRate)}` +
           `<br/>Events: ${row.eventCount.toLocaleString()}` +
-          `<br/>Population: ${row.population.toLocaleString()}` +
+          `<br/>Development rows: ${row.population.toLocaleString()}` +
           range +
           (row.smallGroup ? "<br/><em>Small group -- rate is unstable</em>" : "")
         );
@@ -147,7 +147,7 @@ function buildOption(result: TargetByPredictorResult, reducedMotion: boolean): E
               silent: true,
               symbol: "none",
               lineStyle: { color: REFERENCE_COLOR, type: "dashed" },
-              label: { formatter: `Population ${formatEventRate(reference)}`, fontSize: 10, color: REFERENCE_COLOR },
+              label: { formatter: `Development ${formatEventRate(reference)}`, fontSize: 10, color: REFERENCE_COLOR },
               data: [{ yAxis: reference }],
             }
           : undefined,
@@ -393,9 +393,14 @@ export default function TargetByPredictorPanel({
         <>
           <div className="rounded-lg border border-slate-200 bg-white p-4">
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-slate-900">
-                {result.target} event rate by {result.predictor}
-              </h3>
+              <div>
+                <h3 className="text-sm font-semibold text-slate-900">
+                  {result.target} event rate by {result.predictor}
+                </h3>
+                <p className="mt-1 text-xs text-slate-600" data-testid="target-predictor-result-scope">
+                  Development Population · target-directed analysis · sealed final holdout excluded
+                </p>
+              </div>
               <button
                 type="button"
                 className="atlas-secondary-button"
@@ -417,8 +422,8 @@ export default function TargetByPredictorPanel({
                 onChartReady={(instance) => {
                   chartRef.current = instance;
                 }}
-                ariaLabel={`Target by predictor chart. ${describeTargetByPredictor(result, formatEventRate)}`}
-                loadingMessage="Aggregating the governed dataset..."
+                ariaLabel={`Development Population target-by-predictor chart. ${describeTargetByPredictor(result, formatEventRate)} The sealed final holdout is excluded.`}
+                loadingMessage="Aggregating the Development Population..."
                 emptyMessage="Run an analysis to plot event rate by group."
                 errorMessage={state.error ?? "The analysis could not be rendered."}
               />
@@ -427,11 +432,11 @@ export default function TargetByPredictorPanel({
               <div className="mt-4">
                 <StatisticalBoxPlot
                   title={`${result.predictor} by ${result.target} class`}
-                  subtitle="Compare the predictor’s center, spread, whiskers, and outlier burden for the event and non-event populations."
+                  subtitle="Development Population comparison of the predictor’s center, spread, whiskers, and outlier burden for the event and non-event classes."
                   series={boxPlotSeries}
                   valueLabel={result.predictor}
                   dataTestId="target-predictor-box-plot"
-                  note="Quartiles, observed whiskers, extremes, and outlier counts are aggregated exactly on the server. Raw predictor and target values do not leave the governed analysis service."
+                  note="Quartiles, observed whiskers, extremes, and outlier counts are aggregated exactly on the server from the Development Population; the sealed final holdout is excluded. Raw predictor and target values do not leave the governed analysis service."
                 />
               </div>
             ) : null}
@@ -462,7 +467,7 @@ function GroupTable({ result }: { result: TargetByPredictorResult }) {
             <th className="px-3 py-2">Group</th>
             {result.analysisType === "numeric_quantile" ? <th className="px-3 py-2">Band range</th> : null}
             {result.analysisType === "numeric_quantile" ? <th className="px-3 py-2">Mean</th> : null}
-            <th className="px-3 py-2 text-right">Population</th>
+            <th className="px-3 py-2 text-right">Development rows</th>
             <th className="px-3 py-2 text-right">Events</th>
             <th className="px-3 py-2 text-right">Event rate</th>
             <th className="px-3 py-2">Note</th>

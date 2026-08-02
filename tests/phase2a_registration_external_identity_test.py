@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
 import uuid
@@ -23,19 +24,112 @@ import uuid
 
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_REPO_ROOT))
-_RUN_ID = uuid.uuid4().hex[:10]
-_LIBRARY_ROOT = (
-    _REPO_ROOT / ".tmp" / f"atlas_phase2a_registration_external_{_RUN_ID}"
-)
-os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(_LIBRARY_ROOT)
+_TEMP_PARENT = _REPO_ROOT / ".tmp"
+_TEMP_PARENT.mkdir(parents=True, exist_ok=True)
+_RUN_ID = uuid.uuid4().hex
+_TEST_ROOT = (
+    _TEMP_PARENT / f"atlas_phase2a_registration_external_{_RUN_ID}"
+).resolve()
+_SECURITY_ROOT = _TEST_ROOT / "security"
+_SECURITY_DB = _SECURITY_ROOT / "atlas_security.db"
+_PERSISTENCE_DB = _TEST_ROOT / "persistence" / "atlas_local.db"
+_CHECKPOINT_PATH = _TEST_ROOT / "checkpoint" / "workflow_checkpoint.json"
+_LIBRARY_ROOT = _TEST_ROOT / "dataset-library"
+_SYSTEM_TEMP_ROOT = Path(tempfile.gettempdir()).resolve()
+_LIBRARY_BACKUP_ROOT = (
+    _SYSTEM_TEMP_ROOT / f"atlas_phase2a_dataset_backups_{_RUN_ID}"
+).resolve()
+_EVIDENCE_ROOT = _TEST_ROOT / "evidence"
+_MODEL_ARTIFACT_ROOT = _TEST_ROOT / "model-registry"
+_SCORING_ARTIFACT_ROOT = _TEST_ROOT / "scoring-runs"
+_ISOLATED_ENVIRONMENT = {
+    "ATLAS_TEST_MODE": "1",
+    "ATLAS_SECURITY_ROOT": str(_SECURITY_ROOT),
+    "ATLAS_SECURITY_DB_PATH": str(_SECURITY_DB),
+    "ATLAS_SQLITE_PATH": str(_PERSISTENCE_DB),
+    "ATLAS_CHECKPOINT_PATH": str(_CHECKPOINT_PATH),
+    "ATLAS_DATASET_LIBRARY_ROOT": str(_LIBRARY_ROOT),
+    "ATLAS_DATASET_LIBRARY_BACKUP_ROOT": str(_LIBRARY_BACKUP_ROOT),
+    "ATLAS_EVIDENCE_ROOT": str(_EVIDENCE_ROOT),
+    "ATLAS_MODEL_REGISTRY_ARTIFACT_ROOT": str(_MODEL_ARTIFACT_ROOT),
+    "ATLAS_SCORING_RUN_ARTIFACT_ROOT": str(_SCORING_ARTIFACT_ROOT),
+}
+os.environ.update(_ISOLATED_ENVIRONMENT)
 
 import pandas as pd  # noqa: E402
 from fastapi import HTTPException, UploadFile  # noqa: E402
 
+from server.core import session_checkpoint  # noqa: E402
 from server.core.dataset_store import DatasetStore  # noqa: E402
 from server.datasets import dataset_registry, dataset_router  # noqa: E402
+from server.evidence import evidence_store  # noqa: E402
 import server.main as main_module  # noqa: E402
+from server.model_registry import model_artifacts  # noqa: E402
+from server.persistence import db as persistence_db  # noqa: E402
+from server.persistence import service as persistence_service  # noqa: E402
+from server.scoring_runs import scoring_run_artifacts  # noqa: E402
+from server.security import security_store  # noqa: E402
 from server.splitting import split_router  # noqa: E402
+
+
+_CHECKED_IN_MUTABLE_ROOTS = tuple(
+    path.resolve()
+    for path in (
+        _REPO_ROOT / ".runtime",
+        _REPO_ROOT / "server" / "data",
+        _REPO_ROOT / "server" / "artifacts" / "datasets",
+        _REPO_ROOT / "server" / "artifacts" / "security",
+        _REPO_ROOT / "server" / "artifacts" / "evidence",
+        _REPO_ROOT / "server" / "artifacts" / "model_registry",
+        _REPO_ROOT / "server" / "artifacts" / "scoring_runs",
+    )
+)
+
+
+def _assert_isolated_path(path: Path, label: str) -> None:
+    resolved = Path(path).expanduser().resolve()
+    allowed_roots = (_TEST_ROOT, _LIBRARY_BACKUP_ROOT)
+    if not any(
+        resolved == root or root in resolved.parents
+        for root in allowed_roots
+    ):
+        raise AssertionError(f"{label} escaped the suite-owned temporary root: {resolved}")
+    for forbidden in _CHECKED_IN_MUTABLE_ROOTS:
+        if resolved == forbidden or forbidden in resolved.parents:
+            raise AssertionError(f"{label} targets checked-in runtime state: {resolved}")
+
+
+def _rebind_isolated_runtime() -> None:
+    """Defeat Python module-cache/import-order leakage in combined test runs."""
+    os.environ.update(_ISOLATED_ENVIRONMENT)
+
+    dataset_registry.ARTIFACT_ROOT = _LIBRARY_ROOT
+    dataset_registry.REGISTRY_PATH = _LIBRARY_ROOT / "registry.json"
+    dataset_registry.USERS_PATH = _LIBRARY_ROOT / "users.json"
+    dataset_registry.PROJECT_LINKS_PATH = _LIBRARY_ROOT / "project_links.json"
+    session_checkpoint.CHECKPOINT_PATH = _CHECKPOINT_PATH
+    evidence_store.EVIDENCE_ROOT = _EVIDENCE_ROOT
+    evidence_store.ITEMS_ROOT = _EVIDENCE_ROOT / "items"
+    evidence_store.REGISTRY_PATH = _EVIDENCE_ROOT / "evidence_registry.json"
+    model_artifacts.ARTIFACT_ROOT = _MODEL_ARTIFACT_ROOT
+    scoring_run_artifacts.ARTIFACT_ROOT = _SCORING_ARTIFACT_ROOT
+    security_store.SECURITY_ROOT = _SECURITY_ROOT
+    security_store.DB_PATH = _SECURITY_DB
+    persistence_db._database = persistence_db.Database(_PERSISTENCE_DB)
+    persistence_service._service = None
+
+    for label, path in (
+        ("security root", security_store.SECURITY_ROOT),
+        ("security database", security_store.DB_PATH),
+        ("persistence database", persistence_db.get_database().path),
+        ("checkpoint", session_checkpoint.CHECKPOINT_PATH),
+        ("dataset library", dataset_registry.ARTIFACT_ROOT),
+        ("dataset library backups", _LIBRARY_BACKUP_ROOT),
+        ("evidence root", evidence_store.EVIDENCE_ROOT),
+        ("model artifact root", model_artifacts.ARTIFACT_ROOT),
+        ("scoring artifact root", scoring_run_artifacts.ARTIFACT_ROOT),
+    ):
+        _assert_isolated_path(path, label)
 
 
 OWNER = {
@@ -99,16 +193,53 @@ def _created_dataset_payload() -> dict[str, object]:
     }
 
 
+def _durable_activation_payload() -> dict[str, object]:
+    return {
+        "link": {
+            "project_id": PROJECT_ID,
+            "dataset_id": "dataset-created",
+            "link_status": "linked",
+            "metadata_json": {
+                "datasetRole": "development",
+                "requestedDatasetVersionId": "v-created-exact",
+            },
+        },
+        "active_selection": {
+            "project_id": PROJECT_ID,
+            "dataset_id": "dataset-created",
+            "dataset_version_id": "v-created-exact",
+            "activation_revision": 1,
+            "activation_status": "active",
+        },
+    }
+
+
 class Phase2ARegistrationAndExternalIdentityTests(unittest.TestCase):
     @classmethod
     def tearDownClass(cls) -> None:
-        shutil.rmtree(_LIBRARY_ROOT, ignore_errors=True)
+        shutil.rmtree(_TEST_ROOT, ignore_errors=True)
+        if _LIBRARY_BACKUP_ROOT.parent == _SYSTEM_TEMP_ROOT:
+            shutil.rmtree(_LIBRARY_BACKUP_ROOT, ignore_errors=True)
 
     def setUp(self) -> None:
+        _rebind_isolated_runtime()
         shutil.rmtree(_LIBRARY_ROOT, ignore_errors=True)
         dataset_registry.ensure_store()
         dataset_registry.save_registry({"datasets": []})
         dataset_registry.save_links({"links": []})
+
+    def test_mutable_runtime_bindings_never_target_checked_in_roots(self) -> None:
+        for label, path in (
+            ("security database", security_store.DB_PATH),
+            ("persistence database", persistence_db.get_database().path),
+            ("checkpoint", session_checkpoint.CHECKPOINT_PATH),
+            ("dataset registry", dataset_registry.REGISTRY_PATH),
+            ("project links", dataset_registry.PROJECT_LINKS_PATH),
+            ("evidence registry", evidence_store.REGISTRY_PATH),
+            ("model artifact root", model_artifacts.ARTIFACT_ROOT),
+            ("scoring artifact root", scoring_run_artifacts.ARTIFACT_ROOT),
+        ):
+            _assert_isolated_path(path, label)
 
     def _seed_registered_dataset(
         self,
@@ -335,6 +466,11 @@ class Phase2ARegistrationAndExternalIdentityTests(unittest.TestCase):
                 "dataset_version_id": "v-created-exact",
             }
         )
+        activation_repository = Mock()
+        activation_repository.activate_exact.return_value = (
+            _durable_activation_payload()
+        )
+        persistence = Mock(project_dataset_activations=activation_repository)
         with (
             patch.object(
                 dataset_router,
@@ -354,8 +490,13 @@ class Phase2ARegistrationAndExternalIdentityTests(unittest.TestCase):
             ),
             patch.object(
                 dataset_router,
-                "resolve_project_dataset_identity",
+                "resolve_registered_version",
                 resolve,
+            ),
+            patch.object(
+                dataset_router,
+                "get_persistence_service",
+                return_value=persistence,
             ),
             patch.object(
                 dataset_router,
@@ -372,10 +513,20 @@ class Phase2ARegistrationAndExternalIdentityTests(unittest.TestCase):
             )
 
         resolve.assert_called_once_with(
-            PROJECT_ID,
             "dataset-created",
             "v-created-exact",
             user=OWNER,
+        )
+        activation_repository.activate_exact.assert_called_once_with(
+            project_id=PROJECT_ID,
+            dataset_id="dataset-created",
+            dataset_version_id="v-created-exact",
+            actor_user_id=OWNER["userId"],
+            metadata={
+                "datasetRole": "development",
+                "requestedDatasetVersionId": "v-created-exact",
+                "source": "workspace_registration",
+            },
         )
         self.assertEqual(
             response["created_dataset_version_id"],
@@ -438,6 +589,11 @@ class Phase2ARegistrationAndExternalIdentityTests(unittest.TestCase):
                 "dataset_version_id": "v-created-exact",
             }
         )
+        activation_repository = Mock()
+        activation_repository.activate_exact.return_value = (
+            _durable_activation_payload()
+        )
+        persistence = Mock(project_dataset_activations=activation_repository)
         endpoint = next(
             route.endpoint
             for route in main_module.app.routes
@@ -459,8 +615,13 @@ class Phase2ARegistrationAndExternalIdentityTests(unittest.TestCase):
             patch.object(main_module, "link_project", link),
             patch.object(
                 main_module,
-                "resolve_project_dataset_identity",
+                "resolve_registered_version",
                 resolve,
+            ),
+            patch.object(
+                main_module,
+                "get_persistence_service",
+                return_value=persistence,
             ),
             patch.object(
                 main_module,
@@ -479,10 +640,20 @@ class Phase2ARegistrationAndExternalIdentityTests(unittest.TestCase):
             "development",
         )
         resolve.assert_called_once_with(
-            PROJECT_ID,
             "dataset-created",
             "v-created-exact",
             user=OWNER,
+        )
+        activation_repository.activate_exact.assert_called_once_with(
+            project_id=PROJECT_ID,
+            dataset_id="dataset-created",
+            dataset_version_id="v-created-exact",
+            actor_user_id=OWNER["userId"],
+            metadata={
+                "datasetRole": "development",
+                "requestedDatasetVersionId": "v-created-exact",
+                "source": "data_acquisition_upload",
+            },
         )
         self.assertEqual(
             response["created_dataset_version_id"],

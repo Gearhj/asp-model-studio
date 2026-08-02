@@ -44,10 +44,12 @@ _SECURITY_DB_PATH = _TEST_DATA_ROOT / f"atlas_dataset_lifecycle_security_{_RUN_I
 _PERSISTENCE_DB_PATH = _TEST_DATA_ROOT / f"atlas_dataset_lifecycle_persistence_{_RUN_ID}.db"
 _CHECKPOINT_PATH = _TEST_DATA_ROOT / f"atlas_dataset_lifecycle_checkpoint_{_RUN_ID}.json"
 _LIBRARY_ROOT = Path(tempfile.mkdtemp(prefix=f"atlas_dataset_lifecycle_library_{_RUN_ID}_"))
+_BACKUP_ROOT = Path(tempfile.mkdtemp(prefix=f"atlas_dataset_lifecycle_backups_{_RUN_ID}_"))
 os.environ["ATLAS_SECURITY_DB_PATH"] = str(_SECURITY_DB_PATH)
 os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH)
 os.environ["ATLAS_CHECKPOINT_PATH"] = str(_CHECKPOINT_PATH)
 os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(_LIBRARY_ROOT)
+os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(_BACKUP_ROOT)
 os.environ.setdefault("ATLAS_AUTH_ENABLED", "true")
 os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
 
@@ -63,7 +65,46 @@ import server.core.session_checkpoint as checkpoint  # noqa: E402
 from server.datasets import dataset_registry  # noqa: E402
 
 
+def _bind_dataset_library_paths() -> None:
+    """Rebind every cached registry path to this suite's owned root."""
+    expected_root = _LIBRARY_ROOT.resolve()
+    expected_backup_root = _BACKUP_ROOT.resolve()
+    os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(expected_root)
+    os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(expected_backup_root)
+    dataset_registry.ARTIFACT_ROOT = expected_root
+    dataset_registry.REGISTRY_PATH = dataset_registry.ARTIFACT_ROOT / "registry.json"
+    dataset_registry.USERS_PATH = dataset_registry.ARTIFACT_ROOT / "users.json"
+    dataset_registry.PROJECT_LINKS_PATH = (
+        dataset_registry.ARTIFACT_ROOT / "project_links.json"
+    )
+    assert Path(os.environ["ATLAS_DATASET_LIBRARY_ROOT"]).resolve() == expected_root
+    assert Path(os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"]).resolve() == expected_backup_root
+    assert dataset_registry.ARTIFACT_ROOT.resolve() == expected_root
+    assert dataset_registry.REGISTRY_PATH.resolve() == expected_root / "registry.json"
+    assert dataset_registry.USERS_PATH.resolve() == expected_root / "users.json"
+    assert dataset_registry.PROJECT_LINKS_PATH.resolve() == expected_root / "project_links.json"
+
+
+def _bind_checkpoint_path() -> None:
+    """Keep this suite isolated even when ``server.main`` was imported first."""
+    expected = _CHECKPOINT_PATH.resolve()
+    os.environ["ATLAS_CHECKPOINT_PATH"] = str(expected)
+    checkpoint.CHECKPOINT_PATH = expected
+    assert Path(os.environ["ATLAS_CHECKPOINT_PATH"]).resolve() == expected
+    assert checkpoint.CHECKPOINT_PATH.resolve() == expected
+
+
+_bind_dataset_library_paths()
+_bind_checkpoint_path()
+
+
+def setUpModule() -> None:
+    _bind_dataset_library_paths()
+    _bind_checkpoint_path()
+
+
 def _cleanup_db_files() -> None:
+    checkpoint.flush_checkpoint()
     for base in (_SECURITY_DB_PATH, _PERSISTENCE_DB_PATH):
         for suffix in ("", "-wal", "-shm"):
             target = Path(f"{base}{suffix}")
@@ -74,7 +115,8 @@ def _cleanup_db_files() -> None:
                 except PermissionError:
                     if attempt < 24:
                         time.sleep(0.2)
-    checkpoint.CHECKPOINT_PATH.unlink(missing_ok=True)
+    _CHECKPOINT_PATH.unlink(missing_ok=True)
+    shutil.rmtree(_BACKUP_ROOT, ignore_errors=True)
 
 
 def _register(label: str) -> tuple[TestClient, str]:

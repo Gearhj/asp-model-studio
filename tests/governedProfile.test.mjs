@@ -17,7 +17,9 @@ const TMP_DIR = fileURLToPath(new URL("../.tmp/governed-profile-tests", import.m
 
 async function transpile(sourcePath, outputName) {
   const source = await readFile(new URL(sourcePath, ROOT), "utf8");
-  const patched = source.replace(/import\.meta\.env\?\.\w+ as string \| undefined/g, "undefined");
+  const patched = source
+    .replace(/import\.meta\.env\?\.\w+ as string \| undefined/g, "undefined")
+    .replace('from "./datasetIdentity";', 'from "./datasetIdentity.js";');
   const output = ts.transpileModule(patched, {
     compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
   }).outputText;
@@ -28,6 +30,7 @@ async function transpile(sourcePath, outputName) {
 }
 
 await rm(TMP_DIR, { recursive: true, force: true });
+await transpile("src/lib/datasetIdentity.ts", "datasetIdentity.js");
 const lib = await transpile("src/lib/governedProfile.ts", "governedProfile.js");
 const lifecycle = await transpile("src/lib/dataAcquisitionLifecycle.ts", "dataAcquisitionLifecycle.js");
 
@@ -136,7 +139,16 @@ test("duplicate renders issue one active request per identity", async () => {
   globalThis.fetch = async () => {
     calls += 1;
     await gate;
-    return { ok: true, json: async () => ({ ok: true, predictors: [], analysisScope: { mode: "governed_version" } }) };
+    return {
+      ok: true,
+      json: async () => ({
+        ok: true,
+        datasetId: "d",
+        datasetVersionId: "v",
+        predictors: [],
+        analysisScope: { mode: "governed_version", projectId: "p" },
+      }),
+    };
   };
   const request = { projectId: "p", datasetId: "d", versionId: "v", target: "Class" };
   const promises = [lib.fetchTargetProfile(request), lib.fetchTargetProfile(request), lib.fetchTargetProfile(request)];

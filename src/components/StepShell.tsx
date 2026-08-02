@@ -1,9 +1,16 @@
-import React, { useState } from "react";
+import React, { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { AlertTriangle } from "lucide-react";
-import { saveActiveProjectBeforeNavigation } from "../lib/localProjects";
+import { createSnapshotFromState, saveActiveProjectBeforeNavigation } from "../lib/localProjects";
+import { saveWorkflowStateToDatabase } from "../lib/serverPersistence";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import {
+  resolveWorkflowActionBarBounds,
+  workflowActionBarClearance,
+  type WorkflowActionBarBounds,
+} from "../lib/workflowActionBarLayout";
 import StepPythonPanel from "./StepPythonPanel";
+import ErrorBoundary from "./ErrorBoundary";
 import {
   AtlasWorkflowHero,
   type AtlasWorkflowMetric,
@@ -67,6 +74,8 @@ type Props = {
   showEmbeddedNext?: boolean;
   /** Pin the workflow action to the viewport instead of placing it after long page content. */
   nextAlwaysVisible?: boolean;
+  /** Require the exact completed workflow snapshot to be durably accepted before navigation. */
+  nextRequireDurableWorkflowSave?: boolean;
 };
 
 export default function StepShell({
@@ -94,16 +103,81 @@ export default function StepShell({
   showDeveloperTools = true,
   showEmbeddedNext = false,
   nextAlwaysVisible = false,
+  nextRequireDurableWorkflowSave = false,
 }: Props) {
   const navigate = useNavigate();
   const location = useLocation();
   const markComplete = useWorkflowStore((state) => state.markComplete);
   const getNextStepPath = useWorkflowStore((state) => state.getNextStepPath);
   const [navigationError, setNavigationError] = useState<string | null>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
+  const workflowBarRef = useRef<HTMLDivElement>(null);
+  const [workflowBarBounds, setWorkflowBarBounds] = useState<WorkflowActionBarBounds | null>(null);
+  const [workflowBarBottomClearance, setWorkflowBarBottomClearance] = useState(144);
   const hideEmbeddedNext = location.pathname === "/credit-risk-studio" && !showEmbeddedNext;
   const workflowBarClassName = nextAlwaysVisible
-    ? "fixed bottom-3 left-3 right-3 z-50 rounded-lg border border-slate-200 bg-white/95 p-2 shadow-xl shadow-slate-900/15 backdrop-blur-xl sm:p-3 lg:left-[17rem] lg:right-6"
+    ? "fixed bottom-3 z-50 rounded-lg border border-slate-200 bg-white/95 p-2 shadow-xl shadow-slate-900/15 backdrop-blur-xl sm:p-3"
     : "sticky bottom-2 z-10 mt-8 rounded-lg border border-slate-200 bg-white/95 p-2 shadow-lg shadow-slate-900/10 backdrop-blur-xl sm:bottom-3 sm:p-3";
+
+  useLayoutEffect(() => {
+    if (!nextAlwaysVisible || hideEmbeddedNext) {
+      setWorkflowBarBounds(null);
+      return undefined;
+    }
+
+    const shell = shellRef.current;
+    const workflowBar = workflowBarRef.current;
+    if (!shell || !workflowBar) return undefined;
+
+    let animationFrame = 0;
+    const measure = () => {
+      const shellRect = shell.getBoundingClientRect();
+      const nextBounds = resolveWorkflowActionBarBounds(shellRect, window.innerWidth);
+      setWorkflowBarBounds((current) => (
+        current && current.left === nextBounds.left && current.width === nextBounds.width
+          ? current
+          : nextBounds
+      ));
+
+      const nextClearance = workflowActionBarClearance(workflowBar.getBoundingClientRect().height);
+      setWorkflowBarBottomClearance((current) => current === nextClearance ? current : nextClearance);
+    };
+    const scheduleMeasure = () => {
+      window.cancelAnimationFrame(animationFrame);
+      animationFrame = window.requestAnimationFrame(measure);
+    };
+
+    const resizeObserver = typeof ResizeObserver === "undefined"
+      ? null
+      : new ResizeObserver(scheduleMeasure);
+    let ancestor: HTMLElement | null = shell;
+    while (ancestor) {
+      resizeObserver?.observe(ancestor);
+      ancestor = ancestor.parentElement;
+    }
+    resizeObserver?.observe(workflowBar);
+    window.addEventListener("resize", scheduleMeasure);
+    window.visualViewport?.addEventListener("resize", scheduleMeasure);
+    measure();
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", scheduleMeasure);
+      window.visualViewport?.removeEventListener("resize", scheduleMeasure);
+    };
+  }, [hideEmbeddedNext, nextAlwaysVisible]);
+
+  const workflowBarStyle: CSSProperties | undefined = nextAlwaysVisible
+    ? {
+        left: workflowBarBounds?.left ?? 12,
+        width: workflowBarBounds?.width ?? "calc(100vw - 24px)",
+        maxWidth: "calc(100vw - 24px)",
+      }
+    : undefined;
+  const shellStyle: CSSProperties | undefined = nextAlwaysVisible && !hideEmbeddedNext
+    ? { paddingBottom: workflowBarBottomClearance }
+    : undefined;
 
   const handleNext = async () => {
     setNavigationError(null);
@@ -116,8 +190,27 @@ export default function StepShell({
       const currentStep = workflowStepId ?? location.pathname.replace("/", "");
       let targetPath = nextPath;
       if (/^step(?:0[0-9]|1[0-3])$/.test(currentStep) || currentStep === "step01b" || currentStep === "dashboard") {
-        markComplete(currentStep as Parameters<typeof markComplete>[0]);
         targetPath = targetPath ?? getNextStepPath(currentStep as Parameters<typeof markComplete>[0]);
+        if (nextRequireDurableWorkflowSave) {
+          const snapshot = createSnapshotFromState(useWorkflowStore.getState());
+          const targetStep = snapshot.workflowSteps.find(
+            (step) => step.route === targetPath || step.id === targetPath?.replace(/^\//, ""),
+          );
+          const completedSnapshot = {
+            ...snapshot,
+            currentStepId: targetStep?.id ?? snapshot.currentStepId,
+            workflowSteps: snapshot.workflowSteps.map((step) =>
+              step.id === currentStep ? { ...step, status: "complete" as const } : step,
+            ),
+          };
+          const persisted = await saveWorkflowStateToDatabase(completedSnapshot);
+          if (!persisted) {
+            throw new Error(
+              "ATLAS confirmed the feature contract, but could not durably record Feature Engineering completion. Retry to continue; no duplicate materialization will be created.",
+            );
+          }
+        }
+        markComplete(currentStep as Parameters<typeof markComplete>[0]);
       }
 
       const saveResult = saveActiveProjectBeforeNavigation(useWorkflowStore.getState());
@@ -137,7 +230,11 @@ export default function StepShell({
   };
 
   return (
-    <div className={`w-full space-y-5 ${hideEmbeddedNext ? "" : nextAlwaysVisible ? "pb-36" : "pb-28"}`}>
+    <div
+      ref={shellRef}
+      className={`w-full space-y-5 ${hideEmbeddedNext ? "" : nextAlwaysVisible ? "pb-36" : "pb-28"}`}
+      style={shellStyle}
+    >
       {!hideHeader && (title || subtitle) ? (
         <AtlasWorkflowHero
           eyebrow={eyebrow}
@@ -163,10 +260,29 @@ export default function StepShell({
         </div>
       )}
 
-      {showDeveloperTools ? <StepPythonPanel /> : null}
+      {showDeveloperTools ? (
+        <ErrorBoundary
+          title="Code & Reproducibility is temporarily unavailable."
+          resetKey={`${useWorkflowStore.getState().projectId}:${location.pathname}`}
+          fallback={(
+            <section className="atlas-card border-amber-200 bg-amber-50 text-sm text-amber-950" data-testid="step-python-panel-safe-fallback">
+              <div className="font-semibold">Code & Reproducibility is disabled for this page.</div>
+              <p className="mt-1">The primary workflow remains available. Reload the route after its governed dataset identity is verified.</p>
+            </section>
+          )}
+        >
+          <StepPythonPanel />
+        </ErrorBoundary>
+      ) : null}
 
       {!hideEmbeddedNext && (
-        <div data-testid={nextFooterTestId ?? "workflow-next-bar"} className={workflowBarClassName}>
+        <div
+          ref={workflowBarRef}
+          data-testid={nextFooterTestId ?? "workflow-next-bar"}
+          data-workflow-action-scope={nextAlwaysVisible ? "main-content-column" : "document-flow"}
+          className={workflowBarClassName}
+          style={workflowBarStyle}
+        >
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div className="hidden min-w-0 sm:block">
               <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">

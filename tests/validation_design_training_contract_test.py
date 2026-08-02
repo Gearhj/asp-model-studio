@@ -6,7 +6,10 @@ import sys
 import tempfile
 import unittest
 import uuid
+from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 import pandas as pd
 
@@ -20,6 +23,7 @@ os.environ.setdefault(
 )
 
 from server.core.dataset_store import DATASTORE  # noqa: E402
+from server.datasets import dataset_identity as dataset_identity_module  # noqa: E402
 from server.features.feature_service import (  # noqa: E402
     confirm_manifest,
     delete_feature,
@@ -40,6 +44,118 @@ from server.splitting.split_service import split_service  # noqa: E402
 from server.training.training_job_types import TrainingJobRequest  # noqa: E402
 from server.training.training_preflight_service import training_preflight  # noqa: E402
 from server.training.trainer import train_models  # noqa: E402
+
+
+@contextmanager
+def exact_registered_identity(identity: dict[str, str]):
+    """Resolve only the synthetic Dataset Library pair owned by this test."""
+    expected = {
+        "project_id": str(identity["project_id"]),
+        "dataset_id": str(identity["dataset_id"]),
+        "dataset_version_id": str(identity["dataset_version_id"]),
+    }
+    calls: list[dict[str, object]] = []
+
+    def resolve(
+        project_id: object,
+        dataset_id: object,
+        dataset_version_id: object,
+        *,
+        user: dict | None = None,
+        require_artifact: bool = True,
+    ) -> dict[str, object]:
+        observed = {
+            "project_id": str(project_id),
+            "dataset_id": str(dataset_id),
+            "dataset_version_id": str(dataset_version_id),
+        }
+        if observed != expected:
+            raise AssertionError(
+                "Production requested a different Dataset Library identity: "
+                f"expected {expected!r}, observed {observed!r}."
+            )
+        if require_artifact is not True:
+            raise AssertionError(
+                "The validation contract must resolve the exact immutable "
+                "Dataset Library artifact."
+            )
+        calls.append(
+            {
+                **observed,
+                "user": user,
+                "require_artifact": require_artifact,
+            }
+        )
+        return {
+            **observed,
+            "dataset": {
+                "datasetId": expected["dataset_id"],
+                "archived": False,
+            },
+            "version": {
+                "versionId": expected["dataset_version_id"],
+                "label": expected["dataset_version_id"],
+            },
+            "artifact_path": Path(__file__).resolve(),
+            "dataset_version_label": expected["dataset_version_id"],
+            "dataset_content_hash": "test-content-hash",
+            "dataset_schema_hash": "test-schema-hash",
+            "dataset_source_type": "test_fixture",
+            "project_link": {
+                "projectId": expected["project_id"],
+                "datasetId": expected["dataset_id"],
+                "versionId": expected["dataset_version_id"],
+            },
+            "active_selection": {
+                "project_id": expected["project_id"],
+                "dataset_id": expected["dataset_id"],
+                "dataset_version_id": expected["dataset_version_id"],
+                "activation_revision": 1,
+                "activation_status": "active",
+            },
+            "activation_revision": 1,
+        }
+
+    def assert_expected(
+        project_id: object,
+        *,
+        expected_dataset_id: object = "",
+        expected_dataset_version_id: object = "",
+        legacy_dataset_version: object = "",
+        require_expected: bool = False,
+        user: dict | None = None,
+        **_kwargs: object,
+    ) -> dict[str, object]:
+        dataset_id = str(expected_dataset_id or "")
+        version_id = str(expected_dataset_version_id or legacy_dataset_version or "")
+        if require_expected and (not dataset_id or not version_id):
+            raise AssertionError(
+                "The test caller omitted the exact expected Dataset Library identity."
+            )
+        return resolve(
+            project_id,
+            dataset_id,
+            version_id,
+            user=user,
+            require_artifact=True,
+        )
+
+    with (
+        patch.object(
+            dataset_identity_module,
+            "resolve_project_dataset_identity",
+            side_effect=resolve,
+        ),
+        patch(
+            "server.features.feature_service.assert_expected_active_identity",
+            side_effect=assert_expected,
+        ),
+        patch(
+            "server.training.training_preflight_service.assert_expected_active_identity",
+            side_effect=assert_expected,
+        ),
+    ):
+        yield calls
 
 
 def development_frame(rows: int = 240, imbalanced: bool = False) -> pd.DataFrame:
@@ -86,15 +202,54 @@ def split_config(
 
 
 class FeatureExecutionContractTests(unittest.TestCase):
+    def setUp(self):
+        isolation_root = (
+            Path(__file__).resolve().parents[1] / ".tmp" / "test-isolation"
+        )
+        isolation_root.mkdir(parents=True, exist_ok=True)
+        self._manifest_root = tempfile.TemporaryDirectory(
+            prefix="atlas-validation-feature-manifests-",
+            dir=isolation_root,
+        )
+        self.addCleanup(self._manifest_root.cleanup)
+        self._manifest_root_scope = patch.dict(
+            os.environ,
+            {"ATLAS_FEATURE_MANIFEST_ROOT": self._manifest_root.name},
+        )
+        self._manifest_root_scope.start()
+        self.addCleanup(self._manifest_root_scope.stop)
+        self.expected_identity = {
+            "project_id": "validation-contract-test",
+            "dataset_id": "heloc-train",
+            "dataset_version_id": "heloc-contract-v1",
+        }
+        self._identity_scope = exact_registered_identity(
+            self.expected_identity
+        )
+        self.identity_resolutions = self._identity_scope.__enter__()
+        self.addCleanup(
+            self._identity_scope.__exit__,
+            None,
+            None,
+            None,
+        )
+
     def tearDown(self):
         DATASTORE.reset_all()
 
     def test_preview_materialize_confirm_and_stale_hash_contract(self):
         frame = development_frame()
+        identity = self.expected_identity
         DATASTORE.reset_all()
         DATASTORE.set_raw(frame)
         DATASTORE.set_target("bad_flag")
+        DATASTORE.meta.update(identity)
+        DATASTORE.meta["dataset_identity_status"] = "current"
         DATASTORE.meta["dataset_version"] = "heloc-contract-v1"
+        DATASTORE.meta["source"] = {
+            "kind": "dataset_library",
+            "datasetId": identity["dataset_id"],
+        }
         DATASTORE.meta["selected_columns"] = ["bureau_score", "trade_count"]
         engineered = FeatureDefinitionInput(
             feature_id="feature-bureau-trades",
@@ -109,18 +264,36 @@ class FeatureExecutionContractTests(unittest.TestCase):
         manifest = update_manifest(
             FeatureManifestUpdateRequest(
                 project_id="validation-contract-test",
+                dataset_id=identity["dataset_id"],
+                dataset_version_id=identity["dataset_version_id"],
                 dataset_version="heloc-contract-v1",
                 features=[engineered],
             )
         )
         self.assertEqual(manifest["validation_status"], "passed")
         with self.assertRaisesRegex(ValueError, "Preview"):
-            materialize_manifest(manifest["manifest_hash"], "")
+            materialize_manifest(
+                manifest["manifest_hash"],
+                "",
+                project_id=identity["project_id"],
+                expected_dataset_id=identity["dataset_id"],
+                expected_dataset_version_id=identity["dataset_version_id"],
+            )
 
-        preview = preview_features([engineered], 20, manifest["manifest_hash"])
+        preview = preview_features(
+            [engineered],
+            20,
+            manifest["manifest_hash"],
+            project_id=identity["project_id"],
+            expected_dataset_id=identity["dataset_id"],
+            expected_dataset_version_id=identity["dataset_version_id"],
+        )
         materialized = materialize_manifest(
             manifest["manifest_hash"],
             preview["preview_hash"],
+            project_id=identity["project_id"],
+            expected_dataset_id=identity["dataset_id"],
+            expected_dataset_version_id=identity["dataset_version_id"],
         )
         self.assertEqual(
             materialized["manifest_hash"],
@@ -129,6 +302,9 @@ class FeatureExecutionContractTests(unittest.TestCase):
         confirmed = confirm_manifest(
             manifest["manifest_hash"],
             materialized["materialization_hash"],
+            project_id=identity["project_id"],
+            expected_dataset_id=identity["dataset_id"],
+            expected_dataset_version_id=identity["dataset_version_id"],
         )
         self.assertEqual(confirmed["confirmation_status"], "confirmed")
         self.assertEqual(
@@ -140,13 +316,15 @@ class FeatureExecutionContractTests(unittest.TestCase):
             update={
                 "origin": "arithmetic",
                 "transformation_type": "arithmetic",
-                "formula_or_rule": "bureau_score + trade_count",
-                "config": {"operation": "add"},
+                "formula_or_rule": "bureau_score * trade_count",
+                "config": {"operation": "multiply"},
             }
         )
         stale = update_manifest(
             FeatureManifestUpdateRequest(
                 project_id="validation-contract-test",
+                dataset_id=identity["dataset_id"],
+                dataset_version_id=identity["dataset_version_id"],
                 dataset_version="heloc-contract-v1",
                 features=[changed],
             )
@@ -157,11 +335,22 @@ class FeatureExecutionContractTests(unittest.TestCase):
         removed = delete_feature(
             "feature-bureau-trades",
             "validation-contract-test",
+            expected_dataset_id=identity["dataset_id"],
+            expected_dataset_version_id=identity["dataset_version_id"],
         )
         self.assertFalse(
             any(
                 row.get("feature_id") == "feature-bureau-trades"
                 for row in removed["features"]
+            )
+        )
+        self.assertGreaterEqual(len(self.identity_resolutions), 7)
+        self.assertTrue(
+            all(
+                call["dataset_id"] == identity["dataset_id"]
+                and call["dataset_version_id"]
+                == identity["dataset_version_id"]
+                for call in self.identity_resolutions
             )
         )
 
@@ -270,10 +459,38 @@ class ValidationStrategyTests(unittest.TestCase):
 
 
 class TrainingAndDocumentationContractTests(unittest.TestCase):
+    def setUp(self):
+        self.expected_identity = {
+            "project_id": "validation-contract-test",
+            "dataset_id": "heloc-train",
+            "dataset_version_id": "heloc-validation-v1",
+        }
+        self._identity_scope = exact_registered_identity(
+            self.expected_identity
+        )
+        self.identity_resolutions = self._identity_scope.__enter__()
+        self.addCleanup(
+            self._identity_scope.__exit__,
+            None,
+            None,
+            None,
+        )
+        self.governance_repository = Mock()
+        self.governance_repository.get_holdout_exposure_for_partition.return_value = None
+        self._persistence_scope = patch(
+            "server.training.training_preflight_service.get_persistence_service",
+            return_value=SimpleNamespace(
+                holdout_governance=self.governance_repository
+            ),
+        )
+        self._persistence_scope.start()
+        self.addCleanup(self._persistence_scope.stop)
+
     def tearDown(self):
         DATASTORE.reset_all()
 
     def _configure_approved_design(self):
+        identity = self.expected_identity
         frame = development_frame()
         result = split_service.make_validation_split(
             frame,
@@ -290,10 +507,16 @@ class TrainingAndDocumentationContractTests(unittest.TestCase):
             result.y_train,
             result.y_test,
         )
+        DATASTORE.meta.update(identity)
+        DATASTORE.meta["dataset_identity_status"] = "current"
         DATASTORE.meta["dataset_version"] = "heloc-validation-v1"
-        DATASTORE.meta["source"] = {"datasetId": "heloc-train"}
+        DATASTORE.meta["source"] = {
+            "kind": "dataset_library",
+            "datasetId": identity["dataset_id"],
+        }
         DATASTORE.meta["split_status"] = "current"
         DATASTORE.meta["feature_manifest"] = {
+            **identity,
             "manifest_version": "fm-heloc-v1",
             "manifest_hash": "fm-heloc-v1",
             "dataset_version": "heloc-validation-v1",
@@ -316,9 +539,15 @@ class TrainingAndDocumentationContractTests(unittest.TestCase):
             "pipeline_steps": [],
         }
         validation_design = {
+            **identity,
             "validation_design_id": "validation-design-heloc",
             "design_version": "validation-design-v1",
+            "feature_manifest_hash": "fm-heloc-v1",
             "development_dataset_version": "heloc-validation-v1",
+            "development_dataset": {
+                "dataset_id": identity["dataset_id"],
+                "dataset_version_id": identity["dataset_version_id"],
+            },
             "strategy": "hybrid",
             "status": "approved",
         }
@@ -337,6 +566,7 @@ class TrainingAndDocumentationContractTests(unittest.TestCase):
         }
         DATASTORE.meta["validation_design"] = validation_design
         DATASTORE.meta["split_record"] = {
+            **identity,
             "split_id": "split-heloc-v1",
             "dataset_version": "heloc-validation-v1",
             "feature_manifest_version": "fm-heloc-v1",
@@ -356,10 +586,16 @@ class TrainingAndDocumentationContractTests(unittest.TestCase):
             "balancing_policy": {
                 "method": "none",
                 "scope": "training_population_only",
+                "selection_resampling_status": "not_applied",
             },
             "evaluation_population_role": "untouched_holdout",
             "training_population_id": "train-pop-heloc-v1",
+            "selection_partition_id": "train-pop-heloc-v1",
             "holdout_population_id": "holdout-pop-heloc-v1",
+            "final_holdout_partition_id": "holdout-pop-heloc-v1",
+            "fold_definition_id": "fold-definition-heloc-v1",
+            "final_holdout_status": "sealed",
+            "holdout_isolation_status": "verified",
         }
         return validation_design
 
@@ -367,6 +603,7 @@ class TrainingAndDocumentationContractTests(unittest.TestCase):
         return TrainingJobRequest(
             project_id="validation-contract-test",
             dataset_id="heloc-train",
+            dataset_version_id="heloc-validation-v1",
             dataset_version="heloc-validation-v1",
             target="bad_flag",
             event_value=1,
@@ -412,6 +649,16 @@ class TrainingAndDocumentationContractTests(unittest.TestCase):
             current["cross_validation_compatibility"]["execution_fold_count"],
             5,
         )
+        self.assertEqual(len(self.identity_resolutions), 2)
+        self.assertTrue(
+            all(
+                call["project_id"] == self.expected_identity["project_id"]
+                and call["dataset_id"] == self.expected_identity["dataset_id"]
+                and call["dataset_version_id"]
+                == self.expected_identity["dataset_version_id"]
+                for call in self.identity_resolutions
+            )
+        )
 
     def test_grid_search_executes_exact_approved_fold_positions(self):
         frame = development_frame()
@@ -430,14 +677,18 @@ class TrainingAndDocumentationContractTests(unittest.TestCase):
         ]
         result = train_models(
             X_train=split.X_train,
-            X_test=split.X_test,
             y_train=split.y_train,
-            y_test=split.y_test,
             requested_models=["logreg"],
             grid_search=True,
             grid_search_level="quick",
             cv_folds=5,
             cv_splits=exact_splits,
+            primary_metric="roc_auc",
+            positive_class=1,
+            selection_partition_id="train-pop-grid-search",
+            fold_definition_id="fold-definition-grid-search",
+            selection_created_at="2026-07-31T12:00:00+00:00",
+            balancing_status="not_applied",
         )
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["summary"]["ranked"][0]["key"], "logreg")
@@ -445,21 +696,42 @@ class TrainingAndDocumentationContractTests(unittest.TestCase):
             result["summary"]["ranked"][0].get("best_score")
         )
 
+    def test_training_preflight_fails_closed_after_durable_holdout_exposure(self):
+        self._configure_approved_design()
+        self.governance_repository.get_holdout_exposure_for_partition.return_value = {
+            "holdout_exposure_id": "holdout-exposure-existing",
+            "final_holdout_status": "evaluated",
+        }
+        result = training_preflight(self._request(5))
+        self.assertFalse(result["ready"])
+        self.assertEqual(result["durable_holdout_exposure_check"], "verified")
+        self.assertEqual(
+            result["durable_holdout_exposure_status"], "evaluated"
+        )
+        self.assertTrue(
+            any(
+                "already has a durable exposure record (evaluated)" in message
+                for message in result["blocking_errors"]
+            )
+        )
+
     def test_mdd_stale_state_follows_design_training_and_decision_bindings(self):
         design = self._configure_approved_design()
+        identity = self.expected_identity
         manifest_doc = _feature_documentation(
             DATASTORE.meta["feature_manifest"],
-            "heloc-validation-v1",
+            identity,
         )
         validation_doc = _validation_documentation(
             design,
             DATASTORE.meta["split_record"],
             manifest_doc,
-            "heloc-validation-v1",
+            identity,
         )
         self.assertEqual(manifest_doc["status"], "confirmed")
         self.assertEqual(validation_doc["status"], "confirmed")
         execution = {
+            **identity,
             "training_job_id": "train-job-heloc-v1",
             "status": "complete",
             "candidate_strategy": "transparent_baseline",
@@ -480,6 +752,7 @@ class TrainingAndDocumentationContractTests(unittest.TestCase):
             },
         }
         decision = {
+            **identity,
             "training_job_id": "train-job-heloc-v1",
             "validation_design_version": "validation-design-v1",
             "feature_manifest_version": "fm-heloc-v1",
@@ -492,6 +765,7 @@ class TrainingAndDocumentationContractTests(unittest.TestCase):
             decision,
             manifest_doc,
             validation_doc,
+            identity,
         )
         self.assertEqual(training_doc["status"], "confirmed")
         self.assertEqual(training_doc["tuning_policy"]["folds"], 5)
@@ -501,6 +775,7 @@ class TrainingAndDocumentationContractTests(unittest.TestCase):
             stale_decision,
             manifest_doc,
             validation_doc,
+            identity,
         )
         self.assertEqual(stale_doc["status"], "stale")
         self.assertTrue(

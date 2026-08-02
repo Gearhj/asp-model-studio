@@ -27,6 +27,9 @@ export type TargetPredictorPreviewRow = {
 export type TargetPredictorPreviewPayload = {
   scope?: string;
   population_rows?: number;
+  analysis_population_id?: string;
+  split_id?: string;
+  final_holdout_accessed?: boolean;
   predictor_limit?: number;
   shape_limit?: number;
   candidate_count?: number;
@@ -58,7 +61,7 @@ export function TargetBalanceConfidenceVisual({
         className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-600"
         data-testid="target-balance-confidence-empty"
       >
-        Target balance is unavailable until the governed full-population aggregate resolves.
+        Target balance is unavailable until the Full Governed Population aggregate resolves.
       </div>
     );
   }
@@ -256,7 +259,9 @@ export function TargetQualityDiagnostic({
             Target quality diagnostic
           </div>
           <p className="mt-1 text-xs leading-5 text-slate-600">
-            Is the target analytically trustworthy? Each diagnostic uses the full backend population.
+            Governed mixed scope: completeness, unexpected values, and duplicate-row
+            counts use the Full Governed Population; target-derived and post-outcome
+            candidate checks use the Development Population with the final holdout excluded.
           </p>
         </div>
         <span
@@ -325,11 +330,12 @@ export function TargetPredictorPreview({
             Event-rate by predictor preview
           </div>
           <p className="mt-1 text-xs leading-5 text-slate-600">
-            Top five server-authorized predictors by IV, ranked from one batched full-population aggregate.
+            Top five server-authorized predictors by IV from the Development Population.
+            Target-directed IV, event rates, and shape summaries exclude the sealed final holdout.
           </p>
         </div>
         <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-indigo-800">
-          {formatCount(preview?.population_rows)} governed rows
+          Development Population · {formatCount(preview?.population_rows)} rows
         </span>
       </div>
 
@@ -370,7 +376,7 @@ export function TargetPredictorPreview({
                 data-testid="inspect-target-predictor"
                 onClick={() => onInspect(row)}
               >
-                Inspect full analysis
+                Inspect detailed analysis
               </button>
             </article>
           ))}
@@ -385,6 +391,7 @@ export function TargetPredictorPreview({
       )}
 
       <p className="mt-3 text-[11px] leading-4 text-slate-500">
+        Development-only signal; final holdout accessed: {preview?.final_holdout_accessed ? "yes" : "no"}.
         High IV is a review signal, not automatic leakage. {targetSourceExcluded.length ? `${targetSourceExcluded.join(", ")} remains excluded as a deterministic target source.` : ""}
       </p>
     </section>

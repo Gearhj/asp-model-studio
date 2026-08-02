@@ -8,7 +8,18 @@ from .documentation_repository import DocumentationRepository
 from .evidence_repository import EvidenceRepository
 from .experimental_design_repository import ExperimentalDesignRepository
 from .export_repository import ExportRepository
+from .holdout_governance_repository import (
+    HoldoutGovernanceConflictError,
+    HoldoutGovernanceNotFoundError,
+    HoldoutGovernanceRepository,
+    HoldoutGovernanceStateError,
+)
 from .project_repository import ProjectRepository
+from .project_dataset_activation_repository import (
+    ProjectDatasetActivationConflictError,
+    ProjectDatasetActivationRepository,
+    ProjectDatasetActivationStateError,
+)
 from .run_repository import RunRepository
 from .scoring_run_repository import ScoringRunRepository
 from .sharing_repository import SharingRepository
@@ -30,7 +41,14 @@ __all__ = [
     "DocumentationRepository",
     "EvidenceRepository",
     "ExportRepository",
+    "HoldoutGovernanceConflictError",
+    "HoldoutGovernanceNotFoundError",
+    "HoldoutGovernanceRepository",
+    "HoldoutGovernanceStateError",
     "ProjectRepository",
+    "ProjectDatasetActivationConflictError",
+    "ProjectDatasetActivationRepository",
+    "ProjectDatasetActivationStateError",
     "RunRepository",
     "ScoringRunRepository",
     "SharingRepository",

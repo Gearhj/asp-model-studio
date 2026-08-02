@@ -1,0 +1,75 @@
+{
+  "dataset_id": "heloc-train",
+  "dataset_version_id": "heloc-contract-v1",
+  "definition_checksum": "d3fc4b30a1112b28fbd3de08ab792a8de0d2e1b07a7169f00047d1687a173c50",
+  "features": [
+    {
+      "config": {},
+      "display_name": "bureau_score",
+      "exclusion_reason": "",
+      "feature_id": "original-5b12ed042ca0",
+      "feature_name": "bureau_score",
+      "formula_or_rule": "bureau_score",
+      "origin": "original",
+      "output_datatype": "float64",
+      "selected": true,
+      "source_features": [
+        "bureau_score"
+      ],
+      "transformation_type": "source_column",
+      "user_rationale": ""
+    },
+    {
+      "config": {},
+      "display_name": "trade_count",
+      "exclusion_reason": "",
+      "feature_id": "original-74cf2751de3b",
+      "feature_name": "trade_count",
+      "formula_or_rule": "trade_count",
+      "origin": "original",
+      "output_datatype": "float64",
+      "selected": true,
+      "source_features": [
+        "trade_count"
+      ],
+      "transformation_type": "source_column",
+      "user_rationale": ""
+    },
+    {
+      "config": {},
+      "display_name": "account_group",
+      "exclusion_reason": "Not selected in the governed predictor manifest",
+      "feature_id": "original-1827fbf86ce3",
+      "feature_name": "account_group",
+      "formula_or_rule": "account_group",
+      "origin": "original",
+      "output_datatype": "object",
+      "selected": false,
+      "source_features": [
+        "account_group"
+      ],
+      "transformation_type": "source_column",
+      "user_rationale": ""
+    },
+    {
+      "config": {},
+      "display_name": "observation_date",
+      "exclusion_reason": "Not selected in the governed predictor manifest",
+      "feature_id": "original-265ad6062b1c",
+      "feature_name": "observation_date",
+      "formula_or_rule": "observation_date",
+      "origin": "original",
+      "output_datatype": "datetime64[ns]",
+      "selected": false,
+      "source_features": [
+        "observation_date"
+      ],
+      "transformation_type": "source_column",
+      "user_rationale": ""
+    }
+  ],
+  "manifest_hash": "fm-66fb5ea33fa372b2",
+  "persisted_at": "2026-08-01T20:07:42.393224+00:00",
+  "pipeline_steps": [],
+  "project_id": "validation-contract-test"
+}

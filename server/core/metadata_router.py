@@ -348,6 +348,8 @@ def get_active_identity(
 ) -> Dict[str, Any]:
     authorize_modeling_scope(user, project_id, "view")
     identity = active_dataset_identity(project_id, user=user)
+    link = identity.get("project_link") or {}
+    selection = identity.get("active_selection") or {}
     return {
         "ok": True,
         "project_id": identity["project_id"],
@@ -357,6 +359,25 @@ def get_active_identity(
         "dataset_content_hash": identity.get("dataset_content_hash"),
         "dataset_schema_hash": identity.get("dataset_schema_hash"),
         "dataset_source_type": identity.get("dataset_source_type"),
+        "activation_revision": identity.get("activation_revision"),
+        "link": {
+            "project_id": link.get("project_id"),
+            "dataset_id": link.get("dataset_id"),
+            "link_status": link.get("link_status"),
+            "linked_by": link.get("linked_by"),
+            "linked_at": link.get("linked_at"),
+            "updated_at": link.get("updated_at"),
+        },
+        "active_selection": {
+            "project_id": selection.get("project_id"),
+            "dataset_id": selection.get("dataset_id"),
+            "dataset_version_id": selection.get("dataset_version_id"),
+            "activation_revision": selection.get("activation_revision"),
+            "activation_status": selection.get("activation_status"),
+            "activated_by": selection.get("activated_by"),
+            "activated_at": selection.get("activated_at"),
+            "updated_at": selection.get("updated_at"),
+        },
     }
 
 

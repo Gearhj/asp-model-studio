@@ -81,10 +81,12 @@ async function compileTestModules() {
   await transpileSource("src/lib/authSession.ts", path.join(TMP_DIR, "src/lib/authSession.js"));
   await transpileSource("src/lib/localDataset.ts", path.join(TMP_DIR, "src/lib/localDataset.js"));
   await transpileSource("src/lib/localProjects.ts", path.join(TMP_DIR, "src/lib/localProjects.js"));
+  await transpileSource("src/lib/projectRegistryLoadState.ts", path.join(TMP_DIR, "src/lib/projectRegistryLoadState.js"));
   return {
     localProjects: await import(pathToFileURL(path.join(TMP_DIR, "src/lib/localProjects.js")).href),
     persistence: await import(pathToFileURL(path.join(TMP_DIR, "src/lib/projectPersistence.js")).href),
     projectImportValidation: await import(pathToFileURL(path.join(TMP_DIR, "src/lib/projectImportValidation.js")).href),
+    projectRegistryLoadState: await import(pathToFileURL(path.join(TMP_DIR, "src/lib/projectRegistryLoadState.js")).href),
     workflows: await import(pathToFileURL(path.join(TMP_DIR, "src/config/workflows.js")).href),
   };
 }
@@ -129,9 +131,29 @@ function experimentalSnapshot(overrides = {}) {
   };
 }
 
+function registryProject(projectId, projectName = projectId) {
+  return { projectId, projectName };
+}
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function httpError(status) {
+  const error = new Error(`HTTP ${status}`);
+  error.status = status;
+  return error;
+}
+
 test("/projects/open route is registered", async () => {
   const source = await readFile(new URL("../src/apps/ModelingApp.tsx", import.meta.url), "utf8");
-  assert.match(source, /<Route\s+path="\/projects\/open"\s+element=\{<OpenProject\s*\/>\}/);
+  assert.match(source, /<Route[\s\S]{0,120}path="\/projects\/open"[\s\S]{0,360}<OpenProject/);
 });
 
 test("Open Project navigation targets are absolute", async () => {
@@ -331,4 +353,277 @@ test("import validation errors are returned inline-style and do not throw", () =
   const validation = modules.projectImportValidation.validateProjectImport({ not: "a project" });
   assert.equal(validation.ok, false);
   assert.equal(validation.errors.length > 0, true);
+});
+
+test("project registry 1: a successful project response produces the rendered list state", async () => {
+  const controller = modules.projectRegistryLoadState.createProjectRegistryLoadController({
+    loadProjects: async () => [registryProject("project-success", "Successful Project")],
+  });
+  const state = await controller.load();
+  const source = await readFile(new URL("../src/steps/ProjectUtilityPages.tsx", import.meta.url), "utf8");
+  assert.equal(state.status, "success");
+  assert.equal(state.projects[0].projectName, "Successful Project");
+  assert.equal(state.error, null);
+  assert.match(source, /data-testid="project-registry-list"/);
+  assert.match(source, /registryLoadState\.status === "success"/);
+});
+
+test("project registry 2: 132 valid records never produce the obsolete backend-unavailable state", async () => {
+  const projects = Array.from({ length: 132 }, (_, index) => registryProject(`project-${index + 1}`));
+  const controller = modules.projectRegistryLoadState.createProjectRegistryLoadController({
+    loadProjects: async () => projects,
+  });
+  const state = await controller.load();
+  const source = await readFile(new URL("../src/steps/ProjectUtilityPages.tsx", import.meta.url), "utf8");
+  assert.equal(state.status, "success");
+  assert.equal(state.projects.length, 132);
+  assert.equal(state.error, null);
+  assert.doesNotMatch(source, /Backend project registry unavailable/);
+});
+
+test("project registry 3: two duplicate successful requests cannot create an error", async () => {
+  const gates = [];
+  const controller = modules.projectRegistryLoadState.createProjectRegistryLoadController({
+    loadProjects: async () => {
+      const gate = deferred();
+      gates.push(gate);
+      return gate.promise;
+    },
+  });
+  const older = controller.load();
+  const newer = controller.load();
+  gates[1].resolve([registryProject("newer-success")]);
+  await newer;
+  gates[0].resolve([registryProject("older-success")]);
+  await older;
+  const state = controller.getState();
+  assert.equal(state.status, "success");
+  assert.equal(state.projects[0].projectId, "newer-success");
+  assert.equal(state.error, null);
+});
+
+test("project registry 4: a successful retry clears the prior failure", async () => {
+  let attempt = 0;
+  const controller = modules.projectRegistryLoadState.createProjectRegistryLoadController({
+    loadProjects: async () => {
+      attempt += 1;
+      if (attempt === 1) throw new TypeError("Failed to fetch");
+      return [registryProject("retry-success")];
+    },
+  });
+  assert.equal((await controller.load()).status, "error");
+  const recovered = await controller.load();
+  assert.equal(recovered.status, "success");
+  assert.equal(recovered.projects[0].projectId, "retry-success");
+  assert.equal(recovered.error, null);
+});
+
+test("project registry 5: an older failure arriving after newer success is ignored", async () => {
+  const olderGate = deferred();
+  let call = 0;
+  const controller = modules.projectRegistryLoadState.createProjectRegistryLoadController({
+    loadProjects: async () => {
+      call += 1;
+      if (call === 1) return olderGate.promise;
+      return [registryProject("authoritative-success")];
+    },
+  });
+  const older = controller.load();
+  await controller.load();
+  olderGate.reject(new TypeError("Failed to fetch"));
+  await older;
+  const state = controller.getState();
+  assert.equal(state.status, "success");
+  assert.equal(state.projects[0].projectId, "authoritative-success");
+  assert.equal(state.error, null);
+});
+
+test("project registry 6: an older success cannot overwrite a newer authenticated session", async () => {
+  const olderGate = deferred();
+  let call = 0;
+  const controller = modules.projectRegistryLoadState.createProjectRegistryLoadController({
+    loadProjects: async () => {
+      call += 1;
+      if (call === 1) return olderGate.promise;
+      return [registryProject("session-b-project")];
+    },
+  });
+  const sessionA = controller.load();
+  await controller.load();
+  olderGate.resolve([registryProject("session-a-project")]);
+  await sessionA;
+  const state = controller.getState();
+  assert.equal(state.status, "success");
+  assert.deepEqual(state.projects.map((project) => project.projectId), ["session-b-project"]);
+});
+
+test("project registry 7: AbortError from a superseded request never renders an error", async () => {
+  let call = 0;
+  const controller = modules.projectRegistryLoadState.createProjectRegistryLoadController({
+    loadProjects: async (signal) => {
+      call += 1;
+      if (call > 1) return [registryProject("remount-success")];
+      return new Promise((resolve, reject) => {
+        signal.addEventListener("abort", () => {
+          const error = new Error("superseded");
+          error.name = "AbortError";
+          reject(error);
+        }, { once: true });
+      });
+    },
+  });
+  const superseded = controller.load();
+  const remount = controller.load();
+  await Promise.all([superseded, remount]);
+  const state = controller.getState();
+  assert.equal(state.status, "success");
+  assert.equal(state.projects[0].projectId, "remount-success");
+  assert.equal(state.error, null);
+});
+
+test("project registry 8: StrictMode cleanup and remount remain race-safe", async () => {
+  const firstGate = deferred();
+  let call = 0;
+  const controller = modules.projectRegistryLoadState.createProjectRegistryLoadController({
+    loadProjects: async () => {
+      call += 1;
+      if (call === 1) return firstGate.promise;
+      return [registryProject("strictmode-remount")];
+    },
+  });
+  const firstMount = controller.load();
+  controller.dispose();
+  const secondMount = controller.load();
+  await secondMount;
+  firstGate.resolve([registryProject("strictmode-stale")]);
+  await firstMount;
+  const state = controller.getState();
+  assert.equal(call, 2);
+  assert.equal(state.status, "success");
+  assert.equal(state.projects[0].projectId, "strictmode-remount");
+});
+
+test("project registry 9: a valid empty response produces an empty state", async () => {
+  const controller = modules.projectRegistryLoadState.createProjectRegistryLoadController({
+    loadProjects: async () => [],
+  });
+  const state = await controller.load();
+  assert.equal(state.status, "empty");
+  assert.deepEqual(state.projects, []);
+  assert.equal(state.error, null);
+});
+
+test("project registry 10: malformed HTTP 200 data produces a response-validation error", async () => {
+  const controller = modules.projectRegistryLoadState.createProjectRegistryLoadController({
+    loadProjects: async () => ({ ok: true, projects: "not-an-array" }),
+  });
+  const state = await controller.load();
+  assert.equal(state.status, "error");
+  assert.equal(state.error.kind, "response");
+  assert.match(state.error.message, /invalid response|projects array/i);
+  assert.doesNotMatch(state.error.message, /Failed to fetch/i);
+  assert.deepEqual(state.projects, []);
+});
+
+test("project registry 11: HTTP 401 follows the sign-in contract", async () => {
+  const controller = modules.projectRegistryLoadState.createProjectRegistryLoadController({
+    loadProjects: async () => { throw httpError(401); },
+  });
+  const state = await controller.load();
+  const appSource = await readFile(new URL("../src/apps/ModelingApp.tsx", import.meta.url), "utf8");
+  assert.equal(state.status, "error");
+  assert.equal(state.error.kind, "authentication");
+  assert.match(state.error.message, /Sign in again/);
+  assert.match(appSource, /onSessionExpired/);
+  assert.match(appSource, /navigate\("\/login", \{ replace: true \}\)/);
+  assert.doesNotMatch(state.error.message, /backend.*unavailable/i);
+});
+
+test("project registry 12: HTTP 403 produces authorization state instead of backend-unavailable", async () => {
+  const controller = modules.projectRegistryLoadState.createProjectRegistryLoadController({
+    loadProjects: async () => { throw httpError(403); },
+  });
+  const state = await controller.load();
+  assert.equal(state.status, "error");
+  assert.equal(state.error.kind, "authorization");
+  assert.match(state.error.message, /permission/);
+  assert.doesNotMatch(state.error.message, /backend.*unavailable/i);
+});
+
+test("project registry 13: a genuine latest network failure produces network error state", async () => {
+  const controller = modules.projectRegistryLoadState.createProjectRegistryLoadController({
+    loadProjects: async () => { throw new TypeError("Failed to fetch"); },
+  });
+  const state = await controller.load();
+  assert.equal(state.status, "error");
+  assert.equal(state.error.kind, "network");
+  assert.match(state.error.message, /could not reach ATLAS/i);
+  assert.deepEqual(state.projects, []);
+});
+
+test("project registry 14: controlled retry recovers from a genuine network failure", async () => {
+  const responses = [new TypeError("Failed to fetch"), [registryProject("network-recovery")]];
+  const controller = modules.projectRegistryLoadState.createProjectRegistryLoadController({
+    loadProjects: async () => {
+      const response = responses.shift();
+      if (response instanceof Error) throw response;
+      return response;
+    },
+  });
+  const failed = await controller.load();
+  assert.equal(failed.status, "error");
+  const recovered = await controller.load();
+  assert.equal(recovered.status, "success");
+  assert.equal(recovered.projects[0].projectId, "network-recovery");
+  assert.equal(recovered.error, null);
+});
+
+test("project registry 15: authoritative success, empty, and error states cannot coexist", () => {
+  const registry = modules.projectRegistryLoadState;
+  const loading = registry.startProjectRegistryLoad(registry.initialProjectRegistryLoadState(), 1);
+  const success = registry.resolveProjectRegistryLoad(loading, 1, [registryProject("invariant-success")]);
+  assert.equal(success.status, "success");
+  assert.equal(success.projects.length, 1);
+  assert.equal(success.error, null);
+
+  const nextLoading = registry.startProjectRegistryLoad(success, 2);
+  assert.deepEqual(nextLoading.projects, []);
+  assert.equal(nextLoading.error, null);
+  const failed = registry.rejectProjectRegistryLoad(nextLoading, 2, new TypeError("Failed to fetch"));
+  assert.equal(failed.status, "error");
+  assert.deepEqual(failed.projects, []);
+  assert.ok(failed.error);
+
+  const emptyLoading = registry.startProjectRegistryLoad(failed, 3);
+  const empty = registry.resolveProjectRegistryLoad(emptyLoading, 3, []);
+  assert.equal(empty.status, "empty");
+  assert.deepEqual(empty.projects, []);
+  assert.equal(empty.error, null);
+});
+
+test("project registry 16: focused tests use synthetic data and do not write browser or live runtime state", async () => {
+  resetStorage();
+  const localKeysBefore = Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index));
+  const sessionKeysBefore = Array.from({ length: sessionStorage.length }, (_, index) => sessionStorage.key(index));
+  let receivedSignal = false;
+  const controller = modules.projectRegistryLoadState.createProjectRegistryLoadController({
+    loadProjects: async (signal) => {
+      receivedSignal = signal instanceof AbortSignal;
+      return [registryProject("synthetic-project-only")];
+    },
+  });
+  const state = await controller.load();
+  assert.equal(receivedSignal, true);
+  assert.equal(state.status, "success");
+  assert.deepEqual(Array.from({ length: localStorage.length }, (_, index) => localStorage.key(index)), localKeysBefore);
+  assert.deepEqual(Array.from({ length: sessionStorage.length }, (_, index) => sessionStorage.key(index)), sessionKeysBefore);
+});
+
+test("project registry root-cause regression: launcher removes bundle fan-out and isolates optional enrichment", async () => {
+  const source = await readFile(new URL("../src/steps/ProjectUtilityPages.tsx", import.meta.url), "utf8");
+  assert.match(source, /getProjectWorkflowStateFromDatabase/);
+  assert.match(source, /workerCount = Math\.min\(8, records\.length\)/);
+  assert.match(source, /enriched\[index\] = records\[index\]/);
+  assert.doesNotMatch(source, /getProjectPersistenceBundle/);
+  assert.doesNotMatch(source, /Backend project registry unavailable/);
 });

@@ -28,15 +28,15 @@ async function compileHelpers() {
 
 const helpers = await compileHelpers();
 
-test("small CSV files are routed to browser parsing", () => {
+test("small CSV files are routed through governed backend registration", () => {
   const decision = helpers.getUploadDecision({ fileName: "TRAIN.csv", fileSize: 2 * 1024 * 1024 });
-  assert.equal(decision.mode, "browser");
+  assert.equal(decision.mode, "backend");
   assert.equal(decision.extension, "csv");
 });
 
-test("small JSON files are routed to browser parsing", () => {
+test("small JSON files are routed through governed backend registration", () => {
   const decision = helpers.getUploadDecision({ fileName: "sample.json", fileSize: 256 * 1024 });
-  assert.equal(decision.mode, "browser");
+  assert.equal(decision.mode, "backend");
   assert.equal(decision.extension, "json");
 });
 
@@ -66,6 +66,9 @@ test("invalid file extensions are rejected inline", () => {
 test("backend import payload normalizes schema, row count, target, and preview rows", () => {
   const normalized = helpers.normalizeBackendImportResponse({
     ok: true,
+    project_id: "project-governed",
+    dataset_id: "dataset-governed",
+    dataset_version_id: "version-governed",
     row_count: 56961,
     cols: 31,
     columns: ["Time", "Amount", "Class"],
@@ -80,10 +83,16 @@ test("backend import payload normalizes schema, row count, target, and preview r
   assert.equal(normalized.target, "Class");
   assert.deepEqual(normalized.selectedColumns, ["Time", "Amount"]);
   assert.equal(normalized.previewRows.length, 1);
+  assert.equal(normalized.projectId, "project-governed");
+  assert.equal(normalized.datasetId, "dataset-governed");
+  assert.equal(normalized.datasetVersionId, "version-governed");
 });
 
 test("backend import payload can infer target when backend leaves it blank", () => {
   const normalized = helpers.normalizeBackendImportResponse({
+    project_id: "project-governed",
+    dataset_id: "dataset-governed",
+    dataset_version_id: "version-governed",
     rows_loaded: 1000,
     headers: ["V1", "V2", "Class"],
     sample_rows: [{ V1: 0, V2: 1, Class: 0 }],
@@ -131,7 +140,13 @@ test("CTA disabled reason explains import and target blockers", () => {
 test("frontend source calls backend upload and avoids set_sample for backend-imported datasets", async () => {
   const source = await readFile(new URL("../src/steps/Step01_DataAcquisition.tsx", import.meta.url), "utf8");
   assert.match(source, /\/data\/upload_csv/);
-  assert.match(source, /backendImportSynced \? "\/data\/set_target" : "\/data\/set_sample"/);
+  assert.match(source, /buildTargetPersistencePayload\(canonical/);
+  assert.match(source, /fetch\(`\$\{BASE\}\/data\/set_target`/);
+  assert.match(source, /assertExactDatasetActivation\(canonical, backendJson\)/);
+  assert.doesNotMatch(
+    source,
+    /backendImportSynced\s*\?\s*["'`]\/data\/set_target["'`]\s*:\s*["'`]\/data\/set_sample["'`]/,
+  );
   assert.match(source, /nextDisabledReason/);
 });
 
@@ -167,8 +182,8 @@ test("backend routers use active selected-column dataset view", async () => {
   assert.match(datasetStore, /def get_active_df/);
   assert.match(metadataRouter, /DATASTORE\.get_active_df/);
   assert.match(edaRouter, /DATASTORE\.get_active_df/);
-  assert.match(splitRouter, /DATASTORE\.get_base_df/);
+  assert.match(splitRouter, /scoped_store\.get_base_df/);
   assert.match(splitRouter, /manifest_selected/);
-  assert.match(splitRouter, /payload\.selected_features or manifest_selected or DATASTORE\.get_selected_columns\(\)/);
+  assert.match(splitRouter, /payload\.selected_features[\s\S]*?or manifest_selected[\s\S]*?or scoped_store\.get_selected_columns\(\)/);
   assert.match(trainerService, /DATASTORE\.get_active_df/);
 });

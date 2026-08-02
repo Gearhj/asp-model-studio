@@ -62,6 +62,15 @@ const sandbox = {
   require(specifier) {
     if (specifier === "./activeProjectContext") return { getCachedProjectId: () => "project-1" };
     if (specifier === "./authSession") return { getCachedUserId: () => "user-1" };
+    if (specifier === "./datasetIdentity") {
+      return {
+        requireLocalDatasetCanonicalIdentity: (projectId, dataset) => ({
+          project_id: projectId,
+          dataset_id: dataset?.dataset_id ?? dataset?.dataset_library?.datasetId,
+          dataset_version_id: dataset?.dataset_version_id ?? dataset?.dataset_library?.versionId,
+        }),
+      };
+    }
     if (specifier === "./localDataset") {
       return {
         loadLocalDataset: () => activeDataset,

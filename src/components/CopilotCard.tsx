@@ -29,10 +29,8 @@ import { loadModelingMode, type ModelingMode } from "../lib/modelingMode";
 import { hasGovernanceRegulation, loadProjectContext, type ProjectContext } from "../lib/projectContext";
 import { deriveOptimizationEvidenceSummary, loadTransportationOptimizationSnapshot } from "../lib/transportationOptimizationEvidence";
 import { useWorkflowStore } from "../state/useWorkflowStore";
-
-const API_BASE =
-  (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
-  "http://127.0.0.1:8001/api";
+import { requestScopedTrainingHistory } from "../lib/scopedTrainingHistory";
+import { usePredictiveIdentity } from "./PredictiveIdentityProvider";
 
 const OUTLIER_CONFIG_KEY = "modeling-tool-outlier-methods";
 const CHALLENGE_MODE_KEY = "modeling-tool-challenge-mode";
@@ -1268,6 +1266,7 @@ export default function CopilotCard() {
   const location = useLocation();
   const steps = useWorkflowStore((state) => state.steps);
   const projectId = useWorkflowStore((state) => state.projectId);
+  const { readiness: identityReadiness } = usePredictiveIdentity();
   const [trainingSummary, setTrainingSummary] = useState<TrainingSummary | null>(null);
   const [challengeMode, setChallengeMode] = useState(() => localStorage.getItem(CHALLENGE_MODE_KEY) === "true");
   const [overrideReasons, setOverrideReasons] = useState<Record<string, string>>({});
@@ -1277,15 +1276,28 @@ export default function CopilotCard() {
   const [projectContextGuideCollapsed, setProjectContextGuideCollapsed] = useState(() => localStorage.getItem(PROJECT_CONTEXT_GUIDE_COLLAPSED_KEY) === "true");
 
   useEffect(() => {
-    if (!projectId) {
+    if (
+      !projectId
+      || identityReadiness.status !== "ready"
+      || !identityReadiness.identity
+    ) {
       setTrainingSummary(null);
       return;
     }
-    fetch(`${API_BASE}/train/last?project_id=${encodeURIComponent(projectId)}`, { credentials: "include" })
-      .then((res) => res.json())
-      .then((data) => setTrainingSummary(data?.summary ?? null))
-      .catch(() => setTrainingSummary(null));
-  }, [location.pathname, projectId]);
+    const controller = new AbortController();
+    void requestScopedTrainingHistory<TrainingSummary>(identityReadiness.identity, controller.signal)
+      .then((result) => {
+        if (controller.signal.aborted) return;
+        setTrainingSummary(result.status === "success" ? result.summary : null);
+      });
+    return () => controller.abort();
+  }, [
+    identityReadiness.identity?.dataset_id,
+    identityReadiness.identity?.dataset_version_id,
+    identityReadiness.status,
+    location.pathname,
+    projectId,
+  ]);
 
   useEffect(() => {
     const refresh = () => setWorkflowNodeVersion((version) => version + 1);

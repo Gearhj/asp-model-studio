@@ -11,7 +11,7 @@
 //     from POST /api/analytics/target-assessment, which reuses the cached exact
 //     DuckDB aggregate over the governed artifact.
 //   * Identity, quality, leakage, governed time fields, time and segment tables
-//     come from the full-population EDA workspace target section.
+//     come from the Full Governed Population EDA workspace target section.
 //   * Governance narrative comes from the durable backend Project Context.
 //   * Target by predictor is on-demand only.
 // Nothing on this page is computed from a browser preview.
@@ -181,7 +181,7 @@ export default function TargetIntelligenceWorkspace({
   const serverDistribution = useTargetDistribution(distributionRequest);
 
   // The chart reads the same exact aggregate. When no registered version exists,
-  // it falls back to the full-population EDA class table -- never to a preview.
+  // it falls back to the Full Governed Population EDA class table -- never to a preview.
   const distribution: TargetDistribution | null = useMemo(() => {
     const rows = serverDistribution.result?.classDistribution;
     if (rows?.length) {
@@ -558,7 +558,7 @@ export default function TargetIntelligenceWorkspace({
       <AtlasWorkflowSection
         eyebrow="Section 2"
         title="Class Balance and Prevalence"
-        description="Exact full-population counts from the governed artifact. Preview row limits and browser sampling do not affect these figures."
+        description="Exact class counts and prevalence from the Full Governed Population. Preview row limits and browser sampling do not affect these structural figures."
         tone="info"
       >
         <div data-testid="target-class-balance">
@@ -631,7 +631,7 @@ export default function TargetIntelligenceWorkspace({
         <AtlasWorkflowSection
           eyebrow="Section 5"
           title="Target by Predictor"
-          description="On-demand only. Choose a predictor and run the analysis; ATLAS aggregates the governed dataset server-side and returns bounded grouped rows."
+          description="On-demand only. Choose a predictor and run the analysis; ATLAS computes target-directed bands, category rates, and class summaries on the exact Development Population and returns bounded grouped rows."
           tone="neutral"
         >
           <TargetByPredictorPanel
@@ -643,8 +643,8 @@ export default function TargetIntelligenceWorkspace({
             }
             scopeNotice={
               governed
-                ? undefined
-                : "Workspace Draft Analysis. This aggregates the full backend workspace population instead of an immutable artifact. Counts are exact and computed server-side, but the result is not version-pinned and is not eligible for governed evidence."
+                ? "Development Population. Target-directed bands, category rates, class box plots, and summaries use the current development partition. The sealed final holdout is excluded."
+                : "Workspace Draft Analysis. Target-directed results use the available development partition, but the source is not an immutable registered artifact. The result is not version-pinned and is not eligible for governed evidence."
             }
             onRun={runPredictorAnalysis}
             onReset={() => {
@@ -676,7 +676,6 @@ export default function TargetIntelligenceWorkspace({
         segmentRows={segmentRows}
         timeStability={timeStability}
         segmentMissingCount={Number(data.segment_missing_count ?? 0)}
-        populationEventRate={balance?.eventRate ?? null}
         reducedMotion={reducedMotion}
         onTimeField={onTimeField}
         onSegmentField={onSegmentField}
@@ -1111,7 +1110,6 @@ function TimeAndSegmentSection({
   segmentRows,
   timeStability,
   segmentMissingCount,
-  populationEventRate,
   reducedMotion,
   onTimeField,
   onSegmentField,
@@ -1126,19 +1124,24 @@ function TimeAndSegmentSection({
   segmentRows: any[];
   timeStability: Record<string, any> | null;
   segmentMissingCount: number;
-  populationEventRate: number | null;
   reducedMotion: boolean;
   onTimeField: (value: string) => void;
   onSegmentField: (value: string) => void;
   onRun: () => void;
 }) {
+  const developmentEventRate = useMemo(() => {
+    const sourceRows = timeRows.length ? timeRows : segmentRows;
+    const count = sourceRows.reduce((total, row) => total + (Number(row.count) || 0), 0);
+    const events = sourceRows.reduce((total, row) => total + (Number(row.events) || 0), 0);
+    return count > 0 ? events / count : null;
+  }, [segmentRows, timeRows]);
   const timeOption = useMemo<EChartsOption | null>(() => {
     if (!timeRows.length) return null;
     return {
       animation: !reducedMotion,
       animationDuration: reducedMotion ? 0 : 320,
       grid: { left: 8, right: 16, top: 34, bottom: 8, containLabel: true },
-      legend: { top: 0, data: ["Population", "Event count", "Event rate"] },
+      legend: { top: 0, data: ["Development rows", "Event count", "Event rate"] },
       tooltip: { trigger: "axis" },
       xAxis: { type: "category", data: timeRows.map((row) => String(row.group)) },
       yAxis: [
@@ -1146,7 +1149,7 @@ function TimeAndSegmentSection({
         { type: "value", name: "Event rate", splitLine: { show: false }, axisLabel: { formatter: (value: number) => formatEventRate(value) } },
       ],
       series: [
-        { name: "Population", type: "bar", data: timeRows.map((row) => Number(row.count) || 0), itemStyle: { color: "#cbd5e1" } },
+        { name: "Development rows", type: "bar", data: timeRows.map((row) => Number(row.count) || 0), itemStyle: { color: "#cbd5e1" } },
         { name: "Event count", type: "bar", data: timeRows.map((row) => Number(row.events) || 0), itemStyle: { color: "#1d4ed8" } },
         {
           name: "Event rate",
@@ -1156,13 +1159,13 @@ function TimeAndSegmentSection({
           data: timeRows.map((row) => Number(row.event_rate) || 0),
           lineStyle: { color: "#b91c1c", width: 2 },
           itemStyle: { color: "#b91c1c" },
-          markLine: populationEventRate
-            ? { silent: true, symbol: "none", lineStyle: { color: "#0f766e", type: "dashed" }, data: [{ yAxis: populationEventRate }] }
+          markLine: developmentEventRate
+            ? { silent: true, symbol: "none", lineStyle: { color: "#0f766e", type: "dashed" }, data: [{ yAxis: developmentEventRate }] }
             : undefined,
         },
       ],
     };
-  }, [timeRows, reducedMotion, populationEventRate]);
+  }, [timeRows, reducedMotion, developmentEventRate]);
 
   const segmentOption = useMemo<EChartsOption | null>(() => {
     if (!segmentRows.length) return null;
@@ -1181,25 +1184,25 @@ function TimeAndSegmentSection({
             value: Number(row.event_rate) || 0,
             itemStyle: { color: row.small_segment ? "#b45309" : "#b91c1c", opacity: row.small_segment ? 0.6 : 1, borderRadius: [4, 4, 0, 0] },
           })),
-          markLine: populationEventRate
+          markLine: developmentEventRate
             ? {
                 silent: true,
                 symbol: "none",
                 lineStyle: { color: "#0f766e", type: "dashed" },
-                label: { formatter: `Population ${formatEventRate(populationEventRate)}`, fontSize: 10, color: "#0f766e" },
-                data: [{ yAxis: populationEventRate }],
+                label: { formatter: `Development ${formatEventRate(developmentEventRate)}`, fontSize: 10, color: "#0f766e" },
+                data: [{ yAxis: developmentEventRate }],
               }
             : undefined,
         },
       ],
     };
-  }, [segmentRows, reducedMotion, populationEventRate]);
+  }, [segmentRows, reducedMotion, developmentEventRate]);
 
   return (
     <AtlasWorkflowSection
       eyebrow="Section 6"
       title="Time and Segment Stability"
-      description="Conditional analysis. ATLAS never infers that an arbitrary numeric field is a date, and it never renders an empty chart shell before a field is selected."
+      description="Development Population target-directed analysis; the sealed final holdout is excluded. ATLAS never infers that an arbitrary numeric field is a date or renders an empty chart shell before a field is selected."
       tone="neutral"
     >
       <div className="grid gap-4 xl:grid-cols-2">
@@ -1253,7 +1256,7 @@ function TimeAndSegmentSection({
                       option={timeOption}
                       state={(timeOption ? "ready" : "empty") as EChartsPanelState}
                       height={240}
-                      ariaLabel={`Population, event count, and event rate over ${timeField}.`}
+                      ariaLabel={`Development Population rows, event count, and event rate over ${timeField}; sealed final holdout excluded.`}
                       emptyMessage="Select a governed time field to evaluate stability."
                     />
                   </div>
@@ -1316,7 +1319,7 @@ function TimeAndSegmentSection({
                   option={segmentOption}
                   state={(segmentOption ? "ready" : "empty") as EChartsPanelState}
                   height={240}
-                  ariaLabel={`Event rate by ${segmentField}.`}
+                  ariaLabel={`Development Population event rate by ${segmentField}; sealed final holdout excluded.`}
                   emptyMessage="Select a segment field to compare event rates."
                 />
               </div>
@@ -1325,10 +1328,10 @@ function TimeAndSegmentSection({
                   <thead className="bg-slate-50 text-left uppercase tracking-wide text-slate-500">
                     <tr>
                       <th className="px-2 py-1.5">Segment</th>
-                      <th className="px-2 py-1.5 text-right">Population</th>
+                      <th className="px-2 py-1.5 text-right">Development rows</th>
                       <th className="px-2 py-1.5 text-right">Events</th>
                       <th className="px-2 py-1.5 text-right">Event rate</th>
-                      <th className="px-2 py-1.5 text-right">vs population</th>
+                      <th className="px-2 py-1.5 text-right">vs development</th>
                       <th className="px-2 py-1.5">Note</th>
                     </tr>
                   </thead>

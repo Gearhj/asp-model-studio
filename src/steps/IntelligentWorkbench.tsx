@@ -16,10 +16,8 @@ import { inferLocalProblemType, loadLocalDataset } from "../lib/localDataset";
 import { USER_PYTHON_CODE_KEY } from "../lib/notebookExport";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { BRAND } from "../config/brand";
-
-const API_BASE =
-  (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
-  "http://127.0.0.1:8001/api";
+import { requestScopedTrainingHistory } from "../lib/scopedTrainingHistory";
+import { usePredictiveIdentity } from "../components/PredictiveIdentityProvider";
 
 const EXPERIMENT_KEY = "modeling-tool-experiments";
 const DECISION_KEY = "modeling-tool-decisions";
@@ -87,6 +85,7 @@ function todayStamp() {
 export default function IntelligentWorkbench() {
   const steps = useWorkflowStore((state) => state.steps);
   const projectId = useWorkflowStore((state) => state.projectId);
+  const { readiness: identityReadiness } = usePredictiveIdentity();
   const [ranked, setRanked] = useState<RankedModel[]>([]);
   const [experiments, setExperiments] = useState<Experiment[]>(() => readList<Experiment>(EXPERIMENT_KEY));
   const [decisions, setDecisions] = useState<Decision[]>(() => readList<Decision>(DECISION_KEY));
@@ -111,14 +110,21 @@ export default function IntelligentWorkbench() {
   const champion = ranked[0] ?? null;
 
   useEffect(() => {
-    if (!projectId) {
+    if (
+      !projectId
+      || identityReadiness.status !== "ready"
+      || !identityReadiness.identity
+    ) {
       setRanked([]);
       return;
     }
-    fetch(`${API_BASE}/train/last?project_id=${encodeURIComponent(projectId)}`, { credentials: "include" })
-      .then((res) => res.json())
-      .then((data) => {
-        const rows = data?.summary?.ranked;
+    const controller = new AbortController();
+    void requestScopedTrainingHistory<{ problem_type?: string; ranked?: RankedModel[] }>(
+      identityReadiness.identity,
+      controller.signal,
+    ).then((result) => {
+        if (controller.signal.aborted || result.status !== "success") return;
+        const rows = result.summary?.ranked;
         if (Array.isArray(rows)) {
           setRanked(rows);
           setExperimentDraft((current) => ({
@@ -126,14 +132,19 @@ export default function IntelligentWorkbench() {
             model: current.model || rows[0]?.name || "",
             metric:
               current.metric ||
-              (data?.summary?.problem_type === "regression"
+              (result.summary?.problem_type === "regression"
                 ? `RMSE ${rows[0]?.rmse?.toFixed?.(4) ?? "-"}`
                 : `AUC ${rows[0]?.auc?.toFixed?.(4) ?? "-"}`),
           }));
         }
-      })
-      .catch(() => setRanked([]));
-  }, [projectId]);
+      });
+    return () => controller.abort();
+  }, [
+    identityReadiness.identity?.dataset_id,
+    identityReadiness.identity?.dataset_version_id,
+    identityReadiness.status,
+    projectId,
+  ]);
 
   useEffect(() => writeList(EXPERIMENT_KEY, experiments), [experiments]);
   useEffect(() => writeList(DECISION_KEY, decisions), [decisions]);

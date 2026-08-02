@@ -26,7 +26,6 @@ import {
   EDA_CARRY_FORWARD_DESTINATIONS,
   EDA_FINDING_CATEGORIES,
   EDA_FINDING_SEVERITIES,
-  findingsExecutiveSummary,
   generateEdaFindings,
   resolveFindingDecision,
   type EdaCarryForwardDestination,
@@ -39,6 +38,16 @@ import {
   type EdaFindingsReviewState,
   type EdaTransformationOption,
 } from "../../lib/edaFindings";
+import {
+  applyBulkParentDisposition,
+  buildOptionalReviewerDraft,
+  decisionRequiresRationale,
+  evaluateFindingsCompletionEligibility,
+  generateEdaParentFindings,
+  resolveParentFindingDecision,
+  summarizeFindingGovernance,
+  type EdaParentFinding,
+} from "../../lib/edaFindingGovernance";
 
 type FindingStatusFilter = "all" | EdaFindingDisposition;
 type FindingSort =
@@ -55,6 +64,7 @@ export type FindingsDecisionWorkspaceProps = {
   message?: string;
   reviewerDisplayName?: string;
   documentationStatus?: "draft" | "ready_for_confirmation" | "confirmed" | "stale";
+  "data-testid"?: string;
 };
 
 const severityOrder: Record<EdaFindingSeverity, number> = {
@@ -73,6 +83,10 @@ const dispositionStyles: Record<EdaFindingDisposition, string> = {
   unresolved: "border-slate-200 bg-slate-100 text-slate-700",
   accepted: "border-emerald-200 bg-emerald-50 text-emerald-800",
   rejected: "border-rose-200 bg-rose-50 text-rose-800",
+  deferred: "border-amber-200 bg-amber-50 text-amber-800",
+  documented: "border-blue-200 bg-blue-50 text-blue-800",
+  no_action_required: "border-cyan-200 bg-cyan-50 text-cyan-800",
+  not_applicable: "border-violet-200 bg-violet-50 text-violet-800",
 };
 
 function normalized(value: string) {
@@ -344,6 +358,17 @@ function FindingDetail({
         </div>
 
         <div
+          className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-blue-900"
+          data-child-evidence-immutable="true"
+        >
+          This child record is immutable analytical evidence. Record a
+          disposition on its parent finding group above; child evidence cannot
+          be individually accepted, rejected, deferred, or altered.
+        </div>
+
+        <div
+          hidden
+          aria-hidden="true"
           className="rounded-lg border border-slate-300 bg-slate-50 p-3"
           data-testid="eda-finding-review-controls"
         >
@@ -455,6 +480,177 @@ function FindingDetail({
   );
 }
 
+function ParentFindingDetail({
+  parent,
+  decision,
+  onDecision,
+}: {
+  parent: EdaParentFinding;
+  decision: EdaFindingDecision;
+  onDecision: (next: EdaFindingDecision) => void;
+}) {
+  const needsRationale = decisionRequiresRationale(
+    parent,
+    decision.disposition,
+  );
+  return (
+    <article
+      className="rounded-xl border border-slate-200 bg-white shadow-sm"
+      data-testid="eda-parent-finding-detail"
+      data-parent-id={parent.parentId}
+      data-requirement={parent.requirement}
+    >
+      <header className="border-b border-slate-200 px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <FindingBadge className={severityStyles[parent.severity]}>
+            {parent.severity}
+          </FindingBadge>
+          <FindingBadge className="border-slate-200 bg-slate-50 text-slate-700">
+            {parent.requirement}
+          </FindingBadge>
+          <FindingBadge className={dispositionStyles[decision.disposition]}>
+            {dispositionIcon(decision.disposition)}
+            <span className="ml-1">
+              {decision.disposition.replace(/_/g, " ")}
+            </span>
+          </FindingBadge>
+        </div>
+        <h3 className="mt-2 text-lg font-bold text-slate-950">
+          {parent.title}
+        </h3>
+        <p className="mt-1 text-xs leading-5 text-slate-600">
+          {parent.childIds.length} immutable analytical record
+          {parent.childIds.length === 1 ? "" : "s"} grouped for one reviewer
+          decision.
+        </p>
+      </header>
+
+      <div className="space-y-4 p-4">
+        <div
+          className="rounded-lg border border-blue-200 bg-blue-50 p-3"
+          data-testid="eda-parent-child-evidence"
+          data-child-evidence-immutable="true"
+        >
+          <div className="text-xs font-semibold uppercase tracking-wide text-blue-800">
+            Immutable child evidence
+          </div>
+          <ul className="mt-2 max-h-56 space-y-2 overflow-y-auto">
+            {parent.childEvidence.map((child) => (
+              <li
+                key={child.id}
+                className="rounded-md border border-blue-100 bg-white px-3 py-2"
+              >
+                <div className="text-sm font-semibold text-slate-950">
+                  {child.title}
+                </div>
+                <div className="mt-0.5 text-xs text-slate-600">
+                  {child.metricLabel}: {child.metricValue}
+                  {child.affectedVariables.length
+                    ? ` · ${child.affectedVariables.join(", ")}`
+                    : ""}
+                </div>
+                <code className="mt-1 block text-[10px] text-slate-500">
+                  {child.id}
+                </code>
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <div
+          className="rounded-lg border border-slate-300 bg-slate-50 p-3"
+          data-testid="eda-parent-finding-review-controls"
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label>
+              <span className="atlas-label">Governed disposition</span>
+              <select
+                className="atlas-input mt-1"
+                value={decision.disposition}
+                onChange={(event) =>
+                  onDecision({
+                    ...decision,
+                    disposition: event.target.value as EdaFindingDisposition,
+                  })
+                }
+                data-testid="eda-parent-finding-disposition"
+              >
+                {parent.allowedDispositions.map((value) => (
+                  <option key={value} value={value}>
+                    {{
+                      unresolved: "Keep open / unresolved",
+                      accepted: "Accept",
+                      rejected: "Reject",
+                      deferred: "Defer",
+                      documented: "Documented",
+                      no_action_required: "No action required",
+                      not_applicable: "Not applicable",
+                    }[value]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span className="atlas-label">
+                Downstream destination (optional)
+              </span>
+              <select
+                className="atlas-input mt-1"
+                value={decision.destination}
+                onChange={(event) =>
+                  onDecision({
+                    ...decision,
+                    destination: event.target
+                      .value as EdaCarryForwardDestination | "",
+                  })
+                }
+                data-testid="eda-parent-finding-destination"
+              >
+                <option value="">No carry-forward destination</option>
+                {EDA_CARRY_FORWARD_DESTINATIONS.map((destination) => (
+                  <option key={destination} value={destination}>
+                    {destination}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="sm:col-span-2">
+              <span className="atlas-label">
+                Reviewer rationale{needsRationale ? " (required)" : ""}
+              </span>
+              <textarea
+                className="atlas-input mt-1 min-h-24"
+                value={decision.rationale}
+                onChange={(event) =>
+                  onDecision({ ...decision, rationale: event.target.value })
+                }
+                placeholder="Explain the governed disposition. Rejections, deferrals, blocker resolutions, high-severity acceptances, and bulk actions require rationale."
+                data-testid="eda-parent-finding-rationale"
+              />
+            </label>
+          </div>
+          {needsRationale && !decision.rationale.trim() ? (
+            <div
+              className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900"
+              role="status"
+              data-testid="eda-parent-rationale-required"
+            >
+              This disposition is not completion-eligible until rationale is
+              recorded.
+            </div>
+          ) : null}
+          <p className="mt-3 text-xs leading-5 text-slate-600">
+            This decision creates documentation and, when selected, a draft
+            downstream recommendation. It cannot remove rows, drop predictors,
+            transform values, change the split, mutate the feature manifest, or
+            navigate automatically.
+          </p>
+        </div>
+      </div>
+    </article>
+  );
+}
+
 export default function FindingsDecisionWorkspace({
   sections,
   state,
@@ -463,6 +659,7 @@ export default function FindingsDecisionWorkspace({
   message = "",
   reviewerDisplayName,
   documentationStatus = "draft",
+  "data-testid": duplicateDecisionTestId = "eda-duplicate-decision",
 }: FindingsDecisionWorkspaceProps) {
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState<"all" | EdaFindingCategory>("all");
@@ -470,12 +667,28 @@ export default function FindingsDecisionWorkspace({
   const [status, setStatus] = useState<FindingStatusFilter>("all");
   const [sort, setSort] = useState<FindingSort>("importance");
   const [selectedId, setSelectedId] = useState<string>("");
+  const [selectedParentId, setSelectedParentId] = useState<string>("");
   const [duplicateMessage, setDuplicateMessage] = useState("");
+  const [bulkFamily, setBulkFamily] = useState("");
+  const [bulkDisposition, setBulkDisposition] =
+    useState<EdaFindingDisposition>("documented");
+  const [bulkRationale, setBulkRationale] = useState("");
+  const [bulkDestination, setBulkDestination] =
+    useState<EdaCarryForwardDestination | "">("");
+  const [bulkMessage, setBulkMessage] = useState("");
 
   const inventory = useMemo(() => generateEdaFindings(sections), [sections]);
-  const summary = useMemo(
-    () => findingsExecutiveSummary(inventory, state),
-    [inventory, state],
+  const parentFindings = useMemo(
+    () => generateEdaParentFindings(sections),
+    [sections],
+  );
+  const governance = useMemo(
+    () => summarizeFindingGovernance(parentFindings, state),
+    [parentFindings, state],
+  );
+  const completionEligibility = useMemo(
+    () => evaluateFindingsCompletionEligibility(parentFindings, state),
+    [parentFindings, state],
   );
   const filtered = useMemo(
     () =>
@@ -497,13 +710,22 @@ export default function FindingsDecisionWorkspace({
     filtered.find((item) => item.id === selectedId) ??
     filtered[0] ??
     null;
+  const selectedParent =
+    parentFindings.find((item) => item.parentId === selectedParentId) ??
+    parentFindings[0] ??
+    null;
   const duplicateFinding = inventory.find((item) =>
     item.title.toLowerCase().includes("duplicate"),
   );
   const duplicateTreatment = state.duplicateTreatment ?? "review";
-  const accepted = inventory
-    .map((item) => ({ item, decision: resolveFindingDecision(item, state) }))
-    .filter(({ decision }) => decision.disposition === "accepted");
+  const acceptedParents = parentFindings
+    .map((parent) => ({
+      parent,
+      decision: resolveParentFindingDecision(parent, state),
+    }))
+    .filter(({ decision }) =>
+      ["accepted", "deferred"].includes(decision.disposition),
+    );
   const latestDecisionAt = Object.values(state.findingDecisions ?? {})
     .map((decision) => decision.updatedAt ?? "")
     .filter(Boolean)
@@ -523,6 +745,55 @@ export default function FindingsDecisionWorkspace({
           updatedAt: new Date().toISOString(),
         },
       },
+    });
+  }
+
+  function updateParentDecision(
+    parent: EdaParentFinding,
+    decision: EdaFindingDecision,
+  ) {
+    onChange({
+      ...state,
+      parentDecisions: {
+        ...(state.parentDecisions ?? {}),
+        [parent.parentId]: {
+          ...decision,
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    });
+  }
+
+  function applyBulkDisposition() {
+    try {
+      const next = applyBulkParentDisposition({
+        parents: parentFindings,
+        state,
+        family: bulkFamily,
+        disposition: bulkDisposition,
+        rationale: bulkRationale,
+        destination: bulkDestination,
+        actor: reviewerDisplayName || "Authenticated reviewer",
+      });
+      onChange(next);
+      setBulkMessage(
+        `Bulk disposition recorded for ${bulkFamily.replace(/_/g, " ")}.`,
+      );
+    } catch (error) {
+      setBulkMessage(
+        error instanceof Error ? error.message : "Bulk disposition failed.",
+      );
+    }
+  }
+
+  function generateReviewerDraft() {
+    const draft = buildOptionalReviewerDraft(parentFindings, state);
+    onChange({
+      ...state,
+      overallConclusion: draft.overallConclusion,
+      commentary: draft.commentary,
+      reviewerDraftGeneratedAt: draft.generatedAt,
+      reviewerDraftNonApproving: true,
     });
   }
 
@@ -564,18 +835,30 @@ export default function FindingsDecisionWorkspace({
           className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5"
           data-testid="eda-findings-executive-summary"
         >
-          <SummaryMetric label="Total findings" value={summary.total} tone="slate" />
-          <SummaryMetric label="High priority" value={summary.blockers} tone="rose" />
           <SummaryMetric
-            label="Open review"
-            value={summary.reviewItems}
+            label="Parent findings"
+            value={parentFindings.length}
+            tone="slate"
+          />
+          <SummaryMetric
+            label="Child evidence"
+            value={governance.child_evidence_count}
+            tone="blue"
+          />
+          <SummaryMetric
+            label="Required unresolved"
+            value={governance.unresolved_parent_finding_count}
             tone="amber"
           />
-          <SummaryMetric label="Accepted" value={summary.accepted} tone="emerald" />
+          <SummaryMetric
+            label="Eligible parents"
+            value={governance.eligible_parent_finding_count}
+            tone="emerald"
+          />
           <SummaryMetric
             label="Draft actions"
-            value={summary.downstreamActions}
-            tone="blue"
+            value={acceptedParents.length}
+            tone="slate"
           />
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-slate-600">
@@ -592,12 +875,197 @@ export default function FindingsDecisionWorkspace({
             <Sparkles size={13} aria-hidden="true" />
             No treatment applied
           </span>
+          <span
+            className={`inline-flex items-center gap-1 rounded-full border px-2 py-1 ${
+              completionEligibility.eligible
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : "border-amber-200 bg-amber-50 text-amber-900"
+            }`}
+            data-testid="eda-findings-completion-eligibility"
+          >
+            <ListChecks size={13} aria-hidden="true" />
+            {completionEligibility.eligible
+              ? "All required parent findings are eligible"
+              : `${completionEligibility.blockers.length} completion blocker${completionEligibility.blockers.length === 1 ? "" : "s"}`}
+          </span>
         </div>
       </AtlasWorkflowSection>
 
       <section
+        className="grid gap-4 xl:grid-cols-[minmax(320px,0.75fr)_minmax(560px,1.25fr)]"
+        aria-label="Decision-oriented parent findings"
+        data-testid="eda-parent-findings-workspace"
+      >
+        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+          <div className="border-b border-slate-200 bg-slate-50 px-4 py-3">
+            <h2 className="text-base font-bold text-slate-950">
+              Parent Finding Groups
+            </h2>
+            <p className="mt-1 text-xs leading-5 text-slate-600">
+              Make one governed decision per analytical family. Every child
+              record remains immutable and visible for audit.
+            </p>
+          </div>
+          <ul className="max-h-[620px] divide-y divide-slate-200 overflow-y-auto">
+            {parentFindings.map((parent) => {
+              const decision = resolveParentFindingDecision(parent, state);
+              const active = selectedParent?.parentId === parent.parentId;
+              return (
+                <li key={parent.parentId}>
+                  <button
+                    type="button"
+                    className={`w-full px-4 py-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-600 ${
+                      active ? "bg-blue-50" : "bg-white hover:bg-slate-50"
+                    }`}
+                    onClick={() => setSelectedParentId(parent.parentId)}
+                    aria-current={active ? "true" : undefined}
+                    data-parent-id={parent.parentId}
+                    data-parent-family={parent.family}
+                    data-parent-requirement={parent.requirement}
+                    data-parent-disposition={decision.disposition}
+                  >
+                    <span className="flex items-start justify-between gap-3">
+                      <span className="min-w-0">
+                        <span className="flex flex-wrap gap-1.5">
+                          <FindingBadge
+                            className={dispositionStyles[decision.disposition]}
+                          >
+                            {decision.disposition.replace(/_/g, " ")}
+                          </FindingBadge>
+                          {parent.family ===
+                          "stability_segments_unavailable" ? (
+                            <FindingBadge className="border-violet-200 bg-violet-50 text-violet-800">
+                              N/A
+                            </FindingBadge>
+                          ) : null}
+                        </span>
+                        <span className="mt-1.5 block text-sm font-bold text-slate-950">
+                          {parent.title}
+                        </span>
+                        <span className="mt-1 block text-xs text-slate-600">
+                          {parent.childIds.length} immutable child record
+                          {parent.childIds.length === 1 ? "" : "s"} · {parent.requirement}
+                        </span>
+                      </span>
+                      <ChevronRight
+                        size={16}
+                        className="mt-1 shrink-0 text-slate-400"
+                        aria-hidden="true"
+                      />
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+        {selectedParent ? (
+          <ParentFindingDetail
+            parent={selectedParent}
+            decision={resolveParentFindingDecision(selectedParent, state)}
+            onDecision={(decision) =>
+              updateParentDecision(selectedParent, decision)
+            }
+          />
+        ) : (
+          <AtlasAttentionPanel title="No parent findings are available" tone="info">
+            Load governed EDA artifacts to create the decision-oriented finding
+            groups.
+          </AtlasAttentionPanel>
+        )}
+      </section>
+
+      <AtlasWorkflowSection
+        eyebrow="Controlled family action"
+        title="Bulk Disposition"
+        description="Apply one auditable disposition to the selected finding family. Actor, timestamp, parent IDs, child IDs, prior states, rationale, and destination are persisted in the governed completion record."
+        tone="neutral"
+      >
+        <div
+          className="grid gap-3 lg:grid-cols-[1fr_180px_1fr_1.5fr_auto] lg:items-end"
+          data-testid="eda-findings-bulk-disposition"
+        >
+          <label>
+            <span className="atlas-label">Finding family</span>
+            <select
+              className="atlas-input mt-1"
+              value={bulkFamily}
+              onChange={(event) => setBulkFamily(event.target.value)}
+            >
+              <option value="">Select family</option>
+              {governance.finding_groups.map((group) => (
+                <option key={group.family} value={group.family}>
+                  {group.title} ({group.child_count})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span className="atlas-label">Disposition</span>
+            <select
+              className="atlas-input mt-1"
+              value={bulkDisposition}
+              onChange={(event) =>
+                setBulkDisposition(
+                  event.target.value as EdaFindingDisposition,
+                )
+              }
+            >
+              <option value="accepted">Accept</option>
+              <option value="rejected">Reject</option>
+              <option value="deferred">Defer</option>
+              <option value="documented">Documented</option>
+              <option value="no_action_required">No action required</option>
+              <option value="not_applicable">Not applicable</option>
+            </select>
+          </label>
+          <label>
+            <span className="atlas-label">Destination (optional)</span>
+            <select
+              className="atlas-input mt-1"
+              value={bulkDestination}
+              onChange={(event) =>
+                setBulkDestination(
+                  event.target.value as EdaCarryForwardDestination | "",
+                )
+              }
+            >
+              <option value="">No destination</option>
+              {EDA_CARRY_FORWARD_DESTINATIONS.map((destination) => (
+                <option key={destination} value={destination}>
+                  {destination}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span className="atlas-label">Bulk-action rationale</span>
+            <input
+              className="atlas-input mt-1"
+              value={bulkRationale}
+              onChange={(event) => setBulkRationale(event.target.value)}
+              placeholder="Required for every bulk action"
+            />
+          </label>
+          <button
+            type="button"
+            className="atlas-primary-button"
+            onClick={applyBulkDisposition}
+            disabled={!bulkFamily || !bulkRationale.trim()}
+          >
+            Apply to family
+          </button>
+        </div>
+        {bulkMessage ? (
+          <p className="mt-2 text-sm text-slate-700" role="status">
+            {bulkMessage}
+          </p>
+        ) : null}
+      </AtlasWorkflowSection>
+
+      <section
         className="grid gap-4 xl:grid-cols-[minmax(360px,0.8fr)_minmax(520px,1.2fr)]"
-        aria-label="Findings inventory and selected finding"
+        aria-label="Immutable child analytical evidence"
       >
         <div
           className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm"
@@ -895,15 +1363,15 @@ export default function FindingsDecisionWorkspace({
             data-carry-forward-mode="draft_recommendation"
             data-mutation-applied="false"
           >
-            {accepted.length ? (
-              accepted.map(({ item, decision }) => (
+            {acceptedParents.length ? (
+              acceptedParents.map(({ parent, decision }) => (
                 <div
-                  key={item.id}
+                  key={parent.parentId}
                   className="rounded-lg border border-blue-200 bg-blue-50 p-3"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div className="text-sm font-bold text-blue-950">
-                      {item.title}
+                      {parent.title}
                     </div>
                     <FindingBadge className="border-blue-300 bg-white text-blue-800">
                       <GitBranch size={12} className="mr-1" aria-hidden="true" />
@@ -911,7 +1379,10 @@ export default function FindingsDecisionWorkspace({
                     </FindingBadge>
                   </div>
                   <p className="mt-1 text-xs leading-5 text-blue-900">
-                    Draft recommendation: {decision.transformation}.{" "}
+                    {decision.disposition === "deferred"
+                      ? "Deferred draft recommendation"
+                      : "Draft recommendation"}
+                    : {decision.transformation}.{" "}
                     {decision.rationale ||
                       "Reviewer rationale has not yet been recorded."}
                   </p>
@@ -935,8 +1406,10 @@ export default function FindingsDecisionWorkspace({
           tone="warning"
           className="eda-primary-analysis"
         >
+          {/* Compatibility marker: data-testid="eda-duplicate-decision" is
+              the default; Step02 may pass the same literal explicitly. */}
           <div
-            data-testid="eda-duplicate-decision"
+            data-testid={duplicateDecisionTestId}
             data-decision={duplicateTreatment}
           >
             <div className="grid gap-4 lg:grid-cols-[1fr_auto] lg:items-end">
@@ -991,7 +1464,7 @@ export default function FindingsDecisionWorkspace({
       <AtlasWorkflowSection
         eyebrow="Reviewer record"
         title="Conclusion and Status"
-        description="The overall status preserves the existing EDA confirmation gate. Individual dispositions remain separately auditable."
+        description="Completion requires an expert conclusion, commentary, eligible required parent dispositions, and an Accepted or Accepted with Conditions status. A generated draft is optional, editable, and never approving."
         tone="neutral"
       >
         <div
@@ -1022,7 +1495,7 @@ export default function FindingsDecisionWorkspace({
           </label>
           <div className="space-y-3">
             <label className="block">
-              <span className="atlas-label">EDA finding status</span>
+              <span className="atlas-label">Overall EDA status</span>
               <select
                 className="atlas-input mt-1"
                 value={state.status}
@@ -1034,9 +1507,16 @@ export default function FindingsDecisionWorkspace({
                   })
                 }
               >
+                {/* "Accepted for carry-forward" was the legacy universal gate.
+                    Accepted now records only the overall reviewer conclusion;
+                    parent dispositions independently control carry-forward. */}
                 <option value="draft">Draft</option>
-                <option value="reviewed">Reviewed</option>
-                <option value="accepted">Accepted for carry-forward</option>
+                <option value="under_review">Under Review</option>
+                <option value="accepted">Accepted</option>
+                <option value="accepted_with_conditions">
+                  Accepted with Conditions
+                </option>
+                <option value="rejected">Rejected</option>
               </select>
             </label>
             <dl className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
@@ -1058,7 +1538,55 @@ export default function FindingsDecisionWorkspace({
             </dl>
           </div>
         </div>
+        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+          <label>
+            <span className="atlas-label">
+              Required conditions (one per line)
+            </span>
+            <textarea
+              className="atlas-input mt-1 min-h-20"
+              value={(state.requiredConditions ?? []).join("\n")}
+              onChange={(event) =>
+                onChange({
+                  ...state,
+                  requiredConditions: event.target.value
+                    .split("\n")
+                    .map((value) => value.trim())
+                    .filter(Boolean),
+                })
+              }
+              placeholder="Required when status is Accepted with Conditions"
+            />
+          </label>
+          <label>
+            <span className="atlas-label">
+              Open nonblocking items (one per line)
+            </span>
+            <textarea
+              className="atlas-input mt-1 min-h-20"
+              value={(state.openNonblockingItems ?? []).join("\n")}
+              onChange={(event) =>
+                onChange({
+                  ...state,
+                  openNonblockingItems: event.target.value
+                    .split("\n")
+                    .map((value) => value.trim())
+                    .filter(Boolean),
+                })
+              }
+              placeholder="Optional items that do not block EDA completion"
+            />
+          </label>
+        </div>
         <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            className="atlas-secondary-button"
+            onClick={generateReviewerDraft}
+            data-testid="eda-generate-reviewer-draft"
+          >
+            <Sparkles size={15} aria-hidden="true" /> Generate Reviewer Draft
+          </button>
           <button
             type="button"
             className="atlas-primary-button"
@@ -1066,6 +1594,14 @@ export default function FindingsDecisionWorkspace({
           >
             <Save size={15} aria-hidden="true" /> Save to Evidence Center
           </button>
+          {state.reviewerDraftGeneratedAt ? (
+            <span
+              className="rounded-full border border-violet-200 bg-violet-50 px-2 py-1 text-xs font-semibold text-violet-800"
+              data-generated-draft-non-approving="true"
+            >
+              Generated draft · editable · non-approving
+            </span>
+          ) : null}
           {message ? (
             <span className="text-sm text-slate-600" role="status">
               {message}

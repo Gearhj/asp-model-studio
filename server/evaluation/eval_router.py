@@ -2,17 +2,19 @@
 
 import io
 import hashlib
+import json
+import uuid
 from typing import Any, Dict
 
 import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
-from fastapi.responses import Response
+from fastapi.responses import JSONResponse, Response
 from ..core.modeling_scope import authorize_modeling_scope
 from ..core.result_store import RESULTS
-from ..core.session_checkpoint import schedule_checkpoint_save
-from ..security.security_store import require_user
+from ..core.session_checkpoint import flush_checkpoint, schedule_checkpoint_save
+from ..model_registry import model_registry_service as REGISTRY
+from ..security.security_store import audit_event, require_user
 from ..scoring_runs.scoring_run_service import create_failed_scoring_run, create_scoring_run
-from ..model_registry.model_registry_service import create_model_version
 from .eval_service import EVAL
 
 
@@ -20,335 +22,898 @@ router = APIRouter()
 
 
 def _context(
-    project_id: str = "",
-    dataset_version: str = "",
-    target: str = "",
-    problem_type: str = "",
+    project_id: str,
+    dataset_id: str,
+    dataset_version_id: str,
+    candidate_id: str,
+    training_job_id: str,
+    training_run_id: str,
+    feature_manifest_version: str,
+    validation_design_id: str,
+    validation_design_version: str,
+    split_id: str,
+    target: str,
+    problem_type: str,
+    candidate_decision_id: str,
 ) -> dict:
     return {
         "project_id": project_id,
-        "dataset_version": dataset_version,
+        "dataset_id": dataset_id,
+        "dataset_version_id": dataset_version_id,
+        "candidate_id": candidate_id,
+        "training_job_id": training_job_id,
+        "training_run_id": training_run_id,
+        "feature_manifest_version": feature_manifest_version,
+        "validation_design_id": validation_design_id,
+        "validation_design_version": validation_design_version,
+        "split_id": split_id,
         "target": target,
         "problem_type": problem_type,
+        "candidate_decision_id": candidate_decision_id,
     }
 
 
+def _lineage_context(
+    project_id: str = Query(...),
+    dataset_id: str = Query(...),
+    dataset_version_id: str = Query(...),
+    candidate_id: str = Query(...),
+    training_job_id: str = Query(...),
+    training_run_id: str = Query(...),
+    feature_manifest_version: str = Query(...),
+    validation_design_id: str = Query(...),
+    validation_design_version: str = Query(...),
+    split_id: str = Query(...),
+    target: str = Query(...),
+    problem_type: str = Query(...),
+    candidate_decision_id: str = Query(...),
+    user: Dict[str, Any] = Depends(require_user),
+) -> dict:
+    return {
+        **_context(
+        project_id=project_id,
+        dataset_id=dataset_id,
+        dataset_version_id=dataset_version_id,
+        candidate_id=candidate_id,
+        training_job_id=training_job_id,
+        training_run_id=training_run_id,
+        feature_manifest_version=feature_manifest_version,
+        validation_design_id=validation_design_id,
+        validation_design_version=validation_design_version,
+        split_id=split_id,
+        target=target,
+        problem_type=problem_type,
+        candidate_decision_id=candidate_decision_id,
+        ),
+        "_actor_user_id": str(user.get("userId") or ""),
+    }
+
+
+def _version_bound_value(version: Dict[str, Any], aliases: tuple[str, ...]) -> list[str]:
+    lineage = version.get("lineage") if isinstance(version.get("lineage"), dict) else {}
+    model_contract = (
+        version.get("modelContract")
+        if isinstance(version.get("modelContract"), dict)
+        else {}
+    )
+    candidate_contract = (
+        version.get("candidateContract")
+        if isinstance(version.get("candidateContract"), dict)
+        else model_contract.get("candidateContract")
+        if isinstance(model_contract.get("candidateContract"), dict)
+        else lineage.get("candidateContract")
+        if isinstance(lineage.get("candidateContract"), dict)
+        else {}
+    )
+    values: list[str] = []
+    for source in (version, lineage, model_contract, candidate_contract):
+        for alias in aliases:
+            value = str(source.get(alias) or "").strip()
+            if value and value not in values:
+                values.append(value)
+    return values
+
+
+def _prepare_interpretation_context(
+    user: Dict[str, Any],
+    context: Dict[str, Any],
+) -> Dict[str, Any]:
+    model_version_id = str(context.get("model_version_id") or "").strip()
+    if not model_version_id:
+        return context
+    version = REGISTRY.get_version(user, model_version_id)
+    if str(version.get("modelVersionId") or "").strip() != model_version_id:
+        raise HTTPException(status_code=409, detail="The registry returned a different model version.")
+    if (
+        str(version.get("publicationStatus") or "").strip() != "finalized"
+        or str(version.get("lineageStatus") or "").strip() != "verified"
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail="The requested registered model version is not finalized with verified lineage.",
+        )
+    aliases = {
+        "project_id": ("projectId", "project_id"),
+        "dataset_id": ("datasetId", "dataset_id", "trainingDatasetId", "training_dataset_id"),
+        "dataset_version_id": (
+            "datasetVersionId",
+            "dataset_version_id",
+            "trainingDatasetVersionId",
+            "training_dataset_version_id",
+        ),
+        "candidate_id": ("candidateId", "candidate_id"),
+        "training_job_id": ("trainingJobId", "training_job_id"),
+        "training_run_id": ("trainingRunId", "training_run_id"),
+        "feature_manifest_version": (
+            "featureManifestVersion",
+            "featureManifestHash",
+            "feature_manifest_version",
+            "feature_manifest_hash",
+        ),
+        "validation_design_id": ("validationDesignId", "validation_design_id"),
+        "validation_design_version": (
+            "validationDesignVersion",
+            "validation_design_version",
+        ),
+        "split_id": ("splitId", "split_id"),
+        "target": ("target", "targetName", "target_name"),
+        "problem_type": ("problemType", "problem_type"),
+        "evaluation_package_id": ("evaluationPackageId", "evaluation_package_id"),
+        "candidate_decision_id": ("candidateDecisionId", "candidate_decision_id"),
+    }
+    for field, field_aliases in aliases.items():
+        expected = str(context.get(field) or "").strip()
+        values = _version_bound_value(version, field_aliases)
+        if not expected or not values:
+            raise HTTPException(
+                status_code=409,
+                detail=f"The registered model version is missing its exact {field} binding.",
+            )
+        if any(value != expected for value in values):
+            raise HTTPException(
+                status_code=409,
+                detail=f"The registered model version does not match the exact {field}.",
+            )
+    artifact = REGISTRY.load_version_artifact(
+        user,
+        model_version_id,
+        expected_project_id=context["project_id"],
+    )
+    return {
+        **context,
+        "_registered_artifact": artifact,
+        "_registered_version": version,
+    }
+
+
+def _interpretation_context(
+    evaluation_package_id: str = Query(...),
+    model_version_id: str = Query(""),
+    context: Dict[str, Any] = Depends(_lineage_context),
+    user: Dict[str, Any] = Depends(require_user),
+) -> dict:
+    authorize_modeling_scope(user, context["project_id"], "view")
+    return _prepare_interpretation_context(
+        user,
+        {
+            **context,
+            "evaluation_package_id": str(evaluation_package_id).strip(),
+            "model_version_id": str(model_version_id).strip(),
+        },
+    )
+
+
+def _request_context(request: Dict[str, Any]) -> dict:
+    required = (
+        "project_id",
+        "dataset_id",
+        "dataset_version_id",
+        "candidate_id",
+        "training_job_id",
+        "training_run_id",
+        "feature_manifest_version",
+        "validation_design_id",
+        "validation_design_version",
+        "split_id",
+        "target",
+        "problem_type",
+        "candidate_decision_id",
+        "evaluation_package_id",
+    )
+    missing = [field for field in required if not str(request.get(field) or "").strip()]
+    if missing:
+        raise HTTPException(
+            status_code=422,
+            detail="Exact Evaluation lineage is required: " + ", ".join(missing),
+        )
+    lineage_fields = required[:-1]
+    return {
+        **_context(**{field: str(request[field]).strip() for field in lineage_fields}),
+        "evaluation_package_id": str(request["evaluation_package_id"]).strip(),
+    }
+
+
+def _lineage_response(payload: Dict[str, Any]) -> Dict[str, Any]:
+    if payload.get("lineage_error"):
+        raise HTTPException(status_code=409, detail=str(payload.get("error") or "Evaluation lineage mismatch."))
+    return payload
+
+
+def _evaluation_response(
+    model: str,
+    context: Dict[str, Any],
+    payload: Dict[str, Any],
+    analysis_type: str,
+    actor_user_id: str,
+) -> Dict[str, Any]:
+    bound = EVAL.bind_evaluation_package(
+        model,
+        context,
+        payload,
+        analysis_type,
+        actor_user_id=actor_user_id,
+    )
+    if bound.get("ok"):
+        package = bound.get("evaluation_package")
+        complete = (
+            analysis_type == "command_center"
+            and isinstance(package, dict)
+            and package.get("status") == "complete"
+        )
+        if complete:
+            try:
+                checkpointed = flush_checkpoint()
+            except Exception:
+                checkpointed = False
+            if not checkpointed:
+                RESULTS.delete_evaluation_package(
+                    str(bound.get("evaluation_package_id") or "")
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        "The completed evaluation package could not be durably "
+                        "checkpointed. Retry Evaluation before continuing."
+                    ),
+                )
+        else:
+            schedule_checkpoint_save()
+    return _lineage_response(bound)
+
+
+def _interpretation_response(
+    model: str,
+    context: Dict[str, Any],
+    payload: Dict[str, Any],
+    analysis_type: str,
+) -> Dict[str, Any]:
+    return _lineage_response(
+        EVAL.bind_interpretation_artifact(
+            model,
+            context,
+            payload,
+            analysis_type,
+            context.get("evaluation_package_id") or "",
+        )
+    )
+
+
+def _publish_final_version(
+    user: Dict[str, Any],
+    context: Dict[str, Any],
+    result: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Publish the just-created final artifact through the durable registry."""
+    candidate_id = context["candidate_id"]
+    evaluation_package_id = context["evaluation_package_id"]
+    metadata = result.get("metadata") or {}
+    handoff = EVAL.registry_promotion_handoff(
+        candidate_id,
+        context,
+        metadata,
+        evaluation_package_id,
+    )
+    if not handoff.get("ready"):
+        raise HTTPException(status_code=409, detail=str(handoff.get("error") or "Registry handoff is not ready."))
+    fitted_object = result.get("_fitted_object")
+    if fitted_object is None:
+        raise HTTPException(
+            status_code=409,
+            detail="The exact resolved candidate artifact is unavailable for durable publication.",
+        )
+
+    metrics_summary = metadata.get("metrics") or {
+        key: metadata.get(key)
+        for key in ("holdout_auc", "holdout_rmse", "holdout_r2", "holdout_adjusted_r2")
+        if metadata.get(key) is not None
+    }
+    interpretation_summary = {
+        "selectedFeatures": metadata.get("features") or [],
+        "featureCount": metadata.get("feature_count"),
+        "method": "Recursive Feature Elimination" if str(metadata.get("model_key") or "").startswith("final_rfe") else "Selected trained candidate",
+    }
+    publication = REGISTRY.create_model_version(
+        user,
+        context["project_id"],
+        model_name=(
+            f"ATLAS::{context['dataset_id']}::"
+            f"{context['dataset_version_id']}::{context['target']}"
+        ),
+        problem_type=context["problem_type"],
+        algorithm=str(handoff["algorithm_id"]),
+        algorithm_version=str(handoff.get("algorithm_version") or metadata.get("source_estimator_class") or "unknown"),
+        fitted_object=fitted_object,
+        hyperparameters=handoff.get("hyperparameters") or {},
+        training_parameters=handoff.get("training_parameters") or {},
+        metrics_summary=metrics_summary,
+        evaluation_summary=handoff.get("evaluation_summary") or {},
+        interpretation_summary=interpretation_summary,
+        training_run_id=context["training_run_id"],
+        dataset_id=context["dataset_id"],
+        dataset_version_id=context["dataset_version_id"],
+        feature_manifest_version=context["feature_manifest_version"],
+        training_timestamp=handoff["candidate_contract"].get("created_at"),
+        lineage=handoff["lineage"],
+        candidate_contract=handoff["candidate_contract"],
+        evaluation_package_id=handoff["evaluation_package_id"],
+        idempotency_key=handoff["idempotency_key"],
+    )
+    model = publication.get("model")
+    version = publication.get("modelVersion")
+    promotion = publication.get("promotion")
+    expected_version = {
+        "projectId": context["project_id"],
+        "datasetId": context["dataset_id"],
+        "datasetVersionId": context["dataset_version_id"],
+        "candidateId": context["candidate_id"],
+        "trainingRunId": context["training_run_id"],
+        "featureManifestVersion": context["feature_manifest_version"],
+        "evaluationPackageId": handoff["evaluation_package_id"],
+        "candidateDecisionId": context["candidate_decision_id"],
+    }
+    if not isinstance(model, dict) or not isinstance(version, dict) or not isinstance(promotion, dict):
+        raise HTTPException(status_code=409, detail="The durable registry returned an incomplete publication response.")
+    if any(str(version.get(key) or "") != value for key, value in expected_version.items()):
+        raise HTTPException(status_code=409, detail="The durable model version does not match the exact candidate lineage.")
+    if (
+        promotion.get("status") != "finalized"
+        or promotion.get("artifactVerified") is not True
+        or str(promotion.get("lineageStatus") or "") != "verified"
+    ):
+        raise HTTPException(status_code=409, detail="The durable model publication is not finalized and verified.")
+
+    model_version_id = str(version.get("modelVersionId") or "")
+    if not model_version_id:
+        raise HTTPException(status_code=409, detail="The durable registry did not return an exact modelVersionId.")
+    enriched_metadata = {
+        **metadata,
+        "model_id": model.get("modelId"),
+        "modelId": model.get("modelId"),
+        "model_version_id": model_version_id,
+        "modelVersionId": model_version_id,
+        "publication_status": promotion["status"],
+        "artifact_verified": True,
+        "registry_checksum": promotion.get("checksum"),
+        "lineage_status": promotion.get("lineageStatus"),
+    }
+    RESULTS.set_final_model(fitted_object, enriched_metadata)
+    return {
+        "ok": True,
+        "metadata": enriched_metadata,
+        "model": model,
+        "modelVersion": version,
+        "promotion": promotion,
+    }
+
+
+def _audit_promotion_event(
+    *,
+    user: Dict[str, Any],
+    outcome: str,
+    correlation_id: str,
+    context: Dict[str, Any],
+    publication: Dict[str, Any] | None = None,
+    error: Exception | None = None,
+) -> None:
+    version = (publication or {}).get("modelVersion") or {}
+    promotion = (publication or {}).get("promotion") or {}
+    metadata = {
+        "projectId": context.get("project_id"),
+        "candidateId": context.get("candidate_id"),
+        "evaluationPackageId": context.get("evaluation_package_id"),
+        "datasetVersionId": context.get("dataset_version_id"),
+        "modelVersionId": version.get("modelVersionId"),
+        "checksum": promotion.get("checksum"),
+        "previousChampionVersionId": version.get("previousChampionVersionId"),
+        "correlationId": correlation_id,
+    }
+    if error is not None:
+        metadata["errorClass"] = error.__class__.__name__
+    try:
+        audit_event(
+            "model.promotion.succeeded" if outcome == "success" else "model.promotion.failed",
+            "model_version" if version.get("modelVersionId") else "model_candidate",
+            version.get("modelVersionId") or context.get("candidate_id"),
+            outcome,
+            reason=None if error is None else "Model promotion did not complete.",
+            metadata=metadata,
+            user_id=str(user.get("userId") or ""),
+        )
+    except Exception:
+        # Publication/audit failures must retain the original user-safe result;
+        # the audit sink never receives fitted objects or raw exception text.
+        pass
+
+
+def _promotion_response(
+    request: Dict[str, Any],
+    user: Dict[str, Any],
+    *,
+    rfe: bool,
+) -> Dict[str, Any] | JSONResponse:
+    correlation_id = f"promotion-{uuid.uuid4().hex}"
+    context: Dict[str, Any] = {
+        key: str(request.get(key) or "").strip()
+        for key in (
+            "project_id",
+            "dataset_version_id",
+            "candidate_id",
+            "evaluation_package_id",
+        )
+    }
+    try:
+        context = _request_context(request)
+        authorize_modeling_scope(user, context["project_id"], "edit")
+        if rfe:
+            result = EVAL.save_rfe_model(
+                model_name=context["candidate_id"],
+                keep=int(request.get("keep") or 10),
+                context=context,
+                evaluation_package_id=context["evaluation_package_id"],
+            )
+        else:
+            result = EVAL.save_selected_model_as_final(
+                model_name=context["candidate_id"],
+                context=context,
+                evaluation_package_id=context["evaluation_package_id"],
+            )
+        if not result.get("ok"):
+            raise HTTPException(
+                status_code=409,
+                detail=str(result.get("error") or "The exact model promotion preconditions were not met."),
+            )
+        publication = _publish_final_version(user, context, result)
+        schedule_checkpoint_save()
+        _audit_promotion_event(
+            user=user,
+            outcome="success",
+            correlation_id=correlation_id,
+            context=context,
+            publication=publication,
+        )
+        return {**publication, "correlation_id": correlation_id}
+    except Exception as exc:
+        _audit_promotion_event(
+            user=user,
+            outcome="failure",
+            correlation_id=correlation_id,
+            context=context,
+            error=exc,
+        )
+        if isinstance(exc, HTTPException):
+            status_code = int(exc.status_code)
+            error_message = str(exc.detail)
+        else:
+            status_code = 500
+            error_message = "Durable model publication could not be completed."
+        return JSONResponse(
+            status_code=status_code,
+            content={
+                "ok": False,
+                "error": error_message,
+                "correlation_id": correlation_id,
+            },
+        )
+
+
 @router.get("/eval/curves")
-def get_curves(model: str, project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)):
+def get_curves(
+    context: Dict[str, Any] = Depends(_lineage_context),
+    user: Dict[str, Any] = Depends(require_user),
+):
     """Return curves computed from the persisted governed holdout predictions."""
-    authorize_modeling_scope(user, project_id, "view")
-    return EVAL.get_curves(model)
+    authorize_modeling_scope(user, context["project_id"], "view")
+    candidate_id = context["candidate_id"]
+    return _evaluation_response(candidate_id, context, EVAL.get_curves(candidate_id, context), "curves", str(user.get("userId") or ""))
 
 
 @router.get("/eval/deciles")
-def get_deciles(model: str, project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)):
+def get_deciles(
+    context: Dict[str, Any] = Depends(_lineage_context),
+    user: Dict[str, Any] = Depends(require_user),
+):
     """Return deciles computed from the persisted governed holdout predictions."""
-    authorize_modeling_scope(user, project_id, "view")
-    return EVAL.get_deciles(model)
+    authorize_modeling_scope(user, context["project_id"], "view")
+    candidate_id = context["candidate_id"]
+    return _evaluation_response(candidate_id, context, EVAL.get_deciles(candidate_id, context), "deciles", str(user.get("userId") or ""))
 
 
 @router.get("/eval/command_center")
 def get_evaluation_command_center(
-    model: str,
-    project_id: str = Query(...),
-    threshold: float = 0.5,
+    threshold: float | None = None,
     review_capacity: float = 0.1,
+    context: Dict[str, Any] = Depends(_lineage_context),
     user: Dict[str, Any] = Depends(require_user),
 ):
-    """Return real threshold, lift, gain, capture, and calibration diagnostics."""
-    authorize_modeling_scope(user, project_id, "view")
-    return EVAL.get_evaluation_command_center(
-        model,
-        threshold=threshold,
-        review_capacity=review_capacity,
+    """Return final-holdout reporting at an already selected threshold.
+
+    The endpoint does not optimize or recommend thresholds from final-holdout
+    labels or scores.
+    """
+    authorize_modeling_scope(user, context["project_id"], "view")
+    candidate_id = context["candidate_id"]
+    return _evaluation_response(
+        candidate_id,
+        context,
+        EVAL.get_evaluation_command_center(
+            candidate_id,
+            threshold=threshold,
+            review_capacity=review_capacity,
+            context=context,
+        ),
+        "command_center",
+        str(user.get("userId") or ""),
     )
 
 
 @router.get("/eval/tree")
 def get_decision_tree(
-    model: str,
-    project_id: str = Query(...),
     max_depth: int = 4,
-    dataset_version: str = "",
-    target: str = "",
-    problem_type: str = "",
+    context: Dict[str, Any] = Depends(_lineage_context),
     user: Dict[str, Any] = Depends(require_user),
 ):
-    authorize_modeling_scope(user, project_id, "view")
-    return EVAL.decision_tree(model, max_depth=max_depth, context=_context(project_id, dataset_version, target, problem_type))
+    authorize_modeling_scope(user, context["project_id"], "view")
+    candidate_id = context["candidate_id"]
+    return _evaluation_response(
+        candidate_id,
+        context,
+        EVAL.decision_tree(candidate_id, max_depth=max_depth, context=context),
+        "decision_tree",
+        str(user.get("userId") or ""),
+    )
 
 
 @router.get("/eval/knn_clusters")
-def get_knn_clusters(model: str, project_id: str = Query(...), max_points: int = 900, user: Dict[str, Any] = Depends(require_user)):
-    authorize_modeling_scope(user, project_id, "view")
-    return EVAL.knn_clusters(model, max_points=max_points)
+def get_knn_clusters(
+    max_points: int = 900,
+    context: Dict[str, Any] = Depends(_lineage_context),
+    user: Dict[str, Any] = Depends(require_user),
+):
+    authorize_modeling_scope(user, context["project_id"], "view")
+    candidate_id = context["candidate_id"]
+    return _evaluation_response(
+        candidate_id,
+        context,
+        EVAL.knn_clusters(candidate_id, max_points=max_points, context=context),
+        "knn_clusters",
+        str(user.get("userId") or ""),
+    )
 
 
 @router.get("/interpretation/importance")
 def get_feature_importance(
-    model: str,
-    project_id: str = Query(...),
-    dataset_version: str = "",
-    target: str = "",
-    problem_type: str = "",
+    context: Dict[str, Any] = Depends(_interpretation_context),
     user: Dict[str, Any] = Depends(require_user),
 ):
-    authorize_modeling_scope(user, project_id, "view")
-    return EVAL.feature_importance(model, _context(project_id, dataset_version, target, problem_type))
+    authorize_modeling_scope(user, context["project_id"], "view")
+    candidate_id = context["candidate_id"]
+    return _interpretation_response(
+        candidate_id, context, EVAL.feature_importance(candidate_id, context), "feature_importance"
+    )
 
 
 @router.get("/interpretation/details")
 def get_model_details(
-    model: str,
-    project_id: str = Query(...),
-    dataset_version: str = "",
-    target: str = "",
-    problem_type: str = "",
+    context: Dict[str, Any] = Depends(_interpretation_context),
     user: Dict[str, Any] = Depends(require_user),
 ):
-    authorize_modeling_scope(user, project_id, "view")
-    return EVAL.model_details(model, _context(project_id, dataset_version, target, problem_type))
+    authorize_modeling_scope(user, context["project_id"], "view")
+    candidate_id = context["candidate_id"]
+    return _interpretation_response(
+        candidate_id, context, EVAL.model_details(candidate_id, context), "model_details"
+    )
 
 
 @router.get("/interpretation/debug")
 def get_model_debug(
-    model: str,
-    project_id: str = Query(...),
-    dataset_version: str = "",
-    target: str = "",
-    problem_type: str = "",
+    context: Dict[str, Any] = Depends(_interpretation_context),
     user: Dict[str, Any] = Depends(require_user),
 ):
-    authorize_modeling_scope(user, project_id, "view")
-    return EVAL.model_details(model, _context(project_id, dataset_version, target, problem_type))
+    authorize_modeling_scope(user, context["project_id"], "view")
+    candidate_id = context["candidate_id"]
+    return _interpretation_response(
+        candidate_id, context, EVAL.model_details(candidate_id, context), "model_debug"
+    )
 
 
 @router.get("/interpretation/hyperparameters")
 def get_hyperparameters(
-    model: str,
-    project_id: str = Query(...),
-    dataset_version: str = "",
-    target: str = "",
-    problem_type: str = "",
+    context: Dict[str, Any] = Depends(_interpretation_context),
     user: Dict[str, Any] = Depends(require_user),
 ):
-    authorize_modeling_scope(user, project_id, "view")
-    return EVAL.hyperparameters(model, _context(project_id, dataset_version, target, problem_type))
+    authorize_modeling_scope(user, context["project_id"], "view")
+    candidate_id = context["candidate_id"]
+    return _interpretation_response(
+        candidate_id, context, EVAL.hyperparameters(candidate_id, context), "hyperparameters"
+    )
 
 
 @router.get("/interpretation/pdp")
 def get_pdp(
-    model: str,
     feature: str,
-    project_id: str = Query(...),
-    dataset_version: str = "",
-    target: str = "",
-    problem_type: str = "",
+    context: Dict[str, Any] = Depends(_interpretation_context),
     user: Dict[str, Any] = Depends(require_user),
 ):
-    authorize_modeling_scope(user, project_id, "view")
-    return EVAL.pdp(model, feature, _context(project_id, dataset_version, target, problem_type))
+    authorize_modeling_scope(user, context["project_id"], "view")
+    candidate_id = context["candidate_id"]
+    return _interpretation_response(
+        candidate_id, context, EVAL.pdp(candidate_id, feature, context), "partial_dependence"
+    )
 
 
 @router.get("/interpretation/sensitivity")
 def get_sensitivity(
-    model: str,
     feature: str,
-    project_id: str = Query(...),
-    dataset_version: str = "",
-    target: str = "",
-    problem_type: str = "",
+    context: Dict[str, Any] = Depends(_interpretation_context),
     user: Dict[str, Any] = Depends(require_user),
 ):
-    authorize_modeling_scope(user, project_id, "view")
-    return EVAL.sensitivity(model, feature, _context(project_id, dataset_version, target, problem_type))
+    authorize_modeling_scope(user, context["project_id"], "view")
+    candidate_id = context["candidate_id"]
+    return _interpretation_response(
+        candidate_id, context, EVAL.sensitivity(candidate_id, feature, context), "sensitivity"
+    )
 
 
 @router.get("/interpretation/sensitivity_summary")
-def get_sensitivity_summary(model: str, project_id: str = Query(...), top_n: int = 12, user: Dict[str, Any] = Depends(require_user)):
-    authorize_modeling_scope(user, project_id, "view")
-    return EVAL.sensitivity_summary(model, top_n=top_n)
+def get_sensitivity_summary(
+    top_n: int = 12,
+    context: Dict[str, Any] = Depends(_interpretation_context),
+    user: Dict[str, Any] = Depends(require_user),
+):
+    authorize_modeling_scope(user, context["project_id"], "view")
+    candidate_id = context["candidate_id"]
+    return _interpretation_response(
+        candidate_id,
+        context,
+        EVAL.sensitivity_summary(candidate_id, top_n=top_n, context=context),
+        "sensitivity_summary",
+    )
 
 
 @router.get("/interpretation/vsi")
-def get_vsi_summary(model: str, project_id: str = Query(...), top_n: int = 40, user: Dict[str, Any] = Depends(require_user)):
-    authorize_modeling_scope(user, project_id, "view")
-    return EVAL.vsi_summary(model, top_n=top_n)
+def get_vsi_summary(
+    top_n: int = 40,
+    context: Dict[str, Any] = Depends(_interpretation_context),
+    user: Dict[str, Any] = Depends(require_user),
+):
+    authorize_modeling_scope(user, context["project_id"], "view")
+    candidate_id = context["candidate_id"]
+    return _interpretation_response(
+        candidate_id, context, EVAL.vsi_summary(candidate_id, top_n=top_n, context=context), "vsi"
+    )
 
 
 @router.get("/interpretation/vif")
-def get_vif_summary(project_id: str = Query(...), model: str = "final", user: Dict[str, Any] = Depends(require_user)):
-    authorize_modeling_scope(user, project_id, "view")
-    return EVAL.vif_summary(model)
+def get_vif_summary(
+    context: Dict[str, Any] = Depends(_interpretation_context),
+    user: Dict[str, Any] = Depends(require_user),
+):
+    authorize_modeling_scope(user, context["project_id"], "view")
+    candidate_id = context["candidate_id"]
+    return _interpretation_response(
+        candidate_id, context, EVAL.vif_summary(candidate_id, context=context), "vif"
+    )
 
 
 @router.get("/interpretation/shap")
 def get_shap_summary(
-    model: str,
-    project_id: str = Query(...),
-    dataset_version: str = "",
-    target: str = "",
-    problem_type: str = "",
+    context: Dict[str, Any] = Depends(_interpretation_context),
     user: Dict[str, Any] = Depends(require_user),
 ):
-    authorize_modeling_scope(user, project_id, "view")
-    return EVAL.shap_summary(model, _context(project_id, dataset_version, target, problem_type))
+    authorize_modeling_scope(user, context["project_id"], "view")
+    candidate_id = context["candidate_id"]
+    return _interpretation_response(
+        candidate_id, context, EVAL.shap_summary(candidate_id, context), "shap_summary"
+    )
 
 
 @router.get("/interpretation/decision_boundary")
 def get_decision_boundary(
-    model: str,
-    project_id: str = Query(...),
     x_feature: str = "",
     y_feature: str = "",
-    dataset_version: str = "",
-    target: str = "",
-    problem_type: str = "",
+    context: Dict[str, Any] = Depends(_interpretation_context),
     user: Dict[str, Any] = Depends(require_user),
 ):
-    authorize_modeling_scope(user, project_id, "view")
-    return EVAL.decision_boundary(
-        model_name=model,
-        x_feature=x_feature,
-        y_feature=y_feature,
-        context=_context(project_id, dataset_version, target, problem_type),
+    authorize_modeling_scope(user, context["project_id"], "view")
+    candidate_id = context["candidate_id"]
+    return _interpretation_response(
+        candidate_id,
+        context,
+        EVAL.decision_boundary(
+            model_name=candidate_id,
+            x_feature=x_feature,
+            y_feature=y_feature,
+            context=context,
+        ),
+        "decision_boundary",
     )
 
 
 @router.get("/interpretation/rfe")
 def get_rfe(
-    project_id: str = Query(...),
-    model: str = "",
     keep: int = 10,
-    dataset_version: str = "",
-    target: str = "",
-    problem_type: str = "",
+    context: Dict[str, Any] = Depends(_interpretation_context),
     user: Dict[str, Any] = Depends(require_user),
 ):
-    authorize_modeling_scope(user, project_id, "view")
-    return EVAL.rfe(model_name=model, keep=keep, context=_context(project_id, dataset_version, target, problem_type))
-
-
-def _register_model_version(user: Dict[str, Any], project_id: str, metadata: Dict[str, Any]) -> Dict[str, Any] | None:
-    """Durable Model Registry, Phase E: called after EVAL.save_selected_model_
-    as_final / EVAL.save_rfe_model succeed. Reads the just-set RESULTS.final_model
-    (the fitted object) plus the last training summary for hyperparameters/
-    dataset/feature-manifest context, and creates one immutable ModelVersion.
-    Returns None (never raises) on any failure -- durability is additive, never
-    fatal to the "Save Final Model" action that already worked before this
-    phase (Do-Not: "do not remove current scoring functionality")."""
-    try:
-        fitted_object = RESULTS.get_final_model()
-        if fitted_object is None:
-            return None
-        summary = RESULTS.get_last_summary() or {}
-        source_key = str(metadata.get("source_model") or metadata.get("model_key") or "")
-        ranked_row = next((row for row in (summary.get("ranked") or []) if row.get("key") == source_key), {})
-        is_rfe = str(metadata.get("model_key") or "").startswith("final_rfe")
-        interpretation_summary = (
-            {"selectedFeatures": metadata.get("features"), "featureCount": metadata.get("feature_count"), "method": "RFE"}
-            if is_rfe else {}
-        )
-        saved = create_model_version(
-            user, project_id,
-            model_name=str(metadata.get("name") or metadata.get("model_key") or "Final Model"),
-            problem_type=metadata.get("problem_type"),
-            algorithm=source_key or str(metadata.get("model_key") or ""),
-            algorithm_version=str(metadata.get("final_estimator_class") or metadata.get("source_estimator_class") or fitted_object.__class__.__name__),
-            fitted_object=fitted_object,
-            hyperparameters=ranked_row.get("best_params") or {},
-            training_parameters={
-                "kFolds": summary.get("k_folds"), "calibrate": summary.get("calibrate"),
-                "gridSearch": summary.get("grid_search"), "gridSearchLevel": summary.get("grid_search_level"),
-            },
-            metrics_summary=metadata.get("metrics") or {
-                key: metadata.get(key) for key in ("holdout_auc", "holdout_rmse", "holdout_r2", "holdout_adjusted_r2") if metadata.get(key) is not None
-            },
-            evaluation_summary={key: ranked_row.get(key) for key in ("auc", "pr_auc", "accuracy", "f1", "mae", "mse", "rmse", "r2", "adjusted_r2") if ranked_row.get(key) is not None},
-            interpretation_summary=interpretation_summary,
-            training_run_id=summary.get("training_job_id"),
-            dataset_id=summary.get("dataset_id"),
-            dataset_version_id=metadata.get("dataset_version") or summary.get("dataset_version"),
-            feature_manifest_version=summary.get("feature_manifest_version") or metadata.get("feature_manifest_version"),
-            training_timestamp=RESULTS.training_timestamp,
-            lineage={
-                "datasetVersionLabel": metadata.get("dataset_version") or summary.get("dataset_version"),
-                "splitId": metadata.get("split_id") or summary.get("split_id"),
-                "validationDesignId": metadata.get("validation_design_id") or summary.get("validation_design_id"),
-                "validationDesignVersion": metadata.get("validation_design_version") or summary.get("validation_design_version"),
-                "trainingJobId": metadata.get("training_job_id") or summary.get("training_job_id"),
-                "featureManifestVersion": metadata.get("feature_manifest_version") or summary.get("feature_manifest_version"),
-                "target": metadata.get("target") or summary.get("target"),
-            },
-        )
-        return saved
-    except Exception:  # noqa: BLE001
-        return None
+    authorize_modeling_scope(user, context["project_id"], "view")
+    candidate_id = context["candidate_id"]
+    return _interpretation_response(
+        candidate_id,
+        context,
+        EVAL.rfe(model_name=candidate_id, keep=keep, context=context),
+        "recursive_feature_elimination",
+    )
 
 
 @router.post("/interpretation/rfe/save_final")
 def save_rfe_final_model(request: dict, user: Dict[str, Any] = Depends(require_user)):
-    project_id = authorize_modeling_scope(user, str(request.get("project_id") or ""), "edit")
-    result = EVAL.save_rfe_model(
-        model_name=str(request.get("model") or ""),
-        keep=int(request.get("keep") or 10),
-        context=_context(
-            project_id,
-            str(request.get("dataset_version") or ""),
-            str(request.get("target") or ""),
-            str(request.get("problem_type") or ""),
-        ),
-    )
-    if result.get("ok"):
-        registered = _register_model_version(user, project_id, result["metadata"])
-        if registered:
-            result["metadata"]["modelId"] = registered["model"]["modelId"]
-            result["metadata"]["modelVersionId"] = registered["modelVersion"]["modelVersionId"]
-            RESULTS.final_model_metadata = result["metadata"]
-        schedule_checkpoint_save()
-    return result
+    return _promotion_response(request, user, rfe=True)
 
 
 @router.post("/model/save_final")
 def save_selected_final_model(request: dict, user: Dict[str, Any] = Depends(require_user)):
-    project_id = authorize_modeling_scope(user, str(request.get("project_id") or ""), "edit")
-    result = EVAL.save_selected_model_as_final(
-        model_name=str(request.get("model") or ""),
-        context=_context(
-            project_id,
-            str(request.get("dataset_version") or ""),
-            str(request.get("target") or ""),
-            str(request.get("problem_type") or ""),
-        ),
-    )
-    if result.get("ok"):
-        registered = _register_model_version(user, project_id, result["metadata"])
-        if registered:
-            result["metadata"]["modelId"] = registered["model"]["modelId"]
-            result["metadata"]["modelVersionId"] = registered["modelVersion"]["modelVersionId"]
-            RESULTS.final_model_metadata = result["metadata"]
-        schedule_checkpoint_save()
-    return result
+    return _promotion_response(request, user, rfe=False)
 
 
 @router.get("/model/final/status")
-def get_final_model_status(project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)):
+def get_final_model_status(
+    project_id: str = Query(...),
+    dataset_id: str = Query(...),
+    dataset_version_id: str = Query(...),
+    target: str = Query(...),
+    user: Dict[str, Any] = Depends(require_user),
+):
     authorize_modeling_scope(user, project_id, "view")
-    return EVAL.final_model_status(context={"project_id": project_id})
+    resolved = REGISTRY.resolve_current_version_by_exact_context(
+        user,
+        project_id=project_id,
+        dataset_id=dataset_id,
+        dataset_version_id=dataset_version_id,
+        target_name=target,
+    )
+    version = resolved.get("modelVersion")
+    if resolved.get("status") != "ready" or not isinstance(version, dict):
+        return {
+            "ok": True,
+            "ready": False,
+            "artifact_present": False,
+            "stale": False,
+            "blocker": resolved.get("reason") or "No exact current registered model version is available.",
+            "project_id": project_id,
+            "dataset_id": dataset_id,
+            "dataset_version_id": dataset_version_id,
+            "target": target,
+            "metadata": {},
+            "recovery": resolved,
+            "modelVersion": None,
+        }
+    model_version_id = str(resolved.get("modelVersionId") or version.get("modelVersionId") or "")
+    lineage = version.get("lineage") if isinstance(version.get("lineage"), dict) else {}
+    metadata = {
+        **version,
+        "project_id": project_id,
+        "dataset_id": dataset_id,
+        "training_dataset_id": dataset_id,
+        "dataset_version_id": dataset_version_id,
+        "training_dataset_version_id": dataset_version_id,
+        "target": target,
+        "target_name": target,
+        "candidate_id": version.get("candidateId") or lineage.get("candidateId"),
+        "training_run_id": version.get("trainingRunId") or lineage.get("trainingRunId"),
+        "feature_manifest_version": version.get("featureManifestVersion") or lineage.get("featureManifestVersion"),
+        "validation_design_id": version.get("validationDesignId") or lineage.get("validationDesignId"),
+        "validation_design_version": lineage.get("validationDesignVersion"),
+        "split_id": version.get("splitId") or lineage.get("splitId"),
+        "model_id": resolved.get("modelId"),
+        "model_version_id": model_version_id,
+        "modelId": resolved.get("modelId"),
+        "modelVersionId": model_version_id,
+        "publication_status": resolved.get("publicationStatus"),
+        "promotion_status": resolved.get("publicationStatus"),
+        "lineage_status": resolved.get("lineageStatus"),
+        "artifact_verified": resolved.get("artifactVerified") is True,
+        "artifact_verification_status": "verified" if resolved.get("artifactVerified") is True else "unverified",
+        "artifact_checksum": resolved.get("checksum"),
+        "checksum": resolved.get("checksum"),
+        "artifact_format": resolved.get("artifactFormat"),
+        "designation": "champion",
+        "champion_status": "champion",
+    }
+    required_readiness = (
+        "project_id",
+        "dataset_id",
+        "dataset_version_id",
+        "target",
+        "candidate_id",
+        "training_run_id",
+        "feature_manifest_version",
+        "validation_design_id",
+        "split_id",
+        "model_version_id",
+        "artifact_checksum",
+        "promotion_status",
+        "lineage_status",
+        "designation",
+    )
+    if any(not str(metadata.get(key) or "").strip() for key in required_readiness):
+        raise HTTPException(status_code=409, detail="The exact current model version is missing durable readiness lineage.")
+    if (
+        metadata["promotion_status"] != "finalized"
+        or metadata["lineage_status"] != "verified"
+        or metadata["artifact_verified"] is not True
+        or metadata["designation"] != "champion"
+    ):
+        raise HTTPException(status_code=409, detail="The exact current model version is not finalized, verified, and champion-designated.")
+    return {
+        "ok": True,
+        "ready": True,
+        "artifact_present": True,
+        "stale": False,
+        "blocker": None,
+        "project_id": project_id,
+        "dataset_id": dataset_id,
+        "dataset_version_id": dataset_version_id,
+        "target": target,
+        "model_version_id": model_version_id,
+        "modelVersionId": model_version_id,
+        "metadata": metadata,
+        "recovery": resolved,
+        "modelVersion": version,
+    }
 
 
 @router.get("/model/export")
-def export_model(project_id: str = Query(...), model: str = "final", format: str = "json", user: Dict[str, Any] = Depends(require_user)):
+def export_model(
+    project_id: str = Query(...),
+    model_version_id: str = Query(...),
+    format: str = "json",
+    user: Dict[str, Any] = Depends(require_user),
+):
     authorize_modeling_scope(user, project_id, "view")
     if format.lower() not in {"json", "manifest"}:
         return {
             "ok": False,
             "error": "Only JSON model manifests are exported. Executable model objects must be deployed through a signed model registry or approved ONNX/skops pipeline.",
         }
-    try:
-        content, filename = EVAL.export_model_bundle(model_name=model)
-    except ValueError as exc:
-        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    artifact = REGISTRY.load_version_artifact(
+        user,
+        model_version_id,
+        expected_project_id=project_id,
+    )
+    version = REGISTRY.get_version(user, model_version_id)
+    content = json.dumps(
+        {
+            "exportType": "registered_model_manifest_v1",
+            "modelVersion": version,
+            "artifactClass": artifact.__class__.__name__,
+            "artifactModule": artifact.__class__.__module__,
+            "note": "The executable artifact remains in verified durable registry storage.",
+        },
+        sort_keys=True,
+        indent=2,
+        default=str,
+    ).encode("utf-8")
+    filename = f"atlas_model_{model_version_id}.json"
     return Response(
         content=content,
         media_type="application/json",

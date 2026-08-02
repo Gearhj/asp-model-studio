@@ -9,6 +9,14 @@ const progressPanel = fs.readFileSync("src/components/dataAcquisition/DatasetLoa
 const distributionPanel = fs.readFileSync("src/components/dataAcquisition/TargetDistributionPanel.tsx", "utf8");
 const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
 
+function sourceSection(source, startMarker, endMarker, label) {
+  const start = source.indexOf(startMarker);
+  const end = source.indexOf(endMarker, start + startMarker.length);
+  assert.notEqual(start, -1, `Missing ${label} start marker.`);
+  assert.ok(end > start, `Missing ${label} end marker.`);
+  return source.slice(start, end);
+}
+
 assert.equal(packageJson.scripts["test:data-acquisition-lifecycle"], "node tests/dataAcquisitionLifecycle.test.mjs");
 assert.equal(packageJson.scripts["test:data-acquisition-ux"], "node tests/dataAcquisitionUx.test.mjs");
 
@@ -35,14 +43,26 @@ assert.match(page, /aria-busy=\{isLoading\}/, "Loading must be announced assisti
 assert.doesNotMatch(page, /lg:grid-cols-\[minmax\(0,1fr\)_minmax\(240px,360px\)_auto\]/, "Load action must not sit at the far-right edge of the selector row.");
 
 // Part A/5: changing either selector resets the loaded state.
-assert.match(page, /onDatasetChange=\{\(datasetId\) => \{[\s\S]{0,400}?setLoadProgress\(IDLE_LOAD_PROGRESS\)/, "Changing dataset must reset load progress.");
-assert.match(page, /onVersionChange=\{\(versionId\) => \{[\s\S]{0,200}?setLoadProgress\(IDLE_LOAD_PROGRESS\)/, "Changing version must reset load progress.");
+const datasetChangeHandler = sourceSection(
+  page,
+  "onDatasetChange={",
+  "onVersionChange={",
+  "dataset-change handler",
+);
+const versionChangeHandler = sourceSection(
+  page,
+  "onVersionChange={",
+  "onRefresh={",
+  "version-change handler",
+);
+assert.match(datasetChangeHandler, /setLoadProgress\(IDLE_LOAD_PROGRESS\)/, "Changing dataset must reset load progress.");
+assert.match(versionChangeHandler, /setLoadProgress\(IDLE_LOAD_PROGRESS\)/, "Changing version must reset load progress.");
 assert.match(page, /isAlreadyLinked\(loadedLibraryIdentity, \{ datasetId: selectedLibraryDatasetId, versionId: selectedLibraryVersionId \}\)/, "Loaded state must be keyed to the exact loaded datasetId/versionId.");
 assert.match(page, /const showLoaded = isLoaded && loadProgress\.phase === "loaded"/, "A success state must not survive a changed selection.");
 
 // Part A/6-8: identity-based loaded message, never filename-as-identity.
-assert.match(page, /Loaded \$\{dataset\?\.name \?\? "Dataset Library asset"\}, version \$\{selectedLibraryVersionId\}, into this project\./, "Loaded message must name the dataset and immutable version.");
-assert.match(page, /setLoadedLibraryIdentity\(\{ datasetId: selectedLibraryDatasetId, versionId: selectedLibraryVersionId \}\)/, "Exact datasetId/versionId identity must be preserved.");
+assert.match(page, /Loaded \$\{dataset\?\.name \?\? "Dataset Library asset"\}, version \$\{selectedLibraryVersionId\}, into this project after durable activation revision \$\{activation\.activation_revision\}\./, "Loaded message must name the dataset, immutable version, and durable activation revision.");
+assert.match(page, /setLoadedLibraryIdentity\(\{\s*datasetId: canonical\.dataset_id,\s*versionId: canonical\.dataset_version_id,?\s*\}\)/, "The exact backend-returned datasetId/versionId identity must be preserved.");
 
 // --- Part B: Browser Session Dataset History -------------------------------
 
@@ -88,9 +108,25 @@ assert.match(page, /sourceKindLabel=\{DATASET_SOURCE_LABELS\[datasetSourceKind\]
 assert.match(page, /data-testid="data-quality-readiness"/, "The readiness section must be addressable.");
 assert.match(page, /border-2 border-teal-300 bg-teal-50/, "Data Quality must use a distinct light-teal readiness treatment, not flat grey.");
 assert.match(page, /data-testid="readiness-status-badge"/, "A visible readiness status badge is required.");
-assert.match(page, /data-readiness-status=\{status\}/, "The readiness status must be inspectable.");
+assert.match(page, /data-readiness-status=\{status\.readiness\}/, "The shared lifecycle readiness status must be inspectable.");
 assert.match(page, /data-testid="readiness-summary"/, "A concise readiness summary must precede the detailed cards.");
-assert.match(page, /computeReadinessStatus\(\{ quality, target, registeredRowCount, selectedPredictorCount: selected\.length \}\)/, "Readiness must derive from existing findings only.");
+const readinessComputation = sourceSection(
+  page,
+  "const readiness = useMemo(",
+  "const sqlWarnings",
+  "readiness computation",
+);
+assert.match(readinessComputation, /computeReadinessStatus\(\{/);
+for (const input of [
+  "quality",
+  "target",
+  "registeredRowCount",
+  "selectedPredictorCount: selected.length",
+  "profileScopeMode:",
+  "authoritativeEventCount:",
+]) {
+  assert.ok(readinessComputation.includes(input), `Readiness computation must include ${input}.`);
+}
 // Semantic tone, not uniform grey.
 assert.match(page, /data-quality-tone=\{tone\}/, "Quality groups must carry a semantic tone.");
 assert.match(page, /tone === "warning" \? "border-amber-300 bg-amber-50" : "border-emerald-200 bg-emerald-50"/, "Clear groups are green and warning groups amber.");
@@ -181,7 +217,8 @@ assert.doesNotMatch(
 
 // 4 -- duplicate renders must not issue duplicate active queries.
 assert.match(distributionApi, /const inFlight = new Map<string, Promise<TargetDistributionResult>>\(\)/, "In-flight requests must be de-duplicated.");
-assert.match(distributionApi, /const existing = inFlight\.get\(key\);\s*\n\s*if \(existing\) return existing;/, "A concurrent identical request must join the in-flight promise.");
+assert.match(distributionApi, /const existing = inFlight\.get\(key\);\s*\n\s*if \(existing\) return waitForSharedResult\(existing, options\.signal\);/, "A concurrent identical request must join the in-flight promise while retaining caller-local cancellation.");
+assert.match(distributionApi, /function waitForSharedResult\(/, "Caller cancellation must not abort the shared aggregate query.");
 
 // 5/6/7 -- cache keyed by the full immutable identity.
 assert.match(distributionApi, /export function buildTargetDistributionKey/, "Results must be keyed by immutable identity.");
@@ -228,8 +265,8 @@ assert.match(page, /targetDistributionState/, "The chart must support loading/em
 for (const stage of ["Source selected", "Import completed", "Dataset registered or linked", "Target confirmed", "Quality reviewed", "Predictors approved"]) {
   assert.ok(page.includes(stage), `Readiness track must include stage: ${stage}`);
 }
-assert.match(page, /readiness\.status === "blocked"\s*\n?\s*\?\s*"blocked"/, "Blocked must be reserved for real blockers.");
-assert.match(page, /detail: quality \? READINESS_LABELS\[readiness\.status\] : "Run data quality review"/, "Track state must derive from real readiness.");
+assert.match(page, /acquisitionStatus\.readiness === "blocked"\s*\n?\s*\?\s*"blocked"/, "Blocked must be reserved for blockers from the shared lifecycle status.");
+assert.match(page, /acquisitionStatus\.readinessLabel[\s\S]*?acquisitionStatus\.reviewLabel/, "Track detail must derive from the shared readiness and review state.");
 
 // --- Part H6: visual hierarchy ---------------------------------------------
 

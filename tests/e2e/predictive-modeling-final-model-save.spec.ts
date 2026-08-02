@@ -13,10 +13,10 @@ const SEED_SCRIPT = path.join(__dirname, "helpers", "seedTrainedProject.py");
  * persist an outdated dataset_version/target, which Scoring's fresh re-derivation then
  * rejected as "belongs to a different project, dataset version, or target"). Uses API
  * seeding to reach a completed-training project quickly (per this stage's instructions),
- * then exercises the real UI for RFE, Save as Final Model, and Scoring readiness -- the
- * actual code path that was broken.
+ * then exercises the real UI for exact evaluation-package handoff, optional RFE analysis,
+ * exact-candidate promotion, and Scoring readiness -- the actual code path that was broken.
  */
-test("RFE -> Save as Final Model -> Scoring accepts the saved model", async ({ page, context }) => {
+test("exact evaluated candidate -> Save as Final Model -> Scoring accepts the saved model", async ({ page, context }) => {
   test.setTimeout(8 * 60_000);
 
   const seedRaw = execFileSync(PYTHON, [SEED_SCRIPT, "E2E Final Model Save Fix"], { encoding: "utf-8", timeout: 300_000 });
@@ -46,14 +46,17 @@ test("RFE -> Save as Final Model -> Scoring accepts the saved model", async ({ p
   await page.goto("/step08");
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(2000);
+  await page.getByRole("button", { name: "Review Model" }).first().click();
   await page.getByTitle("Add to Comparison").first().click();
-  await page.waitForTimeout(500);
-
-  await page.goto("/step09");
+  const openInterpretation = page.getByRole("button", { name: "Open Interpretation" }).first();
+  await expect(openInterpretation).toBeEnabled({ timeout: 60_000 });
+  await openInterpretation.click();
+  await expect(page).toHaveURL(/\/step09\?.*evaluation_package_id=/, { timeout: 30_000 });
   await page.waitForLoadState("networkidle");
   await page.waitForTimeout(2000);
 
-  // Run RFE and wait for a REAL completion condition (not a fixed sleep).
+  // RFE remains optional analysis. Exercise it here, but it cannot change the candidate
+  // contract or evaluation package that the promotion request must preserve exactly.
   const runRfeBtn = page.getByRole("button", { name: /Run RFE|Rerun RFE/ });
   await expect(runRfeBtn).toBeEnabled({ timeout: 15_000 });
   await runRfeBtn.click();
@@ -64,7 +67,7 @@ test("RFE -> Save as Final Model -> Scoring accepts the saved model", async ({ p
   const saveFinalBtn = page.getByRole("button", { name: "Save as Final Model" });
   await expect(saveFinalBtn).toBeEnabled({ timeout: 10_000 });
   const [saveResponse] = await Promise.all([
-    page.waitForResponse((r) => r.url().includes("/interpretation/rfe/save_final"), { timeout: 90_000 }),
+    page.waitForResponse((r) => r.url().includes("/model/save_final"), { timeout: 90_000 }),
     saveFinalBtn.click(),
   ]);
   const saveBody = await saveResponse.json().catch(() => null);

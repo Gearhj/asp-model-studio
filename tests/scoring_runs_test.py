@@ -27,16 +27,24 @@ sys.path.insert(0, str(_REPO_ROOT))
 _TEST_DATA_ROOT = _REPO_ROOT / ".tmp"
 _TEST_DATA_ROOT.mkdir(exist_ok=True)
 _RUN_ID = uuid.uuid4().hex[:10]
+_SUITE_ROOT = _TEST_DATA_ROOT / f"atlas_scoringruns_{_RUN_ID}"
 _SECURITY_DB_PATH = _TEST_DATA_ROOT / f"atlas_scoringruns_security_{_RUN_ID}.db"
 _PERSISTENCE_DB_PATH = _TEST_DATA_ROOT / f"atlas_scoringruns_persistence_{_RUN_ID}.db"
 _CHECKPOINT_PATH = _TEST_DATA_ROOT / f"atlas_scoringruns_checkpoint_{_RUN_ID}.json"
-_LIBRARY_ROOT = Path(tempfile.mkdtemp(prefix=f"atlas_scoringruns_library_{_RUN_ID}_"))
-_ARTIFACT_ROOT = Path(tempfile.mkdtemp(prefix=f"atlas_scoringruns_artifacts_{_RUN_ID}_"))
+_LIBRARY_ROOT = _SUITE_ROOT / "dataset-library"
+_ARTIFACT_ROOT = _SUITE_ROOT / "scoring-artifacts"
+_BACKUP_ROOT = Path(tempfile.mkdtemp(prefix=f"atlas_scoringruns_backups_{_RUN_ID}_"))
+_EVIDENCE_ROOT = _TEST_DATA_ROOT / f"atlas_scoringruns_evidence_{_RUN_ID}"
+_MODEL_ARTIFACT_ROOT = _TEST_DATA_ROOT / f"atlas_scoringruns_models_{_RUN_ID}"
+os.environ["ATLAS_SECURITY_ROOT"] = str(_SECURITY_DB_PATH.parent)
 os.environ["ATLAS_SECURITY_DB_PATH"] = str(_SECURITY_DB_PATH)
 os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH)
 os.environ["ATLAS_CHECKPOINT_PATH"] = str(_CHECKPOINT_PATH)
 os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(_LIBRARY_ROOT)
+os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(_BACKUP_ROOT)
 os.environ["ATLAS_SCORING_RUN_ARTIFACT_ROOT"] = str(_ARTIFACT_ROOT)
+os.environ["ATLAS_EVIDENCE_ROOT"] = str(_EVIDENCE_ROOT)
+os.environ["ATLAS_MODEL_REGISTRY_ARTIFACT_ROOT"] = str(_MODEL_ARTIFACT_ROOT)
 os.environ.setdefault("ATLAS_AUTH_ENABLED", "true")
 os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
 
@@ -45,13 +53,77 @@ import shutil  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from server.main import app  # noqa: E402
+from server.datasets import dataset_registry  # noqa: E402
 from server.persistence import initialize_persistence  # noqa: E402
+from server.persistence import db as persistence_db  # noqa: E402
+from server.persistence import service as persistence_service  # noqa: E402
 from server.persistence.service import get_persistence_service  # noqa: E402
+from server.security import security_store  # noqa: E402
 from server.security.security_store import init_security_store  # noqa: E402
 import server.core.session_checkpoint as checkpoint  # noqa: E402
+from server.evidence import evidence_store  # noqa: E402
+from server.model_registry import model_artifacts  # noqa: E402
+from server.scoring_runs import scoring_run_artifacts  # noqa: E402
+
+
+def _bind_dataset_library_paths() -> None:
+    root = _LIBRARY_ROOT.resolve()
+    os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(root)
+    os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(_BACKUP_ROOT.resolve())
+    dataset_registry.ARTIFACT_ROOT = root
+    dataset_registry.REGISTRY_PATH = root / "registry.json"
+    dataset_registry.USERS_PATH = root / "users.json"
+    dataset_registry.PROJECT_LINKS_PATH = root / "project_links.json"
+
+
+def _bind_checkpoint_path() -> None:
+    """Keep this suite isolated even when ``server.main`` was imported first."""
+    expected = _CHECKPOINT_PATH.resolve()
+    os.environ["ATLAS_CHECKPOINT_PATH"] = str(expected)
+    checkpoint.CHECKPOINT_PATH = expected
+    assert Path(os.environ["ATLAS_CHECKPOINT_PATH"]).resolve() == expected
+    assert checkpoint.CHECKPOINT_PATH.resolve() == expected
+
+
+def _bind_isolated_runtime_paths() -> None:
+    """Rebind all cached storage authorities to this suite's UUID paths."""
+    os.environ["ATLAS_SECURITY_ROOT"] = str(_SECURITY_DB_PATH.parent.resolve())
+    os.environ["ATLAS_SECURITY_DB_PATH"] = str(_SECURITY_DB_PATH.resolve())
+    os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH.resolve())
+    os.environ["ATLAS_SCORING_RUN_ARTIFACT_ROOT"] = str(_ARTIFACT_ROOT.resolve())
+    os.environ["ATLAS_EVIDENCE_ROOT"] = str(_EVIDENCE_ROOT.resolve())
+    os.environ["ATLAS_MODEL_REGISTRY_ARTIFACT_ROOT"] = str(_MODEL_ARTIFACT_ROOT.resolve())
+    os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
+    security_store.SECURITY_ROOT = _SECURITY_DB_PATH.parent.resolve()
+    security_store.DB_PATH = _SECURITY_DB_PATH.resolve()
+    security_store.ATLAS_AUTH_ENABLED = True
+    security_store.ATLAS_ALLOW_PUBLIC_REGISTRATION = True
+    persistence_db._database = persistence_db.Database(_PERSISTENCE_DB_PATH)
+    persistence_service._service = None
+    scoring_run_artifacts.ARTIFACT_ROOT = _ARTIFACT_ROOT.resolve()
+    evidence_store.EVIDENCE_ROOT = _EVIDENCE_ROOT.resolve()
+    evidence_store.ITEMS_ROOT = evidence_store.EVIDENCE_ROOT / "items"
+    evidence_store.REGISTRY_PATH = evidence_store.EVIDENCE_ROOT / "evidence_registry.json"
+    model_artifacts.ARTIFACT_ROOT = _MODEL_ARTIFACT_ROOT.resolve()
+    _bind_checkpoint_path()
+    _bind_dataset_library_paths()
+
+    assert security_store.DB_PATH == _SECURITY_DB_PATH.resolve()
+    assert persistence_db.get_database().path == _PERSISTENCE_DB_PATH.resolve()
+    assert scoring_run_artifacts.ARTIFACT_ROOT == _ARTIFACT_ROOT.resolve()
+    assert evidence_store.EVIDENCE_ROOT == _EVIDENCE_ROOT.resolve()
+    assert model_artifacts.ARTIFACT_ROOT == _MODEL_ARTIFACT_ROOT.resolve()
+
+
+_bind_isolated_runtime_paths()
+
+
+def setUpModule() -> None:
+    _bind_isolated_runtime_paths()
 
 
 def _cleanup() -> None:
+    checkpoint.flush_checkpoint()
     for base in (_SECURITY_DB_PATH, _PERSISTENCE_DB_PATH):
         for suffix in ("", "-wal", "-shm"):
             target = Path(f"{base}{suffix}")
@@ -62,9 +134,12 @@ def _cleanup() -> None:
                 except PermissionError:
                     if attempt < 24:
                         time.sleep(0.2)
-    checkpoint.CHECKPOINT_PATH.unlink(missing_ok=True)
+    _CHECKPOINT_PATH.unlink(missing_ok=True)
     shutil.rmtree(_LIBRARY_ROOT, ignore_errors=True)
     shutil.rmtree(_ARTIFACT_ROOT, ignore_errors=True)
+    shutil.rmtree(_BACKUP_ROOT, ignore_errors=True)
+    shutil.rmtree(_EVIDENCE_ROOT, ignore_errors=True)
+    shutil.rmtree(_MODEL_ARTIFACT_ROOT, ignore_errors=True)
 
 
 def _register(label: str) -> TestClient:
@@ -89,6 +164,34 @@ def _create_project(client: TestClient, name: str) -> str:
     return response.json()["project"]["projectId"]
 
 
+def _register_link_activate_frame(
+    client: TestClient,
+    project_id: str,
+    frame: pd.DataFrame,
+    name: str,
+) -> tuple[str, str]:
+    upload = client.post(
+        "/api/datasets/upload",
+        files={"file": (f"{name}.csv", io.BytesIO(frame.to_csv(index=False).encode("utf-8")), "text/csv")},
+        data={"name": name, "description": "scoring-run test asset"},
+    )
+    assert upload.status_code == 200, upload.text
+    dataset = upload.json()["dataset"]
+    dataset_id = dataset["datasetId"]
+    version_id = dataset["created_dataset_version_id"]
+    link = client.post(
+        f"/api/projects/{project_id}/datasets/link",
+        json={"datasetId": dataset_id, "versionId": version_id, "datasetRole": "modeling"},
+    )
+    assert link.status_code == 200, link.text
+    activation = client.post(
+        f"/api/datasets/{dataset_id}/versions/{version_id}/activate",
+        params={"project_id": project_id},
+    )
+    assert activation.status_code == 200, activation.text
+    return dataset_id, version_id
+
+
 def _train_regression_model(client: TestClient, project_id: str) -> str:
     """Runs the full outliers -> missing -> manifest -> materialize -> split -> train
     pipeline for a small real regression model, mirroring
@@ -99,31 +202,43 @@ def _train_regression_model(client: TestClient, project_id: str) -> str:
         "feature_b": [float((i * 3) % 23) for i in range(400)],
         "MedHouseVal": [round(0.5 + (i % 11) * 0.31, 3) for i in range(400)],
     })
-    files = {"file": ("reg.csv", io.BytesIO(df.to_csv(index=False).encode("utf-8")), "text/csv")}
-    response = client.post("/api/data/upload_csv", data={"project_id": project_id}, files=files)
+    dataset_id, version_id = _register_link_activate_frame(
+        client, project_id, df, f"scoring-regression-{uuid.uuid4().hex[:8]}"
+    )
+    identity = {"dataset_id": dataset_id, "dataset_version_id": version_id}
+    response = client.post("/api/data/set_target", json={"project_id": project_id, "target": "MedHouseVal", "selected_columns": ["feature_a", "feature_b"], "expected_dataset_id": dataset_id, "expected_dataset_version_id": version_id})
     assert response.status_code == 200, response.text
-    response = client.post("/api/data/set_target", json={"project_id": project_id, "target": "MedHouseVal", "selected_columns": ["feature_a", "feature_b"]})
+    response = client.post("/api/outliers/apply", json={"project_id": project_id, "config": {}, "global_method": "IQR_1_5", "target": "MedHouseVal", "problem_type": "regression", "acknowledged_high_impact": True, **identity})
     assert response.status_code == 200, response.text
-    response = client.post("/api/outliers/apply", json={"project_id": project_id, "config": {}, "global_method": "IQR_1_5", "target": "MedHouseVal", "problem_type": "regression"})
+    response = client.post("/api/missing/validate", json={"project_id": project_id, "problem_type": "regression", **identity})
     assert response.status_code == 200, response.text
-    response = client.post("/api/missing/apply", json={"project_id": project_id, "config": {}, "problem_type": "regression"})
-    assert response.status_code == 200, response.text
-    response = client.post("/api/features/manifest", json={"project_id": project_id, "features": [], "pipeline_steps": [], "dataset_version": ""})
+    response = client.post("/api/features/manifest", json={"project_id": project_id, "features": [], "pipeline_steps": [], **identity})
     assert response.status_code == 200, response.text
     manifest_version = response.json().get("manifest_version") or ""
-    response = client.post("/api/features/materialize", json={"project_id": project_id, "manifest_version": manifest_version})
+    response = client.post("/api/features/materialize", json={"project_id": project_id, "manifest_version": manifest_version, **identity})
+    assert response.status_code == 200, response.text
+    materialization_hash = str(response.json()["materialization_hash"])
+    response = client.post("/api/features/confirm", json={"project_id": project_id, "manifest_version": manifest_version, "materialization_hash": materialization_hash, **identity})
     assert response.status_code == 200, response.text
     response = client.post("/api/balancing_split/config", json={
-        "project_id": project_id, "split_strategy": "holdout", "test_size": 0.2, "random_seed": 42, "stratify": False,
+        "project_id": project_id, "split_strategy": "hybrid", "test_size": 0.2, "random_seed": 42, "stratify": False,
         "balance_method": "none", "problem_type": "regression", "event_value": None,
-        "selected_features": ["feature_a", "feature_b"], "feature_manifest_version": manifest_version, "dataset_version": "",
+        "selected_features": ["feature_a", "feature_b"], "feature_manifest_version": manifest_version,
+        "fold_method": "k_fold", "fold_count": 2, "cv_design_approved": True,
+        "holdout_protection_confirmed": True, "final_holdout_policy": "untouched_until_final_comparison", **identity,
     })
     assert response.status_code == 200, response.text
-    split_id = response.json().get("split_id") or ""
+    split = response.json()
+    split_id = split.get("split_id") or ""
+    validation_design = split["validation_design"]
     response = client.post("/api/model/train/jobs", json={
         "models": ["linreg"], "k_folds": 2, "max_parallel": 1, "calibrate": False,
         "target": "MedHouseVal", "event_value": None, "non_event_value": None, "problem_type": "regression",
-        "dataset_version": "", "feature_manifest_version": manifest_version, "split_id": split_id, "project_id": project_id,
+        "feature_manifest_version": manifest_version, "split_id": split_id, "project_id": project_id,
+        "validation_design_id": validation_design["validation_design_id"],
+        "validation_design_version": validation_design["design_version"],
+        "selected_original_features": ["feature_a", "feature_b"], "primary_metric": "rmse",
+        "candidate_strategy": "scoring_runs_test", **identity,
     })
     assert response.status_code == 200, response.text
     job_id = response.json()["job_id"]
@@ -156,7 +271,7 @@ class ScoringRunLifecycleTests(unittest.TestCase):
         # the PSI/VSI computation branch, which only fires for test/oot).
         train1 = self.client.post("/api/score/development-split", params={"project_id": self.project_id, "dataset_type": "train"})
         self.assertEqual(train1.status_code, 200, train1.text)
-        self.assertTrue(train1.json().get("ok"))
+        self.assertTrue(train1.json().get("ok"), train1.text)
         self.train_run_id_1 = train1.json().get("scoringRunId")
 
         train2 = self.client.post("/api/score/development-split", params={"project_id": self.project_id, "dataset_type": "train"})

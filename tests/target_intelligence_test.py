@@ -36,10 +36,12 @@ _SECURITY_DB_PATH = _TEST_DATA_ROOT / f"atlas_target_intel_security_{_RUN_ID}.db
 _PERSISTENCE_DB_PATH = _TEST_DATA_ROOT / f"atlas_target_intel_persistence_{_RUN_ID}.db"
 _CHECKPOINT_PATH = _TEST_DATA_ROOT / f"atlas_target_intel_checkpoint_{_RUN_ID}.json"
 _LIBRARY_ROOT = Path(tempfile.mkdtemp(prefix=f"atlas_target_intel_library_{_RUN_ID}_"))
+_BACKUP_ROOT = Path(tempfile.mkdtemp(prefix=f"atlas_target_intel_backups_{_RUN_ID}_"))
 os.environ["ATLAS_SECURITY_DB_PATH"] = str(_SECURITY_DB_PATH)
 os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH)
 os.environ["ATLAS_CHECKPOINT_PATH"] = str(_CHECKPOINT_PATH)
 os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(_LIBRARY_ROOT)
+os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(_BACKUP_ROOT)
 os.environ.setdefault("ATLAS_AUTH_ENABLED", "true")
 os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
 
@@ -51,10 +53,56 @@ from fastapi.testclient import TestClient  # noqa: E402
 from server.analytics import result_cache  # noqa: E402
 from server.analytics import target_distribution_service as tds  # noqa: E402
 from server.analytics import target_intelligence_service as tis  # noqa: E402
+from server.core.dataset_store import get_scoped_dataset_store  # noqa: E402
 from server.main import app  # noqa: E402
 from server.persistence import initialize_persistence  # noqa: E402
 from server.security.security_store import init_security_store  # noqa: E402
 import server.core.session_checkpoint as checkpoint  # noqa: E402
+from server.datasets import dataset_registry  # noqa: E402
+
+
+def _bind_dataset_library_paths() -> None:
+    """Rebind every cached Dataset Library path to this UUID-owned root."""
+    expected_root = _LIBRARY_ROOT.resolve()
+    expected_backup_root = _BACKUP_ROOT.resolve()
+    os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(expected_root)
+    os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(expected_backup_root)
+    dataset_registry.ARTIFACT_ROOT = expected_root
+    dataset_registry.REGISTRY_PATH = dataset_registry.ARTIFACT_ROOT / "registry.json"
+    dataset_registry.USERS_PATH = dataset_registry.ARTIFACT_ROOT / "users.json"
+    dataset_registry.PROJECT_LINKS_PATH = (
+        dataset_registry.ARTIFACT_ROOT / "project_links.json"
+    )
+    assert Path(os.environ["ATLAS_DATASET_LIBRARY_ROOT"]).resolve() == expected_root
+    assert Path(os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"]).resolve() == expected_backup_root
+    assert dataset_registry.ARTIFACT_ROOT.resolve() == expected_root
+    assert dataset_registry.REGISTRY_PATH.resolve() == expected_root / "registry.json"
+    assert dataset_registry.USERS_PATH.resolve() == expected_root / "users.json"
+    assert dataset_registry.PROJECT_LINKS_PATH.resolve() == expected_root / "project_links.json"
+
+
+def _bind_checkpoint_path() -> None:
+    """Keep this suite isolated even when ``server.main`` was imported first."""
+    expected = _CHECKPOINT_PATH.resolve()
+    os.environ["ATLAS_CHECKPOINT_PATH"] = str(expected)
+    checkpoint.CHECKPOINT_PATH = expected
+    assert Path(os.environ["ATLAS_CHECKPOINT_PATH"]).resolve() == expected
+    assert checkpoint.CHECKPOINT_PATH.resolve() == expected
+
+
+_bind_dataset_library_paths()
+_bind_checkpoint_path()
+
+
+def setUpModule() -> None:
+    _bind_dataset_library_paths()
+    _bind_checkpoint_path()
+
+
+def tearDownModule() -> None:
+    _cleanup_db_files()
+    shutil.rmtree(_LIBRARY_ROOT, ignore_errors=True)
+    shutil.rmtree(_BACKUP_ROOT, ignore_errors=True)
 
 
 # The measured CLASS_TRAIN figures the brief treats as authoritative.
@@ -75,7 +123,8 @@ def _cleanup_db_files() -> None:
                 except PermissionError:
                     if attempt < 24:
                         time.sleep(0.2)
-    checkpoint.CHECKPOINT_PATH.unlink(missing_ok=True)
+    _CHECKPOINT_PATH.unlink(missing_ok=True)
+    shutil.rmtree(_BACKUP_ROOT, ignore_errors=True)
 
 
 def _class_train_frame() -> pd.DataFrame:
@@ -522,8 +571,12 @@ def _create_project(client: TestClient, name: str) -> str:
 
 
 class FullPopulationTargetByPredictorTests(unittest.TestCase):
-    """The in-memory twin used when a project has no registered version. It must
-    produce the SAME bounded shape and the same summary as the artifact path."""
+    """The endpoint uses the exact registered version and development split.
+
+    These cases began as legacy in-memory-twin coverage.  The fixture now
+    provisions the governed identity and split that target-directed EDA
+    requires, while retaining the bounded-shape and validation assertions.
+    """
 
     @classmethod
     def setUpClass(cls) -> None:
@@ -539,18 +592,99 @@ class FullPopulationTargetByPredictorTests(unittest.TestCase):
             rows.append({
                 "score": float(index % 300),
                 "segment": None if index % 100 == 0 else f"seg_{index % 25}",
-                "target": 1 if index % 60 == 0 else 0,
+                "target": "event" if index % 60 == 0 else "non_event",
             })
-        response = self.client.post("/api/data/set_sample", json={
-            "project_id": self.project_id, "headers": ["score", "segment", "target"],
-            "rows": rows, "target": "target", "selected_columns": ["score", "segment"],
+        frame = pd.DataFrame(rows)
+        _bind_dataset_library_paths()
+        upload = self.client.post(
+            "/api/datasets/upload",
+            files={
+                "file": (
+                    "target_by_predictor.csv",
+                    frame.to_csv(index=False).encode("utf-8"),
+                    "text/csv",
+                )
+            },
+            data={
+                "name": f"Target by predictor {uuid.uuid4().hex[:8]}",
+                "description": "Governed endpoint test fixture",
+                "domain": "general",
+                "projectId": self.project_id,
+            },
+        )
+        self.assertEqual(upload.status_code, 200, upload.text)
+        dataset = upload.json()["dataset"]
+        self.dataset_id = dataset["datasetId"]
+        self.dataset_version_id = (
+            dataset.get("latestVersion") or dataset["versions"][-1]
+        )["versionId"]
+
+        activation = self.client.post(
+            f"/api/datasets/{self.dataset_id}/versions/{self.dataset_version_id}/activate",
+            params={"project_id": self.project_id},
+        )
+        self.assertEqual(activation.status_code, 200, activation.text)
+
+        target = self.client.post("/api/data/set_target", json={
+            "project_id": self.project_id,
+            "target": "target",
+            "selected_columns": ["score", "segment"],
+            "expected_dataset_id": self.dataset_id,
+            "expected_dataset_version_id": self.dataset_version_id,
         })
-        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(target.status_code, 200, target.text)
+
+        me = self.client.get("/api/auth/me")
+        self.assertEqual(me.status_code, 200, me.text)
+        user_id = me.json()["user"]["userId"]
+        scoped_store = get_scoped_dataset_store((user_id, self.project_id))
+        manifest_version = f"fm-target-by-predictor-{uuid.uuid4().hex[:10]}"
+        with scoped_store.state_lock:
+            scoped_store.meta["feature_manifest"] = {
+                "project_id": self.project_id,
+                "dataset_id": self.dataset_id,
+                "dataset_version_id": self.dataset_version_id,
+                "manifest_version": manifest_version,
+                "features": [
+                    {
+                        "feature_name": feature,
+                        "selected": True,
+                        "eligibility_status": "eligible",
+                        "origin": "original",
+                    }
+                    for feature in ("score", "segment")
+                ],
+            }
+
+        split = self.client.post("/api/balancing_split/config", json={
+            "project_id": self.project_id,
+            "split_strategy": "holdout",
+            "test_size": 0.2,
+            "random_seed": 42,
+            "stratify": True,
+            "balance_method": "none",
+            "problem_type": "classification",
+            "event_value": "event",
+            "selected_features": ["score", "segment"],
+            "feature_manifest_version": manifest_version,
+            "dataset_id": self.dataset_id,
+            "dataset_version_id": self.dataset_version_id,
+            "fold_method": "none",
+            "holdout_protection_confirmed": True,
+        })
+        self.assertEqual(split.status_code, 200, split.text)
+        self.development_rows = int(len(scoped_store.X_train))
+        self.development_events = int(scoped_store.y_train.eq("event").sum())
+        self.development_missing_segments = int(
+            scoped_store.X_train["segment"].isna().sum()
+        )
 
     def _run(self, **overrides):
         body = {
-            "project_id": self.project_id, "target": "target", "event_value": 1,
+            "project_id": self.project_id, "target": "target", "event_value": "event",
             "predictor": "score", "analysis_type": "numeric_quantile", "bands": 10,
+            "expected_dataset_id": self.dataset_id,
+            "expected_dataset_version_id": self.dataset_version_id,
         }
         body.update(overrides)
         return self.client.post("/api/eda/target-by-predictor", json=body)
@@ -560,11 +694,12 @@ class FullPopulationTargetByPredictorTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200, response.text)
         body = response.json()
         self.assertEqual(body["resolution"], "exact")
-        self.assertEqual(body["engine"], "pandas")
-        self.assertEqual(body["source"], "eda_full_population")
+        self.assertEqual(body["engine"], "governed_eda_analytical_contract")
+        self.assertEqual(body["source"], "eda_exact_development_population")
         self.assertEqual(len(body["rows"]), 10)
-        self.assertEqual(sum(row["population"] for row in body["rows"]), 1_200)
-        self.assertEqual(sum(row["eventCount"] for row in body["rows"]), 20)
+        self.assertEqual(sum(row["population"] for row in body["rows"]), self.development_rows)
+        self.assertEqual(sum(row["eventCount"] for row in body["rows"]), self.development_events)
+        self.assertFalse(body["analysisScope"]["finalHoldoutAccessed"])
         self.assertIn("interpretation", body["summary"])
 
     def test_categorical_groups_disclose_top_n_and_missing(self):
@@ -575,17 +710,20 @@ class FullPopulationTargetByPredictorTests(unittest.TestCase):
         self.assertTrue(body["topNApplied"])
         self.assertEqual(body["otherGroup"]["category"], "Other")
         self.assertEqual(body["missingGroup"]["category"], "Missing")
-        self.assertEqual(body["missingGroup"]["population"], 12)
+        self.assertEqual(body["missingGroup"]["population"], self.development_missing_segments)
         total = sum(row["population"] for row in body["rows"]) + body["otherGroup"]["population"] + body["missingGroup"]["population"]
-        self.assertEqual(total, 1_200)
+        self.assertEqual(total, self.development_rows)
 
     def test_only_grouped_counts_are_returned(self):
         body = self._run().json()
         payload = json.dumps(body)
-        self.assertLess(len(payload), 12_000)
+        self.assertLess(len(payload), 60_000)
         for row in body["rows"]:
             self.assertEqual(
-                set(row) - {"band", "lowerBound", "upperBound", "meanValue", "isMissingGroup"},
+                set(row) - {
+                    "band", "lowerBound", "upperBound", "meanValue",
+                    "isMissingGroup", "isBureauSpecialGroup", "governedBinLabel",
+                },
                 {"label", "population", "eventCount", "eventRate", "smallGroup"},
             )
 
@@ -601,6 +739,8 @@ class FullPopulationTargetByPredictorTests(unittest.TestCase):
         other_project = _create_project(other_client, "Other Full Population Project")
         response = self.client.post("/api/eda/target-by-predictor", json={
             "project_id": other_project, "target": "target", "predictor": "score",
+            "expected_dataset_id": self.dataset_id,
+            "expected_dataset_version_id": self.dataset_version_id,
         })
         self.assertIn(response.status_code, (403, 404), response.text)
 

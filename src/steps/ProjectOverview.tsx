@@ -19,7 +19,7 @@ import { loadExperiments } from "../lib/experimentTracking";
 import { loadProjectContext } from "../lib/projectContext";
 import { AB_WORKFLOW_DEFAULTS, allocationImbalance, analyzeAbLift, decisionRecommendationReason, getAbWorkflowFullDatasetArtifact } from "../lib/abTestingWorkflow";
 import { getCreditRiskProfileForProject, getLatestCreditRiskMlModelForProject, getLatestScorecardForProject, getLatestWoeIvAnalysisForProject, type CreditRiskMlModel, type CreditRiskProfile, type ScorecardModel, type WoeIvAnalysis } from "../lib/creditRiskStudio";
-import { useWorkflowStore } from "../state/useWorkflowStore";
+import { selectEffectiveWorkflowSteps, useWorkflowStore } from "../state/useWorkflowStore";
 import { getProjectPersistenceBundle, type ProjectPersistenceBundle } from "../lib/serverPersistence";
 import { summarizePersistedEvidence } from "../lib/persistedEvidenceStatus";
 import { getRegistryAsset, getRegistryAssets, type RegistryAssetDetail } from "../lib/registryApi";
@@ -39,7 +39,7 @@ export default function ProjectOverview() {
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectType = useWorkflowStore((state) => state.projectType);
   const workflowId = useWorkflowStore((state) => state.workflowId);
-  const workflowSteps = useWorkflowStore((state) => state.workflowSteps);
+  const workflowSteps = useWorkflowStore(selectEffectiveWorkflowSteps);
   const context = loadProjectContext();
   const decisions = loadDecisionJournal().slice(0, 4);
   const experiments = loadExperiments().slice(0, 4);
@@ -95,11 +95,11 @@ export default function ProjectOverview() {
           ? `${optimizationEvidence.documentationSectionCount} of 20 sections populated`
           : "Documentation not started"
     : evidenceScore >= 80 ? "Ready for review" : evidenceScore > 0 ? "Evidence incomplete" : "Structure available";
-  const backendCompletedSteps = Array.isArray(persistenceBundle?.workflowState?.completedSteps)
-    ? persistenceBundle?.workflowState?.completedSteps.length ?? 0
-    : 0;
-  const displayedCompleted = Math.max(completed, backendCompletedSteps);
-  const displayedProgress = workflowSteps.length ? Math.round((displayedCompleted / workflowSteps.length) * 100) : progress;
+  // Progress is the backend-reconciled effective view from the workflow store.
+  // Historical completedSteps remain available in persistenceBundle for audit,
+  // but never inflate current validity.
+  const displayedCompleted = completed;
+  const displayedProgress = progress;
   const solverMetrics = latestSolverRun?.metrics ?? {};
   const validationMetrics = latestValidationRun?.metrics ?? {};
 

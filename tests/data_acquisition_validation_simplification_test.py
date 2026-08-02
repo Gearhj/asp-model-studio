@@ -1,24 +1,49 @@
 from __future__ import annotations
 
 import os
+import shutil
 import sys
-import tempfile
 import unittest
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-os.environ.setdefault(
-    "ATLAS_CHECKPOINT_PATH",
-    str(
-        Path(tempfile.gettempdir())
-        / f"atlas_data_validation_simplification_{uuid.uuid4().hex[:10]}.json"
-    ),
-)
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(_REPO_ROOT))
+_TEMP_PARENT = _REPO_ROOT / ".tmp"
+_TEMP_PARENT.mkdir(parents=True, exist_ok=True)
+_TEST_ROOT = (
+    _TEMP_PARENT / f"atlas_data_validation_simplification_{uuid.uuid4().hex}"
+).resolve()
+_SECURITY_ROOT = _TEST_ROOT / "security"
+_SECURITY_DB = _SECURITY_ROOT / "atlas_security.db"
+_PERSISTENCE_DB = _TEST_ROOT / "persistence" / "atlas_local.db"
+_CHECKPOINT_PATH = _TEST_ROOT / "checkpoint" / "workflow_checkpoint.json"
+_DATASET_LIBRARY_ROOT = _TEST_ROOT / "dataset-library"
+_EVIDENCE_ROOT = _TEST_ROOT / "evidence"
+_MODEL_ARTIFACT_ROOT = _TEST_ROOT / "model-registry"
+_SCORING_ARTIFACT_ROOT = _TEST_ROOT / "scoring-runs"
+_ISOLATED_ENVIRONMENT = {
+    "ATLAS_SECURITY_ROOT": str(_SECURITY_ROOT),
+    "ATLAS_SECURITY_DB_PATH": str(_SECURITY_DB),
+    "ATLAS_SQLITE_PATH": str(_PERSISTENCE_DB),
+    "ATLAS_CHECKPOINT_PATH": str(_CHECKPOINT_PATH),
+    "ATLAS_DATASET_LIBRARY_ROOT": str(_DATASET_LIBRARY_ROOT),
+    "ATLAS_EVIDENCE_ROOT": str(_EVIDENCE_ROOT),
+    "ATLAS_MODEL_REGISTRY_ARTIFACT_ROOT": str(_MODEL_ARTIFACT_ROOT),
+    "ATLAS_SCORING_RUN_ARTIFACT_ROOT": str(_SCORING_ARTIFACT_ROOT),
+}
+os.environ.update(_ISOLATED_ENVIRONMENT)
 
+from server.core import session_checkpoint  # noqa: E402
 from server.core.dataset_store import DATASTORE  # noqa: E402
+from server.datasets import dataset_registry  # noqa: E402
+from server.evidence import evidence_store  # noqa: E402
+from server.model_registry import model_artifacts  # noqa: E402
+from server.persistence import db as persistence_db  # noqa: E402
+from server.persistence import service as persistence_service  # noqa: E402
 from server.preprocessing.bureau_detection_service import (  # noqa: E402
     detect_bureau_data,
 )
@@ -26,8 +51,56 @@ from server.preprocessing.bureau_detection_types import (  # noqa: E402
     BureauDetectionRequest,
     BureauMetadataInput,
 )
+from server.splitting import split_router  # noqa: E402
 from server.splitting.split_router import _current_status  # noqa: E402
 from server.splitting.split_service import split_service  # noqa: E402
+from server.scoring_runs import scoring_run_artifacts  # noqa: E402
+from server.security import security_store  # noqa: E402
+
+
+def _rebind_isolated_runtime() -> None:
+    os.environ.update(_ISOLATED_ENVIRONMENT)
+    dataset_registry.ARTIFACT_ROOT = _DATASET_LIBRARY_ROOT
+    dataset_registry.REGISTRY_PATH = _DATASET_LIBRARY_ROOT / "registry.json"
+    dataset_registry.USERS_PATH = _DATASET_LIBRARY_ROOT / "users.json"
+    dataset_registry.PROJECT_LINKS_PATH = _DATASET_LIBRARY_ROOT / "project_links.json"
+    session_checkpoint.CHECKPOINT_PATH = _CHECKPOINT_PATH
+    evidence_store.EVIDENCE_ROOT = _EVIDENCE_ROOT
+    evidence_store.ITEMS_ROOT = _EVIDENCE_ROOT / "items"
+    evidence_store.REGISTRY_PATH = _EVIDENCE_ROOT / "evidence_registry.json"
+    model_artifacts.ARTIFACT_ROOT = _MODEL_ARTIFACT_ROOT
+    scoring_run_artifacts.ARTIFACT_ROOT = _SCORING_ARTIFACT_ROOT
+    security_store.SECURITY_ROOT = _SECURITY_ROOT
+    security_store.DB_PATH = _SECURITY_DB
+    persistence_db._database = persistence_db.Database(_PERSISTENCE_DB)
+    persistence_service._service = None
+
+    forbidden_roots = (
+        _REPO_ROOT / ".runtime",
+        _REPO_ROOT / "server" / "data",
+        _REPO_ROOT / "server" / "artifacts" / "datasets",
+        _REPO_ROOT / "server" / "artifacts" / "security",
+        _REPO_ROOT / "server" / "artifacts" / "evidence",
+        _REPO_ROOT / "server" / "artifacts" / "model_registry",
+        _REPO_ROOT / "server" / "artifacts" / "scoring_runs",
+    )
+    for label, path in (
+        ("security database", security_store.DB_PATH),
+        ("persistence database", persistence_db.get_database().path),
+        ("checkpoint", session_checkpoint.CHECKPOINT_PATH),
+        ("dataset library", dataset_registry.ARTIFACT_ROOT),
+        ("evidence root", evidence_store.EVIDENCE_ROOT),
+        ("model artifact root", model_artifacts.ARTIFACT_ROOT),
+        ("scoring artifact root", scoring_run_artifacts.ARTIFACT_ROOT),
+    ):
+        resolved = Path(path).resolve()
+        if resolved != _TEST_ROOT and _TEST_ROOT not in resolved.parents:
+            raise AssertionError(f"{label} escaped the suite-owned temporary root: {resolved}")
+        if any(
+            resolved == forbidden.resolve() or forbidden.resolve() in resolved.parents
+            for forbidden in forbidden_roots
+        ):
+            raise AssertionError(f"{label} targets checked-in runtime state: {resolved}")
 
 
 def governed_frame() -> pd.DataFrame:
@@ -64,6 +137,13 @@ def governed_frame() -> pd.DataFrame:
 
 
 class SpecialValueContractTests(unittest.TestCase):
+    @classmethod
+    def tearDownClass(cls) -> None:
+        shutil.rmtree(_TEST_ROOT, ignore_errors=True)
+
+    def setUp(self) -> None:
+        _rebind_isolated_runtime()
+
     def tearDown(self):
         DATASTORE.reset_all()
 
@@ -115,13 +195,48 @@ class ValidationDefaultContractTests(unittest.TestCase):
 
     def test_target_distribution_is_available_before_a_split_exists(self):
         frame = governed_frame()
+        project_id = "validation-default-contract"
+        dataset_id = "heloc-target-contract"
+        dataset_version_id = "heloc-target-contract-v1"
         DATASTORE.reset_all()
         DATASTORE.set_raw(frame)
         DATASTORE.set_target("bad_flag")
-        DATASTORE.meta["dataset_version"] = "heloc-target-contract-v1"
+        DATASTORE.meta.update(
+            {
+                "project_id": project_id,
+                "dataset_id": dataset_id,
+                "dataset_version_id": dataset_version_id,
+                "dataset_version": dataset_version_id,
+                "feature_manifest": {
+                    "project_id": project_id,
+                    "dataset_id": dataset_id,
+                    "dataset_version_id": dataset_version_id,
+                    "manifest_hash": "manifest-validation-default",
+                    "features": [
+                        {
+                            "feature_name": column,
+                            "selected": True,
+                            "eligibility_status": "eligible",
+                            "origin": "original",
+                        }
+                        for column in frame.columns
+                        if column != "bad_flag"
+                    ],
+                },
+            }
+        )
         DATASTORE.meta["event_value"] = 1
 
-        status = _current_status()
+        with patch.object(
+            split_router,
+            "active_dataset_identity",
+            return_value={
+                "project_id": project_id,
+                "dataset_id": dataset_id,
+                "dataset_version_id": dataset_version_id,
+            },
+        ):
+            status = _current_status(project_id)
         self.assertEqual(status["status"], "not_created")
         self.assertFalse(status["has_split"])
         distribution = status["distributions"]["full_dataset"]

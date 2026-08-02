@@ -46,7 +46,6 @@ import {
   findSimilarDatasets,
   getDataset,
   getDatasetPreview,
-  linkDatasetToProject,
   listDatasets,
   registerWorkspaceDataset,
   type DatasetSummary,
@@ -459,6 +458,8 @@ export default function Step01DataAcquisition() {
   const [loadedLibraryIdentity, setLoadedLibraryIdentity] = useState<{ datasetId: string; versionId: string } | null>(null);
   const [activeDatasetIdentity, setActiveDatasetIdentity] = useState<CanonicalDatasetIdentity | null>(null);
   const [datasetIdentityError, setDatasetIdentityError] = useState("");
+  const [reactivationRequired, setReactivationRequired] = useState(false);
+  const [activeActivationRevision, setActiveActivationRevision] = useState("");
   // Governed target-dependent profiling. The analytical identity includes the
   // dataset version AND the event mapping, so changing either invalidates every
   // target-dependent result rather than leaving stale IV on screen.
@@ -468,6 +469,9 @@ export default function Step01DataAcquisition() {
   const datasetVersions = loadDatasetVersions();
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
+  const workflowDatasetIdentity = useWorkflowStore((state) => state.datasetIdentity);
+  const setWorkflowDatasetIdentity = useWorkflowStore((state) => state.setDatasetIdentity);
+  const applyAuthoritativeWorkflowState = useWorkflowStore((state) => state.applyAuthoritativeWorkflowState);
 
   // Dataset Persistence (dataset lifecycle audit): explicit workspace-only vs
   // register-to-Library choice, defaulting to workspace-only per the ADR.
@@ -484,6 +488,23 @@ export default function Step01DataAcquisition() {
   useEffect(() => {
     const saved = loadLocalDataset();
     if (!saved?.headers.length) return;
+
+    // A browser cache is subordinate evidence. Never paint cached rows into a
+    // restored project until they match the project's persisted canonical
+    // triple exactly; legacy projects must recover through an explicit Dataset
+    // Library selection instead of silently inheriting whichever cache happens
+    // to be present in this browser.
+    if (!workflowDatasetIdentity) return;
+    try {
+      const localIdentity = requireLocalDatasetCanonicalIdentity(
+        projectId,
+        saved,
+        "Cached Data Acquisition dataset identity",
+      );
+      resolveExactReopenDatasetIdentity(workflowDatasetIdentity, [localIdentity]);
+    } catch {
+      return;
+    }
 
     const savedTarget = saved.target ?? "";
     const selectedSet = new Set(saved.selected_columns ?? []);
@@ -507,18 +528,41 @@ export default function Step01DataAcquisition() {
         inferDataQuality({ headers: saved.headers, rows: saved.rows ?? [], target: savedTarget || null })
     );
     if (saved.data_access) setMetadata(saved.data_access);
-  }, []);
+  }, [
+    projectId,
+    workflowDatasetIdentity?.dataset_id,
+    workflowDatasetIdentity?.dataset_version_id,
+  ]);
 
   useEffect(() => {
     const saved = loadLocalDataset();
-    if (!saved) return;
+    if (!workflowDatasetIdentity) {
+      const detail =
+        "This restored project has no verified Dataset Library binding. Select and load one exact registered dataset version to recover canonical identity.";
+      setActiveDatasetIdentity(null);
+      setBackendImportSynced(false);
+      setReactivationRequired(Boolean(saved));
+      setDatasetIdentityError(detail);
+      setImportError(detail);
+      return;
+    }
     let persisted: CanonicalDatasetIdentity;
     try {
-      persisted = requireLocalDatasetCanonicalIdentity(
-        projectId,
-        saved,
-        "Restored Data Acquisition dataset identity",
+      persisted = requireCanonicalDatasetIdentity(
+        workflowDatasetIdentity,
+        "Persisted Data Acquisition dataset identity",
       );
+      if (persisted.project_id !== projectId) {
+        throw new Error("The persisted dataset selection belongs to a different project.");
+      }
+      if (saved) {
+        const localIdentity = requireLocalDatasetCanonicalIdentity(
+          projectId,
+          saved,
+          "Restored Data Acquisition dataset identity",
+        );
+        persisted = resolveExactReopenDatasetIdentity(persisted, [localIdentity]);
+      }
     } catch (error) {
       const detail =
         error instanceof Error
@@ -526,6 +570,7 @@ export default function Step01DataAcquisition() {
           : "The restored workflow does not contain one exact Dataset Library identity.";
       setActiveDatasetIdentity(null);
       setBackendImportSynced(false);
+      setReactivationRequired(true);
       setDatasetIdentityError(detail);
       setImportError(detail);
       return;
@@ -539,47 +584,17 @@ export default function Step01DataAcquisition() {
           { credentials: "include" }
         );
         const payload = await response.json().catch(() => null);
-        let resolved: CanonicalDatasetIdentity;
-        let reactivated = false;
-        if (response.ok && payload?.ok) {
-          resolved = resolveExactReopenDatasetIdentity(persisted, [payload]);
-        } else {
-          const activation = await activateDatasetVersion(
-            persisted.dataset_id,
-            persisted.dataset_version_id,
-            projectId
+        if (!response.ok || !payload?.ok) {
+          throw new Error(
+            payload?.detail ??
+              payload?.error ??
+              "The saved Dataset Library version is not currently active. Reactivate it explicitly below.",
           );
-          resolved = assertExactDatasetActivation(persisted, activation);
-          reactivated = true;
         }
-        if (reactivated) {
-          const targetPayload = buildTargetPersistencePayload(resolved, {
-            target: saved.target,
-            selected_columns: saved.selected_columns,
-            event_value: saved.event_value,
-            non_event_value: saved.non_event_value,
-          });
-          const targetResponse = await fetch(`${BASE}/data/set_target`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            credentials: "include",
-            body: JSON.stringify({
-              ...targetPayload,
-              access_metadata_id: saved.data_access?.accessMetadataId,
-            }),
-          });
-          const targetResult = await targetResponse.json().catch(() => null);
-          if (!targetResponse.ok || !targetResult?.ok) {
-            throw new Error(
-              targetResult?.detail ??
-                targetResult?.error ??
-                "The exact dataset version was reactivated, but its governed target configuration could not be restored.",
-            );
-          }
-          assertExactDatasetActivation(resolved, targetResult);
-        }
+        const resolved = resolveExactReopenDatasetIdentity(persisted, [payload]);
         if (!alive) return;
         setActiveDatasetIdentity(resolved);
+        setWorkflowDatasetIdentity(resolved);
         setLoadedLibraryIdentity({
           datasetId: resolved.dataset_id,
           versionId: resolved.dataset_version_id,
@@ -590,7 +605,12 @@ export default function Step01DataAcquisition() {
           if (alive) setSelectedDatasetVersions(dataset.versions);
         }).catch(() => undefined);
         setBackendImportSynced(true);
+        setReactivationRequired(false);
+        setActiveActivationRevision(
+          payload.activation_revision == null ? "" : String(payload.activation_revision),
+        );
         setDatasetIdentityError("");
+        setImportError(null);
       } catch (error) {
         if (!alive) return;
         const detail =
@@ -599,6 +619,14 @@ export default function Step01DataAcquisition() {
             : "The exact registered Dataset Library version could not be restored.";
         setActiveDatasetIdentity(null);
         setBackendImportSynced(false);
+        setReactivationRequired(true);
+        setActiveActivationRevision("");
+        setSourceType("existing");
+        setSelectedLibraryDatasetId(persisted.dataset_id);
+        setSelectedLibraryVersionId(persisted.dataset_version_id);
+        void getDataset(persisted.dataset_id).then((dataset) => {
+          if (alive) setSelectedDatasetVersions(dataset.versions);
+        }).catch(() => undefined);
         setDatasetIdentityError(detail);
         setImportError(detail);
       }
@@ -607,7 +635,12 @@ export default function Step01DataAcquisition() {
     return () => {
       alive = false;
     };
-  }, [projectId]);
+  }, [
+    projectId,
+    setWorkflowDatasetIdentity,
+    workflowDatasetIdentity?.dataset_id,
+    workflowDatasetIdentity?.dataset_version_id,
+  ]);
 
   useEffect(() => {
     if (sourceType !== "existing") return;
@@ -1369,6 +1402,7 @@ export default function Step01DataAcquisition() {
       data_quality: dq,
     };
     const localSaveStatus = saveLocalDataset(localPayload);
+    setWorkflowDatasetIdentity(canonical);
     if (localSaveStatus === "failed") {
       setMessage("Dataset preview loaded, but browser session storage could not cache the sample. Continue is allowed; reload the source file if the browser session is refreshed.");
     }
@@ -1701,20 +1735,15 @@ export default function Step01DataAcquisition() {
         }
         const dataset = libraryDatasets.find((item) => item.datasetId === selectedLibraryDatasetId);
         setIsImporting(true);
-        // Part H1: stages advance only at real observable boundaries. The two
-        // backend calls run sequentially (rather than in parallel) precisely so
-        // each milestone corresponds to work that actually completed.
+        // Part H1: stages advance only at real observable boundaries. The
+        // activation endpoint transactionally creates/verifies the project link
+        // and commits the exact active version before returning success.
         const advance = (activeStageIndex: number) =>
           setLoadProgress({ phase: "loading", activeStageIndex, failedStageIndex: null, error: null });
         let stageIndex = 0;
+        let durablyActivated: CanonicalDatasetIdentity | null = null;
         try {
-          advance(0); // Authorizing dataset access
-          await linkDatasetToProject(
-            projectId,
-            selectedLibraryDatasetId,
-            selectedLibraryVersionId,
-            "modeling"
-          );
+          advance(0); // Authorizing and durably activating the exact dataset version
           const activation = await activateDatasetVersion(
             selectedLibraryDatasetId,
             selectedLibraryVersionId,
@@ -1728,6 +1757,15 @@ export default function Step01DataAcquisition() {
             },
             activation
           );
+          durablyActivated = canonical;
+          setActiveDatasetIdentity(canonical);
+          setWorkflowDatasetIdentity(canonical);
+          if (activation.workflow_effective_state) {
+            applyAuthoritativeWorkflowState(activation.workflow_effective_state);
+          }
+          setDatasetIdentityError("");
+          setReactivationRequired(false);
+          setActiveActivationRevision(String(activation.activation_revision));
 
           stageIndex = 1;
           advance(1); // Resolving dataset version
@@ -1778,21 +1816,26 @@ export default function Step01DataAcquisition() {
             },
           });
           setFileName(dataset?.name ?? "Dataset Library asset");
-          setActiveDatasetIdentity(canonical);
-          setDatasetIdentityError("");
           setLoadedLibraryIdentity({
             datasetId: canonical.dataset_id,
             versionId: canonical.dataset_version_id,
           });
           setLoadProgress({ phase: "loaded", activeStageIndex: DATASET_LOAD_STAGES.length - 1, failedStageIndex: null, error: null });
           // Part A/6: identity, not display name, is what the analyst is told was loaded.
-          setMessage(`Loaded ${dataset?.name ?? "Dataset Library asset"}, version ${selectedLibraryVersionId}, into this project.`);
+          setMessage(
+            `Loaded ${dataset?.name ?? "Dataset Library asset"}, version ${selectedLibraryVersionId}, into this project after durable activation revision ${activation.activation_revision}.`,
+          );
         } catch (error) {
           const detail = error instanceof Error ? error.message : "ATLAS could not load the selected dataset version.";
           // Part H1/7: completed milestones survive, the failed stage is named, no green completion.
           setLoadProgress({ phase: "failed", activeStageIndex: stageIndex, failedStageIndex: stageIndex, error: detail });
           setLoadedLibraryIdentity(null);
-          setActiveDatasetIdentity(null);
+          if (!durablyActivated) {
+            setActiveDatasetIdentity(null);
+            setBackendImportSynced(false);
+            setReactivationRequired(true);
+            setActiveActivationRevision("");
+          }
           setDatasetIdentityError(detail);
           setMessage(detail);
         } finally {
@@ -1831,6 +1874,36 @@ export default function Step01DataAcquisition() {
       }}
     >
       <div className="space-y-5">
+        {reactivationRequired && workflowDatasetIdentity && (
+          <section
+            className="rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-amber-950 shadow-sm"
+            role="alert"
+            data-testid="explicit-dataset-reactivation-required"
+          >
+            <div className="text-sm font-semibold">Explicit dataset reactivation required</div>
+            <p className="mt-1 text-sm leading-6">
+              ATLAS did not reactivate a dataset from browser storage. Review the saved exact Dataset Library identity below,
+              then choose <strong>Load Selected Version</strong> to authorize and durably activate it for this project.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 font-mono text-xs">
+              <span>dataset_id: {workflowDatasetIdentity.dataset_id}</span>
+              <span>dataset_version_id: {workflowDatasetIdentity.dataset_version_id}</span>
+            </div>
+            <button
+              type="button"
+              className="mt-3 rounded-lg border border-amber-500 bg-white px-3 py-2 text-sm font-semibold text-amber-950"
+              onClick={() => setSourceType("existing")}
+              data-testid="review-exact-dataset-reactivation"
+            >
+              Review exact version
+            </button>
+          </section>
+        )}
+        {!reactivationRequired && activeActivationRevision && (
+          <div className="sr-only" data-testid="durable-dataset-activation-revision">
+            Durable activation revision {activeActivationRevision}
+          </div>
+        )}
         {message && (
           <div
             className={`rounded-lg border px-4 py-3 text-sm ${messageClass}`}
@@ -2906,7 +2979,7 @@ function ExistingDatasetPanel({
         <div>
           <h2 className="text-base font-semibold text-slate-950">Existing Dataset Library Asset</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Load a governed dataset version from the backend Dataset Library and link it to this ATLAS project.
+            Load one governed Dataset Library version. ATLAS authorizes the project link and commits the exact active version as one durable operation.
           </p>
         </div>
         <button type="button" onClick={onRefresh} className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700">

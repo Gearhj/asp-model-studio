@@ -2,6 +2,8 @@
 
 from typing import Dict, Any, Optional, Tuple
 from datetime import datetime
+import copy
+import threading
 
 class ResultStore:
     """
@@ -9,6 +11,7 @@ class ResultStore:
     """
 
     def __init__(self):
+        self.state_lock = threading.RLock()
         self.last_training_summary: Optional[Dict[str, Any]] = None
         self.training_timestamp: Optional[str] = None
         self.model_availability: Dict[str, bool] = {}
@@ -17,10 +20,20 @@ class ResultStore:
         self.final_model: Optional[Any] = None
         self.final_model_metadata: Optional[Dict[str, Any]] = None
         self.scoring_reference: Optional[Dict[str, Any]] = None
+        self.evaluation_packages: Dict[str, Dict[str, Any]] = {}
+        # Final-holdout predictions are deliberately separate from the
+        # training summary.  Training code cannot accidentally consume these
+        # records when it builds or ranks candidates.
+        self.holdout_evaluations: Dict[str, Dict[str, Any]] = {}
+        self.selection_integrity_records: Dict[str, Dict[str, Any]] = {}
 
     def set_last_summary(self, summary: Dict[str, Any]):
-        self.last_training_summary = summary
-        self.training_timestamp = datetime.now().isoformat()
+        with self.state_lock:
+            self.last_training_summary = summary
+            self.training_timestamp = datetime.now().isoformat()
+            # Prior packages are immutable evidence. Exact decision/candidate
+            # lineage prevents them from unlocking a new run; never erase them
+            # merely because another training run completed.
 
     def get_last_summary(self) -> Optional[Dict[str, Any]]:
         return self.last_training_summary
@@ -45,13 +58,17 @@ class ResultStore:
         return self.model_artifacts
 
     def clear_model_artifacts(self):
-        self.last_training_summary = None
-        self.training_timestamp = None
-        self.model_artifacts = {}
-        self.model_artifact_metadata = {}
-        self.final_model = None
-        self.final_model_metadata = None
-        self.scoring_reference = None
+        with self.state_lock:
+            self.last_training_summary = None
+            self.training_timestamp = None
+            self.model_artifacts = {}
+            self.model_artifact_metadata = {}
+            self.final_model = None
+            self.final_model_metadata = None
+            self.scoring_reference = None
+            # Preserve immutable selection/evaluation history. Dataset/split
+            # invalidation is represented explicitly by governance status,
+            # not by deleting evidence.
 
     def set_final_model(self, model: Any, metadata: Dict[str, Any]):
         self.final_model = model
@@ -68,6 +85,134 @@ class ResultStore:
 
     def get_scoring_reference(self) -> Optional[Dict[str, Any]]:
         return self.scoring_reference
+
+    def set_evaluation_package(self, package_id: str, package: Dict[str, Any]):
+        with self.state_lock:
+            self.evaluation_packages[str(package_id)] = copy.deepcopy(package)
+
+    def set_evaluation_package_if_absent(
+        self,
+        package_id: str,
+        package: Dict[str, Any],
+    ) -> Tuple[Dict[str, Any], bool]:
+        """Atomically freeze one content-addressed package.
+
+        Identical concurrent retries reuse the first package, including its
+        timestamps; callers never overwrite an immutable completed package.
+        """
+        key = str(package_id)
+        with self.state_lock:
+            existing = self.evaluation_packages.get(key)
+            if existing is not None:
+                return copy.deepcopy(existing), False
+            frozen = copy.deepcopy(package)
+            self.evaluation_packages[key] = frozen
+            return copy.deepcopy(frozen), True
+
+    def get_evaluation_package(self, package_id: str) -> Optional[Dict[str, Any]]:
+        with self.state_lock:
+            package = self.evaluation_packages.get(str(package_id))
+            return copy.deepcopy(package) if package is not None else None
+
+    def delete_evaluation_package(self, package_id: str) -> bool:
+        with self.state_lock:
+            return self.evaluation_packages.pop(str(package_id), None) is not None
+
+    def set_holdout_evaluation_if_absent(
+        self,
+        candidate_id: str,
+        evaluation: Dict[str, Any],
+    ) -> Tuple[Dict[str, Any], bool]:
+        key = str(candidate_id)
+        with self.state_lock:
+            existing = self.holdout_evaluations.get(key)
+            if existing is not None:
+                return copy.deepcopy(existing), False
+            frozen = copy.deepcopy(evaluation)
+            self.holdout_evaluations[key] = frozen
+            return copy.deepcopy(frozen), True
+
+    def get_holdout_evaluation(self, candidate_id: str) -> Optional[Dict[str, Any]]:
+        with self.state_lock:
+            value = self.holdout_evaluations.get(str(candidate_id))
+            return copy.deepcopy(value) if value is not None else None
+
+    def get_holdout_evaluations_for_partition(
+        self,
+        partition_id: str,
+    ) -> Dict[str, Dict[str, Any]]:
+        expected = str(partition_id)
+        with self.state_lock:
+            return {
+                key: copy.deepcopy(value)
+                for key, value in self.holdout_evaluations.items()
+                if str(value.get("final_holdout_partition_id") or "") == expected
+            }
+
+    def mark_holdout_evaluated(
+        self,
+        candidate_id: str,
+        *,
+        evaluation_package_id: str,
+        evaluated_at: str,
+    ) -> Dict[str, Any]:
+        with self.state_lock:
+            key = str(candidate_id)
+            existing = self.holdout_evaluations.get(key)
+            if existing is None:
+                raise ValueError("The final holdout has not been opened for this candidate.")
+            status = str(existing.get("status") or "").strip().casefold()
+            if status == "invalidated":
+                raise ValueError("The final holdout exposure was invalidated.")
+            prior_package = str(existing.get("evaluation_package_id") or "").strip()
+            if prior_package and prior_package != str(evaluation_package_id):
+                raise ValueError("The holdout exposure already belongs to another Evaluation package.")
+            updated = copy.deepcopy(existing)
+            updated.update(
+                {
+                    "status": "evaluated",
+                    "evaluation_package_id": str(evaluation_package_id),
+                    "evaluated_at": str(evaluated_at),
+                }
+            )
+            self.holdout_evaluations[key] = updated
+            return copy.deepcopy(updated)
+
+    def invalidate_holdout_evaluations(
+        self,
+        *,
+        reason: str,
+        invalidated_at: str,
+    ) -> int:
+        count = 0
+        with self.state_lock:
+            for key, existing in list(self.holdout_evaluations.items()):
+                if str(existing.get("status") or "").strip().casefold() == "invalidated":
+                    continue
+                updated = copy.deepcopy(existing)
+                updated.update(
+                    {
+                        "status": "invalidated",
+                        "invalidated_at": str(invalidated_at),
+                        "invalidation_reason": str(reason),
+                    }
+                )
+                self.holdout_evaluations[key] = updated
+                count += 1
+        return count
+
+    def set_selection_integrity_record(
+        self,
+        record_id: str,
+        record: Dict[str, Any],
+    ) -> None:
+        with self.state_lock:
+            self.selection_integrity_records[str(record_id)] = copy.deepcopy(record)
+
+    def get_selection_integrity_record(self, record_id: str) -> Optional[Dict[str, Any]]:
+        with self.state_lock:
+            value = self.selection_integrity_records.get(str(record_id))
+            return copy.deepcopy(value) if value is not None else None
 
 
 # Stage 3 (ATLAS_MODELING_STATE_ISOLATION_PLAN.md): RESULTS is keyed the

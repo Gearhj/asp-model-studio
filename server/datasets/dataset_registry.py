@@ -1,20 +1,33 @@
 from __future__ import annotations
 
 import csv
+import copy
 import hashlib
 import io
 import json
 import math
 import os
 import re
+import sqlite3
 import time
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional
 
 import pandas as pd
 from fastapi import HTTPException, UploadFile
 
+from .dataset_storage import (
+    DatasetLibraryPaths,
+    DatasetLibraryStorage,
+    DatasetStorageError,
+    DatasetStoreMissingError,
+    atomic_write_json,
+    library_write_lock,
+    read_json_strict,
+    sha256_file,
+)
 from ..security.security_store import (
     active_user,
     audit_event,
@@ -36,20 +49,146 @@ MAX_DATASET_UPLOAD_BYTES = int(os.getenv("ATLAS_DATASET_LIBRARY_MAX_UPLOAD_BYTES
 MAX_PROFILE_ROWS = int(os.getenv("ATLAS_DATASET_LIBRARY_MAX_PROFILE_ROWS", "100000"))
 MAX_SAMPLE_ROWS = int(os.getenv("ATLAS_DATASET_LIBRARY_MAX_SAMPLE_ROWS", "5000"))
 MAX_PREVIEW_ROWS = int(os.getenv("ATLAS_DATASET_LIBRARY_MAX_PREVIEW_ROWS", "100"))
+DATASET_LIBRARY_BACKUP_RETENTION = int(
+    os.getenv("ATLAS_DATASET_LIBRARY_BACKUP_RETENTION", "20")
+)
 ALLOWED_EXTENSIONS = {".csv", ".txt"}
 SAFE_ARTIFACT_SEGMENT_RE = re.compile(r"^[A-Za-z0-9_.-]+$")
+DEFAULT_ARTIFACT_ROOT = Path(__file__).resolve().parents[1] / "artifacts" / "datasets"
+DEFAULT_PERSISTENCE_PATH = Path(__file__).resolve().parents[1] / "data" / "atlas_local.db"
 
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _valid_artifact_segment(value: str) -> bool:
+    normalized = str(value or "")
+    return bool(
+        normalized not in {".", ".."}
+        and SAFE_ARTIFACT_SEGMENT_RE.fullmatch(normalized)
+    )
+
+
+def _dataset_test_mode_enabled() -> bool:
+    return (
+        os.getenv("ATLAS_ENV", "").strip().casefold() in {"test", "testing"}
+        or os.getenv("ATLAS_TEST_MODE", "").strip().casefold()
+        in {"1", "true", "yes"}
+        or bool(os.getenv("PYTEST_CURRENT_TEST"))
+    )
+
+
+def _mutation_storage_preflight() -> DatasetLibraryStorage:
+    """Bind every mutator to the current, physically safe configured root.
+
+    Dataset Registry caches paths at import time. Tests and embedded callers can
+    subsequently change their environment, so a mutation must prove that the
+    cached authorities still match the configured root before creating even an
+    artifact directory. ``from_environment`` also rejects linked and physical
+    aliases of the checked-in live root.
+    """
+
+    environment_paths = DatasetLibraryPaths.from_environment(
+        backup_root=os.getenv("ATLAS_DATASET_LIBRARY_BACKUP_ROOT") or None
+    )
+    cached_root = ARTIFACT_ROOT.expanduser().resolve()
+    cached_paths = {
+        "root": cached_root,
+        "registry": REGISTRY_PATH.expanduser().resolve(),
+        "project links": PROJECT_LINKS_PATH.expanduser().resolve(),
+        "users": USERS_PATH.expanduser().resolve(),
+    }
+    expected_paths = {
+        "root": environment_paths.root,
+        "registry": environment_paths.registry_path,
+        "project links": environment_paths.project_links_path,
+        "users": environment_paths.users_path,
+    }
+    mismatched = [
+        label
+        for label, cached_path in cached_paths.items()
+        if cached_path != expected_paths[label]
+    ]
+    if mismatched:
+        raise DatasetStorageError(
+            "Dataset Library cached paths do not match the current configured "
+            f"root ({', '.join(mismatched)}). Rebind paths before mutation."
+        )
+    storage = DatasetLibraryStorage(environment_paths)
+    if _dataset_test_mode_enabled():
+        storage.assert_test_storage_isolated()
+    storage.assert_no_pending_recovery()
+    return storage
+
+
+def _durable_dataset_authority_exists() -> bool:
+    """Read-only guard against bootstrapping over surviving durable links."""
+
+    configured_database = os.getenv("ATLAS_SQLITE_PATH")
+    if configured_database:
+        database_path = Path(configured_database).expanduser().resolve()
+    elif ARTIFACT_ROOT.expanduser().resolve() == DEFAULT_ARTIFACT_ROOT.resolve():
+        database_path = DEFAULT_PERSISTENCE_PATH.resolve()
+    else:
+        return False
+    if not database_path.exists():
+        return False
+    uri = f"file:{database_path.as_posix()}?mode=ro"
+    try:
+        connection = sqlite3.connect(uri, uri=True, timeout=2.0)
+        try:
+            for table in (
+                "project_dataset_links",
+                "active_modeling_dataset_versions",
+            ):
+                exists = connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                    (table,),
+                ).fetchone()
+                if exists and connection.execute(
+                    f'SELECT 1 FROM "{table}" LIMIT 1'
+                ).fetchone():
+                    return True
+        finally:
+            connection.close()
+    except sqlite3.Error as exc:
+        raise DatasetStoreMissingError(
+            "The Dataset Library registry is missing and durable dataset "
+            f"authority could not be verified ({type(exc).__name__})."
+        ) from exc
+    return False
+
+
 def ensure_store() -> None:
-    ARTIFACT_ROOT.mkdir(parents=True, exist_ok=True)
+    _mutation_storage_preflight()
     if not REGISTRY_PATH.exists():
-        write_json(REGISTRY_PATH, {"datasets": []})
+        surviving_entries = (
+            [
+                child
+                for child in ARTIFACT_ROOT.iterdir()
+                if child.name != ".dataset-library.lock"
+            ]
+            if ARTIFACT_ROOT.exists()
+            else []
+        )
+        if surviving_entries or _durable_dataset_authority_exists():
+            raise DatasetStoreMissingError(
+                "The Dataset Library registry is missing while catalog evidence "
+                "still exists. Run the read-only reconciliation command; ATLAS "
+                "will not replace the missing catalog with an empty registry."
+            )
+        ARTIFACT_ROOT.mkdir(parents=True, exist_ok=True)
+        write_json(REGISTRY_PATH, {"datasets": []}, create_backup=False)
     if not PROJECT_LINKS_PATH.exists():
-        write_json(PROJECT_LINKS_PATH, {"links": []})
+        registry = read_json_strict(REGISTRY_PATH, "datasets")
+        if registry.get("datasets") or _durable_dataset_authority_exists():
+            raise DatasetStoreMissingError(
+                "The Dataset Library project-link store is missing for a "
+                "non-empty catalog or surviving durable dataset authority. "
+                "Run reconciliation before changing links."
+            )
+        write_json(PROJECT_LINKS_PATH, {"links": []}, create_backup=False)
     if not USERS_PATH.exists():
         write_json(
             USERS_PATH,
@@ -76,22 +215,231 @@ def ensure_store() -> None:
                     },
                 ],
             },
+            create_backup=False,
         )
 
 
 def read_json(path: Path, default: Any) -> Any:
     ensure_store()
-    try:
-        return json.loads(path.read_text(encoding="utf-8"))
-    except Exception:
-        return default
+    expected_root_key = None
+    if path == REGISTRY_PATH:
+        expected_root_key = "datasets"
+    elif path == PROJECT_LINKS_PATH:
+        expected_root_key = "links"
+    elif path == USERS_PATH:
+        expected_root_key = "users"
+    return read_json_strict(path, expected_root_key)
 
 
-def write_json(path: Path, payload: Any) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path = path.with_suffix(path.suffix + ".tmp")
-    tmp_path.write_text(json.dumps(payload, indent=2, sort_keys=True), encoding="utf-8")
-    tmp_path.replace(path)
+def write_json(
+    path: Path,
+    payload: Any,
+    *,
+    create_backup: Optional[bool] = None,
+) -> None:
+    _mutation_storage_preflight()
+    authoritative_document = path in {
+        REGISTRY_PATH,
+        PROJECT_LINKS_PATH,
+        USERS_PATH,
+    }
+    atomic_write_json(
+        path,
+        payload,
+        backup_root=os.getenv("ATLAS_DATASET_LIBRARY_BACKUP_ROOT") or None,
+        retention=DATASET_LIBRARY_BACKUP_RETENTION,
+        create_backup=(
+            authoritative_document
+            if create_backup is None
+            else bool(create_backup)
+        ),
+    )
+
+
+def _canonical_document_hash(payload: Any) -> str:
+    rendered = json.dumps(
+        payload,
+        ensure_ascii=False,
+        indent=2,
+        sort_keys=True,
+        allow_nan=False,
+    )
+    return hashlib.sha256((rendered + "\n").encode("utf-8")).hexdigest()
+
+
+def _library_storage() -> DatasetLibraryStorage:
+    return _mutation_storage_preflight()
+
+
+def _mutate_registry_and_links_transaction(
+    *,
+    operation_type: str,
+    reason: str,
+    project_id: str,
+    dataset_id: str,
+    dataset_version_id: str | None,
+    mutator: Callable[[Dict[str, Any], Dict[str, Any]], Any],
+) -> Any:
+    """Crash-detectable two-document projection update with compensation."""
+
+    storage = _library_storage()
+    with storage.exclusive_lock():
+        ensure_store()
+        registry_before_bytes = REGISTRY_PATH.read_bytes()
+        links_before_bytes = PROJECT_LINKS_PATH.read_bytes()
+        registry_before = read_json_strict(REGISTRY_PATH, "datasets")
+        links_before = read_json_strict(PROJECT_LINKS_PATH, "links")
+        registry_after = copy.deepcopy(registry_before)
+        links_after = copy.deepcopy(links_before)
+        outcome = mutator(registry_after, links_after)
+        if registry_after == registry_before and links_after == links_before:
+            return outcome
+
+        registry_before_hash = sha256_bytes(registry_before_bytes)
+        links_before_hash = sha256_bytes(links_before_bytes)
+        registry_after_hash = (
+            registry_before_hash
+            if registry_after == registry_before
+            else _canonical_document_hash(registry_after)
+        )
+        links_after_hash = (
+            links_before_hash
+            if links_after == links_before
+            else _canonical_document_hash(links_after)
+        )
+        backup = storage.create_backup_bundle(
+            reason=reason,
+            include_paths=(REGISTRY_PATH, PROJECT_LINKS_PATH),
+            retention_limit=DATASET_LIBRARY_BACKUP_RETENTION,
+            defer_retention=True,
+        )
+        actor = current_user()
+        journal = {
+            "kind": "atlas_dataset_library_recovery_journal",
+            "formatVersion": 1,
+            "status": "prepared",
+            "operationId": f"dataset-projection-{uuid.uuid4().hex}",
+            "operationType": operation_type,
+            "createdAt": now_iso(),
+            "actorUserId": actor.get("userId"),
+            "reason": reason,
+            "projectId": project_id,
+            "datasetId": dataset_id,
+            "datasetVersionId": dataset_version_id,
+            "backupBundleName": Path(str(backup["bundlePath"])).name,
+            "backupManifestSha256": backup["manifestSha256"],
+            "before": {
+                "registrySha256": registry_before_hash,
+                "projectLinksSha256": links_before_hash,
+            },
+            "expectedAfter": {
+                "registrySha256": registry_after_hash,
+                "projectLinksSha256": links_after_hash,
+            },
+        }
+        previous_journal_hash = (
+            sha256_file(storage.paths.recovery_journal_path)
+            if storage.paths.recovery_journal_path.exists()
+            else None
+        )
+        storage.write_recovery_journal(
+            journal,
+            expected_sha256=previous_journal_hash,
+        )
+        links_write_attempted = False
+        registry_write_attempted = False
+        try:
+            if links_after != links_before:
+                links_write_attempted = True
+                storage.atomic_write_json(
+                    PROJECT_LINKS_PATH,
+                    links_after,
+                    expected_sha256=links_before_hash,
+                )
+            if registry_after != registry_before:
+                registry_write_attempted = True
+                storage.atomic_write_json(
+                    REGISTRY_PATH,
+                    registry_after,
+                    expected_sha256=registry_before_hash,
+                )
+            if (
+                sha256_file(REGISTRY_PATH) != registry_after_hash
+                or sha256_file(PROJECT_LINKS_PATH) != links_after_hash
+            ):
+                raise RuntimeError(
+                    "Dataset Library projection transaction failed verification."
+                )
+        except Exception as mutation_error:
+            try:
+                registry_live_hash = sha256_file(REGISTRY_PATH)
+                links_live_hash = sha256_file(PROJECT_LINKS_PATH)
+                if registry_live_hash != registry_before_hash:
+                    if (
+                        not registry_write_attempted
+                        or registry_live_hash != registry_after_hash
+                    ):
+                        raise RuntimeError(
+                            "Dataset Library registry changed outside the "
+                            "prepared projection transaction."
+                        )
+                    storage.atomic_restore_json_bytes(
+                        REGISTRY_PATH,
+                        registry_before_bytes,
+                        expected_sha256=registry_live_hash,
+                    )
+                if links_live_hash != links_before_hash:
+                    if (
+                        not links_write_attempted
+                        or links_live_hash != links_after_hash
+                    ):
+                        raise RuntimeError(
+                            "Dataset Library project links changed outside the "
+                            "prepared projection transaction."
+                        )
+                    storage.atomic_restore_json_bytes(
+                        PROJECT_LINKS_PATH,
+                        links_before_bytes,
+                        expected_sha256=links_live_hash,
+                    )
+                if (
+                    sha256_file(REGISTRY_PATH) != registry_before_hash
+                    or sha256_file(PROJECT_LINKS_PATH) != links_before_hash
+                ):
+                    raise RuntimeError(
+                        "Dataset Library projection compensation did not restore both documents."
+                    )
+                journal["status"] = "aborted"
+                journal["resolvedAt"] = now_iso()
+                journal["failureType"] = type(mutation_error).__name__
+                storage.write_recovery_journal(
+                    journal,
+                    expected_sha256=sha256_file(
+                        storage.paths.recovery_journal_path
+                    ),
+                )
+            except Exception as compensation_error:
+                raise RuntimeError(
+                    "Dataset Library projection transaction is incomplete; "
+                    "the prepared journal was left in place."
+                ) from compensation_error
+            raise
+
+        journal["status"] = "committed"
+        journal["resolvedAt"] = now_iso()
+        storage.write_recovery_journal(
+            journal,
+            expected_sha256=sha256_file(storage.paths.recovery_journal_path),
+        )
+        try:
+            storage.prune_backup_bundles(
+                retention_limit=DATASET_LIBRARY_BACKUP_RETENTION
+            )
+        except DatasetStorageError:
+            # The committed data mutation remains valid. Retention can be
+            # retried by maintenance without weakening the journal proof.
+            pass
+        return outcome
 
 
 def safe_slug(value: str, fallback: str = "dataset") -> str:
@@ -184,7 +532,7 @@ def dataset_dir(dataset_id: str) -> Path:
 
 
 def version_dir(dataset_id: str, version_id: str) -> Path:
-    if not SAFE_ARTIFACT_SEGMENT_RE.match(dataset_id) or not SAFE_ARTIFACT_SEGMENT_RE.match(version_id):
+    if not _valid_artifact_segment(dataset_id) or not _valid_artifact_segment(version_id):
         raise HTTPException(status_code=400, detail="Dataset artifact identifier is not valid.")
     return dataset_dir(dataset_id) / "versions" / version_id
 
@@ -292,13 +640,58 @@ def records_from_df(df: pd.DataFrame) -> List[Dict[str, Any]]:
 
 
 def write_csv_sample(path: Path, df: pd.DataFrame) -> None:
+    _mutation_storage_preflight()
     path.parent.mkdir(parents=True, exist_ok=True)
     df.head(MAX_SAMPLE_ROWS).to_csv(path, index=False, quoting=csv.QUOTE_MINIMAL)
 
 
 def write_csv_full(path: Path, df: pd.DataFrame) -> None:
+    _mutation_storage_preflight()
     path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(path, index=False, quoting=csv.QUOTE_MINIMAL)
+
+
+def write_version_manifest(
+    vdir: Path,
+    *,
+    dataset_id: str,
+    version_id: str,
+) -> Dict[str, Any]:
+    """Bind an immutable version directory to checksummed artifact members."""
+
+    artifact_names = (
+        "metadata.json",
+        "schema.json",
+        "profile.json",
+        "preview.json",
+        "lineage.json",
+        "data_full.csv",
+        "data_sample.csv",
+    )
+    files = {}
+    for artifact_name in artifact_names:
+        artifact_path = vdir / artifact_name
+        if not artifact_path.is_file():
+            raise DatasetStoreMissingError(
+                f"Dataset version artifact is missing before manifest creation: "
+                f"{artifact_name}"
+            )
+        files[artifact_name] = {
+            "sha256": sha256_file(artifact_path),
+            "sizeBytes": artifact_path.stat().st_size,
+        }
+    manifest = {
+        "formatVersion": 1,
+        "kind": "atlas_dataset_version_manifest",
+        "datasetId": dataset_id,
+        "versionId": version_id,
+        "createdAt": now_iso(),
+        "contentHash": files["data_full.csv"]["sha256"],
+        "schemaHash": files["schema.json"]["sha256"],
+        "files": files,
+    }
+    write_json(vdir / "manifest.json", manifest, create_backup=False)
+    return manifest
 
 
 async def create_dataset_from_upload(
@@ -308,6 +701,7 @@ async def create_dataset_from_upload(
     domain: str = "General",
     source_type: str = "upload",
 ) -> Dict[str, Any]:
+    _mutation_storage_preflight()
     filename = os.path.basename(file.filename or "dataset.csv")
     extension = os.path.splitext(filename)[1].lower()
     if extension not in ALLOWED_EXTENSIONS:
@@ -348,18 +742,25 @@ async def create_dataset_from_upload(
     )
     write_csv_full(vdir / "data_full.csv", df)
     write_csv_sample(vdir / "data_sample.csv", df)
+    manifest = write_version_manifest(
+        vdir,
+        dataset_id=dataset_id,
+        version_id=version_id,
+    )
     version_summary = {
         "versionId": version_id,
         "createdAt": now_iso(),
         "createdBy": user.get("userId"),
         "originalFilename": filename,
         "hash": digest,
+        "schemaHash": manifest["schemaHash"],
         "rowCount": int(df.shape[0]),
         "columnCount": int(df.shape[1]),
         "profilePath": str((vdir / "profile.json").relative_to(ARTIFACT_ROOT)),
         "previewPath": str((vdir / "preview.json").relative_to(ARTIFACT_ROOT)),
         "fullDataPath": str((vdir / "data_full.csv").relative_to(ARTIFACT_ROOT)),
         "samplePath": str((vdir / "data_sample.csv").relative_to(ARTIFACT_ROOT)),
+        "manifestPath": str((vdir / "manifest.json").relative_to(ARTIFACT_ROOT)),
         "warnings": profile.get("warnings", []),
     }
     dataset = {
@@ -377,9 +778,14 @@ async def create_dataset_from_upload(
         "versions": [version_summary],
         "linkedProjects": [],
     }
-    registry = load_registry()
-    registry["datasets"] = [item for item in registry.get("datasets", []) if item.get("datasetId") != dataset_id] + [dataset]
-    save_registry(registry)
+    with library_write_lock(ARTIFACT_ROOT):
+        registry = load_registry()
+        registry["datasets"] = [
+            item
+            for item in registry.get("datasets", [])
+            if item.get("datasetId") != dataset_id
+        ] + [dataset]
+        save_registry(registry)
     audit_event("dataset.created", "dataset", dataset_id, "success", metadata={"name": dataset_name, "versionId": version_id})
     summary = summarize_dataset(dataset)
     # Creation APIs return the exact version created by this operation. This
@@ -400,6 +806,7 @@ def create_dataset_from_dataframe(
     source_info: Optional[Dict[str, Any]] = None,
     dataset_role: str = "scored_output",
 ) -> Dict[str, Any]:
+    _mutation_storage_preflight()
     if df.empty:
         raise HTTPException(status_code=400, detail="Scored output has no rows to register.")
     user = current_user()
@@ -440,18 +847,25 @@ def create_dataset_from_dataframe(
     )
     write_csv_full(vdir / "data_full.csv", normalized)
     write_csv_sample(vdir / "data_sample.csv", normalized)
+    manifest = write_version_manifest(
+        vdir,
+        dataset_id=dataset_id,
+        version_id=version_id,
+    )
     version_summary = {
         "versionId": version_id,
         "createdAt": now_iso(),
         "createdBy": user.get("userId"),
         "originalFilename": f"{safe_slug(dataset_name)}.csv",
         "hash": digest,
+        "schemaHash": manifest["schemaHash"],
         "rowCount": int(normalized.shape[0]),
         "columnCount": int(normalized.shape[1]),
         "profilePath": str((vdir / "profile.json").relative_to(ARTIFACT_ROOT)),
         "previewPath": str((vdir / "preview.json").relative_to(ARTIFACT_ROOT)),
         "fullDataPath": str((vdir / "data_full.csv").relative_to(ARTIFACT_ROOT)),
         "samplePath": str((vdir / "data_sample.csv").relative_to(ARTIFACT_ROOT)),
+        "manifestPath": str((vdir / "manifest.json").relative_to(ARTIFACT_ROOT)),
         "warnings": profile.get("warnings", []),
     }
     dataset = {
@@ -471,9 +885,14 @@ def create_dataset_from_dataframe(
         "versions": [version_summary],
         "linkedProjects": [],
     }
-    registry = load_registry()
-    registry["datasets"] = [item for item in registry.get("datasets", []) if item.get("datasetId") != dataset_id] + [dataset]
-    save_registry(registry)
+    with library_write_lock(ARTIFACT_ROOT):
+        registry = load_registry()
+        registry["datasets"] = [
+            item
+            for item in registry.get("datasets", [])
+            if item.get("datasetId") != dataset_id
+        ] + [dataset]
+        save_registry(registry)
     audit_event(
         "dataset.scored_output.created",
         "dataset",
@@ -492,6 +911,7 @@ def create_dataset_from_dataframe(
 
 
 async def add_dataset_version(dataset_id: str, file: UploadFile) -> Dict[str, Any]:
+    _mutation_storage_preflight()
     dataset = require_dataset(dataset_id, write=True)
     filename = os.path.basename(file.filename or "dataset.csv")
     extension = os.path.splitext(filename)[1].lower()
@@ -517,28 +937,36 @@ async def add_dataset_version(dataset_id: str, file: UploadFile) -> Dict[str, An
     write_json(vdir / "lineage.json", {"sourceType": dataset.get("sourceType"), "originalFilename": filename, "registeredBy": current_user().get("userId"), "registeredAt": now_iso(), "hash": digest})
     write_csv_full(vdir / "data_full.csv", df)
     write_csv_sample(vdir / "data_sample.csv", df)
+    manifest = write_version_manifest(
+        vdir,
+        dataset_id=dataset_id,
+        version_id=version_id,
+    )
     version_summary = {
         "versionId": version_id,
         "createdAt": now_iso(),
         "createdBy": current_user().get("userId"),
         "originalFilename": filename,
         "hash": digest,
+        "schemaHash": manifest["schemaHash"],
         "rowCount": int(df.shape[0]),
         "columnCount": int(df.shape[1]),
         "profilePath": str((vdir / "profile.json").relative_to(ARTIFACT_ROOT)),
         "previewPath": str((vdir / "preview.json").relative_to(ARTIFACT_ROOT)),
         "fullDataPath": str((vdir / "data_full.csv").relative_to(ARTIFACT_ROOT)),
         "samplePath": str((vdir / "data_sample.csv").relative_to(ARTIFACT_ROOT)),
+        "manifestPath": str((vdir / "manifest.json").relative_to(ARTIFACT_ROOT)),
         "warnings": profile.get("warnings", []),
     }
-    registry = load_registry()
-    for item in registry.get("datasets", []):
-        if item.get("datasetId") == dataset_id:
-            item.setdefault("versions", []).append(version_summary)
-            item["updatedAt"] = now_iso()
-            dataset = item
-            break
-    save_registry(registry)
+    with library_write_lock(ARTIFACT_ROOT):
+        registry = load_registry()
+        for item in registry.get("datasets", []):
+            if item.get("datasetId") == dataset_id:
+                item.setdefault("versions", []).append(version_summary)
+                item["updatedAt"] = now_iso()
+                dataset = item
+                break
+        save_registry(registry)
     audit_event("dataset.version.created", "dataset_version", version_id, "success", metadata={"datasetId": dataset_id})
     return version_summary
 
@@ -564,16 +992,17 @@ def create_metadata_only_dataset(payload: Dict[str, Any]) -> Dict[str, Any]:
         "linkedProjects": [],
         "sourceInfo": payload.get("sourceInfo") or {},
     }
-    registry = load_registry()
-    registry["datasets"] = registry.get("datasets", []) + [dataset]
-    save_registry(registry)
+    with library_write_lock(ARTIFACT_ROOT):
+        registry = load_registry()
+        registry["datasets"] = registry.get("datasets", []) + [dataset]
+        save_registry(registry)
     audit_event("dataset.created", "dataset", dataset_id, "success", metadata={"name": name, "metadataOnly": True})
     return summarize_dataset(dataset)
 
 
 def read_version_artifact(dataset_id: str, version_id: str, name: str, default: Any) -> Any:
     dataset = require_dataset(dataset_id)
-    if not SAFE_ARTIFACT_SEGMENT_RE.match(name) or "/" in name or "\\" in name:
+    if not _valid_artifact_segment(name) or "/" in name or "\\" in name:
         raise HTTPException(status_code=400, detail="Dataset artifact name is not valid.")
     versions = {str(version.get("versionId")) for version in dataset.get("versions") or []}
     if version_id not in versions:
@@ -608,16 +1037,24 @@ def share_dataset(dataset_id: str, grants: Iterable[Dict[str, str]]) -> Dict[str
         if user_id not in valid_users or role not in {"viewer", "editor", "owner", "auditor"}:
             continue
         clean_grants.append({"userId": user_id, "role": role})
-    registry = load_registry()
-    updated = None
-    for item in registry.get("datasets", []):
-        if item.get("datasetId") == dataset_id:
-            owner_grant = {"userId": item.get("ownerUserId"), "role": "owner"}
-            item["access"] = [owner_grant] + [grant for grant in clean_grants if grant.get("userId") != owner_grant["userId"]]
-            item["updatedAt"] = now_iso()
-            updated = item
-            break
-    save_registry(registry)
+    with library_write_lock(ARTIFACT_ROOT):
+        registry = load_registry()
+        updated = None
+        for item in registry.get("datasets", []):
+            if item.get("datasetId") == dataset_id:
+                owner_grant = {
+                    "userId": item.get("ownerUserId"),
+                    "role": "owner",
+                }
+                item["access"] = [owner_grant] + [
+                    grant
+                    for grant in clean_grants
+                    if grant.get("userId") != owner_grant["userId"]
+                ]
+                item["updatedAt"] = now_iso()
+                updated = item
+                break
+        save_registry(registry)
     audit_event("dataset.shared", "dataset", dataset_id, "success", metadata={"grants": clean_grants})
     return summarize_dataset(updated or require_dataset(dataset_id))
 
@@ -638,32 +1075,41 @@ def grant_dataset_access(dataset_id: str, user_id: str, role: str) -> Dict[str, 
 
 def revoke_dataset_access(dataset_id: str, user_id: str) -> Dict[str, Any]:
     require_dataset(dataset_id, write=True)
-    registry = load_registry()
-    updated = None
-    for item in registry.get("datasets", []):
-        if item.get("datasetId") == dataset_id:
-            if item.get("ownerUserId") == user_id:
-                raise HTTPException(status_code=400, detail="Dataset owner access cannot be revoked.")
-            item["access"] = [grant for grant in item.get("access", []) if grant.get("userId") != user_id]
-            item["updatedAt"] = now_iso()
-            updated = item
-            break
-    save_registry(registry)
+    with library_write_lock(ARTIFACT_ROOT):
+        registry = load_registry()
+        updated = None
+        for item in registry.get("datasets", []):
+            if item.get("datasetId") == dataset_id:
+                if item.get("ownerUserId") == user_id:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Dataset owner access cannot be revoked.",
+                    )
+                item["access"] = [
+                    grant
+                    for grant in item.get("access", [])
+                    if grant.get("userId") != user_id
+                ]
+                item["updatedAt"] = now_iso()
+                updated = item
+                break
+        save_registry(registry)
     audit_event("dataset.access.revoked", "dataset", dataset_id, "success", metadata={"targetUserId": user_id})
     return summarize_dataset(updated or require_dataset(dataset_id))
 
 
 def archive_dataset(dataset_id: str) -> Dict[str, Any]:
     require_dataset(dataset_id, write=True)
-    registry = load_registry()
-    updated = None
-    for item in registry.get("datasets", []):
-        if item.get("datasetId") == dataset_id:
-            item["archived"] = True
-            item["updatedAt"] = now_iso()
-            updated = item
-            break
-    save_registry(registry)
+    with library_write_lock(ARTIFACT_ROOT):
+        registry = load_registry()
+        updated = None
+        for item in registry.get("datasets", []):
+            if item.get("datasetId") == dataset_id:
+                item["archived"] = True
+                item["updatedAt"] = now_iso()
+                updated = item
+                break
+        save_registry(registry)
     audit_event("dataset.archived", "dataset", dataset_id, "success")
     return summarize_dataset(updated or require_dataset(dataset_id))
 
@@ -704,22 +1150,68 @@ def link_project(project_id: str, dataset_id: str, version_id: str, role: str = 
         "linkedAt": now_iso(),
         "linkedBy": current_user().get("userId"),
     }
-    links = load_links()
-    links["links"] = [
-        item
-        for item in links.get("links", [])
-        if not (item.get("projectId") == project_id and item.get("datasetId") == dataset_id and item.get("datasetRole") == role)
-    ] + [link]
-    save_links(links)
-    registry = load_registry()
-    for item in registry.get("datasets", []):
-        if item.get("datasetId") == dataset_id:
-            linked = [existing for existing in item.get("linkedProjects", []) if existing.get("projectId") != project_id]
-            linked.append({"projectId": project_id, "versionId": resolved_version, "datasetRole": role})
-            item["linkedProjects"] = linked
-            item["updatedAt"] = now_iso()
-    save_registry(registry)
-    return link
+    def apply_link(
+        registry: Dict[str, Any],
+        links: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        links["links"] = [
+            item
+            for item in links.get("links", [])
+            if not (
+                item.get("projectId") == project_id
+                and item.get("datasetId") == dataset_id
+                and item.get("datasetRole") == role
+            )
+        ] + [link]
+        matched_dataset = False
+        for item in registry.get("datasets", []):
+            if item.get("datasetId") == dataset_id:
+                matched_dataset = True
+                if not any(
+                    str(version.get("versionId") or "") == resolved_version
+                    for version in (item.get("versions") or [])
+                    if isinstance(version, dict)
+                ):
+                    raise HTTPException(
+                        status_code=409,
+                        detail=(
+                            "The requested Dataset Library version changed "
+                            "before the project link could be recorded."
+                        ),
+                    )
+                linked = [
+                    existing
+                    for existing in item.get("linkedProjects", [])
+                    if existing.get("projectId") != project_id
+                ]
+                linked.append(
+                    {
+                        "projectId": project_id,
+                        "versionId": resolved_version,
+                        "datasetRole": role,
+                    }
+                )
+                item["linkedProjects"] = linked
+                item["updatedAt"] = now_iso()
+                break
+        if not matched_dataset:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "The requested Dataset Library asset changed before the "
+                    "project link could be recorded."
+                ),
+            )
+        return link
+
+    return _mutate_registry_and_links_transaction(
+        operation_type="link_project",
+        reason="Before linking an exact Dataset Library version to a project",
+        project_id=project_id,
+        dataset_id=dataset_id,
+        dataset_version_id=resolved_version,
+        mutator=apply_link,
+    )
 
 
 def project_dataset_links(project_id: str) -> List[Dict[str, Any]]:
@@ -736,17 +1228,41 @@ def project_dataset_links(project_id: str) -> List[Dict[str, Any]]:
 
 
 def unlink_project_dataset(project_id: str, dataset_id: str) -> Dict[str, Any]:
-    links = load_links()
-    before = len(links.get("links", []))
-    links["links"] = [item for item in links.get("links", []) if not (item.get("projectId") == project_id and item.get("datasetId") == dataset_id)]
-    save_links(links)
-    registry = load_registry()
-    for item in registry.get("datasets", []):
-        if item.get("datasetId") == dataset_id:
-            item["linkedProjects"] = [link for link in item.get("linkedProjects", []) if link.get("projectId") != project_id]
-            item["updatedAt"] = now_iso()
-    save_registry(registry)
-    return {"ok": True, "removed": before - len(links.get("links", []))}
+    def apply_unlink(
+        registry: Dict[str, Any],
+        links: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        before = len(links.get("links", []))
+        links["links"] = [
+            item
+            for item in links.get("links", [])
+            if not (
+                item.get("projectId") == project_id
+                and item.get("datasetId") == dataset_id
+            )
+        ]
+        for item in registry.get("datasets", []):
+            if item.get("datasetId") == dataset_id:
+                linked_before = item.get("linkedProjects", [])
+                linked_after = [
+                    link
+                    for link in linked_before
+                    if link.get("projectId") != project_id
+                ]
+                if linked_after != linked_before:
+                    item["linkedProjects"] = linked_after
+                    item["updatedAt"] = now_iso()
+        removed = before - len(links.get("links", []))
+        return {"ok": True, "removed": removed}
+
+    return _mutate_registry_and_links_transaction(
+        operation_type="unlink_project_dataset",
+        reason="Before removing a Dataset Library project link",
+        project_id=project_id,
+        dataset_id=dataset_id,
+        dataset_version_id=None,
+        mutator=apply_unlink,
+    )
 
 
 def unlink_all_project_datasets(project_id: str) -> Dict[str, int]:
@@ -755,21 +1271,47 @@ def unlink_all_project_datasets(project_id: str) -> Dict[str, int]:
     ITS links, never the shared Library assets or other projects' links to them.
     Mirrors session_checkpoint.discard_modeling_scopes's "GC on delete" pattern.
     """
-    links = load_links()
-    remaining = [item for item in links.get("links", []) if item.get("projectId") != project_id]
-    removed = len(links.get("links", [])) - len(remaining)
-    links["links"] = remaining
-    save_links(links)
+    def apply_unlink_all(
+        registry: Dict[str, Any],
+        links: Dict[str, Any],
+    ) -> Dict[str, int]:
+        remaining = [
+            item
+            for item in links.get("links", [])
+            if item.get("projectId") != project_id
+        ]
+        removed = len(links.get("links", [])) - len(remaining)
+        links["links"] = remaining
+        if removed:
+            for item in registry.get("datasets", []):
+                linked = item.get("linkedProjects") or []
+                if any(link.get("projectId") == project_id for link in linked):
+                    item["linkedProjects"] = [
+                        link
+                        for link in linked
+                        if link.get("projectId") != project_id
+                    ]
+                    item["updatedAt"] = now_iso()
+        return {"removedLinks": removed}
+
+    result = _mutate_registry_and_links_transaction(
+        operation_type="unlink_all_project_datasets",
+        reason="Before removing every Dataset Library link for a project",
+        project_id=project_id,
+        dataset_id="*",
+        dataset_version_id=None,
+        mutator=apply_unlink_all,
+    )
+    removed = result["removedLinks"]
     if removed:
-        registry = load_registry()
-        for item in registry.get("datasets", []):
-            linked = item.get("linkedProjects") or []
-            if any(link.get("projectId") == project_id for link in linked):
-                item["linkedProjects"] = [link for link in linked if link.get("projectId") != project_id]
-                item["updatedAt"] = now_iso()
-        save_registry(registry)
-        audit_event("dataset.project_links.removed", "project", project_id, "success", metadata={"removedLinks": removed})
-    return {"removedLinks": removed}
+        audit_event(
+            "dataset.project_links.removed",
+            "project",
+            project_id,
+            "success",
+            metadata={"removedLinks": removed},
+        )
+    return result
 
 
 def find_similar_datasets(
@@ -858,7 +1400,7 @@ def diagnostics() -> Dict[str, Any]:
             "id": "artifact_root",
             "label": "Dataset artifact root",
             "status": "pass" if ARTIFACT_ROOT.exists() else "fail",
-            "detail": str(ARTIFACT_ROOT),
+            "detail": "Configured Dataset Library storage is reachable.",
         },
         {
             "id": "registry",
@@ -953,7 +1495,7 @@ def diagnostics() -> Dict[str, Any]:
         "ok": True,
         "generatedAt": now_iso(),
         "currentUser": current_user(),
-        "artifactRoot": str(ARTIFACT_ROOT),
+        "artifactRoot": "Configured (path redacted)",
         "datasetCount": len(active),
         "archivedCount": len(datasets) - len(active),
         "projectLinkCount": len(links.get("links", [])),

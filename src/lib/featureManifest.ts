@@ -90,6 +90,8 @@ export type FeatureManifest = {
     [key: string]: unknown;
   }>;
   split_status: "not_created" | "current" | "stale";
+  persistence_status?: "not_persisted" | "persisted";
+  definition_checksum?: string;
   predictor_authorization?: {
     target?: string | null;
     authorized_predictors: string[];
@@ -131,7 +133,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok || payload?.ok === false) {
-    throw new Error(payload?.detail ?? payload?.error ?? `ATLAS feature request failed with HTTP ${response.status}.`);
+    const operation = path.split("?")[0].split("/").filter(Boolean).at(-1) ?? "request";
+    const detail =
+      payload?.detail ?? payload?.error ?? "The backend did not provide a safe error detail.";
+    throw new Error(
+      `Feature ${operation} failed with HTTP ${response.status}: ${detail}`,
+    );
   }
   return payload as T;
 }

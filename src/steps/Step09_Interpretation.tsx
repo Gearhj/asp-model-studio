@@ -2,8 +2,29 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import StepShell from "../components/StepShell";
 import { AtlasAttentionPanel, type AtlasWorkflowMetric } from "../components/ui/AtlasWorkflow";
 import { logDecision } from "../lib/decisionJournal";
-import { inferLocalProblemType, loadLocalDataset, localDatasetVersion } from "../lib/localDataset";
-import { loadInterpretationCandidates } from "../lib/interpretationCandidates";
+import { inferLocalProblemType, loadLocalDataset } from "../lib/localDataset";
+import { requireLocalDatasetCanonicalIdentity, type CanonicalDatasetIdentity } from "../lib/datasetIdentity";
+import {
+  candidateMatchesDataset,
+  candidateRequestParams,
+  requireInterpretationCandidate,
+  type InterpretationCandidate,
+} from "../lib/interpretationCandidates";
+import {
+  lockedDecisionMatchesCandidate,
+  normalizeGovernedEvaluationPackage,
+  parseLockedSelectionDecision,
+  resolvePromotionReadiness,
+  selectionMetricLabel,
+  type GovernedEvaluationPackage,
+  type LockedSelectionDecision,
+  type SelectionMetricEvidence,
+} from "../lib/selectionProvenance";
+import {
+  promoteExactCandidate,
+  restoreExactFinalModel,
+  type DurablePromotion,
+} from "../model-registry/finalModelPromotionClient";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const QUERY_API_BASE =
@@ -13,15 +34,47 @@ const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
   "http://127.0.0.1:8001/api";
 const RFE_CACHE_KEY = "modeling-tool-rfe-cache";
-const LOCAL_SELECTED_INTERPRETATION_MODEL_KEY = "modeling-tool-selected-interpretation-model";
 const SHOW_LINEAR_REGRESSION_DEBUG = true;
 const RFE_TIMEOUT_MS = 30000;
 
-type RankedRow = { key: string; name: string; task?: "classification" | "regression" | "anomaly"; auc?: number; pr_auc?: number; rmse?: number; mae?: number; r2?: number; adjusted_r2?: number };
+type RankedRow = {
+  key: string;
+  name: string;
+  candidate_id?: string;
+  training_job_id?: string;
+  training_run_id?: string;
+  project_id?: string;
+  dataset_id?: string;
+  dataset_version_id?: string;
+  target?: string;
+  feature_manifest_version?: string;
+  validation_design_id?: string;
+  validation_design_version?: string;
+  split_id?: string;
+  candidate_contract?: Record<string, unknown>;
+  task?: "classification" | "regression" | "anomaly";
+  auc?: number;
+  pr_auc?: number;
+  rmse?: number;
+  mae?: number;
+  r2?: number;
+  adjusted_r2?: number;
+  selection_metric?: SelectionMetricEvidence | Record<string, unknown> | null;
+  selection_integrity_status?: string;
+  holdout_isolation_status?: string;
+};
 type ImportanceRow = { feature: string; importance: number; source?: string; direction?: number };
 type AnalysisMeta = { method: string; sampleCount: number | null };
+type GovernedInterpretationEnvelope = {
+  evaluation_package_id?: string;
+  interpretation_artifact?: {
+    evaluation_package_id?: string;
+    evaluation_package?: GovernedEvaluationPackage;
+  };
+};
 type DetailResponse = {
   ok: boolean;
+  evaluation_package_id?: string;
   kind?: "equation" | "tree" | "generic";
   model_type?: "classification" | "regression";
   intercept?: number;
@@ -33,7 +86,7 @@ type DetailResponse = {
   tree_text?: string;
   message?: string;
   error?: string;
-};
+} & GovernedInterpretationEnvelope;
 type ArtifactDebug = {
   selected_model_key?: string;
   requested_project_id?: string;
@@ -246,10 +299,50 @@ function displayModelName(model?: RankedRow, fallbackKey = "") {
   return model?.name ?? fallbackKey;
 }
 
+function candidateFromRow(model: RankedRow): InterpretationCandidate {
+  const frozen = model.candidate_contract ?? {};
+  const frozenText = (key: string) => (typeof frozen[key] === "string" ? frozen[key] as string : undefined);
+  return requireInterpretationCandidate({
+    ...frozen,
+    ...model,
+    target: model.target ?? frozenText("target") ?? frozenText("target_name"),
+    feature_manifest_version:
+      model.feature_manifest_version ?? frozenText("feature_manifest_version") ?? frozenText("feature_manifest_hash"),
+    validation_design_version:
+      model.validation_design_version ?? frozenText("validation_design_version"),
+    key: model.key,
+    name: model.name,
+    task: model.task ?? frozenText("problem_type") as InterpretationCandidate["task"] | undefined,
+    selectedAt: new Date().toISOString(),
+  });
+}
+
+function exactCandidateRows(rows: RankedRow[], identity: CanonicalDatasetIdentity): RankedRow[] {
+  return rows.filter((row) => {
+    try {
+      const candidate = candidateFromRow(row);
+      return candidate.task !== "anomaly" && candidateMatchesDataset(candidate, identity);
+    } catch {
+      return false;
+    }
+  });
+}
+
 export default function Step09_Interpretation() {
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
   const getNextStepPath = useWorkflowStore((state) => state.getNextStepPath);
+  const localDataset = loadLocalDataset();
+  let activeIdentity: CanonicalDatasetIdentity | null = null;
+  let identityError = "";
+  try {
+    activeIdentity = requireLocalDatasetCanonicalIdentity(projectId, localDataset, "Interpretation dataset identity");
+  } catch (error) {
+    identityError = error instanceof Error ? error.message : "Interpretation dataset identity is unavailable.";
+  }
+  const identityScope = activeIdentity
+    ? `${activeIdentity.project_id}:${activeIdentity.dataset_id}:${activeIdentity.dataset_version_id}`
+    : "";
   const [models, setModels] = useState<RankedRow[]>([]);
   const [modelsLoading, setModelsLoading] = useState(true);
   const [selectedModel, setSelectedModel] = useState("");
@@ -260,6 +353,7 @@ export default function Step09_Interpretation() {
   const [explanationLoading, setExplanationLoading] = useState(false);
   const [explanationErrors, setExplanationErrors] = useState<{ importance?: string; shap?: string }>({});
   const [artifactContextError, setArtifactContextError] = useState("");
+  const [evaluationPackageId, setEvaluationPackageId] = useState("");
   const [details, setDetails] = useState<DetailResponse | null>(null);
   const [hyperparameters, setHyperparameters] = useState<HyperparameterRow[]>([]);
   const [pdp, setPdp] = useState<CurveRow[]>([]);
@@ -291,14 +385,35 @@ export default function Step09_Interpretation() {
   const [finalModelStatus, setFinalModelStatus] = useState<"success" | "error" | "">("");
   const [savingFinalModel, setSavingFinalModel] = useState(false);
   const [finalModelReady, setFinalModelReady] = useState(false);
-  const requestedEvaluationModel = useMemo(
-    () => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("model") ?? "" : ""),
+  const [finalPromotion, setFinalPromotion] = useState<DurablePromotion | null>(null);
+  const [selectionDecision, setSelectionDecision] = useState<LockedSelectionDecision | null>(null);
+  const [governedEvaluationPackage, setGovernedEvaluationPackage] = useState<GovernedEvaluationPackage | null>(null);
+  const requestedCandidateId = useMemo(
+    () => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("candidate_id") ?? "" : ""),
+    []
+  );
+  const requestedTrainingRunId = useMemo(
+    () => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("training_run_id") ?? "" : ""),
+    []
+  );
+  const requestedEvaluationPackageId = useMemo(
+    () => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("evaluation_package_id") ?? "" : ""),
+    []
+  );
+  const requestedCandidateDecisionId = useMemo(
+    () => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("candidate_decision_id") ?? "" : ""),
     []
   );
   const explanationSequence = useRef(0);
   const effectSequence = useRef(0);
-  const selectedModelRow = models.find((model) => model.key === selectedModel) ?? models[0];
-  const activeProblemType = inferLocalProblemType(loadLocalDataset());
+  const selectedModelRow = models.find((model) => model.candidate_id === selectedModel);
+  const selectedCandidate = selectedModelRow ? candidateFromRow(selectedModelRow) : null;
+  const promotionReadiness = resolvePromotionReadiness(
+    selectedModelRow ?? null,
+    selectionDecision,
+    governedEvaluationPackage,
+  );
+  const activeProblemType = inferLocalProblemType(localDataset);
   const selectedModelIsRegression =
     activeProblemType === "regression" ||
     selectedModelRow?.task === "regression" ||
@@ -311,29 +426,28 @@ export default function Step09_Interpretation() {
   const rfeIsRegression = rfeMetric === "rmse" || (!rfeMetric && selectedModelIsRegression);
   const rfeSelectedCount = rfeRows.filter((row) => row.rank <= rfeKeep).length;
   const rfeRemovedCount = Math.max(0, rfeRows.length - rfeSelectedCount);
-  const canRunRfe = Boolean(selectedModel) && !rfeRunning && !rfeUnsupportedMessage && !artifactContextError;
-  // Deliberately NOT memoized: loadLocalDataset() reads mutable sessionStorage that this
-  // component does not otherwise track as React state, so a useMemo keyed only on [projectId]
-  // (as this used to be) would silently freeze dataset_version/target at whatever they were on
-  // first render and never notice a later change -- e.g. after Feature Engineering materializes
-  // a new dataset version. Save as Final Model spreads this same query into its request body, so
-  // a stale snapshot here was landing directly in the saved final-model metadata, causing Scoring
-  // (which recomputes these fresh from the same loadLocalDataset() on every render, see
-  // Step10_Scoring.tsx) to reject the saved model as belonging to "a different project, dataset
-  // version, or target." Recomputing on every render keeps this in sync with Scoring by
-  // construction, matching Scoring's own (already-correct) unmemoized pattern.
-  const interpretationContextQuery = (() => {
-    const dataset = loadLocalDataset();
-    const params = new URLSearchParams();
-    params.set("project_id", projectId);
-    params.set("dataset_version", dataset?.dataset_version || localDatasetVersion(dataset));
-    params.set("target", dataset?.target ?? "");
-    params.set("problem_type", inferLocalProblemType(dataset) ?? "");
-    return params.toString();
-  })();
+  const canRunRfe = Boolean(selectedCandidate && evaluationPackageId && promotionReadiness.ready) && !rfeRunning && !rfeUnsupportedMessage && !artifactContextError;
+  const requestedContextMatches = Boolean(
+    selectedCandidate &&
+      requestedEvaluationPackageId &&
+      requestedCandidateDecisionId &&
+      selectedCandidate.candidate_id === requestedCandidateId &&
+      selectedCandidate.training_run_id === requestedTrainingRunId &&
+      selectionDecision?.decision_id === requestedCandidateDecisionId &&
+      lockedDecisionMatchesCandidate(selectionDecision, selectedModelRow ?? null),
+  );
+  const interpretationContextQuery = selectedCandidate && requestedContextMatches
+    ? (() => {
+        const params = candidateRequestParams(selectedCandidate);
+        params.set("evaluation_package_id", requestedEvaluationPackageId);
+        params.set("candidate_decision_id", requestedCandidateDecisionId);
+        if (finalPromotion?.modelVersionId) params.set("model_version_id", finalPromotion.modelVersionId);
+        return params.toString();
+      })()
+    : "";
   const rfeCacheScope = useMemo(
-    () => `${projectId}:${interpretationContextQuery}:${selectedModel}`,
-    [interpretationContextQuery, projectId, selectedModel]
+    () => `${identityScope}:${interpretationContextQuery}`,
+    [identityScope, interpretationContextQuery]
   );
 
   const exportModel = (format: "json" | "jar") => {
@@ -341,46 +455,140 @@ export default function Step09_Interpretation() {
       setMessage("JAR export is not available for the current Python/scikit-learn pipeline. Use the JSON manifest for governed review, or add an approved ONNX/skops export path for runtime scoring.");
       return;
     }
-    window.location.href = `${API_BASE}/model/export?model=final&format=json&project_id=${encodeURIComponent(projectId)}`;
+    if (!finalPromotion) {
+      setMessage("Promote and verify an exact model version before export.");
+      return;
+    }
+    window.location.href = `${API_BASE}/model/export?model_version_id=${encodeURIComponent(finalPromotion.modelVersionId)}&format=json&project_id=${encodeURIComponent(projectId)}`;
   };
 
   useEffect(() => {
+    if (!activeIdentity) {
+      setModels([]);
+      setSelectedModel("");
+      setSelectionDecision(null);
+      setGovernedEvaluationPackage(null);
+      setMessage(identityError);
+      setModelsLoading(false);
+      return;
+    }
+    setModelsLoading(true);
+    const trainingContext = new URLSearchParams({
+      project_id: activeIdentity.project_id,
+      dataset_id: activeIdentity.dataset_id,
+      dataset_version_id: activeIdentity.dataset_version_id,
+    });
     getJson<{ ok: boolean; summary?: { problem_type?: string; ranked?: RankedRow[] }; context_error?: string }>(
-      `${API_BASE}/train/last?${interpretationContextQuery}`
+      `${API_BASE}/train/last?${trainingContext.toString()}`
     )
-      .then((data) => {
+      .then(async (data) => {
         if (data.context_error) setMessage(data.context_error);
-        const ranked = (data.summary?.ranked ?? []).filter((row: any) => row.champion_eligible !== false && row.kind !== "anomaly");
-        const candidateKeys = new Set(loadInterpretationCandidates(projectId).map((candidate) => candidate.key));
-        const selectedCandidates = ranked.filter((row) => candidateKeys.has(row.key));
-        setModels(selectedCandidates);
-        const savedSelection = sessionStorage.getItem(LOCAL_SELECTED_INTERPRETATION_MODEL_KEY);
-        const requestedSelection = selectedCandidates.find((row) => row.key === requestedEvaluationModel)?.key;
-        setSelectedModel(requestedSelection ?? selectedCandidates.find((row) => row.key === savedSelection)?.key ?? selectedCandidates[0]?.key ?? "");
-      })
-      .catch((err) => setMessage(String(err?.message ?? err)))
-      .finally(() => setModelsLoading(false));
-    getJson<{ ok: boolean; ready: boolean; metadata?: Record<string, unknown> }>(`${API_BASE}/model/final/status?project_id=${encodeURIComponent(projectId)}`)
-      .then((data) => {
-        const dataset = loadLocalDataset();
-        const expectedVersion = dataset?.dataset_version || localDatasetVersion(dataset);
-        const metadata = data.metadata ?? {};
-        const sameDataset = !metadata.dataset_version || String(metadata.dataset_version) === expectedVersion;
-        const sameProject = !metadata.project_id || String(metadata.project_id) === projectId;
-        if (data.ready && sameDataset && sameProject) {
-          setFinalModelReady(true);
-          setFinalModelStatus("success");
-          setFinalModelMessage(`Restored saved final model: ${String(metadata.name ?? "governed final artifact")}.`);
-          void loadFinalDiagnostics().catch(() => undefined);
+        const ranked = exactCandidateRows(data.summary?.ranked ?? [], activeIdentity);
+        const requestedSelection = ranked.find((row) => {
+          if (row.candidate_id !== requestedCandidateId) return false;
+          try {
+            return !requestedTrainingRunId || candidateFromRow(row).training_run_id === requestedTrainingRunId;
+          } catch {
+            return false;
+          }
+        });
+        if (!requestedSelection || !requestedCandidateDecisionId) {
+          setModels([]);
+          setSelectedModel("");
+          setSelectionDecision(null);
+          if (requestedSelection && !requestedCandidateDecisionId) {
+            setMessage("The Evaluation handoff is missing its exact candidate_decision_id. Return to Evaluation and reopen the locked candidate.");
+          }
+          return;
+        }
+        const exactCandidate = candidateFromRow(requestedSelection);
+        const decisionQuery = new URLSearchParams({
+          project_id: exactCandidate.project_id,
+          expected_dataset_id: exactCandidate.dataset_id,
+          expected_dataset_version_id: exactCandidate.dataset_version_id,
+          candidate_decision_id: requestedCandidateDecisionId,
+          validation_design_id: exactCandidate.validation_design_id,
+          validation_design_version: exactCandidate.validation_design_version,
+          split_id: exactCandidate.split_id,
+          training_run_id: exactCandidate.training_run_id,
+          candidate_id: exactCandidate.candidate_id,
+        });
+        const decisionResponse = await getJson<{ ok: boolean; decision?: Record<string, unknown> | null; fallback_used?: boolean }>(
+          `${API_BASE}/model/train/decision?${decisionQuery.toString()}`
+        );
+        const locked = parseLockedSelectionDecision(decisionResponse.decision);
+        if (
+          decisionResponse.fallback_used === true ||
+          !locked ||
+          locked.decision_id !== requestedCandidateDecisionId ||
+          !lockedDecisionMatchesCandidate(locked, requestedSelection)
+        ) {
+          setModels([]);
+          setSelectedModel("");
+          setSelectionDecision(null);
+          setMessage("Interpretation requires the exact durable locked candidate decision and verified non-holdout selection evidence. No latest, leaderboard, or browser-state fallback was accepted.");
+          return;
+        }
+        setSelectionDecision(locked);
+        setModels([requestedSelection]);
+        setSelectedModel(requestedSelection.candidate_id ?? "");
+        if ((data.summary?.ranked ?? []).length && !ranked.length) {
+          setMessage("Training results were found, but their exact candidate lineage is incomplete or stale. Retrain under the current governed dataset version.");
+        } else if (requestedCandidateId && !requestedSelection) {
+          setMessage("The requested candidate does not match the exact project, dataset version, training run, or Evaluation selection.");
+        } else if (requestedSelection && !requestedEvaluationPackageId) {
+          setMessage("The Evaluation handoff is missing its explicit evaluation_package_id. Return to Evaluation and reopen this exact candidate.");
         }
       })
-      .catch(() => undefined);
-  // The active project controls artifact isolation; model selection changes in the next effect.
+      .catch((err) => {
+        setModels([]);
+        setSelectedModel("");
+        setSelectionDecision(null);
+        setGovernedEvaluationPackage(null);
+        setMessage(String(err?.message ?? err));
+      })
+      .finally(() => setModelsLoading(false));
+    const target = String(localDataset?.target ?? "").trim();
+    if (target) {
+      restoreExactFinalModel(API_BASE, activeIdentity, target)
+        .then((restored) => {
+          if (!restored) return;
+          setFinalPromotion(restored.promotion);
+          setFinalModelReady(true);
+          setFinalModelStatus("success");
+          setFinalModelMessage(`Restored exact registered model version ${restored.promotion.modelVersionId}; artifact checksum verification passed.`);
+          void loadFinalDiagnostics(restored.promotion.modelVersionId).catch((error) => {
+            setMessage(`The final model was recovered, but diagnostics could not be refreshed: ${String(error?.message ?? error)}`);
+          });
+        })
+        .catch((error) => {
+          setFinalPromotion(null);
+          setFinalModelReady(false);
+          setFinalModelStatus("error");
+          setFinalModelMessage(String(error?.message ?? error));
+        });
+    } else {
+      setFinalPromotion(null);
+      setFinalModelReady(false);
+      setFinalModelStatus("error");
+      setFinalModelMessage("The exact target contract is unavailable. Return to Data Acquisition before restoring a final model.");
+    }
+  // The exact canonical dataset scope controls both candidate selection and durable recovery.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId]);
+  }, [identityScope, requestedCandidateId, requestedTrainingRunId, requestedEvaluationPackageId, requestedCandidateDecisionId]);
 
   useEffect(() => {
-    if (!selectedModel) return;
+    if (!selectedCandidate) {
+      setEvaluationPackageId("");
+      setGovernedEvaluationPackage(null);
+      return;
+    }
+    if (!requestedContextMatches || !interpretationContextQuery) {
+      setEvaluationPackageId("");
+      setGovernedEvaluationPackage(null);
+      setArtifactContextError("Open Interpretation from the completed Evaluation package for this exact candidate. ATLAS will not infer a package.");
+      return;
+    }
     const sequence = explanationSequence.current + 1;
     explanationSequence.current = sequence;
     setMessage("");
@@ -388,23 +596,25 @@ export default function Step09_Interpretation() {
     setExplanationLoading(true);
     setExplanationErrors({});
     setArtifactContextError("");
+    setEvaluationPackageId("");
+    setGovernedEvaluationPackage(null);
     setImportance([]);
     setShapRows([]);
     setPdp([]);
     setSensitivity([]);
     setSelectedFeature("");
     Promise.allSettled([
-      getJson<{ ok: boolean; rows?: ImportanceRow[]; method?: string; sample_count?: number; error?: string }>(
-        `${API_BASE}/interpretation/importance?model=${encodeURIComponent(selectedModel)}&${interpretationContextQuery}`
+      getJson<{ ok: boolean; rows?: ImportanceRow[]; method?: string; sample_count?: number; error?: string } & GovernedInterpretationEnvelope>(
+        `${API_BASE}/interpretation/importance?${interpretationContextQuery}`
       ),
       getJson<DetailResponse>(
-        `${API_BASE}/interpretation/details?model=${encodeURIComponent(selectedModel)}&${interpretationContextQuery}`
+        `${API_BASE}/interpretation/details?${interpretationContextQuery}`
       ),
-      getJson<{ ok: boolean; rows?: HyperparameterRow[] }>(
-        `${API_BASE}/interpretation/hyperparameters?model=${encodeURIComponent(selectedModel)}&${interpretationContextQuery}`
+      getJson<{ ok: boolean; rows?: HyperparameterRow[] } & GovernedInterpretationEnvelope>(
+        `${API_BASE}/interpretation/hyperparameters?${interpretationContextQuery}`
       ),
-      getJson<{ ok: boolean; rows?: ImportanceRow[]; method?: string; sample_count?: number }>(
-        `${API_BASE}/interpretation/shap?model=${encodeURIComponent(selectedModel)}&${interpretationContextQuery}`
+      getJson<{ ok: boolean; rows?: ImportanceRow[]; method?: string; sample_count?: number } & GovernedInterpretationEnvelope>(
+        `${API_BASE}/interpretation/shap?${interpretationContextQuery}`
       ),
     ])
       .then(([importanceResult, detailsResult, hyperparameterResult, shapResult]) => {
@@ -413,6 +623,46 @@ export default function Step09_Interpretation() {
         const detailsRes = detailsResult.status === "fulfilled" ? detailsResult.value : null;
         const hyperparameterRes = hyperparameterResult.status === "fulfilled" ? hyperparameterResult.value : null;
         const shapRes = shapResult.status === "fulfilled" ? shapResult.value : null;
+        const successfulArtifacts = [importanceRes, detailsRes, hyperparameterRes, shapRes]
+          .filter((artifact): artifact is NonNullable<typeof artifact> => artifact?.ok === true);
+        const packageIds = successfulArtifacts
+          .map((artifact) => String(artifact.evaluation_package_id ?? "").trim())
+          .filter(Boolean);
+        const mismatchedPackage = packageIds.some((packageId) => packageId !== requestedEvaluationPackageId);
+        if (successfulArtifacts.length && (packageIds.length !== successfulArtifacts.length || mismatchedPackage)) {
+          const packageError = "Interpretation responses do not match the explicit completed evaluation_package_id from Evaluation. Return to Evaluation and review this exact candidate.";
+          setArtifactContextError(packageError);
+          setGovernedEvaluationPackage(null);
+          setEvaluationPackageId("");
+          setMessage(packageError);
+          return;
+        }
+        const packageCandidates = successfulArtifacts
+          .map((artifact) => normalizeGovernedEvaluationPackage(artifact.interpretation_artifact?.evaluation_package))
+          .filter((value): value is GovernedEvaluationPackage => Boolean(value));
+        const exactPackage = packageCandidates.find(
+          (value) => String(value.evaluation_package_id ?? "").trim() === requestedEvaluationPackageId,
+        ) ?? null;
+        const localReadiness = resolvePromotionReadiness(
+          selectedModelRow ?? null,
+          selectionDecision,
+          exactPackage,
+        );
+        if (
+          !successfulArtifacts.length ||
+          packageCandidates.length !== successfulArtifacts.length ||
+          !localReadiness.ready ||
+          localReadiness.evaluationPackageId !== requestedEvaluationPackageId
+        ) {
+          const packageError = localReadiness.reason || "Interpretation did not return the exact verified Evaluation package and holdout-isolation evidence.";
+          setGovernedEvaluationPackage(null);
+          setArtifactContextError(packageError);
+          setEvaluationPackageId("");
+          setMessage(packageError);
+          return;
+        }
+        setGovernedEvaluationPackage(exactPackage);
+        setEvaluationPackageId(requestedEvaluationPackageId);
         const rows = importanceRes?.rows ?? [];
         const nextShapRows = shapRes?.rows ?? [];
         const failures = [importanceResult, detailsResult, hyperparameterResult, shapResult]
@@ -421,6 +671,8 @@ export default function Step09_Interpretation() {
         const contextFailure = failures.find(isArtifactContextError) ?? "";
         if (contextFailure) {
           setArtifactContextError(contextFailure);
+          setGovernedEvaluationPackage(null);
+          setEvaluationPackageId("");
           setImportance([]);
           setShapRows([]);
           setSelectedFeature("");
@@ -457,22 +709,26 @@ export default function Step09_Interpretation() {
         if (cachedRfe?.keep) setRfeKeep(cachedRfe.keep);
         if (detailsRes?.kind === "tree") {
           getJson<TreeResponse>(
-            `${API_BASE}/eval/tree?model=${encodeURIComponent(selectedModel)}&max_depth=4&${interpretationContextQuery}`
+            `${API_BASE}/eval/tree?max_depth=4&${interpretationContextQuery}`
           )
             .then((treeRes) => setTreeStructure(treeRes))
             .catch((err) => setTreeStructure({ ok: false, error: String(err?.message ?? err) }));
         }
       })
       .catch((err) => {
-        if (explanationSequence.current === sequence) setMessage(String(err?.message ?? err));
+        if (explanationSequence.current === sequence) {
+          setGovernedEvaluationPackage(null);
+          setEvaluationPackageId("");
+          setMessage(String(err?.message ?? err));
+        }
       })
       .finally(() => {
         if (explanationSequence.current === sequence) setExplanationLoading(false);
       });
-  }, [selectedModel, interpretationContextQuery, rfeCacheScope]);
+  }, [selectedModel, interpretationContextQuery, requestedContextMatches, requestedEvaluationPackageId, requestedCandidateDecisionId, rfeCacheScope, selectionDecision]);
 
   useEffect(() => {
-    if (!selectedModel || !selectedFeature || artifactContextError) return;
+    if (!selectedCandidate || !selectedFeature || !evaluationPackageId || !interpretationContextQuery || artifactContextError) return;
     const sequence = effectSequence.current + 1;
     effectSequence.current = sequence;
     setEffectLoading(true);
@@ -481,10 +737,10 @@ export default function Step09_Interpretation() {
     setSensitivity([]);
     Promise.allSettled([
       getJson<{ ok: boolean; rows?: CurveRow[] }>(
-        `${API_BASE}/interpretation/pdp?model=${encodeURIComponent(selectedModel)}&feature=${encodeURIComponent(selectedFeature)}&${interpretationContextQuery}`
+        `${API_BASE}/interpretation/pdp?feature=${encodeURIComponent(selectedFeature)}&${interpretationContextQuery}`
       ),
       getJson<{ ok: boolean; rows?: SensitivityRow[] }>(
-        `${API_BASE}/interpretation/sensitivity?model=${encodeURIComponent(selectedModel)}&feature=${encodeURIComponent(selectedFeature)}&${interpretationContextQuery}`
+        `${API_BASE}/interpretation/sensitivity?feature=${encodeURIComponent(selectedFeature)}&${interpretationContextQuery}`
       ),
     ])
       .then(([pdpResult, sensitivityResult]) => {
@@ -501,18 +757,16 @@ export default function Step09_Interpretation() {
       .finally(() => {
         if (effectSequence.current === sequence) setEffectLoading(false);
       });
-  }, [selectedModel, selectedFeature, interpretationContextQuery, artifactContextError]);
+  }, [selectedModel, selectedFeature, interpretationContextQuery, evaluationPackageId, artifactContextError]);
 
   useEffect(() => {
-    if (!selectedModel || artifactContextError) {
+    if (!selectedCandidate || !evaluationPackageId || !interpretationContextQuery || artifactContextError) {
       setBoundary(null);
       return;
     }
-    const params = new URLSearchParams({ model: selectedModel });
+    const params = new URLSearchParams(interpretationContextQuery);
     if (boundaryX) params.set("x_feature", boundaryX);
     if (boundaryY) params.set("y_feature", boundaryY);
-    const contextParams = new URLSearchParams(interpretationContextQuery);
-    contextParams.forEach((value, key) => params.set(key, value));
     getJson<BoundaryResponse>(`${API_BASE}/interpretation/decision_boundary?${params.toString()}`)
       .then((data) => {
         if (!data.ok) {
@@ -524,7 +778,7 @@ export default function Step09_Interpretation() {
         setBoundaryY(data.y_feature ?? "");
       })
       .catch((err) => setMessage(String(err?.message ?? err)));
-  }, [selectedModel, boundaryX, boundaryY, interpretationContextQuery, artifactContextError]);
+  }, [selectedModel, boundaryX, boundaryY, interpretationContextQuery, evaluationPackageId, artifactContextError]);
 
   const featureOptions = useMemo(
     () => Array.from(new Set([...importance, ...shapRows].map((row) => row.feature.replace(/^.*__/, "")))),
@@ -532,7 +786,7 @@ export default function Step09_Interpretation() {
   );
 
   const runRfe = () => {
-    if (!selectedModel || rfeRunning) return;
+    if (!selectedCandidate || !evaluationPackageId || !interpretationContextQuery || rfeRunning) return;
     if (rfeUnsupportedMessage) {
       setRfeError(rfeUnsupportedMessage);
       setMessage(rfeUnsupportedMessage);
@@ -542,7 +796,7 @@ export default function Step09_Interpretation() {
     setMessage("Running RFE with timeout protection. ATLAS limits feature elimination requests so the workflow cannot remain stuck.");
     setRfeError("");
     getJsonWithTimeout<RfeResult>(
-      `${API_BASE}/interpretation/rfe?model=${encodeURIComponent(selectedModel)}&keep=${rfeKeep}&${interpretationContextQuery}`,
+      `${API_BASE}/interpretation/rfe?keep=${rfeKeep}&${interpretationContextQuery}`,
       RFE_TIMEOUT_MS,
       "RFE timed out after 30 seconds. Try a smaller feature set or select a linear, tree, or estimator-compatible model."
     )
@@ -569,13 +823,19 @@ export default function Step09_Interpretation() {
       .finally(() => setRfeRunning(false));
   };
 
-  const loadFinalDiagnostics = async () => {
+  const loadFinalDiagnostics = async (modelVersionId: string) => {
+    if (!selectedCandidate || !evaluationPackageId || !selectionDecision) return;
+    const params = candidateRequestParams(selectedCandidate);
+    params.set("evaluation_package_id", evaluationPackageId);
+    params.set("candidate_decision_id", selectionDecision.decision_id);
+    params.set("model_version_id", modelVersionId);
+    params.set("top_n", "12");
     const [sensitivityRes, vifRes] = await Promise.all([
       getJson<{ ok: boolean; rows?: SensitivitySummaryRow[]; error?: string }>(
-        `${API_BASE}/interpretation/sensitivity_summary?model=final&top_n=12&project_id=${encodeURIComponent(projectId)}`
+        `${API_BASE}/interpretation/sensitivity_summary?${params.toString()}`
       ),
       getJson<{ ok: boolean; rows?: VifRow[]; error?: string }>(
-        `${API_BASE}/interpretation/vif?model=final&project_id=${encodeURIComponent(projectId)}`
+        `${API_BASE}/interpretation/vif?${params.toString()}`
       ),
     ]);
     if (!sensitivityRes.ok) throw new Error(sensitivityRes.error ?? "Final-model sensitivity failed.");
@@ -585,41 +845,54 @@ export default function Step09_Interpretation() {
     setFinalDiagnosticsReady(true);
   };
 
-  const saveRfeFinalModel = async () => {
+  const saveExactCandidateAsFinal = async () => {
     setFinalModelMessage("");
     setFinalModelStatus("");
+    setFinalModelReady(false);
+    setFinalPromotion(null);
     setSavingFinalModel(true);
     try {
-      const res = await fetch(`${API_BASE}/interpretation/rfe/save_final`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: selectedModel,
-          keep: rfeKeep,
-          ...Object.fromEntries(new URLSearchParams(interpretationContextQuery)),
-        }),
-      });
-      if (!res.ok) throw new Error(`Save failed (${res.status})`);
-      const data = await res.json();
-      if (!data.ok) throw new Error(data.error ?? "Unable to save final model.");
+      if (!selectedCandidate) throw new Error("Select one exact governed candidate before promotion.");
+      if (!evaluationPackageId) throw new Error("Complete Evaluation for this exact candidate before promotion.");
+      if (!selectedModelRow || !selectionDecision || !governedEvaluationPackage || !promotionReadiness.ready) {
+        throw new Error(promotionReadiness.reason || "Promotion requires the exact locked decision and verified selection/final-holdout isolation evidence.");
+      }
+      const promotion = await promoteExactCandidate(
+        API_BASE,
+        selectedCandidate,
+        evaluationPackageId,
+        {
+          candidateEvidence: selectedModelRow,
+          candidateDecision: selectionDecision,
+          evaluationPackage: governedEvaluationPackage,
+        },
+      );
+      setFinalPromotion(promotion);
       setFinalModelMessage(
-        `Saved final parsimonious model with ${data.metadata?.feature_count ?? rfeKeep} features.`
+        `${promotion.designation === "champion" ? "Champion" : "Challenger"} ${promotion.modelVersionId} finalized from exact candidate ${selectedCandidate.candidate_id}. Artifact verification passed for training dataset version ${promotion.trainingDatasetVersionId}.`
       );
       logDecision({
         workflowStep: "Interpretation",
         actionType: "final_model_saved",
-        subject: "RFE parsimonious final model",
+        subject: "Exact frozen training candidate",
         previousValue: "candidate",
         newValue: {
-          model: selectedModel,
-          feature_count: data.metadata?.feature_count ?? rfeKeep,
+          candidate_id: selectedCandidate.candidate_id,
+          training_run_id: selectedCandidate.training_run_id,
+          evaluation_package_id: evaluationPackageId,
+          candidate_decision_id: promotion.candidateDecisionId,
+          model_version_id: promotion.modelVersionId,
+          artifact_checksum: promotion.checksum,
         },
         followStatus: "followed",
       });
       setFinalModelStatus("success");
       setFinalModelReady(true);
-      await loadFinalDiagnostics();
+      try {
+        await loadFinalDiagnostics(promotion.modelVersionId);
+      } catch (error) {
+        setMessage(`Model promotion is durable, but final diagnostics could not be refreshed: ${String((error as Error)?.message ?? error)}`);
+      }
     } catch (err: any) {
       setFinalModelMessage(err?.message ?? "Unable to save final model.");
       setFinalModelStatus("error");
@@ -635,6 +908,7 @@ export default function Step09_Interpretation() {
     { label: "Problem Type", value: selectedModelIsRegression ? "Regression" : "Classification" },
     { label: "Importance Drivers", value: importance.length.toLocaleString(), tone: importance.length ? "success" : "warning" },
     { label: "RFE Status", value: rfeRows.length ? `${rfeSelectedCount} retained` : "Not run", tone: rfeRows.length ? "info" : "warning" },
+    { label: "Selection Integrity", value: promotionReadiness.ready ? "Verified" : "Blocked", tone: promotionReadiness.ready ? "success" : "warning" },
     { label: "Final Artifact", value: finalModelReady ? "Saved" : "Required", tone: finalModelReady ? "success" : "warning" },
   ];
 
@@ -642,9 +916,35 @@ export default function Step09_Interpretation() {
     return <StepShell title="Step 9: Model Interpretation and Final Model" subtitle="Loading governed model artifacts and explanation contracts." variant="modeling" heroMetrics={heroMetrics} nextLabel="Confirm Final Model and Continue to Scoring" nextDisabled><div className="atlas-workflow-section flex min-h-64 items-center justify-center text-sm text-slate-600">Loading trained model artifacts...</div></StepShell>;
   }
 
+  if (!models.length && finalModelReady && finalPromotion) {
+    return (
+      <StepShell
+        title="Step 9: Model Interpretation and Final Model"
+        subtitle="The exact governed final model was recovered from the backend registry."
+        variant="modeling"
+        heroMetrics={heroMetrics}
+        nextPath={getNextStepPath("step09")}
+        nextLabel="Confirm Final Model and Continue to Scoring"
+        nextStatusLine="Scoring will use the recovered registered model version and its verified artifact."
+      >
+        <div className="w-full space-y-4">
+          <AtlasAttentionPanel title="Registered final model recovered" tone="info">
+            ATLAS verified the exact finalized model version and artifact directly from the backend registry. The temporary Evaluation candidate tray is not being used as recovery authority.
+          </AtlasAttentionPanel>
+          <div data-testid="durable-final-model-contract" className="grid gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950 sm:grid-cols-2 lg:grid-cols-4">
+            <div><span className="font-semibold">Model version</span><div className="mt-1 break-all">{finalPromotion.modelVersionId}</div></div>
+            <div><span className="font-semibold">Artifact verification</span><div className="mt-1 capitalize">{finalPromotion.artifactVerificationStatus}</div></div>
+            <div><span className="font-semibold">Training dataset version</span><div className="mt-1 break-all">{finalPromotion.trainingDatasetVersionId}</div></div>
+            <div><span className="font-semibold">Promotion</span><div className="mt-1 capitalize">{finalPromotion.promotionStatus} · {finalPromotion.designation}</div></div>
+          </div>
+        </div>
+      </StepShell>
+    );
+  }
+
   if (!models.length) {
     return (
-      <StepShell title="Step 9: Model Interpretation and Final Model" subtitle="Explain a supervised candidate, run RFE, and save the governed final artifact used by Scoring." variant="modeling" heroMetrics={heroMetrics} nextLabel="Confirm Final Model and Continue to Scoring" nextDisabled nextDisabledReason="Train at least one supervised model before Interpretation.">
+      <StepShell title="Step 9: Model Interpretation and Final Model" subtitle="Explain a supervised candidate, inspect analysis-only RFE, and promote an exact governed artifact." variant="modeling" heroMetrics={heroMetrics} nextLabel="Confirm Final Model and Continue to Scoring" nextDisabled nextDisabledReason="Train at least one supervised model before Interpretation.">
         <AtlasAttentionPanel title="No models selected for Interpretation" tone="warning">Return to Evaluation and select one or more trained supervised models. Selected candidates are required before interpretation, RFE, and final-model review.</AtlasAttentionPanel>
       </StepShell>
     );
@@ -653,13 +953,13 @@ export default function Step09_Interpretation() {
   return (
     <StepShell
       title="Step 9: Model Interpretation and Final Model"
-      subtitle="Explain candidate behavior, inspect marginal response, run recursive feature elimination, and save the exact final artifact that Scoring will use."
+      subtitle="Explain candidate behavior, inspect analysis-only feature sensitivity, and save the exact frozen artifact that Scoring will use."
       variant="modeling"
       eyebrow="Predictive Modeling Workflow"
       heroMetrics={heroMetrics}
       nextPath={getNextStepPath("step09")}
       nextDisabled={!finalModelReady}
-      nextDisabledReason="Run RFE and save the governed final model before continuing to Scoring."
+      nextDisabledReason="Complete Evaluation and save the exact governed candidate before continuing to Scoring."
       nextLabel="Confirm Final Model and Continue to Scoring"
       nextStatusLine="Scoring will use the saved final-model artifact and its retained feature contract."
     >
@@ -677,20 +977,11 @@ export default function Step09_Interpretation() {
           <select
             className="rounded-md border px-3 py-2"
             value={selectedModel}
-            onChange={(e) => {
-              logDecision({
-                workflowStep: "Interpretation",
-                actionType: "workflow_setting_changed",
-                subject: "Interpretation model under review",
-                previousValue: selectedModel,
-                newValue: e.target.value,
-              });
-              sessionStorage.setItem(LOCAL_SELECTED_INTERPRETATION_MODEL_KEY, e.target.value);
-              setSelectedModel(e.target.value);
-            }}
+            disabled
           >
+            <option value="">Select an exact candidate</option>
             {models.map((model) => (
-              <option key={model.key} value={model.key}>
+              <option key={model.candidate_id} value={model.candidate_id}>
                 {displayModelName(model, model.key)}
               </option>
             ))}
@@ -699,6 +990,25 @@ export default function Step09_Interpretation() {
       </div>
 
       {message && <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">{message}</div>}
+      {!selectedCandidate ? (
+        <AtlasAttentionPanel title="Select one exact candidate" tone="warning">
+          Choose a governed Evaluation candidate. ATLAS will not substitute the first, latest, or same-algorithm result.
+        </AtlasAttentionPanel>
+      ) : null}
+
+      {selectedCandidate && selectionDecision ? (
+        <section className="rounded-2xl border border-blue-200 bg-blue-50 p-4" data-testid="interpretation-selection-holdout-provenance">
+          <div className="text-xs font-semibold uppercase tracking-wide text-blue-700">Selection and holdout provenance</div>
+          <h2 className="mt-1 text-sm font-semibold text-blue-950">Interpretation is bound to the exact locked candidate</h2>
+          <p className="mt-1 text-xs leading-5 text-blue-900">Candidate selection remains frozen from non-holdout evidence. Final-holdout metrics are reporting-only and cannot change the candidate, features, calibration, or threshold.</p>
+          <div className="mt-3 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+            <div className="rounded-md border border-blue-200 bg-white p-3"><span className="font-semibold">Candidate decision</span><div className="mt-1 break-all">{selectionDecision.decision_id}</div></div>
+            <div className="rounded-md border border-blue-200 bg-white p-3"><span className="font-semibold">Selection metric</span><div className="mt-1">{selectionMetricLabel(selectionDecision.selection_metric)}: {selectionDecision.selection_metric.value.toFixed(4)}</div></div>
+            <div className="rounded-md border border-blue-200 bg-white p-3"><span className="font-semibold">Evaluation package</span><div className="mt-1 break-all">{evaluationPackageId || "Verification pending"}</div></div>
+            <div className="rounded-md border border-blue-200 bg-white p-3"><span className="font-semibold">Promotion gate</span><div className="mt-1">{promotionReadiness.ready ? "Verified" : promotionReadiness.reason}</div></div>
+          </div>
+        </section>
+      ) : null}
 
       {SHOW_LINEAR_REGRESSION_DEBUG && selectedModelIsLinearRegression && (
         <LinearRegressionDebugPanel details={details} />
@@ -729,7 +1039,7 @@ export default function Step09_Interpretation() {
             <FocusCard title="Top Drivers" text="Feature importance ranks variables by predictive contribution." />
             <FocusCard title="Direction" text="SHAP-style bars show whether a driver increases or decreases predictions." />
             <FocusCard title="Nonlinear Effects" text="PDP and sensitivity show whether response changes are linear or curved." />
-            <FocusCard title="Reduced Set" text="RFE tests whether a smaller final feature set preserves holdout performance." />
+            <FocusCard title="Feature Sensitivity" text="RFE explores a smaller feature hypothesis for future retraining; it never changes the frozen candidate." />
           </div>
         </section>
       )}
@@ -832,18 +1142,16 @@ export default function Step09_Interpretation() {
           <div>
             <h2 className="text-sm font-semibold">Recursive Feature Elimination</h2>
             <p className="mt-1 text-xs text-gray-500">
-              {rfeIsRegression
-                ? "Runs backward elimination and recommends the smallest retained feature count that is effectively tied with the best holdout RMSE."
-                : "Runs backward elimination and recommends the smallest retained feature count that is effectively tied with the best holdout AUC."}
+              Shows how a bounded surrogate changes across feature counts using the existing held-out results. This is diagnostic analysis only; it cannot select, refit, or alter the candidate promoted as final.
             </p>
             <p className="mt-2 text-xs leading-5 text-slate-600">
-              ATLAS uses a bounded {rfeIsRegression ? "linear" : "logistic"} surrogate for fast, reproducible elimination, then refits the selected estimator family on the retained features when you save the final model.
+              ATLAS uses a bounded {rfeIsRegression ? "linear" : "logistic"} surrogate for reproducible inspection. If this analysis suggests a different feature set, create and validate that feature contract upstream, then train a new candidate; do not tune the frozen candidate against the final holdout.
             </p>
           </div>
           <div className="flex items-end gap-2">
             {recommendedCount && (
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800">
-                Recommended: {recommendedCount} features
+                Analysis point: {recommendedCount} features
               </div>
             )}
             {rfeRunning && (
@@ -855,28 +1163,12 @@ export default function Step09_Interpretation() {
               className="rounded-md bg-indigo-600 px-3 py-2 text-sm font-medium text-white transition hover:bg-indigo-700 active:scale-95 disabled:cursor-not-allowed disabled:bg-indigo-300 disabled:active:scale-100"
               disabled={!canRunRfe}
               onClick={runRfe}
-              title={canRunRfe ? "Run recursive feature elimination for the governed training split." : rfeUnsupportedMessage || "Select a supported supervised model before running RFE."}
+              title={canRunRfe ? "Run analysis-only recursive feature elimination without changing the frozen candidate." : rfeUnsupportedMessage || "Select a supported supervised model before running RFE."}
             >
               {rfeRunning ? "Running..." : rfeRows.length ? "Rerun RFE" : "Run RFE"}
             </button>
-            <button
-              className="rounded-md bg-emerald-600 px-3 py-2 text-sm font-medium text-white transition active:scale-95 active:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300 disabled:active:scale-100"
-              disabled={!rfeRows.length || savingFinalModel}
-              onClick={saveRfeFinalModel}
-            >
-              {savingFinalModel ? "Saving..." : "Save as Final Model"}
-            </button>
           </div>
         </div>
-        {finalModelMessage && (
-          <div className={`mt-3 rounded-md border px-3 py-2 text-sm ${
-            finalModelStatus === "error"
-              ? "border-rose-200 bg-rose-50 text-rose-900"
-              : "border-emerald-200 bg-emerald-50 text-emerald-900"
-          }`}>
-            {finalModelMessage}
-          </div>
-        )}
         {rfeError && (
           <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-900">
             {rfeError}
@@ -896,15 +1188,15 @@ export default function Step09_Interpretation() {
         )}
         {rfeRows.length > 0 && (
           <div className="mt-3 grid gap-3 md:grid-cols-4">
-            <MetricTile label="Retained Features" value={String(rfeSelectedCount)} tone="emerald" />
-            <MetricTile label="Removed Features" value={String(rfeRemovedCount)} tone="slate" />
+            <MetricTile label="Diagnostic Retained" value={String(rfeSelectedCount)} tone="emerald" />
+            <MetricTile label="Diagnostic Excluded" value={String(rfeRemovedCount)} tone="slate" />
             <MetricTile
               label={rfeIsRegression ? "Best RMSE" : "Best AUC"}
               value={rfeIsRegression ? formatNumber(bestRfeRmse) : formatNumber(bestRfeAuc)}
               tone="indigo"
             />
             <MetricTile
-              label="Recommendation"
+              label="Analysis Result"
               value={recommendedCount ? `${recommendedCount} kept` : "Review curve"}
               tone="amber"
             />
@@ -924,12 +1216,69 @@ export default function Step09_Interpretation() {
         <RfeTable rows={rfeRows} selectedCount={rfeKeep} />
       </section>
 
+      <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4" data-testid="exact-candidate-promotion">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div className="max-w-3xl">
+            <h2 className="text-sm font-semibold text-emerald-950">Final Model Promotion</h2>
+            <p className="mt-1 text-xs leading-5 text-emerald-900">
+              Save the exact frozen training candidate and its immutable lineage. RFE results above are analysis-only and do not change the fitted artifact, feature contract, or candidate identity being promoted.
+            </p>
+            {selectedCandidate ? (
+              <p className="mt-2 break-all font-mono text-[11px] text-emerald-800">
+                Candidate {selectedCandidate.candidate_id} · Training run {selectedCandidate.training_run_id}
+                {evaluationPackageId ? ` · Evaluation package ${evaluationPackageId}` : " · Evaluation package required"}
+                {selectionDecision ? ` · Candidate decision ${selectionDecision.decision_id}` : " · Locked decision required"}
+              </p>
+            ) : null}
+          </div>
+          <button
+            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition active:scale-95 active:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-emerald-300 disabled:active:scale-100"
+            disabled={!selectedCandidate || !evaluationPackageId || !promotionReadiness.ready || savingFinalModel || Boolean(artifactContextError)}
+            onClick={saveExactCandidateAsFinal}
+            title={promotionReadiness.ready ? "Promote the exact locked candidate with verified selection and holdout-isolation evidence." : promotionReadiness.reason}
+          >
+            {savingFinalModel ? "Saving..." : "Save as Final Model"}
+          </button>
+        </div>
+        {!evaluationPackageId && selectedCandidate ? (
+          <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
+            A completed backend-issued evaluation package is required. Return to Evaluation, review this exact candidate, and then reopen Interpretation.
+          </div>
+        ) : null}
+        {evaluationPackageId && !promotionReadiness.ready ? (
+          <div className="mt-3 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-xs leading-5 text-rose-900">
+            {promotionReadiness.reason}
+          </div>
+        ) : null}
+        {finalModelMessage && (
+          <div className={`mt-3 rounded-md border px-3 py-2 text-sm ${
+            finalModelStatus === "error"
+              ? "border-rose-200 bg-rose-50 text-rose-900"
+              : "border-emerald-200 bg-white text-emerald-900"
+          }`}>
+            {finalModelMessage}
+          </div>
+        )}
+        {finalModelStatus === "success" && finalPromotion ? (
+          <div className="mt-3 grid gap-2 rounded-md border border-emerald-200 bg-white p-3 text-xs text-emerald-950 sm:grid-cols-2 lg:grid-cols-4" data-testid="durable-final-model-contract">
+            <div><span className="font-semibold">Model version</span><div className="mt-1 break-all">{finalPromotion.modelVersionId}</div></div>
+            <div><span className="font-semibold">Artifact verification</span><div className="mt-1 capitalize">{finalPromotion.artifactVerificationStatus}</div></div>
+            <div><span className="font-semibold">Training dataset version</span><div className="mt-1 break-all">{finalPromotion.trainingDatasetVersionId}</div></div>
+            <div><span className="font-semibold">Promotion</span><div className="mt-1 capitalize">{finalPromotion.promotionStatus} · {finalPromotion.designation}</div></div>
+            <div><span className="font-semibold">Candidate decision</span><div className="mt-1 break-all">{finalPromotion.candidateDecisionId}</div></div>
+            <div><span className="font-semibold">Holdout isolation</span><div className="mt-1 capitalize">{finalPromotion.holdoutIsolationStatus}</div></div>
+            <div><span className="font-semibold">Evaluation package integrity</span><div className="mt-1 capitalize">{finalPromotion.evaluationPackageIntegrityStatus}</div></div>
+            <div><span className="font-semibold">Final holdout</span><div className="mt-1 capitalize">{finalPromotion.finalHoldoutStatus} · reporting only</div></div>
+          </div>
+        ) : null}
+      </section>
+
       <section className="rounded-2xl border border-gray-200 bg-white p-4">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <h2 className="text-sm font-semibold">Production Export</h2>
             <p className="mt-1 text-xs text-gray-500">
-              Save the RFE-selected final model first, then export a governed deployment manifest and metadata.
+              Promote and verify the exact frozen candidate first, then export its governed deployment manifest and metadata.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -954,13 +1303,13 @@ export default function Step09_Interpretation() {
       {!selectedModelIsRegression && <section className="rounded-2xl border border-gray-200 bg-white p-4">
         <h2 className="text-sm font-semibold">Final Model Sensitivity Analysis</h2>
         <p className="mt-1 text-xs text-gray-500">
-          Runs after Save as Final Model and ranks prediction shifts only across the selected RFE variables.
+          Runs after Save as Final Model and ranks prediction shifts for the exact promoted candidate feature contract.
         </p>
         {finalDiagnosticsReady ? (
           <SensitivitySummaryTable rows={finalSensitivityRows} />
         ) : (
           <div className="mt-3 rounded-xl bg-slate-50 p-4 text-sm text-gray-500">
-            Save a final model from the RFE section to generate final-variable sensitivity.
+            Save the exact frozen candidate as final to generate registered-model sensitivity.
           </div>
         )}
       </section>}
@@ -968,13 +1317,13 @@ export default function Step09_Interpretation() {
       {!selectedModelIsRegression && <section className="rounded-2xl border border-gray-200 bg-white p-4">
         <h2 className="text-sm font-semibold">Variance Inflation Factor</h2>
         <p className="mt-1 text-xs text-gray-500">
-          Runs after Save as Final Model and checks multicollinearity only among final RFE variables.
+          Runs after Save as Final Model and checks multicollinearity across the exact promoted candidate feature contract.
         </p>
         {finalDiagnosticsReady ? (
           <VifTable rows={vifRows} />
         ) : (
           <div className="mt-3 rounded-xl bg-slate-50 p-4 text-sm text-gray-500">
-            Save a final model from the RFE section to generate VIF diagnostics.
+            Save the exact frozen candidate as final to generate VIF diagnostics.
           </div>
         )}
       </section>}

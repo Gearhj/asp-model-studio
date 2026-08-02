@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import sqlite3
 import uuid
@@ -14,7 +15,11 @@ from ..security.security_store import (
     require_user,
 )
 from ..core.session_checkpoint import discard_modeling_scopes, flush_checkpoint
-from ..datasets.dataset_registry import unlink_all_project_datasets
+from ..datasets.dataset_registry import (
+    load_registry,
+    unlink_all_project_datasets,
+    user_can_access,
+)
 from ..evidence.evidence_identity import (
     assert_evidence_lineage_immutable,
     authorize_and_normalize_evidence,
@@ -29,6 +34,7 @@ from .service import PersistenceService, get_persistence_service
 
 
 router = APIRouter()
+LOGGER = logging.getLogger("atlas.persistence_router")
 
 
 def _pick(payload: Dict[str, Any], *keys: str, default: Any = None) -> Any:
@@ -65,6 +71,147 @@ def _execute(operation: Callable[[], Any]) -> Any:
 
 def _service() -> PersistenceService:
     return get_persistence_service()
+
+
+def _accessible_dataset_ids(user: Dict[str, Any]) -> set[str]:
+    """Return only Dataset Library assets visible to this authenticated caller."""
+
+    authenticated_user_id = str((user or {}).get("userId") or "").strip()
+    if not authenticated_user_id:
+        return set()
+    return {
+        str(dataset.get("datasetId") or "")
+        for dataset in (load_registry().get("datasets") or [])
+        if isinstance(dataset, dict) and user_can_access(dataset, user=user)
+    }
+
+
+def _project_with_durable_dataset_state(
+    record: Dict[str, Any],
+    user: Dict[str, Any],
+) -> Dict[str, Any]:
+    project = _api_record(record) or {}
+    state = _service().project_dataset_activations.get_project_state(
+        str(record.get("project_id") or "")
+    )
+    # Project access and Dataset Library access are independent grants.  A
+    # collaborator may be allowed to open a project without being allowed to
+    # discover the identifiers of a dataset linked to it.  Resolve the
+    # authenticated caller's Dataset Library ACL explicitly and fail closed
+    # when the registry record is absent; durable link state never grants
+    # dataset access by itself.
+    accessible_dataset_ids = _accessible_dataset_ids(user)
+    visible_links = [
+        link
+        for link in (state.get("links") or [])
+        if str(link.get("dataset_id") or "") in accessible_dataset_ids
+    ]
+    active_selection = state.get("active_selection")
+    if (
+        not isinstance(active_selection, dict)
+        or str(active_selection.get("dataset_id") or "")
+        not in accessible_dataset_ids
+    ):
+        active_selection = None
+    project["links"] = [_api_record(link) or {} for link in visible_links]
+    project["activeSelection"] = _api_record(active_selection)
+    return project
+
+
+def _workflow_state_for_dataset_acl(
+    record: Dict[str, Any],
+    user: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Fail closed without leaking an inaccessible active dataset identity.
+
+    Project permission and Dataset Library permission are independent.  The
+    workflow endpoint therefore cannot return the exact dataset/version,
+    activation revision, or lineage artifact identifiers merely because a
+    caller may view the surrounding project.  Historical workflow progress is
+    retained, while the effective view is redacted and blocked until the
+    caller also has Dataset Library access.
+    """
+
+    result = dict(record)
+    workflow_status = dict(record.get("workflow_status_json") or {})
+    durable_state = _service().project_dataset_activations.get_project_state(
+        str(record.get("project_id") or "")
+    )
+    active_selection = durable_state.get("active_selection")
+    active_dataset_id = (
+        str(active_selection.get("dataset_id") or "").strip()
+        if isinstance(active_selection, dict)
+        else ""
+    )
+    workflow_identity = workflow_status.get("datasetIdentity")
+    workflow_dataset_id = (
+        str(
+            workflow_identity.get("dataset_id")
+            or workflow_identity.get("datasetId")
+            or ""
+        ).strip()
+        if isinstance(workflow_identity, dict)
+        else ""
+    )
+    referenced_dataset_ids = {
+        dataset_id
+        for dataset_id in (active_dataset_id, workflow_dataset_id)
+        if dataset_id
+    }
+    if not referenced_dataset_ids:
+        return result
+    if referenced_dataset_ids.issubset(_accessible_dataset_ids(user)):
+        return result
+
+    historical = [
+        str(step)
+        for step in (record.get("completed_steps_json") or [])
+        if str(step)
+    ]
+    identity_independent = [step for step in historical if step == "step00"]
+    redacted_status = {
+        key: workflow_status[key]
+        for key in ("projectType", "workflowId")
+        if key in workflow_status
+    }
+    redacted_status.update(
+        {
+            "datasetIdentity": None,
+            "hasDataset": False,
+            "historicalCompletedSteps": historical,
+            "effectiveCompletedSteps": identity_independent,
+            "effectiveCurrentStepId": "step01",
+            "effectiveSteps": {
+                step: {
+                    "effectiveStatus": (
+                        "complete" if step in identity_independent else "pending"
+                    ),
+                    "lineageStatus": (
+                        "current" if step in identity_independent else "unauthorized"
+                    ),
+                    "reason": (
+                        "Identity-independent project context remains current."
+                        if step in identity_independent
+                        else "Dataset Library access is required to resolve this workflow step."
+                    ),
+                    "artifactIds": [],
+                }
+                for step in historical
+            },
+            "steps": {step: "complete" for step in historical},
+            "identityValidity": {
+                "status": "unauthorized",
+                "reason": (
+                    "Dataset Library access is required to resolve the active "
+                    "modeling identity."
+                ),
+                "historicalCompletionPreserved": True,
+            },
+        }
+    )
+    result["workflow_status_json"] = redacted_status
+    result["step_evidence_status_json"] = {}
+    return result
 
 
 def _sharing_service() -> SharingService:
@@ -147,7 +294,10 @@ def list_projects(user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any
     items = _execute(lambda: _service().projects.list())
     sharing = _sharing_service()
     visible = [item for item in items if sharing.check_permission(user, "project", item["project_id"], "view").get("allowed")]
-    return {"ok": True, "projects": [_api_record(item) for item in visible], "count": len(visible)}
+    projects = _execute(
+        lambda: [_project_with_durable_dataset_state(item, user) for item in visible]
+    )
+    return {"ok": True, "projects": projects, "count": len(visible)}
 
 
 @router.post("/projects")
@@ -175,7 +325,8 @@ def create_project(payload: Dict[str, Any], user: Dict[str, Any] = Depends(requi
             "success",
             metadata={"projectId": project_id, "templateId": record.get("template_id"), "summary": f"Selected template {record.get('template_id')}."},
         )
-    return {"ok": True, "project": _api_record(record)}
+    project = _execute(lambda: _project_with_durable_dataset_state(record, user))
+    return {"ok": True, "project": project}
 
 
 @router.get("/projects/{project_id}")
@@ -189,7 +340,8 @@ def get_project(project_id: str, user: Dict[str, Any] = Depends(require_user)) -
         user_id=user.get("userId"),
         metadata={"projectId": project_id, "summary": f"Opened project {record.get('project_name')}."},
     )
-    return {"ok": True, "project": _api_record(record)}
+    project = _execute(lambda: _project_with_durable_dataset_state(record, user))
+    return {"ok": True, "project": project}
 
 
 @router.put("/projects/{project_id}")
@@ -227,12 +379,19 @@ def update_project(project_id: str, payload: Dict[str, Any], user: Dict[str, Any
         "success",
         metadata={"projectId": project_id, "summary": f"Saved project {record.get('project_name')}."},
     )
-    return {"ok": True, "project": _api_record(record)}
+    project = _execute(lambda: _project_with_durable_dataset_state(record, user))
+    return {"ok": True, "project": project}
 
 
 @router.delete("/projects/{project_id}")
 def delete_project(project_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     _authorize_project(project_id, user, "admin")
+    actor_user_id = str(user.get("userId") or "").strip()
+    if not actor_user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="An authenticated user is required to delete a project.",
+        )
 
     # Persistent Scoring Runs, Phase I: archive this project's scoring runs
     # BEFORE the project row is deleted -- scoring_runs.project_id uses
@@ -244,6 +403,18 @@ def delete_project(project_id: str, user: Dict[str, Any] = Depends(require_user)
     # scoring runs -- model_versions.project_id also uses ON DELETE SET NULL.
     _execute(lambda: archive_registry_for_project(project_id))
 
+    # Preserve an immutable exact-dataset deactivation event while the project
+    # and its FK-backed link/selection records still exist.  Deleting the
+    # project then cascades only those current authorization/selection rows;
+    # activation events intentionally survive as audit evidence.
+    _execute(
+        lambda: _service().project_dataset_activations.deactivate_project(
+            project_id=project_id,
+            actor_user_id=actor_user_id,
+            reason="The project was deleted.",
+        )
+    )
+
     def operation() -> bool:
         service = _service()
         service.sync_user(user)
@@ -252,18 +423,26 @@ def delete_project(project_id: str, user: Dict[str, Any] = Depends(require_user)
     deleted = _execute(operation)
     if not deleted:
         raise HTTPException(status_code=404, detail="ATLAS project was not found in the persistence database.")
+    # Dataset lifecycle audit fix: project deletion never removed this project's
+    # Dataset Library links, leaving project_links.json entries (and each asset's
+    # linkedProjects list) pointing at a project_id that no longer exists forever.
+    # The Library asset itself is NEVER deleted here -- only this project's link to
+    # it -- see docs/architecture/DATASET_LIFECYCLE_ADR.md's deletion rules table.
+    try:
+        unlink_all_project_datasets(project_id)
+    except Exception as exc:  # pragma: no cover - compatibility projection only
+        LOGGER.warning(
+            "Project %s was durably deleted but legacy dataset-link projection "
+            "cleanup failed: %s",
+            project_id,
+            exc,
+        )
     # Stage 6.1 lifecycle repair: drop every resident in-memory modeling scope
     # for this project (all owners, including collaborator-private scopes) and
     # rewrite the checkpoint immediately, so the deleted project can neither
     # keep inflating future saves nor be resurrected at the next restart.
     discard_modeling_scopes(project_id=project_id)
     flush_checkpoint()
-    # Dataset lifecycle audit fix: project deletion never removed this project's
-    # Dataset Library links, leaving project_links.json entries (and each asset's
-    # linkedProjects list) pointing at a project_id that no longer exists forever.
-    # The Library asset itself is NEVER deleted here -- only this project's link to
-    # it -- see docs/architecture/DATASET_LIFECYCLE_ADR.md's deletion rules table.
-    unlink_all_project_datasets(project_id)
     # Enterprise Analytical Data Plane: drop any cached analytical results and
     # release concurrency counters scoped to this project (Phase J requirement 10 /
     # Phase L requirement 12) so a deleted project's cached aggregates can never be
@@ -290,7 +469,8 @@ def get_workflow_state(project_id: str, user: Dict[str, Any] = Depends(require_u
     record = _execute(lambda: _service().projects.get_workflow_state(project_id))
     if record is None:
         raise HTTPException(status_code=404, detail="Workflow state has not been saved for this project.")
-    return {"ok": True, "workflowState": _api_record(record)}
+    visible_record = _execute(lambda: _workflow_state_for_dataset_acl(record, user))
+    return {"ok": True, "workflowState": _api_record(visible_record)}
 
 
 @router.put("/projects/{project_id}/workflow-state")
@@ -303,11 +483,18 @@ def save_workflow_state(project_id: str, payload: Dict[str, Any], user: Dict[str
         service.ensure_project(project_id, user)
         previous = service.projects.get_workflow_state(project_id) or {}
         previous_completed.update(previous.get("completed_steps_json") or [])
-        return service.projects.upsert_workflow_state(
+        return service.projects.upsert_workflow_history(
             project_id,
             {
                 "current_step_id": _pick(payload, "currentStepId", "current_step_id"),
-                "completed_steps_json": _pick(payload, "completedSteps", "completed_steps_json", default=[]),
+                "completed_steps_json": _pick(
+                    payload,
+                    "historicalCompletedSteps",
+                    "historical_completed_steps",
+                    "completedSteps",
+                    "completed_steps_json",
+                    default=[],
+                ),
                 "workflow_status_json": _pick(payload, "workflowStatus", "workflow_status_json", default={}),
                 "step_evidence_status_json": _pick(payload, "stepEvidenceStatus", "step_evidence_status_json", default={}),
                 "updated_at": _pick(payload, "updatedAt", "updated_at", default=now_iso()),
@@ -325,9 +512,9 @@ def save_workflow_state(project_id: str, payload: Dict[str, Any], user: Dict[str
             "success",
             metadata={"projectId": project_id, "completedSteps": new_completed, "summary": f"Completed workflow step(s): {', '.join(new_completed)}."},
         )
-    workflow_status = record.get("workflow_status_json") or {}
-    if workflow_status.get("status") == "complete" and previous_completed != set(record.get("completed_steps_json") or []):
-        audit_event("project.completed", "project", project_id, "success", metadata={"projectId": project_id, "summary": "Completed the project workflow."})
+    # Browser workflow PUT records historical observations only.  It must
+    # never emit the project-completed audit event: that event belongs to the
+    # backend path that proves effective completion from canonical artifacts.
     return {"ok": True, "workflowState": _api_record(record)}
 
 

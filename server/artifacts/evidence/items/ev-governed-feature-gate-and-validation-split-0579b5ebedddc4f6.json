@@ -1,0 +1,158 @@
+{
+  "projectId": "atlas-mrzpau4t",
+  "projectName": "Credit Card Transaction Fraud Model - TEST",
+  "evidenceType": "feature_engineering",
+  "title": "Governed Feature Gate and Validation Split",
+  "summary": "27 predictors were approved for split split-fde44f402fb8a6a412f5. Balancing was applied to training rows only.",
+  "sourcePage": "Balance & Split",
+  "sourceRoute": "/step06",
+  "datasetIds": [
+    "20260728162944-f471e706"
+  ],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Feature Engineering",
+    "Development Test and OOT Data",
+    "Candidate Models"
+  ],
+  "tags": [
+    "predictive_modeling",
+    "feature_gate",
+    "validation_split"
+  ],
+  "status": "ready",
+  "importance": "high",
+  "lineage": {
+    "datasetVersion": "20260728162944-f471e706",
+    "manifestVersion": "fm-215afe961f9be7d0",
+    "splitId": "split-fde44f402fb8a6a412f5"
+  },
+  "payload": {
+    "ok": true,
+    "status": "current",
+    "ready": true,
+    "readiness_reason": "Ready for next step. Validation split is current.",
+    "has_split": true,
+    "split_id": "split-fde44f402fb8a6a412f5",
+    "config_hash": "fde44f402fb8a6a412f5",
+    "selected_feature_hash": "0180951535091969b514",
+    "split_config_hash": "3be2903445ce74aff19f",
+    "balancing_config_hash": "aa6feced80dae8229624",
+    "created_at": "2026-07-28T17:12:06.535270+00:00",
+    "dataset_version": "20260728162944-f471e706",
+    "target": "bad_flag",
+    "event_value": 1,
+    "feature_manifest_version": "fm-215afe961f9be7d0",
+    "selected_features": [
+      "ExternalRiskEstimate",
+      "MSinceOldestTradeOpen",
+      "MSinceMostRecentTradeOpen",
+      "AverageMInFile",
+      "NumSatisfactoryTrades",
+      "NumTrades60Ever2DerogPubRec",
+      "NumTrades90Ever2DerogPubRec",
+      "PercentTradesNeverDelq",
+      "MSinceMostRecentDelq",
+      "MaxDelq2PublicRecLast12M",
+      "MaxDelqEver",
+      "NumTotalTrades",
+      "NumTradesOpeninLast12M",
+      "PercentInstallTrades",
+      "MSinceMostRecentInqexcl7days",
+      "NumInqLast6M",
+      "NumInqLast6Mexcl7days",
+      "NetFractionRevolvingBurden",
+      "NetFractionInstallBurden",
+      "NumRevolvingTradesWBalance",
+      "NumBank2NatlTradesWHighUtilization",
+      "PercentTradesWBalance",
+      "risk_estimate_x_never_delinquent",
+      "external_risk_band",
+      "high_revolving_burden_flag",
+      "average_months_in_file_squared",
+      "non_satisfactory_trade_count"
+    ],
+    "feature_count": 27,
+    "config": {
+      "split_strategy": "holdout",
+      "test_size": 0.2,
+      "random_seed": 42,
+      "stratify": true,
+      "balance_method": "none",
+      "minority_share": 0.5,
+      "problem_type": "classification",
+      "event_value": 1,
+      "target": "bad_flag"
+    },
+    "distributions": {
+      "full_dataset": {
+        "rows": 6275,
+        "valid_rows": 6275,
+        "missing_rows": 0,
+        "classes": {
+          "0": 3000,
+          "1": 3275
+        },
+        "event_value": 1,
+        "events": 3275,
+        "non_events": 3000,
+        "event_rate": 0.5219123505976095
+      },
+      "train_before_balancing": {
+        "rows": 5020,
+        "valid_rows": 5020,
+        "missing_rows": 0,
+        "classes": {
+          "0": 2400,
+          "1": 2620
+        },
+        "event_value": 1,
+        "events": 2620,
+        "non_events": 2400,
+        "event_rate": 0.5219123505976095
+      },
+      "train_after_balancing": {
+        "rows": 5020,
+        "valid_rows": 5020,
+        "missing_rows": 0,
+        "classes": {
+          "0": 2400,
+          "1": 2620
+        },
+        "event_value": 1,
+        "events": 2620,
+        "non_events": 2400,
+        "event_rate": 0.5219123505976095
+      },
+      "holdout_untouched": {
+        "rows": 1255,
+        "valid_rows": 1255,
+        "missing_rows": 0,
+        "classes": {
+          "0": 600,
+          "1": 655
+        },
+        "event_value": 1,
+        "events": 655,
+        "non_events": 600,
+        "event_rate": 0.5219123505976095
+      }
+    },
+    "n_train": 5020,
+    "n_test": 1255,
+    "original_train_rows": 5020,
+    "duration_ms": 41,
+    "execution_ms": 41
+  },
+  "evidenceId": "ev-governed-feature-gate-and-validation-split-0579b5ebedddc4f6",
+  "governance": {},
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-28T17:21:04.805910+00:00",
+  "capturedAt": "2026-07-28T17:21:04.805910+00:00",
+  "updatedAt": "2026-07-28T17:21:04.805910+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 86
+}

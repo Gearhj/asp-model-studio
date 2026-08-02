@@ -34,6 +34,7 @@ after(async () => {
 });
 const identity = await transpileSource("src/lib/datasetIdentity.ts", "datasetIdentity.mjs");
 const access = await transpileSource("src/lib/enterpriseDataAccess.ts", "enterpriseDataAccess.mjs");
+const datasetLibrary = await transpileSource("src/lib/datasetLibrary.ts", "datasetLibrary.mjs");
 
 class MemoryStorage {
   #values = new Map();
@@ -309,6 +310,81 @@ test("reopen resolves only the exact persisted authorized version", () => {
     () => identity.resolveExactReopenDatasetIdentity(REGISTERED, candidates.slice(0, 2)),
     (error) => error instanceof identity.DatasetIdentityError && error.code === "dataset_reopen_unresolved",
   );
+});
+
+test("activation succeeds only with one committed link and exact selection revision", () => {
+  const response = {
+    ok: true,
+    ...REGISTERED,
+    row_count: 6275,
+    column_count: 26,
+    headers: [],
+    selected_columns: [],
+    activation_revision: 7,
+    link: {
+      project_id: REGISTERED.project_id,
+      dataset_id: REGISTERED.dataset_id,
+      link_status: "active",
+    },
+    active_selection: {
+      ...REGISTERED,
+      activation_status: "active",
+      activation_revision: 7,
+    },
+  };
+  const result = datasetLibrary.requireDurableDatasetActivation(REGISTERED, response);
+  assert.deepEqual(result.canonical, { ...REGISTERED, activation_revision: 7 });
+  assert.equal(result.activationRevision, "7");
+
+  assert.throws(
+    () => datasetLibrary.requireDurableDatasetActivation(REGISTERED, {
+      ...response,
+      link: { ...response.link, link_status: "pending" },
+    }),
+    /active durable project-dataset link/,
+  );
+  assert.throws(
+    () => datasetLibrary.requireDurableDatasetActivation(REGISTERED, {
+      ...response,
+      active_selection: { ...response.active_selection, activation_revision: 8 },
+    }),
+    /contradictory durable selection revisions/,
+  );
+  assert.throws(
+    () => datasetLibrary.requireDurableDatasetActivation(REGISTERED, {
+      ...response,
+      active_selection: { ...response.active_selection, dataset_version_id: "version-other" },
+    }),
+    /different project, dataset, or immutable version/,
+  );
+  assert.throws(
+    () => datasetLibrary.requireDurableDatasetActivation(REGISTERED, {
+      ...response,
+      activation_revision: 7.5,
+      active_selection: { ...response.active_selection, activation_revision: 7.5 },
+    }),
+    /durable activation revision/,
+  );
+});
+
+test("canonical identity preserves only a positive durable activation revision", () => {
+  assert.deepEqual(
+    identity.requireCanonicalDatasetIdentity({
+      ...REGISTERED,
+      activation_revision: "9",
+    }),
+    { ...REGISTERED, activation_revision: 9 },
+  );
+  for (const invalid of [0, -1, 1.5, "latest", ""] ) {
+    if (invalid === "") continue;
+    assert.throws(
+      () => identity.requireCanonicalDatasetIdentity({
+        ...REGISTERED,
+        activation_revision: invalid,
+      }),
+      /invalid activation_revision/,
+    );
+  }
 });
 
 test("frontend contracts expose canonical fields and contain no ordering-based reopen fallback", async () => {

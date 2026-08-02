@@ -15,9 +15,19 @@ from ..core.json_safety import json_safe
 from ..core.result_store import RESULTS
 from ..core.session_checkpoint import schedule_checkpoint_save
 from ..datasets.dataset_identity import validate_checkpoint_identity
-from .trainer import MODEL_CATALOG, train_models
+from ..datasets.dataset_identity import assert_expected_active_identity
+from ..persistence.service import get_persistence_service
+from .candidate_contract import (
+    CandidateContractError,
+    assert_candidate_contract_intact,
+    assert_training_contract_intact,
+    build_candidate_contract,
+    canonical_contract_hash,
+    complete_training_contract,
+)
+from .trainer import MODEL_CATALOG, selection_sort_key, train_models
 from .trainer_service import TRAINER
-from .training_job_types import TrainingJobRequest
+from .training_job_types import TrainingJobRequest, TrainingPortfolioRequest
 from .training_preflight_service import training_preflight
 
 
@@ -38,7 +48,7 @@ CANCELLED_MESSAGE = "Training stopped by user. Completed model results were pres
 # request thread (where authorize_modeling_scope's ContextVar mutation IS
 # visible), reading DATASTORE and capturing a RESULTS ResultStore INSTANCE
 # (`job["_result_store"] = RESULTS.current()`) before the background thread
-# ever starts; the background thread receives X_train/X_test/y_train/y_test
+# ever starts; the background thread receives only X_train/y_train
 # as plain function arguments and writes results through that already-
 # captured store INSTANCE, never re-deriving scope from ambient state. This
 # stage adds `owner_user_id`/`project_id` as the SAME kind of explicit,
@@ -71,7 +81,7 @@ def _friendly_error(model: str, error: Any) -> str:
     if "nan" in lowered or "missing" in lowered:
         return f"{label} failed because unresolved missing values reached an unsupported estimator stage."
     if "class" in lowered and ("one" in lowered or "2" in lowered or "two" in lowered):
-        return f"{label} failed because train or holdout does not contain the required target classes."
+        return f"{label} failed because a governed training fold does not contain the required target classes."
     if "memory" in lowered:
         return f"{label} exceeded the available local memory limit. Reduce features, data, or parallel workers."
     if "could not be initialized" in lowered or "unavailable" in lowered or "not installed" in lowered:
@@ -100,10 +110,294 @@ class TrainingJobService:
         self._jobs: dict[str, dict[str, Any]] = {}
         self._cancel_events: dict[str, Event] = {}
         self._project_job_ids: dict[ScopeKey, list[str]] = {}
+        self._idempotency_job_ids: dict[tuple[str, str, str], str] = {}
         self._lock = Lock()
 
     def preflight(self, request: TrainingJobRequest) -> dict[str, Any]:
-        return training_preflight(request)
+        result = training_preflight(request)
+        scoped_store = DATASTORE.current()
+        with scoped_store.state_lock:
+            previous = (
+                scoped_store.meta.get("training_preflight")
+                if isinstance(
+                    scoped_store.meta.get("training_preflight"), dict
+                )
+                else {}
+            )
+            if previous and str(previous.get("state_hash") or "") != str(
+                result.get("state_hash") or ""
+            ):
+                core_keys = (
+                    "project_id",
+                    "dataset_id",
+                    "dataset_version_id",
+                    "feature_manifest_id",
+                    "feature_manifest_version",
+                    "validation_design_id",
+                    "validation_design_version",
+                    "split_id",
+                    "canonical_data_revision",
+                )
+                complete_invalidation = any(
+                    str(previous.get(key) or "")
+                    != str(result.get(key) or "")
+                    for key in core_keys
+                )
+                result["invalidated_preflight_id"] = previous.get(
+                    "preflight_id"
+                )
+                result["invalidation_scope"] = (
+                    "complete_preflight"
+                    if complete_invalidation
+                    else "algorithm_dependent_checks"
+                )
+                result["invalidation_reason"] = (
+                    "Canonical dataset, feature-manifest, or Validation Design state changed."
+                    if complete_invalidation
+                    else "The selected algorithm portfolio or algorithm-dependent runtime policy changed."
+                )
+            else:
+                result["invalidated_preflight_id"] = None
+                result["invalidation_scope"] = "none"
+                result["invalidation_reason"] = None
+            scoped_store.meta["training_preflight"] = deepcopy(result)
+        schedule_checkpoint_save()
+        return result
+
+    @staticmethod
+    def _portfolio_state_payload(
+        request: TrainingPortfolioRequest,
+        identity: dict[str, Any],
+    ) -> dict[str, Any]:
+        algorithms = list(
+            dict.fromkeys(str(key) for key in request.selected_algorithm_ids)
+        )
+        unknown = [key for key in algorithms if key not in MODEL_CATALOG]
+        if unknown:
+            raise ValueError(
+                "Unknown model algorithms cannot be persisted: "
+                + ", ".join(unknown)
+            )
+        return {
+            "project_id": str(identity["project_id"]),
+            "dataset_id": str(identity["dataset_id"]),
+            "dataset_version_id": str(identity["dataset_version_id"]),
+            "selected_algorithm_ids": algorithms,
+            "candidate_strategy": str(request.candidate_strategy),
+            "problem_type": str(request.problem_type),
+            "max_parallel": int(request.max_parallel),
+            "calibrate": bool(request.calibrate),
+            "grid_search": bool(request.grid_search),
+            "grid_search_level": str(request.grid_search_level),
+            "primary_metric": str(request.primary_metric),
+        }
+
+    def get_portfolio(
+        self,
+        *,
+        project_id: str,
+        dataset_id: str,
+        dataset_version_id: str,
+    ) -> dict[str, Any]:
+        identity = assert_expected_active_identity(
+            project_id,
+            expected_dataset_id=dataset_id,
+            expected_dataset_version_id=dataset_version_id,
+            require_expected=True,
+        )
+        scoped_store = DATASTORE.current()
+        with scoped_store.state_lock:
+            record = (
+                deepcopy(scoped_store.meta.get("training_model_portfolio"))
+                if isinstance(
+                    scoped_store.meta.get("training_model_portfolio"), dict
+                )
+                else None
+            )
+        if record is not None and any(
+            str(record.get(key) or "") != str(identity.get(key) or "")
+            for key in ("project_id", "dataset_id", "dataset_version_id")
+        ):
+            raise ValueError(
+                "The saved model portfolio belongs to a different canonical dataset identity."
+            )
+        if record is None:
+            payload = {
+                **identity,
+                "selected_algorithm_ids": [],
+                "candidate_strategy": "custom_portfolio",
+                "selection_revision": 0,
+                "selection_state_hash": canonical_contract_hash(
+                    {
+                        **identity,
+                        "selected_algorithm_ids": [],
+                        "candidate_strategy": "custom_portfolio",
+                    }
+                ),
+                "persisted_at": None,
+            }
+            return payload
+        return record
+
+    def save_portfolio(
+        self,
+        request: TrainingPortfolioRequest,
+        *,
+        persisted_by: str,
+    ) -> dict[str, Any]:
+        identity = assert_expected_active_identity(
+            request.project_id,
+            expected_dataset_id=request.dataset_id,
+            expected_dataset_version_id=request.dataset_version_id,
+            require_expected=True,
+        )
+        scoped_store = DATASTORE.current()
+        with scoped_store.state_lock:
+            result = self._save_portfolio_locked(
+                scoped_store,
+                request,
+                identity=identity,
+                persisted_by=persisted_by,
+            )
+        schedule_checkpoint_save()
+        return result
+
+    def _save_portfolio_locked(
+        self,
+        scoped_store: Any,
+        request: TrainingPortfolioRequest,
+        *,
+        identity: dict[str, Any],
+        persisted_by: str,
+    ) -> dict[str, Any]:
+        """Persist after the caller has locked and revalidated the scope."""
+        state_payload = self._portfolio_state_payload(request, identity)
+        state_hash = canonical_contract_hash(state_payload)
+        current = (
+            scoped_store.meta.get("training_model_portfolio")
+            if isinstance(
+                scoped_store.meta.get("training_model_portfolio"), dict
+            )
+            else {}
+        )
+        current_revision = int(current.get("selection_revision") or 0)
+        if (
+            request.expected_selection_revision
+            and request.expected_selection_revision != current_revision
+        ):
+            raise ValueError(
+                "The model portfolio changed before this save completed. Refresh the authoritative selection and retry."
+            )
+        if str(current.get("selection_state_hash") or "") == state_hash:
+            return deepcopy(current)
+        record = {
+            **state_payload,
+            "selection_revision": current_revision + 1,
+            "selection_state_hash": state_hash,
+            "persisted_at": _now(),
+            "persisted_by": str(persisted_by),
+            "client_portfolio_revision": int(
+                request.client_portfolio_revision
+                or request.portfolio_revision
+            ),
+        }
+        scoped_store.meta["training_model_portfolio"] = record
+        latest_preflight = scoped_store.meta.get("training_preflight")
+        if isinstance(latest_preflight, dict) and list(
+            latest_preflight.get("selected_algorithm_ids") or []
+        ) != list(record["selected_algorithm_ids"]):
+            latest_preflight.update(
+                {
+                    "stale": True,
+                    "stale_reason": "The selected algorithm portfolio changed.",
+                    "invalidation_scope": "algorithm_dependent_checks",
+                }
+            )
+        return deepcopy(record)
+
+    def latest_preflight(
+        self,
+        *,
+        project_id: str,
+        dataset_id: str,
+        dataset_version_id: str,
+    ) -> dict[str, Any] | None:
+        identity = assert_expected_active_identity(
+            project_id,
+            expected_dataset_id=dataset_id,
+            expected_dataset_version_id=dataset_version_id,
+            require_expected=True,
+        )
+        scoped_store = DATASTORE.current()
+        with scoped_store.state_lock:
+            result = (
+                deepcopy(scoped_store.meta.get("training_preflight"))
+                if isinstance(scoped_store.meta.get("training_preflight"), dict)
+                else None
+            )
+        if result is not None and any(
+            str(result.get(key) or "") != str(identity.get(key) or "")
+            for key in ("project_id", "dataset_id", "dataset_version_id")
+        ):
+            raise ValueError(
+                "The stored preflight belongs to a different canonical dataset identity."
+            )
+        return result
+
+    @staticmethod
+    def _creation_response(
+        job: dict[str, Any],
+        *,
+        idempotent_replay: bool,
+    ) -> dict[str, Any]:
+        return {
+            "job_id": job["job_id"],
+            "training_job_id": job["job_id"],
+            "training_run_id": job["training_run_id"],
+            "status": job["overall_status"],
+            "overall_status": job["overall_status"],
+            "project_id": job["project_id"],
+            "dataset_id": job["dataset_id"],
+            "dataset_version_id": job["dataset_version_id"],
+            "dataset_version": job["dataset_version_id"],
+            "requested_models": list(job["requested_models"]),
+            "selected_algorithm_ids": list(job["requested_models"]),
+            "created_at": job["created_at"],
+            "max_parallel_honored": job["max_parallel_honored"],
+            "preflight": deepcopy(job["preflight"]),
+            "preflight_id": job["preflight"].get("preflight_id"),
+            "preflight_state_hash": job["preflight"].get("state_hash"),
+            "idempotent_replay": bool(idempotent_replay),
+            "creation_duration_ms": int(job.get("creation_duration_ms") or 0),
+        }
+
+    def _find_idempotent_job_locked(
+        self,
+        *,
+        owner_user_id: str,
+        project_id: str,
+        idempotency_token: str,
+        submission_hash: str,
+        explicit: bool,
+    ) -> dict[str, Any] | None:
+        key = (owner_user_id, project_id, idempotency_token)
+        job_id = self._idempotency_job_ids.get(key)
+        if not job_id:
+            return None
+        job = self._jobs.get(job_id)
+        if not job:
+            self._idempotency_job_ids.pop(key, None)
+            return None
+        if str(job.get("submission_hash") or "") != submission_hash:
+            raise ValueError(
+                "The idempotency key was already used for a different governed training submission."
+            )
+        if explicit or str(job.get("overall_status") or "") in ACTIVE_STATES:
+            return job
+        # Implicit hashes only coalesce concurrently-active jobs. An explicit
+        # new user action can intentionally rerun a completed portfolio.
+        self._idempotency_job_ids.pop(key, None)
+        return None
 
     def create(self, request: TrainingJobRequest, owner_user_id: str) -> dict[str, Any]:
         create_started = time.perf_counter()
@@ -114,6 +408,21 @@ class TrainingJobService:
         preflight = self.preflight(request)
         if not preflight["ready"]:
             raise ValueError("Training preflight blocked job creation: " + " | ".join(preflight["blocking_errors"]))
+        if (
+            request.expected_preflight_id
+            and request.expected_preflight_id != preflight.get("preflight_id")
+        ):
+            raise ValueError(
+                "The validated preflight is stale because the governed training state changed. Run validation again."
+            )
+        if (
+            request.expected_preflight_state_hash
+            and request.expected_preflight_state_hash
+            != preflight.get("state_hash")
+        ):
+            raise ValueError(
+                "The validated preflight state hash is stale. Run validation again."
+            )
         models = list(dict.fromkeys(request.models))
         if not models:
             raise ValueError("No supported models were selected for training.")
@@ -123,25 +432,66 @@ class TrainingJobService:
             )
             or request.k_folds
         )
-        tuning_candidates = (
-            {"quick": 4, "balanced": 8, "thorough": 12}.get(
-                str(request.grid_search_level).lower(), 4
-            )
-            if request.grid_search
-            else 1
-        )
-        estimated_fits = len(models) * max(1, inherited_folds) * tuning_candidates
-        if request.calibrate:
-            estimated_fits += len(models) * max(1, inherited_folds)
-        if estimated_fits >= 160 and not request.large_job_confirmed:
+        estimated_fits = int(preflight.get("estimated_fits") or 0)
+        if (
+            bool((preflight.get("large_run") or {}).get("required"))
+            and not request.large_job_confirmed
+        ):
             raise ValueError(
                 f"This plan is a large job ({estimated_fits} estimated fits). "
                 "Review the workload and explicitly confirm the run."
             )
-        if request.use_pca:
-            raise ValueError("PCA is not implemented by the current training pipeline and cannot be enabled.")
 
-        X_train, X_test, y_train, y_test, excluded = TRAINER._get_or_create_splits(
+        portfolio_request = TrainingPortfolioRequest(
+            project_id=request.project_id,
+            dataset_id=str(preflight["dataset_id"]),
+            dataset_version_id=str(preflight["dataset_version_id"]),
+            selected_algorithm_ids=models,
+            candidate_strategy=request.candidate_strategy,
+            problem_type=str(preflight["problem_type"]),
+            max_parallel=request.max_parallel,
+            calibrate=request.calibrate,
+            grid_search=request.grid_search,
+            grid_search_level=request.grid_search_level,
+            primary_metric=request.primary_metric,
+        )
+        preflight["portfolio_persistence_status"] = "pending_atomic_commit"
+
+        submission_hash = canonical_contract_hash(
+            {
+                "preflight_state_hash": preflight.get("state_hash"),
+                "selected_algorithm_ids": models,
+                "model_params": request.model_params,
+                "random_seed": request.random_seed,
+                "grid_search": request.grid_search,
+                "grid_search_level": request.grid_search_level,
+                "calibrate": request.calibrate,
+                "max_parallel": request.max_parallel,
+                "candidate_strategy": request.candidate_strategy,
+                "primary_metric": request.primary_metric,
+                "retry_parent_job_id": request.retry_parent_job_id,
+            }
+        )
+        explicit_idempotency = bool(request.idempotency_key.strip())
+        idempotency_token = (
+            request.idempotency_key.strip()
+            if explicit_idempotency
+            else f"submission:{submission_hash}"
+        )
+        with self._lock:
+            replay = self._find_idempotent_job_locked(
+                owner_user_id=owner_user_id,
+                project_id=request.project_id,
+                idempotency_token=idempotency_token,
+                submission_hash=submission_hash,
+                explicit=explicit_idempotency,
+            )
+            if replay is not None:
+                return self._creation_response(
+                    replay, idempotent_replay=True
+                )
+
+        X_train, y_train, excluded = TRAINER._get_training_partition(
             inherited_folds
         )
         trained_feature_names = [str(column) for column in X_train.columns]
@@ -153,6 +503,7 @@ class TrainingJobService:
             max(1, min(4, os.cpu_count() or 1)),
         )
         job_id = f"train-job-{uuid4().hex}"
+        training_run_id = f"train-run-{uuid4().hex}"
         created_at = _now()
         queued_status = {
             model: {
@@ -198,6 +549,13 @@ class TrainingJobService:
         ]
         job: dict[str, Any] = {
             "job_id": job_id,
+            "training_run_id": training_run_id,
+            "submission_hash": submission_hash,
+            "idempotency_key": (
+                request.idempotency_key.strip()
+                if explicit_idempotency
+                else None
+            ),
             "overall_status": "queued",
             "created_at": created_at,
             "started_at": None,
@@ -235,6 +593,20 @@ class TrainingJobService:
             "data_revision": preflight_data_revision,
             "feature_manifest_version": preflight["feature_manifest_version"],
             "split_id": preflight["split_id"],
+            "training_population_id": preflight["training_population_id"],
+            "selection_partition_id": preflight["selection_partition_id"],
+            "holdout_population_id": preflight["holdout_population_id"],
+            "final_holdout_partition_id": preflight[
+                "final_holdout_partition_id"
+            ],
+            "fold_definition_id": preflight["fold_definition_id"],
+            "final_holdout_status": preflight["final_holdout_status"],
+            "holdout_isolation_status": preflight[
+                "holdout_isolation_status"
+            ],
+            "selection_resampling_status": preflight[
+                "selection_resampling_status"
+            ],
             "validation_design_id": preflight.get("validation_design_id"),
             "validation_design_version": preflight.get(
                 "validation_design_version"
@@ -246,6 +618,7 @@ class TrainingJobService:
             "event_value": preflight["event_value"],
             "non_event_value": preflight["non_event_value"],
             "preflight": preflight,
+            "creation_duration_ms": 0,
             "summary": None,
             "contract": {
                 "project_id": request.project_id,
@@ -254,6 +627,7 @@ class TrainingJobService:
                 "dataset_version": preflight["dataset_version_id"],
                 "data_revision": preflight_data_revision,
                 "target": preflight["target"],
+                "problem_type": preflight["problem_type"],
                 "event_value": preflight["event_value"],
                 "non_event_value": preflight["non_event_value"],
                 "feature_manifest_version": preflight["feature_manifest_version"],
@@ -261,6 +635,26 @@ class TrainingJobService:
                 "selected_engineered_features": preflight["engineered_features"],
                 "preprocessing_pipeline": request.preprocessing_pipeline or manifest.get("pipeline_steps", []),
                 "split_id": preflight["split_id"],
+                "training_population_id": preflight[
+                    "training_population_id"
+                ],
+                "selection_partition_id": preflight[
+                    "selection_partition_id"
+                ],
+                "holdout_population_id": preflight[
+                    "holdout_population_id"
+                ],
+                "final_holdout_partition_id": preflight[
+                    "final_holdout_partition_id"
+                ],
+                "fold_definition_id": preflight["fold_definition_id"],
+                "final_holdout_status": preflight["final_holdout_status"],
+                "holdout_isolation_status": preflight[
+                    "holdout_isolation_status"
+                ],
+                "selection_resampling_status": preflight[
+                    "selection_resampling_status"
+                ],
                 "validation_design_id": preflight.get("validation_design_id"),
                 "validation_design_version": preflight.get(
                     "validation_design_version"
@@ -306,12 +700,42 @@ class TrainingJobService:
             "_dataset_store": scoped_store,
             "_artifacts": {},
             "_raw_results": {},
+            "_candidate_contracts": {},
             "_excluded_target_features": excluded,
             "_futures": {},
             "_cv_execution_splits": governed_cv_splits,
         }
+        job["contract"] = complete_training_contract(
+            job["contract"],
+            feature_manifest=manifest,
+            store_meta={
+                key: deepcopy(scoped_store.meta.get(key))
+                for key in (
+                    "outlier_application",
+                    "missing_application",
+                    "missing_validation",
+                )
+            },
+            training_job_id=job_id,
+            training_run_id=training_run_id,
+            created_by=owner_user_id,
+            created_at=created_at,
+            primary_metric=request.primary_metric,
+        )
+        for contract_field in (
+            "target_contract_id",
+            "predictor_manifest_id",
+            "predictor_manifest_hash",
+            "treatment_manifest_id",
+            "treatment_manifest_hash",
+            "feature_manifest_id",
+            "feature_manifest_hash",
+            "materialization_id",
+        ):
+            job[contract_field] = job["contract"].get(contract_field)
         cancel_event = Event()
         scope_key: ScopeKey = (owner_user_id, request.project_id)
+        replay_result: dict[str, Any] | None = None
         with scoped_store.state_lock:
             current, reason = self._scope_matches_job(job)
             if not current:
@@ -322,32 +746,58 @@ class TrainingJobService:
                         or "run preflight again for the current preparation state."
                     )
                 )
+            portfolio = self._save_portfolio_locked(
+                scoped_store,
+                portfolio_request,
+                identity={
+                    "project_id": request.project_id,
+                    "dataset_id": preflight["dataset_id"],
+                    "dataset_version_id": preflight[
+                        "dataset_version_id"
+                    ],
+                },
+                persisted_by=owner_user_id,
+            )
+            preflight["selection_revision"] = int(
+                portfolio.get("selection_revision") or 0
+            )
+            preflight["portfolio_persistence_status"] = "persisted"
             with self._lock:
-                self._jobs[job_id] = job
-                self._cancel_events[job_id] = cancel_event
-                self._project_job_ids.setdefault(scope_key, []).append(job_id)
-            scoped_store.meta["active_training_job_id"] = job_id
+                replay = self._find_idempotent_job_locked(
+                    owner_user_id=owner_user_id,
+                    project_id=request.project_id,
+                    idempotency_token=idempotency_token,
+                    submission_hash=submission_hash,
+                    explicit=explicit_idempotency,
+                )
+                if replay is not None:
+                    replay_result = self._creation_response(
+                        replay, idempotent_replay=True
+                    )
+                else:
+                    job["creation_duration_ms"] = int(
+                        (time.perf_counter() - create_started) * 1000
+                    )
+                    self._jobs[job_id] = job
+                    self._cancel_events[job_id] = cancel_event
+                    self._project_job_ids.setdefault(scope_key, []).append(job_id)
+                    self._idempotency_job_ids[
+                        (owner_user_id, request.project_id, idempotency_token)
+                    ] = job_id
+            if replay_result is None:
+                scoped_store.meta["active_training_job_id"] = job_id
+
+        if replay_result is not None:
+            return replay_result
 
         Thread(
             target=self._run,
-            args=(job_id, request, X_train.copy(), X_test.copy(), y_train.copy(), y_test.copy(), safe_parallel),
+            args=(job_id, request, X_train.copy(), y_train.copy(), safe_parallel),
             daemon=True,
             name=f"atlas-{job_id}",
         ).start()
-        return {
-            "job_id": job_id,
-            "status": "queued",
-            "overall_status": "queued",
-            "project_id": request.project_id,
-            "dataset_id": preflight["dataset_id"],
-            "dataset_version_id": preflight["dataset_version_id"],
-            "dataset_version": preflight["dataset_version_id"],
-            "requested_models": models,
-            "created_at": created_at,
-            "max_parallel_honored": safe_parallel,
-            "preflight": preflight,
-            "creation_duration_ms": int((time.perf_counter() - create_started) * 1000),
-        }
+        schedule_checkpoint_save()
+        return self._creation_response(job, idempotent_replay=False)
 
     def _owned_job_locked(self, job_id: str, owner_user_id: str, project_id: str) -> dict[str, Any] | None:
         """Look up a job by job_id, requiring it to be locked already, and
@@ -375,6 +825,10 @@ class TrainingJobService:
         store = job.get("_dataset_store")
         if store is None:
             return False, "The captured dataset scope is unavailable."
+        try:
+            assert_training_contract_intact(job.get("contract") or {})
+        except CandidateContractError as exc:
+            return False, str(exc)
         valid, reason, identity = validate_checkpoint_identity(
             store,
             owner_user_id=str(job.get("owner_user_id") or ""),
@@ -504,6 +958,20 @@ class TrainingJobService:
             ]
         return sorted(jobs, key=lambda row: row["created_at"], reverse=True)
 
+    def latest(
+        self, owner_user_id: str, project_id: str
+    ) -> dict[str, Any] | None:
+        scope_key: ScopeKey = (owner_user_id, project_id)
+        with self._lock:
+            job_ids = list(self._project_job_ids.get(scope_key, []))
+            if not job_ids:
+                return None
+            for job_id in reversed(job_ids):
+                job = self._jobs.get(job_id)
+                if job is not None:
+                    return self._public_job(job)
+        return None
+
     def cancel(self, job_id: str, owner_user_id: str, project_id: str) -> dict[str, Any] | None:
         public_job: dict[str, Any] | None = None
         with self._lock:
@@ -619,7 +1087,7 @@ class TrainingJobService:
             job["current_models"] = sorted(key for key, status in job["per_model_status"].items() if status["status"] in {"preparing", "running"})
             job["queued_models"] = sorted(key for key, status in job["per_model_status"].items() if status["status"] == "queued")
 
-    def _run(self, job_id: str, request: TrainingJobRequest, X_train, X_test, y_train, y_test, max_parallel: int) -> None:
+    def _run(self, job_id: str, request: TrainingJobRequest, X_train, y_train, max_parallel: int) -> None:
         started = time.perf_counter()
         cancel_event = self._cancel_events[job_id]
         with self._lock:
@@ -647,7 +1115,16 @@ class TrainingJobService:
                         self._jobs[job_id]["user_message"] = f"0 of {self._jobs[job_id]['total_count']} models finished."
                         self._jobs[job_id]["message"] = self._jobs[job_id]["user_message"]
                 for model in self._jobs[job_id]["requested_models"]:
-                    futures[executor.submit(self._train_one, job_id, model, request, X_train, X_test, y_train, y_test)] = model
+                    futures[
+                        executor.submit(
+                            self._train_one,
+                            job_id,
+                            model,
+                            request,
+                            X_train,
+                            y_train,
+                        )
+                    ] = model
                 with self._lock:
                     self._jobs[job_id]["_futures"] = {
                         model: future for future, model in futures.items()
@@ -675,9 +1152,7 @@ class TrainingJobService:
                                 job_id,
                                 request,
                                 X_train,
-                                X_test,
                                 y_train,
-                                y_test,
                             ):
                                 schedule_checkpoint_save()
                         except Exception as exc:
@@ -725,9 +1200,7 @@ class TrainingJobService:
                 job_id,
                 request,
                 X_train,
-                X_test,
                 y_train,
-                y_test,
                 final_status=final_status,
             ):
                 schedule_checkpoint_save()
@@ -755,14 +1228,14 @@ class TrainingJobService:
             ):
                 dataset_store.meta.pop("active_training_job_id", None)
 
-    def _train_one(self, job_id: str, model: str, request: TrainingJobRequest, X_train, X_test, y_train, y_test) -> dict[str, Any]:
+    def _train_one(self, job_id: str, model: str, request: TrainingJobRequest, X_train, y_train) -> dict[str, Any]:
         cancel_event = self._cancel_events[job_id]
         if cancel_event.is_set():
             return {"ok": False, "cancelled": True, "model": model, "error": "Cancelled before training started."}
         started = time.perf_counter()
         self._transition_model(job_id, model, "preparing", "Validating the model-specific training contract.", "Preparing matrices")
-        if X_train.empty or X_test.empty:
-            raise ValueError("Train or holdout feature matrix is empty.")
+        if X_train.empty:
+            raise ValueError("The governed training feature matrix is empty.")
         if cancel_event.is_set():
             return {"ok": False, "cancelled": True, "model": model, "error": "Cancelled during preparation."}
         effective_folds = int(
@@ -795,9 +1268,7 @@ class TrainingJobService:
         calibration_allowed = bool(request.calibrate and calibration_info.get("compatible"))
         result = train_models(
             X_train=X_train,
-            X_test=X_test,
             y_train=y_train,
-            y_test=y_test,
             requested_models=[model],
             grid_search=request.grid_search,
             grid_search_level=request.grid_search_level,
@@ -805,6 +1276,18 @@ class TrainingJobService:
             calibrate=calibration_allowed,
             cv_folds=int(self._jobs[job_id]["preflight"]["cross_validation_compatibility"]["effective_folds"]),
             cv_splits=self._jobs[job_id].get("_cv_execution_splits") or None,
+            primary_metric=request.primary_metric,
+            positive_class=request.event_value,
+            selection_partition_id=str(
+                self._jobs[job_id].get("selection_partition_id") or ""
+            ),
+            fold_definition_id=str(
+                self._jobs[job_id].get("fold_definition_id") or ""
+            ),
+            balancing_status=str(
+                self._jobs[job_id].get("selection_resampling_status")
+                or "not_applied"
+            ),
         )
         result["runtime_ms"] = int((time.perf_counter() - started) * 1000)
         if request.calibrate and not calibration_allowed:
@@ -839,33 +1322,105 @@ class TrainingJobService:
             self._transition_model(job_id, model, "cancelled", str(result.get("error")), "Cancelled", runtime_ms=runtime_ms)
         elif result.get("ok") and ranked:
             row = ranked[0]
-            row["runtime_ms"] = runtime_ms
-            row["candidate_status"] = (
-                "Unsupervised diagnostic, not champion eligible"
-                if not row.get("champion_eligible", True)
-                else "Candidate, not approved"
-            )
-            self._transition_model(
-                job_id,
-                model,
-                "complete",
-                "Model fit completed.",
-                "Metrics persisted",
-                runtime_ms=runtime_ms,
-                metrics=row,
-                result=row,
-                warning=result.get("warning"),
-                best_parameters=row.get("best_params"),
-                search_summary={"runtime_ms": row.get("search_runtime_ms"), "parameter_grid": row.get("parameter_grid")},
-            )
             with self._lock:
                 job = self._jobs[job_id]
-                job["partial_ranked_results"].extend(ranked)
-                job["partial_results"] = list(job["partial_ranked_results"])
-                job["_artifacts"].update(artifacts)
-                job["_raw_results"].update(raw)
-                job["completed_count"] += 1
-                job["completed_models"].append(model)
+                frozen_training_contract = deepcopy(job["contract"])
+            try:
+                candidate_contract = build_candidate_contract(
+                    frozen_training_contract,
+                    algorithm_id=model,
+                    candidate_metrics=row,
+                    artifact=artifacts.get(model),
+                    created_at=_now(),
+                )
+                assert_candidate_contract_intact(candidate_contract)
+            except CandidateContractError as exc:
+                reference = f"training-contract-{uuid4().hex[:12]}"
+                user_error = (
+                    "The fitted model could not be bound to an immutable "
+                    "governed candidate contract and was quarantined."
+                )
+                failure = {
+                    "key": model,
+                    "name": MODEL_CATALOG.get(model, {}).get("label", model),
+                    "error": user_error,
+                    "technical_error": str(exc),
+                    "traceback_reference": reference,
+                }
+                with self._lock:
+                    self._jobs[job_id]["failed_models"].append(failure)
+                self._transition_model(
+                    job_id,
+                    model,
+                    "failed",
+                    user_error,
+                    "Candidate contract rejected",
+                    runtime_ms=runtime_ms,
+                    user_error=user_error,
+                    technical_error=str(exc),
+                    traceback_reference=reference,
+                )
+            else:
+                row["runtime_ms"] = runtime_ms
+                row["candidate_id"] = candidate_contract["candidate_id"]
+                row["training_job_id"] = candidate_contract["training_job_id"]
+                row["training_run_id"] = candidate_contract["training_run_id"]
+                row["candidate_contract"] = candidate_contract
+                for lineage_field in (
+                    "project_id",
+                    "dataset_id",
+                    "dataset_version_id",
+                    "training_dataset_id",
+                    "training_dataset_version_id",
+                    "target_contract_id",
+                    "predictor_manifest_id",
+                    "predictor_manifest_hash",
+                    "treatment_manifest_id",
+                    "treatment_manifest_hash",
+                    "feature_manifest_id",
+                    "feature_manifest_hash",
+                    "feature_manifest_version",
+                    "materialization_id",
+                    "validation_design_id",
+                    "validation_design_version",
+                    "split_id",
+                    "training_population_id",
+                    "selection_partition_id",
+                    "holdout_population_id",
+                    "final_holdout_partition_id",
+                    "fold_definition_id",
+                    "final_holdout_status",
+                    "holdout_isolation_status",
+                    "selection_integrity_status",
+                ):
+                    row[lineage_field] = candidate_contract.get(lineage_field)
+                row["candidate_status"] = (
+                    "Unsupervised diagnostic, not champion eligible"
+                    if not row.get("champion_eligible", True)
+                    else "Candidate, not approved"
+                )
+                self._transition_model(
+                    job_id,
+                    model,
+                    "complete",
+                    "Model fit completed and its candidate contract was frozen.",
+                    "Candidate contract persisted",
+                    runtime_ms=runtime_ms,
+                    metrics=row,
+                    result=row,
+                    warning=result.get("warning"),
+                    best_parameters=row.get("best_params"),
+                    search_summary={"runtime_ms": row.get("search_runtime_ms"), "parameter_grid": row.get("parameter_grid")},
+                )
+                with self._lock:
+                    job = self._jobs[job_id]
+                    job["partial_ranked_results"].extend(ranked)
+                    job["partial_results"] = list(job["partial_ranked_results"])
+                    job["_artifacts"].update(artifacts)
+                    job["_raw_results"].update(raw)
+                    job["_candidate_contracts"][candidate_contract["candidate_id"]] = candidate_contract
+                    job["completed_count"] += 1
+                    job["completed_models"].append(model)
         else:
             failed = summary.get("failed") if isinstance(summary.get("failed"), list) else []
             technical = (failed[0].get("error") if failed else None) or result.get("technical_error") or result.get("error") or "Model fit failed."
@@ -886,9 +1441,7 @@ class TrainingJobService:
         job_id: str,
         request: TrainingJobRequest,
         X_train,
-        X_test,
         y_train,
-        y_test,
         final_status: str | None = None,
     ) -> bool:
         if self._interrupt_if_scope_changed(job_id):
@@ -900,13 +1453,59 @@ class TrainingJobService:
         with self._lock:
             job = self._jobs[job_id]
             ranked = list(job["partial_ranked_results"])
+            frozen_training_contract = deepcopy(job["contract"])
+            materialization_id = str(
+                job.get("materialization_id")
+                or frozen_training_contract.get("materialization_id")
+                or ""
+            )
+        assert_training_contract_intact(frozen_training_contract)
+        for row in ranked:
+            candidate_contract = row.get("candidate_contract")
+            if not isinstance(candidate_contract, dict):
+                raise CandidateContractError(
+                    "A completed result is missing its frozen candidate contract."
+                )
+            assert_candidate_contract_intact(candidate_contract)
+            if any(
+                str(candidate_contract.get(key) or "")
+                != str(frozen_training_contract.get(key) or "")
+                for key in (
+                    "project_id",
+                    "dataset_id",
+                    "dataset_version_id",
+                    "training_dataset_id",
+                    "training_dataset_version_id",
+                    "target_contract_id",
+                    "predictor_manifest_hash",
+                    "treatment_manifest_hash",
+                    "feature_manifest_hash",
+                    "feature_manifest_version",
+                    "materialization_id",
+                    "validation_design_id",
+                    "validation_design_version",
+                    "split_id",
+                    "training_population_id",
+                    "selection_partition_id",
+                    "holdout_population_id",
+                    "final_holdout_partition_id",
+                    "fold_definition_id",
+                    "final_holdout_status",
+                    "holdout_isolation_status",
+                    "training_job_id",
+                    "training_run_id",
+                )
+            ):
+                raise CandidateContractError(
+                    "A completed result no longer matches the frozen training contract."
+                )
         problem_type = str(ranked[0].get("task") if ranked else request.problem_type or "")
         ranked.sort(
-            key=lambda row: (
-                bool(row.get("champion_eligible", True)),
-                float((row.get("auc") if problem_type != "regression" else row.get("r2")) or -1),
-            ),
-            reverse=True,
+            key=lambda row: selection_sort_key(
+                row,
+                str(frozen_training_contract.get("ranking_metric") or ""),
+                problem_type,
+            )
         )
         candidate = next((row for row in ranked if row.get("champion_eligible", True)), None)
         if candidate:
@@ -930,13 +1529,19 @@ class TrainingJobService:
             "event_value": job["event_value"],
             "non_event_value": job["non_event_value"],
             "training_job_id": job["job_id"],
+            "training_run_id": job["training_run_id"],
             "requested_models": job["requested_models"],
+            "completed_models": list(job["completed_models"]),
+            "total_count": int(job["total_count"]),
+            "finished_count": int(job["finished_count"]),
+            "queued_models": [],
+            "current_models": [],
             "created_at": job["created_at"],
             "started_at": job["started_at"],
             "completed_at": job["completed_at"],
             "runtime_ms": job["runtime_ms"],
             "n_train": int(len(y_train)),
-            "n_test": int(len(y_test)),
+            "n_test": int(job["preflight"].get("test_rows") or 0),
             "input_feature_names": job["input_feature_names"],
             "trained_feature_names": job["trained_feature_names"],
             "engineered_feature_names": job["engineered_feature_names"],
@@ -944,7 +1549,29 @@ class TrainingJobService:
             "feature_count": job["feature_count"],
             "n_features": job["feature_count"],
             "feature_manifest_version": job["feature_manifest_version"],
+            "feature_manifest_id": job["feature_manifest_id"],
+            "feature_manifest_hash": job["feature_manifest_hash"],
+            "materialization_id": materialization_id,
+            "predictor_manifest_id": job["predictor_manifest_id"],
+            "predictor_manifest_hash": job["predictor_manifest_hash"],
+            "treatment_manifest_id": job["treatment_manifest_id"],
+            "treatment_manifest_hash": job["treatment_manifest_hash"],
+            "target_contract_id": job["target_contract_id"],
             "split_id": job["split_id"],
+            "training_population_id": job["training_population_id"],
+            "selection_partition_id": job["selection_partition_id"],
+            "holdout_population_id": job["holdout_population_id"],
+            "final_holdout_partition_id": job[
+                "final_holdout_partition_id"
+            ],
+            "fold_definition_id": job["fold_definition_id"],
+            "final_holdout_status": job["final_holdout_status"],
+            "holdout_isolation_status": job["holdout_isolation_status"],
+            "selection_integrity_status": "verified",
+            "selection_resampling_status": job[
+                "selection_resampling_status"
+            ],
+            "primary_metric": job["contract"].get("ranking_metric"),
             "validation_design_id": job.get("validation_design_id"),
             "validation_design_version": job.get(
                 "validation_design_version"
@@ -959,6 +1586,10 @@ class TrainingJobService:
             "model_params": request.model_params,
             "status": final_status or job["overall_status"],
             "contract": job["contract"],
+            "candidate_contracts": [
+                deepcopy(row["candidate_contract"])
+                for row in ranked
+            ],
         }
         # Recheck and persist inside the same per-scope state transition lock
         # used by Dataset Library activation and preparation invalidation.
@@ -974,7 +1605,42 @@ class TrainingJobService:
                     "interrupted",
                 }:
                     return False
+            governance_repository = (
+                job.get("_governance_repository")
+                or get_persistence_service().holdout_governance
+            )
+            durable_exposure = (
+                governance_repository.get_holdout_exposure_for_partition(
+                    project_id=str(job.get("project_id") or ""),
+                    dataset_id=str(job.get("dataset_id") or ""),
+                    dataset_version_id=str(
+                        job.get("dataset_version_id") or ""
+                    ),
+                    validation_design_id=str(
+                        job.get("validation_design_id") or ""
+                    ),
+                    validation_design_version_id=str(
+                        job.get("validation_design_version") or ""
+                    ),
+                    split_id=str(job.get("split_id") or ""),
+                    final_holdout_partition_id=str(
+                        job.get("final_holdout_partition_id") or ""
+                    ),
+                )
+            )
+            if durable_exposure is not None:
+                raise CandidateContractError(
+                    "The exact final-holdout partition was durably exposed "
+                    "after this job began. Its candidate results cannot be "
+                    "published as verified selection evidence."
+                )
             if ranked:
+                candidates_by_algorithm = {
+                    str(row["candidate_contract"]["algorithm_id"]): row[
+                        "candidate_contract"
+                    ]
+                    for row in ranked
+                }
                 metadata = {
                     key: {
                         "project_id": request.project_id,
@@ -984,15 +1650,62 @@ class TrainingJobService:
                         "target": job["target"],
                         "problem_type": problem_type,
                         "model_key": key,
-                        "training_run_id": job["job_id"],
+                        "training_run_id": job["training_run_id"],
+                        "training_job_id": job["job_id"],
+                        "candidate_id": candidates_by_algorithm.get(key, {}).get(
+                            "candidate_id"
+                        ),
                         "trained_at": job["completed_at"],
                         "input_feature_names": job["input_feature_names"],
                         "trained_feature_names": job["trained_feature_names"],
                         "engineered_feature_names": job["engineered_feature_names"],
                         "feature_manifest_version": job["feature_manifest_version"],
+                        "feature_manifest_id": job["feature_manifest_id"],
+                        "feature_manifest_hash": job["feature_manifest_hash"],
+                        "materialization_id": materialization_id,
+                        "predictor_manifest_id": job["predictor_manifest_id"],
+                        "predictor_manifest_hash": job["predictor_manifest_hash"],
+                        "treatment_manifest_id": job["treatment_manifest_id"],
+                        "treatment_manifest_hash": job["treatment_manifest_hash"],
+                        "target_contract_id": job["target_contract_id"],
                         "split_id": job["split_id"],
+                        "training_population_id": job[
+                            "training_population_id"
+                        ],
+                        "selection_partition_id": job[
+                            "selection_partition_id"
+                        ],
+                        "holdout_population_id": job[
+                            "holdout_population_id"
+                        ],
+                        "final_holdout_partition_id": job[
+                            "final_holdout_partition_id"
+                        ],
+                        "fold_definition_id": job["fold_definition_id"],
+                        "final_holdout_status": job[
+                            "final_holdout_status"
+                        ],
+                        "holdout_isolation_status": job[
+                            "holdout_isolation_status"
+                        ],
+                        "selection_integrity_status": "verified",
+                        "selection_metric": deepcopy(
+                            candidates_by_algorithm.get(key, {}).get(
+                                "selection_metric"
+                            )
+                            or {}
+                        ),
+                        "class_encoding": deepcopy(
+                            candidates_by_algorithm.get(key, {}).get(
+                                "class_encoding"
+                            )
+                            or {}
+                        ),
                         "validation_design_id": job.get("validation_design_id"),
                         "validation_design_version": job.get("validation_design_version"),
+                        "candidate_contract": deepcopy(
+                            candidates_by_algorithm.get(key) or {}
+                        ),
                     }
                     for key in job["_artifacts"]
                 }
@@ -1012,14 +1725,45 @@ class TrainingJobService:
                     "dataset_version": job["dataset_version_id"],
                     "data_revision": job["data_revision"],
                     "training_job_id": job["job_id"],
+                    "training_run_id": job["training_run_id"],
                     "status": final_status or job["overall_status"],
                     "candidate_strategy": request.candidate_strategy,
                     "requested_models": job["requested_models"],
                     "completed_models": job["completed_models"],
                     "failed_models": job["failed_models"],
                     "ranked_candidates": ranked,
+                    "candidate_contracts": [
+                        deepcopy(row["candidate_contract"])
+                        for row in ranked
+                    ],
                     "feature_manifest_version": job["feature_manifest_version"],
+                    "feature_manifest_id": job["feature_manifest_id"],
+                    "feature_manifest_hash": job["feature_manifest_hash"],
+                    "materialization_id": materialization_id,
+                    "predictor_manifest_id": job["predictor_manifest_id"],
+                    "predictor_manifest_hash": job["predictor_manifest_hash"],
+                    "treatment_manifest_id": job["treatment_manifest_id"],
+                    "treatment_manifest_hash": job["treatment_manifest_hash"],
+                    "target_contract_id": job["target_contract_id"],
                     "split_id": job["split_id"],
+                    "training_population_id": job[
+                        "training_population_id"
+                    ],
+                    "selection_partition_id": job[
+                        "selection_partition_id"
+                    ],
+                    "holdout_population_id": job[
+                        "holdout_population_id"
+                    ],
+                    "final_holdout_partition_id": job[
+                        "final_holdout_partition_id"
+                    ],
+                    "fold_definition_id": job["fold_definition_id"],
+                    "final_holdout_status": job["final_holdout_status"],
+                    "holdout_isolation_status": job[
+                        "holdout_isolation_status"
+                    ],
+                    "selection_integrity_status": "verified",
                     "validation_design_id": job.get("validation_design_id"),
                     "validation_design_version": job.get(
                         "validation_design_version"
@@ -1037,7 +1781,13 @@ class TrainingJobService:
 
     @staticmethod
     def _public_job(job: dict[str, Any]) -> dict[str, Any]:
-        return json_safe({key: deepcopy(value) for key, value in job.items() if not key.startswith("_")})
+        return json_safe(
+            {
+                key: deepcopy(value)
+                for key, value in job.items()
+                if not key.startswith("_") and key != "idempotency_key"
+            }
+        )
 
 
 TRAINING_JOBS = TrainingJobService()

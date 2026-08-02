@@ -126,13 +126,13 @@ check("Predictor metrics use a semantic readable 2-by-4 layout", () => {
   assertIncludes(
     distribution,
     [
-      'label="Selected rows"',
-      'label="Population share"',
-      'label="Selected mean"',
-      'label="Selected median"',
+      'label="Selected rows (Full governed)"',
+      'label="Population share (Full governed)"',
+      'label="Selected mean (Full governed)"',
+      'label="Selected median (Full governed)"',
       'label="Selected range"',
-      "IQR (Q1",
-      '"Selected target rate"',
+      "IQR (Full governed)",
+      '"Selected target rate (Development)"',
       "selected_subset.q1",
       "selected_subset.q3",
     ],
@@ -168,7 +168,7 @@ check("Linked quantiles default to at most five cards and expose readable values
       "Event rate",
       "Band range",
       "Rows",
-      "Lift vs population",
+      "Lift vs development",
       "formatLift(row.event_rate, populationEventRate)",
       "min-h-[9rem] p-3",
       "min-h-[11rem] p-4",
@@ -389,7 +389,7 @@ check("Relationship Explorer offers governed controls, preserved modes, and expl
   assertIncludes(
     relationship,
     [
-      "Governed visual sample",
+      "Development Population · bounded visual sample",
       "X axis",
       "Y axis",
       "Z axis",
@@ -507,13 +507,13 @@ check("Relationship scope, export, table fallback, and analytical caveat stay vi
       '"target_group"',
       "Accessible rendered-sample table",
       "Raw target values are not",
-      "Population",
+      "Development population",
       "Complete-case eligible",
       "Rendered sample",
       "Linked range overlap",
       "deterministically",
-      "does not establish predictor usefulness or",
-      "model quality",
+      "does not establish",
+      "predictor usefulness or model quality",
     ],
     "Relationship scope and exports",
   );
@@ -953,6 +953,15 @@ check("CLASS_TRAIN to HELOC_TRAIN is blocked for both Python and SAS until ackno
       }
       if (specifier === "./authSession") {
         return { getCachedUserId: () => "user-phase-11" };
+      }
+      if (specifier === "./datasetIdentity") {
+        return {
+          requireLocalDatasetCanonicalIdentity: (_projectId, dataset) => ({
+            project_id: "project-phase-11",
+            dataset_id: dataset?.dataset_library?.datasetId,
+            dataset_version_id: dataset?.dataset_library?.versionId,
+          }),
+        };
       }
       if (specifier === "./localDataset") {
         return {

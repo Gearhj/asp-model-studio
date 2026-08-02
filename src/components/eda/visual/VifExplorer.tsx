@@ -18,6 +18,12 @@ import {
 } from "react";
 import { ATLAS_MOTION_TOKENS } from "../../../visual-intelligence/motion";
 import { useReducedMotion } from "../../../visual-intelligence/useReducedMotion";
+import type {
+  VifResolutionDecisionRequest,
+  VifResolutionInputs,
+  VifResolutionPlan,
+} from "../../../lib/vifResolutionPlan";
+import VifResolutionPlanPanel from "./VifResolutionPlanPanel";
 
 export type VifRow = {
   feature?: string;
@@ -44,16 +50,23 @@ export type VifSimulationRequest = {
 
 export type VifSimulationResult = {
   summary?: string;
+  currentMaximumVif?: number | null;
   maximumVif?: number | null;
+  currentMaterialReviewCount?: number | null;
   materialReviewCount?: number | null;
   rows?: VifRow[];
 };
 
 export type VifScope = {
   scope?: string;
+  analysis_scope?: string;
   population_rows?: number;
   complete_case_rows?: number;
   rows_used?: number;
+  rows_excluded?: number;
+  exclusion_reasons?: string[];
+  special_value_representation?: string;
+  missing_value_treatment?: string;
   sampled?: boolean;
   maximum_rows?: number;
   source_predictors?: number;
@@ -76,6 +89,16 @@ export type VifExplorerProps = {
   onSimulate?: (
     request: VifSimulationRequest,
   ) => VifSimulationResult | void | Promise<VifSimulationResult | void>;
+  onGenerateResolutionPlan?: (
+    inputs: VifResolutionInputs,
+  ) => Promise<VifResolutionPlan>;
+  onResolutionDecision?: (
+    request: VifResolutionDecisionRequest,
+  ) => Promise<{
+    status?: string;
+    feature_recommendations?: unknown;
+    evidence?: unknown;
+  }>;
 };
 
 type PreparedVifRow = VifRow & {
@@ -287,6 +310,7 @@ function makeExportRows(
   decisions: Record<string, VifDecision>,
 ): string {
   const header = [
+    "Analysis scope",
     "Variable",
     "VIF",
     "Review zone",
@@ -300,6 +324,7 @@ function makeExportRows(
     const strongest = strongestPartners(row.featureName, columns, matrix)[0];
     const decision = decisions[row.featureName];
     return [
+      "Development Population",
       row.featureName,
       row.isInfinite ? "Infinity" : row.numericVif ?? "",
       ZONE_META[row.zone].label,
@@ -333,6 +358,8 @@ export default function VifExplorer({
   datasetVersion,
   scope,
   onSimulate,
+  onGenerateResolutionPlan,
+  onResolutionDecision,
 }: VifExplorerProps) {
   const titleId = useId();
   const summaryId = useId();
@@ -537,6 +564,7 @@ export default function VifExplorer({
       <section
         className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
         data-testid="vif-explorer"
+        data-analysis-scope="development_population"
         aria-labelledby={titleId}
       >
         <div className="border-b border-slate-200 bg-slate-50 px-5 py-4">
@@ -556,8 +584,8 @@ export default function VifExplorer({
             VIF requires at least two eligible numeric predictors.
           </p>
           <p className="mt-1 max-w-xl text-xs leading-5 text-slate-500">
-            No automated removal is performed. The explorer will become available when
-            the governed backend returns a valid VIF inventory.
+            The Development Population needs at least two eligible numeric predictors.
+            No automated removal is performed; the sealed final holdout is never accessed.
           </p>
         </div>
       </section>
@@ -579,6 +607,7 @@ export default function VifExplorer({
       data-testid="vif-explorer"
       data-motion-phase={motionPhase}
       data-reduced-motion={reducedMotion ? "true" : "false"}
+      data-analysis-scope="development_population"
       aria-labelledby={titleId}
       aria-describedby={summaryId}
     >
@@ -595,7 +624,9 @@ export default function VifExplorer({
             <p id={summaryId} className="mt-1 max-w-3xl text-xs leading-5 text-slate-600">
               VIF 5–&lt;10 and VIF ≥10 are review thresholds, not automatic removal
               rules. Select a variable to inspect its strongest correlated partners,
-              then record a non-binding analyst decision.
+              then record a non-binding analyst decision. VIF uses eligible complete
+              cases from the Development Population; nulls and governed special values
+              are excluded and the sealed final holdout is never accessed.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -604,15 +635,15 @@ export default function VifExplorer({
               data-testid="vif-scope-badge"
               title={
                 scope
-                  ? `${Number(scope.complete_case_rows ?? 0).toLocaleString()} complete rows before the deterministic ${Number(scope.maximum_rows ?? 0).toLocaleString()}-row cap`
+                  ? `Development Population: ${Number(scope.complete_case_rows ?? 0).toLocaleString()} eligible complete rows before the deterministic ${Number(scope.maximum_rows ?? 0).toLocaleString()}-row cap; ${Number(scope.rows_excluded ?? 0).toLocaleString()} rows excluded; final holdout excluded`
                   : "Backend-bounded VIF computation"
               }
             >
               {scope
-                ? `${Number(scope.rows_used ?? 0).toLocaleString()} backend rows${
+                ? `Development Population · ${Number(scope.rows_used ?? 0).toLocaleString()} rows${
                     scope.sampled ? " · sampled" : " · complete cases"
                   }`
-                : "Bounded backend computation"}
+                : "Development Population · bounded backend computation"}
             </span>
             {selectedVariable ? (
               <button
@@ -692,7 +723,7 @@ export default function VifExplorer({
 
           <div
             className="space-y-2"
-            aria-label={`VIF bars for ${chartRows.length} variables`}
+            aria-label={`Development Population VIF bars for ${chartRows.length} variables; sealed final holdout excluded`}
             data-default-vertical-scroll="false"
           >
             {chartRows.map((row, index) => {
@@ -1064,16 +1095,29 @@ export default function VifExplorer({
                 </button>
                 <div className="mt-2 min-h-5 text-[10px] leading-4 text-slate-600" aria-live="polite">
                   {simulationState.status === "success" ? (
-                    <span>
-                      {simulationState.result?.summary ??
-                        `Temporary simulation completed for ${simulationState.variable}.`}
-                      {Number.isFinite(simulationState.result?.maximumVif) ? (
-                        <> Maximum simulated VIF: {Number(simulationState.result?.maximumVif).toFixed(2)}.</>
+                    <div data-testid="vif-simulation-comparison" className="space-y-2">
+                      <p>{simulationState.result?.summary ?? `Temporary simulation completed for ${simulationState.variable}.`}</p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div className="rounded-lg border border-slate-200 bg-white p-2">
+                          <span className="block font-bold uppercase tracking-wide text-slate-500">Current governed set</span>
+                          <strong className="mt-1 block text-sm text-slate-950">Max VIF {Number.isFinite(simulationState.result?.currentMaximumVif) ? Number(simulationState.result?.currentMaximumVif).toFixed(2) : "—"}</strong>
+                          <span>{Number(simulationState.result?.currentMaterialReviewCount ?? 0)} material-review variables</span>
+                        </div>
+                        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-2">
+                          <span className="block font-bold uppercase tracking-wide text-emerald-700">Temporary proposed set</span>
+                          <strong className="mt-1 block text-sm text-emerald-950">Max VIF {Number.isFinite(simulationState.result?.maximumVif) ? Number(simulationState.result?.maximumVif).toFixed(2) : "—"}</strong>
+                          <span>{Number(simulationState.result?.materialReviewCount ?? 0)} material-review variables</span>
+                        </div>
+                      </div>
+                      {simulationState.result?.rows?.length ? (
+                        <div className="max-h-40 overflow-auto rounded-lg border border-slate-200 bg-white">
+                          <table className="w-full text-[9px]">
+                            <thead className="bg-slate-100 text-slate-600"><tr><th className="px-2 py-1 text-left">Feature</th><th className="px-2 py-1 text-right">Current</th><th className="px-2 py-1 text-right">Proposed</th><th className="px-2 py-1 text-right">Delta</th></tr></thead>
+                            <tbody>{simulationState.result.rows.slice(0, 10).map((row) => <tr key={String(row.feature ?? row.variable)} className="border-t border-slate-100"><td className="px-2 py-1 font-semibold">{String(row.feature ?? row.variable)}</td><td className="px-2 py-1 text-right">{Number.isFinite(Number(row.before_vif)) ? Number(row.before_vif).toFixed(2) : "—"}</td><td className="px-2 py-1 text-right">{Number.isFinite(Number(row.vif)) ? Number(row.vif).toFixed(2) : "—"}</td><td className="px-2 py-1 text-right">{Number.isFinite(Number(row.delta)) ? Number(row.delta).toFixed(2) : "—"}</td></tr>)}</tbody>
+                          </table>
+                        </div>
                       ) : null}
-                      {Number.isFinite(simulationState.result?.materialReviewCount) ? (
-                        <> Material-review variables: {Number(simulationState.result?.materialReviewCount)}.</>
-                      ) : null}
-                    </span>
+                    </div>
                   ) : simulationState.status === "error" ? (
                     <span className="text-rose-700">{simulationState.message}</span>
                   ) : null}
@@ -1084,11 +1128,19 @@ export default function VifExplorer({
         </aside>
       </div>
 
+      {onGenerateResolutionPlan && onResolutionDecision ? (
+        <VifResolutionPlanPanel
+          predictors={preparedRows.map((row) => row.featureName)}
+          onGenerate={onGenerateResolutionPlan}
+          onDecision={onResolutionDecision}
+        />
+      ) : null}
+
       <details className="group border-t border-slate-200" data-testid="vif-data-table">
         <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-xs font-semibold text-slate-800 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-500 sm:px-5">
           <span className="inline-flex items-center gap-2">
             <TableProperties size={15} className="text-blue-700" aria-hidden="true" />
-            VIF analysis data table
+            Development Population VIF analysis data table
           </span>
           <span className="font-normal text-slate-500">
             {preparedRows.length.toLocaleString()} variables · export includes decisions
@@ -1097,8 +1149,9 @@ export default function VifExplorer({
         <div className="max-h-[460px] overflow-auto border-t border-slate-200">
           <table className="w-full min-w-[860px] border-separate border-spacing-0 text-xs">
             <caption className="sr-only">
-              VIF values from the disclosed bounded backend cohort, strongest correlation relationships, review zones, and
-              locally captured analyst decisions
+              VIF values and strongest correlation relationships from the disclosed
+              Development Population complete-case backend cohort, with the sealed
+              final holdout excluded; review zones and locally captured analyst decisions
             </caption>
             <thead className="sticky top-0 z-10 bg-slate-950 text-white">
               <tr>

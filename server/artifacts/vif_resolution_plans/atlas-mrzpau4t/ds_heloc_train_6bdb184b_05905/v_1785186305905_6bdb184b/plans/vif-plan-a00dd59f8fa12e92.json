@@ -1,0 +1,1281 @@
+{
+  "alternatives": [
+    {
+      "count_above_10": 6,
+      "count_above_5": 9,
+      "maximum_vif": 32.36991287208464,
+      "path": [
+        "NumInqLast6M"
+      ],
+      "predictor_count": 22,
+      "score": 180.58242365182258
+    },
+    {
+      "count_above_10": 6,
+      "count_above_5": 9,
+      "maximum_vif": 32.37093381751065,
+      "path": [
+        "NumInqLast6Mexcl7days"
+      ],
+      "predictor_count": 22,
+      "score": 180.584123411404
+    },
+    {
+      "count_above_10": 7,
+      "count_above_5": 10,
+      "maximum_vif": 152.4128991720717,
+      "path": [
+        "MaxDelqEver"
+      ],
+      "predictor_count": 22,
+      "score": 20.49514645116718
+    },
+    {
+      "count_above_10": 8,
+      "count_above_5": 9,
+      "maximum_vif": 152.46321792868338,
+      "path": [
+        "NumTotalTrades"
+      ],
+      "predictor_count": 22,
+      "score": 6.504280200791423
+    },
+    {
+      "count_above_10": 7,
+      "count_above_5": 10,
+      "maximum_vif": 152.50403286971925,
+      "path": [
+        "PercentTradesNeverDelq"
+      ],
+      "predictor_count": 22,
+      "score": 20.373014508894702
+    },
+    {
+      "count_above_10": 8,
+      "count_above_5": 8,
+      "maximum_vif": 152.55197099714135,
+      "path": [
+        "NumSatisfactoryTrades"
+      ],
+      "predictor_count": 22,
+      "score": 10.382325028433069
+    },
+    {
+      "count_above_10": 6,
+      "count_above_5": 9,
+      "maximum_vif": 152.5755119622707,
+      "path": [
+        "NumTrades60Ever2DerogPubRec"
+      ],
+      "predictor_count": 22,
+      "score": 42.33748891454376
+    },
+    {
+      "count_above_10": 7,
+      "count_above_5": 10,
+      "maximum_vif": 152.57959775300398,
+      "path": [
+        "MaxDelq2PublicRecLast12M"
+      ],
+      "predictor_count": 22,
+      "score": 20.293857666563294
+    },
+    {
+      "count_above_10": 6,
+      "count_above_5": 9,
+      "maximum_vif": 152.61863068482,
+      "path": [
+        "NumTrades90Ever2DerogPubRec"
+      ],
+      "predictor_count": 22,
+      "score": 42.30107513331676
+    },
+    {
+      "count_above_10": 4,
+      "count_above_5": 7,
+      "maximum_vif": 15.278254249276465,
+      "path": [
+        "NumInqLast6Mexcl7days",
+        "NumTrades60Ever2DerogPubRec"
+      ],
+      "predictor_count": 21,
+      "score": 61.944476007573655
+    },
+    {
+      "count_above_10": 4,
+      "count_above_5": 7,
+      "maximum_vif": 15.30202398583775,
+      "path": [
+        "NumInqLast6Mexcl7days",
+        "NumTrades90Ever2DerogPubRec"
+      ],
+      "predictor_count": 21,
+      "score": 61.930313560232875
+    },
+    {
+      "count_above_10": 5,
+      "count_above_5": 8,
+      "maximum_vif": 29.621150346458503,
+      "path": [
+        "NumInqLast6Mexcl7days",
+        "PercentTradesNeverDelq"
+      ],
+      "predictor_count": 21,
+      "score": 23.40347013373109
+    }
+  ],
+  "analysis_scope": {
+    "development_population": "sealed_training_partition_only",
+    "development_rows": 6275,
+    "final_holdout_accessed": false,
+    "final_holdout_used_for_selection": false,
+    "sealed_final_holdout_rows_excluded": 0,
+    "split_field_used": "atlas_split",
+    "target_informed_evidence": "development_population_only",
+    "vif_scope": {
+      "complete_case_rows": 6275,
+      "maximum_rows": 20000,
+      "population_rows": 6275,
+      "predictor_cap": 25,
+      "predictors_used": [
+        "MSinceOldestTradeOpen",
+        "NetFractionInstallBurden",
+        "AverageMInFile",
+        "NetFractionRevolvingBurden",
+        "PercentTradesWBalance",
+        "PercentTradesNeverDelq",
+        "ExternalRiskEstimate",
+        "MSinceMostRecentDelq",
+        "PercentInstallTrades",
+        "NumTotalTrades",
+        "MSinceMostRecentTradeOpen",
+        "NumSatisfactoryTrades",
+        "MSinceMostRecentInqexcl7days",
+        "NumRevolvingTradesWBalance",
+        "NumInstallTradesWBalance",
+        "MaxDelqEver",
+        "MaxDelq2PublicRecLast12M",
+        "NumBank2NatlTradesWHighUtilization",
+        "NumInqLast6M",
+        "NumInqLast6Mexcl7days",
+        "NumTradesOpeninLast12M",
+        "NumTrades60Ever2DerogPubRec",
+        "NumTrades90Ever2DerogPubRec"
+      ],
+      "required_feature": null,
+      "rows_used": 6275,
+      "sampled": false,
+      "scope": "bounded_backend_computation",
+      "source_predictors": 23
+    }
+  },
+  "calculation_count": {
+    "governed_feature_set_calculations": 1,
+    "governed_predictor_count": 23,
+    "simulated_complete_vif_recalculations": 17,
+    "simulated_proposed_predictor_count": 21,
+    "total_complete_vif_calculations": 18
+  },
+  "clusters": [
+    {
+      "cluster_id": "vif-cluster-7f3a6da7a9",
+      "edges": [
+        {
+          "correlation": 0.9966213855453095,
+          "left": "NumInqLast6M",
+          "right": "NumInqLast6Mexcl7days"
+        }
+      ],
+      "features": [
+        "NumInqLast6M",
+        "NumInqLast6Mexcl7days"
+      ],
+      "maximum_correlation": 0.9966213855453095,
+      "proposed_exclusions": [
+        "NumInqLast6Mexcl7days"
+      ],
+      "protected_features": [],
+      "rationale": "VIF alone cannot distinguish the preferred inquiry variable.",
+      "recommended_action": "defer",
+      "tie_case": {
+        "cluster_id": "vif-cluster-7f3a6da7a9",
+        "equivalent_maximum_vif": 32.36991287208464,
+        "features": [
+          "NumInqLast6M",
+          "NumInqLast6Mexcl7days"
+        ],
+        "message": "VIF alone cannot distinguish the preferred inquiry variable.",
+        "required_tie_breakers": [
+          "development-population signal",
+          "business interpretability",
+          "data quality and missingness",
+          "bureau special-value burden",
+          "production availability and definition stability",
+          "intended model-family behavior"
+        ]
+      }
+    },
+    {
+      "cluster_id": "vif-cluster-85f3edd74d",
+      "edges": [
+        {
+          "correlation": 0.9761526215010783,
+          "left": "NumTrades60Ever2DerogPubRec",
+          "right": "NumTrades90Ever2DerogPubRec"
+        }
+      ],
+      "features": [
+        "NumTrades60Ever2DerogPubRec",
+        "NumTrades90Ever2DerogPubRec"
+      ],
+      "maximum_correlation": 0.9761526215010783,
+      "proposed_exclusions": [
+        "NumTrades60Ever2DerogPubRec"
+      ],
+      "protected_features": [],
+      "rationale": "VIF alone cannot distinguish the preferred variable in this cluster.",
+      "recommended_action": "defer",
+      "tie_case": {
+        "cluster_id": "vif-cluster-85f3edd74d",
+        "equivalent_maximum_vif": 152.5755119622707,
+        "features": [
+          "NumTrades60Ever2DerogPubRec",
+          "NumTrades90Ever2DerogPubRec"
+        ],
+        "message": "VIF alone cannot distinguish the preferred variable in this cluster.",
+        "required_tie_breakers": [
+          "development-population signal",
+          "business interpretability",
+          "data quality and missingness",
+          "bureau special-value burden",
+          "production availability and definition stability",
+          "intended model-family behavior"
+        ]
+      }
+    },
+    {
+      "cluster_id": "vif-cluster-b7d8073939",
+      "edges": [
+        {
+          "correlation": 0.8937908979355114,
+          "left": "PercentTradesNeverDelq",
+          "right": "ExternalRiskEstimate"
+        },
+        {
+          "correlation": 0.9267557928722919,
+          "left": "PercentTradesNeverDelq",
+          "right": "MaxDelqEver"
+        },
+        {
+          "correlation": 0.9062320177257421,
+          "left": "PercentTradesNeverDelq",
+          "right": "MaxDelq2PublicRecLast12M"
+        },
+        {
+          "correlation": 0.8929345346846035,
+          "left": "ExternalRiskEstimate",
+          "right": "MaxDelqEver"
+        },
+        {
+          "correlation": 0.9103291566637598,
+          "left": "ExternalRiskEstimate",
+          "right": "MaxDelq2PublicRecLast12M"
+        },
+        {
+          "correlation": 0.9281046329505734,
+          "left": "MaxDelqEver",
+          "right": "MaxDelq2PublicRecLast12M"
+        }
+      ],
+      "features": [
+        "ExternalRiskEstimate",
+        "MaxDelq2PublicRecLast12M",
+        "MaxDelqEver",
+        "PercentTradesNeverDelq"
+      ],
+      "maximum_correlation": 0.9281046329505734,
+      "proposed_exclusions": [],
+      "protected_features": [
+        "ExternalRiskEstimate"
+      ],
+      "rationale": "Review an interpretable combination before excluding either correlated source predictor.",
+      "recommended_action": "combine",
+      "tie_case": null
+    },
+    {
+      "cluster_id": "vif-cluster-d43c57dd29",
+      "edges": [
+        {
+          "correlation": 0.8833450025856755,
+          "left": "NumTotalTrades",
+          "right": "NumSatisfactoryTrades"
+        }
+      ],
+      "features": [
+        "NumSatisfactoryTrades",
+        "NumTotalTrades"
+      ],
+      "maximum_correlation": 0.8833450025856755,
+      "proposed_exclusions": [],
+      "protected_features": [],
+      "rationale": "Review an interpretable combination before excluding either correlated source predictor.",
+      "recommended_action": "combine",
+      "tie_case": null
+    }
+  ],
+  "created_at": "2026-08-01T21:03:05.278971+00:00",
+  "current": {
+    "count_above_10": 8,
+    "count_above_5": 11,
+    "maximum_vif": 152.61863753656584,
+    "predictor_count": 23,
+    "vif": [
+      {
+        "feature": "NumInqLast6Mexcl7days",
+        "is_infinite": false,
+        "status": "high",
+        "vif": 152.61863753656584
+      },
+      {
+        "feature": "NumInqLast6M",
+        "is_infinite": false,
+        "status": "high",
+        "vif": 149.3501234720608
+      },
+      {
+        "feature": "NumTrades90Ever2DerogPubRec",
+        "is_infinite": false,
+        "status": "high",
+        "vif": 32.37093527078987
+      },
+      {
+        "feature": "NumTrades60Ever2DerogPubRec",
+        "is_infinite": false,
+        "status": "high",
+        "vif": 27.50108991686869
+      },
+      {
+        "feature": "MaxDelqEver",
+        "is_infinite": false,
+        "status": "high",
+        "vif": 15.32395521524088
+      },
+      {
+        "feature": "ExternalRiskEstimate",
+        "is_infinite": false,
+        "status": "high",
+        "vif": 14.152985178704126
+      },
+      {
+        "feature": "PercentTradesNeverDelq",
+        "is_infinite": false,
+        "status": "high",
+        "vif": 12.341253881531195
+      },
+      {
+        "feature": "MaxDelq2PublicRecLast12M",
+        "is_infinite": false,
+        "status": "high",
+        "vif": 12.224971406148926
+      },
+      {
+        "feature": "NumSatisfactoryTrades",
+        "is_infinite": false,
+        "status": "review",
+        "vif": 6.830846977488144
+      },
+      {
+        "feature": "NumRevolvingTradesWBalance",
+        "is_infinite": false,
+        "status": "review",
+        "vif": 5.211924424013427
+      },
+      {
+        "feature": "NumTotalTrades",
+        "is_infinite": false,
+        "status": "review",
+        "vif": 5.081968024409739
+      },
+      {
+        "feature": "NumTradesOpeninLast12M",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 4.452734458839967
+      },
+      {
+        "feature": "AverageMInFile",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 3.8093367819198347
+      },
+      {
+        "feature": "PercentTradesWBalance",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 3.7588700534375445
+      },
+      {
+        "feature": "NumBank2NatlTradesWHighUtilization",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 3.4808869052086875
+      },
+      {
+        "feature": "NumInstallTradesWBalance",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 2.792597579866205
+      },
+      {
+        "feature": "NetFractionRevolvingBurden",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 2.762939127363519
+      },
+      {
+        "feature": "PercentInstallTrades",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 2.557270670792658
+      },
+      {
+        "feature": "MSinceOldestTradeOpen",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 2.5567583108882106
+      },
+      {
+        "feature": "MSinceMostRecentTradeOpen",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.6663678275526381
+      },
+      {
+        "feature": "NetFractionInstallBurden",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.6246642407073704
+      },
+      {
+        "feature": "MSinceMostRecentDelq",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.5928633749624475
+      },
+      {
+        "feature": "MSinceMostRecentInqexcl7days",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.1658018063214577
+      }
+    ]
+  },
+  "dataset_id": "ds_heloc_train_6bdb184b_05905",
+  "dataset_mutated": false,
+  "dataset_version": "v_1785186305905_6bdb184b",
+  "dataset_version_id": "v_1785186305905_6bdb184b",
+  "decision_history": [],
+  "duration_ms": 2820,
+  "explicit_statement": "The governed feature set has not changed. This plan contains recommendations only.",
+  "feature_profiles": {
+    "AverageMInFile": {
+      "data_quality": 0.9439043824701195,
+      "development_signal": 0.23943948801654175,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.05609561752988048
+    },
+    "ExternalRiskEstimate": {
+      "data_quality": 0.9431075697211155,
+      "development_signal": 0.45710935194687896,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.056892430278884465
+    },
+    "MSinceMostRecentDelq": {
+      "data_quality": 0.48015936254980085,
+      "development_signal": 0.20092648291446272,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.5198406374501992
+    },
+    "MSinceMostRecentInqexcl7days": {
+      "data_quality": 0.7204780876494024,
+      "development_signal": 0.20034616884348708,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.2795219123505976
+    },
+    "MSinceMostRecentTradeOpen": {
+      "data_quality": 0.9439043824701195,
+      "development_signal": 0.04297917463103124,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.05609561752988048
+    },
+    "MSinceOldestTradeOpen": {
+      "data_quality": 0.9225498007968127,
+      "development_signal": 0.2166495018365258,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.07745019920318726
+    },
+    "MaxDelq2PublicRecLast12M": {
+      "data_quality": 0.9439043824701195,
+      "development_signal": 0.23980122577141935,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.05609561752988048
+    },
+    "MaxDelqEver": {
+      "data_quality": 0.9439043824701195,
+      "development_signal": 0.22237319571368974,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.05609561752988048
+    },
+    "NetFractionInstallBurden": {
+      "data_quality": 0.6157768924302789,
+      "development_signal": 0.08306196130533672,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.3842231075697211
+    },
+    "NetFractionRevolvingBurden": {
+      "data_quality": 0.927011952191235,
+      "development_signal": 0.354733185721981,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.07298804780876494
+    },
+    "NumBank2NatlTradesWHighUtilization": {
+      "data_quality": 0.890996015936255,
+      "development_signal": 0.2394575551379338,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.10900398406374502
+    },
+    "NumInqLast6M": {
+      "data_quality": 0.9439043824701195,
+      "development_signal": 0.15356782176771494,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.05609561752988048
+    },
+    "NumInqLast6Mexcl7days": {
+      "data_quality": 0.9439043824701195,
+      "development_signal": 0.14834264572894051,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.05609561752988048
+    },
+    "NumInstallTradesWBalance": {
+      "data_quality": 0.8576892430278884,
+      "development_signal": 0.0479163820510717,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.14231075697211154
+    },
+    "NumRevolvingTradesWBalance": {
+      "data_quality": 0.930199203187251,
+      "development_signal": 0.125551948983517,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.069800796812749
+    },
+    "NumSatisfactoryTrades": {
+      "data_quality": 0.9439043824701195,
+      "development_signal": 0.13671651190277687,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.05609561752988048
+    },
+    "NumTotalTrades": {
+      "data_quality": 0.9439043824701195,
+      "development_signal": 0.1005544325724462,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.05609561752988048
+    },
+    "NumTrades60Ever2DerogPubRec": {
+      "data_quality": 0.9439043824701195,
+      "development_signal": 0.1690147009765287,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.05609561752988048
+    },
+    "NumTrades90Ever2DerogPubRec": {
+      "data_quality": 0.9439043824701195,
+      "development_signal": 0.14506424696798464,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.05609561752988048
+    },
+    "NumTradesOpeninLast12M": {
+      "data_quality": 0.9439043824701195,
+      "development_signal": 0.08579693497405921,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.05609561752988048
+    },
+    "PercentInstallTrades": {
+      "data_quality": 0.9439043824701195,
+      "development_signal": 0.13848924990840014,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.05609561752988048
+    },
+    "PercentTradesNeverDelq": {
+      "data_quality": 0.9439043824701195,
+      "development_signal": 0.25387899567328515,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.05609561752988048
+    },
+    "PercentTradesWBalance": {
+      "data_quality": 0.9423107569721115,
+      "development_signal": 0.2793221290870114,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "sealed_training_partition_only",
+      "special_value_burden": 0.05768924302788845
+    }
+  },
+  "governed_feature_set_changed": false,
+  "input_frame_unchanged": true,
+  "inputs": {
+    "allowed_actions": [
+      "retain",
+      "exclude",
+      "combine",
+      "defer"
+    ],
+    "correlation_threshold": 0.85,
+    "dataset_version": "v_1785186305905_6bdb184b",
+    "event_value": 1,
+    "expected_dataset_id": "ds_heloc_train_6bdb184b_05905",
+    "expected_dataset_version_id": "v_1785186305905_6bdb184b",
+    "intended_model_family": "linear_scorecard",
+    "maximum_removals": 2,
+    "preference_weights": {
+      "data_quality": 1.0,
+      "interpretability": 1.0,
+      "production_availability": 1.0,
+      "signal": 1.0,
+      "special_value_burden": 1.0
+    },
+    "problem_type": "classification",
+    "project_id": "atlas-mrzpau4t",
+    "protected_predictors": [
+      "ExternalRiskEstimate"
+    ],
+    "resolution_objective": "balanced",
+    "target": "bad_flag",
+    "target_vif_threshold": 10.0
+  },
+  "model_family": {
+    "id": "linear_scorecard",
+    "implication": "Resolve material multicollinearity before fitting; transparent exclusion or an interpretable combination is preferred.",
+    "label": "Linear / scorecard",
+    "recommended_posture": "resolve_before_fit"
+  },
+  "ok": true,
+  "per_feature_vif_deltas": [
+    {
+      "current_vif": 152.61863753656584,
+      "delta": null,
+      "feature": "NumInqLast6Mexcl7days",
+      "proposed_action": "exclude",
+      "proposed_vif": null
+    },
+    {
+      "current_vif": 27.50108991686869,
+      "delta": null,
+      "feature": "NumTrades60Ever2DerogPubRec",
+      "proposed_action": "exclude",
+      "proposed_vif": null
+    },
+    {
+      "current_vif": 149.3501234720608,
+      "delta": -146.56235626203025,
+      "feature": "NumInqLast6M",
+      "proposed_action": "retain",
+      "proposed_vif": 2.787767210030539
+    },
+    {
+      "current_vif": 32.37093527078987,
+      "delta": -28.148058011843986,
+      "feature": "NumTrades90Ever2DerogPubRec",
+      "proposed_action": "retain",
+      "proposed_vif": 4.222877258945885
+    },
+    {
+      "current_vif": 15.32395521524088,
+      "delta": -0.04570096596441431,
+      "feature": "MaxDelqEver",
+      "proposed_action": "retain",
+      "proposed_vif": 15.278254249276465
+    },
+    {
+      "current_vif": 14.152985178704126,
+      "delta": -0.04212638874004426,
+      "feature": "ExternalRiskEstimate",
+      "proposed_action": "retain",
+      "proposed_vif": 14.110858789964082
+    },
+    {
+      "current_vif": 12.341253881531195,
+      "delta": -1.179893918683847,
+      "feature": "PercentTradesNeverDelq",
+      "proposed_action": "retain",
+      "proposed_vif": 11.161359962847348
+    },
+    {
+      "current_vif": 12.224971406148926,
+      "delta": -0.045331462207135687,
+      "feature": "MaxDelq2PublicRecLast12M",
+      "proposed_action": "retain",
+      "proposed_vif": 12.17963994394179
+    },
+    {
+      "current_vif": 6.830846977488144,
+      "delta": -0.03671295215034753,
+      "feature": "NumSatisfactoryTrades",
+      "proposed_action": "retain",
+      "proposed_vif": 6.794134025337796
+    },
+    {
+      "current_vif": 5.211924424013427,
+      "delta": -0.021574523482722263,
+      "feature": "NumRevolvingTradesWBalance",
+      "proposed_action": "retain",
+      "proposed_vif": 5.1903499005307046
+    },
+    {
+      "current_vif": 5.081968024409739,
+      "delta": -0.033679269630290776,
+      "feature": "NumTotalTrades",
+      "proposed_action": "retain",
+      "proposed_vif": 5.048288754779448
+    },
+    {
+      "current_vif": 4.452734458839967,
+      "delta": -0.03388022873303509,
+      "feature": "NumTradesOpeninLast12M",
+      "proposed_action": "retain",
+      "proposed_vif": 4.418854230106932
+    },
+    {
+      "current_vif": 3.8093367819198347,
+      "delta": -0.03717055152591886,
+      "feature": "AverageMInFile",
+      "proposed_action": "retain",
+      "proposed_vif": 3.772166230393916
+    },
+    {
+      "current_vif": 3.7588700534375445,
+      "delta": -0.001891578281560946,
+      "feature": "PercentTradesWBalance",
+      "proposed_action": "retain",
+      "proposed_vif": 3.7569784751559836
+    },
+    {
+      "current_vif": 3.4808869052086875,
+      "delta": -0.0044617138190012895,
+      "feature": "NumBank2NatlTradesWHighUtilization",
+      "proposed_action": "retain",
+      "proposed_vif": 3.476425191389686
+    },
+    {
+      "current_vif": 2.792597579866205,
+      "delta": -0.015843455467337453,
+      "feature": "NumInstallTradesWBalance",
+      "proposed_action": "retain",
+      "proposed_vif": 2.7767541243988676
+    },
+    {
+      "current_vif": 2.762939127363519,
+      "delta": -0.0037980930118135525,
+      "feature": "NetFractionRevolvingBurden",
+      "proposed_action": "retain",
+      "proposed_vif": 2.7591410343517055
+    },
+    {
+      "current_vif": 2.557270670792658,
+      "delta": -0.005050343476626917,
+      "feature": "PercentInstallTrades",
+      "proposed_action": "retain",
+      "proposed_vif": 2.552220327316031
+    },
+    {
+      "current_vif": 2.5567583108882106,
+      "delta": -0.003651359401260379,
+      "feature": "MSinceOldestTradeOpen",
+      "proposed_action": "retain",
+      "proposed_vif": 2.55310695148695
+    },
+    {
+      "current_vif": 1.6663678275526381,
+      "delta": -0.0015476804057203974,
+      "feature": "MSinceMostRecentTradeOpen",
+      "proposed_action": "retain",
+      "proposed_vif": 1.6648201471469177
+    },
+    {
+      "current_vif": 1.6246642407073704,
+      "delta": -0.0009148321138634508,
+      "feature": "NetFractionInstallBurden",
+      "proposed_action": "retain",
+      "proposed_vif": 1.623749408593507
+    },
+    {
+      "current_vif": 1.5928633749624475,
+      "delta": -0.0009422086956276665,
+      "feature": "MSinceMostRecentDelq",
+      "proposed_action": "retain",
+      "proposed_vif": 1.5919211662668198
+    },
+    {
+      "current_vif": 1.1658018063214577,
+      "delta": -0.0009379627833989712,
+      "feature": "MSinceMostRecentInqexcl7days",
+      "proposed_action": "retain",
+      "proposed_vif": 1.1648638435380587
+    }
+  ],
+  "plan_hash": "a00dd59f8fa12e92210c7bd7267fc46ddc42db8e17eaae577d80dff1bffb58e4",
+  "plan_id": "vif-plan-a00dd59f8fa12e92",
+  "policy": {
+    "allowed_actions": [
+      "retain",
+      "exclude",
+      "combine",
+      "defer"
+    ],
+    "correlation_threshold": 0.85,
+    "maximum_removals": 2,
+    "preference_weights": {
+      "data_quality": 1.0,
+      "interpretability": 1.0,
+      "production_availability": 1.0,
+      "signal": 1.0,
+      "special_value_burden": 1.0
+    },
+    "resolution_objective": "balanced"
+  },
+  "predictor_authorization": {
+    "authorized_predictors": [
+      "ExternalRiskEstimate",
+      "MSinceOldestTradeOpen",
+      "MSinceMostRecentTradeOpen",
+      "AverageMInFile",
+      "NumSatisfactoryTrades",
+      "NumTrades60Ever2DerogPubRec",
+      "NumTrades90Ever2DerogPubRec",
+      "PercentTradesNeverDelq",
+      "MSinceMostRecentDelq",
+      "MaxDelq2PublicRecLast12M",
+      "MaxDelqEver",
+      "NumTotalTrades",
+      "NumTradesOpeninLast12M",
+      "PercentInstallTrades",
+      "MSinceMostRecentInqexcl7days",
+      "NumInqLast6M",
+      "NumInqLast6Mexcl7days",
+      "NetFractionRevolvingBurden",
+      "NetFractionInstallBurden",
+      "NumRevolvingTradesWBalance",
+      "NumInstallTradesWBalance",
+      "NumBank2NatlTradesWHighUtilization",
+      "PercentTradesWBalance"
+    ],
+    "excluded": [
+      {
+        "feature": "bad_flag",
+        "reason": "Modeling target",
+        "role": "target"
+      },
+      {
+        "feature": "RiskPerformance",
+        "reason": "Deterministic source of modeling target",
+        "role": "target_source"
+      },
+      {
+        "feature": "Acceptance_AverageMInFile_sq",
+        "reason": "Excluded in Feature Engineering review",
+        "role": "eligible"
+      },
+      {
+        "feature": "Acceptance_ExternalRisk_Band",
+        "reason": "Excluded in Feature Engineering review",
+        "role": "eligible"
+      },
+      {
+        "feature": "Acceptance_ExternalRisk_x_NeverDelq",
+        "reason": "Excluded in Feature Engineering review",
+        "role": "eligible"
+      },
+      {
+        "feature": "Acceptance_High_Revolving_Burden",
+        "reason": "Excluded in Feature Engineering review",
+        "role": "eligible"
+      },
+      {
+        "feature": "Acceptance_Trade_Gap",
+        "reason": "Excluded in Feature Engineering review",
+        "role": "eligible"
+      },
+      {
+        "feature": "atlas_split",
+        "reason": "Split or fold metadata cannot be used as a predictor",
+        "role": "excluded"
+      }
+    ],
+    "manifest_version": "fm-d366e0c1cc6c8514",
+    "source": "feature_manifest",
+    "target": "bad_flag",
+    "target_source_excluded": [
+      "RiskPerformance"
+    ],
+    "target_source_fields": [
+      {
+        "field": "RiskPerformance",
+        "mapping": [
+          {
+            "rowCount": 3275,
+            "sourceValue": "Bad",
+            "targetValue": "1"
+          },
+          {
+            "rowCount": 3000,
+            "sourceValue": "Good",
+            "targetValue": "0"
+          }
+        ],
+        "relationship": "deterministic_target_source",
+        "target": "bad_flag"
+      }
+    ]
+  },
+  "project_id": "atlas-mrzpau4t",
+  "proposed": {
+    "count_above_10": 4,
+    "count_above_5": 7,
+    "illustrative_path": [
+      "NumInqLast6Mexcl7days",
+      "NumTrades60Ever2DerogPubRec"
+    ],
+    "maximum_vif": 15.278254249276465,
+    "predictor_count": 21,
+    "target_vif_threshold": 10.0,
+    "threshold_met": false,
+    "vif": [
+      {
+        "feature": "MaxDelqEver",
+        "is_infinite": false,
+        "status": "high",
+        "vif": 15.278254249276465
+      },
+      {
+        "feature": "ExternalRiskEstimate",
+        "is_infinite": false,
+        "status": "high",
+        "vif": 14.110858789964082
+      },
+      {
+        "feature": "MaxDelq2PublicRecLast12M",
+        "is_infinite": false,
+        "status": "high",
+        "vif": 12.17963994394179
+      },
+      {
+        "feature": "PercentTradesNeverDelq",
+        "is_infinite": false,
+        "status": "high",
+        "vif": 11.161359962847348
+      },
+      {
+        "feature": "NumSatisfactoryTrades",
+        "is_infinite": false,
+        "status": "review",
+        "vif": 6.794134025337796
+      },
+      {
+        "feature": "NumRevolvingTradesWBalance",
+        "is_infinite": false,
+        "status": "review",
+        "vif": 5.1903499005307046
+      },
+      {
+        "feature": "NumTotalTrades",
+        "is_infinite": false,
+        "status": "review",
+        "vif": 5.048288754779448
+      },
+      {
+        "feature": "NumTradesOpeninLast12M",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 4.418854230106932
+      },
+      {
+        "feature": "NumTrades90Ever2DerogPubRec",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 4.222877258945885
+      },
+      {
+        "feature": "AverageMInFile",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 3.772166230393916
+      },
+      {
+        "feature": "PercentTradesWBalance",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 3.7569784751559836
+      },
+      {
+        "feature": "NumBank2NatlTradesWHighUtilization",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 3.476425191389686
+      },
+      {
+        "feature": "NumInqLast6M",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 2.787767210030539
+      },
+      {
+        "feature": "NumInstallTradesWBalance",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 2.7767541243988676
+      },
+      {
+        "feature": "NetFractionRevolvingBurden",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 2.7591410343517055
+      },
+      {
+        "feature": "MSinceOldestTradeOpen",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 2.55310695148695
+      },
+      {
+        "feature": "PercentInstallTrades",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 2.552220327316031
+      },
+      {
+        "feature": "MSinceMostRecentTradeOpen",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.6648201471469177
+      },
+      {
+        "feature": "NetFractionInstallBurden",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.623749408593507
+      },
+      {
+        "feature": "MSinceMostRecentDelq",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.5919211662668198
+      },
+      {
+        "feature": "MSinceMostRecentInqexcl7days",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.1648638435380587
+      }
+    ]
+  },
+  "proposed_combinations": [
+    {
+      "cluster_id": "vif-cluster-7f3a6da7a9",
+      "rationale": "Combine only if business meaning and development-population validation support a transparent derived feature.",
+      "source_features": [
+        "NumInqLast6M",
+        "NumInqLast6Mexcl7days"
+      ],
+      "status": "draft_recommendation"
+    },
+    {
+      "cluster_id": "vif-cluster-85f3edd74d",
+      "rationale": "Combine only if business meaning and development-population validation support a transparent derived feature.",
+      "source_features": [
+        "NumTrades60Ever2DerogPubRec",
+        "NumTrades90Ever2DerogPubRec"
+      ],
+      "status": "draft_recommendation"
+    },
+    {
+      "cluster_id": "vif-cluster-b7d8073939",
+      "rationale": "Combine only if business meaning and development-population validation support a transparent derived feature.",
+      "source_features": [
+        "ExternalRiskEstimate",
+        "MaxDelq2PublicRecLast12M"
+      ],
+      "status": "draft_recommendation"
+    },
+    {
+      "cluster_id": "vif-cluster-d43c57dd29",
+      "rationale": "Combine only if business meaning and development-population validation support a transparent derived feature.",
+      "source_features": [
+        "NumSatisfactoryTrades",
+        "NumTotalTrades"
+      ],
+      "status": "draft_recommendation"
+    }
+  ],
+  "proposed_exclusions": [
+    {
+      "cluster_id": "vif-cluster-7f3a6da7a9",
+      "feature": "NumInqLast6Mexcl7days",
+      "status": "requires_tie_breaker"
+    },
+    {
+      "cluster_id": "vif-cluster-85f3edd74d",
+      "feature": "NumTrades60Ever2DerogPubRec",
+      "status": "requires_tie_breaker"
+    }
+  ],
+  "protected_predictors": [
+    "ExternalRiskEstimate"
+  ],
+  "remaining_unresolved_clusters": [
+    {
+      "cluster_id": "vif-cluster-b7d8073939",
+      "features": [
+        "ExternalRiskEstimate",
+        "MaxDelq2PublicRecLast12M",
+        "MaxDelqEver",
+        "PercentTradesNeverDelq"
+      ],
+      "reason": "The illustrative path remains above the reviewer-selected VIF threshold."
+    }
+  ],
+  "retained_profile": {
+    "average_interpretability": 1.0,
+    "average_missingness": 0.0,
+    "average_production_availability": 1.0,
+    "average_special_value_burden": 0.11365585277935875,
+    "development_signal_retained": 3.963735945727555,
+    "development_signal_retained_ratio": 0.9258700231395542
+  },
+  "status": "generated",
+  "target": "bad_flag",
+  "ties": [
+    {
+      "cluster_id": "vif-cluster-7f3a6da7a9",
+      "equivalent_maximum_vif": 32.36991287208464,
+      "features": [
+        "NumInqLast6M",
+        "NumInqLast6Mexcl7days"
+      ],
+      "message": "VIF alone cannot distinguish the preferred inquiry variable.",
+      "required_tie_breakers": [
+        "development-population signal",
+        "business interpretability",
+        "data quality and missingness",
+        "bureau special-value burden",
+        "production availability and definition stability",
+        "intended model-family behavior"
+      ]
+    },
+    {
+      "cluster_id": "vif-cluster-85f3edd74d",
+      "equivalent_maximum_vif": 152.5755119622707,
+      "features": [
+        "NumTrades60Ever2DerogPubRec",
+        "NumTrades90Ever2DerogPubRec"
+      ],
+      "message": "VIF alone cannot distinguish the preferred variable in this cluster.",
+      "required_tie_breakers": [
+        "development-population signal",
+        "business interpretability",
+        "data quality and missingness",
+        "bureau special-value burden",
+        "production availability and definition stability",
+        "intended model-family behavior"
+      ]
+    }
+  ],
+  "updated_at": "2026-08-01T21:03:05.278971+00:00"
+}

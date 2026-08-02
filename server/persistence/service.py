@@ -14,8 +14,10 @@ from .repositories import (
     EvidenceRepository,
     ExperimentalDesignRepository,
     ExportRepository,
+    HoldoutGovernanceRepository,
     ModelRepository,
     ModelVersionRepository,
+    ProjectDatasetActivationRepository,
     ProjectRepository,
     RunRepository,
     ScoringRunRepository,
@@ -40,9 +42,11 @@ class PersistenceService:
         self.scoring_runs = ScoringRunRepository(database)
         self.models = ModelRepository(database)
         self.model_versions = ModelVersionRepository(database)
+        self.project_dataset_activations = ProjectDatasetActivationRepository(database)
         self.decisions = DecisionJournalRepository(database)
         self.documentation = DocumentationRepository(database)
         self.exports = ExportRepository(database)
+        self.holdout_governance = HoldoutGovernanceRepository(database)
         self.users = UserRepository(database)
         self.audit = AuditRepository(database)
         self.access = AccessRepository(database)

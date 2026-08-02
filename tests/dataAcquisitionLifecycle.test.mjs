@@ -411,7 +411,7 @@ test("the accessible summary reports the same values the chart plots", () => {
   assert.equal(lib.describeTargetDistribution(null), "Target distribution is not available.");
 });
 
-test("exact-version reactivation restores the governed target contract before reporting backend sync", async () => {
+test("browser restoration probes durable identity without automatically activating it", async () => {
   const source = await readFile(
     new URL("src/steps/Step01_DataAcquisition.tsx", ROOT),
     "utf8",
@@ -422,21 +422,50 @@ test("exact-version reactivation restores the governed target contract before re
   assert.notEqual(end, -1, "missing exact identity restoration invocation");
   const restore = source.slice(start, end);
 
-  assert.match(restore, /reactivated = true/);
-  assert.match(
+  assert.match(restore, /fetch\([\s\S]*?\/data\/active-identity\?project_id=/);
+  assert.doesNotMatch(
     restore,
-    /if \(reactivated\) \{[\s\S]*?buildTargetPersistencePayload\(resolved,\s*\{[\s\S]*?target:\s*saved\.target,[\s\S]*?selected_columns:\s*saved\.selected_columns,[\s\S]*?event_value:\s*saved\.event_value,[\s\S]*?non_event_value:\s*saved\.non_event_value/,
-    "reactivation must reapply the complete saved target contract",
+    /activateDatasetVersion\(/,
+    "browser cache restoration must never change durable active selection",
   );
-  assert.match(restore, /fetch\(`\$\{BASE\}\/data\/set_target`/);
-  assert.match(restore, /assertExactDatasetActivation\(resolved,\s*targetResult\)/);
+  assert.doesNotMatch(restore, /linkDatasetToProject\(/);
+  assert.match(restore, /setReactivationRequired\(true\)/);
+  assert.match(restore, /Reactivate it explicitly below/);
+});
 
-  const targetRestore = restore.indexOf(
-    "await fetch(`${BASE}/data/set_target`",
+test("explicit Load performs one combined durable project-link activation", async () => {
+  const source = await readFile(
+    new URL("src/steps/Step01_DataAcquisition.tsx", ROOT),
+    "utf8",
   );
-  const backendSynced = restore.indexOf("setBackendImportSynced(true)");
-  assert.ok(targetRestore >= 0);
-  assert.ok(backendSynced > targetRestore);
+  const start = source.indexOf("onLoad={async () => {");
+  const end = source.indexOf("\n    />", start);
+  assert.notEqual(start, -1, "missing explicit Dataset Library load action");
+  assert.ok(end > start, "missing explicit Dataset Library load action boundary");
+  const load = source.slice(start, end);
+
+  assert.equal(
+    (load.match(/activateDatasetVersion\(/g) ?? []).length,
+    1,
+    "explicit Load must invoke the transactional link-and-activate command once",
+  );
+  assert.doesNotMatch(
+    load,
+    /linkDatasetToProject\(/,
+    "explicit Load must not split project linking from active-version selection",
+  );
+  assert.match(
+    load,
+    /const activation = await activateDatasetVersion\(\s*selectedLibraryDatasetId,\s*selectedLibraryVersionId,\s*projectId\s*\)/,
+  );
+  assert.match(load, /const canonical = assertExactDatasetActivation\(/);
+  assert.match(load, /activation\.activation_revision/);
+
+  const activation = load.indexOf("await activateDatasetVersion(");
+  const preview = load.indexOf("await getDatasetPreview(");
+  const success = load.indexOf('phase: "loaded"');
+  assert.ok(activation >= 0 && preview > activation);
+  assert.ok(success > preview, "loaded success must follow durable activation and exact preview recovery");
 });
 
 test("target and predictor partial saves retain the existing canonical and profiling envelope", async () => {

@@ -127,12 +127,44 @@ def epoch() -> int:
 
 
 def connect() -> sqlite3.Connection:
+    _assert_test_security_storage_isolated()
     SECURITY_ROOT.mkdir(parents=True, exist_ok=True)
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
+
+
+def _assert_test_security_storage_isolated() -> None:
+    test_mode = (
+        os.getenv("ATLAS_ENV", "").strip().casefold() in {"test", "testing"}
+        or os.getenv("ATLAS_TEST_MODE", "").strip().casefold()
+        in {"1", "true", "yes"}
+        or bool(os.getenv("PYTEST_CURRENT_TEST"))
+    )
+    if not test_mode:
+        return
+    configured = os.getenv("ATLAS_SECURITY_DB_PATH")
+    try:
+        configured_path = (
+            Path(configured).expanduser().resolve() if configured else None
+        )
+        active_path = DB_PATH.expanduser().resolve()
+        live_path = (DEFAULT_SECURITY_ROOT / "atlas_security.db").resolve()
+    except OSError as exc:
+        raise RuntimeError(
+            "ATLAS test security storage path could not be verified."
+        ) from exc
+    if (
+        configured_path is None
+        or active_path != configured_path
+        or active_path == live_path
+    ):
+        raise RuntimeError(
+            "Refusing security test write because the cached DB_PATH is not "
+            "the explicit isolated ATLAS_SECURITY_DB_PATH."
+        )
 
 
 def security_configuration_summary() -> Dict[str, Any]:
@@ -215,6 +247,7 @@ def enforce_hosted_security_configuration() -> None:
 
 
 def init_security_store() -> None:
+    _assert_test_security_storage_isolated()
     validate_security_configuration()
     SECURITY_ROOT.mkdir(parents=True, exist_ok=True)
     with connect() as conn:

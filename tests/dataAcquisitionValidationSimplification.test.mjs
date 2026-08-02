@@ -39,8 +39,8 @@ test("special-value review renders a governed, readable twelve-column table", ()
     "Event rate",
     "Regular-value event rate",
     "Event-rate difference",
-    "Default handling",
-    "Override handling",
+    "Default action",
+    "Override action",
     "Rationale",
     "Review state",
   ]) {
@@ -57,7 +57,7 @@ test("variable navigation, defaults, overrides, and scoped rationale are explici
   for (const contract of [
     "Variable navigator",
     "Search bureau variables",
-    "Variable-level default treatment",
+    "Default action for special values",
     "Use variable default",
     "Override",
     "Required because this value overrides the variable default.",
@@ -99,7 +99,7 @@ test("the rendered validation flow is one recommended holdout-plus-CV path", () 
     "Training and Validation Design",
     "20% · recommended",
     "Stratified K-fold · recommended",
-    "Cross-validation occurs only inside the training population.",
+    "cross-validation inside the training population",
     "Holdout remains untouched",
     "Recommended: No balancing required",
   ]) {
@@ -111,19 +111,30 @@ test("the rendered validation flow is one recommended holdout-plus-CV path", () 
   assert.doesNotMatch(activeValidationUi, /<ValidationStrategyCard/);
 });
 
-test("external validation and predictor review are optional collapsed details", () => {
+test("balancing, external validation, and predictor review remain visible workflow sections", () => {
   assert.match(
     activeValidationUi,
-    /<details[\s\S]*data-testid="advanced-external-validation"/,
+    /<section data-testid="advanced-balancing-settings">[\s\S]*title="Advanced Balancing Settings"/,
   );
-  assert.match(activeValidationUi, /Advanced: External Validation Data/);
+  assert.match(
+    activeValidationUi,
+    /<section data-testid="advanced-external-validation">[\s\S]*title="Advanced External Validation Data"/,
+  );
+  assert.doesNotMatch(
+    activeValidationUi,
+    /<details[^>]*data-testid="advanced-(?:balancing-settings|external-validation)"/,
+  );
   assert.match(activeValidationUi, /External validation datasets are optional/);
   assert.match(activeValidationUi, /Use separate TEST dataset/);
   assert.match(activeValidationUi, /Use OOT dataset/);
   assert.match(activeValidationUi, /Use both TEST and OOT/);
   assert.match(
     activeValidationUi,
-    /<details[\s\S]*data-testid="compact-final-predictor-review"/,
+    /<section data-testid="compact-final-predictor-review">[\s\S]*title="Final Predictor Review"/,
+  );
+  assert.doesNotMatch(
+    activeValidationUi,
+    /<details[^>]*data-testid="compact-final-predictor-review"/,
   );
   assert.match(activeValidationUi, /View Full Predictor Contract/);
   assert.match(splitRouter, /external_validation_mode/);
@@ -139,7 +150,8 @@ test("readiness is exact, target distribution is available before split, and dra
   ]) {
     assert.ok(activeValidationUi.includes(blocker), `missing exact blocker: ${blocker}`);
   }
-  assert.match(activeValidationUi, /saveValidationDraft\(projectId/);
+  assert.match(activeValidationUi, /saveValidationDraft\(datasetIdentity/);
+  assert.match(activeValidationUi, /canonicalDatasetStorageKey\(VALIDATION_DRAFT_PREFIX, identity\)/);
   assert.match(activeValidationUi, /Draft auto-saved/);
   assert.match(activeValidationUi, /Retry target distribution/);
   assert.match(

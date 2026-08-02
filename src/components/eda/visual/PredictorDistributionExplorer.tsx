@@ -94,6 +94,15 @@ type DistributionResponse = {
   returned_bins: number;
   engine: string;
   resolution: "exact";
+  scope?: string;
+  descriptive_scope?: string;
+  target_directed_scope?: string;
+  target_directed_rows?: number;
+  analysis_scope?: {
+    populationRows?: number;
+    fullGovernedPopulationRows?: number;
+    finalHoldoutAccessed?: boolean;
+  };
   bins: DistributionBin[];
   missing_bucket: {
     label: string;
@@ -236,6 +245,12 @@ function finite(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+function governedMissingRate(data: DistributionResponse | null): number | null {
+  const population = Number(data?.analysis_scope?.fullGovernedPopulationRows ?? 0);
+  if (population <= 0) return null;
+  return Number(data?.statistics.missing_count ?? 0) / population;
+}
+
 function distributionBoxPlotSeries(
   data: DistributionResponse | null,
 ): BoxPlotSeries[] {
@@ -306,8 +321,9 @@ function formatLift(eventRate: unknown, populationEventRate: number | null) {
 }
 
 /**
- * Selection requests return the same full-population visual payload alongside
- * new subset metrics. Comparing only the fields consumed by DistributionChart
+ * Selection requests return the same governed mixed-scope visual payload:
+ * Full Governed Population structural distribution plus Development Population target signal,
+ * alongside new subset metrics. Comparing only the fields consumed by DistributionChart
  * keeps its object identity stable so a brush update does not replay every
  * chart transition.
  */
@@ -544,6 +560,15 @@ export default function PredictorDistributionExplorer({
       ? displayData
       : null;
   const boxPlotSeries = distributionBoxPlotSeries(displayData);
+  const fullGovernedRows = Number(
+    displayData?.analysis_scope?.fullGovernedPopulationRows ?? 0,
+  );
+  const developmentRows = Number(
+    displayData?.target_directed_rows ??
+      displayData?.analysis_scope?.populationRows ??
+      0,
+  );
+  const fullGovernedMissingRate = governedMissingRate(displayData);
   const populationEventRate = useMemo(() => {
     if (problemType !== "classification") return null;
     let events = 0;
@@ -650,6 +675,9 @@ export default function PredictorDistributionExplorer({
     <section
       className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm"
       data-testid="predictor-distribution-explorer"
+      data-scope="governed_mixed_scope"
+      data-descriptive-scope={displayData?.descriptive_scope ?? "full_governed_population"}
+      data-target-directed-scope={displayData?.target_directed_scope ?? "development_population"}
       data-motion-phase={motionPhase}
       data-reduced-motion={reducedMotion ? "true" : "false"}
       aria-labelledby="predictor-distribution-title"
@@ -659,22 +687,26 @@ export default function PredictorDistributionExplorer({
           <div>
             <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.16em] text-blue-200">
               <BarChart3 size={15} />
-              Full-population visual intelligence
+              Governed mixed-scope visual intelligence
             </div>
             <h3 id="predictor-distribution-title" className="mt-1 text-lg font-semibold">
               Predictor Distribution Explorer
             </h3>
             <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-300">
-              Server-aggregated bins, statistical markers, target behavior, missingness, and
-              a non-mutating range selection for the governed predictor manifest.
+              Distribution, statistical markers, missingness, and outlier bounds use the Full
+              Governed Population. IV, WoE, event rates, and target-class overlays use the
+              Development Population; the sealed final holdout is excluded.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full border border-blue-400/40 bg-blue-400/10 px-2.5 py-1 text-[11px] font-semibold text-blue-100">
-              Full Dataset Aggregation
+              Full Governed Population · distribution
+            </span>
+            <span className="rounded-full border border-emerald-300/50 bg-emerald-400/10 px-2.5 py-1 text-[11px] font-semibold text-emerald-100">
+              Development Population · {developmentRows ? `${developmentRows.toLocaleString()} rows` : "target signal"}
             </span>
             <span className="rounded-full border border-slate-500 bg-slate-800 px-2.5 py-1 text-[11px] font-semibold text-slate-200">
-              {displayData?.row_count?.toLocaleString() ?? "—"} rows
+              {fullGovernedRows ? fullGovernedRows.toLocaleString() : "—"} full governed rows
             </span>
           </div>
         </div>
@@ -718,7 +750,7 @@ export default function PredictorDistributionExplorer({
             onChange={setShowDensity}
           />
           <OverlayToggle
-            label="Event rate"
+            label="Event rate (Development)"
             checked={showEventRate}
             onChange={setShowEventRate}
             disabled={problemType !== "classification"}
@@ -794,7 +826,7 @@ export default function PredictorDistributionExplorer({
               series={boxPlotSeries}
               valueLabel={variable}
               dataTestId="eda-predictor-box-plot"
-              note="Rose endpoints mark the observed minimum and maximum. The reported outlier count is computed over the full population; no raw predictor values are loaded into the browser."
+              note="Rose endpoints mark the observed minimum and maximum. Box-plot statistics and the reported outlier count use the Full Governed Population; no raw predictor values are loaded into the browser."
             />
           </div>
         ) : null}
@@ -807,7 +839,7 @@ export default function PredictorDistributionExplorer({
             data-testid="eda-predictor-metric-grid"
           >
             <Metric
-              label="Selected rows"
+              label="Selected rows (Full governed)"
               value={
                 loading && !metricData
                   ? "Updating"
@@ -815,7 +847,7 @@ export default function PredictorDistributionExplorer({
               }
             />
             <Metric
-              label="Population share"
+              label="Population share (Full governed)"
               value={
                 loading && !metricData
                   ? "Updating"
@@ -823,7 +855,7 @@ export default function PredictorDistributionExplorer({
               }
             />
             <Metric
-              label="Selected mean"
+              label="Selected mean (Full governed)"
               value={
                 loading && !metricData
                   ? "Updating"
@@ -831,7 +863,7 @@ export default function PredictorDistributionExplorer({
               }
             />
             <Metric
-              label="Selected median"
+              label="Selected median (Full governed)"
               value={
                 loading && !metricData
                   ? "Updating"
@@ -839,7 +871,7 @@ export default function PredictorDistributionExplorer({
               }
             />
             <Metric
-              label="IQR (Q1 – Q3)"
+              label="IQR (Full governed)"
               value={
                 loading && !metricData
                   ? "Updating"
@@ -850,7 +882,7 @@ export default function PredictorDistributionExplorer({
               }
             />
             <Metric
-              label={problemType === "classification" ? "Selected target rate" : "Target rate"}
+              label={problemType === "classification" ? "Selected target rate (Development)" : "Target rate"}
               value={
                 problemType === "classification"
                   ? loading && !metricData
@@ -864,7 +896,7 @@ export default function PredictorDistributionExplorer({
               value={
                 activeRange
                   ? formatNumericRange(activeRange.min, activeRange.max)
-                  : "Full population"
+                  : "Full Governed Population"
               }
             />
           </dl>
@@ -909,7 +941,8 @@ export default function PredictorDistributionExplorer({
               <div>
                 <div className="text-base font-semibold text-slate-950">Linked quantile view</div>
                 <div className="mt-1 text-sm leading-5 text-slate-600">
-                  Select a quantile to move the histogram brush; brushed ranges highlight overlapping quantiles.
+                  Development Population event-rate bands. Select a quantile to move the
+                  Full Governed Population histogram brush; brushed ranges highlight overlap.
                 </div>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
@@ -936,7 +969,7 @@ export default function PredictorDistributionExplorer({
                   ))}
                 </div>
                 <span className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-slate-600">
-                  Full Dataset Aggregation
+                  Development Population · final holdout excluded
                 </span>
               </div>
             </div>
@@ -995,7 +1028,7 @@ export default function PredictorDistributionExplorer({
                       })
                     }
                     aria-pressed={pinned}
-                    aria-label={`${label}; band ${bandRange}; event rate ${eventRate}; ${rowCount} rows; lift versus population ${lift}${pinned ? "; pinned" : ""}`}
+                    aria-label={`${label}; Development Population band ${bandRange}; event rate ${eventRate}; ${rowCount} development rows; lift versus development baseline ${lift}${pinned ? "; pinned" : ""}`}
                     data-quantile-index={index}
                   >
                     <span className="flex items-start justify-between gap-2">
@@ -1009,7 +1042,7 @@ export default function PredictorDistributionExplorer({
                       ) : null}
                     </span>
                     <span className="mt-3 block text-[11px] font-semibold uppercase tracking-wide opacity-70">
-                      Event rate
+                      Event rate (Development)
                     </span>
                     <span
                       className={`mt-0.5 block font-bold tabular-nums ${
@@ -1031,7 +1064,7 @@ export default function PredictorDistributionExplorer({
                     <span className="mt-3 grid grid-cols-2 gap-3 border-t border-current/20 pt-2.5">
                       <span>
                         <span className="block text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                          Rows
+                          Development rows
                         </span>
                         <span className="mt-0.5 block text-sm font-bold tabular-nums">
                           {rowCount}
@@ -1039,7 +1072,7 @@ export default function PredictorDistributionExplorer({
                       </span>
                       <span>
                         <span className="block text-[10px] font-semibold uppercase tracking-wide opacity-70">
-                          Lift vs population
+                          Lift vs development
                         </span>
                         <span className="mt-0.5 block text-sm font-bold tabular-nums">
                           {lift}
@@ -1057,7 +1090,7 @@ export default function PredictorDistributionExplorer({
           <div className="rounded-xl border border-slate-200 bg-white p-3">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div>
-                <div className="text-sm font-semibold text-slate-950">Full-population markers</div>
+                <div className="text-sm font-semibold text-slate-950">Full Governed Population markers</div>
                 <div className="mt-1 text-xs text-slate-500">
                   Mean and median animate to their new positions when the predictor changes.
                 </div>
@@ -1077,12 +1110,12 @@ export default function PredictorDistributionExplorer({
               Separate missing bucket
             </div>
             <div className="mt-1 text-xl font-semibold text-slate-950">
-              {formatNumber(displayData?.missing_bucket.count, 0)}
+              {formatNumber(displayData?.statistics.missing_count, 0)}
             </div>
             <div className="text-xs text-slate-600">
-              {formatPercent(displayData?.missing_bucket.share)} of population
+              {formatPercent(fullGovernedMissingRate)} of Full Governed Population
               {problemType === "classification"
-                ? ` · target rate ${formatPercent(displayData?.missing_bucket.event_rate, 2)}`
+                ? ` · Development target rate ${formatPercent(displayData?.missing_bucket.event_rate, 2)}`
                 : ""}
             </div>
           </div>
@@ -1103,9 +1136,9 @@ export default function PredictorDistributionExplorer({
             data-testid="eda-iv-by-bin-toggle"
           >
             <span>
-              <span className="text-sm font-semibold text-slate-950">IV by bin</span>
+              <span className="text-sm font-semibold text-slate-950">IV by bin · Development Population</span>
               <span className="ml-2 text-xs text-slate-500">
-                WoE and signed IV contribution · total IV {formatNumber(displayData?.iv, 4)}
+                WoE and signed IV contribution; sealed final holdout excluded · total IV {formatNumber(displayData?.iv, 4)}
               </span>
             </span>
             <span className="text-xs font-semibold text-blue-700">{showIv ? "Collapse" : "Expand"}</span>
@@ -1145,8 +1178,8 @@ export default function PredictorDistributionExplorer({
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-slate-500">
           <span>
-            Engine: {displayData?.engine ?? "server full-population aggregation"} · resolution: exact ·
-            no raw predictor column loaded into the browser
+            Engine: {displayData?.engine ?? "server governed aggregation"} · exact mixed-scope contract ·
+            Full Governed Population structure + Development Population target signal · no raw predictor column loaded into the browser
           </span>
           <span>
             Server {formatNumber(displayData?.duration_ms, 0)} ms · motion{" "}
@@ -1283,7 +1316,7 @@ function DistributionChart({
       .attr(
         "aria-label",
         (row) =>
-          `${variable}, ${formatNumber(row.lower, 3)} to ${formatNumber(row.upper, 3)}: ${row.count.toLocaleString()} rows, ${formatPercent(row.share)} of population${row.event_rate == null ? "" : `, target rate ${formatPercent(row.event_rate, 2)}`}`,
+          `${variable}, ${formatNumber(row.lower, 3)} to ${formatNumber(row.upper, 3)}: ${row.count.toLocaleString()} rows, ${formatPercent(row.share)} of Full Governed Population${row.event_rate == null ? "" : `, Development target rate ${formatPercent(row.event_rate, 2)}`}`,
       )
       .on("focus pointerenter", (_event, row) => onHover(row))
       .on("blur pointerleave", () => onHover(null))
@@ -1732,7 +1765,7 @@ function DistributionChart({
         <div className="pointer-events-none absolute right-3 top-3 z-10 rounded-full border border-blue-200 bg-white/95 px-2.5 py-1 text-[11px] font-semibold text-blue-700 shadow-sm">
           {activeRange
             ? "Updating selected-subset metrics…"
-            : "Updating full population…"}
+            : "Updating governed mixed-scope view…"}
         </div>
       ) : null}
       {hoveredBin ? (
@@ -1745,18 +1778,18 @@ function DistributionChart({
             {formatNumber(hoveredBin.lower, 3)} to {formatNumber(hoveredBin.upper, 3)}
           </div>
           <div className="mt-1 text-slate-200">
-            {hoveredBin.count.toLocaleString()} rows · {formatPercent(hoveredBin.share)} of population
+            {hoveredBin.count.toLocaleString()} rows · {formatPercent(hoveredBin.share)} of Full Governed Population
           </div>
           {hoveredBin.event_rate != null ? (
             <div className="text-orange-200">
               {formatNumber(hoveredBin.event_count, 0)} events ·{" "}
-              {formatNumber(hoveredBin.non_event_count, 0)} non-events · target rate{" "}
+              {formatNumber(hoveredBin.non_event_count, 0)} non-events · Development target rate{" "}
               {formatPercent(hoveredBin.event_rate, 2)}
             </div>
           ) : null}
           <div className="text-slate-300">
-            Missing bucket: {formatNumber(data?.missing_bucket.count, 0)} rows ·{" "}
-            {formatPercent(data?.missing_bucket.share)} of population
+            Missing bucket: {formatNumber(data?.statistics.missing_count, 0)} rows ·{" "}
+            {formatPercent(governedMissingRate(data))} of Full Governed Population
           </div>
         </div>
       ) : null}
@@ -1767,14 +1800,14 @@ function DistributionChart({
         aria-busy={loading}
         aria-label={
           data
-            ? `Full-population histogram of ${data.feature}. Mean ${formatNumber(data.markers.mean, 3)}, median ${formatNumber(data.markers.median, 3)}. Use Tab to focus bins, Enter to select a bin, or the numeric range inputs below.`
-            : "Full-population distribution chart is loading."
+            ? `Governed mixed-scope chart of ${data.feature}. Histogram, mean ${formatNumber(data.markers.mean, 3)}, median ${formatNumber(data.markers.median, 3)}, missingness, and outlier bounds use the Full Governed Population. Target-rate and target-class overlays use the Development Population, with the sealed final holdout excluded. Use Tab to focus bins, Enter to select a bin, or the numeric range inputs below.`
+            : "Governed mixed-scope distribution chart is loading."
         }
         data-testid="eda-distribution-svg"
       />
       {!data ? (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white/55 text-sm text-slate-600 backdrop-blur-[1px]">
-          {loading ? "Aggregating the full population…" : "Distribution data is not available."}
+          {loading ? "Aggregating governed distribution and development target signal…" : "Distribution data is not available."}
         </div>
       ) : null}
     </div>
@@ -1846,7 +1879,7 @@ function IvTable({ rows }: { rows: DistributionResponse["iv_by_bin"] }) {
       <table className="w-full min-w-[760px] text-xs">
         <thead className="sticky top-0 bg-slate-950 text-white">
           <tr>
-            {["Bin", "Rows", "Events", "Non-events", "Event rate", "WoE", "IV contribution"].map(
+            {["Bin", "Development rows", "Events", "Non-events", "Event rate (Development)", "WoE (Development)", "IV contribution (Development)"].map(
               (label) => (
                 <th key={label} className="px-3 py-2.5 text-left text-[10px] uppercase tracking-wide">
                   {label}
@@ -1886,7 +1919,7 @@ function DistributionDataTable({
       <table className="w-full min-w-[680px] text-xs">
         <thead className="sticky top-0 bg-slate-100 text-slate-700">
           <tr>
-            {["Lower", "Upper", "Rows", "Population share", ...(problemType === "classification" ? ["Events", "Target rate"] : [])].map(
+            {["Lower", "Upper", "Full governed rows", "Full governed share", ...(problemType === "classification" ? ["Development events", "Target rate (Development)"] : [])].map(
               (label) => (
                 <th key={label} className="px-3 py-2 text-left text-[10px] uppercase tracking-wide">
                   {label}

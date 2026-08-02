@@ -99,9 +99,19 @@ def _feature_documentation(
         for row in manifest.get("features", [])
         if isinstance(row, dict) and row.get("origin") != "original"
     ]
+    included_features = [
+        row
+        for row in features
+        if row.get("selected") and row.get("eligibility_status") == "eligible"
+    ]
+    excluded_features = [
+        row
+        for row in features
+        if row not in included_features
+    ]
     materialized = [
         row.get("feature_name")
-        for row in features
+        for row in included_features
         if row.get("materialization_status") == "materialized"
     ]
     manifest_hash = str(
@@ -117,7 +127,7 @@ def _feature_documentation(
         and manifest.get("confirmed_manifest_hash") == manifest_hash
         and all(
             row.get("materialization_status") == "materialized"
-            for row in features
+            for row in included_features
         )
     )
     return {
@@ -142,7 +152,19 @@ def _feature_documentation(
                 "evidence_reference": row.get("evidence_reference"),
                 "materialization_status": row.get("materialization_status"),
             }
-            for row in features
+            for row in included_features
+        ],
+        "excluded_features": [
+            {
+                "feature_name": row.get("feature_name"),
+                "origin": row.get("origin"),
+                "formula_or_rule": row.get("formula_or_rule"),
+                "source_features": row.get("source_features") or [],
+                "rationale": row.get("user_rationale") or "",
+                "exclusion_reason": row.get("exclusion_reason") or "Excluded from the governed feature contract.",
+                "materialization_status": row.get("materialization_status"),
+            }
+            for row in excluded_features
         ],
         "materialized_features": materialized,
         "pipeline_steps": manifest.get("pipeline_steps") or [],

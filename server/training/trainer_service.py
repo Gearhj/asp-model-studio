@@ -80,11 +80,13 @@ class TrainerService:
                 return str(col)
         return None
 
-    def _get_or_create_splits(self, k_folds: int) -> Tuple[Any, Any, Any, Any, List[str]]:
-        """Compatibility name retained for callers; hidden split creation is prohibited."""
-        X_train, X_test, y_train, y_test = DATASTORE.get_splits()
-        if any(part is None for part in (X_train, X_test, y_train, y_test)):
-            raise ValueError("A governed validation split has not been created. Return to Balance & Split.")
+    def _get_training_partition(self, k_folds: int) -> Tuple[Any, Any, List[str]]:
+        """Return only the governed development population used for selection."""
+        scoped_store = DATASTORE.current()
+        X_train = scoped_store.X_train
+        y_train = scoped_store.y_train
+        if X_train is None or y_train is None:
+            raise ValueError("A governed training population has not been created. Return to Balance & Split.")
         if str(DATASTORE.meta.get("split_status") or "not_created") != "current":
             raise ValueError("The governed validation split is stale. Rebuild it in Balance & Split.")
 
@@ -97,7 +99,7 @@ class TrainerService:
         ]
         if not governed:
             governed = DATASTORE.get_selected_columns()
-        missing = [column for column in governed if column not in X_train.columns or column not in X_test.columns]
+        missing = [column for column in governed if column not in X_train.columns]
         unexpected = [column for column in X_train.columns if governed and column not in governed]
         if missing:
             raise ValueError("The training split is missing approved predictors: " + ", ".join(missing))
@@ -105,13 +107,11 @@ class TrainerService:
             raise ValueError("The training split contains predictors outside the approved manifest: " + ", ".join(map(str, unexpected)))
         if governed:
             X_train = X_train.loc[:, governed].copy()
-            X_test = X_test.loc[:, governed].copy()
         X_train, dropped_train = self._sanitize_feature_frame(X_train, active_target)
-        X_test, dropped_test = self._sanitize_feature_frame(X_test, active_target)
-        dropped = sorted(set(dropped_train + dropped_test))
+        dropped = sorted(set(dropped_train))
         if dropped:
             raise ValueError("Target-derived fields reached the training contract: " + ", ".join(dropped))
-        return X_train, X_test, y_train, y_test, []
+        return X_train, y_train.copy(), []
 
     def get_availability(self) -> Dict[str, Any]:
         availability: Dict[str, bool] = {}
@@ -142,19 +142,47 @@ class TrainerService:
         dataset_version: str = "",
         target: str = "",
         problem_type: str = "",
+        primary_metric: str = "",
+        event_value: Any | None = None,
     ) -> Dict[str, Any]:
-        X_train, X_test, y_train, y_test, excluded_target_features = self._get_or_create_splits(k_folds)
+        X_train, y_train, excluded_target_features = self._get_training_partition(k_folds)
+        split_record = (
+            DATASTORE.meta.get("split_record")
+            if isinstance(DATASTORE.meta.get("split_record"), dict)
+            else {}
+        )
+        cv_execution_splits = [
+            (
+                [int(value) for value in (fold.get("train_positions") or [])],
+                [int(value) for value in (fold.get("validation_positions") or [])],
+            )
+            for fold in (split_record.get("cv_execution_splits") or [])
+            if isinstance(fold, dict)
+        ]
 
         result = train_models(
             X_train=X_train,
-            X_test=X_test,
             y_train=y_train,
-            y_test=y_test,
             requested_models=models,
             grid_search=grid_search,
             grid_search_level=grid_search_level,
             model_params=model_params or {},
             calibrate=calibrate,
+            cv_folds=k_folds,
+            cv_splits=cv_execution_splits,
+            primary_metric=primary_metric,
+            positive_class=event_value,
+            selection_partition_id=str(
+                split_record.get("selection_partition_id")
+                or split_record.get("training_population_id")
+                or ""
+            ),
+            fold_definition_id=str(split_record.get("fold_definition_id") or ""),
+            balancing_status=str(
+                (split_record.get("balancing_policy") or {}).get(
+                    "selection_resampling_status", "not_applied"
+                )
+            ),
         )
         if not result.get("ok"):
             raise ValueError(result.get("error") or "No models were successfully trained.")
@@ -183,7 +211,7 @@ class TrainerService:
                 "target": active_target,
                 "training_run_id": training_run_id,
                 "n_train": int(len(y_train)),
-                "n_test": int(len(y_test)),
+                "n_test": int(split_record.get("n_test") or 0),
                 "n_features": int(X_train.shape[1]),
                 "trained_feature_names": [str(column) for column in X_train.columns],
                 "excluded_target_features": excluded_target_features,

@@ -19,6 +19,7 @@ from .documentation_service import (
     eda_documentation_service,
 )
 from .documentation_types import (
+    EDACompletionRequest,
     EDADocumentationPayload,
     EDAInvalidationRequest,
 )
@@ -27,8 +28,11 @@ from .workspace_service import (
     RelationshipSampleValidationError,
     eda_workspace_service,
 )
+from .analytical_contract import EDAAnalyticalContractError
 from .workspace_types import (
     EDARelationshipSampleRequest,
+    EDAVifResolutionDecisionRequest,
+    EDAVifResolutionPlanRequest,
     EDAVifSimulationRequest,
     EDAWorkspaceRequest,
     TargetByPredictorRequest,
@@ -112,6 +116,20 @@ def confirm_eda_documentation(
         _raise_documentation_validation(exc)
 
 
+@router.post("/completion")
+def complete_eda_governance(
+    request: EDACompletionRequest,
+    user: Dict[str, Any] = Depends(require_user),
+):
+    """Run the idempotent all-or-nothing EDA governance sequence."""
+
+    authorize_modeling_scope(user, request.payload.project_id, "edit")
+    try:
+        return eda_documentation_service.complete(request, user)
+    except EDADocumentationValidationError as exc:
+        _raise_documentation_validation(exc)
+
+
 @router.post("/documentation/{project_id}/invalidate")
 def invalidate_eda_documentation(
     project_id: str,
@@ -151,7 +169,13 @@ def eda_workspace_section(section: str, request: EDAWorkspaceRequest, user: Dict
         return result
     except ValueError as exc:
         detail = str(exc)
-        status = 409 if "dataset" in detail.lower() or "target" in detail.lower() else 400
+        status = (
+            409
+            if isinstance(exc, EDAAnalyticalContractError)
+            or "dataset" in detail.lower()
+            or "target" in detail.lower()
+            else 400
+        )
         if DEV_LOGGING:
             logger.info(
                 "EDA request received section=%s dataset=unavailable found=false rows=0 cols=0 target=%s status=%s detail=%s",
@@ -164,7 +188,13 @@ def eda_workspace_section(section: str, request: EDAWorkspaceRequest, user: Dict
             status_code=status,
             detail={
                 "ok": False,
-                "code": "backend_dataset_missing" if status == 409 else "eda_request_invalid",
+                "code": (
+                    "eda_analytical_scope_not_current"
+                    if isinstance(exc, EDAAnalyticalContractError)
+                    else "backend_dataset_missing"
+                    if status == 409
+                    else "eda_request_invalid"
+                ),
                 "message": detail,
                 "recovery": "Return to Data Acquisition and re-register the dataset, or retry after confirming the backend is running.",
             },
@@ -173,24 +203,25 @@ def eda_workspace_section(section: str, request: EDAWorkspaceRequest, user: Dict
 
 @router.post("/target-by-predictor")
 def eda_target_by_predictor(request: TargetByPredictorRequest, user: Dict[str, Any] = Depends(require_user)):
-    """On-demand Target-by-Predictor over the full in-memory backend population.
-
-    A distinct path (not a `/workspace/{section}` value) so it cannot be reached
-    accidentally by the section catch-all. Used only when the project has no
-    registered Dataset Library version; a registered project uses
-    POST /api/analytics/target-by-predictor, which scans the immutable artifact.
-    """
+    """On-demand Target-by-Predictor over the governed development population."""
     authorize_modeling_scope(user, request.project_id, "view")
     try:
         return eda_workspace_service.target_by_predictor(request)
     except ValueError as exc:
         detail = str(exc)
-        status = 409 if "no full backend dataset" in detail.lower() else 400
+        scope_error = isinstance(exc, EDAAnalyticalContractError)
+        status = 409 if scope_error or "no full backend dataset" in detail.lower() else 400
         raise HTTPException(
             status_code=status,
             detail={
                 "ok": False,
-                "code": "backend_dataset_missing" if status == 409 else "eda_request_invalid",
+                "code": (
+                    "eda_analytical_scope_not_current"
+                    if scope_error
+                    else "backend_dataset_missing"
+                    if status == 409
+                    else "eda_request_invalid"
+                ),
                 "message": detail,
                 "recovery": "Confirm a target and a valid predictor, or return to Data Acquisition and re-register the dataset.",
             },
@@ -206,6 +237,68 @@ def eda_vif_simulation(request: EDAVifSimulationRequest, user: Dict[str, Any] = 
         return eda_workspace_service.vif_simulation(request)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
+@router.post("/vif-resolution-plan")
+def eda_vif_resolution_plan(
+    request: EDAVifResolutionPlanRequest,
+    user: Dict[str, Any] = Depends(require_user),
+):
+    """Generate a governed recommendation plan without changing predictors."""
+
+    authorize_modeling_scope(user, request.project_id, "view")
+    try:
+        return eda_workspace_service.vif_resolution_plan(request)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "ok": False,
+                "code": "vif_resolution_plan_invalid",
+                "message": str(exc),
+            },
+        ) from exc
+
+
+@router.post("/vif-resolution-plan/decision")
+def eda_vif_resolution_decision(
+    request: EDAVifResolutionDecisionRequest,
+    user: Dict[str, Any] = Depends(require_user),
+):
+    """Record a disposition and draft Feature Engineering recommendations."""
+
+    authorize_modeling_scope(user, request.project_id, "edit")
+    try:
+        return eda_workspace_service.vif_resolution_decision(
+            request,
+            actor_id=str(user.get("userId") or user.get("id") or "ATLAS"),
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "ok": False,
+                "code": "vif_resolution_decision_invalid",
+                "message": str(exc),
+            },
+        ) from exc
+
+
+@router.get("/vif-resolution-recommendations")
+def eda_vif_resolution_recommendations(
+    project_id: str = Query(...),
+    expected_dataset_id: str = Query(...),
+    expected_dataset_version_id: str = Query(...),
+    user: Dict[str, Any] = Depends(require_user),
+):
+    """Return exact-version draft VIF recommendations for Feature Engineering."""
+
+    authorize_modeling_scope(user, project_id, "view")
+    return eda_workspace_service.vif_feature_recommendations(
+        project_id=project_id,
+        expected_dataset_id=expected_dataset_id,
+        expected_dataset_version_id=expected_dataset_version_id,
+    )
 
 
 @router.post("/relationship-sample")

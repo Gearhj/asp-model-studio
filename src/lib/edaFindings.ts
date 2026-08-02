@@ -39,24 +39,64 @@ export type EdaCarryForwardDestination =
   (typeof EDA_CARRY_FORWARD_DESTINATIONS)[number];
 export type EdaTransformationOption =
   (typeof EDA_TRANSFORMATION_OPTIONS)[number];
-export type EdaFindingDisposition = "unresolved" | "accepted" | "rejected";
+export const EDA_FINDING_DISPOSITIONS = [
+  "unresolved",
+  "accepted",
+  "rejected",
+  "deferred",
+  "documented",
+  "no_action_required",
+  "not_applicable",
+] as const;
+
+export type EdaFindingDisposition =
+  (typeof EDA_FINDING_DISPOSITIONS)[number];
+
+export type EdaOverallReviewStatus =
+  | "draft"
+  | "under_review"
+  | "accepted"
+  | "accepted_with_conditions"
+  | "rejected"
+  // Compare-only compatibility value for browser snapshots created before
+  // the governed parent-finding contract was introduced.
+  | "reviewed";
 
 export type EdaFindingDecision = {
   disposition: EdaFindingDisposition;
   rationale: string;
-  destination: EdaCarryForwardDestination;
+  destination: EdaCarryForwardDestination | "";
   transformation: EdaTransformationOption;
   updatedAt?: string;
 };
 
+export type EdaBulkDispositionAudit = {
+  actionId: string;
+  family: string;
+  parentIds: string[];
+  childIds: string[];
+  priorStatuses: Record<string, EdaFindingDisposition>;
+  newStatus: EdaFindingDisposition;
+  rationale: string;
+  destination: EdaCarryForwardDestination | "";
+  actor: string;
+  timestamp: string;
+};
+
 export type EdaFindingsReviewState = {
   commentary: string;
-  status: "draft" | "reviewed" | "accepted";
+  status: EdaOverallReviewStatus;
   savedAt?: string;
   duplicateTreatment?: "review" | "exclude" | "keep";
   duplicateDecisionSavedAt?: string;
   overallConclusion?: string;
   findingDecisions?: Record<string, EdaFindingDecision>;
+  parentDecisions?: Record<string, EdaFindingDecision>;
+  bulkDispositionAudit?: EdaBulkDispositionAudit[];
+  requiredConditions?: string[];
+  openNonblockingItems?: string[];
+  reviewerDraftGeneratedAt?: string;
+  reviewerDraftNonApproving?: true;
 };
 
 export type EdaFinding = {
@@ -204,7 +244,413 @@ function targetSourceExclusions(sections: EdaFindingSections): string[] {
   return strings(
     overview.target_source_excluded ??
       overview.predictor_authorization?.target_source_excluded,
+  ).sort();
+}
+
+function governedPredictorArtifacts(
+  sections: EdaFindingSections,
+): Record<string, Record<string, any>> {
+  const value =
+    sections.predictors?.governed_predictor_artifacts ??
+    sections.target?.governed_predictor_artifacts ??
+    sections.overview?.governed_predictor_artifacts ??
+    sections.overview?.governed_analytical_contract?.predictor_artifacts;
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : {};
+}
+
+function governedTargetArtifact(
+  sections: EdaFindingSections,
+): Record<string, any> | null {
+  const value =
+    sections.target?.governed_target_artifact ??
+    sections.predictors?.governed_target_artifact ??
+    sections.overview?.governed_target_artifact ??
+    sections.overview?.governed_analytical_contract?.target_artifact;
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : null;
+}
+
+function governedRelationshipArtifact(
+  sections: EdaFindingSections,
+): Record<string, any> | null {
+  const value =
+    sections.relationships?.governed_relationship_artifact ??
+    sections.predictors?.governed_relationship_artifact ??
+    sections.overview?.governed_relationship_artifact ??
+    sections.overview?.governed_analytical_contract?.relationship_artifact;
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value
+    : null;
+}
+
+function addGovernedDataQualityFindings(
+  output: EdaFinding[],
+  sections: EdaFindingSections,
+) {
+  const duplicateRow = rows(sections.findings?.findings).find((row) =>
+    String(row.finding ?? "").toLowerCase().includes("duplicate rows"),
   );
+  if (!duplicateRow) return;
+  const duplicateCount = count(
+    duplicateRow.metric_value ??
+      String(duplicateRow.finding ?? "").match(/[\d,]+/)?.[0]?.replace(/,/g, ""),
+  );
+  output.push(
+    finding({
+      title: "Exact duplicate rows require a governed treatment decision",
+      category: "Data quality",
+      severity: "high",
+      affectedVariables: [],
+      analyticalBasis:
+        "The development population contains rows that are exact duplicates across the governed analysis frame.",
+      metricLabel: "Duplicate rows",
+      metricValue: duplicateCount.toLocaleString(),
+      recommendedAction:
+        "Confirm whether these are ingestion duplicates or valid repeated observations; record exclusion or retention without mutating data from EDA.",
+      downstreamDestination: "Feature Engineering",
+      suggestedTransformations: ["No transformation", "Investigate further"],
+      evidenceReferences: ["findings.findings.exact_duplicate_rows"],
+      documentationImpact:
+        "The reviewer decision and rationale enter the EDA decision history and downstream queue.",
+      importance: Math.min(duplicateCount, 99),
+    }),
+  );
+}
+
+function addGovernedTargetFindings(
+  output: EdaFinding[],
+  sections: EdaFindingSections,
+) {
+  const artifact = governedTargetArtifact(sections);
+  if (artifact) {
+    const targetName = String(artifact.target ?? sections.overview?.target ?? "target");
+    const eventRate = finite(artifact.event_rate);
+    if (artifact.problem_type === "classification" && eventRate !== null) {
+      const rare = eventRate < 0.01;
+      const imbalanced = eventRate < 0.1 || eventRate > 0.9;
+      output.push(
+        finding({
+          title: rare
+            ? `${targetName} has a rare observed event`
+            : imbalanced
+              ? `${targetName} has a materially imbalanced class distribution`
+              : `${targetName} class balance is measurable`,
+          category: "Target",
+          severity: rare ? "high" : imbalanced ? "moderate" : "info",
+          affectedVariables: [targetName],
+          analyticalBasis:
+            "Event prevalence is computed only over non-missing target-bearing rows in the governed development population.",
+          metricLabel: "Event rate",
+          metricValue: `${percent(eventRate)} (${count(
+            artifact.event_count,
+          ).toLocaleString()} events / ${count(
+            artifact.valid_count,
+          ).toLocaleString()} target-bearing rows)`,
+          recommendedAction: rare
+            ? "Use stratified splitting and ranking, lift, calibration, and threshold metrics; do not rely on accuracy alone."
+            : "Carry the observed prevalence into split design and model evaluation.",
+          downstreamDestination: "Balance and Split",
+          suggestedTransformations: ["No transformation"],
+          evidenceReferences: ["target.governed_target_artifact.event_rate"],
+          documentationImpact:
+            "Development class balance and the selected evaluation implications enter the target narrative.",
+        }),
+      );
+    }
+    const missingTarget = count(artifact.missing_count);
+    if (missingTarget > 0) {
+      output.push(
+        finding({
+          title: "The target contains missing values",
+          category: "Target",
+          severity: "high",
+          affectedVariables: [targetName],
+          analyticalBasis:
+            "The governed development target artifact contains missing target values.",
+          metricLabel: "Missing target values",
+          metricValue: missingTarget.toLocaleString(),
+          recommendedAction:
+            "Resolve the target-quality concern before training and preserve the reviewer rationale in documentation.",
+          downstreamDestination: "Validation",
+          suggestedTransformations: ["Investigate further"],
+          evidenceReferences: ["target.governed_target_artifact.missing_count"],
+          documentationImpact:
+            "The accepted disposition enters target-quality evidence and validation carry-forward.",
+        }),
+      );
+    }
+  }
+
+  const exclusions = targetSourceExclusions(sections);
+  if (exclusions.length) {
+    output.push(
+      finding({
+        title: "Deterministic target-source fields remain excluded",
+        category: "Target",
+        severity: "info",
+        affectedVariables: exclusions,
+        analyticalBasis:
+          "Server predictor authorization identifies deterministic target sources separately from model-eligible predictors.",
+        metricLabel: "Excluded target-source fields",
+        metricValue: exclusions.join(", "),
+        recommendedAction:
+          "Retain the governed exclusion. Review evidence if upstream lineage changes; do not reintroduce these fields from EDA.",
+        downstreamDestination: "Documentation",
+        suggestedTransformations: ["No transformation"],
+        evidenceReferences: [
+          "overview.predictor_authorization.target_source_excluded",
+        ],
+        documentationImpact:
+          "The exclusion is disclosed in target lineage, predictor authorization, and the approved EDA record.",
+        targetSourceStatus: "excluded",
+        leakageEvidence:
+          "Deterministic source relationship documented by governed target lineage.",
+        importance: 20,
+      }),
+    );
+  }
+}
+
+function addGovernedPredictorFindings(
+  output: EdaFinding[],
+  sections: EdaFindingSections,
+) {
+  const artifacts = governedPredictorArtifacts(sections);
+  for (const feature of Object.keys(artifacts).sort()) {
+    const artifact = artifacts[feature] ?? {};
+    const iv = finite(artifact.iv);
+    const monotonicity = String(
+      artifact.monotonicity?.valid_value_shape ?? "",
+    ).trim();
+    const normalizedMonotonicity = normalizeMonotonicity(monotonicity);
+    const counts = artifact.value_classification?.development_counts ?? {};
+    const developmentRows = Math.max(
+      1,
+      Object.entries(counts).reduce(
+        (total, [key, value]) =>
+          key === "ordinary_numeric_outlier" ? total : total + count(value),
+        0,
+      ),
+    );
+    const missingRate = count(counts.true_null) / developmentRows;
+    const specialGroups = rows(artifact.special_values?.groups);
+    const specialRate = specialGroups.reduce(
+      (total, group) => total + (finite(group.population_share) ?? 0),
+      0,
+    );
+    const ordinaryBins = rows(artifact.iv_woe?.bins).filter((row) =>
+      ["ordinary_valid_range", "ordinary_category"].includes(
+        String(row.bin_type ?? ""),
+      ),
+    );
+    const shape = eventShapeLabel({ event_rate_shape: { groups: ordinaryBins } });
+
+    if (iv !== null && iv >= HIGH_IV_REVIEW_THRESHOLD) {
+      output.push(
+        finding({
+          title: `${feature} has unusually high information value`,
+          category: "Predictors",
+          severity: "high",
+          affectedVariables: [feature],
+          analyticalBasis:
+            "IV is calculated from governed development-population target-event aggregates. A high value is a review signal only and is not proof of leakage.",
+          metricLabel: "Information value",
+          metricValue: number(iv, 3),
+          recommendedAction:
+            "Review lineage, availability at decision time, event-rate shape, and target-source status before retaining the predictor.",
+          downstreamDestination: "Validation",
+          suggestedTransformations: [
+            "No transformation",
+            "Binning",
+            "Investigate further",
+          ],
+          evidenceReferences: [
+            `predictors.governed_predictor_artifacts.${feature}.iv`,
+          ],
+          documentationImpact:
+            "The reviewer disposition, rationale, event-rate shape, and leakage evidence enter predictor findings.",
+          iv,
+          eventRateShape: shape,
+          monotonicity: monotonicity || "Not classified",
+          targetSourceStatus: "not_target_source",
+          leakageEvidence:
+            "No deterministic target-source match. High IV alone does not establish leakage.",
+          importance: Math.min(Math.round(iv * 20), 40),
+        }),
+      );
+    }
+    if (
+      normalizedMonotonicity.includes("non_monotonic") ||
+      normalizedMonotonicity.includes("mixed")
+    ) {
+      output.push(
+        finding({
+          title: `${feature} has a non-monotonic target shape`,
+          category: "Predictors",
+          severity: "moderate",
+          affectedVariables: [feature],
+          analyticalBasis:
+            "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+          metricLabel: "Monotonicity",
+          metricValue: monotonicity,
+          recommendedAction:
+            "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+          downstreamDestination: "Feature Engineering",
+          suggestedTransformations: [
+            "Binning",
+            "No transformation",
+            "Investigate further",
+          ],
+          evidenceReferences: [
+            `predictors.governed_predictor_artifacts.${feature}.monotonicity.valid_value_shape`,
+          ],
+          documentationImpact:
+            "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+          eventRateShape: shape,
+          monotonicity,
+        }),
+      );
+    }
+    if (missingRate >= MATERIAL_MISSINGNESS_THRESHOLD) {
+      output.push(
+        finding({
+          title: `${feature} has material missingness`,
+          category: "Predictors",
+          severity: "moderate",
+          affectedVariables: [feature],
+          analyticalBasis:
+            "Null-only missingness is measured separately from bureau special values in the governed development population.",
+          metricLabel: "Missing rate",
+          metricValue: percent(missingRate),
+          recommendedAction:
+            "Compare present and missing event rates, then select an evidence-based treatment on Missing Values.",
+          downstreamDestination: "Missing Values",
+          suggestedTransformations: [
+            "Special-value separation",
+            "Investigate further",
+            "No transformation",
+          ],
+          evidenceReferences: [
+            `predictors.governed_predictor_artifacts.${feature}.value_classification.development_counts.true_null`,
+          ],
+          documentationImpact:
+            "The accepted recommendation enters the missing-value queue as a draft.",
+          importance: Math.min(Math.round(missingRate * 100), 30),
+        }),
+      );
+    }
+    if (specialRate >= MATERIAL_SPECIAL_VALUE_THRESHOLD) {
+      output.push(
+        finding({
+          title: `${feature} has material bureau special-value prevalence`,
+          category: "Predictors",
+          severity: "moderate",
+          affectedVariables: [feature],
+          analyticalBasis:
+            "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+          metricLabel: "Special-value prevalence",
+          metricValue: percent(specialRate),
+          recommendedAction:
+            "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+          downstreamDestination: "Feature Engineering",
+          suggestedTransformations: [
+            "Special-value separation",
+            "Categorical conversion",
+            "No transformation",
+          ],
+          evidenceReferences: [
+            `predictors.governed_predictor_artifacts.${feature}.special_values.groups`,
+          ],
+          documentationImpact:
+            "The accepted semantic treatment enters feature engineering and predictor documentation.",
+          importance: Math.min(Math.round(specialRate * 100), 30),
+        }),
+      );
+    }
+  }
+}
+
+function addGovernedRelationshipFindings(
+  output: EdaFinding[],
+  sections: EdaFindingSections,
+) {
+  const artifact = governedRelationshipArtifact(sections);
+  if (!artifact) return;
+  const correlation = artifact.correlation ?? {};
+  const columns = strings(correlation.columns);
+  const matrix = Array.isArray(correlation.pearson_matrix)
+    ? correlation.pearson_matrix
+    : [];
+  const pairs: Array<{ featureA: string; featureB: string; value: number }> = [];
+  for (let left = 0; left < columns.length; left += 1) {
+    for (let right = left + 1; right < columns.length; right += 1) {
+      const value = finite(matrix[left]?.[right]);
+      if (value !== null && Math.abs(value) >= HIGH_CORRELATION_THRESHOLD) {
+        pairs.push({ featureA: columns[left], featureB: columns[right], value });
+      }
+    }
+  }
+  pairs.sort(
+    (left, right) =>
+      Math.abs(right.value) - Math.abs(left.value) ||
+      left.featureA.localeCompare(right.featureA) ||
+      left.featureB.localeCompare(right.featureB),
+  );
+  for (const row of pairs.slice(0, 12)) {
+    output.push(
+      finding({
+        title: `${row.featureA} and ${row.featureB} are strongly correlated`,
+        category: "Relationships",
+        severity: Math.abs(row.value) >= 0.9 ? "high" : "moderate",
+        affectedVariables: [row.featureA, row.featureB],
+        analyticalBasis:
+          "Pairwise Pearson correlation is calculated over governed development-population numeric predictors with pairwise non-missing support.",
+        metricLabel: "Correlation",
+        metricValue: number(row.value, 3),
+        recommendedAction:
+          "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        downstreamDestination: "Feature Engineering",
+        suggestedTransformations: ["No transformation", "Investigate further"],
+        evidenceReferences: [
+          `relationships.governed_relationship_artifact.correlation.${row.featureA}.${row.featureB}`,
+        ],
+        documentationImpact:
+          "The reviewer rationale records any retain, drop, or combine recommendation; no action is automatic.",
+        importance: Math.round(Math.abs(row.value) * 25),
+      }),
+    );
+  }
+  for (const row of rows(artifact.vif).slice(0, 12)) {
+    const feature = String(row.feature ?? "").trim();
+    const vif = finite(row.vif);
+    if (!feature || (vif !== null && vif < VIF_REVIEW_THRESHOLD)) continue;
+    if (vif === null && !row.is_infinite) continue;
+    output.push(
+      finding({
+        title: `${feature} requires multicollinearity review`,
+        category: "Relationships",
+        severity: row.is_infinite || (vif ?? 0) >= 10 ? "high" : "moderate",
+        affectedVariables: [feature],
+        analyticalBasis:
+          "VIF is computed on the governed development-population complete-case predictor cohort; it is a relationship diagnostic, not an exclusion rule.",
+        metricLabel: "VIF",
+        metricValue: row.is_infinite ? "Infinite" : number(vif, 2),
+        recommendedAction:
+          "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        downstreamDestination: "Feature Engineering",
+        suggestedTransformations: ["No transformation", "Investigate further"],
+        evidenceReferences: [
+          `relationships.governed_relationship_artifact.vif.${feature}`,
+        ],
+        documentationImpact:
+          "The accepted relationship decision and rationale enter the MDD relationship narrative.",
+        importance: Math.min(Math.round(vif ?? 50), 50),
+      }),
+    );
+  }
 }
 
 function addDataQualityFindings(
@@ -996,12 +1442,27 @@ export function generateEdaFindings(
   sections: EdaFindingSections,
 ): EdaFinding[] {
   const output: EdaFinding[] = [];
-  addDataQualityFindings(output, sections);
-  addTargetFindings(output, sections);
-  addPredictorFindings(output, sections);
-  addRelationshipFindings(output, sections);
+  const governed =
+    Object.keys(governedPredictorArtifacts(sections)).length > 0 ||
+    Boolean(governedTargetArtifact(sections)) ||
+    Boolean(governedRelationshipArtifact(sections));
+  if (governed) {
+    // Decision-facing findings must be invariant to sealed-holdout-only
+    // changes. Every generated child below is derived from the shared
+    // development-population governed artifacts (plus server authorization
+    // and the development-scoped Findings endpoint for duplicate rows).
+    addGovernedDataQualityFindings(output, sections);
+    addGovernedTargetFindings(output, sections);
+    addGovernedPredictorFindings(output, sections);
+    addGovernedRelationshipFindings(output, sections);
+  } else {
+    addDataQualityFindings(output, sections);
+    addTargetFindings(output, sections);
+    addPredictorFindings(output, sections);
+    addRelationshipFindings(output, sections);
+    addLegacyWorkspaceFindings(output, sections);
+  }
   addStabilityFinding(output, sections);
-  addLegacyWorkspaceFindings(output, sections);
   const byId = new Map<string, EdaFinding>();
   for (const item of output) {
     if (!byId.has(item.id)) byId.set(item.id, item);
@@ -1062,15 +1523,12 @@ export function documentedFindingRows(
   state: EdaFindingsReviewState,
 ) {
   const inventory = generateEdaFindings(sections);
-  const hasExplicitDecisions =
-    Boolean(state.findingDecisions) &&
-    Object.keys(state.findingDecisions ?? {}).length > 0;
   return inventory.map((item) => {
     const explicit = resolveFindingDecision(item, state);
-    const disposition =
-      !hasExplicitDecisions && state.status === "accepted"
-        ? "accepted"
-        : explicit.disposition;
+    // The overall reviewer conclusion never disposes analytical evidence.
+    // Child findings remain immutable evidence; only an explicit child legacy
+    // decision or the governed parent decision can change disposition state.
+    const disposition = explicit.disposition;
     return {
       finding_id: item.id,
       title: item.title,

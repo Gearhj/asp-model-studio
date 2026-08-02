@@ -34,6 +34,7 @@ import {
   AtlasExecutionStatus,
   AtlasStatusStrip,
   AtlasWorkflowSection,
+  type AtlasStatusItem,
   type AtlasWorkflowMetric,
 } from "../components/ui/AtlasWorkflow";
 import { createEvidence } from "../lib/evidenceGraph";
@@ -47,8 +48,27 @@ import {
 } from "../lib/datasetIdentity";
 import { getFeatureManifest, type FeatureManifest } from "../lib/featureManifest";
 import { loadLocalDataset } from "../lib/localDataset";
-import { logDecision } from "../lib/decisionJournal";
 import { recordTrainingExperiments } from "../lib/experimentTracking";
+import {
+  buildTrainingPreflightSignature,
+  createBoundedSaveQueue,
+  estimateTrainingPortfolio,
+  resolveTrainingPreflightLifecycle,
+  trainingActionLabel,
+  type BoundedSaveQueue,
+  type QueuedSave,
+  type TrainingExecutionState,
+  type TrainingPreflightLifecycle,
+} from "../lib/modelTrainingInteraction";
+import {
+  formatSelectionSource,
+  parseLockedSelectionDecision,
+  rankVerifiedSelectionCandidates,
+  selectionMetricLabel,
+  verifiedSelectionMetric,
+  type LockedSelectionDecision,
+  type SelectionMetricEvidence,
+} from "../lib/selectionProvenance";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
 const API_BASE =
@@ -222,6 +242,9 @@ const CANDIDATE_STRATEGIES: Array<{
 type RankedResult = {
   key: string;
   name: string;
+  candidate_id?: string;
+  training_job_id?: string;
+  training_run_id?: string;
   task?: ProblemType;
   auc?: number | null;
   pr_auc?: number | null;
@@ -245,6 +268,15 @@ type RankedResult = {
   kind?: "supervised" | "anomaly";
   champion_eligible?: boolean;
   target_usage?: string;
+  selection_metric?: SelectionMetricEvidence | Record<string, unknown> | null;
+  selection_integrity_status?: string;
+  holdout_isolation_status?: string;
+  runtime_profile?: {
+    name?: string;
+    sample_count?: number;
+    max_iter?: number;
+    hidden_layer_sizes?: number[];
+  } | null;
 };
 
 type ModelCompatibility = { compatible: boolean; reason: string };
@@ -301,6 +333,81 @@ type Preflight = {
   backend_status: string;
   worker_status: string;
   duration_ms: number;
+  preflight_id?: string;
+  state_hash?: string;
+  selection_state_hash?: string;
+  revision?: number;
+  stale?: boolean;
+  selected_algorithm_ids?: string[];
+  selected_algorithm_versions?: Record<string, string>;
+  dependency_status?: Record<string, ModelCompatibility>;
+  data_type_compatibility?: Record<string, ModelCompatibility>;
+  encoding_requirements?: Record<string, unknown>;
+  scaling_requirements?: Record<string, unknown>;
+  event_count_compatibility?: ModelCompatibility;
+  memory_estimate_mb?: number;
+  worker_limit?: number;
+  base_fit_count?: number;
+  calibration_fit_count?: number;
+  calibration_supported_algorithm_ids?: string[];
+  estimated_fits?: number;
+  estimated_runtime_seconds?: number;
+  large_run?: {
+    required?: boolean;
+    threshold_fits?: number;
+    estimated_fits?: number;
+    acknowledged?: boolean;
+    acknowledgement_required?: boolean;
+  };
+  large_run_status?: string;
+  final_holdout_sealed?: boolean;
+  final_holdout_access?: string;
+  selection_evidence_source?: string;
+  readiness_status?: string;
+  created_at?: string;
+  stale_reason?: string | null;
+  checks?: Array<{
+    check_id: string;
+    state: "passed" | "warning" | "failed";
+    passed: boolean;
+    reason?: string;
+  }>;
+};
+
+type TrainingSelectionSnapshot = {
+  project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
+  selected_algorithm_ids: string[];
+  selected_models: string[];
+  candidate_strategy: CandidateStrategy;
+  problem_type: ProblemType;
+  max_parallel: number;
+  calibrate: boolean;
+  grid_search: boolean;
+  grid_search_level: "quick" | "balanced" | "thorough";
+  primary_metric: string;
+};
+
+type TrainingSelectionResponse = {
+  ok: boolean;
+  project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
+  selection?: Partial<TrainingSelectionSnapshot> | null;
+  selected_algorithm_ids?: string[];
+  selected_models?: string[];
+  candidate_strategy?: CandidateStrategy;
+  problem_type?: ProblemType;
+  max_parallel?: number;
+  calibrate?: boolean;
+  grid_search?: boolean;
+  grid_search_level?: "quick" | "balanced" | "thorough";
+  primary_metric?: string;
+  selection_revision?: number;
+  revision?: number;
+  state_hash?: string;
+  persisted_at?: string;
 };
 
 type ModelExecution = {
@@ -327,11 +434,17 @@ type ModelExecution = {
 type TrainingJob = {
   ok?: boolean;
   job_id: string;
+  training_job_id?: string;
+  training_run_id?: string;
+  preflight_id?: string;
+  preflight_state_hash?: string;
+  idempotent_replay?: boolean;
   project_id: string;
   dataset_id: string;
   dataset_version_id: string;
   overall_status: JobState;
   created_at: string;
+  queued_at?: string | null;
   started_at?: string | null;
   completed_at?: string | null;
   requested_models: string[];
@@ -364,11 +477,20 @@ type TrainingJob = {
   n_features: number;
   summary?: {
     ranked?: RankedResult[];
+    failed?: Array<{ key: string; name: string; error: string; technical_error?: string; traceback_reference?: string }>;
+    training_job_id?: string;
+    status?: JobState;
+    requested_models?: string[];
     trained_feature_names?: string[];
-    runtime_ms?: number;
+    feature_manifest_version?: string;
+    split_id?: string;
+    validation_design_id?: string;
+    validation_design_version?: string;
     project_id?: string;
     dataset_id?: string;
     dataset_version_id?: string;
+    dataset_version?: string;
+    runtime_ms?: number;
   } | null;
 };
 
@@ -400,17 +522,17 @@ type SplitStatus = {
   evaluation_population_role?: string;
 };
 
-type ModelSelectionDecision = {
-  decision_id: string;
+type ModelSelectionDecision = LockedSelectionDecision & {
+  candidate_decision_id?: string;
   project_id: string;
   dataset_id: string;
   dataset_version_id: string;
   dataset_version?: string;
   training_job_id: string;
-  champion_model: string;
-  challenger_models: string[];
-  status: "proposed" | "approved" | "rejected";
-  primary_metric: string;
+  champion_model?: string;
+  challenger_models?: string[];
+  challenger_candidate_ids?: string[];
+  primary_metric?: string;
   rationale: string;
   metric_justification?: string;
   interpretability_justification?: string;
@@ -418,7 +540,6 @@ type ModelSelectionDecision = {
   fairness_validation_prerequisites?: string;
   deployment_constraints?: string;
   reviewer_notes?: string;
-  actor?: { display_name?: string };
   decided_at?: string;
 };
 
@@ -463,7 +584,7 @@ function buildInitialSelected(config: Record<string, any>, problemType: ProblemT
   return problemType === "regression" ? ["linreg", "dt_reg", "rf_reg"] : ["logreg", "dtree", "rf"];
 }
 
-function readActiveJobId(identity: CanonicalDatasetIdentity | null) {
+function readActiveJobId(identity: CanonicalDatasetIdentity | null): string {
   if (!identity) return "";
   try {
     const value = JSON.parse(localStorage.getItem(ACTIVE_JOB_KEY) || "null");
@@ -481,8 +602,7 @@ function readActiveJobId(identity: CanonicalDatasetIdentity | null) {
 }
 
 function metricValue(row: RankedResult, metric: string) {
-  const value = row[metric as keyof RankedResult];
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+  return verifiedSelectionMetric(row, metric)?.value ?? null;
 }
 
 function formatMetric(value: number | null | undefined, digits = 4) {
@@ -503,6 +623,46 @@ function cleanModelLabel(label: string | null | undefined) {
 
 function modelLabel(key: string, labels: Record<string, string>) {
   return cleanModelLabel(labels[key] ?? MODEL_DEFINITIONS.find((item) => item.key === key)?.label ?? key) || key;
+}
+
+function preflightRequiresLargeRun(preflight: Preflight | null | undefined) {
+  return preflight?.large_run?.required === true;
+}
+
+function preflightCheckLabel(checkId: string) {
+  return checkId
+    .split("_")
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
+}
+
+function preflightCheckState(
+  check: NonNullable<Preflight["checks"]>[number],
+): AtlasStatusItem["state"] {
+  if (!check.passed) return "blocked";
+  return check.state === "warning" ? "warning" : "complete";
+}
+
+function currentReadinessStripItems(
+  preflight: Preflight | null,
+): AtlasStatusItem[] {
+  const importantChecks = [
+    "canonical_identity",
+    "target_contract",
+    "feature_contract",
+    "validation_design",
+    "dependencies",
+    "final_holdout_sealed",
+  ];
+  return importantChecks.map((checkId) => {
+    const check = preflight?.checks?.find((item) => item.check_id === checkId);
+    return {
+      label: preflightCheckLabel(checkId),
+      state: check ? preflightCheckState(check) : "pending",
+      detail: check?.reason ?? "Awaiting a current authoritative preflight.",
+    };
+  });
 }
 
 export default function Step07ModelTraining() {
@@ -550,13 +710,12 @@ export default function Step07ModelTraining() {
   const [preflightSignature, setPreflightSignature] = useState("");
   const [preflightLoading, setPreflightLoading] = useState(false);
   const [job, setJob] = useState<TrainingJob | null>(null);
-  const [activeJobId, setActiveJobId] = useState(() =>
+  const [activeJobId, setActiveJobId] = useState<string>(() =>
     readActiveJobId(datasetIdentity),
   );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  const [sortMetric, setSortMetric] = useState(primaryMetric);
   const [requestUser, setRequestUser] = useState("");
   const [largeJobConfirmed, setLargeJobConfirmed] = useState(false);
   const [championModel, setChampionModel] = useState("");
@@ -573,10 +732,38 @@ export default function Step07ModelTraining() {
   const [selectionDecision, setSelectionDecision] =
     useState<ModelSelectionDecision | null>(null);
   const [decisionSaving, setDecisionSaving] = useState(false);
+  const [selectionHydrated, setSelectionHydrated] = useState(false);
+  const [selectionPersistenceState, setSelectionPersistenceState] = useState<
+    "loading" | "saved" | "queued" | "saving" | "error"
+  >("loading");
+  const [selectionPersistenceError, setSelectionPersistenceError] = useState("");
+  const [selectionPersistenceRevision, setSelectionPersistenceRevision] = useState<number | null>(null);
+  const [executionState, setExecutionState] =
+    useState<TrainingExecutionState>("idle");
   const finalizedJobs = useRef(new Set<string>());
+  const largeJobConfirmationRef = useRef<HTMLInputElement | null>(null);
+  const liveTrainingRef = useRef<HTMLDivElement | null>(null);
+  const trainingSubmissionLocked = useRef(false);
+  const trainingIdempotencyKey = useRef("");
+  const selectionQueueRef = useRef<
+    BoundedSaveQueue<TrainingSelectionSnapshot, TrainingSelectionResponse> | null
+  >(null);
+  const latestSelectionRevision = useRef(0);
+  const authoritativeSelectionRevision = useRef(0);
+  const lastUnsavedSelection = useRef<QueuedSave<TrainingSelectionSnapshot> | null>(null);
+  const lastPersistedSelectionHash = useRef("");
 
   const availableDefinitions = useMemo(() => MODEL_DEFINITIONS.filter((model) => model.task === problemType), [problemType]);
   const selectedDefinitions = useMemo(() => availableDefinitions.filter((model) => selectedModels.includes(model.key)), [availableDefinitions, selectedModels]);
+  const selectedNeuralModels = useMemo(
+    () =>
+      selectedDefinitions.filter((model) => model.family === "Neural Models"),
+    [selectedDefinitions],
+  );
+  const smallDataNeuralProfile =
+    selectedNeuralModels.length > 0 &&
+    Number(preflight?.train_rows ?? dataset?.registered_row_count ?? 0) <=
+      12_000;
   const recommendedModelKeys = useMemo(
     () =>
       new Set(
@@ -630,12 +817,35 @@ export default function Step07ModelTraining() {
   const tuningCandidateCount = gridSearch
     ? { quick: 4, balanced: 8, thorough: 12 }[gridSearchLevel]
     : 1;
-  const estimatedFits =
-    selectedModels.length * Math.max(1, kFolds) * tuningCandidateCount +
-    (calibrate && problemType === "classification"
-      ? selectedModels.length * Math.max(1, kFolds)
-      : 0);
-  const largeJob = estimatedFits >= 160;
+  const calibrationCompatibleModelCount = selectedDefinitions.filter((model) => {
+    if (model.kind === "anomaly" || model.probability === "Not applicable") return false;
+    const compatibility = preflight?.calibration_compatibility?.[model.key];
+    return compatibility?.compatible !== false;
+  }).length;
+  const portfolioEstimate = useMemo(
+    () =>
+      estimateTrainingPortfolio({
+        selectedModelCount: selectedModels.length,
+        folds: kFolds,
+        tuningCandidates: tuningCandidateCount,
+        calibrationRequested: calibrate && problemType === "classification",
+        calibrationModelCount: calibrationCompatibleModelCount,
+        workers: maxParallel,
+        featureCount: selectedFeatures.length,
+      }),
+    [
+      calibrate,
+      calibrationCompatibleModelCount,
+      kFolds,
+      maxParallel,
+      problemType,
+      selectedFeatures.length,
+      selectedModels.length,
+      tuningCandidateCount,
+    ],
+  );
+  const estimatedFits = portfolioEstimate.estimatedFits;
+  const largeJob = portfolioEstimate.largeRun;
   const cvConfigured =
     Number(splitStatus?.cv_design?.fold_count ?? 0) >= 2 &&
     splitStatus?.cv_design?.method !== "none";
@@ -676,8 +886,175 @@ export default function Step07ModelTraining() {
     user: requestUser,
     requested_at: new Date().toISOString(),
   }), [calibrate, candidateStrategy, dataset?.event_value, dataset?.non_event_value, dataset?.target, datasetIdentity?.dataset_id, datasetIdentity?.dataset_version_id, engineeredFeatures, gridSearch, gridSearchLevel, kFolds, largeJobConfirmed, manifest?.manifest_hash, manifest?.pipeline_steps, maxParallel, primaryMetric, problemType, projectId, requestUser, selectedFeatures, selectedModels, splitStatus?.balancing_policy?.class_weight_policy, splitStatus?.config?.random_seed, splitStatus?.split_id, splitStatus?.validation_design_id, splitStatus?.validation_design_version]);
-  const currentSignature = useMemo(() => JSON.stringify({ ...requestPayload, requested_at: "" }), [requestPayload]);
-  const preflightCurrent = !!preflight && preflightSignature === currentSignature;
+  const currentSignature = useMemo(
+    () => buildTrainingPreflightSignature(requestPayload),
+    [requestPayload],
+  );
+  const preflightCurrent =
+    !!preflight &&
+    preflight.stale !== true &&
+    preflightSignature === currentSignature;
+  const authoritativePreflight = preflightCurrent ? preflight : null;
+  const preflightLifecycle = resolveTrainingPreflightLifecycle({
+    hasPreflight: !!preflight,
+    current: preflightCurrent,
+    loading: preflightLoading || executionState === "validating",
+    ready: !!preflight?.ready,
+  });
+  const selectionSnapshot = useMemo<TrainingSelectionSnapshot | null>(
+    () =>
+      datasetIdentity
+        ? {
+            project_id: projectId,
+            dataset_id: datasetIdentity.dataset_id,
+            dataset_version_id: datasetIdentity.dataset_version_id,
+            selected_algorithm_ids: selectedModels,
+            selected_models: selectedModels,
+            candidate_strategy: candidateStrategy,
+            problem_type: problemType,
+            max_parallel: maxParallel,
+            calibrate,
+            grid_search: gridSearch,
+            grid_search_level: gridSearchLevel,
+            primary_metric: primaryMetric,
+          }
+        : null,
+    [
+      calibrate,
+      candidateStrategy,
+      datasetIdentity?.dataset_id,
+      datasetIdentity?.dataset_version_id,
+      gridSearch,
+      gridSearchLevel,
+      maxParallel,
+      primaryMetric,
+      problemType,
+      projectId,
+      selectedModels,
+    ],
+  );
+  const selectionSnapshotHash = selectionSnapshot
+    ? JSON.stringify(selectionSnapshot)
+    : "";
+
+  useEffect(() => {
+    if (!datasetIdentity) {
+      selectionQueueRef.current?.dispose();
+      selectionQueueRef.current = null;
+      setSelectionHydrated(false);
+      setSelectionPersistenceState("error");
+      setSelectionPersistenceError(datasetIdentityError);
+      return;
+    }
+    const activeIdentity = datasetIdentity;
+    setSelectionHydrated(false);
+    setSelectionPersistenceState("loading");
+    setSelectionPersistenceError("");
+    lastPersistedSelectionHash.current = "";
+    lastUnsavedSelection.current = null;
+    authoritativeSelectionRevision.current = 0;
+    const queue = createBoundedSaveQueue<
+      TrainingSelectionSnapshot,
+      TrainingSelectionResponse
+    >({
+      debounceMs: 350,
+      save: async ({ value, revision }) => {
+        const response = await requestJson<TrainingSelectionResponse>(
+          "/model/train/selection",
+          {
+            method: "POST",
+            body: JSON.stringify({
+              ...value,
+              expected_selection_revision:
+                authoritativeSelectionRevision.current,
+              client_portfolio_revision: revision,
+            }),
+          },
+        );
+        assertExactDatasetIdentity(
+          activeIdentity,
+          response,
+          "Persisted Model Training portfolio",
+        );
+        return response;
+      },
+      onQueued: (save) => {
+        latestSelectionRevision.current = save.revision;
+        lastUnsavedSelection.current = save;
+        setSelectionPersistenceState("queued");
+        setSelectionPersistenceError("");
+      },
+      onSaving: (save) => {
+        if (save.revision === latestSelectionRevision.current) {
+          setSelectionPersistenceState("saving");
+        }
+      },
+      onSaved: (save, response) => {
+        const returnedSelection = response.selection ?? response;
+        const returnedModels =
+          returnedSelection.selected_algorithm_ids ??
+          returnedSelection.selected_models ??
+          save.value.selected_algorithm_ids;
+        const persistedSnapshot = {
+          ...save.value,
+          selected_algorithm_ids: returnedModels,
+          selected_models: returnedModels,
+          candidate_strategy:
+            returnedSelection.candidate_strategy ?? save.value.candidate_strategy,
+        };
+        lastPersistedSelectionHash.current = JSON.stringify(persistedSnapshot);
+        authoritativeSelectionRevision.current =
+          response.selection_revision ??
+          response.revision ??
+          authoritativeSelectionRevision.current;
+        if (save.revision === latestSelectionRevision.current) {
+          lastUnsavedSelection.current = null;
+          setSelectionPersistenceRevision(
+            authoritativeSelectionRevision.current,
+          );
+          setSelectionPersistenceState("saved");
+          setSelectionPersistenceError("");
+          if (
+            JSON.stringify(returnedModels) !==
+            JSON.stringify(save.value.selected_algorithm_ids)
+          ) {
+            setSelectedModels(returnedModels);
+          }
+        }
+      },
+      onError: (save, cause) => {
+        if (save.revision !== latestSelectionRevision.current) return;
+        lastUnsavedSelection.current = save;
+        setSelectionPersistenceState("error");
+        setSelectionPersistenceError(
+          cause instanceof Error
+            ? cause.message
+            : "The selected model portfolio was not saved.",
+        );
+      },
+    });
+    selectionQueueRef.current = queue;
+    return () => {
+      queue.dispose();
+      if (selectionQueueRef.current === queue) {
+        selectionQueueRef.current = null;
+      }
+    };
+  }, [
+    datasetIdentity?.dataset_id,
+    datasetIdentity?.dataset_version_id,
+    projectId,
+  ]);
+
+  useEffect(() => {
+    if (
+      !selectionHydrated ||
+      !selectionSnapshot ||
+      !selectionQueueRef.current ||
+      selectionSnapshotHash === lastPersistedSelectionHash.current
+    ) return;
+    selectionQueueRef.current.schedule(selectionSnapshot);
+  }, [selectionHydrated, selectionSnapshot, selectionSnapshotHash]);
 
   useEffect(() => {
     if (!datasetIdentity) return;
@@ -690,7 +1067,21 @@ export default function Step07ModelTraining() {
 
   useEffect(() => {
     setLargeJobConfirmed(false);
-  }, [calibrate, gridSearch, gridSearchLevel, kFolds, selectedModels]);
+    setExecutionState("idle");
+    trainingIdempotencyKey.current = "";
+  }, [
+    calibrate,
+    candidateStrategy,
+    gridSearch,
+    gridSearchLevel,
+    kFolds,
+    manifest?.manifest_hash,
+    maxParallel,
+    primaryMetric,
+    selectedModels,
+    splitStatus?.split_id,
+    splitStatus?.validation_design_version,
+  ]);
 
   useEffect(() => {
     let active = true;
@@ -703,6 +1094,8 @@ export default function Step07ModelTraining() {
       };
     }
     const activeIdentity = datasetIdentity;
+    setLoading(true);
+    setError("");
     const splitStatusQuery = new URLSearchParams({
       project_id: projectId,
       expected_dataset_id: activeIdentity.dataset_id,
@@ -743,7 +1136,10 @@ export default function Step07ModelTraining() {
         dataset_version_id: activeIdentity.dataset_version_id,
         decision: null,
       })),
-    ]).then(([nextManifest, nextSplit, modelAvailability, last, decisionResponse]) => {
+      requestJson<TrainingSelectionResponse>(
+        `/model/train/selection?${trainingArtifactQuery.toString()}`,
+      ),
+    ]).then(([nextManifest, nextSplit, modelAvailability, last, decisionResponse, selectionResponse]) => {
       if (!active) return;
       assertExactDatasetIdentity(
         activeIdentity,
@@ -763,6 +1159,63 @@ export default function Step07ModelTraining() {
       setLabels(modelAvailability.labels ?? {});
       assertExactDatasetIdentity(
         activeIdentity,
+        selectionResponse,
+        "Authoritative Model Training portfolio",
+      );
+      const authoritativeSelection = selectionResponse.selection ?? selectionResponse;
+      const authoritativeModels = [
+        ...new Set(
+          (
+            authoritativeSelection.selected_algorithm_ids ??
+            authoritativeSelection.selected_models ??
+            []
+          ).map(String),
+        ),
+      ].filter((key) =>
+        MODEL_DEFINITIONS.some(
+          (definition) =>
+            definition.key === key && definition.task === problemType,
+        ),
+      );
+      const authoritativeStrategy =
+        authoritativeSelection.candidate_strategy ?? "custom_portfolio";
+      const hydratedSnapshot: TrainingSelectionSnapshot = {
+        project_id: projectId,
+        dataset_id: activeIdentity.dataset_id,
+        dataset_version_id: activeIdentity.dataset_version_id,
+        selected_algorithm_ids: authoritativeModels,
+        selected_models: authoritativeModels,
+        candidate_strategy: authoritativeStrategy,
+        problem_type: problemType,
+        max_parallel: Math.max(
+          1,
+          Math.min(4, Number(authoritativeSelection.max_parallel ?? maxParallel)),
+        ),
+        calibrate: Boolean(authoritativeSelection.calibrate ?? calibrate),
+        grid_search: Boolean(authoritativeSelection.grid_search ?? gridSearch),
+        grid_search_level:
+          authoritativeSelection.grid_search_level ?? gridSearchLevel,
+        primary_metric:
+          authoritativeSelection.primary_metric ?? primaryMetric,
+      };
+      lastPersistedSelectionHash.current = JSON.stringify(hydratedSnapshot);
+      setSelectedModels(authoritativeModels);
+      setCandidateStrategy(authoritativeStrategy);
+      setMaxParallel(hydratedSnapshot.max_parallel);
+      setCalibrate(hydratedSnapshot.calibrate);
+      setGridSearch(hydratedSnapshot.grid_search);
+      setGridSearchLevel(hydratedSnapshot.grid_search_level);
+      setPrimaryMetric(hydratedSnapshot.primary_metric);
+      setSelectionPersistenceRevision(
+        selectionResponse.selection_revision ?? selectionResponse.revision ?? null,
+      );
+      authoritativeSelectionRevision.current =
+        selectionResponse.selection_revision ?? selectionResponse.revision ?? 0;
+      setSelectionPersistenceState("saved");
+      setSelectionPersistenceError("");
+      setSelectionHydrated(true);
+      assertExactDatasetIdentity(
+        activeIdentity,
         decisionResponse,
         "Model-selection decision response",
       );
@@ -772,16 +1225,32 @@ export default function Step07ModelTraining() {
           decisionResponse.decision,
           "Saved model-selection decision",
         );
-        setSelectionDecision(decisionResponse.decision);
-        setChampionModel(decisionResponse.decision.champion_model);
-        setChallengerModels(decisionResponse.decision.challenger_models ?? []);
-        setSelectionRationale(decisionResponse.decision.rationale ?? "");
-        setMetricJustification(decisionResponse.decision.metric_justification ?? "");
-        setInterpretabilityJustification(decisionResponse.decision.interpretability_justification ?? "");
-        setCalibrationConsiderations(decisionResponse.decision.calibration_considerations ?? "");
-        setFairnessPrerequisites(decisionResponse.decision.fairness_validation_prerequisites ?? "");
-        setDeploymentConstraints(decisionResponse.decision.deployment_constraints ?? "");
-        setReviewerNotes(decisionResponse.decision.reviewer_notes ?? "");
+        const locked = parseLockedSelectionDecision(
+          decisionResponse.decision,
+        );
+        if (locked) {
+          const exactDecision = {
+            ...decisionResponse.decision,
+            ...locked,
+          } as ModelSelectionDecision;
+          setSelectionDecision(exactDecision);
+          setChampionModel(locked.selected_candidate_id);
+          setChallengerModels(
+            decisionResponse.decision.challenger_candidate_ids ?? [],
+          );
+          setSelectionRationale(decisionResponse.decision.rationale ?? "");
+          setMetricJustification(decisionResponse.decision.metric_justification ?? "");
+          setInterpretabilityJustification(decisionResponse.decision.interpretability_justification ?? "");
+          setCalibrationConsiderations(decisionResponse.decision.calibration_considerations ?? "");
+          setFairnessPrerequisites(decisionResponse.decision.fairness_validation_prerequisites ?? "");
+          setDeploymentConstraints(decisionResponse.decision.deployment_constraints ?? "");
+          setReviewerNotes(decisionResponse.decision.reviewer_notes ?? "");
+        } else {
+          setSelectionDecision(null);
+          setMessage(
+            "The saved decision is not a locked, verified non-holdout selection and cannot authorize Evaluation.",
+          );
+        }
       }
       const lastSummaryCurrent =
         !!last.summary?.ranked?.length &&
@@ -798,19 +1267,55 @@ export default function Step07ModelTraining() {
           }
         })();
       if (lastSummaryCurrent && last.summary?.ranked?.length) {
+        const restoredResults = last.summary.ranked;
+        const restoredFailures = last.summary.failed ?? [];
+        const restoredRequested =
+          last.summary.requested_models ??
+          restoredResults.map((row) => row.key);
         setJob((current) => current ?? ({
-          job_id: "last-completed-run",
+          job_id: last.summary!.training_job_id ?? "last-completed-run",
           project_id: activeIdentity.project_id,
           dataset_id: activeIdentity.dataset_id,
           dataset_version_id: activeIdentity.dataset_version_id,
-          overall_status: "complete", created_at: "", requested_models: [], completed_count: last.summary!.ranked!.length, total_count: last.summary!.ranked!.length, current_models: [], per_model_status: {}, partial_ranked_results: last.summary!.ranked!, failed_models: [], message: "Last completed training run", runtime_ms: 0, cancellation_requested: false, max_parallel_honored: 1, trained_feature_names: [], n_features: nextManifest.features.filter((row) => row.selected).length, summary: last.summary,
+          dataset_version: activeIdentity.dataset_version_id,
+          overall_status: "complete",
+          created_at: "",
+          requested_models: restoredRequested,
+          completed_count: restoredResults.length,
+          finished_count: restoredResults.length + restoredFailures.length,
+          total_count: restoredResults.length + restoredFailures.length,
+          current_models: [],
+          per_model_status: {},
+          partial_ranked_results: restoredResults,
+          failed_models: restoredFailures,
+          message: "Last completed training run",
+          runtime_ms: last.summary!.runtime_ms ?? 0,
+          cancellation_requested: false,
+          max_parallel_honored: 1,
+          trained_feature_names: last.summary!.trained_feature_names ?? [],
+          feature_manifest_version: last.summary!.feature_manifest_version,
+          split_id: last.summary!.split_id,
+          validation_design_id: last.summary!.validation_design_id,
+          validation_design_version:
+            last.summary!.validation_design_version,
+          n_features: nextManifest.features.filter((row) => row.selected)
+            .length,
+          summary: last.summary,
         }));
       }
       if (dataset?.problem_type) setProblemType(dataset.problem_type);
-    }).catch((cause) => active && setError(cause instanceof Error ? cause.message : "Model Training could not load its governed contract."))
+    }).catch((cause) => {
+      if (!active) return;
+      const text = cause instanceof Error
+        ? cause.message
+        : "Model Training could not load its governed contract.";
+      setError(text);
+      setSelectionHydrated(false);
+      setSelectionPersistenceState("error");
+      setSelectionPersistenceError(text);
+    })
       .finally(() => active && setLoading(false));
-    if (!activeJobId) {
-      requestJson<{ ok: boolean; jobs: TrainingJob[] }>(`/model/train/jobs/active?project_id=${encodeURIComponent(projectId)}`).then((response) => {
+    requestJson<{ ok: boolean; jobs: TrainingJob[] }>(`/model/train/jobs/active?project_id=${encodeURIComponent(projectId)}`).then((response) => {
         const latest = response.jobs?.find((candidate) => {
           try {
             assertExactDatasetIdentity(
@@ -824,8 +1329,8 @@ export default function Step07ModelTraining() {
           }
         });
         if (active && latest) {
-          setActiveJobId(latest.job_id);
-          setJob(latest);
+          setActiveJobId((current) => current || latest.job_id);
+          setJob((current) => current ?? latest);
           localStorage.setItem(
             ACTIVE_JOB_KEY,
             JSON.stringify({
@@ -837,37 +1342,98 @@ export default function Step07ModelTraining() {
           );
         }
       }).catch(() => undefined);
-    }
     return () => { active = false; };
   }, [
-    activeJobId,
     dataset?.problem_type,
     datasetIdentity?.dataset_id,
     datasetIdentity?.dataset_version_id,
     projectId,
   ]);
 
-  async function runPreflight() {
+  async function persistPortfolioBeforeExecution(
+    models = selectedModels,
+    strategy = candidateStrategy,
+  ) {
+    if (!datasetIdentity || !selectionHydrated || !selectionQueueRef.current) {
+      throw new Error(
+        selectionPersistenceError ||
+          "The authoritative selected model portfolio is not available.",
+      );
+    }
+    if (!selectionSnapshot) {
+      throw new Error("The selected model portfolio has no canonical dataset identity.");
+    }
+    const exactSnapshot: TrainingSelectionSnapshot = {
+      ...selectionSnapshot,
+      selected_algorithm_ids: [...new Set(models)],
+      selected_models: [...new Set(models)],
+      candidate_strategy: strategy,
+    };
+    const exactHash = JSON.stringify(exactSnapshot);
+    if (exactHash !== lastPersistedSelectionHash.current) {
+      // The bounded queue retains only the newest pending snapshot, so this
+      // safely replaces any older rapid-toggle write before execution.
+      selectionQueueRef.current.schedule(exactSnapshot);
+    }
+    await selectionQueueRef.current.flush();
+    if (
+      lastUnsavedSelection.current ||
+      lastPersistedSelectionHash.current !== exactHash
+    ) {
+      throw new Error(
+        selectionPersistenceError ||
+          "The selected model portfolio remains unsaved. Retry portfolio persistence before validation.",
+      );
+    }
+  }
+
+  function retrySelectionPersistence() {
+    if (!selectionQueueRef.current || !selectionSnapshot) return;
+    const failed = lastUnsavedSelection.current;
+    if (failed && failed.revision === latestSelectionRevision.current) {
+      selectionQueueRef.current.retry(failed);
+      return;
+    }
+    selectionQueueRef.current.schedule(selectionSnapshot);
+  }
+
+  async function performPreflight(payload = requestPayload) {
     if (!datasetIdentity) {
       setError(datasetIdentityError);
       throw new Error(datasetIdentityError);
     }
     setPreflightLoading(true);
+    setExecutionState("validating");
     setError("");
+    setMessage("Validating the selected models against the exact governed training contract...");
     try {
-      const result = await requestJson<Preflight>("/model/train/preflight", { method: "POST", body: JSON.stringify(requestPayload) });
+      const result = await requestJson<Preflight>("/model/train/preflight", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
       assertExactDatasetIdentity(
         datasetIdentity,
         result,
         "Model Training preflight response",
       );
       setPreflight(result);
-      setPreflightSignature(currentSignature);
-      if (result.recommended_parallelism < maxParallel) setMaxParallel(result.recommended_parallelism);
-      setMessage(result.ready ? "Training preflight passed. The selected models are ready for governed execution." : "Training preflight found blocking issues.");
+      setPreflightSignature(buildTrainingPreflightSignature(payload));
+      if (!result.ready) {
+        setExecutionState("validation_failed");
+        setMessage("Validation failed. Review every blocking check before retrying.");
+      } else if (preflightRequiresLargeRun(result) && !largeJobConfirmed) {
+        setExecutionState("acknowledgement_required");
+        setMessage(
+          `Validation passed for this governed large run. Review the ${Number(result.estimated_fits ?? estimatedFits).toLocaleString()} estimated-fit workload and acknowledge it before ATLAS creates a job.`,
+        );
+      } else {
+        setExecutionState("idle");
+        setMessage("Training preflight passed. The selected models are ready for governed execution.");
+      }
       return result;
     } catch (cause) {
       const text = cause instanceof Error ? cause.message : "Training preflight failed.";
+      setExecutionState("validation_failed");
       setError(text);
       throw new Error(text);
     } finally {
@@ -875,12 +1441,36 @@ export default function Step07ModelTraining() {
     }
   }
 
-  useEffect(() => {
-    if (!manifest || !splitStatus || !selectedModels.length || activeJobId) return;
-    void runPreflight().catch(() => undefined);
-    // The signature already captures all training inputs.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [manifest?.manifest_hash, splitStatus?.split_id, splitStatus?.validation_design_version]);
+  async function runPreflight() {
+    if (trainingSubmissionLocked.current) return null;
+    trainingSubmissionLocked.current = true;
+    setExecutionState("validating");
+    setMessage("Saving the exact selected model portfolio before validation...");
+    try {
+      await persistPortfolioBeforeExecution();
+      const result = await performPreflight();
+      if (result.ready && preflightRequiresLargeRun(result) && !largeJobConfirmed) {
+        window.requestAnimationFrame(() => {
+          largeJobConfirmationRef.current?.scrollIntoView({
+            behavior: "smooth",
+            block: "nearest",
+          });
+          largeJobConfirmationRef.current?.focus();
+        });
+      }
+      return result;
+    } catch (cause) {
+      const text =
+        cause instanceof Error
+          ? cause.message
+          : "The selected model portfolio could not be validated.";
+      setExecutionState("validation_failed");
+      setError(text);
+      return null;
+    } finally {
+      trainingSubmissionLocked.current = false;
+    }
+  }
 
   useEffect(() => {
     if (!activeJobId) return;
@@ -903,6 +1493,8 @@ export default function Step07ModelTraining() {
         if (["complete", "failed", "cancelled", "interrupted"].includes(current.overall_status)) {
           localStorage.removeItem(ACTIVE_JOB_KEY);
           setActiveJobId("");
+          setExecutionState("idle");
+          trainingIdempotencyKey.current = "";
           if (current.overall_status === "complete" && current.partial_ranked_results.length && !finalizedJobs.current.has(current.job_id)) {
             finalizedJobs.current.add(current.job_id);
             const trackingRows = current.partial_ranked_results.map((row) => ({
@@ -928,8 +1520,10 @@ export default function Step07ModelTraining() {
               calibrated: calibrate,
             }).catch((cause) => {
               setError(
-                `Training completed, but experiment evidence persistence failed: ${
-                  cause instanceof Error ? cause.message : "Unknown persistence failure."
+                `Training completed, but the governed experiment record was not saved. ${
+                  cause instanceof Error
+                    ? cause.message
+                    : "Canonical dataset identity is required."
                 }`,
               );
             });
@@ -943,6 +1537,8 @@ export default function Step07ModelTraining() {
         setJob((current) => current ? { ...current, overall_status: "interrupted", message: "Connection lost. Retry required." } : current);
         localStorage.removeItem(ACTIVE_JOB_KEY);
         setActiveJobId("");
+        setExecutionState("start_failed");
+        trainingIdempotencyKey.current = "";
       }
     }
     void poll();
@@ -953,8 +1549,11 @@ export default function Step07ModelTraining() {
     overrideModels?: string[],
     retryParentJobId = "",
   ) {
+    if (trainingSubmissionLocked.current) return;
+    trainingSubmissionLocked.current = true;
     if (!datasetIdentity) {
       setError(datasetIdentityError);
+      trainingSubmissionLocked.current = false;
       return;
     }
     const launchModels = overrideModels?.length
@@ -962,11 +1561,24 @@ export default function Step07ModelTraining() {
       : selectedModels;
     if (!launchModels.length) {
       setError("Select at least one model before training.");
+      trainingSubmissionLocked.current = false;
       return;
     }
     setError("");
+    setExecutionState(!overrideModels && preflightCurrent ? "starting" : "validating");
+    setMessage(
+      !overrideModels && preflightCurrent
+        ? "Confirming the saved portfolio before governed job creation..."
+        : "Saving the exact selected model portfolio before validation...",
+    );
+    let executionPhase: "persistence" | "validation" | "start" = "persistence";
     try {
-      const launchPayload = {
+      await persistPortfolioBeforeExecution(
+        launchModels,
+        overrideModels ? "custom_portfolio" : candidateStrategy,
+      );
+      executionPhase = !overrideModels && preflightCurrent ? "start" : "validation";
+      const preflightPayload = {
         ...requestPayload,
         models: launchModels,
         retry_parent_job_id: retryParentJobId,
@@ -974,23 +1586,48 @@ export default function Step07ModelTraining() {
       const check =
         !overrideModels && preflightCurrent
           ? preflight
-          : await requestJson<Preflight>("/model/train/preflight", {
-              method: "POST",
-              body: JSON.stringify(launchPayload),
-            });
-      if (check) {
-        assertExactDatasetIdentity(
-          datasetIdentity,
-          check,
-          "Model Training preflight response",
-        );
+          : await performPreflight(preflightPayload);
+      if (!check?.ready) {
+        setExecutionState("validation_failed");
+        setError("Resolve every blocking preflight issue before creating a training job.");
+        return;
       }
-      if (!check?.ready) throw new Error("Resolve every blocking preflight issue before creating a training job.");
+      executionPhase = "start";
+      if (preflightRequiresLargeRun(check) && !largeJobConfirmed) {
+        setExecutionState("acknowledgement_required");
+        setMessage(
+          `Validation passed for this ${launchModels.length}-model bench. Review and acknowledge the ${Number(check.estimated_fits ?? estimatedFits).toLocaleString()} estimated-fit workload in the action bar before ATLAS creates the training job.`,
+        );
+        window.requestAnimationFrame(() => {
+          largeJobConfirmationRef.current?.scrollIntoView({
+            behavior: "smooth",
+            block: "nearest",
+          });
+          largeJobConfirmationRef.current?.focus();
+        });
+        return;
+      }
+      setExecutionState("starting");
+      setMessage("Starting governed training from the current authoritative preflight...");
+      if (!trainingIdempotencyKey.current) {
+        trainingIdempotencyKey.current =
+          typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+            ? crypto.randomUUID()
+            : `training-${check.preflight_id ?? "preflight"}-${Date.now()}`;
+      }
+      const launchPayload = {
+        ...preflightPayload,
+        large_job_confirmed: largeJobConfirmed,
+        expected_preflight_id: check.preflight_id ?? "",
+        expected_preflight_state_hash: check.state_hash ?? "",
+        selected_algorithm_versions: check.selected_algorithm_versions ?? {},
+        idempotency_key: trainingIdempotencyKey.current,
+      };
       const created = await requestJson<TrainingJob>("/model/train/jobs", { method: "POST", body: JSON.stringify(launchPayload) });
       assertExactDatasetIdentity(
         datasetIdentity,
         created,
-        "Created training job",
+        "Created training job response",
       );
       const queued: TrainingJob = created.per_model_status ? created : {
         ...created,
@@ -1011,6 +1648,8 @@ export default function Step07ModelTraining() {
       };
       setJob(queued);
       setActiveJobId(created.job_id);
+      setExecutionState("job_created");
+      setMessage(`Training job ${created.job_id} was created and is ${queued.overall_status}.`);
       localStorage.setItem(
         ACTIVE_JOB_KEY,
         JSON.stringify({
@@ -1020,9 +1659,20 @@ export default function Step07ModelTraining() {
           datasetVersionId: datasetIdentity.dataset_version_id,
         }),
       );
-      logDecision({ workflowStep: "Model Training", actionType: "workflow_setting_changed", subject: retryParentJobId ? "Failed model retry job created" : "Training job created", previousValue: retryParentJobId || null, newValue: { jobId: created.job_id, models: launchModels, splitId: check.split_id, validationDesignVersion: check.validation_design_version, featureManifestVersion: check.feature_manifest_version }, systemRecommendation: "Train only after the governed preflight and Validation Design binding pass.", followStatus: "followed" });
+      window.requestAnimationFrame(() => {
+        liveTrainingRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+        liveTrainingRef.current?.focus({ preventScroll: true });
+      });
     } catch (cause) {
+      setExecutionState(
+        executionPhase === "validation" ? "validation_failed" : "start_failed",
+      );
       setError(cause instanceof Error ? cause.message : "ATLAS could not create the training job.");
+    } finally {
+      trainingSubmissionLocked.current = false;
     }
   }
 
@@ -1031,8 +1681,25 @@ export default function Step07ModelTraining() {
     if (!failedKeys.length || !job) return;
     setSelectedModels(failedKeys);
     setCandidateStrategy("custom_portfolio");
-    setPreflight(null);
+    setExecutionState("idle");
+    trainingIdempotencyKey.current = "";
     await startTraining(failedKeys, job.job_id);
+  }
+
+  function excludeFailedModelsFromNextRun() {
+    const failedKeys = new Set(
+      (job?.failed_models ?? []).map((failure) => failure.key),
+    );
+    if (!failedKeys.size) return;
+    setSelectedModels((current) =>
+      current.filter((key) => !failedKeys.has(key)),
+    );
+    setCandidateStrategy("custom_portfolio");
+    setExecutionState("idle");
+    trainingIdempotencyKey.current = "";
+    setMessage(
+      "Failed optional candidates were removed from the next training portfolio. The completed candidates and current job evidence are unchanged.",
+    );
   }
 
   async function cancelTraining() {
@@ -1066,7 +1733,7 @@ export default function Step07ModelTraining() {
       assertExactDatasetIdentity(
         datasetIdentity,
         current,
-        "Cancel-queued training job response",
+        "Queued-model cancellation response",
       );
       setJob(current);
       setMessage(current.user_message ?? current.message);
@@ -1079,25 +1746,59 @@ export default function Step07ModelTraining() {
     }
   }
 
-  async function saveModelSelectionDecision(
-    status: "proposed" | "approved",
-  ) {
+  async function saveModelSelectionDecision(): Promise<ModelSelectionDecision | null> {
     if (!job || job.overall_status !== "complete") {
       setError("Complete the governed training job before recording a model decision.");
-      return;
+      return null;
     }
     if (!datasetIdentity) {
       setError(datasetIdentityError);
-      return;
+      return null;
     }
     const activeIdentity = datasetIdentity;
-    if (!championModel) {
-      setError("Select one champion candidate.");
-      return;
+    const eligibleCandidates = rankVerifiedSelectionCandidates(
+      [...(job.partial_ranked_results ?? job.summary?.ranked ?? [])].filter(
+        (row) => row.champion_eligible !== false && row.kind !== "anomaly",
+      ),
+      primaryMetric,
+      ["rmse", "mae", "mse"].includes(primaryMetric),
+    );
+    const resolvedChampionId =
+      championModel &&
+      eligibleCandidates.some((row) => row.candidate_id === championModel)
+        ? championModel
+        : eligibleCandidates[0]?.candidate_id ?? "";
+    const selectedCandidate = eligibleCandidates.find(
+      (row) => row.candidate_id === resolvedChampionId,
+    );
+    const selectedMetric = selectedCandidate
+      ? verifiedSelectionMetric(selectedCandidate, primaryMetric)
+      : null;
+    if (!selectedCandidate || !selectedMetric || !selectedCandidate.training_run_id) {
+      setError(
+        "Select one candidate with verified non-holdout selection evidence.",
+      );
+      return null;
     }
-    if (selectionRationale.trim().length < 10) {
-      setError("Record a substantive champion/challenger rationale before saving.");
-      return;
+    const resolvedChallengerIds = challengerModels.filter(
+      (candidateId) =>
+        candidateId !== resolvedChampionId &&
+        eligibleCandidates.some((row) => row.candidate_id === candidateId),
+    );
+    const leader = selectedCandidate;
+    const metricLeader = eligibleCandidates[0];
+    const metricScore = leader ? metricValue(leader, primaryMetric) : null;
+    const leadingScore = metricValue(metricLeader, primaryMetric);
+    const rationaleBasis =
+      metricLeader?.candidate_id === resolvedChampionId
+        ? `it is the leading eligible completed model on ${selectionMetricLabel(selectedMetric)}${metricScore === null ? "" : ` (${formatMetric(metricScore)})`}`
+        : `it is the analyst-selected candidate with ${selectionMetricLabel(selectedMetric)} ${metricScore === null ? "not available" : formatMetric(metricScore)}; the selection leader is ${modelLabel(metricLeader?.key ?? "", labels)}${leadingScore === null ? "" : ` (${formatMetric(leadingScore)})`}`;
+    const resolvedRationale =
+      selectionRationale.trim() ||
+      `${modelLabel(selectedCandidate.key, labels)} is locked as the candidate selected from training/CV evidence because ${rationaleBasis}. Final-holdout evaluation occurs only after this lock; model approval remains downstream.`;
+    if (resolvedChampionId !== championModel) setChampionModel(resolvedChampionId);
+    if (resolvedRationale !== selectionRationale) {
+      setSelectionRationale(resolvedRationale);
     }
     setDecisionSaving(true);
     setError("");
@@ -1116,11 +1817,25 @@ export default function Step07ModelTraining() {
           validation_design_id: splitStatus?.validation_design_id ?? "",
           validation_design_version:
             splitStatus?.validation_design_version ?? "",
-          champion_model: championModel,
-          challenger_models: challengerModels,
-          status,
+          selected_candidate_id: resolvedChampionId,
+          training_run_id: selectedCandidate.training_run_id,
+          selection_metric: selectedMetric,
+          selection_ranking_snapshot: eligibleCandidates.map((candidate, index) => ({
+            rank: index + 1,
+            candidate_id: candidate.candidate_id,
+            training_run_id: candidate.training_run_id,
+            algorithm_id: candidate.key,
+            selection_metric: verifiedSelectionMetric(candidate, primaryMetric),
+          })),
+          champion_model: selectedCandidate.key,
+          challenger_models: resolvedChallengerIds.flatMap((candidateId) => {
+            const candidate = eligibleCandidates.find((row) => row.candidate_id === candidateId);
+            return candidate ? [candidate.key] : [];
+          }),
+          challenger_candidate_ids: resolvedChallengerIds,
+          status: "locked",
           primary_metric: primaryMetric,
-          rationale: selectionRationale.trim(),
+          rationale: resolvedRationale,
           metric_justification: metricJustification.trim(),
           interpretability_justification:
             interpretabilityJustification.trim(),
@@ -1135,31 +1850,32 @@ export default function Step07ModelTraining() {
         response.decision,
         "Saved model-selection decision",
       );
-      setSelectionDecision(response.decision);
+      const locked = parseLockedSelectionDecision(response.decision);
+      if (
+        !locked ||
+        locked.selected_candidate_id !== resolvedChampionId ||
+        locked.training_run_id !== selectedCandidate.training_run_id
+      ) {
+        throw new Error(
+          "The backend did not return the exact immutable candidate-selection lock.",
+        );
+      }
+      const exactDecision = {
+        ...response.decision,
+        ...locked,
+      } as ModelSelectionDecision;
+      setSelectionDecision(exactDecision);
       setMessage(
-        `${status === "approved" ? "Approved" : "Proposed"} champion/challenger decision ${response.decision.decision_id} was bound to job ${job.job_id}.`,
+        `Candidate decision ${locked.decision_id} is locked to ${resolvedChampionId} using ${selectionMetricLabel(locked.selection_metric)}. Final holdout remains sealed until Evaluation.`,
       );
-      logDecision({
-        workflowStep: "Model Training",
-        actionType: "champion_model_selected",
-        subject: modelLabel(championModel, labels),
-        previousValue: selectionDecision?.champion_model ?? "none",
-        newValue: {
-          champion: championModel,
-          challengers: challengerModels,
-          status,
-        },
-        systemRecommendation:
-          "Treat leaderboard rank as decision support, never automatic champion approval.",
-        followStatus: "followed",
-        userReason: selectionRationale.trim(),
-      });
+      return exactDecision;
     } catch (cause) {
       setError(
         cause instanceof Error
           ? cause.message
           : "The governed model decision could not be saved.",
       );
+      return null;
     } finally {
       setDecisionSaving(false);
     }
@@ -1168,21 +1884,31 @@ export default function Step07ModelTraining() {
   function toggleModel(key: string) {
     setCandidateStrategy("custom_portfolio");
     setSelectedModels((current) => current.includes(key) ? current.filter((item) => item !== key) : [...current, key]);
-    setPreflight(null);
-    logDecision({ workflowStep: "Model Training", actionType: "model_selected", subject: modelLabel(key, labels), previousValue: selectedModels, newValue: selectedModels.includes(key) ? selectedModels.filter((item) => item !== key) : [...selectedModels, key] });
+    setExecutionState("idle");
+    trainingIdempotencyKey.current = "";
   }
 
   function applyModelSuite(keys: readonly string[]) {
     const allowed = new Set(availableDefinitions.map((model) => model.key));
     const next = keys.filter((key) => allowed.has(key) && compatibleModelKeys.has(key));
+    const added = next.filter((key) => !selectedModels.includes(key));
+    const unavailable = keys.filter(
+      (key) => !allowed.has(key) || !compatibleModelKeys.has(key),
+    );
+    setCandidateStrategy("custom_portfolio");
     setSelectedModels([...new Set(next)]);
-    setPreflight(null);
+    setExecutionState("idle");
+    trainingIdempotencyKey.current = "";
+    setMessage(
+      `${next.length} compatible suite model(s) selected${added.length ? `; added ${added.map((key) => modelLabel(key, labels)).join(", ")}` : ""}.${unavailable.length ? ` Unavailable: ${unavailable.map((key) => modelLabel(key, labels)).join(", ")}.` : ""}`,
+    );
   }
 
   function applyCandidateStrategy(strategy: CandidateStrategy) {
     setCandidateStrategy(strategy);
     if (strategy === "custom_portfolio") {
-      setPreflight(null);
+      setExecutionState("idle");
+      trainingIdempotencyKey.current = "";
       return;
     }
     const definition = CANDIDATE_STRATEGIES.find((item) => item.key === strategy);
@@ -1190,64 +1916,116 @@ export default function Step07ModelTraining() {
     const next = (definition?.models[problemType] ?? []).filter(
       (key) => allowed.has(key) && compatibleModelKeys.has(key),
     );
+    const unavailable = (definition?.models[problemType] ?? []).filter(
+      (key) => !allowed.has(key) || !compatibleModelKeys.has(key),
+    );
     setSelectedModels([...new Set(next)]);
-    setPreflight(null);
+    setExecutionState("idle");
+    trainingIdempotencyKey.current = "";
+    setMessage(
+      `${definition?.title ?? "Candidate strategy"} selected ${next.length} compatible model(s).${unavailable.length ? ` Unavailable: ${unavailable.map((key) => modelLabel(key, labels)).join(", ")}.` : ""}`,
+    );
   }
 
   const results = useMemo(() => {
-    const rows = [...(job?.partial_ranked_results ?? job?.summary?.ranked ?? [])];
-    const ascending = ["rmse", "mae", "mse"].includes(sortMetric);
-    return rows.sort((left, right) => {
-      const a = metricValue(left, sortMetric);
-      const b = metricValue(right, sortMetric);
-      if (a === null) return 1;
-      if (b === null) return -1;
-      return ascending ? a - b : b - a;
-    });
-  }, [job?.partial_ranked_results, job?.summary?.ranked, sortMetric]);
-  const championEligibleResults = results.filter((row) => row.champion_eligible !== false && row.kind !== "anomaly");
+    return rankVerifiedSelectionCandidates(
+      [...(job?.partial_ranked_results ?? job?.summary?.ranked ?? [])],
+      primaryMetric,
+      ["rmse", "mae", "mse"].includes(primaryMetric),
+    );
+  }, [job?.partial_ranked_results, job?.summary?.ranked, primaryMetric]);
+  const allResultRows = [
+    ...(job?.partial_ranked_results ?? job?.summary?.ranked ?? []),
+  ];
+  const excludedSelectionRows = allResultRows.filter(
+    (row) =>
+      row.kind !== "anomaly" &&
+      row.champion_eligible !== false &&
+      !verifiedSelectionMetric(row, primaryMetric),
+  );
+  const championEligibleResults = results.filter(
+    (row) => row.champion_eligible !== false && row.kind !== "anomaly",
+  );
   useEffect(() => {
-    const eligibleKeys = championEligibleResults.map((row) => row.key);
-    if (!eligibleKeys.length) return;
+    const eligibleIds = championEligibleResults.flatMap((row) =>
+      row.candidate_id ? [row.candidate_id] : [],
+    );
+    if (!eligibleIds.length) return;
     const resolvedChampion =
-      championModel && eligibleKeys.includes(championModel)
+      championModel && eligibleIds.includes(championModel)
         ? championModel
-        : eligibleKeys[0];
+        : eligibleIds[0];
     if (resolvedChampion !== championModel) setChampionModel(resolvedChampion);
     setChallengerModels((current) => {
       const valid = current.filter(
-        (key) => eligibleKeys.includes(key) && key !== resolvedChampion,
+        (candidateId) =>
+          eligibleIds.includes(candidateId) && candidateId !== resolvedChampion,
       );
       if (valid.length) return valid;
-      return eligibleKeys
-        .filter((key) => key !== resolvedChampion)
+      return eligibleIds
+        .filter((candidateId) => candidateId !== resolvedChampion)
         .slice(0, 2);
     });
   }, [
-    championEligibleResults.map((row) => row.key).join("|"),
+    championEligibleResults.map((row) => row.candidate_id).join("|"),
     championModel,
   ]);
+  const proposalFormCurrent =
+    !!selectionDecision &&
+    selectionDecision.training_job_id === job?.job_id &&
+    selectionDecision.status === "locked" &&
+    selectionDecision.selected_candidate_id === championModel &&
+    selectionDecision.selection_metric.name === primaryMetric;
   const finishedCount = job?.finished_count ?? Object.values(job?.per_model_status ?? {}).filter((state) => ["complete", "failed", "cancelled", "interrupted"].includes(state.status)).length;
   const progress = job?.total_count ? Math.round((finishedCount / job.total_count) * 100) : 0;
+  const jobWarnings = Object.entries(job?.per_model_status ?? {}).flatMap(
+    ([key, state]) => state.warning ? [`${modelLabel(key, labels)}: ${state.warning}`] : [],
+  );
+  const jobSafeErrors = Object.entries(job?.per_model_status ?? {}).flatMap(
+    ([key, state]) => state.user_error ? [`${modelLabel(key, labels)}: ${state.user_error}`] : [],
+  );
   const jobActive = !!job && ["queued", "preparing", "running"].includes(job.overall_status);
-  const readiness = preflightCurrent && preflight?.ready;
+  const readiness = preflightLifecycle === "ready";
+  const governedLargeRun = authoritativePreflight
+    ? preflightRequiresLargeRun(authoritativePreflight)
+    : largeJob;
+  const largeAcknowledgementVisible =
+    executionState === "acknowledgement_required" &&
+    readiness &&
+    governedLargeRun;
+  const readinessStripItems = currentReadinessStripItems(authoritativePreflight);
+  const displayedEstimatedFits =
+    authoritativePreflight?.estimated_fits ?? portfolioEstimate.estimatedFits;
+  const displayedEstimatedRuntimeSeconds =
+    authoritativePreflight?.estimated_runtime_seconds ??
+    portfolioEstimate.estimatedRuntimeSeconds;
+  const displayedEstimatedMemoryMb =
+    authoritativePreflight?.estimated_memory_mb ??
+    portfolioEstimate.estimatedMemoryMb;
+  const selectedDependencyFailures = selectedModels.filter((key) => {
+    if (availability[key] === false) return true;
+    return preflight?.model_compatibility?.[key]?.compatible === false;
+  });
   const trainActionBlocked =
     jobActive ||
     preflightLoading ||
+    executionState === "starting" ||
+    executionState === "job_created" ||
     !datasetIdentity ||
+    !selectionHydrated ||
     !selectedModels.length ||
     !manifest ||
     !splitStatus ||
     splitStatus.status !== "current" ||
-    loading ||
-    (largeJob && !largeJobConfirmed);
-  const trainActionLabel = jobActive
-    ? "Training in progress"
-    : preflightLoading
-      ? "Validating selection"
-      : readiness
-        ? "Train Selected Models"
-        : "Validate & Train Selected Models";
+    (executionState === "acknowledgement_required" && !largeJobConfirmed) ||
+    loading;
+  const primaryTrainingActionLabel = trainingActionLabel({
+    executionState,
+    jobActive,
+    largeRun: governedLargeRun,
+    acknowledged: largeJobConfirmed,
+    preflightReady: readiness,
+  });
 
   const heroMetrics: AtlasWorkflowMetric[] = [
     { label: "Project", value: projectName },
@@ -1265,11 +2043,14 @@ export default function Step07ModelTraining() {
       setError(datasetIdentityError);
       return false;
     }
-    if (
-      !championEligibleResults.length ||
-      job?.overall_status !== "complete" ||
-      selectionDecision?.training_job_id !== job.job_id
-    ) return false;
+    if (!championEligibleResults.length || job?.overall_status !== "complete") {
+      return false;
+    }
+    const boundDecision =
+      proposalFormCurrent
+        ? selectionDecision
+        : await saveModelSelectionDecision();
+    if (!boundDecision) return false;
     await createEvidence({
       ...buildCanonicalEvidenceEnvelope(datasetIdentity, {
         manifestVersion: preflight?.feature_manifest_version,
@@ -1277,12 +2058,12 @@ export default function Step07ModelTraining() {
         validationDesignId: preflight?.validation_design_id,
         validationDesignVersion: preflight?.validation_design_version,
         jobId: job.job_id,
-        modelDecisionId: selectionDecision.decision_id,
+        modelDecisionId: boundDecision.decision_id,
       }),
       projectName,
       evidenceType: "model_training",
       title: "Governed Model Training Run",
-      summary: `${results.length} model(s) completed under job ${job.job_id}. ${modelLabel(selectionDecision.champion_model, labels)} is proposed—not approved—as champion with ${selectionDecision.challenger_models.length} governed challenger(s).`,
+      summary: `${results.length} model(s) completed under job ${job.job_id}. Candidate ${boundDecision.selected_candidate_id} is immutably locked from ${selectionMetricLabel(boundDecision.selection_metric)} before final-holdout Evaluation; model approval remains downstream.`,
       sourcePage: "Model Training",
       sourceRoute: "/step07",
       modelIds: championEligibleResults.map((row) => row.key),
@@ -1292,7 +2073,7 @@ export default function Step07ModelTraining() {
       tags: ["predictive_modeling", "training_job", "candidate_models"],
       status: job.failed_models.length ? "needs_review" : "ready",
       importance: "high",
-      payload: { job, configuration: requestPayload, modelDecision: selectionDecision },
+      payload: { job, configuration: requestPayload, modelDecision: boundDecision },
     });
     return true;
   }
@@ -1312,15 +2093,19 @@ export default function Step07ModelTraining() {
       nextDisabled={
         !datasetIdentity ||
         job?.overall_status !== "complete" ||
-        !championEligibleResults.length ||
-        selectionDecision?.training_job_id !== job?.job_id}
+        !championEligibleResults.length
+      }
       nextDisabledReason={
         job?.overall_status !== "complete" || !championEligibleResults.length
-          ? "Complete at least one supervised, champion-eligible model before continuing to Evaluation."
-          : "Record a governed champion/challenger proposal before continuing."
+          ? "Complete at least one supervised candidate with verified non-holdout selection evidence before continuing to Evaluation."
+          : undefined
       }
       nextLabel="Confirm Model Training and Continue"
-      nextStatusLine={selectionDecision?.training_job_id === job?.job_id ? "Training evidence, the candidate leaderboard, and the proposed decision are ready for downstream Evaluation. No champion is approved automatically." : "A governed champion/challenger proposal is required. Final approval remains in downstream Evaluation / Validation."}
+      nextStatusLine={
+        proposalFormCurrent
+          ? `Candidate decision ${selectionDecision?.decision_id} is locked from verified training/CV evidence. Final holdout remains sealed until Evaluation.`
+          : "Continue will immutably lock the exact candidate selected from verified training/CV evidence before Evaluation can open the final holdout."
+      }
       onNext={completeStep}
     >
       <div className="space-y-4">
@@ -1331,8 +2116,8 @@ export default function Step07ModelTraining() {
           projectName={projectName}
           target={dataset?.target ?? ""}
           problemType={problemType}
-          trainRows={preflight?.train_rows}
-          validationRows={preflight?.test_rows}
+          trainRows={authoritativePreflight?.train_rows}
+          validationRows={authoritativePreflight?.test_rows}
           testAvailable={!!splitStatus?.test_reference}
           ootAvailable={!!splitStatus?.oot_reference}
           featureCount={selectedFeatures.length}
@@ -1341,11 +2126,13 @@ export default function Step07ModelTraining() {
           primaryMetric={primaryMetric}
           selectedModels={selectedModels.length}
           jobState={job?.overall_status ?? "not started"}
-          readiness={preflightCurrent ? !!preflight?.ready : splitStatus?.status === "current"}
-          estimatedFits={estimatedFits}
-          estimatedMemory={preflight?.estimated_memory_mb}
-          blockers={preflight?.blocking_errors.length ?? 0}
-          warnings={preflight?.warnings.length ?? 0}
+          readiness={readiness}
+          preflightLifecycle={preflightLifecycle}
+          estimatedFits={displayedEstimatedFits}
+          estimatedRuntimeSeconds={displayedEstimatedRuntimeSeconds}
+          estimatedMemory={displayedEstimatedMemoryMb}
+          blockers={authoritativePreflight?.blocking_errors.length ?? 0}
+          warnings={authoritativePreflight?.warnings.length ?? 0}
         />
 
         <AtlasWorkflowSection
@@ -1371,28 +2158,30 @@ export default function Step07ModelTraining() {
           eyebrow="Governed execution gate"
           title="Training Readiness"
           description="ATLAS validates the full split, exact feature contract, target classes, runtime dependencies, calibration, and cross-validation before a job can be created."
-          tone={preflightCurrent ? preflight?.ready ? "success" : "warning" : "info"}
-          action={<div className="flex items-center gap-2"><AtlasDataScopeBadge scope="full_dataset" rows={preflight?.train_rows && preflight?.test_rows ? preflight.train_rows + preflight.test_rows : dataset?.registered_row_count} /><button type="button" className="atlas-secondary-button" disabled={preflightLoading || jobActive || !selectedModels.length} onClick={() => void runPreflight()}>{preflightLoading ? <LoaderCircle size={15} className="animate-spin" /> : <RefreshCw size={15} />} Run Preflight</button></div>}
+          tone={preflightLifecycle === "ready" ? "success" : preflightLifecycle === "blocked" || preflightLifecycle === "stale" ? "warning" : "info"}
+          action={<div className="flex items-center gap-2"><AtlasDataScopeBadge scope="training_pipeline" rows={authoritativePreflight?.train_rows ?? dataset?.registered_row_count} /><button type="button" className="atlas-secondary-button" disabled={preflightLoading || jobActive || !selectedModels.length || !selectionHydrated} onClick={() => void runPreflight()}>{preflightLoading ? <LoaderCircle size={15} className="animate-spin" /> : <RefreshCw size={15} />} {preflightLoading ? "Validating..." : "Run Preflight"}</button></div>}
         >
-          <AtlasStatusStrip items={[
-            { label: "Dataset", state: preflight?.dataset_version_id ? "complete" : "blocked", detail: preflight?.dataset_version_id ?? "Unavailable" },
-            { label: "Target", state: preflight?.target ? "complete" : "blocked", detail: preflight?.target ?? "Missing" },
-            { label: "Feature contract", state: preflight?.missing_features?.length ? "blocked" : preflight?.selected_features?.length ? "complete" : "pending", detail: preflight ? `${preflight.selected_features.length} exact predictors` : "Not checked" },
-            { label: "Validation split", state: preflight?.split_status === "current" ? "complete" : "blocked", detail: preflight?.split_id ?? "Not current" },
-            { label: "Backend", state: preflight?.backend_status === "ready" ? "complete" : "blocked", detail: preflight?.backend_status ?? "Not checked" },
-            { label: "Workers", state: preflight?.worker_status === "ready" ? "complete" : "pending", detail: preflight ? `${preflight.recommended_parallelism} recommended` : "Not checked" },
-          ]} />
-          {preflight ? <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
-            <Metric label="Train rows" value={preflight.train_rows.toLocaleString()} />
-            <Metric label="Holdout rows" value={preflight.test_rows.toLocaleString()} />
-            <Metric label="Train events" value={preflight.train_events?.toLocaleString() ?? "N/A"} />
-            <Metric label="Holdout events" value={preflight.test_events?.toLocaleString() ?? "N/A"} />
-            <Metric label="Train event rate" value={formatPercent(preflight.train_event_rate)} />
-            <Metric label="Estimated memory" value={`${preflight.estimated_memory_mb.toLocaleString()} MB`} />
-            <Metric label="Preflight" value={`${preflight.duration_ms.toLocaleString()} ms`} />
-          </div> : null}
-          {preflight?.blocking_errors.length ? <div className="mt-4 space-y-2">{preflight.blocking_errors.map((item) => <div key={item} className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900"><XCircle size={16} className="mt-0.5 shrink-0" />{item}</div>)}</div> : null}
-          {preflight?.warnings.length ? <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3"><summary className="cursor-pointer text-sm font-semibold text-amber-950">{preflight.warnings.length} preflight warning(s)</summary><ul className="mt-2 space-y-1 text-sm text-amber-900">{preflight.warnings.map((item) => <li key={item}>{item}</li>)}</ul></details> : null}
+          {preflightLifecycle === "stale" ? <AtlasAttentionPanel title="The previous preflight is stale" tone="warning">Model, tuning, feature-manifest, or validation-design inputs changed after {preflight?.preflight_id ?? "the prior preflight"}. Its readiness metrics are retained as history but are not displayed as current. {preflight?.stale_reason ?? "Run validation again for this exact portfolio."}</AtlasAttentionPanel> : null}
+          {preflightLifecycle === "missing" ? <AtlasAttentionPanel title="Current preflight required" tone="info">Readiness remains pending until ATLAS validates this exact saved portfolio. The primary action performs this validation automatically.</AtlasAttentionPanel> : null}
+          {preflightLifecycle === "validating" ? <AtlasAttentionPanel title="Authoritative validation in progress" tone="info">ATLAS is checking canonical identity, contracts, dependencies, runtime limits, and sealed-holdout isolation. No training job is created until every blocking check passes.</AtlasAttentionPanel> : null}
+          <div className="mt-4"><AtlasStatusStrip items={readinessStripItems} label="Authoritative training readiness" /></div>
+          {authoritativePreflight ? <>
+            <div className="mt-4 grid gap-2 sm:grid-cols-2 xl:grid-cols-7" data-testid="authoritative-preflight-identity">
+              <Metric label="Preflight ID" value={authoritativePreflight.preflight_id ?? "Unavailable"} />
+              <Metric label="Revision" value={authoritativePreflight.revision ?? "Unavailable"} />
+              <Metric label="State hash" value={authoritativePreflight.state_hash ?? "Unavailable"} />
+              <Metric label="Development rows" value={authoritativePreflight.train_rows.toLocaleString()} />
+              <Metric label="Sealed holdout rows" value={authoritativePreflight.test_rows.toLocaleString()} />
+              <Metric label="Development event rate" value={formatPercent(authoritativePreflight.train_event_rate)} />
+              <Metric label="Estimated memory" value={`${authoritativePreflight.estimated_memory_mb.toLocaleString()} MB`} />
+            </div>
+            <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-3" data-testid="authoritative-preflight-checks">
+              {(authoritativePreflight.checks ?? []).map((check) => <div key={check.check_id} className={`rounded-lg border p-3 text-xs leading-5 ${check.passed ? check.state === "warning" ? "border-amber-200 bg-amber-50 text-amber-950" : "border-emerald-200 bg-emerald-50 text-emerald-950" : "border-red-200 bg-red-50 text-red-950"}`}><div className="flex items-center gap-2 font-semibold">{check.passed ? <CheckCircle2 size={14} /> : <XCircle size={14} />}{preflightCheckLabel(check.check_id)}</div><p className="mt-1">{check.reason ?? "No check reason was returned."}</p></div>)}
+            </div>
+            <div className={`mt-4 rounded-lg border px-3 py-2 text-sm ${authoritativePreflight.final_holdout_sealed ? "border-emerald-200 bg-emerald-50 text-emerald-950" : "border-red-200 bg-red-50 text-red-950"}`} data-testid="final-holdout-sealed-status"><strong>Final holdout {authoritativePreflight.final_holdout_sealed ? "sealed" : "not verified"}.</strong> Preflight access is {String(authoritativePreflight.final_holdout_access ?? "contract_metadata_only").replace(/_/g, " ")}; candidate selection evidence is {String(authoritativePreflight.selection_evidence_source ?? "development_population_cross_validation").replace(/_/g, " ")}.</div>
+          </> : null}
+          {authoritativePreflight?.blocking_errors.length ? <div className="mt-4 space-y-2">{authoritativePreflight.blocking_errors.map((item) => <div key={item} className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-900"><XCircle size={16} className="mt-0.5 shrink-0" />{item}</div>)}</div> : null}
+          {authoritativePreflight?.warnings.length ? <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3"><summary className="cursor-pointer text-sm font-semibold text-amber-950">{authoritativePreflight.warnings.length} preflight warning(s)</summary><ul className="mt-2 space-y-1 text-sm text-amber-900">{authoritativePreflight.warnings.map((item) => <li key={item}>{item}</li>)}</ul></details> : null}
         </AtlasWorkflowSection>
 
         <AtlasWorkflowSection eyebrow="Model and tuning configuration" title="Execution Policy" description="Set ranking objective, tuning depth, calibration, and bounded local runtime before starting the governed training job." tone="info">
@@ -1401,9 +2190,9 @@ export default function Step07ModelTraining() {
               <div className="flex items-center gap-2 text-sm font-semibold text-slate-950"><SlidersHorizontal size={16} className="text-blue-700" /> Objective and search strategy</div>
               <p className="mt-1 text-xs leading-5 text-slate-600">Choose the metric and hyperparameter depth that will rank candidate models. Evaluation and governance still approve the champion downstream.</p>
               <div className="mt-4 grid gap-3 lg:grid-cols-3">
-                <label><span className="atlas-label">Primary ranking metric</span><select className="atlas-input" value={primaryMetric} onChange={(event) => { setPrimaryMetric(event.target.value); setSortMetric(event.target.value); }}>{problemType === "classification" ? <><option value="pr_auc">PR-AUC</option><option value="auc">ROC-AUC</option><option value="ks">KS</option><option value="f1">F1</option><option value="recall">Recall</option></> : <><option value="rmse">RMSE</option><option value="mae">MAE</option><option value="r2">R-squared</option></>}</select><span className="mt-1 block text-xs text-slate-500">Ranking supports review; it does not approve a champion.</span></label>
-                <label className="rounded-xl border border-blue-200 bg-blue-50 p-3"><span className="flex items-center gap-2 text-sm font-semibold text-slate-900"><input type="checkbox" checked={gridSearch} disabled={jobActive || !cvConfigured} onChange={(event) => { setGridSearch(event.target.checked); setPreflight(null); }} /> Hyperparameter search</span><p className="mt-1 text-xs text-blue-900">{cvConfigured ? "Tuning is constrained to the approved training-population folds." : "Unavailable because Validation Design contains no approved CV architecture."}</p><select className="atlas-input mt-3" disabled={!gridSearch || jobActive || !cvConfigured} value={gridSearchLevel} onChange={(event) => { setGridSearchLevel(event.target.value as typeof gridSearchLevel); setPreflight(null); }}><option value="quick">Quick</option><option value="balanced">Balanced</option><option value="thorough">Thorough</option></select></label>
-                <label className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><span className="flex items-center gap-2 text-sm font-semibold text-slate-900"><input type="checkbox" checked={calibrate} disabled={problemType === "regression" || jobActive} onChange={(event) => { setCalibrate(event.target.checked); setPreflight(null); }} /> Probability calibration</span><p className="mt-1 text-xs leading-5 text-emerald-900">Applied only to compatible supervised classifiers with event-count-safe folds.</p></label>
+                <label><span className="atlas-label">Primary selection metric</span><select className="atlas-input" value={primaryMetric} onChange={(event) => setPrimaryMetric(event.target.value)}>{problemType === "classification" ? <><option value="pr_auc">PR-AUC</option><option value="auc">ROC-AUC</option><option value="ks">KS</option><option value="f1">F1</option><option value="recall">Recall</option></> : <><option value="rmse">RMSE</option><option value="mae">MAE</option><option value="r2">R-squared</option></>}</select><span className="mt-1 block text-xs text-slate-500">Only verified cross-validation, out-of-fold, or governed validation-partition evidence may rank candidates.</span></label>
+                <label className="rounded-xl border border-blue-200 bg-blue-50 p-3"><span className="flex items-center gap-2 text-sm font-semibold text-slate-900"><input type="checkbox" checked={gridSearch} disabled={jobActive || !cvConfigured} onChange={(event) => { setGridSearch(event.target.checked); setExecutionState("idle"); trainingIdempotencyKey.current = ""; }} /> Hyperparameter search</span><p className="mt-1 text-xs text-blue-900">{cvConfigured ? "Tuning is constrained to the approved training-population folds." : "Unavailable because Validation Design contains no approved CV architecture."}</p><select className="atlas-input mt-3" disabled={!gridSearch || jobActive || !cvConfigured} value={gridSearchLevel} onChange={(event) => { setGridSearchLevel(event.target.value as typeof gridSearchLevel); setExecutionState("idle"); trainingIdempotencyKey.current = ""; }}><option value="quick">Quick</option><option value="balanced">Balanced</option><option value="thorough">Thorough</option></select></label>
+                <label className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><span className="flex items-center gap-2 text-sm font-semibold text-slate-900"><input type="checkbox" checked={calibrate} disabled={problemType === "regression" || jobActive} onChange={(event) => { setCalibrate(event.target.checked); setExecutionState("idle"); trainingIdempotencyKey.current = ""; }} /> Probability calibration</span><p className="mt-1 text-xs leading-5 text-emerald-900">Applied only to compatible supervised classifiers with event-count-safe folds.</p></label>
               </div>
             </div>
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 shadow-sm">
@@ -1411,10 +2200,15 @@ export default function Step07ModelTraining() {
               <p className="mt-1 text-xs leading-5 text-slate-600">ATLAS caps local work so the UI stays responsive and completed models remain available if a run is stopped.</p>
               <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3" data-testid="inherited-cross-validation"><span className="atlas-label">Cross-validation folds · read-only</span><div className="mt-1 flex items-center gap-2 text-sm font-semibold text-slate-950"><LockKeyhole size={14} className="text-emerald-700" />{cvConfigured ? `${splitStatus?.cv_design?.method?.replace(/_/g, " ")} · ${kFolds} folds` : "No approved CV design"}</div><span className="mt-1 block text-xs leading-5 text-slate-600">Inherited from {splitStatus?.validation_design_version ?? "Validation Design"}. Model Training cannot redefine folds.</span></div>
-                <label><span className="atlas-label">Parallel model workers</span><input className="atlas-input" type="number" min="1" max="4" value={maxParallel} disabled={jobActive} onChange={(event) => { setMaxParallel(Math.max(1, Math.min(4, Number(event.target.value) || 1))); setPreflight(null); }} /><span className="mt-1 block text-xs text-slate-500">Actual concurrency is capped by preflight.</span></label>
+                <label><span className="atlas-label">Parallel model workers</span><input className="atlas-input" type="number" min="1" max="4" value={maxParallel} disabled={jobActive} onChange={(event) => { setMaxParallel(Math.max(1, Math.min(4, Number(event.target.value) || 1))); setExecutionState("idle"); trainingIdempotencyKey.current = ""; }} /><span className="mt-1 block text-xs text-slate-500">Actual concurrency is capped by preflight.</span></label>
               </div>
             </div>
           </div>
+          {smallDataNeuralProfile ? (
+            <div className="mt-4 rounded-xl border border-violet-200 bg-violet-50 p-4 text-sm leading-6 text-violet-950">
+              <strong>Small-data neural profile active.</strong> {selectedNeuralModels.map((model) => cleanModelLabel(model.label)).join(", ")} will use compact hidden layers, bounded iterations, deterministic early stopping, and a reduced tuning grid. This remains a real nonlinear neural benchmark while avoiding research-scale runtimes on a dataset under 12,000 training rows.
+            </div>
+          ) : null}
         </AtlasWorkflowSection>
 
         <AtlasWorkflowSection
@@ -1480,15 +2274,22 @@ export default function Step07ModelTraining() {
             <div className="grid gap-3 lg:grid-cols-3">
               {MODEL_SUITE_PRESETS.map((suite) => {
                 const suiteKeys = suite.models[problemType].filter((key) => availableDefinitions.some((model) => model.key === key));
-                const selectedCount = suiteKeys.filter((key) => selectedModels.includes(key)).length;
-                const fullySelected = suiteKeys.length > 0 && selectedCount === suiteKeys.length;
+                const selectableSuiteKeys = suiteKeys.filter((key) => compatibleModelKeys.has(key));
+                const unavailableCount = suiteKeys.length - selectableSuiteKeys.length;
+                const selectedCount = selectableSuiteKeys.filter((key) => selectedModels.includes(key)).length;
+                const fullySelected = selectableSuiteKeys.length > 0 && selectedCount === selectableSuiteKeys.length;
                 return (
-                  <button key={suite.key} type="button" className={`rounded-xl border p-4 text-left transition ${fullySelected ? "border-blue-500 bg-blue-50 shadow-sm" : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/50"}`} disabled={jobActive || !suiteKeys.length} onClick={() => { setCandidateStrategy("custom_portfolio"); setSelectedModels(suiteKeys); setPreflight(null); }}>
+                  <button key={suite.key} type="button" className={`rounded-xl border p-4 text-left transition ${fullySelected ? "border-blue-500 bg-blue-50 shadow-sm" : "border-slate-200 bg-white hover:border-blue-300 hover:bg-blue-50/50"}`} disabled={jobActive || !selectableSuiteKeys.length} onClick={() => { applyModelSuite(suiteKeys); }}>
                     <div className="flex items-start justify-between gap-3">
                       <div><div className="text-sm font-semibold text-slate-950">{suite.title}</div><p className="mt-1 text-xs leading-5 text-slate-600">{suite.description}</p></div>
-                      <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-semibold uppercase text-blue-800">{suiteKeys.length} models</span>
+                      <span className="rounded-full border border-blue-200 bg-blue-50 px-2 py-1 text-[10px] font-semibold uppercase text-blue-800">
+                        {unavailableCount ? `${selectableSuiteKeys.length} of ${suiteKeys.length} available` : `${suiteKeys.length} models`}
+                      </span>
                     </div>
-                    <div className="mt-3 text-xs font-semibold text-blue-800">{selectedCount} selected | Select suite</div>
+                    <div className="mt-3 text-xs font-semibold text-blue-800">
+                      {selectedCount} selected | Select available suite
+                      {unavailableCount ? ` | ${unavailableCount} unavailable candidate${unavailableCount === 1 ? "" : "s"} excluded` : ""}
+                    </div>
                   </button>
                 );
               })}
@@ -1525,8 +2326,8 @@ export default function Step07ModelTraining() {
           eyebrow="Executable modeling program"
           title="Training Plan"
           description="Review the complete workload before execution. Counts are estimates based on selected candidates, approved folds, tuning depth, calibration, and available workers."
-          tone={largeJob && !largeJobConfirmed ? "warning" : "info"}
-          action={<span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-700"><Gauge size={14} />{estimatedFits.toLocaleString()} estimated fits</span>}
+          tone={governedLargeRun && !largeJobConfirmed ? "warning" : "info"}
+          action={<span className="inline-flex items-center gap-1 text-xs font-semibold text-slate-700"><Gauge size={14} />{displayedEstimatedFits.toLocaleString()} {authoritativePreflight ? "validated" : "planning"} fits</span>}
         >
           <TrainingPlanVisual
             selectedModels={selectedDefinitions}
@@ -1535,45 +2336,106 @@ export default function Step07ModelTraining() {
             tuningDepth={gridSearch ? gridSearchLevel : "governed defaults"}
             tuningCandidates={tuningCandidateCount}
             calibration={calibrate && problemType === "classification"}
+            calibrationFits={authoritativePreflight?.calibration_fit_count ?? portfolioEstimate.calibrationFits}
             workers={maxParallel}
-            estimatedFits={estimatedFits}
-            estimatedMemoryMb={preflight?.estimated_memory_mb}
-            estimatedRuntimeSeconds={estimateRuntimeSeconds(estimatedFits, maxParallel)}
+            estimatedFits={displayedEstimatedFits}
+            estimatedMemoryMb={displayedEstimatedMemoryMb}
+            estimatedRuntimeSeconds={displayedEstimatedRuntimeSeconds}
           />
           <div className="mt-4 grid gap-2 sm:grid-cols-3">
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600"><strong className="text-slate-900">Queue order</strong><br />Transparent baselines first, then interpretable challengers, ensembles, optional neural models, and diagnostics.</div>
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600"><strong className="text-slate-900">Cancellation policy</strong><br />Kill unfinished work; completed model metrics and artifacts remain persisted. Queued models are cancelled immediately.</div>
             <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs leading-5 text-slate-600"><strong className="text-slate-900">Resource policy</strong><br />Local concurrency is capped by preflight memory and CPU recommendations; no silent distributed execution.</div>
           </div>
-          {largeJob ? (
-            <label className={`mt-4 flex items-start gap-3 rounded-xl border p-4 ${largeJobConfirmed ? "border-emerald-200 bg-emerald-50" : "border-amber-300 bg-amber-50"}`}>
-              <input className="mt-1" type="checkbox" checked={largeJobConfirmed} onChange={(event) => setLargeJobConfirmed(event.target.checked)} />
-              <span className="text-sm leading-6 text-slate-800"><strong>Explicit large-job confirmation required.</strong> I reviewed the {estimatedFits.toLocaleString()} estimated fits, runtime, memory, queue, and cancellation behavior.</span>
-            </label>
+          {governedLargeRun ? (
+            <div className={`mt-4 rounded-xl border p-4 text-sm leading-6 ${largeJobConfirmed ? "border-emerald-200 bg-emerald-50 text-emerald-950" : "border-amber-300 bg-amber-50 text-amber-950"}`}>
+              <strong>{largeJobConfirmed ? "Large-run workload acknowledged." : authoritativePreflight ? "Validated large-run review required." : "Planning estimate exceeds the large-run threshold."}</strong>{" "}
+              This plan contains {displayedEstimatedFits.toLocaleString()} {authoritativePreflight ? "backend-validated" : "planning"} fits.
+              {!authoritativePreflight ? " Run validation to obtain the governed workload before an acknowledgement is requested." : " The explicit acknowledgement appears beside the persistent action only after validation passes."}
+            </div>
           ) : null}
         </AtlasWorkflowSection>
 
         <div className="sticky bottom-24 z-10 rounded-lg border border-blue-300 bg-white/95 p-4 shadow-xl shadow-slate-900/15 backdrop-blur-xl">
+          {largeAcknowledgementVisible ? (
+            <label
+              id="large-job-confirmation-control"
+              data-testid="large-job-confirmation"
+              className={`mb-3 flex cursor-pointer items-start gap-3 rounded-xl border p-3 ${
+                largeJobConfirmed
+                  ? "border-emerald-300 bg-emerald-50"
+                  : "border-amber-300 bg-amber-50"
+              }`}
+            >
+              <input
+                ref={largeJobConfirmationRef}
+                id="large-job-confirmation"
+                className="mt-1 h-4 w-4 shrink-0 accent-emerald-600"
+                type="checkbox"
+                checked={largeJobConfirmed}
+                disabled={jobActive}
+                onChange={(event) => setLargeJobConfirmed(event.target.checked)}
+              />
+              <span
+                id="large-job-confirmation-guidance"
+                className="text-xs leading-5 text-slate-800"
+                aria-live="polite"
+              >
+                <strong>
+                  {largeJobConfirmed
+                    ? "Large-run workload acknowledged."
+                    : "Large-run acknowledgement required before job creation."}
+                </strong>{" "}
+                This bench was validated at {displayedEstimatedFits.toLocaleString()} fits.
+                ATLAS will create exactly one governed training job only after
+                this box is checked.
+              </span>
+            </label>
+          ) : null}
           <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
               <div className="flex items-center gap-2 text-sm font-semibold text-slate-950"><BrainCircuit size={17} className="text-blue-700" /> Selected Model Bench <span className="text-blue-700">{selectedModels.length}</span></div>
-              <div className="mt-2 flex flex-wrap gap-1.5">{selectedDefinitions.length ? selectedDefinitions.map((model) => <span key={model.key} className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800">{modelLabel(model.key, labels)}</span>) : <span className="text-sm text-amber-800">Select at least one compatible model.</span>}</div>
-              <div className="mt-2 text-xs text-slate-500">{gridSearch ? `${gridSearchLevel} tuning` : "Governed defaults"} | {kFolds} inherited fold(s) | {estimatedFits.toLocaleString()} estimated fits | {calibrate ? "Calibration requested where compatible" : "No added calibration"} | {maxParallel} requested worker(s) | {readiness ? "Preflight current" : "Preflight will run when training starts"}</div>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {selectedDefinitions.length ? (
+                  <>
+                    {selectedDefinitions.slice(0, 6).map((model) => <span key={model.key} className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800">{modelLabel(model.key, labels)}</span>)}
+                    {selectedDefinitions.length > 6 ? <span className="rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">+{selectedDefinitions.length - 6} more</span> : null}
+                  </>
+                ) : <span className="text-sm text-amber-800">Select at least one compatible model.</span>}
+              </div>
+              <div className="mt-2 text-xs text-slate-500">{gridSearch ? `${gridSearchLevel} tuning` : "Governed defaults"} | {kFolds} inherited fold(s) | {displayedEstimatedFits.toLocaleString()} {authoritativePreflight ? "validated" : "planning"} fits | ~{Math.ceil(displayedEstimatedRuntimeSeconds / 60)} min | {displayedEstimatedMemoryMb.toLocaleString()} MB | {calibrate ? "Calibration requested where compatible" : "No added calibration"} | {maxParallel} requested worker(s)</div>
+              <div className="mt-2 flex flex-wrap items-center gap-2 text-xs" aria-live="polite" data-testid="portfolio-persistence-status">
+                <span className={`rounded-full border px-2 py-1 font-semibold ${selectionPersistenceState === "error" ? "border-red-200 bg-red-50 text-red-800" : selectionPersistenceState === "saved" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-blue-200 bg-blue-50 text-blue-800"}`}>
+                  Portfolio {selectionPersistenceState}{selectionPersistenceRevision != null ? ` · revision ${selectionPersistenceRevision}` : ""}
+                </span>
+                <span className={selectedDependencyFailures.length ? "font-semibold text-red-700" : "text-slate-600"}>{selectedDependencyFailures.length ? `${selectedDependencyFailures.length} selected dependency or compatibility issue(s)` : preflightLifecycle === "ready" ? "Selected dependencies available" : "No known dependency issue; authoritative validation pending"}</span>
+                <span className="text-slate-600">Preflight {preflightLifecycle}</span>
+                {selectionPersistenceState === "error" ? <><span className="text-red-700">{selectionPersistenceError || "The latest portfolio remains unsaved."}</span><button type="button" className="atlas-secondary-button" onClick={retrySelectionPersistence}>Retry save</button></> : null}
+              </div>
             </div>
             <div className="flex flex-wrap gap-2">
-              <button type="button" className="atlas-secondary-button" disabled={jobActive || !selectedModels.length} onClick={() => { setSelectedModels([]); setPreflight(null); }}><Trash2 size={15} /> Clear all</button>
+              <button type="button" className="atlas-secondary-button" disabled={jobActive || !selectedModels.length} onClick={() => { setSelectedModels([]); setCandidateStrategy("custom_portfolio"); setExecutionState("idle"); trainingIdempotencyKey.current = ""; }}><Trash2 size={15} /> Clear all</button>
               {jobActive ? <button type="button" className="atlas-destructive-button" title="Cancel Training" onClick={() => void cancelTraining()}><CircleStop size={15} /> Kill unfinished</button> : null}
-              <button type="button" className="atlas-primary-button min-w-60" disabled={trainActionBlocked} onClick={() => void startTraining()}><Play size={16} /> {trainActionLabel}</button>
+              <button type="button" className="atlas-primary-button min-w-60" disabled={trainActionBlocked} aria-describedby={largeAcknowledgementVisible ? "large-job-confirmation-guidance" : undefined} onClick={() => void startTraining()}><Play size={16} /> {primaryTrainingActionLabel}</button>
             </div>
           </div>
-          {!trainActionBlocked && !readiness ? <div className="mt-3 border-t border-blue-100 pt-3 text-xs font-medium text-blue-800">ATLAS will validate the current split, feature contract, selected algorithms, dependencies, and runtime policy, then start the job without requiring a separate preflight action.</div> : null}
+          {largeAcknowledgementVisible ? (
+            <div className="mt-3 border-t border-amber-200 pt-3 text-xs font-medium text-amber-900">
+              {largeJobConfirmed ? "Acknowledgement recorded. Select the primary action to start this exact validated workload." : "Validation passed. Check the acknowledgement above to enable governed job creation."}
+            </div>
+          ) : !trainActionBlocked && !readiness ? (
+            <div className="mt-3 border-t border-blue-100 pt-3 text-xs font-medium text-blue-800">ATLAS will validate the current split, feature contract, selected algorithms, dependencies, and runtime policy, then start the job without requiring a separate preflight action.</div>
+          ) : null}
         </div>
 
-        <AtlasWorkflowSection eyebrow="Background execution" title="Live Training" description="Each selected model reports its own preparation, fit, completion, cancellation, or failure state." tone={job?.overall_status === "complete" ? "success" : job?.overall_status === "failed" ? "danger" : jobActive ? "info" : "neutral"} action={<div className="flex flex-wrap items-center gap-2"><AtlasExecutionStatus state={job?.overall_status ?? "idle"} label={job ? `Job ${job.overall_status}` : "No active job"} detail={job?.job_id} />{jobActive && Object.values(job?.per_model_status ?? {}).some((state) => state.status === "queued") ? <button type="button" className="atlas-secondary-button" onClick={() => void cancelQueuedModels()}><CircleStop size={15} /> Cancel queued only</button> : null}{jobActive ? <button type="button" className="atlas-destructive-button" onClick={() => void cancelTraining()}><CircleStop size={15} /> Kill unfinished</button> : null}</div>}>
+        <div ref={liveTrainingRef} tabIndex={-1} data-testid="live-training-active-region" className="scroll-mt-24 outline-none">
+        <AtlasWorkflowSection eyebrow="Background execution" title="Live Training" description="Each selected model reports its own preparation, fit, completion, cancellation, or failure state." tone={job?.overall_status === "complete" ? "success" : job?.overall_status === "failed" ? "danger" : jobActive ? "info" : "neutral"} action={<div className="flex flex-wrap items-center gap-2"><AtlasExecutionStatus state={job?.overall_status ?? "idle"} label={job ? `Job ${job.overall_status}` : "No active job"} detail={job?.training_job_id ?? job?.job_id} />{jobActive && Object.values(job?.per_model_status ?? {}).some((state) => state.status === "queued") ? <button type="button" className="atlas-secondary-button" onClick={() => void cancelQueuedModels()}><CircleStop size={15} /> Cancel queued only</button> : null}{jobActive ? <button type="button" className="atlas-destructive-button" onClick={() => void cancelTraining()}><CircleStop size={15} /> Kill unfinished</button> : null}</div>}>
           {job ? <>
-            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-8">
-              <Metric label="Job ID" value={job.job_id} />
-              <Metric label="Started" value={job.started_at ? new Date(job.started_at).toLocaleTimeString() : "Queued"} />
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+              <Metric label="Training job ID" value={job.training_job_id ?? job.job_id} />
+              <Metric label="Training run ID" value={job.training_run_id ?? "Assigned when execution starts"} />
+              <Metric label="Queued" value={job.queued_at || job.created_at ? new Date(job.queued_at ?? job.created_at).toLocaleTimeString() : "Queued"} />
+              <Metric label="Started" value={job.started_at ? new Date(job.started_at).toLocaleTimeString() : "Awaiting worker"} />
               <Metric label="Finished" value={`${finishedCount} / ${job.total_count}`} />
               <Metric label="Successful" value={job.completed_count} tone={job.completed_count ? "success" : "neutral"} />
               <Metric label="Failed" value={job.failed_models.length} tone={job.failed_models.length ? "warning" : "neutral"} />
@@ -1583,25 +2445,70 @@ export default function Step07ModelTraining() {
               <Metric label="Workers" value={job.max_parallel_honored} />
               <Metric label="Runtime" value={`${(job.runtime_ms / 1000).toFixed(1)} s`} />
             </div>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+              <Metric label="Selected models" value={job.requested_models.map((key) => modelLabel(key, labels)).join(", ")} />
+              <Metric label="Current model(s)" value={job.current_models.length ? job.current_models.map((key) => modelLabel(key, labels)).join(", ") : "None running"} />
+              <Metric label="Warnings" value={jobWarnings.length} tone={jobWarnings.length ? "warning" : "neutral"} />
+              <Metric label="Safe errors" value={jobSafeErrors.length} tone={jobSafeErrors.length ? "warning" : "neutral"} />
+            </div>
             <div className="mt-4"><div className="flex justify-between text-xs font-semibold text-slate-600"><span>{job.user_message ?? job.message}</span><span>{progress}%</span></div><div className="mt-2 h-2 overflow-hidden rounded bg-slate-100"><div className="h-full bg-blue-600 transition-all" style={{ width: `${progress}%` }} /></div></div>
             <div className="mt-4 grid gap-3 lg:grid-cols-2">{job.requested_models.map((key) => <ExecutionCard key={key} label={modelLabel(key, labels)} status={job.per_model_status[key]} history={job.per_model_history?.[key]} />)}</div>
+            {jobWarnings.length || jobSafeErrors.length ? <div className="mt-4 grid gap-3 md:grid-cols-2">{jobWarnings.length ? <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950"><strong>Warnings</strong><ul className="mt-2 space-y-1">{jobWarnings.map((item) => <li key={item}>{item}</li>)}</ul></div> : null}{jobSafeErrors.length ? <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-950"><strong>Safe error details</strong><ul className="mt-2 space-y-1">{jobSafeErrors.map((item) => <li key={item}>{item}</li>)}</ul></div> : null}</div> : null}
             <div className="mt-4 grid gap-2 sm:grid-cols-3">
               <Metric label="Resource utilization" value={`${job.max_parallel_honored} / ${maxParallel} worker slots`} />
-              <Metric label="Memory envelope" value={preflight ? `${preflight.estimated_memory_mb.toLocaleString()} MB estimated` : "Pending preflight"} />
+              <Metric label="Memory envelope" value={authoritativePreflight ? `${authoritativePreflight.estimated_memory_mb.toLocaleString()} MB validated` : "Pending current preflight"} />
               <Metric label="Persistence rule" value="Metrics persisted + artifacts persisted before complete" tone={job.overall_status === "complete" ? "success" : "neutral"} />
             </div>
           </> : <div className="flex min-h-36 items-center justify-center text-sm text-slate-500">Run preflight, select compatible models, and start a governed training job.</div>}
         </AtlasWorkflowSection>
+        </div>
 
-        <AtlasWorkflowSection eyebrow="Partial and final results" title="Candidate Leaderboard" description="Results appear as models finish. The leading metric identifies a candidate only; governance review and downstream evaluation remain required." tone="neutral" action={<label className="flex items-center gap-2 text-xs font-semibold text-slate-600">Sort by <select className="atlas-input w-32" value={sortMetric} onChange={(event) => setSortMetric(event.target.value)}>{problemType === "classification" ? <><option value="pr_auc">PR-AUC</option><option value="auc">ROC-AUC</option><option value="ks">KS</option><option value="f1">F1</option><option value="recall">Recall</option></> : <><option value="rmse">RMSE</option><option value="mae">MAE</option><option value="r2">R-squared</option></>}</select></label>}>
-          <CandidateLeaderboard results={results} problemType={problemType} sortMetric={sortMetric} />
-          {job?.failed_models.length ? <details className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3"><summary className="cursor-pointer text-sm font-semibold text-red-950">{job.failed_models.length} model failure(s)</summary><div className="mt-3 flex justify-end"><button type="button" className="atlas-secondary-button" disabled={jobActive} onClick={() => void retryFailedModels()}><RotateCcw size={14} />Retry failed models</button></div><div className="mt-3 space-y-2">{job.failed_models.map((failure) => <div key={failure.key} className="rounded-lg border border-red-200 bg-white p-3"><div className="font-semibold text-red-950">{failure.name}</div><div className="mt-1 text-sm text-red-900">{failure.error}</div>{failure.technical_error ? <details className="mt-2"><summary className="cursor-pointer text-xs font-semibold text-slate-600">Technical details</summary><pre className="mt-2 overflow-auto whitespace-pre-wrap rounded bg-slate-950 p-3 text-xs text-slate-100">{failure.technical_error}\nReference: {failure.traceback_reference}</pre></details> : null}</div>)}</div></details> : null}
+        <AtlasWorkflowSection eyebrow="Selection evidence" title="Candidate Leaderboard" description="Only verified non-holdout selection evidence appears here. Final-holdout metrics are absent and can never change this order." tone="neutral" action={results[0] ? <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-800">{selectionMetricLabel(verifiedSelectionMetric(results[0], primaryMetric)!)}</span> : undefined}>
+          <CandidateLeaderboard results={results} problemType={problemType} primaryMetric={primaryMetric} />
+          {excludedSelectionRows.length ? (
+            <AtlasAttentionPanel title={`${excludedSelectionRows.length} candidate(s) excluded from selection`} tone="warning">
+              Missing, legacy-unresolved, contaminated, or final-holdout-derived metric provenance is never treated as valid selection evidence. These records remain visible in durable history but are non-promotable.
+            </AtlasAttentionPanel>
+          ) : null}
+          {job?.failed_models.length ? (
+            <details className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <summary className="cursor-pointer text-sm font-semibold text-amber-950">
+                {job.failed_models.length} optional candidate failure(s) · completed candidates remain usable
+              </summary>
+              <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs leading-5 text-emerald-950">
+                These failures are preserved as training evidence but do not block progression while at least one supervised, champion-eligible model completed. Retry them or remove them from the next portfolio.
+              </div>
+              <div className="mt-3 flex flex-wrap justify-end gap-2">
+                <button type="button" className="atlas-secondary-button" disabled={jobActive} onClick={excludeFailedModelsFromNextRun}>
+                  <XCircle size={14} /> Exclude failed from next run
+                </button>
+                <button type="button" className="atlas-secondary-button" disabled={jobActive} onClick={() => void retryFailedModels()}>
+                  <RotateCcw size={14} /> Retry failed models
+                </button>
+              </div>
+              <div className="mt-3 space-y-2">
+                {job.failed_models.map((failure) => (
+                  <div key={failure.key} className="rounded-lg border border-red-200 bg-white p-3">
+                    <div className="font-semibold text-red-950">{failure.name}</div>
+                    <div className="mt-1 text-sm text-red-900">{failure.error}</div>
+                    {failure.technical_error ? (
+                      <details className="mt-2">
+                        <summary className="cursor-pointer text-xs font-semibold text-slate-600">Technical details</summary>
+                        <pre className="mt-2 overflow-auto whitespace-pre-wrap rounded bg-slate-950 p-3 text-xs text-slate-100">{failure.technical_error}
+Reference: {failure.traceback_reference}</pre>
+                      </details>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            </details>
+          ) : null}
         </AtlasWorkflowSection>
 
         <AtlasWorkflowSection
           eyebrow="Governed analyst decision"
           title="Champion / Challenger Review"
-          description="Select a proposed champion and challengers, then document the decision basis. No champion is approved automatically. Not approved until Evaluation and governance review; final approval remains downstream in Evaluation / Validation."
+          description="Select one exact candidate from verified training/CV evidence and immutably lock the decision before Evaluation may open the final holdout. This is a selection lock, not model approval."
           tone={selectionDecision?.training_job_id === job?.job_id ? "success" : "info"}
           action={selectionDecision ? <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold uppercase text-blue-800">{selectionDecision.status}</span> : undefined}
         >
@@ -1610,17 +2517,20 @@ export default function Step07ModelTraining() {
           ) : (
             <div className="grid gap-4 xl:grid-cols-[0.75fr_1.25fr]">
               <div className="space-y-3">
-                <label><span className="atlas-label">Proposed champion</span><select className="atlas-input mt-1" value={championModel} onChange={(event) => { const next = event.target.value; setChampionModel(next); setChallengerModels((current) => current.filter((key) => key !== next)); }}>{championEligibleResults.map((row) => <option key={row.key} value={row.key}>{cleanModelLabel(row.name)} · {formatMetric(metricValue(row, primaryMetric))} {primaryMetric.replace(/_/g, " ")}</option>)}</select></label>
+                <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs leading-5 text-blue-950">
+                  <strong>Holdout-safe progression:</strong> choose a candidate here if you want to override the verified selection leader. Continue locks the exact candidate and ranking snapshot before any final-holdout evidence is opened.
+                </div>
+                <label><span className="atlas-label">Candidate to lock</span><select className="atlas-input mt-1" value={championModel} disabled={proposalFormCurrent} onChange={(event) => { const next = event.target.value; setChampionModel(next); setChallengerModels((current) => current.filter((candidateId) => candidateId !== next)); }}>{championEligibleResults.map((row) => { const metric = verifiedSelectionMetric(row, primaryMetric)!; return <option key={row.candidate_id} value={row.candidate_id}>{cleanModelLabel(row.name)} · {formatMetric(metric.value)} · {formatSelectionSource(metric.source)}</option>; })}</select></label>
                 <div>
                   <div className="atlas-label">Proposed challenger(s)</div>
                   <div className="mt-1 space-y-1 rounded-lg border border-slate-200 bg-white p-3">
-                    {championEligibleResults.filter((row) => row.key !== championModel).map((row) => <label key={row.key} className="flex items-center justify-between gap-3 text-xs text-slate-700"><span className="flex items-center gap-2"><input type="checkbox" checked={challengerModels.includes(row.key)} onChange={(event) => setChallengerModels((current) => event.target.checked ? [...new Set([...current, row.key])] : current.filter((key) => key !== row.key))} />{cleanModelLabel(row.name)}</span><span className="font-mono">{formatMetric(metricValue(row, primaryMetric))}</span></label>)}
+                    {championEligibleResults.filter((row) => row.candidate_id !== championModel).map((row) => <label key={row.candidate_id} className="flex items-center justify-between gap-3 text-xs text-slate-700"><span className="flex items-center gap-2"><input type="checkbox" disabled={proposalFormCurrent} checked={challengerModels.includes(row.candidate_id ?? "")} onChange={(event) => { const candidateId = row.candidate_id ?? ""; setChallengerModels((current) => event.target.checked ? [...new Set([...current, candidateId])] : current.filter((value) => value !== candidateId)); }} />{cleanModelLabel(row.name)}</span><span className="font-mono">{formatMetric(metricValue(row, primaryMetric))}</span></label>)}
                   </div>
                 </div>
-                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950"><strong>Status flow:</strong> Candidate → Proposed → Under review → Approved / Rejected / Superseded. This page stops at Proposed.</div>
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-950"><strong>Status flow:</strong> Candidate → Selection locked → Final holdout opened in Evaluation → Governance review → Approved / Rejected / Superseded.</div>
               </div>
               <div className="grid gap-3 md:grid-cols-2">
-                <DecisionTextArea label="Decision rationale" value={selectionRationale} onChange={setSelectionRationale} placeholder="Why this champion/challenger configuration is appropriate." required />
+                <DecisionTextArea label="Decision rationale" value={selectionRationale} onChange={setSelectionRationale} placeholder="Optional: explain why this configuration is appropriate. If blank, ATLAS records a transparent metric-leader rationale." />
                 <DecisionTextArea label="Metric justification" value={metricJustification} onChange={setMetricJustification} placeholder={`Why ${primaryMetric.replace(/_/g, " ")} is decision-relevant and what secondary metrics qualify it.`} />
                 <DecisionTextArea label="Interpretability justification" value={interpretabilityJustification} onChange={setInterpretabilityJustification} placeholder="Explain transparency, complexity, and governance tradeoffs." />
                 <DecisionTextArea label="Calibration considerations" value={calibrationConsiderations} onChange={setCalibrationConsiderations} placeholder="Probability quality, calibration method, or downstream calibration needs." />
@@ -1628,7 +2538,7 @@ export default function Step07ModelTraining() {
                 <DecisionTextArea label="Deployment constraints" value={deploymentConstraints} onChange={setDeploymentConstraints} placeholder="Latency, dependencies, monitoring, retraining, or platform constraints." />
                 <label className="md:col-span-2"><span className="atlas-label">Reviewer notes</span><textarea className="atlas-input mt-1 min-h-20 w-full" value={reviewerNotes} onChange={(event) => setReviewerNotes(event.target.value)} placeholder="Open questions, review assignments, and downstream conditions." /></label>
                 <div className="flex flex-wrap justify-end gap-2 md:col-span-2">
-                  <button type="button" className="atlas-primary-button" disabled={decisionSaving || !job || job.overall_status !== "complete" || selectionRationale.trim().length < 10} onClick={() => void saveModelSelectionDecision("proposed")}>{decisionSaving ? <LoaderCircle size={15} className="animate-spin" /> : <Trophy size={15} />}Save governed proposal</button>
+                  <button type="button" className="atlas-primary-button" disabled={decisionSaving || !job || job.overall_status !== "complete" || proposalFormCurrent} onClick={() => void saveModelSelectionDecision()}>{decisionSaving ? <LoaderCircle size={15} className="animate-spin" /> : <LockKeyhole size={15} />}{proposalFormCurrent ? "Candidate decision locked" : "Lock candidate decision"}</button>
                 </div>
               </div>
             </div>
@@ -1645,8 +2555,8 @@ export default function Step07ModelTraining() {
             <Metric label="Validation Design" value={splitStatus?.validation_design_version ?? "Unavailable"} />
             <Metric label="Training job" value={job?.job_id ?? "Not started"} />
             <Metric label="Model metrics" value={results.length} tone={results.length ? "success" : "warning"} />
-            <Metric label="Decision proposal" value={selectionDecision?.decision_id ?? "Required"} tone={selectionDecision ? "success" : "warning"} />
-            <Metric label="MDD status" value={selectionDecision?.training_job_id === job?.job_id ? "Live draft current" : job?.overall_status === "complete" ? "Draft needs proposal" : "Draft"} />
+            <Metric label="Candidate decision lock" value={selectionDecision?.decision_id ?? "Required"} tone={selectionDecision ? "success" : "warning"} />
+            <Metric label="MDD status" value={selectionDecision?.training_job_id === job?.job_id ? "Locked selection current" : job?.overall_status === "complete" ? "Selection lock required" : "Draft"} />
           </div>
         </AtlasWorkflowSection>
       </div>
@@ -1661,10 +2571,6 @@ function validationDesignLabel(status: SplitStatus | null) {
   const method = String(status.cv_design?.method ?? "none").replace(/_/g, " ");
   const folds = Number(status.cv_design?.fold_count ?? 0);
   return folds >= 2 ? `${strategy} · ${method} ${folds}-fold` : strategy;
-}
-
-function estimateRuntimeSeconds(estimatedFits: number, workers: number) {
-  return Math.max(5, Math.round((estimatedFits * 2.5) / Math.max(1, workers)));
 }
 
 function TrainingMissionControl({
@@ -1682,7 +2588,9 @@ function TrainingMissionControl({
   selectedModels,
   jobState,
   readiness,
+  preflightLifecycle,
   estimatedFits,
+  estimatedRuntimeSeconds,
   estimatedMemory,
   blockers,
   warnings,
@@ -1701,12 +2609,20 @@ function TrainingMissionControl({
   selectedModels: number;
   jobState: string;
   readiness: boolean;
+  preflightLifecycle: TrainingPreflightLifecycle;
   estimatedFits: number;
+  estimatedRuntimeSeconds: number;
   estimatedMemory?: number;
   blockers: number;
   warnings: number;
 }) {
-  const score = blockers ? 35 : readiness ? 100 : 72;
+  const score = readiness
+    ? 100
+    : preflightLifecycle === "blocked"
+      ? 35
+      : preflightLifecycle === "validating"
+        ? 50
+        : 0;
   return (
     <section className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 text-white shadow-xl" data-testid="training-mission-control">
       <div className="grid lg:grid-cols-[minmax(0,1fr)_220px]">
@@ -1733,7 +2649,7 @@ function TrainingMissionControl({
             <MissionMetric label="CV strategy" value={cvLabel} />
             <MissionMetric label="Primary metric" value={primaryMetric.replace(/_/g, " ")} />
             <MissionMetric label="Selected models" value={selectedModels.toLocaleString()} />
-            <MissionMetric label="Estimated runtime" value={`~${Math.ceil(estimateRuntimeSeconds(estimatedFits, 2) / 60)} min planning estimate`} />
+            <MissionMetric label="Estimated runtime" value={`~${Math.ceil(estimatedRuntimeSeconds / 60)} min planning estimate`} />
             <MissionMetric label="Estimated memory" value={estimatedMemory == null ? "Preflight" : `${estimatedMemory.toLocaleString()} MB`} />
             <MissionMetric label="Estimated fits" value={estimatedFits.toLocaleString()} />
             <MissionMetric label="Warnings" value={warnings.toLocaleString()} />
@@ -1748,7 +2664,7 @@ function TrainingMissionControl({
             </div>
           </div>
           <div className={`mt-3 text-center text-xs font-semibold ${readiness ? "text-emerald-300" : blockers ? "text-rose-300" : "text-blue-300"}`}>
-            {readiness ? "Ready for governed execution" : blockers ? `${blockers} blocker(s) require action` : "Preflight confirmation pending"}
+            {readiness ? "Ready for governed execution" : blockers ? `${blockers} blocker(s) require action` : preflightLifecycle === "validating" ? "Authoritative validation in progress" : preflightLifecycle === "stale" ? "Previous preflight is stale" : "Current preflight required"}
           </div>
         </div>
       </div>
@@ -1778,6 +2694,7 @@ function TrainingPlanVisual({
   tuningDepth,
   tuningCandidates,
   calibration,
+  calibrationFits,
   workers,
   estimatedFits,
   estimatedMemoryMb,
@@ -1789,6 +2706,7 @@ function TrainingPlanVisual({
   tuningDepth: string;
   tuningCandidates: number;
   calibration: boolean;
+  calibrationFits: number;
   workers: number;
   estimatedFits: number;
   estimatedMemoryMb?: number;
@@ -1798,7 +2716,7 @@ function TrainingPlanVisual({
     { label: "Candidates", value: `${selectedModels.length} models`, icon: BrainCircuit },
     { label: "Validation", value: `${folds} folds · ${cvMethod.replace(/_/g, " ")}`, icon: GitCompareArrows },
     { label: "Tuning", value: `${tuningCandidates} candidate set(s) · ${tuningDepth}`, icon: SlidersHorizontal },
-    { label: "Calibration", value: calibration ? `${selectedModels.length * folds} additional fits` : "Not requested", icon: Target },
+    { label: "Calibration", value: calibration ? `${calibrationFits} compatible-model fits` : "Not requested", icon: Target },
     { label: "Workers", value: `${workers} requested`, icon: Cpu },
     { label: "Persist", value: "Metrics + artifacts", icon: ShieldCheck },
   ];
@@ -1812,7 +2730,7 @@ function TrainingPlanVisual({
           <PlanEquation value={selectedModels.length} label="models" />
           <PlanEquation value={`× ${folds}`} label="CV folds" />
           <PlanEquation value={`× ${tuningCandidates}`} label="tuning candidates" />
-          <PlanEquation value={calibration ? `+ ${selectedModels.length * folds}` : "+ 0"} label="calibration fits" />
+          <PlanEquation value={calibration ? `+ ${calibrationFits}` : "+ 0"} label="calibration fits" />
           <PlanEquation value={`= ${estimatedFits}`} label="estimated total fits" highlight />
         </div>
         <div className="mt-4 grid gap-2 sm:grid-cols-3">
@@ -1840,7 +2758,7 @@ function modelComplexity(definition?: ModelDefinition) {
   return "High";
 }
 
-function CandidateComparisonVisuals({ candidates, problemType, primaryMetric }: { candidates: RankedResult[]; problemType: ProblemType; primaryMetric: string }) {
+function CandidateComparisonVisuals({ candidates, primaryMetric }: { candidates: RankedResult[]; problemType: ProblemType; primaryMetric: string }) {
   const definitions = new Map(MODEL_DEFINITIONS.map((definition) => [definition.key, definition]));
   const primaryValues = candidates.map((row) => metricValue(row, primaryMetric)).filter((value): value is number => value !== null);
   const minPrimary = primaryValues.length ? Math.min(...primaryValues) : 0;
@@ -1859,21 +2777,21 @@ function CandidateComparisonVisuals({ candidates, problemType, primaryMetric }: 
         {candidates.map((row, index) => <PlotPoint key={row.key} x={interp(row)} y={score(row)} label={`${index + 1}`} title={cleanModelLabel(row.name)} tone={index === 0 ? "blue" : "slate"} />)}
       </ComparisonPlot>
       <div className="rounded-xl border border-slate-200 bg-white p-4">
-        <div className="text-sm font-semibold text-slate-950">Compact multi-metric profile</div>
+        <div className="text-sm font-semibold text-slate-950">Verified selection-evidence profile</div>
         <div className="mt-4 space-y-3">{candidates.slice(0, 5).map((row) => {
-          const metrics = problemType === "classification" ? [row.auc, row.pr_auc, row.ks, row.f1] : [row.r2, row.rmse == null ? null : 1 / (1 + row.rmse), row.mae == null ? null : 1 / (1 + row.mae)];
-          return <div key={row.key}><div className="flex justify-between text-[10px] font-semibold text-slate-600"><span>{cleanModelLabel(row.name)}</span><span>{formatMetric(metricValue(row, primaryMetric))}</span></div><div className="mt-1 grid grid-cols-4 gap-1">{metrics.map((value, index) => <div key={index} className="h-2 overflow-hidden rounded bg-slate-100"><div className="h-full rounded bg-violet-500" style={{ width: `${Math.max(1, Math.min(100, Number(value ?? 0) * 100))}%` }} /></div>)}</div></div>;
+          const metric = verifiedSelectionMetric(row, primaryMetric)!;
+          return <div key={row.candidate_id}><div className="flex justify-between text-[10px] font-semibold text-slate-600"><span>{cleanModelLabel(row.name)}</span><span>{formatMetric(metric.value)}</span></div><div className="mt-1 h-2 overflow-hidden rounded bg-slate-100"><div className="h-full rounded bg-violet-500" style={{ width: `${Math.max(1, Math.min(100, score(row) * 100))}%` }} /></div><div className="mt-1 text-[10px] text-slate-500">{formatSelectionSource(metric.source)} · {metric.fold_count} folds · σ {formatMetric(metric.standard_deviation)}</div></div>;
         })}</div>
       </div>
-      <ComparisonPlot title="Calibration treatment versus discrimination" xLabel="Discrimination →" yLabel="Calibration treatment ↑">
-        {candidates.map((row, index) => <PlotPoint key={row.key} x={problemType === "classification" ? Number(row.auc ?? score(row)) : score(row)} y={row.calibration_applied ? 0.82 : 0.28} label={`${index + 1}`} title={`${cleanModelLabel(row.name)} · ${row.calibration_applied ? "calibrated" : "not calibrated"}`} tone={row.calibration_applied ? "emerald" : "slate"} />)}
+      <ComparisonPlot title="Calibration treatment versus selection evidence" xLabel="Selection performance →" yLabel="Calibration treatment ↑">
+        {candidates.map((row, index) => <PlotPoint key={row.candidate_id} x={score(row)} y={row.calibration_applied ? 0.82 : 0.28} label={`${index + 1}`} title={`${cleanModelLabel(row.name)} · ${verifiedSelectionMetric(row, primaryMetric)!.calibration_source}`} tone={row.calibration_applied ? "emerald" : "slate"} />)}
       </ComparisonPlot>
       <ComparisonPlot title="Runtime versus performance" xLabel="Faster ← runtime → slower" yLabel="Performance ↑">
         {candidates.map((row, index) => <PlotPoint key={row.key} x={Number(row.runtime_ms ?? 0) / maxRuntime} y={score(row)} label={`${index + 1}`} title={`${cleanModelLabel(row.name)} · ${((row.runtime_ms ?? 0) / 1000).toFixed(1)} s`} tone={index === 0 ? "blue" : "amber"} />)}
       </ComparisonPlot>
       <div className="rounded-xl border border-slate-200 bg-white p-4 xl:col-span-2">
-        <div className="text-sm font-semibold text-slate-950">Champion / Challenger Decision Matrix</div>
-        <div className="mt-3 overflow-auto"><table className="atlas-table min-w-[760px]"><thead><tr><th>Candidate</th><th>Performance</th><th>Interpretability</th><th>Complexity</th><th>Calibration</th><th>Runtime</th><th>Decision signal</th></tr></thead><tbody>{candidates.slice(0, 8).map((row, index) => { const definition = definitions.get(row.key); return <tr key={row.key}><td className="font-semibold">{cleanModelLabel(row.name)}</td><td>{formatMetric(metricValue(row, primaryMetric))}</td><td>{definition?.interpretability ?? "Review"}</td><td>{modelComplexity(definition)}</td><td>{row.calibration_applied ? "Applied" : "Not applied"}</td><td>{typeof row.runtime_ms === "number" ? `${(row.runtime_ms / 1000).toFixed(1)} s` : "N/A"}</td><td>{index === 0 ? "Metric leader · proposal review" : definition?.interpretability === "High" ? "Governance challenger" : "Performance challenger"}</td></tr>; })}</tbody></table></div>
+        <div className="text-sm font-semibold text-slate-950">Candidate Selection Matrix</div>
+        <div className="mt-3 overflow-auto"><table className="atlas-table min-w-[900px]"><thead><tr><th>Candidate</th><th>Selection metric</th><th>Source</th><th>Fold definition</th><th>Std. dev.</th><th>Interpretability</th><th>Runtime</th><th>Decision signal</th></tr></thead><tbody>{candidates.slice(0, 8).map((row, index) => { const definition = definitions.get(row.key); const metric = verifiedSelectionMetric(row, primaryMetric)!; return <tr key={row.candidate_id}><td className="font-semibold">{cleanModelLabel(row.name)}</td><td>{formatMetric(metric.value)}</td><td>{formatSelectionSource(metric.source)}</td><td>{metric.fold_definition_id || metric.partition_id}</td><td>{formatMetric(metric.standard_deviation)}</td><td>{definition?.interpretability ?? "Review"}</td><td>{typeof row.runtime_ms === "number" ? `${(row.runtime_ms / 1000).toFixed(1)} s` : "N/A"}</td><td>{index === 0 ? "Verified selection leader" : definition?.interpretability === "High" ? "Governance challenger" : "Performance challenger"}</td></tr>; })}</tbody></table></div>
       </div>
     </div>
   );
@@ -1888,17 +2806,17 @@ function PlotPoint({ x, y, label, title, tone }: { x: number; y: number; label: 
   return <span className={`absolute flex h-6 w-6 -translate-x-1/2 translate-y-1/2 items-center justify-center rounded-full text-[9px] font-bold shadow ${classes[tone]}`} style={{ left: `${8 + Math.max(0, Math.min(1, x)) * 84}%`, bottom: `${8 + Math.max(0, Math.min(1, y)) * 80}%` }} title={title}>{label}</span>;
 }
 
-function CandidateLeaderboard({ results, problemType, sortMetric }: { results: RankedResult[]; problemType: ProblemType; sortMetric: string }) {
+function CandidateLeaderboard({ results, problemType, primaryMetric }: { results: RankedResult[]; problemType: ProblemType; primaryMetric: string }) {
   const candidates = results.filter((row) => row.champion_eligible !== false && row.kind !== "anomaly");
   const diagnostics = results.filter((row) => row.champion_eligible === false || row.kind === "anomaly");
   const primaryLabels: Record<string, string> = { pr_auc: "PR-AUC", auc: "ROC-AUC", ks: "KS", f1: "F1", recall: "Recall", rmse: "RMSE", mae: "MAE", r2: "R-squared" };
-  const primaryLabel = primaryLabels[sortMetric] ?? sortMetric.replace(/_/g, " ");
-  const values = candidates.map((row) => metricValue(row, sortMetric)).filter((value): value is number => value !== null);
+  const primaryLabel = primaryLabels[primaryMetric] ?? primaryMetric.replace(/_/g, " ");
+  const values = candidates.map((row) => metricValue(row, primaryMetric)).filter((value): value is number => value !== null);
   const minimum = values.length ? Math.min(...values) : 0;
   const maximum = values.length ? Math.max(...values) : 0;
-  const ascending = ["rmse", "mae", "mse"].includes(sortMetric);
+  const ascending = ["rmse", "mae", "mse"].includes(primaryMetric);
   const rankWidth = (row: RankedResult, index: number) => {
-    const value = metricValue(row, sortMetric);
+    const value = metricValue(row, primaryMetric);
     if (value === null) return 0;
     if (maximum === minimum) return Math.max(35, 100 - index * 8);
     const normalized = ascending ? (maximum - value) / (maximum - minimum) : (value - minimum) / (maximum - minimum);
@@ -1911,32 +2829,34 @@ function CandidateLeaderboard({ results, problemType, sortMetric }: { results: R
     <div className="space-y-4">
       <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
         <Metric label="Candidate models" value={candidates.length} tone={candidates.length ? "success" : "warning"} />
-        <Metric label="Current leader" value={candidates[0]?.name ? cleanModelLabel(candidates[0].name) : "No eligible candidate"} />
-        <Metric label={`Leading ${primaryLabel}`} value={formatMetric(metricValue(candidates[0] ?? ({} as RankedResult), sortMetric))} />
+        <Metric label="Verified selection leader" value={candidates[0]?.name ? cleanModelLabel(candidates[0].name) : "No eligible candidate"} />
+        <Metric label={`Leading ${primaryLabel}`} value={formatMetric(metricValue(candidates[0] ?? ({} as RankedResult), primaryMetric))} />
         <Metric label="Targetless diagnostics" value={diagnostics.length} />
       </div>
       {candidates.length ? (
         <CandidateComparisonVisuals
           candidates={candidates}
           problemType={problemType}
-          primaryMetric={sortMetric}
+          primaryMetric={primaryMetric}
         />
       ) : null}
 
       {candidates.length ? (
         <div className="overflow-auto rounded-xl border border-slate-200 bg-white shadow-sm">
           <table className="w-full min-w-[1080px] border-separate border-spacing-0 text-xs">
-            <thead className="sticky top-0 z-20 bg-slate-950 text-white shadow-sm"><tr><th className="sticky left-0 z-30 min-w-64 border-b border-slate-800 bg-slate-950 px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-200">Ranked candidate</th><th className="min-w-44 border-b border-slate-800 px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-200">{primaryLabel}</th><th className="min-w-48 border-b border-slate-800 px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-200">{problemType === "classification" ? "Discrimination" : "Error"}</th><th className="min-w-48 border-b border-slate-800 px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-200">{problemType === "classification" ? "Operating metrics" : "Model fit"}</th><th className="min-w-40 border-b border-slate-800 px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-200">Probability treatment</th><th className="min-w-28 border-b border-slate-800 px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-200">Runtime</th><th className="min-w-52 border-b border-slate-800 px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-200">Review state</th></tr></thead>
+            <thead className="sticky top-0 z-20 bg-slate-950 text-white shadow-sm"><tr><th className="sticky left-0 z-30 min-w-64 border-b border-slate-800 bg-slate-950 px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-200">Ranked candidate</th><th className="min-w-44 border-b border-slate-800 px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-200">{primaryLabel} · selection</th><th className="min-w-48 border-b border-slate-800 px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-200">Provenance</th><th className="min-w-48 border-b border-slate-800 px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-200">Fold evidence</th><th className="min-w-40 border-b border-slate-800 px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-200">Calibration source</th><th className="min-w-28 border-b border-slate-800 px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-200">Runtime</th><th className="min-w-52 border-b border-slate-800 px-4 py-3 text-left text-[10px] font-semibold uppercase tracking-wide text-slate-200">Review state</th></tr></thead>
             <tbody>{candidates.map((row, index) => {
               const definition = MODEL_DEFINITIONS.find((model) => model.key === row.key);
+              const metric = verifiedSelectionMetric(row, primaryMetric)!;
               return (
                 <tr key={row.key} className={`${index === 0 ? "bg-blue-50/80" : "even:bg-slate-50/70"} group hover:bg-blue-50`}>
                   <td className={`sticky left-0 z-10 border-b border-slate-100 px-4 py-3 ${index === 0 ? "bg-blue-50 group-hover:bg-blue-50" : "bg-white group-even:bg-slate-50 group-hover:bg-blue-50"}`}><div className="flex items-center gap-3"><span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold ${index === 0 ? "bg-blue-700 text-white" : "border border-slate-200 bg-white text-slate-700"}`}>{index + 1}</span><div><div className="font-semibold text-slate-950">{cleanModelLabel(row.name)}</div><div className="mt-1 flex flex-wrap gap-1.5"><span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600">{definition?.family ?? "Model"}</span><span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600">{definition?.interpretability ?? "Review"} interpretability</span><span className="rounded-full border border-slate-200 bg-white px-2 py-0.5 text-[10px] font-semibold text-slate-600">{modelComplexity(definition)} complexity</span></div></div></div></td>
-                  <td className="border-b border-slate-100 px-4 py-3"><div className="font-mono text-base font-semibold text-slate-950">{formatMetric(metricValue(row, sortMetric))}</div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${rankWidth(row, index)}%` }} /></div><div className="mt-1 text-[10px] uppercase text-slate-500">{ascending ? "Lower is better" : "Higher is better"}</div></td>
-                  {problemType === "classification" ? <><td className="border-b border-slate-100 px-4 py-3"><LeaderboardMetricGrid rows={[["ROC-AUC", row.auc], ["PR-AUC", row.pr_auc], ["KS", row.ks]]} /></td><td className="border-b border-slate-100 px-4 py-3"><LeaderboardMetricGrid rows={[["Precision", row.precision], ["Recall", row.recall], ["F1", row.f1]]} /></td></> : <><td className="border-b border-slate-100 px-4 py-3"><LeaderboardMetricGrid rows={[["RMSE", row.rmse], ["MAE", row.mae]]} /></td><td className="border-b border-slate-100 px-4 py-3"><LeaderboardMetricGrid rows={[["R-squared", row.r2], ["Adjusted", row.adjusted_r2]]} /></td></>}
-                  <td className="border-b border-slate-100 px-4 py-3">{row.calibration_applied ? <span className="inline-flex rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[10px] font-semibold uppercase text-emerald-800">{row.calibration_method ?? "Applied"}</span> : <span className="inline-flex rounded-full border border-slate-200 bg-slate-100 px-2.5 py-1 text-[10px] font-semibold uppercase text-slate-600">Not applied</span>}</td>
+                  <td className="border-b border-slate-100 px-4 py-3"><div className="font-mono text-base font-semibold text-slate-950">{formatMetric(metric.value)}</div><div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-blue-600" style={{ width: `${rankWidth(row, index)}%` }} /></div><div className="mt-1 text-[10px] uppercase text-slate-500">{ascending ? "Lower is better" : "Higher is better"}</div></td>
+                  <td className="border-b border-slate-100 px-4 py-3"><div className="font-semibold text-slate-900">{formatSelectionSource(metric.source)}</div><div className="mt-1 break-all text-[10px] text-slate-500">{metric.partition_id}</div></td>
+                  <td className="border-b border-slate-100 px-4 py-3"><div className="font-semibold text-slate-900">{metric.fold_count ? `${metric.fold_count} folds` : "Governed validation partition"}</div><div className="mt-1 text-[10px] text-slate-500">Mean {formatMetric(metric.mean)} · σ {formatMetric(metric.standard_deviation)}</div></td>
+                  <td className="border-b border-slate-100 px-4 py-3"><div className="font-semibold text-slate-900">{metric.calibration_source}</div><div className="mt-1 text-[10px] text-slate-500">Threshold: {metric.threshold_source}</div></td>
                   <td className="border-b border-slate-100 px-4 py-3 font-mono font-semibold text-slate-800">{typeof row.runtime_ms === "number" ? `${(row.runtime_ms / 1000).toFixed(1)} s` : "N/A"}</td>
-                  <td className="border-b border-slate-100 px-4 py-3"><span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase ${index === 0 ? "border-blue-200 bg-blue-50 text-blue-800" : "border-slate-200 bg-slate-100 text-slate-700"}`}>{row.candidate_status ?? (row.candidate_champion ? "Candidate leader" : "Challenger")}</span><div className="mt-1.5 text-[11px] leading-4 text-slate-500"><strong>Governance:</strong> candidate evidence persisted.<br /><strong>Approval:</strong> not approved until downstream Evaluation / Validation.</div></td>
+                  <td className="border-b border-slate-100 px-4 py-3"><span className={`inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase ${index === 0 ? "border-blue-200 bg-blue-50 text-blue-800" : "border-slate-200 bg-slate-100 text-slate-700"}`}>{index === 0 ? "Verified selection leader" : "Selection challenger"}</span><div className="mt-1.5 text-[11px] leading-4 text-slate-500"><strong>Integrity:</strong> verified non-holdout evidence.<br /><strong>Approval:</strong> not approved until downstream review.</div></td>
                 </tr>
               );
             })}</tbody>
@@ -1952,10 +2872,6 @@ function CandidateLeaderboard({ results, problemType, sortMetric }: { results: R
       ) : null}
     </div>
   );
-}
-
-function LeaderboardMetricGrid({ rows }: { rows: Array<[string, number | null | undefined]> }) {
-  return <div className="grid grid-cols-3 gap-2">{rows.map(([label, value]) => <div key={label} className="min-w-0"><div className="truncate text-[9px] font-semibold uppercase text-slate-500" title={label}>{label}</div><div className="mt-0.5 font-mono font-semibold text-slate-900">{formatMetric(value)}</div></div>)}</div>;
 }
 
 function ModelCard({ model, selected, enabled, unavailableReason, execution, tuning, onToggle, disabled, compact, recommended }: { model: ModelDefinition; selected: boolean; enabled: boolean; unavailableReason?: string; execution?: ModelExecution; tuning: string; onToggle: () => void; disabled: boolean; compact: boolean; recommended: boolean }) {

@@ -217,6 +217,8 @@ def post_attach_evidence(
     _authorized_document(document_id, user, "edit")
     try:
         document = attach_evidence(document_id, payload.sectionId, payload.evidence)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Model documentation record not found.") from exc
     audit_event(

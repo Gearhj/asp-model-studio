@@ -107,6 +107,33 @@ class EDAPredictorVisualContractTests(unittest.TestCase):
                 for feature in ("RiskPerformance", "outcome_code")
             ],
         }
+        source = DATASTORE.get_active_df()
+        development = source.iloc[:288]
+        holdout = source.iloc[288:]
+        DATASTORE.set_splits(
+            development.loc[:, sorted(SAFE_FEATURES)],
+            holdout.loc[:, sorted(SAFE_FEATURES)],
+            development[TARGET],
+            holdout[TARGET],
+        )
+        DATASTORE.meta.update(
+            {
+                "split_status": "current",
+                "split_record": {
+                    "project_id": PROJECT_ID,
+                    "dataset_id": "dataset-heloc-predictor",
+                    "dataset_version_id": "heloc-predictor-v1",
+                    "split_id": "split-eda-predictor-visual-v1",
+                    "target": TARGET,
+                    "feature_manifest_version": "pm-heloc-predictor-v1",
+                    "selection_partition_id": "population-eda-predictor-visual-development",
+                    "n_train": 288,
+                    "n_test": 72,
+                    "final_holdout_status": "sealed",
+                    "holdout_isolation_status": "verified",
+                },
+            }
+        )
         self.identity_patch = patch(
             "server.eda.workspace_service.assert_expected_active_identity",
             return_value={
@@ -117,10 +144,12 @@ class EDAPredictorVisualContractTests(unittest.TestCase):
         )
         self.identity_patch.start()
         eda_workspace_service._cache.clear()
+        eda_workspace_service._contract_cache.clear()
 
     def tearDown(self) -> None:
         self.identity_patch.stop()
         eda_workspace_service._cache.clear()
+        eda_workspace_service._contract_cache.clear()
         DATASTORE.reset_all()
 
     def _request(self, shape_limit: int = 8) -> EDAWorkspaceRequest:
@@ -157,7 +186,9 @@ class EDAPredictorVisualContractTests(unittest.TestCase):
                 self._request(),
             )
 
-        self.assertEqual(payload["scope"], "full_dataset")
+        self.assertEqual(payload["scope"], "development_population")
+        self.assertEqual(payload["analysis_scope"]["mode"], "governed_version")
+        self.assertEqual(payload["analysis_scope"]["populationRows"], 288)
         self.assertEqual(payload["row_count"], 360)
         self.assertEqual(payload["profiled_features"], len(SAFE_FEATURES))
         self.assertEqual(
@@ -264,10 +295,10 @@ class EDAPredictorVisualContractTests(unittest.TestCase):
             "special_prevalence",
         ):
             self.assertIn(metric, numeric["metrics"])
-        self.assertIsNone(numeric["metrics"]["vif"])
-        self.assertEqual(
+        self.assertIsNotNone(numeric["metrics"]["vif"])
+        self.assertIn(
             numeric["metrics"]["vif_status"],
-            "pending_relationship_review",
+            {"acceptable", "review", "high"},
         )
         legacy_numeric = next(
             row
@@ -301,11 +332,11 @@ class EDAPredictorVisualContractTests(unittest.TestCase):
         payload = eda_workspace_service.section("target", self._request())
         preview = payload["predictor_preview"]
 
-        self.assertEqual(preview["scope"], "full_dataset_aggregates")
-        self.assertEqual(preview["population_rows"], 360)
+        self.assertEqual(preview["scope"], "development_population")
+        self.assertEqual(preview["population_rows"], 288)
         self.assertEqual(
             preview["request_mode"],
-            "single_batched_target_workspace_request",
+            "governed_shared_analytical_contract",
         )
         self.assertTrue(preview["server_authorized_predictors_only"])
         self.assertTrue(preview["target_excluded"])
@@ -331,9 +362,8 @@ class EDAPredictorVisualContractTests(unittest.TestCase):
             self.assertGreater(len(row["groups"]), 0)
             self.assertLessEqual(len(row["groups"]), preview["shape_limit"])
             for group in row["groups"]:
-                self.assertEqual(
-                    set(group),
-                    {"label", "count", "event_count", "event_rate"},
+                self.assertTrue(
+                    {"label", "count", "event_count", "event_rate"}.issubset(group)
                 )
                 self.assertNotIn("rows", group)
 

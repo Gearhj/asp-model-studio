@@ -3,6 +3,8 @@ from __future__ import annotations
 import math
 import os
 import time
+from datetime import datetime, timezone
+from importlib import metadata as importlib_metadata
 from typing import Any
 
 import numpy as np
@@ -14,9 +16,83 @@ from ..datasets.dataset_identity import (
     assert_expected_active_identity,
     resolve_registered_version,
 )
+from ..persistence.service import get_persistence_service
 from ..security.security_store import active_user
+from .candidate_contract import canonical_contract_hash
 from .trainer import MODEL_CATALOG
 from .training_job_types import TrainingJobRequest
+
+
+LARGE_RUN_FIT_THRESHOLD = max(
+    1, int(os.getenv("ATLAS_LARGE_TRAINING_FIT_THRESHOLD", "160"))
+)
+
+
+def _package_for_algorithm(key: str, model: Any) -> str:
+    if key.startswith("xgb"):
+        return "xgboost"
+    if key.startswith("lgbm"):
+        return "lightgbm"
+    if key.startswith("catboost"):
+        return "catboost"
+    if key in {"ebm", "ebm_reg"}:
+        return "interpret"
+    if key in {"deep_ffn", "cnn", "lstm"}:
+        return "torch"
+    if key == "tf_dnn":
+        return "tensorflow"
+    module_root = str(type(model).__module__ or "").split(".", 1)[0]
+    return "scikit-learn" if module_root == "sklearn" else module_root
+
+
+def _model_runtime_status(key: str) -> dict[str, Any]:
+    spec = MODEL_CATALOG.get(key)
+    if not spec:
+        return {
+            "available": False,
+            "reason": "Model name is not recognized by the training backend.",
+            "label": key,
+            "algorithm_class": "unavailable",
+            "algorithm_version": "unavailable",
+        }
+    try:
+        model = spec.get("factory", lambda: None)()
+    except Exception as exc:
+        return {
+            "available": False,
+            "reason": (
+                "Model dependency could not initialize "
+                f"({type(exc).__name__})."
+            ),
+            "label": spec.get("label", key),
+            "algorithm_class": "unavailable",
+            "algorithm_version": "unavailable",
+        }
+    if model is None:
+        return {
+            "available": False,
+            "reason": (
+                f"{spec.get('label', key)} is unavailable in the current "
+                "Python environment."
+            ),
+            "label": spec.get("label", key),
+            "algorithm_class": "unavailable",
+            "algorithm_version": "unavailable",
+        }
+    package = _package_for_algorithm(key, model)
+    try:
+        version = importlib_metadata.version(package) if package else "local"
+    except importlib_metadata.PackageNotFoundError:
+        version = "local"
+    return {
+        "available": True,
+        "reason": "Available",
+        "label": spec.get("label", key),
+        "algorithm_class": (
+            f"{type(model).__module__}.{type(model).__qualname__}"
+        ),
+        "algorithm_version": version,
+    }
 
 
 def _distribution(series: pd.Series, event_value: Any | None) -> dict[str, Any]:
@@ -49,16 +125,8 @@ def _distribution(series: pd.Series, event_value: Any | None) -> dict[str, Any]:
 
 
 def _model_available(key: str) -> tuple[bool, str]:
-    spec = MODEL_CATALOG.get(key)
-    if not spec:
-        return False, "Model name is not recognized by the training backend."
-    try:
-        model = spec.get("factory", lambda: None)()
-    except Exception as exc:
-        return False, f"Model dependency could not initialize: {exc}"
-    if model is None:
-        return False, f"{spec.get('label', key)} is unavailable in the current Python environment."
-    return True, "Available"
+    status = _model_runtime_status(key)
+    return bool(status["available"]), str(status["reason"])
 
 
 def _finite_issues(frame: pd.DataFrame) -> tuple[list[str], list[str], list[str]]:
@@ -176,7 +244,12 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
     except HTTPException as exc:
         blocking.append(str(exc.detail))
 
-    X_train, X_test, y_train, y_test = DATASTORE.get_splits()
+    scoped_store = DATASTORE.current()
+    # Candidate-selection preflight deliberately reads only the development
+    # population. Final-holdout readiness comes from the sealed split contract,
+    # never from inspecting final-holdout feature or target arrays.
+    X_train = scoped_store.X_train
+    y_train = scoped_store.y_train
     split_record = DATASTORE.meta.get("split_record") if isinstance(DATASTORE.meta.get("split_record"), dict) else {}
     manifest = DATASTORE.meta.get("feature_manifest") if isinstance(DATASTORE.meta.get("feature_manifest"), dict) else {}
     split_status = str(DATASTORE.meta.get("split_status") or "not_created")
@@ -188,6 +261,22 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         manifest.get("manifest_hash") or manifest.get("manifest_version") or ""
     )
     split_id = str(split_record.get("split_id") or "")
+    training_population_id = str(split_record.get("training_population_id") or "")
+    selection_partition_id = str(
+        split_record.get("selection_partition_id") or training_population_id
+    )
+    final_holdout_partition_id = str(
+        split_record.get("final_holdout_partition_id")
+        or split_record.get("holdout_population_id")
+        or ""
+    )
+    fold_definition_id = str(split_record.get("fold_definition_id") or "")
+    final_holdout_status = str(
+        split_record.get("final_holdout_status") or "legacy_unresolved"
+    )
+    holdout_isolation_status = str(
+        split_record.get("holdout_isolation_status") or "legacy_unresolved"
+    )
     validation_design = (
         split_record.get("validation_design")
         if isinstance(split_record.get("validation_design"), dict)
@@ -199,6 +288,45 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
     validation_design_version = str(
         validation_design.get("design_version") or ""
     )
+    durable_holdout_exposure: dict[str, Any] | None = None
+    durable_holdout_exposure_check = "not_checked"
+    durable_partition_identity = {
+        "project_id": str(identity.get("project_id") or request.project_id or ""),
+        "dataset_id": dataset_id,
+        "dataset_version_id": dataset_version_id,
+        "validation_design_id": validation_design_id,
+        "validation_design_version_id": validation_design_version,
+        "split_id": split_id,
+        "final_holdout_partition_id": final_holdout_partition_id,
+    }
+    if all(durable_partition_identity.values()):
+        try:
+            durable_holdout_exposure = (
+                get_persistence_service()
+                .holdout_governance.get_holdout_exposure_for_partition(
+                    **durable_partition_identity
+                )
+            )
+        except Exception as exc:
+            durable_holdout_exposure_check = "verification_failed"
+            blocking.append(
+                "ATLAS could not verify the durable final-holdout exposure "
+                "state, so candidate training is blocked: "
+                f"{type(exc).__name__}."
+            )
+        else:
+            durable_holdout_exposure_check = "verified"
+            if durable_holdout_exposure is not None:
+                exposure_status = str(
+                    durable_holdout_exposure.get("final_holdout_status")
+                    or "unknown"
+                )
+                blocking.append(
+                    "The exact final-holdout partition already has a durable "
+                    f"exposure record ({exposure_status}). It cannot be reused "
+                    "for candidate ranking, feature selection, calibration, or "
+                    "threshold tuning. Create and approve a new Validation Design."
+                )
     cv_design = (
         split_record.get("cv_design")
         if isinstance(split_record.get("cv_design"), dict)
@@ -231,8 +359,20 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
             for error in external_reference_errors
         )
 
-    if split_status != "current" or any(part is None for part in (X_train, X_test, y_train, y_test)):
+    if split_status != "current" or X_train is None or y_train is None:
         blocking.append("A current governed validation split is required. Return to Balance & Split and create the split explicitly.")
+    if not training_population_id or not selection_partition_id:
+        blocking.append(
+            "The governed training population identity is missing. Return to Balance & Split."
+        )
+    if (
+        not final_holdout_partition_id
+        or final_holdout_status != "sealed"
+        or holdout_isolation_status != "verified"
+    ):
+        blocking.append(
+            "The final holdout is not sealed under an exact partition identity. Return to Balance & Split."
+        )
     if identity:
         for record, label in (
             (manifest, "feature manifest"),
@@ -362,21 +502,26 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         blocking.append("The training feature matrix is empty.")
 
     train_distribution = _distribution(y_train, request.event_value) if y_train is not None else {}
-    test_distribution = _distribution(y_test, request.event_value) if y_test is not None else {}
+    governed_distributions = (
+        split_record.get("distributions")
+        if isinstance(split_record.get("distributions"), dict)
+        else {}
+    )
+    # Presentation-only final-holdout aggregates were captured at split time.
+    # They are not recomputed or inspected during candidate selection.
+    test_distribution = (
+        governed_distributions.get("holdout_untouched")
+        if isinstance(governed_distributions.get("holdout_untouched"), dict)
+        else {}
+    )
     problem_type = request.problem_type or ("classification" if train_distribution.get("class_count", 0) <= 20 else "regression")
     if y_train is not None and y_train.isna().any():
         blocking.append("The training target contains missing values.")
-    if y_test is not None and y_test.isna().any():
-        blocking.append("The holdout target contains missing values.")
     if problem_type == "classification":
         if train_distribution.get("class_count") != 2:
             blocking.append("The training target does not contain exactly two classes.")
-        if test_distribution.get("class_count") != 2:
-            blocking.append("The holdout target does not contain exactly two classes.")
         if not train_distribution.get("events"):
             blocking.append("The training split contains no positive-class events.")
-        if not test_distribution.get("events"):
-            blocking.append("The holdout split contains no positive-class events.")
         event_rate = train_distribution.get("event_rate")
         if isinstance(event_rate, float) and event_rate < 0.01:
             warnings.append("Rare-event target detected. Use PR-AUC, recall, lift, and calibration evidence rather than accuracy alone.")
@@ -415,6 +560,14 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         blocking.append(
             f"Cross-validation is locked by Validation Design at {design_folds} folds; "
             f"the training request attempted {request.k_folds}."
+        )
+    if not cv_owned_by_design:
+        blocking.append(
+            "Candidate selection requires an approved governed cross-validation design in Balance & Split."
+        )
+    if cv_owned_by_design and not fold_definition_id:
+        blocking.append(
+            "The approved Validation Design lacks an exact fold_definition_id. Return to Balance & Split and rebuild it."
         )
     if request.grid_search and validation_design and not cv_owned_by_design:
         blocking.append(
@@ -456,8 +609,12 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
                 invalid_execution_folds.append(index)
                 continue
             if problem_type == "classification":
+                training_target = y_train.iloc[train_positions]
                 validation_target = y_train.iloc[validation_positions]
-                if int(validation_target.nunique(dropna=True)) != 2:
+                if (
+                    int(training_target.nunique(dropna=True)) != 2
+                    or int(validation_target.nunique(dropna=True)) != 2
+                ):
                     invalid_execution_folds.append(index)
         if invalid_execution_folds:
             blocking.append(
@@ -480,7 +637,11 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
     cv_compatible = problem_type == "regression" or min_class_count >= 2
     if request.grid_search and not cv_compatible:
         blocking.append("Grid search requires at least two observations in every target class.")
-    if cv_owned_by_design and min_class_count < requested_folds:
+    if (
+        problem_type == "classification"
+        and cv_owned_by_design
+        and min_class_count < requested_folds
+    ):
         blocking.append(
             f"The approved {requested_folds}-fold design is not event-count compatible "
             f"with the current training population; return to Balance & Split."
@@ -495,9 +656,14 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
     compatibility: dict[str, Any] = {}
     calibration_compatibility: dict[str, Any] = {}
     for key, spec in MODEL_CATALOG.items():
-        available, reason = _model_available(key)
-        library_status[key] = {"available": available, "reason": reason, "label": spec.get("label", key)}
-    for key in request.models:
+        runtime_status = _model_runtime_status(key)
+        available = bool(runtime_status["available"])
+        reason = str(runtime_status["reason"])
+        library_status[key] = runtime_status
+    selected_algorithm_ids = list(dict.fromkeys(str(key) for key in request.models))
+    if not selected_algorithm_ids:
+        blocking.append("Select at least one compatible model before validation.")
+    for key in selected_algorithm_ids:
         spec = MODEL_CATALOG.get(key)
         available = bool(library_status.get(key, {}).get("available"))
         task_match = bool(spec and (spec.get("task") == problem_type or (spec.get("kind") == "anomaly" and problem_type == "classification")))
@@ -509,10 +675,33 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         calibration_allowed = bool(problem_type == "classification" and spec and spec.get("kind") != "anomaly" and min_class_count >= 2)
         calibration_reason = "Compatible" if calibration_allowed else "Calibration requires binary classification with at least two observations per class and a supervised probability model."
         calibration_compatibility[key] = {"compatible": calibration_allowed, "reason": calibration_reason}
+    selected_algorithm_versions = {
+        key: str(
+            library_status.get(key, {}).get("algorithm_version")
+            or "unavailable"
+        )
+        for key in selected_algorithm_ids
+    }
+    stale_runtime_versions = [
+        key
+        for key, expected in request.selected_algorithm_versions.items()
+        if key in selected_algorithm_versions
+        and str(expected or "") != selected_algorithm_versions[key]
+    ]
+    if stale_runtime_versions:
+        blocking.append(
+            "The selected algorithm runtime changed after preflight: "
+            + ", ".join(stale_runtime_versions)
+            + ". Run preflight again."
+        )
     if request.calibrate:
         incompatible_calibration = [key for key in request.models if not calibration_compatibility.get(key, {}).get("compatible")]
         if incompatible_calibration:
-            warnings.append("Calibration will be disabled for incompatible models: " + ", ".join(incompatible_calibration))
+            blocking.append(
+                "Calibration is incompatible with selected models: "
+                + ", ".join(incompatible_calibration)
+                + ". Disable calibration or change the portfolio."
+            )
 
     rows = int(len(X_train)) if X_train is not None else 0
     columns = int(X_train.shape[1]) if X_train is not None else 0
@@ -520,24 +709,320 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
     estimated_memory_mb = round(estimated_bytes / (1024 * 1024), 1)
     cpu_cap = max(1, min(4, os.cpu_count() or 1))
     memory_cap = 1 if estimated_memory_mb > 2_000 else 2 if estimated_memory_mb > 750 else cpu_cap
-    recommended_parallel = max(1, min(len(request.models) or 1, cpu_cap, memory_cap))
+    recommended_parallel = max(1, min(len(selected_algorithm_ids) or 1, cpu_cap, memory_cap))
+    balancing_policy = (
+        split_record.get("balancing_policy")
+        if isinstance(split_record.get("balancing_policy"), dict)
+        else {}
+    )
+    selection_resampling_status = str(
+        balancing_policy.get("selection_resampling_status") or "not_applied"
+    )
+    if selection_resampling_status != "not_applied":
+        blocking.append(
+            "Candidate-selection folds must not inherit population-level label resampling. Rebuild Validation Design without resampling."
+        )
+    if request.use_pca:
+        blocking.append(
+            "PCA is not implemented by the governed training pipeline and cannot be enabled."
+        )
+    if str(request.grid_search_level).lower() not in {
+        "quick",
+        "balanced",
+        "thorough",
+    }:
+        blocking.append(
+            "Grid-search level must be quick, balanced, or thorough."
+        )
+
+    tuning_candidates = (
+        {"quick": 4, "balanced": 8, "thorough": 12}.get(
+            str(request.grid_search_level).lower(), 4
+        )
+        if request.grid_search
+        else 1
+    )
+    estimated_fits = (
+        len(selected_algorithm_ids)
+        * max(1, effective_folds)
+        * tuning_candidates
+    )
+    calibration_supported_algorithm_ids = [
+        key
+        for key in selected_algorithm_ids
+        if calibration_compatibility.get(key, {}).get("compatible")
+    ]
+    calibration_fits = (
+        len(calibration_supported_algorithm_ids) * max(1, effective_folds)
+        if request.calibrate
+        else 0
+    )
+    estimated_fits += calibration_fits
+    large_run_required = estimated_fits >= LARGE_RUN_FIT_THRESHOLD
+    large_run_acknowledged = bool(request.large_job_confirmed)
 
     ready = not blocking
-    return {
+    unique_blocking = list(dict.fromkeys(blocking))
+    unique_warnings = list(dict.fromkeys(warnings))
+
+    def readiness_check(
+        check_id: str,
+        passed: bool,
+        reason: str,
+        *,
+        warning: bool = False,
+    ) -> dict[str, Any]:
+        return {
+            "check_id": check_id,
+            "state": "warning" if passed and warning else "passed" if passed else "failed",
+            "passed": bool(passed),
+            "reason": reason,
+        }
+
+    identity_ready = bool(identity and dataset_id and dataset_version_id)
+    feature_ready = bool(
+        manifest_version
+        and manifest_selected
+        and not missing_features
+        and not unexpected_features
+    )
+    validation_ready = bool(
+        split_status == "current"
+        and split_id
+        and validation_design_id
+        and validation_design_version
+        and validation_design.get("status") == "approved"
+        and cv_owned_by_design
+        and cv_execution_splits
+        and not invalid_execution_folds
+    )
+    target_ready = bool(target and y_train is not None)
+    dependency_ready = bool(
+        selected_algorithm_ids
+        and all(
+            compatibility.get(key, {}).get("compatible")
+            for key in selected_algorithm_ids
+        )
+    )
+    final_holdout_sealed = bool(
+        final_holdout_partition_id
+        and final_holdout_status == "sealed"
+        and holdout_isolation_status == "verified"
+        and durable_holdout_exposure is None
+        and durable_holdout_exposure_check != "verification_failed"
+    )
+    checks = [
+        readiness_check(
+            "canonical_identity",
+            identity_ready,
+            "Exact canonical Dataset Library identity verified."
+            if identity_ready
+            else "The exact project, dataset, and dataset-version identity is unavailable or stale.",
+        ),
+        readiness_check(
+            "target_contract",
+            target_ready,
+            f"Target {target} is available in the development population."
+            if target_ready
+            else "The governed target contract is missing.",
+        ),
+        readiness_check(
+            "feature_contract",
+            feature_ready,
+            f"Feature manifest {manifest_version} provides {len(manifest_selected)} selected predictors."
+            if feature_ready
+            else "The feature manifest is missing, stale, or inconsistent with the development matrix.",
+        ),
+        readiness_check(
+            "validation_design",
+            validation_ready,
+            f"Validation Design {validation_design_id} and split {split_id} are current."
+            if validation_ready
+            else "An approved current Validation Design with executable folds is required.",
+        ),
+        readiness_check(
+            "dependencies",
+            dependency_ready,
+            "Every selected algorithm dependency and task contract is compatible."
+            if dependency_ready
+            else "One or more selected algorithms are unavailable or incompatible.",
+        ),
+        readiness_check(
+            "data_type_compatibility",
+            not all_missing and not infinite,
+            "Development predictors contain no all-missing or infinite columns."
+            if not all_missing and not infinite
+            else "Development predictors contain unsupported all-missing or infinite values.",
+        ),
+        readiness_check(
+            "encoding_requirements",
+            True,
+            "Categorical encoding is fitted inside governed development folds."
+            + (
+                f" {len(high_cardinality)} high-cardinality column(s) require review."
+                if high_cardinality
+                else ""
+            ),
+            warning=bool(high_cardinality),
+        ),
+        readiness_check(
+            "scaling_requirements",
+            True,
+            "Algorithm-specific scaling is fitted inside governed development folds.",
+        ),
+        readiness_check(
+            "calibration_compatibility",
+            not request.calibrate
+            or all(
+                calibration_compatibility.get(key, {}).get("compatible")
+                for key in selected_algorithm_ids
+            ),
+            "Calibration is disabled or compatible with every selected model."
+            if not request.calibrate
+            or all(
+                calibration_compatibility.get(key, {}).get("compatible")
+                for key in selected_algorithm_ids
+            )
+            else "Calibration is unsupported for at least one selected model.",
+        ),
+        readiness_check(
+            "event_count_compatibility",
+            cv_compatible
+            and (
+                problem_type != "classification"
+                or min_class_count >= requested_folds
+            ),
+            "Development-population event counts support the approved folds."
+            if cv_compatible
+            and (
+                problem_type != "classification"
+                or min_class_count >= requested_folds
+            )
+            else "Development-population event counts do not support the approved folds.",
+        ),
+        readiness_check(
+            "cv_compatibility",
+            validation_ready,
+            "Candidate selection is restricted to exact governed development folds."
+            if validation_ready
+            else "Executable governed cross-validation folds are unavailable.",
+        ),
+        readiness_check(
+            "memory_and_workers",
+            True,
+            (
+                f"Estimated memory is {estimated_memory_mb} MB; "
+                f"{recommended_parallel} worker(s) will be honored."
+            ),
+            warning=request.max_parallel > max(1, recommended_parallel),
+        ),
+        readiness_check(
+            "final_holdout_sealed",
+            final_holdout_sealed,
+            "The final holdout remains sealed; preflight read development data only."
+            if final_holdout_sealed
+            else "The exact final holdout is not sealed and verified for isolation.",
+        ),
+        readiness_check(
+            "selection_resampling",
+            selection_resampling_status == "not_applied",
+            "No population-level label resampling contaminates candidate selection."
+            if selection_resampling_status == "not_applied"
+            else "Candidate-selection folds contain prohibited population-level resampling.",
+        ),
+    ]
+    # If a specialized check has not represented a newly added fail-closed
+    # condition, the contract-consistency check still makes the single result
+    # internally non-contradictory and exposes every authoritative reason.
+    checks.append(
+        readiness_check(
+            "contract_consistency",
+            ready,
+            "Every governed preflight condition passed."
+            if ready
+            else " | ".join(unique_blocking),
+        )
+    )
+
+    manifest_id = str(
+        manifest.get("manifest_id")
+        or manifest.get("manifest_version")
+        or manifest_version
+    )
+    target_contract = {
+        "target": target,
+        "problem_type": problem_type,
+        "event_value": train_distribution.get(
+            "event_value", request.event_value
+        ),
+        "non_event_value": request.non_event_value,
+        "development_rows": rows,
+        "development_events": train_distribution.get("events"),
+        "status": "current" if target_ready else "missing",
+    }
+    portfolio = (
+        scoped_store.meta.get("training_model_portfolio")
+        if isinstance(
+            scoped_store.meta.get("training_model_portfolio"), dict
+        )
+        else {}
+    )
+    selection_revision = int(portfolio.get("selection_revision") or 0)
+    state_payload = {
+        "project_id": request.project_id,
+        "dataset_id": dataset_id,
+        "dataset_version_id": dataset_version_id,
+        "data_revision": int(scoped_store.data_revision),
+        "feature_manifest_id": manifest_id,
+        "feature_manifest_version": manifest_version,
+        "validation_design_id": validation_design_id,
+        "validation_design_version": validation_design_version,
+        "split_id": split_id,
+        "target_contract": target_contract,
+        "selected_algorithm_ids": selected_algorithm_ids,
+        "selected_algorithm_versions": selected_algorithm_versions,
+        "k_folds": request.k_folds,
+        "grid_search": request.grid_search,
+        "grid_search_level": request.grid_search_level,
+        "calibrate": request.calibrate,
+        "use_pca": request.use_pca,
+        "max_parallel": request.max_parallel,
+        "candidate_strategy": request.candidate_strategy,
+        "primary_metric": request.primary_metric,
+        "final_holdout_partition_id": final_holdout_partition_id,
+        "final_holdout_status": final_holdout_status,
+        "holdout_isolation_status": holdout_isolation_status,
+    }
+    state_hash = canonical_contract_hash(state_payload)
+    preflight_id = f"training-preflight-{state_hash[:20]}"
+    created_at = datetime.now(timezone.utc).isoformat()
+    result = {
         "ok": True,
         "ready": ready,
-        "blocking_errors": list(dict.fromkeys(blocking)),
-        "warnings": list(dict.fromkeys(warnings)),
+        "readiness_status": "ready" if ready else "blocked",
+        "blocking_errors": unique_blocking,
+        "warnings": unique_warnings,
+        "checks": checks,
+        "preflight_id": preflight_id,
+        "state_hash": state_hash,
+        "revision": int(scoped_store.data_revision) * 1_000_000
+        + selection_revision,
+        "canonical_data_revision": int(scoped_store.data_revision),
+        "selection_revision": selection_revision,
+        "created_at": created_at,
+        "stale": False,
+        "stale_reason": None,
         "project_id": request.project_id,
         "dataset_id": dataset_id,
         "dataset_version_id": dataset_version_id,
         "dataset_version": dataset_version,
         "target": target,
+        "target_contract": target_contract,
         "event_value": train_distribution.get("event_value", request.event_value),
         "non_event_value": request.non_event_value,
         "problem_type": problem_type,
         "train_rows": rows,
-        "test_rows": int(len(X_test)) if X_test is not None else 0,
+        "test_rows": int(test_distribution.get("rows") or split_record.get("n_test") or 0),
         "train_events": train_distribution.get("events"),
         "test_events": test_distribution.get("events"),
         "train_event_rate": train_distribution.get("event_rate"),
@@ -548,7 +1033,22 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         "missing_features": missing_features,
         "unexpected_features": unexpected_features,
         "feature_manifest_version": manifest_version,
+        "feature_manifest_id": manifest_id,
         "split_id": split_id,
+        "training_population_id": training_population_id,
+        "selection_partition_id": selection_partition_id,
+        "holdout_population_id": final_holdout_partition_id,
+        "final_holdout_partition_id": final_holdout_partition_id,
+        "fold_definition_id": fold_definition_id,
+        "final_holdout_status": final_holdout_status,
+        "holdout_isolation_status": holdout_isolation_status,
+        "durable_holdout_exposure_check": durable_holdout_exposure_check,
+        "durable_holdout_exposure_status": (
+            durable_holdout_exposure.get("final_holdout_status")
+            if durable_holdout_exposure is not None
+            else None
+        ),
+        "selection_resampling_status": selection_resampling_status,
         "split_status": split_status,
         "validation_design": validation_design,
         "validation_design_id": validation_design_id,
@@ -563,15 +1063,86 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         "test_reference": split_record.get("test_reference"),
         "oot_reference": split_record.get("oot_reference"),
         "split_configuration": split_record.get("config") or {},
-        "balancing_configuration": split_record.get("balancing_policy")
+        "balancing_configuration": balancing_policy
         or {
             "method": (split_record.get("config") or {}).get(
                 "balance_method", "none"
             )
         },
         "optional_library_status": library_status,
+        "selected_algorithm_ids": selected_algorithm_ids,
+        "selected_algorithm_versions": selected_algorithm_versions,
+        "selected_algorithm_details": {
+            key: {
+                **library_status.get(key, {}),
+                "compatible": bool(
+                    compatibility.get(key, {}).get("compatible")
+                ),
+                "compatibility_reason": compatibility.get(key, {}).get(
+                    "reason"
+                ),
+                "champion_eligible": bool(
+                    MODEL_CATALOG.get(key, {}).get(
+                        "champion_eligible",
+                        MODEL_CATALOG.get(key, {}).get("kind") != "anomaly",
+                    )
+                ),
+                "candidate_role": (
+                    "diagnostic_only"
+                    if MODEL_CATALOG.get(key, {}).get("kind") == "anomaly"
+                    else "supervised_candidate"
+                ),
+            }
+            for key in selected_algorithm_ids
+        },
+        "dependency_status": {
+            "state": "ready" if dependency_ready else "blocked",
+            "algorithms": {
+                key: {
+                    "available": bool(
+                        library_status.get(key, {}).get("available")
+                    ),
+                    "compatible": bool(
+                        compatibility.get(key, {}).get("compatible")
+                    ),
+                    "reason": compatibility.get(key, {}).get("reason"),
+                }
+                for key in selected_algorithm_ids
+            },
+        },
         "model_compatibility": compatibility,
         "calibration_compatibility": calibration_compatibility,
+        "data_type_compatibility": {
+            "compatible": not all_missing and not infinite,
+            "all_missing_columns": all_missing,
+            "infinite_columns": infinite,
+            "high_cardinality_columns": high_cardinality,
+        },
+        "encoding_requirements": {
+            "fit_scope": "development_fold_only",
+            "required_columns": [
+                str(column)
+                for column in (
+                    X_train.columns if X_train is not None else []
+                )
+                if not pd.api.types.is_numeric_dtype(X_train[column])
+            ],
+        },
+        "scaling_requirements": {
+            "fit_scope": "development_fold_only",
+            "policy": "algorithm_specific_pipeline",
+        },
+        "event_count_compatibility": {
+            "compatible": cv_compatible
+            and (
+                problem_type != "classification"
+                or min_class_count >= requested_folds
+            ),
+            "minimum_class_count": min_class_count
+            if problem_type == "classification"
+            else None,
+            "required_folds": requested_folds,
+        },
         "cross_validation_compatibility": {
             "compatible": cv_compatible,
             "owned_by_validation_design": cv_owned_by_design,
@@ -586,8 +1157,48 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         "missing_value_columns": missing_value_columns,
         "infinite_value_columns": infinite,
         "estimated_memory_mb": estimated_memory_mb,
+        "memory_estimate": {
+            "estimated_mb": estimated_memory_mb,
+            "basis": "development_population_only",
+        },
         "recommended_parallelism": recommended_parallel,
-        "backend_status": "ready",
-        "worker_status": "ready",
+        "worker_limit": recommended_parallel,
+        "base_fit_count": estimated_fits - calibration_fits,
+        "calibration_fit_count": calibration_fits,
+        "calibration_supported_algorithm_ids": (
+            calibration_supported_algorithm_ids if request.calibrate else []
+        ),
+        "estimated_fits": estimated_fits,
+        "estimated_runtime_seconds": round(
+            estimated_fits
+            * max(rows, 1)
+            * max(columns, 1)
+            / 5_000_000,
+            1,
+        ),
+        "large_run_status": (
+            "acknowledged"
+            if large_run_required and large_run_acknowledged
+            else "acknowledgement_required"
+            if large_run_required and ready
+            else "not_large"
+            if not large_run_required
+            else "validation_blocked"
+        ),
+        "large_run": {
+            "required": large_run_required,
+            "threshold_fits": LARGE_RUN_FIT_THRESHOLD,
+            "estimated_fits": estimated_fits,
+            "acknowledged": large_run_acknowledged,
+            "acknowledgement_required": bool(
+                ready and large_run_required and not large_run_acknowledged
+            ),
+        },
+        "final_holdout_sealed": final_holdout_sealed,
+        "final_holdout_access": "contract_metadata_only",
+        "selection_evidence_source": "development_population_cross_validation",
+        "backend_status": "ready" if ready else "blocked",
+        "worker_status": "ready" if dependency_ready else "blocked",
         "duration_ms": int((time.perf_counter() - started) * 1000),
     }
+    return result

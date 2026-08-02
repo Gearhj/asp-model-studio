@@ -1,0 +1,24 @@
+{
+  "actorUserId": "user_d8bbe3ff73a84fb5",
+  "backupBundleName": "atlas-dataset-library-20260801T171859.754387Z-85af291e55dd4ce28e453f7cc66ccd2b",
+  "backupManifestSha256": "564004f93af624a92c54c211b631a021edb02e38c728884e98e089392e58588b",
+  "before": {
+    "projectLinksSha256": "54a84e8ada419f0afbae994c04f065d9397fa12bb632a0772abdd04df33d5776",
+    "registrySha256": "c606135157fb0c8acb6131f63ccb9cc4015b1d358871f16e309f672342a69b59"
+  },
+  "createdAt": "2026-08-01T17:18:59.772431+00:00",
+  "datasetId": "ds_heloc_train_6bdb184b_05905",
+  "datasetVersionId": "v_1785186305905_6bdb184b",
+  "expectedAfter": {
+    "projectLinksSha256": "dd454353dbdb09298f5da0cbe0c452962fd5850dc03896cefbd6540b7107dd6f",
+    "registrySha256": "02274e9f4c5062f6c8152fed3636e81794efc5c2f67b4075fd7f66acb7e82484"
+  },
+  "formatVersion": 1,
+  "kind": "atlas_dataset_library_recovery_journal",
+  "operationId": "dataset-projection-d159d56638584b869280cb0d6dc53cff",
+  "operationType": "link_project",
+  "projectId": "atlas-mrzpau4t",
+  "reason": "Before linking an exact Dataset Library version to a project",
+  "resolvedAt": "2026-08-01T17:18:59.846033+00:00",
+  "status": "committed"
+}

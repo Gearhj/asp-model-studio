@@ -50,7 +50,8 @@ import {
   type FeaturePreview,
   type PipelineStep,
 } from "../lib/featureManifest";
-import { createEvidence } from "../lib/evidenceGraph";
+import { createEvidence, type EvidenceItem } from "../lib/evidenceGraph";
+import { syncFeatureEngineeringMdd } from "../lib/featureEngineeringCompletion";
 import {
   assertExactDatasetIdentity,
   buildCanonicalEvidenceEnvelope,
@@ -64,6 +65,19 @@ import {
   recommendationToFeatureDraft,
   type FeatureRecommendation,
 } from "../lib/featureRecommendations";
+import {
+  buildArithmeticFeature,
+  buildDateDerivedFeature,
+  buildInteractionFeature,
+  buildNumericBinFeature,
+  buildPolynomialFeature,
+  buildRuleCategoryFeature,
+  inferFeatureUnit,
+  resolveDateDerivedAvailability,
+  type BuilderValidationResult,
+  type FeatureBuilderSource,
+  type RuleOperator,
+} from "../lib/featureBuilderValidation";
 import { loadLocalDataset } from "../lib/localDataset";
 import {
   getEdaCarryForward,
@@ -92,6 +106,18 @@ type RecommendationDisposition =
   | "accepted_to_plan"
   | "rejected"
   | "deferred";
+
+type VifCarryForwardRecommendation = {
+  recommendation_id: string;
+  source_plan_id: string;
+  cluster_id: string;
+  action: "retain" | "exclude" | "combine" | "defer";
+  features: string[];
+  proposed_exclusions: string[];
+  protected_features: string[];
+  status: "draft_recommendation";
+  rationale: string;
+};
 
 const PREVIEW_ROW_LIMITS = [10, 25, 50, 100] as const;
 const VIF_AUTO_EXCLUDE_THRESHOLD = 10;
@@ -202,9 +228,12 @@ export default function Step05FeatureEngineering() {
   const [highCorrelationPairs, setHighCorrelationPairs] = useState<
     Array<Record<string, unknown>>
   >([]);
+  const [vifCarryForwardRecommendations, setVifCarryForwardRecommendations] =
+    useState<VifCarryForwardRecommendation[]>([]);
   const [preparationDocs, setPreparationDocs] =
     useState<PreparationDocumentationState | null>(null);
   const previewController = useRef<AbortController | null>(null);
+  const advancingRef = useRef(false);
 
   async function loadManifest() {
     setLoading(true);
@@ -264,6 +293,39 @@ export default function Step05FeatureEngineering() {
       getPreparationDocumentation(datasetIdentity, controller.signal)
         .then(setPreparationDocs)
         .catch(() => undefined);
+      const vifRecommendationQuery = new URLSearchParams({
+        project_id: datasetIdentity.project_id,
+        expected_dataset_id: datasetIdentity.dataset_id,
+        expected_dataset_version_id: datasetIdentity.dataset_version_id,
+      });
+      fetch(
+        `${API_BASE}/eda/vif-resolution-recommendations?${vifRecommendationQuery}`,
+        { credentials: "include", signal: controller.signal },
+      )
+        .then(async (response) => {
+          const payload = await response.json().catch(() => null);
+          if (!response.ok || !payload?.ok) return [];
+          assertExactDatasetIdentity(
+            datasetIdentity,
+            payload,
+            "Feature Engineering VIF recommendation carry-forward",
+          );
+          if (
+            payload.governed_feature_set_changed !== false ||
+            payload.dataset_mutated !== false
+          ) {
+            throw new Error(
+              "VIF carry-forward violated the draft-recommendation contract.",
+            );
+          }
+          return Array.isArray(payload.recommendations)
+            ? payload.recommendations
+            : [];
+        })
+        .then(setVifCarryForwardRecommendations)
+        .catch(() => undefined);
+    } else {
+      setVifCarryForwardRecommendations([]);
     }
     return () => controller.abort();
   }, [
@@ -273,9 +335,56 @@ export default function Step05FeatureEngineering() {
   ]);
 
   const originals = manifest?.features.filter((feature) => feature.origin === "original") ?? [];
-  const eligibleOriginals = originals.filter((feature) => feature.eligibility_status === "eligible");
+  const forbiddenBuilderSources = useMemo(
+    () =>
+      new Set(
+        [
+          ...(manifest?.predictor_authorization?.target_source_excluded ?? []),
+          ...Object.keys(
+            manifest?.predictor_authorization?.excluded_predictors ?? {},
+          ),
+        ].map((name) => name.toLocaleLowerCase()),
+      ),
+    [manifest?.predictor_authorization],
+  );
+  const eligibleOriginals = originals.filter(
+    (feature) =>
+      feature.eligibility_status === "eligible" &&
+      !forbiddenBuilderSources.has(feature.feature_name.toLocaleLowerCase()),
+  );
   const numericOriginals = eligibleOriginals.filter((feature) => /int|float|double|numeric|number/i.test(feature.output_datatype));
   const categoricalOriginals = eligibleOriginals.filter((feature) => !numericOriginals.includes(feature));
+  const builderSourceCatalog = useMemo<FeatureBuilderSource[]>(
+    () =>
+      [
+        ...eligibleOriginals.map((feature) => ({
+          name: feature.feature_name,
+          dataType: feature.output_datatype,
+          eligible: true,
+          unit: inferFeatureUnit(feature.feature_name),
+          minimum:
+            typeof feature.summary_statistics?.minimum === "number"
+              ? feature.summary_statistics.minimum
+              : null,
+          maximum:
+            typeof feature.summary_statistics?.maximum === "number"
+              ? feature.summary_statistics.maximum
+              : null,
+          governedDate: /date|datetime|timestamp/i.test(feature.output_datatype),
+        })),
+        ...drafts.map((draft) => ({
+          name: draft.feature_name,
+          dataType: draft.output_datatype,
+          eligible: draft.selected,
+          exclusionReason: draft.exclusion_reason,
+          unit: String(draft.config?.result_unit || inferFeatureUnit(draft.feature_name)),
+          minimum: null,
+          maximum: null,
+          governedDate: draft.origin === "date-derived",
+        })),
+      ],
+    [drafts, eligibleOriginals],
+  );
   const availableNames = useMemo(() => [...eligibleOriginals.map((feature) => feature.feature_name), ...drafts.map((feature) => feature.feature_name)], [drafts, eligibleOriginals]);
   const numericNames = useMemo(() => [...numericOriginals.map((feature) => feature.feature_name), ...drafts.filter((feature) => feature.output_datatype === "numeric").map((feature) => feature.feature_name)], [drafts, numericOriginals]);
   const vifCandidateNames = useMemo(() => (manifest?.features ?? [])
@@ -296,7 +405,7 @@ export default function Step05FeatureEngineering() {
     exactMaterialization &&
     manifest?.confirmation_status === "confirmed" &&
     manifest.confirmed_manifest_hash === manifest.manifest_hash &&
-    drafts.every((draft) =>
+    drafts.filter((draft) => draft.selected).every((draft) =>
       manifest.features.some(
         (feature) =>
           (feature.feature_id === draft.feature_id ||
@@ -304,15 +413,11 @@ export default function Step05FeatureEngineering() {
           feature.materialization_status === "materialized",
       ),
     );
-  const dateNames = useMemo(
-    () =>
-      eligibleOriginals
-        .filter((feature) =>
-          /date|datetime|timestamp/i.test(feature.output_datatype),
-        )
-        .map((feature) => feature.feature_name),
-    [eligibleOriginals],
+  const dateAvailability = useMemo(
+    () => resolveDateDerivedAvailability(builderSourceCatalog),
+    [builderSourceCatalog],
   );
+  const dateNames = dateAvailability.dateSources;
   const excludedFeatures = useMemo(
     () =>
       Object.fromEntries(
@@ -365,107 +470,140 @@ export default function Step05FeatureEngineering() {
   function addFeature() {
     setError("");
     const name = field("name").trim();
-    if (!name) {
-      setError("Enter a unique feature name before adding the transformation.");
-      return;
-    }
-    if (availableNames.includes(name)) {
-      setError(`Feature name '${name}' already exists.`);
-      return;
-    }
-    let draft: FeatureDraft;
+    const common = {
+      name,
+      rationale: field("rationale"),
+      existingFeatureNames: availableNames,
+      sourceCatalog: builderSourceCatalog,
+    };
+    let validation: BuilderValidationResult;
     if (builderType === "interaction") {
-      const left = field("left");
-      const right = field("right");
-      if (!left || !right || left === right) {
-        setError("Select two different numeric source predictors.");
-        return;
-      }
-      draft = makeDraft(name, builderType, [left, right], `${left} * ${right}`, "numeric", {});
+      validation = buildInteractionFeature({
+        ...common,
+        left: field("left"),
+        right: field("right"),
+      });
     } else if (builderType === "numeric_bin") {
       const source = field("source");
       const binningMode = field("binningMode") || "custom";
       const cutPoints =
         binningMode === "custom" ? parseNumbers(field("cutPoints")) : [];
       const labels = parseList(field("labels"));
-      if (!source || (binningMode === "custom" && !cutPoints.length)) {
-        setError("Select a numeric source and enter at least one fixed cut point.");
-        return;
+      const specialValueLabel = field("specialValueLabel") || "Bureau special";
+      const missingValueLabel = field("missingLabel") || "Missing";
+      if (binningMode === "quantile") {
+        const quantiles = [0.2, 0.4, 0.6, 0.8];
+        const resolvedLabels = labels.length
+          ? labels
+          : ["Very low", "Low", "Mid", "High", "Very high"];
+        validation =
+          !source || resolvedLabels.length !== quantiles.length + 1
+            ? {
+                ok: false,
+                definition: null,
+                errors: [
+                  {
+                    code: "quantile_definition_invalid",
+                    severity: "error",
+                    message:
+                      "Quantile bins require one numeric source and exactly five ordinary labels.",
+                  },
+                ],
+                warnings: [],
+              }
+            : {
+                ok: true,
+                definition: makeDraft(
+                  name,
+                  builderType,
+                  [source],
+                  `quantile_band(${source}; 20%, 40%, 60%, 80%)`,
+                  "categorical",
+                  {
+                    binning_mode: "quantile",
+                    quantiles,
+                    labels: resolvedLabels,
+                    missing_label: missingValueLabel,
+                    special_value_label: specialValueLabel,
+                    special_value_policy: "separate_category",
+                    preserve_bureau_special_values: true,
+                  },
+                ),
+                errors: [],
+                warnings: [],
+              };
+      } else {
+        validation = buildNumericBinFeature({
+          ...common,
+          source,
+          cutPoints,
+          labels,
+          specialValueLabel,
+          missingValueLabel,
+        });
       }
-      if (
-        binningMode === "custom" &&
-        labels.length &&
-        labels.length !== cutPoints.length + 1
-      ) {
-        setError("Bin labels must contain one more value than cut points.");
-        return;
-      }
-      const quantiles = [0.2, 0.4, 0.6, 0.8];
-      const resolvedLabels =
-        binningMode === "quantile" && !labels.length
-          ? ["Very low", "Low", "Mid", "High", "Very high"]
-          : labels;
-      draft = makeDraft(
-        name,
-        builderType,
-        [source],
-        binningMode === "quantile"
-          ? `quantile_band(${source}; 20%, 40%, 60%, 80%)`
-          : `cut(${source}; ${cutPoints.join(", ")})`,
-        "categorical",
-        {
-          binning_mode: binningMode,
-          cut_points: cutPoints,
-          quantiles,
-          labels: resolvedLabels,
-          missing_label: field("missingLabel") || "Special or missing",
-          preserve_bureau_special_values: true,
-        },
-      );
     } else if (builderType === "categorical_rule") {
-      const source = field("source");
-      const operator = field("operator") || "equals";
-      if (!source || (operator !== "is_missing" && !field("value"))) {
-        setError("Select a source and provide a rule value.");
-        return;
-      }
-      const rule = { op: operator, value: field("value"), then_label: field("thenLabel") || "Matched" };
-      draft = makeDraft(name, builderType, [source], `${source} ${operator} ${field("value")}`, "categorical", { rules: [rule], else_label: field("elseLabel") || "Other" });
+      validation = buildRuleCategoryFeature({
+        ...common,
+        source: field("source"),
+        operator: (field("operator") || "equals") as RuleOperator,
+        value: field("value"),
+        matchedLabel: field("thenLabel") || "Matched",
+        elseLabel: field("elseLabel") || "Other",
+        specialValueLabel: field("specialValueLabel") || "Bureau special",
+      });
     } else if (builderType === "polynomial") {
-      const source = field("source");
-      const degree = Number(field("degree") || 2);
-      if (!source || ![2, 3].includes(degree)) {
-        setError("Select one numeric source and degree 2 or 3.");
-        return;
-      }
-      draft = makeDraft(name, builderType, [source], `${source} ^ ${degree}`, "numeric", { degree });
+      validation = buildPolynomialFeature({
+        ...common,
+        source: field("source"),
+        degree: Number(field("degree") || 2),
+      });
     } else if (builderType === "arithmetic") {
-      const left = field("left");
-      const right = field("right");
-      const operation = field("operation") || "add";
-      if (!left || !right) {
-        setError("Select two numeric source predictors.");
-        return;
-      }
-      draft = makeDraft(name, builderType, [left, right], `${left} ${operation} ${right}`, "numeric", { operation });
+      const operation = (field("operation") || "add") as
+        | "add"
+        | "subtract"
+        | "multiply"
+        | "divide";
+      validation = buildArithmeticFeature({
+        ...common,
+        left: field("left"),
+        right: field("right"),
+        operation,
+        requireNonnegativeResult: field("resultDomain") === "nonnegative",
+        domainEvidence: {
+          leftGreaterThanOrEqualRight:
+            field("domainEvidence") === "left_gte_right",
+          rightNonZero: field("domainEvidence") === "right_nonzero",
+          note: field("domainNote"),
+        },
+      });
     } else {
-      const source = field("source");
-      const component = field("component") || "year";
-      if (!source || !dateNames.includes(source)) {
-        setError("Select a valid date source.");
-        return;
-      }
-      draft = makeDraft(name, builderType, [source], `${component}(${source})`, "numeric", { component });
+      validation = buildDateDerivedFeature({
+        ...common,
+        source: field("source"),
+        component: (field("component") || "year") as
+          | "year"
+          | "month"
+          | "quarter"
+          | "day_of_week",
+      });
     }
-    draft.user_rationale =
-      field("rationale").trim() ||
-      "Reviewer-defined deterministic feature created in the governed builder.";
+    if (!validation.ok || !validation.definition) {
+      setError(
+        validation.errors.map((item) => item.message).join(" ") ||
+          "The feature definition is not valid.",
+      );
+      return;
+    }
+    const draft = validation.definition;
     setDrafts((current) => [...current, draft]);
     setDirty(true);
     setPreview(null);
     setForm({});
     setMessage(
-      `${name} was added to the draft feature set. Review it in the table, then use Confirm Feature Set & Continue.`,
+      validation.warnings.length
+        ? `${name} was added to the draft feature set. ${validation.warnings.map((item) => item.message).join(" ")}`
+        : `${name} was added to the draft feature set. Review it in the table, then use Confirm Feature Set & Continue.`,
     );
   }
 
@@ -1057,6 +1195,7 @@ export default function Step05FeatureEngineering() {
   }
 
   async function finalizeFeatureSetAndContinue() {
+    if (advancingRef.current) return false;
     if (!datasetIdentity) {
       setError(datasetIdentityError);
       return false;
@@ -1082,19 +1221,33 @@ export default function Step05FeatureEngineering() {
       return false;
     }
 
+    advancingRef.current = true;
     setAdvancing(true);
     setError("");
     setMessage("");
     let currentManifest = manifest;
     let currentDrafts = drafts;
+    let failedStage = "validating the canonical feature contract";
+    const runStage = async <T,>(label: string, operation: () => Promise<T>) => {
+      failedStage = label;
+      setAdvancingStage(label);
+      return operation();
+    };
 
     try {
-      if (dirty || currentManifest.validation_status !== "passed") {
-        setAdvancingStage("Validating and saving the feature set");
-        currentManifest = await saveFeatureManifest(
-          datasetIdentity,
-          currentDrafts,
-          pipelineSteps,
+      if (
+        dirty ||
+        currentManifest.validation_status !== "passed" ||
+        currentManifest.persistence_status !== "persisted"
+      ) {
+        currentManifest = await runStage(
+          "Validating and saving the versioned Feature Manifest",
+          () =>
+            saveFeatureManifest(
+              datasetIdentity,
+              currentDrafts,
+              pipelineSteps,
+            ),
         );
         currentDrafts = currentManifest.features
           .filter((feature) => feature.origin !== "original")
@@ -1120,24 +1273,30 @@ export default function Step05FeatureEngineering() {
       if (!materializationIsCurrent) {
         let previewHash = currentManifest.preview_hash;
         if (!previewHash) {
-          setAdvancingStage("Previewing the saved feature set");
-          const previewPayload = await previewFeaturePlan(
-            datasetIdentity,
-            currentDrafts,
-            previewRowLimit,
-            undefined,
-            currentManifest.manifest_hash,
+          const previewPayload = await runStage(
+            "Previewing included deterministic features",
+            () =>
+              previewFeaturePlan(
+                datasetIdentity,
+                currentDrafts.filter((draft) => draft.selected),
+                previewRowLimit,
+                undefined,
+                currentManifest.manifest_hash,
+              ),
           );
           previewHash = previewPayload.preview_hash;
           setPreview(previewPayload);
           currentManifest = await getFeatureManifest(datasetIdentity);
         }
 
-        setAdvancingStage("Materializing the governed feature set");
-        await materializeFeatureManifest(
-          datasetIdentity,
-          currentManifest.manifest_hash,
-          previewHash,
+        await runStage(
+          "Materializing included deterministic features",
+          () =>
+            materializeFeatureManifest(
+              datasetIdentity,
+              currentManifest.manifest_hash,
+              previewHash,
+            ),
         );
         currentManifest = await getFeatureManifest(datasetIdentity);
       }
@@ -1158,11 +1317,14 @@ export default function Step05FeatureEngineering() {
         currentManifest.confirmed_manifest_hash !==
           currentManifest.manifest_hash
       ) {
-        setAdvancingStage("Confirming the current feature contract");
-        currentManifest = await confirmFeatureManifest(
-          datasetIdentity,
-          currentManifest.manifest_hash,
-          currentManifest.materialization_hash,
+        currentManifest = await runStage(
+          "Confirming the exact saved and materialized feature contract",
+          () =>
+            confirmFeatureManifest(
+              datasetIdentity,
+              currentManifest.manifest_hash,
+              currentManifest.materialization_hash,
+            ),
         );
       }
 
@@ -1174,20 +1336,49 @@ export default function Step05FeatureEngineering() {
       );
       setPipelineSteps(currentManifest.pipeline_steps ?? []);
       setDirty(false);
-      setAdvancingStage("Recording feature-engineering evidence");
-      await completeStep(currentManifest);
+      const evidence = await runStage(
+        "Recording durable Feature Engineering evidence",
+        () => completeStep(currentManifest),
+      );
+      await runStage(
+        "Updating the exact Model Development Document draft",
+        () =>
+          syncFeatureEngineeringMdd(
+            datasetIdentity,
+            evidence,
+            currentManifest,
+          ),
+      );
+      const documentation = await runStage(
+        "Verifying the live preparation and MDD contract",
+        () => getPreparationDocumentation(datasetIdentity),
+      );
+      const documented = documentation.feature_engineering;
+      if (
+        documented.status !== "confirmed" ||
+        documented.manifest_hash !== currentManifest.manifest_hash ||
+        documented.materialization_hash !== currentManifest.materialization_hash
+      ) {
+        throw new Error(
+          "The live preparation documentation did not confirm the exact Feature Manifest and materialization hashes.",
+        );
+      }
+      setPreparationDocs(documentation);
       setMessage(
         "Feature set confirmed. Opening Balance & Split with the exact saved and materialized contract.",
       );
       return true;
     } catch (cause) {
       setError(
-        cause instanceof Error
-          ? cause.message
-          : "ATLAS could not confirm the governed feature set.",
+        `Feature Engineering failed during ${failedStage}: ${
+          cause instanceof Error
+            ? cause.message
+            : "ATLAS could not confirm the governed feature set."
+        }`,
       );
       return false;
     } finally {
+      advancingRef.current = false;
       setAdvancing(false);
       setAdvancingStage("");
     }
@@ -1195,17 +1386,24 @@ export default function Step05FeatureEngineering() {
 
   async function completeStep(
     confirmedManifest: FeatureManifest | null = manifest,
-  ) {
+  ): Promise<EvidenceItem> {
     if (!datasetIdentity) {
-      setError(datasetIdentityError);
-      return false;
+      throw new Error(datasetIdentityError);
     }
-    if (!confirmedManifest) return false;
+    if (!confirmedManifest) {
+      throw new Error("The exact confirmed Feature Manifest is unavailable for evidence persistence.");
+    }
     const confirmedDrafts = confirmedManifest.features.filter(
       (feature) => feature.origin !== "original",
     );
+    const includedDrafts = confirmedDrafts.filter(
+      (feature) => feature.selected && feature.eligibility_status === "eligible",
+    );
+    const excludedDrafts = confirmedDrafts.filter(
+      (feature) => !feature.selected || feature.eligibility_status !== "eligible",
+    );
     const confirmedPipelineSteps = confirmedManifest.pipeline_steps ?? [];
-    await createEvidence({
+    const evidence = await createEvidence({
       ...buildCanonicalEvidenceEnvelope(datasetIdentity, {
         manifestVersion: confirmedManifest.manifest_hash,
         materializationHash: confirmedManifest.materialization_hash,
@@ -1213,7 +1411,7 @@ export default function Step05FeatureEngineering() {
       projectName,
       evidenceType: "feature_engineering",
       title: "Governed Feature Manifest",
-      summary: `${confirmedDrafts.length} deterministic engineered features and ${confirmedPipelineSteps.length} training-only pipeline steps were recorded in manifest ${confirmedManifest.manifest_version}.`,
+      summary: `${includedDrafts.length} included deterministic engineered features, ${excludedDrafts.length} excluded planned definitions, and ${confirmedPipelineSteps.length} training-only pipeline steps were recorded in manifest ${confirmedManifest.manifest_version}.`,
       sourcePage: "Feature Engineering",
       sourceRoute: "/step05",
       modelIds: [],
@@ -1225,13 +1423,15 @@ export default function Step05FeatureEngineering() {
       importance: "high",
       payload: {
         features: confirmedManifest.features,
+        includedEngineeredFeatures: includedDrafts.map((feature) => feature.feature_name),
+        excludedEngineeredFeatures: excludedDrafts.map((feature) => feature.feature_name),
         pipelineSteps: confirmedPipelineSteps,
         executionStages: confirmedManifest.execution_history,
         manifestHash: confirmedManifest.manifest_hash,
         materializationHash: confirmedManifest.materialization_hash,
         confirmedManifestHash: confirmedManifest.confirmed_manifest_hash,
       },
-    });
+    }, { requireDatabaseMirror: true });
     logDecision({
       workflowStep: "Feature Engineering",
       actionType: "workflow_setting_changed",
@@ -1242,7 +1442,7 @@ export default function Step05FeatureEngineering() {
       followStatus: "followed",
       userReason: `Materialization ${confirmedManifest.materialization_hash} confirmed against ${confirmedManifest.manifest_hash}.`,
     });
-    return true;
+    return evidence;
   }
 
   const documentationStatus = planReady && !dirty
@@ -1445,6 +1645,7 @@ export default function Step05FeatureEngineering() {
       workflowStepId="step05"
       showEmbeddedNext
       nextAlwaysVisible
+      nextRequireDurableWorkflowSave
       nextStatusLine={continueStatus}
     >
       <div className="prep-premium-page flex flex-col gap-4">
@@ -1521,6 +1722,43 @@ export default function Step05FeatureEngineering() {
             ? ` and deterministic source ${targetSourceExclusions.join(", ")} are excluded from every recommendation, builder, preview, and materialization.`
             : " is excluded from every recommendation, builder, preview, and materialization."}
         </div>
+
+        {vifCarryForwardRecommendations.length ? (
+          <AtlasWorkflowSection
+            eyebrow="EDA carry-forward"
+            title="Draft VIF Resolution Recommendations"
+            description="Accepted EDA proposals arrive here for governed review. They do not uncheck predictors, create features, materialize data, or change the feature manifest."
+            tone="warning"
+            id="vif-resolution-carry-forward"
+          >
+            <div className="grid gap-2 md:grid-cols-2">
+              {vifCarryForwardRecommendations.map((recommendation) => (
+                <article
+                  key={recommendation.recommendation_id}
+                  className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950"
+                  data-testid="vif-feature-recommendation"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <strong>{recommendation.features.join(" · ")}</strong>
+                    <span className="rounded-full border border-amber-300 bg-white px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+                      Draft · {recommendation.action}
+                    </span>
+                  </div>
+                  <p className="mt-2 leading-5">{recommendation.rationale}</p>
+                  {recommendation.proposed_exclusions.length ? (
+                    <p className="mt-2"><strong>Proposed exclusion:</strong> {recommendation.proposed_exclusions.join(", ")}</p>
+                  ) : null}
+                  {recommendation.protected_features.length ? (
+                    <p className="mt-1"><strong>Protected:</strong> {recommendation.protected_features.join(", ")}</p>
+                  ) : null}
+                  <p className="mt-2 font-semibold text-amber-800">
+                    Review only — the governed feature set is unchanged.
+                  </p>
+                </article>
+              ))}
+            </div>
+          </AtlasWorkflowSection>
+        ) : null}
 
         <details
           className="order-[40] rounded-xl border border-slate-200 bg-white p-4"
@@ -1711,7 +1949,7 @@ export default function Step05FeatureEngineering() {
         </details>
 
         <div className="order-[20]" data-testid="feature-set-review">
-        <AtlasWorkflowSection eyebrow="Feature inventory" title="Feature Inventory and Summary Statistics" description="Every authorized source and newly created feature appears here. New definitions enter the table immediately beneath the builder; full summary statistics populate when materialization completes." tone="info" action={manifest ? <span className="text-xs font-semibold text-slate-600">{manifest.manifest_version}</span> : null}>
+        <AtlasWorkflowSection eyebrow="Dataset table" title="Feature Inventory and Summary Statistics" description="Review the complete modeling dataset in one table. Every authorized source and newly created feature appears here; full summary statistics populate when materialization completes." tone="info" action={manifest ? <span className="text-xs font-semibold text-slate-600">{manifest.manifest_version}</span> : null}>
           <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
             <StatusMetric label="Original features" value={eligibleOriginals.length} />
             <StatusMetric label="Planned features" value={drafts.length} />
@@ -1750,30 +1988,43 @@ export default function Step05FeatureEngineering() {
             <span className="text-xs font-semibold text-slate-500">
               {visibleReviewFeatures.length} of {reviewFeatures.length}
             </span>
-          </div>
-          <div className="mt-3 max-h-[28rem] overflow-auto rounded-lg border border-slate-200">
-            <table
-              className="atlas-table min-w-[1460px] text-xs"
-              data-testid="feature-transformation-plan"
+            <span
+              className="rounded-full border border-blue-200 bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-800"
+              id="feature-inventory-selection-help"
             >
-              <thead className="sticky top-0 z-[1] bg-slate-50">
+              {selectedReviewFeatureCount} included · use the checkboxes to
+              change the modeling set
+            </span>
+          </div>
+          <div className="mt-3 max-h-[32rem] overflow-auto rounded-xl border border-slate-300 bg-white shadow-sm">
+            <table
+              className="atlas-table w-full min-w-[1560px] border-separate border-spacing-0 text-sm"
+              data-testid="feature-transformation-plan"
+              aria-label="Modeling dataset feature inventory and summary statistics"
+              aria-describedby="feature-inventory-selection-help"
+            >
+              <caption className="sr-only">
+                Modeling dataset features, inclusion controls, source rules,
+                summary statistics, and review status
+              </caption>
+              <thead className="sticky top-0 z-[1] bg-slate-100 shadow-sm">
                 <tr>
-                  <th>Include</th>
-                  <th>Feature</th>
-                  <th>Kind</th>
-                  <th>Source or rule</th>
-                  <th className="text-right">IV</th>
-                  <th className="text-right">Mean</th>
-                  <th className="text-right">Std dev</th>
-                  <th className="text-right">Min</th>
-                  <th className="text-right">Max</th>
-                  <th className="text-right">Missing</th>
-                  <th className="text-right">Distinct</th>
-                  <th>Status</th>
-                  <th>Review</th>
+                  <th scope="col" className="w-20 border-b border-slate-300 px-3 py-3 text-center">Include</th>
+                  <th scope="col" className="min-w-64 border-b border-slate-300 px-3 py-3">Feature</th>
+                  <th scope="col" className="min-w-32 border-b border-slate-300 px-3 py-3">Kind</th>
+                  <th scope="col" className="min-w-64 border-b border-slate-300 px-3 py-3">Source or rule</th>
+                  <th scope="col" className="min-w-20 border-b border-slate-300 px-3 py-3 text-right">IV</th>
+                  <th scope="col" className="min-w-20 border-b border-slate-300 px-3 py-3 text-right">Mean</th>
+                  <th scope="col" className="min-w-20 border-b border-slate-300 px-3 py-3 text-right">Std dev</th>
+                  <th scope="col" className="min-w-20 border-b border-slate-300 px-3 py-3 text-right">Min</th>
+                  <th scope="col" className="min-w-20 border-b border-slate-300 px-3 py-3 text-right">Max</th>
+                  <th scope="col" className="min-w-24 border-b border-slate-300 px-3 py-3 text-right">Missing</th>
+                  <th scope="col" className="min-w-20 border-b border-slate-300 px-3 py-3 text-right">Distinct</th>
+                  <th scope="col" className="min-w-36 border-b border-slate-300 px-3 py-3">Status</th>
+                  <th scope="col" className="min-w-36 border-b border-slate-300 px-3 py-3">Review</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="divide-y divide-slate-200">
                 {visibleReviewFeatures.map((feature) => {
                   const draft =
                     feature.origin === "original"
@@ -1804,18 +2055,19 @@ export default function Step05FeatureEngineering() {
                     <tr
                       key={key}
                       data-feature-origin={feature.origin}
-                      className={
+                      className={`transition-colors hover:bg-slate-50 ${
                         selectedFeatureKey === key
                           ? "bg-blue-50/80"
                           : feature.origin !== "original"
                             ? "bg-cyan-50/40"
-                            : undefined
-                      }
+                            : "bg-white"
+                      }`}
                     >
-                      <td>
-                        <label className="inline-flex items-center gap-2 text-xs font-semibold text-slate-700">
+                      <td className="border-b border-slate-100 px-3 py-2 text-center">
+                        <label className="inline-flex min-h-9 cursor-pointer items-center justify-center rounded-md p-2 hover:bg-blue-50">
                           <input
                             type="checkbox"
+                            className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                             checked={included}
                             aria-label={`Include ${feature.feature_name}`}
                             disabled={vifSaving || advancing}
@@ -1844,13 +2096,17 @@ export default function Step05FeatureEngineering() {
                               setPreview(null);
                             }}
                           />
-                          {included ? "Yes" : "No"}
+                          <span className="sr-only">
+                            {included
+                              ? `${feature.feature_name} is included`
+                              : `${feature.feature_name} is excluded`}
+                          </span>
                         </label>
                       </td>
-                      <td className="font-semibold text-slate-950">
+                      <td className="max-w-80 whitespace-normal break-words border-b border-slate-100 px-3 py-3 font-semibold leading-5 text-slate-950">
                         {feature.feature_name}
                       </td>
-                      <td>
+                      <td className="border-b border-slate-100 px-3 py-3">
                         <ContractBadge
                           label={
                             feature.origin === "original"
@@ -1865,20 +2121,20 @@ export default function Step05FeatureEngineering() {
                           {feature.output_datatype}
                         </span>
                       </td>
-                      <td className="max-w-sm text-xs text-slate-600">
+                      <td className="max-w-md whitespace-normal border-b border-slate-100 px-3 py-3 text-xs leading-5 text-slate-600">
                         {feature.origin === "original"
                           ? "Registered predictor"
                           : draft?.formula_or_rule ?? feature.formula_or_rule}
                       </td>
-                      <td className="text-right font-semibold tabular-nums text-blue-800">
+                      <td className="border-b border-slate-100 px-3 py-3 text-right font-semibold tabular-nums text-blue-800">
                         {formatFeatureSummary(iv, 4)}
                       </td>
-                      <td className="text-right tabular-nums">
+                      <td className="border-b border-slate-100 px-3 py-3 text-right tabular-nums">
                         {formatFeatureSummary(
                           summaryStatistic(summaryStatistics, "mean"),
                         )}
                       </td>
-                      <td className="text-right tabular-nums">
+                      <td className="border-b border-slate-100 px-3 py-3 text-right tabular-nums">
                         {formatFeatureSummary(
                           summaryStatistic(
                             summaryStatistics,
@@ -1887,20 +2143,20 @@ export default function Step05FeatureEngineering() {
                           ),
                         )}
                       </td>
-                      <td className="text-right tabular-nums">
+                      <td className="border-b border-slate-100 px-3 py-3 text-right tabular-nums">
                         {formatFeatureSummary(
                           summaryStatistic(summaryStatistics, "minimum", "min"),
                         )}
                       </td>
-                      <td className="text-right tabular-nums">
+                      <td className="border-b border-slate-100 px-3 py-3 text-right tabular-nums">
                         {formatFeatureSummary(
                           summaryStatistic(summaryStatistics, "maximum", "max"),
                         )}
                       </td>
-                      <td className="text-right tabular-nums">
+                      <td className="border-b border-slate-100 px-3 py-3 text-right tabular-nums">
                         {formatFeatureMissingRate(summaryStatistics)}
                       </td>
-                      <td className="text-right tabular-nums">
+                      <td className="border-b border-slate-100 px-3 py-3 text-right tabular-nums">
                         {formatFeatureSummary(
                           summaryStatistic(
                             summaryStatistics,
@@ -1910,7 +2166,7 @@ export default function Step05FeatureEngineering() {
                           0,
                         )}
                       </td>
-                      <td>
+                      <td className="border-b border-slate-100 px-3 py-3">
                         <ContractBadge
                           label={status}
                           tone={
@@ -1925,7 +2181,7 @@ export default function Step05FeatureEngineering() {
                           }
                         />
                       </td>
-                      <td>
+                      <td className="border-b border-slate-100 px-3 py-3">
                         {draft ? (
                           <button
                             type="button"
@@ -2871,10 +3127,10 @@ function BuilderForm({
     <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
       <TextField label="New feature name" value={field("name")} onChange={(value) => update("name", value)} placeholder="e.g. amount_x_velocity" />
       {type === "interaction" || type === "arithmetic" ? <><SelectField label="Left source" value={field("left")} onChange={(value) => update("left", value)} options={numericNames} placeholder="Select predictor" /><SelectField label="Right source" value={field("right")} onChange={(value) => update("right", value)} options={numericNames} placeholder="Select predictor" /></> : <SelectField label="Source predictor" value={field("source")} onChange={(value) => update("source", value)} options={sources} placeholder="Select predictor" />}
-      {type === "numeric_bin" ? <><SelectField label="Binning mode" value={field("binningMode") || "custom"} onChange={(value) => update("binningMode", value)} options={["custom", "quantile"]} helper={field("binningMode") === "quantile" ? "Quantile cut points are dataset-version specific and require stability review." : "Custom cut points are reviewer-defined and versioned in the manifest."} />{(field("binningMode") || "custom") === "custom" ? <TextField label="Cut points" value={field("cutPoints")} onChange={(value) => update("cutPoints", value)} placeholder="100, 500, 1000" /> : null}<TextField label="Labels" value={field("labels")} onChange={(value) => update("labels", value)} placeholder={(field("binningMode") || "custom") === "quantile" ? "Optional; five labels expected" : "Low, Medium, High, Very High"} /><TextField label="Special / missing label" value={field("missingLabel")} onChange={(value) => update("missingLabel", value)} placeholder="Special or missing" /></> : null}
-      {type === "categorical_rule" ? <><SelectField label="Operator" value={field("operator") || "equals"} onChange={(value) => update("operator", value)} options={["equals", "contains", "greater_than", "less_than", "is_missing"]} />{(field("operator") || "equals") === "is_missing" ? <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">Rule value is not required for is_missing.</div> : <TextField label="Rule value" value={field("value")} onChange={(value) => update("value", value)} />}<TextField label="Matched label" value={field("thenLabel")} onChange={(value) => update("thenLabel", value)} placeholder="Matched" /><TextField label="Else label" value={field("elseLabel")} onChange={(value) => update("elseLabel", value)} placeholder="Other" /></> : null}
+      {type === "numeric_bin" ? <><SelectField label="Binning mode" value={field("binningMode") || "custom"} onChange={(value) => update("binningMode", value)} options={["custom", "quantile"]} helper={field("binningMode") === "quantile" ? "Quantile cut points are dataset-version specific and require stability review." : "Custom cut points are reviewer-defined and versioned in the manifest."} />{(field("binningMode") || "custom") === "custom" ? <TextField label="Cut points" value={field("cutPoints")} onChange={(value) => update("cutPoints", value)} placeholder="60, 70, 80" /> : null}<TextField label="Ordinary labels" value={field("labels")} onChange={(value) => update("labels", value)} placeholder={(field("binningMode") || "custom") === "quantile" ? "Optional; five labels expected" : "Below 60, 60 to 69, 70 to 79, 80 or above"} /><TextField label="Bureau-special label" value={field("specialValueLabel")} onChange={(value) => update("specialValueLabel", value)} placeholder="Bureau special" /><TextField label="True-missing label" value={field("missingLabel")} onChange={(value) => update("missingLabel", value)} placeholder="Missing" /></> : null}
+      {type === "categorical_rule" ? <><SelectField label="Operator" value={field("operator") || "equals"} onChange={(value) => update("operator", value)} options={["equals", "contains", "greater_than", "greater_than_or_equal", "less_than", "less_than_or_equal", "is_missing"]} />{(field("operator") || "equals") === "is_missing" ? <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-500">Rule value is not required for is_missing.</div> : <TextField label="Rule value" value={field("value")} onChange={(value) => update("value", value)} />}<TextField label="Matched label" value={field("thenLabel")} onChange={(value) => update("thenLabel", value)} placeholder="Matched" /><TextField label="Else label" value={field("elseLabel")} onChange={(value) => update("elseLabel", value)} placeholder="Other" /><TextField label="Bureau-special label" value={field("specialValueLabel")} onChange={(value) => update("specialValueLabel", value)} placeholder="Bureau special" /></> : null}
       {type === "polynomial" ? <SelectField label="Degree" value={field("degree") || "2"} onChange={(value) => update("degree", value)} options={["2", "3"]} /> : null}
-      {type === "arithmetic" ? <SelectField label="Operation" value={field("operation") || "add"} onChange={(value) => update("operation", value)} options={["add", "subtract", "multiply", "divide"]} /> : null}
+      {type === "arithmetic" ? <><SelectField label="Operation" value={field("operation") || "add"} onChange={(value) => update("operation", value)} options={["add", "subtract", "multiply", "divide"]} /><SelectField label="Result domain" value={field("resultDomain") || "unrestricted"} onChange={(value) => update("resultDomain", value)} options={["unrestricted", "nonnegative"]} helper="Choose nonnegative only when the governed data and business definition support it." />{field("resultDomain") === "nonnegative" || field("operation") === "divide" ? <SelectField label="Domain evidence" value={field("domainEvidence") || "not_established"} onChange={(value) => update("domainEvidence", value)} options={["not_established", "left_gte_right", "right_nonzero"]} helper="ATLAS also validates the resulting full-data domain during manifest save." /> : null}<TextField label="Domain evidence note" value={field("domainNote")} onChange={(value) => update("domainNote", value)} placeholder="Why are the units and resulting domain valid?" /></> : null}
       {type === "date-derived" ? <SelectField label="Date component" value={field("component") || "year"} onChange={(value) => update("component", value)} options={["year", "month", "quarter", "day_of_week"]} /> : null}
       {type === "categorical_rule" && !categoricalNames.length ? <div className="text-xs text-amber-800">No categorical source was inferred. Numeric fields remain available for threshold rules.</div> : null}
       {type === "date-derived" && !dateNames.length ? <div className="text-xs font-semibold text-amber-800">Unavailable: no governed date predictor is present. Duration fields such as months-in-file are numeric durations, not calendar dates.</div> : null}

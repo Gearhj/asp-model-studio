@@ -107,7 +107,9 @@ test("Balance and Split uses the reference validation-design sequence", () => {
     "2. Configure Split",
     "3. Preview of resulting split",
     "4. Class Preservation Summary",
-    "Advanced balancing settings (optional)",
+    "Advanced Balancing Settings",
+    "Advanced External Validation Data",
+    "Final Predictor Review",
   ]) {
     assert.ok(pages.split.includes(label), `missing split layout label: ${label}`);
   }
@@ -122,6 +124,17 @@ test("Balance and Split uses the reference validation-design sequence", () => {
     /<AtlasWorkflowSection[\s\S]{0,140}title="1\. Choose Validation Approach"/,
   );
   assert.match(pages.split, /prep-split-preview__bar/);
+  for (const testId of [
+    "advanced-balancing-settings",
+    "advanced-external-validation",
+    "compact-final-predictor-review",
+  ]) {
+    assert.match(pages.split, new RegExp(`<section data-testid="${testId}">`));
+    assert.doesNotMatch(
+      pages.split,
+      new RegExp(`<details[^>]*data-testid="${testId}"`),
+    );
+  }
   assert.match(
     pages.split,
     /nextFooterTestId="balance-split-sticky-footer"/,

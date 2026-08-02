@@ -50,11 +50,69 @@ export type EdaDocumentationDecision = {
   rationale: string;
   status: string;
   finding_id?: string;
+  parent_id?: string;
+  child_ids?: string[];
+  finding_family?: string;
   downstream_destination?: string;
   suggested_transformation?: string;
   carry_forward_mode?: "draft_recommendation" | "none";
   mutation_applied?: false;
   evidence_references?: string[];
+};
+
+export type EdaDocumentationReviewerRecord = {
+  overall_conclusion: string;
+  reviewer_commentary: string;
+  overall_review_status:
+    | "draft"
+    | "under_review"
+    | "accepted"
+    | "accepted_with_conditions"
+    | "rejected"
+    | "reviewed";
+  required_conditions: string[];
+  open_nonblocking_items: string[];
+  evidence_references: string[];
+  mdd_reference?: string | null;
+  generated_draft_used?: boolean;
+  generated_draft_non_approving?: true | null;
+};
+
+export type EdaBulkDispositionAction = {
+  action_id: string;
+  family: string;
+  parent_ids: string[];
+  child_ids: string[];
+  prior_statuses: Record<string, string>;
+  new_status: string;
+  rationale: string;
+  destination: string | null;
+  mutation_applied: false;
+};
+
+export type EdaMddStaleness = {
+  stale_sections: Array<{
+    section: EdaDocumentationSectionKey;
+    classification: "analytical" | "narrative_only";
+    changed_source_fields: string[];
+  }>;
+  changed_source_fields: string[];
+  analytical_staleness: boolean;
+  narrative_only_staleness: boolean;
+  review_action: "Review stale documentation";
+};
+
+export type EdaCompletionStage = {
+  stage:
+    | "validate"
+    | "persist_reviewer_record"
+    | "persist_dispositions"
+    | "persist_carry_forward_recommendations"
+    | "record_evidence"
+    | "update_mdd"
+    | "mark_eda_complete";
+  status: "completed";
+  artifact_count?: number;
 };
 
 export type EdaDocumentationPayload = {
@@ -69,6 +127,9 @@ export type EdaDocumentationPayload = {
   sections: EdaDocumentationSections;
   evidence_references: EdaDocumentationEvidenceReference[];
   decisions: EdaDocumentationDecision[];
+  governance_contract_version?: "eda-governance-v2";
+  reviewer_record?: EdaDocumentationReviewerRecord;
+  bulk_disposition_actions?: EdaBulkDispositionAction[];
   performance_metadata: Record<string, unknown>;
   duplicate_decision?: string | null;
   target_source_exclusions: string[];
@@ -85,6 +146,9 @@ export type EdaDocumentationRecord = EdaDocumentationPayload & {
   confirmed_by_display_name?: string;
   stale_at?: string;
   stale_reason?: string;
+  mdd_staleness?: EdaMddStaleness;
+  completion_id?: string;
+  completion_sequence?: EdaCompletionStage[];
   created_at?: string;
   updated_at?: string;
 };
@@ -138,6 +202,8 @@ export type EdaDocumentationConfirmationResult = {
   status: EdaDocumentationStatus;
   record: EdaDocumentationRecord;
   idempotent?: boolean;
+  completion_id?: string;
+  completion_sequence?: EdaCompletionStage[];
 };
 
 export type EdaDocumentationUpdateDetail = {
@@ -274,15 +340,27 @@ export async function saveEdaDocumentationDraft(
   return verified;
 }
 
-export async function confirmEdaDocumentation(
+export const EDA_LEGACY_CONFIRMATION_ROUTE = "/eda/confirmation";
+
+export async function completeEdaDocumentation(
   payload: EdaDocumentationPayload
 ) {
   const result =
     await edaDocumentationFetch<EdaDocumentationConfirmationResult>(
-      "/eda/confirmation",
+      "/eda/completion",
       {
         method: "POST",
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          payload,
+          expected_analysis_version: payload.eda_analysis_version,
+          idempotency_key: [
+            "eda-completion",
+            payload.project_id,
+            payload.dataset_id,
+            payload.dataset_version_id,
+            payload.eda_analysis_version,
+          ].join(":"),
+        }),
       }
     );
   assertExactDatasetIdentity(
@@ -302,6 +380,10 @@ export async function confirmEdaDocumentation(
   });
   return result;
 }
+
+// Compatibility export for EDA callers while the governed operation now uses
+// the typed /completion transaction rather than the legacy confirmation body.
+export const confirmEdaDocumentation = completeEdaDocumentation;
 
 export async function invalidateEdaDocumentation(
   identity: CanonicalDatasetIdentity,

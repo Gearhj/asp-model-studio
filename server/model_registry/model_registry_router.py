@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..security.security_store import require_user
 from . import model_registry_service as REGISTRY
@@ -34,6 +34,26 @@ def compare_model_versions(ids: str = Query(..., description="Comma-separated mo
     return {"ok": True, **REGISTRY.compare_versions(user, model_version_ids)}
 
 
+@router.get("/model-versions/resolve-current")
+def resolve_current_version(
+    project_id: str = Query(..., alias="projectId"),
+    dataset_id: str = Query(..., alias="datasetId"),
+    dataset_version_id: str = Query(..., alias="datasetVersionId"),
+    target_name: str = Query(..., alias="targetName"),
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    return {
+        "ok": True,
+        "resolution": REGISTRY.resolve_current_version_by_exact_context(
+            user,
+            project_id=project_id,
+            dataset_id=dataset_id,
+            dataset_version_id=dataset_version_id,
+            target_name=target_name,
+        ),
+    }
+
+
 @router.get("/models/{model_id}")
 def get_model(model_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     return {"ok": True, "model": REGISTRY.get_model(user, model_id)}
@@ -61,9 +81,45 @@ def archive_model(model_id: str, user: Dict[str, Any] = Depends(require_user)) -
     return {"ok": True, "model": REGISTRY.archive_model(user, model_id)}
 
 
+@router.post("/models/{model_id}/champion")
+def promote_champion(
+    model_id: str,
+    payload: Dict[str, Any],
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    model_version_id = str(payload.get("modelVersionId") or "").strip()
+    if not model_version_id:
+        raise HTTPException(status_code=422, detail="modelVersionId is required.")
+    return {
+        "ok": True,
+        "model": REGISTRY.promote_champion(
+            user,
+            model_id,
+            model_version_id,
+            expected_generation=payload.get("expectedGeneration"),
+        ),
+    }
+
+
 @router.get("/model-versions/{model_version_id}")
 def get_version(model_version_id: str, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     return {"ok": True, "modelVersion": REGISTRY.get_version(user, model_version_id)}
+
+
+@router.get("/model-versions/{model_version_id}/recovery-status")
+def recovery_status(
+    model_version_id: str,
+    project_id: str = Query(..., alias="projectId"),
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    return {
+        "ok": True,
+        "recovery": REGISTRY.get_recovery_status(
+            user,
+            project_id,
+            model_version_id,
+        ),
+    }
 
 
 @router.post("/model-versions/{model_version_id}/archive")

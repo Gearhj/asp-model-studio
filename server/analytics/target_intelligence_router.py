@@ -191,8 +191,13 @@ class TargetByPredictorRequest(BaseModel):
 
 @router.post("/analytics/target-by-predictor")
 def target_by_predictor(payload: TargetByPredictorRequest, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
-    """Bounded grouped event rate for one predictor. Explicitly invoked -- this
-    is never issued when the Target tab mounts."""
+    """Development-only grouped event rate for one governed predictor.
+
+    The immutable Dataset Library identity is still authorized here, but the
+    target-directed calculation is delegated to the exact current development
+    partition. It fails closed when the matching split is unavailable and
+    never scans the sealed final holdout.
+    """
     _check_project_access(user, payload.projectId)
     identity = _require_active_version(
         user,
@@ -200,19 +205,37 @@ def target_by_predictor(payload: TargetByPredictorRequest, user: Dict[str, Any] 
         payload.datasetId,
         payload.versionId,
     )
-    return compute_target_by_predictor(
-        user_scope=_user_scope(user),
-        project_id=identity["project_id"],
-        dataset_id=identity["dataset_id"],
-        version_id=identity["dataset_version_id"],
-        target=payload.target,
-        predictor=payload.predictor,
-        analysis_type=payload.analysisType,
-        event_value=payload.eventValue,
-        bands=payload.bands,
-        top_categories=payload.topCategories,
-        include_missing=payload.includeMissing,
-    )
+    # Local imports avoid coupling the general Target Intelligence module to
+    # the EDA workspace at import time.
+    from ..eda.analytical_contract import EDAAnalyticalContractError
+    from ..eda.workspace_service import eda_workspace_service
+    from ..eda.workspace_types import TargetByPredictorRequest as EDATargetByPredictorRequest
+
+    try:
+        return eda_workspace_service.target_by_predictor(
+            EDATargetByPredictorRequest(
+                project_id=identity["project_id"],
+                expected_dataset_id=identity["dataset_id"],
+                expected_dataset_version_id=identity["dataset_version_id"],
+                dataset_version=identity["dataset_version_id"],
+                target=payload.target,
+                predictor=payload.predictor,
+                analysis_type=payload.analysisType,
+                event_value=payload.eventValue,
+                bands=payload.bands,
+                top_categories=payload.topCategories,
+                include_missing=payload.includeMissing,
+            )
+        )
+    except EDAAnalyticalContractError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "ok": False,
+                "code": "eda_analytical_scope_not_current",
+                "message": str(exc),
+            },
+        ) from exc
 
 
 # ---------------------------------------------------------------------------

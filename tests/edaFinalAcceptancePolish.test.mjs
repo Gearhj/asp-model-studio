@@ -8,16 +8,33 @@ const ROOT = new URL("../", import.meta.url);
 const read = (path) =>
   readFileSync(new URL(path, ROOT), "utf8").replace(/\r\n/g, "\n");
 
-async function importTypeScript(path) {
-  const output = ts.transpileModule(read(path), {
+function transpileTypeScript(path) {
+  return ts.transpileModule(read(path), {
     compilerOptions: {
       module: ts.ModuleKind.ESNext,
       target: ts.ScriptTarget.ES2022,
     },
     fileName: path,
   }).outputText;
+}
+
+function sourceDataUrl(source) {
+  return `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`;
+}
+
+async function importTypeScript(path) {
+  let output = transpileTypeScript(path);
+  if (output.includes('"./datasetIdentity"')) {
+    const datasetIdentityUrl = sourceDataUrl(
+      transpileTypeScript("src/lib/datasetIdentity.ts"),
+    );
+    output = output.replaceAll(
+      '"./datasetIdentity"',
+      JSON.stringify(datasetIdentityUrl),
+    );
+  }
   return import(
-    `data:text/javascript;base64,${Buffer.from(output).toString("base64")}`
+    sourceDataUrl(output)
   );
 }
 
@@ -55,7 +72,41 @@ const [targetApi, lifecycle, predictorLimits, findings] = await Promise.all([
   importTypeScript("src/lib/edaFindings.ts"),
 ]);
 
+let findingGovernance;
+
 function compileDocumentationPayload() {
+  const governanceOutput = ts.transpileModule(
+    read("src/lib/edaFindingGovernance.ts"),
+    {
+      compilerOptions: {
+        module: ts.ModuleKind.CommonJS,
+        target: ts.ScriptTarget.ES2022,
+      },
+      fileName: "edaFindingGovernance.ts",
+    },
+  ).outputText;
+  const governanceModule = { exports: {} };
+  vm.runInNewContext(governanceOutput, {
+    module: governanceModule,
+    exports: governanceModule.exports,
+    require(specifier) {
+      if (specifier === "./edaFindings") return findings;
+      throw new Error(`Unexpected finding-governance import: ${specifier}`);
+    },
+    console,
+    JSON,
+    Math,
+    Object,
+    Number,
+    String,
+    Array,
+    Boolean,
+    Map,
+    Set,
+    Date,
+    Error,
+  });
+  findingGovernance = governanceModule.exports;
   const output = ts.transpileModule(sources.documentationPayload, {
     compilerOptions: {
       module: ts.ModuleKind.CommonJS,
@@ -85,6 +136,9 @@ function compileDocumentationPayload() {
           };
         }
         if (specifier === "./edaDocumentationApi") return {};
+        if (specifier === "./edaFindingGovernance") {
+          return governanceModule.exports;
+        }
         throw new Error(`Unexpected documentation payload import: ${specifier}`);
       },
       console,
@@ -289,6 +343,7 @@ test("3. Target chart exits loading.", async () => {
           ok: true,
           supported: true,
           resolution: "exact",
+          projectId: request.projectId,
           datasetId: request.datasetId,
           versionId: request.versionId,
           target: request.target,
@@ -388,7 +443,8 @@ test("7. Event-rate preview.", () => {
     'data-testid="target-predictor-sparkline"',
     'data-testid="inspect-target-predictor"',
     ".slice(0, 5)",
-    "one batched full-population aggregate",
+    "Development Population",
+    "sealed final holdout",
   ]) {
     assert.match(sources.targetVisuals, new RegExp(marker.replace(/[()]/g, "\\$&")));
   }
@@ -529,6 +585,10 @@ test("15. Carry-forward destination.", () => {
 
 test("16. MDD draft update.", () => {
   const selected = requiredHighIvFinding();
+  const parent = findingGovernance
+    .generateEdaParentFindings(fixture)
+    .find((candidate) => candidate.childIds.includes(selected.id));
+  assert.ok(parent, "Expected the high-IV evidence to belong to a parent finding.");
   const payload = buildDocumentationPayload({
     projectId: "project-heloc",
     datasetId: "HELOC_TRAIN",
@@ -555,8 +615,8 @@ test("16. MDD draft update.", () => {
       status: "accepted",
       duplicateTreatment: "keep",
       duplicateDecisionSavedAt: "2026-07-28T12:00:00.000Z",
-      findingDecisions: {
-        [selected.id]: {
+      parentDecisions: {
+        [parent.parentId]: {
           disposition: "accepted",
           rationale: "Carry forward for independent leakage review.",
           destination: "Validation",
@@ -574,11 +634,11 @@ test("16. MDD draft update.", () => {
     sections: fixture,
   });
 
-  const approved = payload.sections.findings.approved_findings.find(
-    (row) => row.finding_id === selected.id,
+  const approved = payload.sections.findings.accepted_parent_findings.find(
+    (row) => row.parent_id === parent.parentId,
   );
   const queued = payload.sections.findings.carry_forward.find(
-    (row) => row.finding_id === selected.id,
+    (row) => row.parent_id === parent.parentId,
   );
   assert.ok(approved);
   assert.ok(queued);

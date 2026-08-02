@@ -42,11 +42,11 @@ assert.doesNotMatch(step, /<VisualAnalysisPanel/);
 assert.doesNotMatch(step, /eda\/histogram\/\$\{/);
 assert.match(step, /data-testid="eda-predictor-authorization"/);
 assert.match(step, /data-testid="eda-linked-selection-summary"/);
-assert.match(step, /setSelectionScope\(`\$\{projectId\}:\$\{overview\.dataset_version\}:\$\{overview\.target\}`\)/);
+assert.match(step, /setSelectionScope\([\s\S]*\$\{datasetIdentity\.project_id\}:\$\{datasetIdentity\.dataset_id\}:\$\{datasetIdentity\.dataset_version_id\}:\$\{overview\.target\}`/);
 assert.match(step, /props\.onRun\(\{ pairwise_features: nextPairwise \}\)/);
 assert.match(step, /data-testid="pairwise-linked-range"/);
 assert.match(step, /selectedRange=\{selectedRange\}/);
-assert.match(step, /rows=\{safeArray<any>\(props\.data\.target_association\)\}/);
+assert.doesNotMatch(step, /rows=\{safeArray<any>\(props\.data\.target_association\)\}/);
 
 // Predictor Distribution Explorer: one governed POST contract, exact aggregate
 // overlays, keyed motion, range/quantile linkage, and accessible fallbacks.

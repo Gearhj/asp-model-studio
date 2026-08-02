@@ -16,8 +16,10 @@ the HTTP layer actually calls it.
 from __future__ import annotations
 
 import os
+import shutil
 import sqlite3
 import sys
+import tempfile
 import time
 import unittest
 import uuid
@@ -37,8 +39,15 @@ _TEST_DATA_ROOT.mkdir(parents=True, exist_ok=True)
 _RUN_ID = uuid.uuid4().hex[:10]
 _SECURITY_DB_PATH = _TEST_DATA_ROOT / f"atlas_persistence_authorization_security_{_RUN_ID}.db"
 _PERSISTENCE_DB_PATH = _TEST_DATA_ROOT / f"atlas_persistence_authorization_persistence_{_RUN_ID}.db"
+_DATASET_LIBRARY_ROOT = _TEST_DATA_ROOT / f"atlas_persistence_authorization_datasets_{_RUN_ID}"
+_DATASET_BACKUP_ROOT = Path(tempfile.gettempdir()) / f"atlas_persistence_authorization_backups_{_RUN_ID}"
+_CHECKPOINT_PATH = _TEST_DATA_ROOT / f"atlas_persistence_authorization_checkpoint_{_RUN_ID}.json"
 os.environ["ATLAS_SECURITY_DB_PATH"] = str(_SECURITY_DB_PATH)
 os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH)
+os.environ["ATLAS_CHECKPOINT_PATH"] = str(_CHECKPOINT_PATH)
+os.environ["ATLAS_TEST_MODE"] = "1"
+os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(_DATASET_LIBRARY_ROOT)
+os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(_DATASET_BACKUP_ROOT)
 os.environ.setdefault("ATLAS_AUTH_ENABLED", "true")
 os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
 
@@ -47,6 +56,38 @@ from fastapi.testclient import TestClient  # noqa: E402
 from server.main import app  # noqa: E402
 from server.persistence import initialize_persistence  # noqa: E402
 from server.security.security_store import init_security_store  # noqa: E402
+from server.core import session_checkpoint as session_checkpoint_module  # noqa: E402
+from server.datasets import dataset_registry as dataset_registry_module  # noqa: E402
+from server.security import security_store as security_store_module  # noqa: E402
+
+
+def _bind_isolated_runtime_paths() -> None:
+    os.environ["ATLAS_SECURITY_DB_PATH"] = str(_SECURITY_DB_PATH)
+    os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH)
+    os.environ["ATLAS_CHECKPOINT_PATH"] = str(_CHECKPOINT_PATH)
+    os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(_DATASET_LIBRARY_ROOT)
+    os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(_DATASET_BACKUP_ROOT)
+    security_store_module.SECURITY_ROOT = _SECURITY_DB_PATH.parent.resolve()
+    security_store_module.DB_PATH = _SECURITY_DB_PATH.resolve()
+    security_store_module.ATLAS_AUTH_ENABLED = True
+    security_store_module.ATLAS_ALLOW_PUBLIC_REGISTRATION = True
+    session_checkpoint_module.CHECKPOINT_PATH = _CHECKPOINT_PATH.resolve()
+    dataset_registry_module.ARTIFACT_ROOT = _DATASET_LIBRARY_ROOT.resolve()
+    dataset_registry_module.REGISTRY_PATH = (
+        _DATASET_LIBRARY_ROOT / "registry.json"
+    ).resolve()
+    dataset_registry_module.USERS_PATH = (
+        _DATASET_LIBRARY_ROOT / "users.json"
+    ).resolve()
+    dataset_registry_module.PROJECT_LINKS_PATH = (
+        _DATASET_LIBRARY_ROOT / "project_links.json"
+    ).resolve()
+    assert security_store_module.DB_PATH == _SECURITY_DB_PATH.resolve()
+    assert session_checkpoint_module.CHECKPOINT_PATH == _CHECKPOINT_PATH.resolve()
+    assert dataset_registry_module.ARTIFACT_ROOT == _DATASET_LIBRARY_ROOT.resolve()
+
+
+_bind_isolated_runtime_paths()
 
 
 def _cleanup_db_files() -> None:
@@ -63,11 +104,15 @@ def _cleanup_db_files() -> None:
                 except PermissionError:
                     if attempt < 24:
                         time.sleep(0.2)
+    shutil.rmtree(_DATASET_LIBRARY_ROOT, ignore_errors=True)
+    shutil.rmtree(_DATASET_BACKUP_ROOT, ignore_errors=True)
+    _CHECKPOINT_PATH.unlink(missing_ok=True)
 
 
 class PersistenceAuthorizationTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        _bind_isolated_runtime_paths()
         _cleanup_db_files()
         # Initialize both stores explicitly rather than relying on FastAPI's
         # startup event firing through TestClient, matching the explicit

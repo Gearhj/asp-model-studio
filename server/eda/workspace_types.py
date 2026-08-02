@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -65,6 +65,67 @@ class EDAVifSimulationRequest(EDADatasetIdentityExpectation):
     target: Optional[str] = None
     event_value: Optional[Any] = None
     problem_type: Optional[str] = None
+
+
+class EDAVifPreferenceWeights(BaseModel):
+    """Reviewer-controlled policy weights for a non-mutating VIF plan."""
+
+    signal: float = Field(default=1.0, ge=0.0, le=5.0)
+    interpretability: float = Field(default=1.0, ge=0.0, le=5.0)
+    data_quality: float = Field(default=1.0, ge=0.0, le=5.0)
+    special_value_burden: float = Field(default=1.0, ge=0.0, le=5.0)
+    production_availability: float = Field(default=1.0, ge=0.0, le=5.0)
+
+
+class EDAVifResolutionPlanRequest(EDADatasetIdentityExpectation):
+    """Generate recommendations without changing the governed feature set."""
+
+    project_id: str
+    target: Optional[str] = None
+    event_value: Optional[Any] = None
+    problem_type: Optional[str] = None
+    intended_model_family: Literal[
+        "linear_scorecard",
+        "generalized_linear",
+        "tree_ensemble",
+        "neural_network",
+        "mixed_bench",
+    ] = "linear_scorecard"
+    target_vif_threshold: float = Field(default=10.0, ge=1.0, le=100.0)
+    resolution_objective: Literal[
+        "balanced",
+        "minimize_exclusions",
+        "reduce_max_vif",
+        "preserve_signal",
+        "maximize_interpretability",
+    ] = "balanced"
+    protected_predictors: List[str] = Field(default_factory=list)
+    allowed_actions: List[
+        Literal["retain", "exclude", "combine", "defer"]
+    ] = Field(default_factory=lambda: ["retain", "exclude", "combine", "defer"])
+    correlation_threshold: float = Field(default=0.85, ge=0.5, le=0.999)
+    preference_weights: EDAVifPreferenceWeights = Field(
+        default_factory=EDAVifPreferenceWeights
+    )
+    maximum_removals: int = Field(default=2, ge=1, le=3)
+
+
+class EDAVifResolutionDecisionRequest(EDADatasetIdentityExpectation):
+    """Record a governed disposition for a generated VIF plan."""
+
+    project_id: str
+    plan_id: str
+    action: Literal[
+        "accept_complete",
+        "accept_selected",
+        "modify",
+        "reject",
+        "defer",
+        "send_to_feature_engineering",
+    ]
+    selected_cluster_ids: List[str] = Field(default_factory=list)
+    rationale: str = ""
+    modifications: Dict[str, Any] = Field(default_factory=dict)
 
 
 class EDARelationshipSampleRequest(EDADatasetIdentityExpectation):

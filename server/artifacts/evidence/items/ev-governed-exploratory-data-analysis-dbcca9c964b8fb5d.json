@@ -1,0 +1,3495 @@
+{
+  "project_id": "atlas-mrzpau4t",
+  "dataset_id": "ds_heloc_train_6bdb184b_05905",
+  "dataset_version_id": "v_1785186305905_6bdb184b",
+  "lineage_contract": "canonical_dataset_version",
+  "lineage": {
+    "target": "bad_flag",
+    "predictorManifestId": "fm-fb86b92e285f8678",
+    "problemType": "classification",
+    "eventValue": 1,
+    "rowCount": 6275,
+    "scope": "full_dataset",
+    "project_id": "atlas-mrzpau4t",
+    "dataset_id": "ds_heloc_train_6bdb184b_05905",
+    "dataset_version_id": "v_1785186305905_6bdb184b",
+    "lineage_contract": "canonical_dataset_version",
+    "projectId": "atlas-mrzpau4t",
+    "datasetId": "ds_heloc_train_6bdb184b_05905",
+    "datasetVersion": "v_1785186305905_6bdb184b"
+  },
+  "projectName": "HELOC Credit Risk - CLASSIFICATION TEST",
+  "evidenceType": "eda",
+  "title": "Governed Exploratory Data Analysis",
+  "summary": "Full-dataset EDA for bad_flag across 6,275 registered rows.",
+  "sourcePage": "Exploratory Data Analysis",
+  "sourceRoute": "/step02",
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Exploratory Data Analysis",
+    "Data Quality",
+    "Feature Engineering"
+  ],
+  "tags": [
+    "predictive_modeling",
+    "eda",
+    "full_dataset"
+  ],
+  "status": "ready",
+  "importance": "high",
+  "payload": {
+    "headline": {
+      "rows": 6275,
+      "predictors": 24,
+      "numeric_predictors": 24,
+      "categorical_predictors": 0,
+      "missing_cells": 0,
+      "missing_cell_rate": 0,
+      "duplicate_rows": 351
+    },
+    "findings": [
+      {
+        "finding_id": "eda-finding-c6i235",
+        "title": "Exact duplicate rows require a governed treatment decision",
+        "category": "Data quality",
+        "severity": "high",
+        "affected_variables": [],
+        "analytical_basis": "The full registered population contains rows that are exact duplicates across the governed analysis frame.",
+        "metric": {
+          "label": "Duplicate rows",
+          "value": "351"
+        },
+        "recommended_action": "Confirm whether these are ingestion duplicates or valid repeated observations; record exclusion or retention without mutating data from EDA.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "overview.data_integrity.duplicate_rows"
+        ],
+        "documentation_impact": "The reviewer decision and rationale enter the EDA decision history and downstream queue.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-xg51d3",
+        "title": "NumInqLast6M requires multicollinearity review",
+        "category": "Relationships",
+        "severity": "high",
+        "affected_variables": [
+          "NumInqLast6M"
+        ],
+        "analytical_basis": "VIF is computed on the documented bounded complete-case predictor cohort; it is a relationship diagnostic, not an exclusion rule.",
+        "metric": {
+          "label": "VIF",
+          "value": "149.35"
+        },
+        "recommended_action": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.vif.NumInqLast6M"
+        ],
+        "documentation_impact": "The accepted relationship decision and rationale enter the MDD relationship narrative.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1plnnl5",
+        "title": "NumInqLast6Mexcl7days requires multicollinearity review",
+        "category": "Relationships",
+        "severity": "high",
+        "affected_variables": [
+          "NumInqLast6Mexcl7days"
+        ],
+        "analytical_basis": "VIF is computed on the documented bounded complete-case predictor cohort; it is a relationship diagnostic, not an exclusion rule.",
+        "metric": {
+          "label": "VIF",
+          "value": "152.62"
+        },
+        "recommended_action": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.vif.NumInqLast6Mexcl7days"
+        ],
+        "documentation_impact": "The accepted relationship decision and rationale enter the MDD relationship narrative.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-116g371",
+        "title": "NumTrades90Ever2DerogPubRec requires multicollinearity review",
+        "category": "Relationships",
+        "severity": "high",
+        "affected_variables": [
+          "NumTrades90Ever2DerogPubRec"
+        ],
+        "analytical_basis": "VIF is computed on the documented bounded complete-case predictor cohort; it is a relationship diagnostic, not an exclusion rule.",
+        "metric": {
+          "label": "VIF",
+          "value": "32.37"
+        },
+        "recommended_action": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.vif.NumTrades90Ever2DerogPubRec"
+        ],
+        "documentation_impact": "The accepted relationship decision and rationale enter the MDD relationship narrative.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-173lsnd",
+        "title": "NumTrades60Ever2DerogPubRec requires multicollinearity review",
+        "category": "Relationships",
+        "severity": "high",
+        "affected_variables": [
+          "NumTrades60Ever2DerogPubRec"
+        ],
+        "analytical_basis": "VIF is computed on the documented bounded complete-case predictor cohort; it is a relationship diagnostic, not an exclusion rule.",
+        "metric": {
+          "label": "VIF",
+          "value": "27.5"
+        },
+        "recommended_action": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.vif.NumTrades60Ever2DerogPubRec"
+        ],
+        "documentation_impact": "The accepted relationship decision and rationale enter the MDD relationship narrative.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-kj5290",
+        "title": "NumInqLast6M and NumInqLast6Mexcl7days are strongly correlated",
+        "category": "Relationships",
+        "severity": "high",
+        "affected_variables": [
+          "NumInqLast6M",
+          "NumInqLast6Mexcl7days"
+        ],
+        "analytical_basis": "Pairwise Pearson correlation is calculated over governed numeric predictors with pairwise non-missing support.",
+        "metric": {
+          "label": "Correlation",
+          "value": "0.997"
+        },
+        "recommended_action": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.strong_pairs.NumInqLast6M.NumInqLast6Mexcl7days"
+        ],
+        "documentation_impact": "The reviewer rationale records any retain, drop, or combine recommendation; no action is automatic.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1501lb4",
+        "title": "NumTrades60Ever2DerogPubRec and NumTrades90Ever2DerogPubRec are strongly correlated",
+        "category": "Relationships",
+        "severity": "high",
+        "affected_variables": [
+          "NumTrades60Ever2DerogPubRec",
+          "NumTrades90Ever2DerogPubRec"
+        ],
+        "analytical_basis": "Pairwise Pearson correlation is calculated over governed numeric predictors with pairwise non-missing support.",
+        "metric": {
+          "label": "Correlation",
+          "value": "0.976"
+        },
+        "recommended_action": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.strong_pairs.NumTrades60Ever2DerogPubRec.NumTrades90Ever2DerogPubRec"
+        ],
+        "documentation_impact": "The reviewer rationale records any retain, drop, or combine recommendation; no action is automatic.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-epluy",
+        "title": "ExternalRiskEstimate and MaxDelq2PublicRecLast12M are strongly correlated",
+        "category": "Relationships",
+        "severity": "high",
+        "affected_variables": [
+          "ExternalRiskEstimate",
+          "MaxDelq2PublicRecLast12M"
+        ],
+        "analytical_basis": "Pairwise Pearson correlation is calculated over governed numeric predictors with pairwise non-missing support.",
+        "metric": {
+          "label": "Correlation",
+          "value": "0.91"
+        },
+        "recommended_action": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.strong_pairs.ExternalRiskEstimate.MaxDelq2PublicRecLast12M"
+        ],
+        "documentation_impact": "The reviewer rationale records any retain, drop, or combine recommendation; no action is automatic.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-182coy2",
+        "title": "MaxDelq2PublicRecLast12M and MaxDelqEver are strongly correlated",
+        "category": "Relationships",
+        "severity": "high",
+        "affected_variables": [
+          "MaxDelq2PublicRecLast12M",
+          "MaxDelqEver"
+        ],
+        "analytical_basis": "Pairwise Pearson correlation is calculated over governed numeric predictors with pairwise non-missing support.",
+        "metric": {
+          "label": "Correlation",
+          "value": "0.928"
+        },
+        "recommended_action": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.strong_pairs.MaxDelq2PublicRecLast12M.MaxDelqEver"
+        ],
+        "documentation_impact": "The reviewer rationale records any retain, drop, or combine recommendation; no action is automatic.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-dwhn56",
+        "title": "PercentTradesNeverDelq and MaxDelq2PublicRecLast12M are strongly correlated",
+        "category": "Relationships",
+        "severity": "high",
+        "affected_variables": [
+          "PercentTradesNeverDelq",
+          "MaxDelq2PublicRecLast12M"
+        ],
+        "analytical_basis": "Pairwise Pearson correlation is calculated over governed numeric predictors with pairwise non-missing support.",
+        "metric": {
+          "label": "Correlation",
+          "value": "0.906"
+        },
+        "recommended_action": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.strong_pairs.PercentTradesNeverDelq.MaxDelq2PublicRecLast12M"
+        ],
+        "documentation_impact": "The reviewer rationale records any retain, drop, or combine recommendation; no action is automatic.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-wvmjh0",
+        "title": "PercentTradesNeverDelq and MaxDelqEver are strongly correlated",
+        "category": "Relationships",
+        "severity": "high",
+        "affected_variables": [
+          "PercentTradesNeverDelq",
+          "MaxDelqEver"
+        ],
+        "analytical_basis": "Pairwise Pearson correlation is calculated over governed numeric predictors with pairwise non-missing support.",
+        "metric": {
+          "label": "Correlation",
+          "value": "0.927"
+        },
+        "recommended_action": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.strong_pairs.PercentTradesNeverDelq.MaxDelqEver"
+        ],
+        "documentation_impact": "The reviewer rationale records any retain, drop, or combine recommendation; no action is automatic.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-12jqw3q",
+        "title": "ExternalRiskEstimate has unusually high information value",
+        "category": "Predictors",
+        "severity": "high",
+        "affected_variables": [
+          "ExternalRiskEstimate"
+        ],
+        "analytical_basis": "IV is calculated from governed target-event aggregates. A high value is a review signal only and is not proof of leakage.",
+        "metric": {
+          "label": "Information value",
+          "value": "0.909"
+        },
+        "recommended_action": "Review lineage, availability at decision time, event-rate shape, and target-source status before retaining the predictor.",
+        "downstream_destination": "Validation",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.ExternalRiskEstimate.metrics.iv"
+        ],
+        "documentation_impact": "The reviewer disposition, rationale, event-rate shape, and leakage evidence enter predictor findings.",
+        "target_source_status": "not_target_source",
+        "leakage_evidence": "No deterministic target-source match. High IV alone does not establish leakage.",
+        "information_value": 0.9087408027064143,
+        "event_rate_shape": "8 governed groups; 15.9%\u201381.9% event rate",
+        "monotonicity": "Decreasing",
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-f8dcph",
+        "title": "MaxDelqEver requires multicollinearity review",
+        "category": "Relationships",
+        "severity": "high",
+        "affected_variables": [
+          "MaxDelqEver"
+        ],
+        "analytical_basis": "VIF is computed on the documented bounded complete-case predictor cohort; it is a relationship diagnostic, not an exclusion rule.",
+        "metric": {
+          "label": "VIF",
+          "value": "15.32"
+        },
+        "recommended_action": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.vif.MaxDelqEver"
+        ],
+        "documentation_impact": "The accepted relationship decision and rationale enter the MDD relationship narrative.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-19r6pxd",
+        "title": "ExternalRiskEstimate requires multicollinearity review",
+        "category": "Relationships",
+        "severity": "high",
+        "affected_variables": [
+          "ExternalRiskEstimate"
+        ],
+        "analytical_basis": "VIF is computed on the documented bounded complete-case predictor cohort; it is a relationship diagnostic, not an exclusion rule.",
+        "metric": {
+          "label": "VIF",
+          "value": "14.15"
+        },
+        "recommended_action": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.vif.ExternalRiskEstimate"
+        ],
+        "documentation_impact": "The accepted relationship decision and rationale enter the MDD relationship narrative.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-vp8imn",
+        "title": "MaxDelq2PublicRecLast12M requires multicollinearity review",
+        "category": "Relationships",
+        "severity": "high",
+        "affected_variables": [
+          "MaxDelq2PublicRecLast12M"
+        ],
+        "analytical_basis": "VIF is computed on the documented bounded complete-case predictor cohort; it is a relationship diagnostic, not an exclusion rule.",
+        "metric": {
+          "label": "VIF",
+          "value": "12.22"
+        },
+        "recommended_action": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.vif.MaxDelq2PublicRecLast12M"
+        ],
+        "documentation_impact": "The accepted relationship decision and rationale enter the MDD relationship narrative.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1yxi2g1",
+        "title": "PercentTradesNeverDelq requires multicollinearity review",
+        "category": "Relationships",
+        "severity": "high",
+        "affected_variables": [
+          "PercentTradesNeverDelq"
+        ],
+        "analytical_basis": "VIF is computed on the documented bounded complete-case predictor cohort; it is a relationship diagnostic, not an exclusion rule.",
+        "metric": {
+          "label": "VIF",
+          "value": "12.34"
+        },
+        "recommended_action": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.vif.PercentTradesNeverDelq"
+        ],
+        "documentation_impact": "The accepted relationship decision and rationale enter the MDD relationship narrative.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-ij0buy",
+        "title": "NetFractionRevolvingBurden has unusually high information value",
+        "category": "Predictors",
+        "severity": "high",
+        "affected_variables": [
+          "NetFractionRevolvingBurden"
+        ],
+        "analytical_basis": "IV is calculated from governed target-event aggregates. A high value is a review signal only and is not proof of leakage.",
+        "metric": {
+          "label": "Information value",
+          "value": "0.519"
+        },
+        "recommended_action": "Review lineage, availability at decision time, event-rate shape, and target-source status before retaining the predictor.",
+        "downstream_destination": "Validation",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NetFractionRevolvingBurden.metrics.iv"
+        ],
+        "documentation_impact": "The reviewer disposition, rationale, event-rate shape, and leakage evidence enter predictor findings.",
+        "target_source_status": "not_target_source",
+        "leakage_evidence": "No deterministic target-source match. High IV alone does not establish leakage.",
+        "information_value": 0.5189643823235806,
+        "event_rate_shape": "8 governed groups; 29.3%\u201382.5% event rate",
+        "monotonicity": "Increasing",
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1myu0z3",
+        "title": "Duplicate records carry observed target values",
+        "category": "Target",
+        "severity": "high",
+        "affected_variables": [
+          "bad_flag"
+        ],
+        "analytical_basis": "The target-quality diagnostic evaluated the governed full population without modifying records.",
+        "metric": {
+          "label": "Duplicate target-bearing rows",
+          "value": "351"
+        },
+        "recommended_action": "Resolve the target-quality concern before training and preserve the reviewer rationale in documentation.",
+        "downstream_destination": "Validation",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Investigate further",
+        "evidence_references": [
+          "target.target_quality.duplicate_target_bearing_rows"
+        ],
+        "documentation_impact": "The accepted disposition enters target-quality evidence and validation carry-forward.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-eezvhn",
+        "title": "MSinceMostRecentDelq has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "MSinceMostRecentDelq"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "52%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.MSinceMostRecentDelq.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-jo2q67",
+        "title": "NetFractionInstallBurden has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NetFractionInstallBurden"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "38.4%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NetFractionInstallBurden.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-bnqouz",
+        "title": "MSinceMostRecentInqexcl7days has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "MSinceMostRecentInqexcl7days"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "28%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.MSinceMostRecentInqexcl7days.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-438utc",
+        "title": "ExternalRiskEstimate and MaxDelqEver are strongly correlated",
+        "category": "Relationships",
+        "severity": "moderate",
+        "affected_variables": [
+          "ExternalRiskEstimate",
+          "MaxDelqEver"
+        ],
+        "analytical_basis": "Pairwise Pearson correlation is calculated over governed numeric predictors with pairwise non-missing support.",
+        "metric": {
+          "label": "Correlation",
+          "value": "0.893"
+        },
+        "recommended_action": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.strong_pairs.ExternalRiskEstimate.MaxDelqEver"
+        ],
+        "documentation_impact": "The reviewer rationale records any retain, drop, or combine recommendation; no action is automatic.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1v3czce",
+        "title": "ExternalRiskEstimate and PercentTradesNeverDelq are strongly correlated",
+        "category": "Relationships",
+        "severity": "moderate",
+        "affected_variables": [
+          "ExternalRiskEstimate",
+          "PercentTradesNeverDelq"
+        ],
+        "analytical_basis": "Pairwise Pearson correlation is calculated over governed numeric predictors with pairwise non-missing support.",
+        "metric": {
+          "label": "Correlation",
+          "value": "0.894"
+        },
+        "recommended_action": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.strong_pairs.ExternalRiskEstimate.PercentTradesNeverDelq"
+        ],
+        "documentation_impact": "The reviewer rationale records any retain, drop, or combine recommendation; no action is automatic.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-10a0tim",
+        "title": "NumSatisfactoryTrades and NumTotalTrades are strongly correlated",
+        "category": "Relationships",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumSatisfactoryTrades",
+          "NumTotalTrades"
+        ],
+        "analytical_basis": "Pairwise Pearson correlation is calculated over governed numeric predictors with pairwise non-missing support.",
+        "metric": {
+          "label": "Correlation",
+          "value": "0.883"
+        },
+        "recommended_action": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.strong_pairs.NumSatisfactoryTrades.NumTotalTrades"
+        ],
+        "documentation_impact": "The reviewer rationale records any retain, drop, or combine recommendation; no action is automatic.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1tqzu8u",
+        "title": "NumRevolvingTradesWBalance and NumBank2NatlTradesWHighUtilization are strongly correlated",
+        "category": "Relationships",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumRevolvingTradesWBalance",
+          "NumBank2NatlTradesWHighUtilization"
+        ],
+        "analytical_basis": "Pairwise Pearson correlation is calculated over governed numeric predictors with pairwise non-missing support.",
+        "metric": {
+          "label": "Correlation",
+          "value": "0.789"
+        },
+        "recommended_action": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.strong_pairs.NumRevolvingTradesWBalance.NumBank2NatlTradesWHighUtilization"
+        ],
+        "documentation_impact": "The reviewer rationale records any retain, drop, or combine recommendation; no action is automatic.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1ao0xt4",
+        "title": "NumTrades90Ever2DerogPubRec and MaxDelq2PublicRecLast12M are strongly correlated",
+        "category": "Relationships",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumTrades90Ever2DerogPubRec",
+          "MaxDelq2PublicRecLast12M"
+        ],
+        "analytical_basis": "Pairwise Pearson correlation is calculated over governed numeric predictors with pairwise non-missing support.",
+        "metric": {
+          "label": "Correlation",
+          "value": "0.753"
+        },
+        "recommended_action": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.strong_pairs.NumTrades90Ever2DerogPubRec.MaxDelq2PublicRecLast12M"
+        ],
+        "documentation_impact": "The reviewer rationale records any retain, drop, or combine recommendation; no action is automatic.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-wdg2re",
+        "title": "PercentTradesNeverDelq and NumTradesOpeninLast12M are strongly correlated",
+        "category": "Relationships",
+        "severity": "moderate",
+        "affected_variables": [
+          "PercentTradesNeverDelq",
+          "NumTradesOpeninLast12M"
+        ],
+        "analytical_basis": "Pairwise Pearson correlation is calculated over governed numeric predictors with pairwise non-missing support.",
+        "metric": {
+          "label": "Correlation",
+          "value": "0.769"
+        },
+        "recommended_action": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.strong_pairs.PercentTradesNeverDelq.NumTradesOpeninLast12M"
+        ],
+        "documentation_impact": "The reviewer rationale records any retain, drop, or combine recommendation; no action is automatic.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-8djt1n",
+        "title": "NumInstallTradesWBalance has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumInstallTradesWBalance"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "14.2%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumInstallTradesWBalance.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1dhmw93",
+        "title": "NumBank2NatlTradesWHighUtilization has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumBank2NatlTradesWHighUtilization"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "10.9%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumBank2NatlTradesWHighUtilization.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1w2f471",
+        "title": "MSinceOldestTradeOpen has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "MSinceOldestTradeOpen"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "7.7%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.MSinceOldestTradeOpen.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-146beuz",
+        "title": "NetFractionRevolvingBurden has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NetFractionRevolvingBurden"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "7.3%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NetFractionRevolvingBurden.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1lsswln",
+        "title": "NumRevolvingTradesWBalance has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumRevolvingTradesWBalance"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "7%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumRevolvingTradesWBalance.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1r9hded",
+        "title": "NumSatisfactoryTrades requires multicollinearity review",
+        "category": "Relationships",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumSatisfactoryTrades"
+        ],
+        "analytical_basis": "VIF is computed on the documented bounded complete-case predictor cohort; it is a relationship diagnostic, not an exclusion rule.",
+        "metric": {
+          "label": "VIF",
+          "value": "6.83"
+        },
+        "recommended_action": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.vif.NumSatisfactoryTrades"
+        ],
+        "documentation_impact": "The accepted relationship decision and rationale enter the MDD relationship narrative.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-drp7pf",
+        "title": "AverageMInFile has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "AverageMInFile"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "5.6%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.AverageMInFile.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1n0kgyv",
+        "title": "ExternalRiskEstimate has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "ExternalRiskEstimate"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "5.7%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.ExternalRiskEstimate.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1rbw847",
+        "title": "MaxDelq2PublicRecLast12M has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "MaxDelq2PublicRecLast12M"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "5.6%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.MaxDelq2PublicRecLast12M.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1l9bnst",
+        "title": "MaxDelqEver has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "MaxDelqEver"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "5.6%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.MaxDelqEver.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-124er7n",
+        "title": "MSinceMostRecentTradeOpen has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "MSinceMostRecentTradeOpen"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "5.6%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.MSinceMostRecentTradeOpen.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-170i557",
+        "title": "NumInqLast6M has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumInqLast6M"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "5.6%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumInqLast6M.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-9w7kab",
+        "title": "NumInqLast6Mexcl7days has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumInqLast6Mexcl7days"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "5.6%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumInqLast6Mexcl7days.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-ks6yzn",
+        "title": "NumSatisfactoryTrades has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumSatisfactoryTrades"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "5.6%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumSatisfactoryTrades.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1jvqcs3",
+        "title": "NumTotalTrades has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumTotalTrades"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "5.6%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumTotalTrades.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1g7kzgz",
+        "title": "NumTrades60Ever2DerogPubRec has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumTrades60Ever2DerogPubRec"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "5.6%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumTrades60Ever2DerogPubRec.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-8e4n29",
+        "title": "NumTrades90Ever2DerogPubRec has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumTrades90Ever2DerogPubRec"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "5.6%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumTrades90Ever2DerogPubRec.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1hs9sib",
+        "title": "NumTradesOpeninLast12M has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumTradesOpeninLast12M"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "5.6%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumTradesOpeninLast12M.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1n6rq0b",
+        "title": "PercentInstallTrades has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "PercentInstallTrades"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "5.6%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.PercentInstallTrades.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-12hzeb",
+        "title": "PercentTradesNeverDelq has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "PercentTradesNeverDelq"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "5.6%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.PercentTradesNeverDelq.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-17lwsgb",
+        "title": "PercentTradesWBalance has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "PercentTradesWBalance"
+        ],
+        "analytical_basis": "Recognized bureau special values are counted separately from nulls and ordinary numeric outliers.",
+        "metric": {
+          "label": "Special-value prevalence",
+          "value": "5.8%"
+        },
+        "recommended_action": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Special-value separation",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.PercentTradesWBalance.bureau_special"
+        ],
+        "documentation_impact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1dcw94h",
+        "title": "NumRevolvingTradesWBalance requires multicollinearity review",
+        "category": "Relationships",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumRevolvingTradesWBalance"
+        ],
+        "analytical_basis": "VIF is computed on the documented bounded complete-case predictor cohort; it is a relationship diagnostic, not an exclusion rule.",
+        "metric": {
+          "label": "VIF",
+          "value": "5.21"
+        },
+        "recommended_action": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.vif.NumRevolvingTradesWBalance"
+        ],
+        "documentation_impact": "The accepted relationship decision and rationale enter the MDD relationship narrative.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-15inkfv",
+        "title": "NumTotalTrades requires multicollinearity review",
+        "category": "Relationships",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumTotalTrades"
+        ],
+        "analytical_basis": "VIF is computed on the documented bounded complete-case predictor cohort; it is a relationship diagnostic, not an exclusion rule.",
+        "metric": {
+          "label": "VIF",
+          "value": "5.08"
+        },
+        "recommended_action": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "relationships.vif.NumTotalTrades"
+        ],
+        "documentation_impact": "The accepted relationship decision and rationale enter the MDD relationship narrative.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1ak6yl7",
+        "title": "AverageMInFile has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "AverageMInFile"
+        ],
+        "analytical_basis": "Governed quantile or level aggregates change direction across the observed event-rate shape.",
+        "metric": {
+          "label": "Monotonicity",
+          "value": "Non-monotonic"
+        },
+        "recommended_action": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Binning",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.AverageMInFile.metrics.monotonicity"
+        ],
+        "documentation_impact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": "8 governed groups; 36%\u201378% event rate",
+        "monotonicity": "Non-monotonic",
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1r3drba",
+        "title": "ExternalRiskEstimate is strongly skewed",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "ExternalRiskEstimate"
+        ],
+        "analytical_basis": "Full-population regular numeric values have material absolute skewness.",
+        "metric": {
+          "label": "Skewness",
+          "value": "-2.56"
+        },
+        "recommended_action": "Inspect sign, zero values, bureau specials, and model family before selecting a log transform, winsorization, or no treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Log transform",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.ExternalRiskEstimate.metrics.skewness"
+        ],
+        "documentation_impact": "The analyst-confirmed option enters feature engineering as a draft recommendation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-gtz9vj",
+        "title": "MaxDelq2PublicRecLast12M has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "MaxDelq2PublicRecLast12M"
+        ],
+        "analytical_basis": "Governed quantile or level aggregates change direction across the observed event-rate shape.",
+        "metric": {
+          "label": "Monotonicity",
+          "value": "Non-monotonic"
+        },
+        "recommended_action": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Binning",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.MaxDelq2PublicRecLast12M.metrics.monotonicity"
+        ],
+        "documentation_impact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": "8 governed groups; 36.6%\u201373.6% event rate",
+        "monotonicity": "Non-monotonic",
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1knx2qe",
+        "title": "MaxDelq2PublicRecLast12M is strongly skewed",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "MaxDelq2PublicRecLast12M"
+        ],
+        "analytical_basis": "Full-population regular numeric values have material absolute skewness.",
+        "metric": {
+          "label": "Skewness",
+          "value": "-2.88"
+        },
+        "recommended_action": "Inspect sign, zero values, bureau specials, and model family before selecting a log transform, winsorization, or no treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Log transform",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.MaxDelq2PublicRecLast12M.metrics.skewness"
+        ],
+        "documentation_impact": "The analyst-confirmed option enters feature engineering as a draft recommendation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-pst97s",
+        "title": "MaxDelqEver has a material ordinary-outlier rate",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "MaxDelqEver"
+        ],
+        "analytical_basis": "Ordinary IQR outliers exclude nulls and recognized bureau special values.",
+        "metric": {
+          "label": "Ordinary-outlier rate",
+          "value": "7.2%"
+        },
+        "recommended_action": "Inspect the distribution and business meaning before considering winsorization or another robust treatment.",
+        "downstream_destination": "Outliers",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Winsorization",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.MaxDelqEver.ordinary_outlier"
+        ],
+        "documentation_impact": "Any accepted treatment is carried forward as a draft recommendation; values are not changed here.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-16aj8n9",
+        "title": "MaxDelqEver has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "MaxDelqEver"
+        ],
+        "analytical_basis": "Governed quantile or level aggregates change direction across the observed event-rate shape.",
+        "metric": {
+          "label": "Monotonicity",
+          "value": "Non-monotonic"
+        },
+        "recommended_action": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Binning",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.MaxDelqEver.metrics.monotonicity"
+        ],
+        "documentation_impact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": "8 governed groups; 38.3%\u201369.6% event rate",
+        "monotonicity": "Non-monotonic",
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1t9uzwk",
+        "title": "MaxDelqEver is strongly skewed",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "MaxDelqEver"
+        ],
+        "analytical_basis": "Full-population regular numeric values have material absolute skewness.",
+        "metric": {
+          "label": "Skewness",
+          "value": "-2.71"
+        },
+        "recommended_action": "Inspect sign, zero values, bureau specials, and model family before selecting a log transform, winsorization, or no treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Log transform",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.MaxDelqEver.metrics.skewness"
+        ],
+        "documentation_impact": "The analyst-confirmed option enters feature engineering as a draft recommendation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-414y2m",
+        "title": "MSinceMostRecentInqexcl7days has a material ordinary-outlier rate",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "MSinceMostRecentInqexcl7days"
+        ],
+        "analytical_basis": "Ordinary IQR outliers exclude nulls and recognized bureau special values.",
+        "metric": {
+          "label": "Ordinary-outlier rate",
+          "value": "12.1%"
+        },
+        "recommended_action": "Inspect the distribution and business meaning before considering winsorization or another robust treatment.",
+        "downstream_destination": "Outliers",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Winsorization",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.MSinceMostRecentInqexcl7days.ordinary_outlier"
+        ],
+        "documentation_impact": "Any accepted treatment is carried forward as a draft recommendation; values are not changed here.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-fud5sv",
+        "title": "MSinceMostRecentInqexcl7days has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "MSinceMostRecentInqexcl7days"
+        ],
+        "analytical_basis": "Governed quantile or level aggregates change direction across the observed event-rate shape.",
+        "metric": {
+          "label": "Monotonicity",
+          "value": "Non-monotonic"
+        },
+        "recommended_action": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Binning",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.MSinceMostRecentInqexcl7days.metrics.monotonicity"
+        ],
+        "documentation_impact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": "8 governed groups; 31.3%\u201364.7% event rate",
+        "monotonicity": "Non-monotonic",
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-oitheu",
+        "title": "MSinceMostRecentTradeOpen has a material ordinary-outlier rate",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "MSinceMostRecentTradeOpen"
+        ],
+        "analytical_basis": "Ordinary IQR outliers exclude nulls and recognized bureau special values.",
+        "metric": {
+          "label": "Ordinary-outlier rate",
+          "value": "6.5%"
+        },
+        "recommended_action": "Inspect the distribution and business meaning before considering winsorization or another robust treatment.",
+        "downstream_destination": "Outliers",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Winsorization",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.MSinceMostRecentTradeOpen.ordinary_outlier"
+        ],
+        "documentation_impact": "Any accepted treatment is carried forward as a draft recommendation; values are not changed here.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1rkv8ov",
+        "title": "MSinceMostRecentTradeOpen has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "MSinceMostRecentTradeOpen"
+        ],
+        "analytical_basis": "Governed quantile or level aggregates change direction across the observed event-rate shape.",
+        "metric": {
+          "label": "Monotonicity",
+          "value": "Non-monotonic"
+        },
+        "recommended_action": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Binning",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.MSinceMostRecentTradeOpen.metrics.monotonicity"
+        ],
+        "documentation_impact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": "8 governed groups; 43.7%\u201359.1% event rate",
+        "monotonicity": "Non-monotonic",
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1ujjjby",
+        "title": "MSinceMostRecentTradeOpen is strongly skewed",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "MSinceMostRecentTradeOpen"
+        ],
+        "analytical_basis": "Full-population regular numeric values have material absolute skewness.",
+        "metric": {
+          "label": "Skewness",
+          "value": "7.31"
+        },
+        "recommended_action": "Inspect sign, zero values, bureau specials, and model family before selecting a log transform, winsorization, or no treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Log transform",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.MSinceMostRecentTradeOpen.metrics.skewness"
+        ],
+        "documentation_impact": "The analyst-confirmed option enters feature engineering as a draft recommendation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1ytdpdn",
+        "title": "NetFractionInstallBurden has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NetFractionInstallBurden"
+        ],
+        "analytical_basis": "Governed quantile or level aggregates change direction across the observed event-rate shape.",
+        "metric": {
+          "label": "Monotonicity",
+          "value": "Non-monotonic"
+        },
+        "recommended_action": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Binning",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NetFractionInstallBurden.metrics.monotonicity"
+        ],
+        "documentation_impact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": "8 governed groups; 47%\u201360.5% event rate",
+        "monotonicity": "Non-monotonic",
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-tgvtdr",
+        "title": "NumBank2NatlTradesWHighUtilization has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumBank2NatlTradesWHighUtilization"
+        ],
+        "analytical_basis": "Governed quantile or level aggregates change direction across the observed event-rate shape.",
+        "metric": {
+          "label": "Monotonicity",
+          "value": "Non-monotonic"
+        },
+        "recommended_action": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Binning",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumBank2NatlTradesWHighUtilization.metrics.monotonicity"
+        ],
+        "documentation_impact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": "8 governed groups; 35.1%\u201374.1% event rate",
+        "monotonicity": "Non-monotonic",
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-113pwf3",
+        "title": "NumInqLast6M has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumInqLast6M"
+        ],
+        "analytical_basis": "Governed quantile or level aggregates change direction across the observed event-rate shape.",
+        "metric": {
+          "label": "Monotonicity",
+          "value": "Non-monotonic"
+        },
+        "recommended_action": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Binning",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumInqLast6M.metrics.monotonicity"
+        ],
+        "documentation_impact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": "8 governed groups; 43.1%\u201368% event rate",
+        "monotonicity": "Non-monotonic",
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-cvften",
+        "title": "NumInqLast6Mexcl7days has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumInqLast6Mexcl7days"
+        ],
+        "analytical_basis": "Governed quantile or level aggregates change direction across the observed event-rate shape.",
+        "metric": {
+          "label": "Monotonicity",
+          "value": "Non-monotonic"
+        },
+        "recommended_action": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Binning",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumInqLast6Mexcl7days.metrics.monotonicity"
+        ],
+        "documentation_impact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": "8 governed groups; 43.1%\u201366.4% event rate",
+        "monotonicity": "Non-monotonic",
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-de2d83",
+        "title": "NumInstallTradesWBalance has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumInstallTradesWBalance"
+        ],
+        "analytical_basis": "Governed quantile or level aggregates change direction across the observed event-rate shape.",
+        "metric": {
+          "label": "Monotonicity",
+          "value": "Non-monotonic"
+        },
+        "recommended_action": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Binning",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumInstallTradesWBalance.metrics.monotonicity"
+        ],
+        "documentation_impact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": "8 governed groups; 48%\u201357.8% event rate",
+        "monotonicity": "Non-monotonic",
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1x2se4q",
+        "title": "NumRevolvingTradesWBalance has a material ordinary-outlier rate",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumRevolvingTradesWBalance"
+        ],
+        "analytical_basis": "Ordinary IQR outliers exclude nulls and recognized bureau special values.",
+        "metric": {
+          "label": "Ordinary-outlier rate",
+          "value": "5.5%"
+        },
+        "recommended_action": "Inspect the distribution and business meaning before considering winsorization or another robust treatment.",
+        "downstream_destination": "Outliers",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Winsorization",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumRevolvingTradesWBalance.ordinary_outlier"
+        ],
+        "documentation_impact": "Any accepted treatment is carried forward as a draft recommendation; values are not changed here.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1g8s4b3",
+        "title": "NumRevolvingTradesWBalance has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumRevolvingTradesWBalance"
+        ],
+        "analytical_basis": "Governed quantile or level aggregates change direction across the observed event-rate shape.",
+        "metric": {
+          "label": "Monotonicity",
+          "value": "Non-monotonic"
+        },
+        "recommended_action": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Binning",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumRevolvingTradesWBalance.metrics.monotonicity"
+        ],
+        "documentation_impact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": "8 governed groups; 44%\u201363.4% event rate",
+        "monotonicity": "Non-monotonic",
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1nnkyen",
+        "title": "NumTotalTrades has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumTotalTrades"
+        ],
+        "analytical_basis": "Governed quantile or level aggregates change direction across the observed event-rate shape.",
+        "metric": {
+          "label": "Monotonicity",
+          "value": "Non-monotonic"
+        },
+        "recommended_action": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Binning",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumTotalTrades.metrics.monotonicity"
+        ],
+        "documentation_impact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": "8 governed groups; 45.2%\u201363.7% event rate",
+        "monotonicity": "Non-monotonic",
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-ll51y6",
+        "title": "NumTrades60Ever2DerogPubRec has a material ordinary-outlier rate",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumTrades60Ever2DerogPubRec"
+        ],
+        "analytical_basis": "Ordinary IQR outliers exclude nulls and recognized bureau special values.",
+        "metric": {
+          "label": "Ordinary-outlier rate",
+          "value": "5.8%"
+        },
+        "recommended_action": "Inspect the distribution and business meaning before considering winsorization or another robust treatment.",
+        "downstream_destination": "Outliers",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Winsorization",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumTrades60Ever2DerogPubRec.ordinary_outlier"
+        ],
+        "documentation_impact": "Any accepted treatment is carried forward as a draft recommendation; values are not changed here.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1kyf1vj",
+        "title": "NumTrades60Ever2DerogPubRec has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumTrades60Ever2DerogPubRec"
+        ],
+        "analytical_basis": "Governed quantile or level aggregates change direction across the observed event-rate shape.",
+        "metric": {
+          "label": "Monotonicity",
+          "value": "Non-monotonic"
+        },
+        "recommended_action": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Binning",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumTrades60Ever2DerogPubRec.metrics.monotonicity"
+        ],
+        "documentation_impact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": "8 governed groups; 41.8%\u201371.7% event rate",
+        "monotonicity": "Non-monotonic",
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1dhskok",
+        "title": "NumTrades90Ever2DerogPubRec has a material ordinary-outlier rate",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumTrades90Ever2DerogPubRec"
+        ],
+        "analytical_basis": "Ordinary IQR outliers exclude nulls and recognized bureau special values.",
+        "metric": {
+          "label": "Ordinary-outlier rate",
+          "value": "22.8%"
+        },
+        "recommended_action": "Inspect the distribution and business meaning before considering winsorization or another robust treatment.",
+        "downstream_destination": "Outliers",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Winsorization",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumTrades90Ever2DerogPubRec.ordinary_outlier"
+        ],
+        "documentation_impact": "Any accepted treatment is carried forward as a draft recommendation; values are not changed here.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-w72481",
+        "title": "NumTrades90Ever2DerogPubRec has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumTrades90Ever2DerogPubRec"
+        ],
+        "analytical_basis": "Governed quantile or level aggregates change direction across the observed event-rate shape.",
+        "metric": {
+          "label": "Monotonicity",
+          "value": "Non-monotonic"
+        },
+        "recommended_action": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Binning",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumTrades90Ever2DerogPubRec.metrics.monotonicity"
+        ],
+        "documentation_impact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": "8 governed groups; 43.2%\u201371.8% event rate",
+        "monotonicity": "Non-monotonic",
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-i9knts",
+        "title": "NumTrades90Ever2DerogPubRec is strongly skewed",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumTrades90Ever2DerogPubRec"
+        ],
+        "analytical_basis": "Full-population regular numeric values have material absolute skewness.",
+        "metric": {
+          "label": "Skewness",
+          "value": "-2.35"
+        },
+        "recommended_action": "Inspect sign, zero values, bureau specials, and model family before selecting a log transform, winsorization, or no treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Log transform",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumTrades90Ever2DerogPubRec.metrics.skewness"
+        ],
+        "documentation_impact": "The analyst-confirmed option enters feature engineering as a draft recommendation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-wt1yaj",
+        "title": "NumTradesOpeninLast12M has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "NumTradesOpeninLast12M"
+        ],
+        "analytical_basis": "Governed quantile or level aggregates change direction across the observed event-rate shape.",
+        "metric": {
+          "label": "Monotonicity",
+          "value": "Non-monotonic"
+        },
+        "recommended_action": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Binning",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.NumTradesOpeninLast12M.metrics.monotonicity"
+        ],
+        "documentation_impact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": "8 governed groups; 45.9%\u201358.8% event rate",
+        "monotonicity": "Non-monotonic",
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-81b05n",
+        "title": "PercentInstallTrades has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "PercentInstallTrades"
+        ],
+        "analytical_basis": "Governed quantile or level aggregates change direction across the observed event-rate shape.",
+        "metric": {
+          "label": "Monotonicity",
+          "value": "Non-monotonic"
+        },
+        "recommended_action": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Binning",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.PercentInstallTrades.metrics.monotonicity"
+        ],
+        "documentation_impact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": "8 governed groups; 45.5%\u201367.7% event rate",
+        "monotonicity": "Non-monotonic",
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-10oi09i",
+        "title": "PercentTradesNeverDelq has a material ordinary-outlier rate",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "PercentTradesNeverDelq"
+        ],
+        "analytical_basis": "Ordinary IQR outliers exclude nulls and recognized bureau special values.",
+        "metric": {
+          "label": "Ordinary-outlier rate",
+          "value": "7%"
+        },
+        "recommended_action": "Inspect the distribution and business meaning before considering winsorization or another robust treatment.",
+        "downstream_destination": "Outliers",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Winsorization",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.PercentTradesNeverDelq.ordinary_outlier"
+        ],
+        "documentation_impact": "Any accepted treatment is carried forward as a draft recommendation; values are not changed here.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-vh1zrv",
+        "title": "PercentTradesNeverDelq has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "PercentTradesNeverDelq"
+        ],
+        "analytical_basis": "Governed quantile or level aggregates change direction across the observed event-rate shape.",
+        "metric": {
+          "label": "Monotonicity",
+          "value": "Non-monotonic"
+        },
+        "recommended_action": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Binning",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.PercentTradesNeverDelq.metrics.monotonicity"
+        ],
+        "documentation_impact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": "8 governed groups; 38.2%\u201378% event rate",
+        "monotonicity": "Non-monotonic",
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1utkksa",
+        "title": "PercentTradesNeverDelq is strongly skewed",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affected_variables": [
+          "PercentTradesNeverDelq"
+        ],
+        "analytical_basis": "Full-population regular numeric values have material absolute skewness.",
+        "metric": {
+          "label": "Skewness",
+          "value": "-2.87"
+        },
+        "recommended_action": "Inspect sign, zero values, bureau specials, and model family before selecting a log transform, winsorization, or no treatment.",
+        "downstream_destination": "Feature Engineering",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "Log transform",
+        "evidence_references": [
+          "predictors.predictor_visual_profiles.PercentTradesNeverDelq.metrics.skewness"
+        ],
+        "documentation_impact": "The analyst-confirmed option enters feature engineering as a draft recommendation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-1h6u3v9",
+        "title": "Deterministic target-source fields remain excluded",
+        "category": "Target",
+        "severity": "info",
+        "affected_variables": [
+          "RiskPerformance"
+        ],
+        "analytical_basis": "Server predictor authorization identifies deterministic target sources separately from model-eligible predictors.",
+        "metric": {
+          "label": "Excluded target-source fields",
+          "value": "RiskPerformance"
+        },
+        "recommended_action": "Retain the governed exclusion. Review evidence if upstream lineage changes; do not reintroduce these fields from EDA.",
+        "downstream_destination": "Documentation",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "overview.predictor_authorization.target_source_excluded"
+        ],
+        "documentation_impact": "The exclusion is disclosed in target lineage, predictor authorization, and the approved EDA record.",
+        "target_source_status": "excluded",
+        "leakage_evidence": "Deterministic source relationship documented by governed target lineage.",
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-y2e337",
+        "title": "bad_flag class balance is measurable",
+        "category": "Target",
+        "severity": "info",
+        "affected_variables": [
+          "bad_flag"
+        ],
+        "analytical_basis": "Event prevalence is computed over all non-missing target-bearing rows in the governed population.",
+        "metric": {
+          "label": "Event rate",
+          "value": "52.2% (3,275 events / 6,275 target-bearing rows)"
+        },
+        "recommended_action": "Carry the observed prevalence into split design and model evaluation.",
+        "downstream_destination": "Balance and Split",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "target.profile.event_rate"
+        ],
+        "documentation_impact": "Class balance and the selected evaluation implications enter the target narrative.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      },
+      {
+        "finding_id": "eda-finding-192ltkz",
+        "title": "Stability and segment analysis is unavailable for this dataset",
+        "category": "Stability",
+        "severity": "info",
+        "affected_variables": [],
+        "analytical_basis": "No governed observation-date or reusable business-segment field was selected or returned. ATLAS did not invent time or segment results.",
+        "metric": {
+          "label": "Available governed analyses",
+          "value": "0 time / 0 segment"
+        },
+        "recommended_action": "Register an observation date or designate approved cohort, product, channel, or region metadata in a future dataset version.",
+        "downstream_destination": "Documentation",
+        "reviewer_disposition": "accepted",
+        "reviewer_rationale": "",
+        "rationale_status": "missing",
+        "suggested_transformation": "No transformation",
+        "evidence_references": [
+          "stability.time_profile",
+          "stability.segment_profile"
+        ],
+        "documentation_impact": "The approved EDA record states that stability evidence is unavailable and does not block confirmation.",
+        "target_source_status": "review",
+        "leakage_evidence": null,
+        "information_value": null,
+        "event_rate_shape": null,
+        "monotonicity": null,
+        "mutation_applied": false,
+        "carry_forward_mode": "draft_recommendation"
+      }
+    ],
+    "sourceFindings": [
+      {
+        "category": "Data integrity",
+        "severity": "warning",
+        "finding": "351 duplicate rows were detected.",
+        "recommended_action": "Confirm whether duplicate records represent repeated observations or ingestion duplication."
+      }
+    ],
+    "carryForward": [
+      {
+        "finding_id": "eda-finding-c6i235",
+        "title": "Exact duplicate rows require a governed treatment decision",
+        "destination": "Feature Engineering",
+        "recommendation": "Confirm whether these are ingestion duplicates or valid repeated observations; record exclusion or retention without mutating data from EDA.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-xg51d3",
+        "title": "NumInqLast6M requires multicollinearity review",
+        "destination": "Feature Engineering",
+        "recommendation": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1plnnl5",
+        "title": "NumInqLast6Mexcl7days requires multicollinearity review",
+        "destination": "Feature Engineering",
+        "recommendation": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-116g371",
+        "title": "NumTrades90Ever2DerogPubRec requires multicollinearity review",
+        "destination": "Feature Engineering",
+        "recommendation": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-173lsnd",
+        "title": "NumTrades60Ever2DerogPubRec requires multicollinearity review",
+        "destination": "Feature Engineering",
+        "recommendation": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-kj5290",
+        "title": "NumInqLast6M and NumInqLast6Mexcl7days are strongly correlated",
+        "destination": "Feature Engineering",
+        "recommendation": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1501lb4",
+        "title": "NumTrades60Ever2DerogPubRec and NumTrades90Ever2DerogPubRec are strongly correlated",
+        "destination": "Feature Engineering",
+        "recommendation": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-epluy",
+        "title": "ExternalRiskEstimate and MaxDelq2PublicRecLast12M are strongly correlated",
+        "destination": "Feature Engineering",
+        "recommendation": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-182coy2",
+        "title": "MaxDelq2PublicRecLast12M and MaxDelqEver are strongly correlated",
+        "destination": "Feature Engineering",
+        "recommendation": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-dwhn56",
+        "title": "PercentTradesNeverDelq and MaxDelq2PublicRecLast12M are strongly correlated",
+        "destination": "Feature Engineering",
+        "recommendation": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-wvmjh0",
+        "title": "PercentTradesNeverDelq and MaxDelqEver are strongly correlated",
+        "destination": "Feature Engineering",
+        "recommendation": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-12jqw3q",
+        "title": "ExternalRiskEstimate has unusually high information value",
+        "destination": "Validation",
+        "recommendation": "Review lineage, availability at decision time, event-rate shape, and target-source status before retaining the predictor.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-f8dcph",
+        "title": "MaxDelqEver requires multicollinearity review",
+        "destination": "Feature Engineering",
+        "recommendation": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-19r6pxd",
+        "title": "ExternalRiskEstimate requires multicollinearity review",
+        "destination": "Feature Engineering",
+        "recommendation": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-vp8imn",
+        "title": "MaxDelq2PublicRecLast12M requires multicollinearity review",
+        "destination": "Feature Engineering",
+        "recommendation": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1yxi2g1",
+        "title": "PercentTradesNeverDelq requires multicollinearity review",
+        "destination": "Feature Engineering",
+        "recommendation": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-ij0buy",
+        "title": "NetFractionRevolvingBurden has unusually high information value",
+        "destination": "Validation",
+        "recommendation": "Review lineage, availability at decision time, event-rate shape, and target-source status before retaining the predictor.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1myu0z3",
+        "title": "Duplicate records carry observed target values",
+        "destination": "Validation",
+        "recommendation": "Resolve the target-quality concern before training and preserve the reviewer rationale in documentation.",
+        "transformation": "Investigate further",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-eezvhn",
+        "title": "MSinceMostRecentDelq has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-jo2q67",
+        "title": "NetFractionInstallBurden has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-bnqouz",
+        "title": "MSinceMostRecentInqexcl7days has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-438utc",
+        "title": "ExternalRiskEstimate and MaxDelqEver are strongly correlated",
+        "destination": "Feature Engineering",
+        "recommendation": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1v3czce",
+        "title": "ExternalRiskEstimate and PercentTradesNeverDelq are strongly correlated",
+        "destination": "Feature Engineering",
+        "recommendation": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-10a0tim",
+        "title": "NumSatisfactoryTrades and NumTotalTrades are strongly correlated",
+        "destination": "Feature Engineering",
+        "recommendation": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1tqzu8u",
+        "title": "NumRevolvingTradesWBalance and NumBank2NatlTradesWHighUtilization are strongly correlated",
+        "destination": "Feature Engineering",
+        "recommendation": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1ao0xt4",
+        "title": "NumTrades90Ever2DerogPubRec and MaxDelq2PublicRecLast12M are strongly correlated",
+        "destination": "Feature Engineering",
+        "recommendation": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-wdg2re",
+        "title": "PercentTradesNeverDelq and NumTradesOpeninLast12M are strongly correlated",
+        "destination": "Feature Engineering",
+        "recommendation": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-8djt1n",
+        "title": "NumInstallTradesWBalance has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1dhmw93",
+        "title": "NumBank2NatlTradesWHighUtilization has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1w2f471",
+        "title": "MSinceOldestTradeOpen has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-146beuz",
+        "title": "NetFractionRevolvingBurden has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1lsswln",
+        "title": "NumRevolvingTradesWBalance has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1r9hded",
+        "title": "NumSatisfactoryTrades requires multicollinearity review",
+        "destination": "Feature Engineering",
+        "recommendation": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-drp7pf",
+        "title": "AverageMInFile has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1n0kgyv",
+        "title": "ExternalRiskEstimate has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1rbw847",
+        "title": "MaxDelq2PublicRecLast12M has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1l9bnst",
+        "title": "MaxDelqEver has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-124er7n",
+        "title": "MSinceMostRecentTradeOpen has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-170i557",
+        "title": "NumInqLast6M has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-9w7kab",
+        "title": "NumInqLast6Mexcl7days has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-ks6yzn",
+        "title": "NumSatisfactoryTrades has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1jvqcs3",
+        "title": "NumTotalTrades has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1g7kzgz",
+        "title": "NumTrades60Ever2DerogPubRec has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-8e4n29",
+        "title": "NumTrades90Ever2DerogPubRec has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1hs9sib",
+        "title": "NumTradesOpeninLast12M has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1n6rq0b",
+        "title": "PercentInstallTrades has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-12hzeb",
+        "title": "PercentTradesNeverDelq has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-17lwsgb",
+        "title": "PercentTradesWBalance has material bureau special-value prevalence",
+        "destination": "Feature Engineering",
+        "recommendation": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "transformation": "Special-value separation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1dcw94h",
+        "title": "NumRevolvingTradesWBalance requires multicollinearity review",
+        "destination": "Feature Engineering",
+        "recommendation": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-15inkfv",
+        "title": "NumTotalTrades requires multicollinearity review",
+        "destination": "Feature Engineering",
+        "recommendation": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1ak6yl7",
+        "title": "AverageMInFile has a non-monotonic target shape",
+        "destination": "Feature Engineering",
+        "recommendation": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "transformation": "Binning",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1r3drba",
+        "title": "ExternalRiskEstimate is strongly skewed",
+        "destination": "Feature Engineering",
+        "recommendation": "Inspect sign, zero values, bureau specials, and model family before selecting a log transform, winsorization, or no treatment.",
+        "transformation": "Log transform",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-gtz9vj",
+        "title": "MaxDelq2PublicRecLast12M has a non-monotonic target shape",
+        "destination": "Feature Engineering",
+        "recommendation": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "transformation": "Binning",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1knx2qe",
+        "title": "MaxDelq2PublicRecLast12M is strongly skewed",
+        "destination": "Feature Engineering",
+        "recommendation": "Inspect sign, zero values, bureau specials, and model family before selecting a log transform, winsorization, or no treatment.",
+        "transformation": "Log transform",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-pst97s",
+        "title": "MaxDelqEver has a material ordinary-outlier rate",
+        "destination": "Outliers",
+        "recommendation": "Inspect the distribution and business meaning before considering winsorization or another robust treatment.",
+        "transformation": "Winsorization",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-16aj8n9",
+        "title": "MaxDelqEver has a non-monotonic target shape",
+        "destination": "Feature Engineering",
+        "recommendation": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "transformation": "Binning",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1t9uzwk",
+        "title": "MaxDelqEver is strongly skewed",
+        "destination": "Feature Engineering",
+        "recommendation": "Inspect sign, zero values, bureau specials, and model family before selecting a log transform, winsorization, or no treatment.",
+        "transformation": "Log transform",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-414y2m",
+        "title": "MSinceMostRecentInqexcl7days has a material ordinary-outlier rate",
+        "destination": "Outliers",
+        "recommendation": "Inspect the distribution and business meaning before considering winsorization or another robust treatment.",
+        "transformation": "Winsorization",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-fud5sv",
+        "title": "MSinceMostRecentInqexcl7days has a non-monotonic target shape",
+        "destination": "Feature Engineering",
+        "recommendation": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "transformation": "Binning",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-oitheu",
+        "title": "MSinceMostRecentTradeOpen has a material ordinary-outlier rate",
+        "destination": "Outliers",
+        "recommendation": "Inspect the distribution and business meaning before considering winsorization or another robust treatment.",
+        "transformation": "Winsorization",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1rkv8ov",
+        "title": "MSinceMostRecentTradeOpen has a non-monotonic target shape",
+        "destination": "Feature Engineering",
+        "recommendation": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "transformation": "Binning",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1ujjjby",
+        "title": "MSinceMostRecentTradeOpen is strongly skewed",
+        "destination": "Feature Engineering",
+        "recommendation": "Inspect sign, zero values, bureau specials, and model family before selecting a log transform, winsorization, or no treatment.",
+        "transformation": "Log transform",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1ytdpdn",
+        "title": "NetFractionInstallBurden has a non-monotonic target shape",
+        "destination": "Feature Engineering",
+        "recommendation": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "transformation": "Binning",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-tgvtdr",
+        "title": "NumBank2NatlTradesWHighUtilization has a non-monotonic target shape",
+        "destination": "Feature Engineering",
+        "recommendation": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "transformation": "Binning",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-113pwf3",
+        "title": "NumInqLast6M has a non-monotonic target shape",
+        "destination": "Feature Engineering",
+        "recommendation": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "transformation": "Binning",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-cvften",
+        "title": "NumInqLast6Mexcl7days has a non-monotonic target shape",
+        "destination": "Feature Engineering",
+        "recommendation": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "transformation": "Binning",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-de2d83",
+        "title": "NumInstallTradesWBalance has a non-monotonic target shape",
+        "destination": "Feature Engineering",
+        "recommendation": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "transformation": "Binning",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1x2se4q",
+        "title": "NumRevolvingTradesWBalance has a material ordinary-outlier rate",
+        "destination": "Outliers",
+        "recommendation": "Inspect the distribution and business meaning before considering winsorization or another robust treatment.",
+        "transformation": "Winsorization",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1g8s4b3",
+        "title": "NumRevolvingTradesWBalance has a non-monotonic target shape",
+        "destination": "Feature Engineering",
+        "recommendation": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "transformation": "Binning",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1nnkyen",
+        "title": "NumTotalTrades has a non-monotonic target shape",
+        "destination": "Feature Engineering",
+        "recommendation": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "transformation": "Binning",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-ll51y6",
+        "title": "NumTrades60Ever2DerogPubRec has a material ordinary-outlier rate",
+        "destination": "Outliers",
+        "recommendation": "Inspect the distribution and business meaning before considering winsorization or another robust treatment.",
+        "transformation": "Winsorization",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1kyf1vj",
+        "title": "NumTrades60Ever2DerogPubRec has a non-monotonic target shape",
+        "destination": "Feature Engineering",
+        "recommendation": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "transformation": "Binning",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1dhskok",
+        "title": "NumTrades90Ever2DerogPubRec has a material ordinary-outlier rate",
+        "destination": "Outliers",
+        "recommendation": "Inspect the distribution and business meaning before considering winsorization or another robust treatment.",
+        "transformation": "Winsorization",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-w72481",
+        "title": "NumTrades90Ever2DerogPubRec has a non-monotonic target shape",
+        "destination": "Feature Engineering",
+        "recommendation": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "transformation": "Binning",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-i9knts",
+        "title": "NumTrades90Ever2DerogPubRec is strongly skewed",
+        "destination": "Feature Engineering",
+        "recommendation": "Inspect sign, zero values, bureau specials, and model family before selecting a log transform, winsorization, or no treatment.",
+        "transformation": "Log transform",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-wt1yaj",
+        "title": "NumTradesOpeninLast12M has a non-monotonic target shape",
+        "destination": "Feature Engineering",
+        "recommendation": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "transformation": "Binning",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-81b05n",
+        "title": "PercentInstallTrades has a non-monotonic target shape",
+        "destination": "Feature Engineering",
+        "recommendation": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "transformation": "Binning",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-10oi09i",
+        "title": "PercentTradesNeverDelq has a material ordinary-outlier rate",
+        "destination": "Outliers",
+        "recommendation": "Inspect the distribution and business meaning before considering winsorization or another robust treatment.",
+        "transformation": "Winsorization",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-vh1zrv",
+        "title": "PercentTradesNeverDelq has a non-monotonic target shape",
+        "destination": "Feature Engineering",
+        "recommendation": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "transformation": "Binning",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1utkksa",
+        "title": "PercentTradesNeverDelq is strongly skewed",
+        "destination": "Feature Engineering",
+        "recommendation": "Inspect sign, zero values, bureau specials, and model family before selecting a log transform, winsorization, or no treatment.",
+        "transformation": "Log transform",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-1h6u3v9",
+        "title": "Deterministic target-source fields remain excluded",
+        "destination": "Documentation",
+        "recommendation": "Retain the governed exclusion. Review evidence if upstream lineage changes; do not reintroduce these fields from EDA.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-y2e337",
+        "title": "bad_flag class balance is measurable",
+        "destination": "Balance and Split",
+        "recommendation": "Carry the observed prevalence into split design and model evaluation.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      },
+      {
+        "finding_id": "eda-finding-192ltkz",
+        "title": "Stability and segment analysis is unavailable for this dataset",
+        "destination": "Documentation",
+        "recommendation": "Register an observation date or designate approved cohort, product, channel, or region metadata in a future dataset version.",
+        "transformation": "No transformation",
+        "reviewerRationale": "",
+        "status": "draft_recommendation",
+        "mutationApplied": false
+      }
+    ],
+    "userCommentary": "EDA of the governed HELOC_TRAIN population confirms a binary modeling population of 6,275 records with 23 authorized predictors and bad_flag as the target. The target is approximately balanced, with 3,275 events representing Bad credit performance and 3,000 non-events representing Good credit performance. No missing, invalid, or unexpected target values were identified, and RiskPerformance is correctly excluded as the deterministic source of the modeled target.\n\nThe primary issues requiring governed downstream review are 351 exact duplicate rows, meaning-bearing credit-bureau special values, substantial multicollinearity among several related bureau measures, and strong or non-monotonic univariate predictor relationships. These findings require documented treatment or retention decisions but do not independently justify automatic record deletion, predictor removal, or transformation.\n\nNo approved observation-time or reusable segment fields are present in the registered dataset. Stability and segment analyses are therefore not applicable to this dataset and should be recorded as a documented analytical limitation rather than treated as missing work.",
+    "overallConclusion": "EDA of the governed HELOC_TRAIN population confirms a binary modeling population of 6,275 records with 23 authorized predictors and bad_flag as the target. The target is approximately balanced, with 3,275 events representing Bad credit performance and 3,000 non-events representing Good credit performance. No missing, invalid, or unexpected target values were identified, and RiskPerformance is correctly excluded as the deterministic source of the modeled target.\n\nThe primary issues requiring governed downstream review are 351 exact duplicate rows, meaning-bearing credit-bureau special values, substantial multicollinearity among several related bureau measures, and strong or non-monotonic univariate predictor relationships. These findings require documented treatment or retention decisions but do not independently justify automatic record deletion, predictor removal, or transformation.\n\nNo approved observation-time or reusable segment fields are present in the registered dataset. Stability and segment analyses are therefore not applicable to this dataset and should be recorded as a documented analytical limitation rather than treated as missing work.",
+    "findingStatus": "accepted",
+    "duplicateTreatment": "exclude",
+    "duplicateDecisionSavedAt": "2026-08-01T16:37:08.699Z"
+  },
+  "projectId": "atlas-mrzpau4t",
+  "datasetIds": [
+    "ds_heloc_train_6bdb184b_05905"
+  ],
+  "evidenceId": "ev-governed-exploratory-data-analysis-dbcca9c964b8fb5d",
+  "governance": {},
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-07-31T21:51:03.669993+00:00",
+  "capturedAt": "2026-07-31T21:51:03.669993+00:00",
+  "updatedAt": "2026-08-01T18:47:57.421810+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 86
+}

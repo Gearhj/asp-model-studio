@@ -18,6 +18,7 @@ import { chooseRenderStrategy, reservoirSample } from "./largeDataPolicy";
 import { registerTable, runQuery, clearProjectTables } from "./duckdb/duckdbService";
 import { submitAnalyticalQuery, toDatasetReferenceFields } from "./analyticalQueryClient";
 import { getScoringRunRows } from "../scoring-runs/scoringRunClient";
+import { requestScopedTrainingHistory } from "../lib/scopedTrainingHistory";
 
 const API_BASE =
   (import.meta.env?.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
@@ -70,16 +71,28 @@ export async function fetchTrainingEvaluationResult(
   modelKey: string
 ): Promise<VisualDataResult<{ actual: number; prediction: number }> & { problemType: "classification" | "regression" | null; modelName: string | null }> {
   const start = performance.now();
-  const payload = await getJson<{
-    ok: boolean;
-    summary?: { problem_type?: string; target?: string; raw?: Record<string, { name?: string; task?: string; y_true: number[]; y_score: number[] }> };
-  }>(`/train/last?project_id=${encodeURIComponent(reference.projectId)}`);
+  if (!reference.datasetId || !reference.versionId) {
+    throw new Error("Visual Intelligence training results require an exact registered dataset version.");
+  }
+  const history = await requestScopedTrainingHistory<{
+    problem_type?: string;
+    target?: string;
+    raw?: Record<string, { name?: string; task?: string; y_true: number[]; y_score: number[] }>;
+  }>({
+    project_id: reference.projectId,
+    dataset_id: reference.datasetId,
+    dataset_version_id: reference.versionId,
+  });
+  if (history.status !== "success") {
+    throw new Error(`Visual Intelligence training results are unavailable (${history.status}).`);
+  }
+  const summary = history.summary;
 
-  const raw = payload.summary?.raw?.[modelKey];
+  const raw = summary.raw?.[modelKey];
   const yTrue = raw?.y_true ?? [];
   const yScore = raw?.y_score ?? [];
   const rows = yTrue.map((actual, i) => ({ actual, prediction: yScore[i] }));
-  const reportedProblemType = payload.summary?.problem_type;
+  const reportedProblemType = summary.problem_type;
   const problemType = reportedProblemType === "regression" || reportedProblemType === "classification" ? reportedProblemType : null;
 
   const meta: VisualDataSourceMeta = {
@@ -94,7 +107,7 @@ export async function fetchTrainingEvaluationResult(
     queryDurationMs: performance.now() - start,
   };
   return {
-    reference: { ...reference, sourceType: "evaluation-result", partition: "train", modelId: modelKey, problemType: problemType ?? reference.problemType, target: payload.summary?.target ?? reference.target },
+    reference: { ...reference, sourceType: "evaluation-result", partition: "train", modelId: modelKey, problemType: problemType ?? reference.problemType, target: summary.target ?? reference.target },
     meta,
     rows,
     problemType,

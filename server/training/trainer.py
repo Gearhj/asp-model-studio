@@ -26,7 +26,11 @@
 
 from __future__ import annotations
 from typing import Dict, Any, List, Optional, Tuple
+from datetime import datetime, timezone
+import hashlib
 import inspect
+import json
+import re
 import time
 
 import numpy as np
@@ -62,11 +66,12 @@ try:
     from sklearn.neighbors import KNeighborsClassifier, LocalOutlierFactor
     from sklearn.naive_bayes import BernoulliNB, GaussianNB
     from sklearn.neural_network import MLPClassifier
+    from sklearn.base import BaseEstimator, ClassifierMixin, RegressorMixin, clone
     from sklearn.compose import ColumnTransformer
     from sklearn.impute import SimpleImputer
     from sklearn.pipeline import Pipeline
     from sklearn.preprocessing import LabelEncoder, OneHotEncoder, StandardScaler
-    from sklearn.model_selection import GridSearchCV, StratifiedKFold
+    from sklearn.model_selection import GridSearchCV, KFold, StratifiedKFold
     from sklearn.metrics import (
         accuracy_score,
         average_precision_score,
@@ -106,6 +111,10 @@ except Exception:  # pragma: no cover
     BernoulliNB = None
     GaussianNB = None
     MLPClassifier = None
+    BaseEstimator = None
+    ClassifierMixin = None
+    RegressorMixin = None
+    clone = None
     ColumnTransformer = None
     SimpleImputer = None
     Pipeline = None
@@ -113,6 +122,7 @@ except Exception:  # pragma: no cover
     OneHotEncoder = None
     StandardScaler = None
     GridSearchCV = None
+    KFold = None
     StratifiedKFold = None
     accuracy_score = None
     average_precision_score = None
@@ -132,6 +142,124 @@ try:
 except Exception:  # pragma: no cover
     XGBClassifier = None
     XGBRegressor = None
+
+
+if (
+    XGBClassifier is not None
+    and BaseEstimator is not None
+    and ClassifierMixin is not None
+):
+    class AtlasXGBClassifier(ClassifierMixin, BaseEstimator):
+        """
+        Composition adapter for XGBoost 2.1.x on scikit-learn 1.6+.
+
+        XGBoost 2.1.1 places ``ClassifierMixin`` after ``BaseEstimator`` in
+        its MRO.  Scikit-learn 1.6 therefore cannot resolve estimator tags and
+        may identify an XGBClassifier pipeline as a regressor.  Keeping the
+        native estimator behind a normal sklearn-compatible wrapper restores
+        classifier tags without mutating third-party classes or the runtime.
+        """
+
+        def __init__(
+            self,
+            n_estimators: int = 120,
+            max_depth: int = 5,
+            learning_rate: float = 0.05,
+            subsample: float = 0.9,
+            colsample_bytree: float = 0.8,
+            eval_metric: str = "logloss",
+            n_jobs: int = 1,
+            random_state: int = 42,
+        ):
+            self.n_estimators = n_estimators
+            self.max_depth = max_depth
+            self.learning_rate = learning_rate
+            self.subsample = subsample
+            self.colsample_bytree = colsample_bytree
+            self.eval_metric = eval_metric
+            self.n_jobs = n_jobs
+            self.random_state = random_state
+
+        def fit(self, X, y):
+            self.estimator_ = XGBClassifier(
+                n_estimators=self.n_estimators,
+                max_depth=self.max_depth,
+                learning_rate=self.learning_rate,
+                subsample=self.subsample,
+                colsample_bytree=self.colsample_bytree,
+                eval_metric=self.eval_metric,
+                n_jobs=self.n_jobs,
+                random_state=self.random_state,
+            )
+            self.estimator_.fit(X, y)
+            self.classes_ = np.asarray(self.estimator_.classes_)
+            self.n_features_in_ = int(getattr(self.estimator_, "n_features_in_", X.shape[1]))
+            return self
+
+        def predict(self, X):
+            return self.estimator_.predict(X)
+
+        def predict_proba(self, X):
+            return self.estimator_.predict_proba(X)
+
+        @property
+        def feature_importances_(self):
+            return self.estimator_.feature_importances_
+else:  # pragma: no cover - optional dependency path
+    AtlasXGBClassifier = None
+
+
+if (
+    XGBRegressor is not None
+    and BaseEstimator is not None
+    and RegressorMixin is not None
+):
+    class AtlasXGBRegressor(RegressorMixin, BaseEstimator):
+        """Sklearn-tag-compatible composition adapter for XGBoost regression."""
+
+        def __init__(
+            self,
+            n_estimators: int = 120,
+            max_depth: int = 5,
+            learning_rate: float = 0.05,
+            subsample: float = 0.9,
+            colsample_bytree: float = 0.8,
+            eval_metric: str = "rmse",
+            n_jobs: int = 1,
+            random_state: int = 42,
+        ):
+            self.n_estimators = n_estimators
+            self.max_depth = max_depth
+            self.learning_rate = learning_rate
+            self.subsample = subsample
+            self.colsample_bytree = colsample_bytree
+            self.eval_metric = eval_metric
+            self.n_jobs = n_jobs
+            self.random_state = random_state
+
+        def fit(self, X, y):
+            self.estimator_ = XGBRegressor(
+                n_estimators=self.n_estimators,
+                max_depth=self.max_depth,
+                learning_rate=self.learning_rate,
+                subsample=self.subsample,
+                colsample_bytree=self.colsample_bytree,
+                eval_metric=self.eval_metric,
+                n_jobs=self.n_jobs,
+                random_state=self.random_state,
+            )
+            self.estimator_.fit(X, y)
+            self.n_features_in_ = int(getattr(self.estimator_, "n_features_in_", X.shape[1]))
+            return self
+
+        def predict(self, X):
+            return self.estimator_.predict(X)
+
+        @property
+        def feature_importances_(self):
+            return self.estimator_.feature_importances_
+else:  # pragma: no cover - optional dependency path
+    AtlasXGBRegressor = None
 
 try:
     from lightgbm import LGBMClassifier, LGBMRegressor
@@ -354,7 +482,7 @@ MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
     "xgb": {
         "label": "XGBoost",
         "task": "classification",
-        "factory": lambda: XGBClassifier(
+        "factory": lambda: AtlasXGBClassifier(
             n_estimators=120,
             max_depth=5,
             learning_rate=0.05,
@@ -364,7 +492,7 @@ MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
             n_jobs=1,
             random_state=42,
         )
-        if XGBClassifier is not None
+        if AtlasXGBClassifier is not None
         else None,
         "param_grid": {
             "model__n_estimators": [80, 120],
@@ -661,8 +789,8 @@ MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
     "xgb_reg": {
         "label": "XGBoost Regressor",
         "task": "regression",
-        "factory": lambda: XGBRegressor(
-            n_estimators=300,
+        "factory": lambda: AtlasXGBRegressor(
+            n_estimators=120,
             max_depth=5,
             learning_rate=0.05,
             subsample=0.9,
@@ -670,7 +798,7 @@ MODEL_CATALOG: Dict[str, Dict[str, Any]] = {
             n_jobs=1,
             random_state=42,
         )
-        if XGBRegressor is not None
+        if AtlasXGBRegressor is not None
         else None,
     },
     "lgbm_reg": {
@@ -945,19 +1073,293 @@ def _clean_target_values(y: pd.Series) -> pd.Series:
     return pd.Series(y).map(lambda value: "__missing__" if pd.isna(value) else str(value))
 
 
+NEURAL_MODEL_KEYS = {"mlp", "fnn", "tensorflow_dnn", "cnn", "rnn_lstm"}
+SMALL_DATA_NEURAL_THRESHOLD = 12_000
+
+
+def _apply_neural_runtime_profile(
+    key: str,
+    model: Any,
+    sample_count: int,
+) -> Optional[Dict[str, Any]]:
+    """
+    Bound neural-model work for small tabular datasets.
+
+    The catalog intentionally exposes several neural research labels, but they
+    all use sklearn's CPU MLP fallback in this local runtime.  Large hidden
+    layers and hundreds of iterations add latency without improving the
+    validity of a small-data benchmark.  This profile retains a genuine
+    nonlinear neural fit while using compact layers, early stopping, and a
+    deterministic iteration ceiling.
+    """
+    if (
+        key not in NEURAL_MODEL_KEYS
+        or sample_count > SMALL_DATA_NEURAL_THRESHOLD
+        or not hasattr(model, "set_params")
+    ):
+        return None
+
+    hidden_layers = {
+        "mlp": (32, 16),
+        "fnn": (48, 24),
+        "tensorflow_dnn": (48, 24, 12),
+        "cnn": (32, 16),
+        "rnn_lstm": (40, 20),
+    }[key]
+    max_iterations = 100 if key in {"mlp", "cnn", "rnn_lstm"} else 120
+    batch_size = max(16, min(64, max(1, sample_count // 20)))
+    applied = {
+        "hidden_layer_sizes": hidden_layers,
+        "max_iter": max_iterations,
+        "early_stopping": True,
+        "validation_fraction": 0.15,
+        "n_iter_no_change": 6,
+        "tol": 0.001,
+        "batch_size": batch_size,
+    }
+    model.set_params(**applied)
+    return {
+        "name": "small_data_fast",
+        "sample_threshold": SMALL_DATA_NEURAL_THRESHOLD,
+        "sample_count": int(sample_count),
+        **applied,
+    }
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def normalize_selection_metric(primary_metric: str, problem_type: str) -> str:
+    """Return one governed metric name used consistently for tuning and rank."""
+    token = re.sub(r"[^a-z0-9]+", "_", str(primary_metric or "").casefold()).strip("_")
+    if problem_type == "regression":
+        aliases = {
+            "mean_absolute_error": "mae",
+            "mean_squared_error": "mse",
+            "root_mean_squared_error": "rmse",
+            "r_squared": "r2",
+            "r_2": "r2",
+            "adjusted_r_squared": "adjusted_r2",
+        }
+        resolved = aliases.get(token, token)
+        return resolved if resolved in {"mae", "mse", "rmse", "r2", "adjusted_r2"} else "r2"
+    aliases = {
+        "auc": "roc_auc",
+        "roc": "roc_auc",
+        "average_precision": "pr_auc",
+        "average_precision_score": "pr_auc",
+        "prauc": "pr_auc",
+        "rocauc": "roc_auc",
+    }
+    resolved = aliases.get(token, token)
+    return resolved if resolved in {
+        "roc_auc", "pr_auc", "accuracy", "precision", "recall", "f1", "ks", "gini"
+    } else "roc_auc"
+
+
+def _metric_storage_key(metric_name: str) -> str:
+    return "auc" if metric_name == "roc_auc" else metric_name
+
+
+def _metric_value(metrics: Dict[str, Any], metric_name: str) -> Optional[float]:
+    return _finite_float(metrics.get(_metric_storage_key(metric_name)))
+
+
+def _metric_higher_is_better(metric_name: str) -> bool:
+    return metric_name not in {"mae", "mse", "rmse"}
+
+
+def _grid_scoring(metric_name: str, problem_type: str) -> str:
+    if problem_type == "regression":
+        return {
+            "mae": "neg_mean_absolute_error",
+            "mse": "neg_mean_squared_error",
+            "rmse": "neg_root_mean_squared_error",
+            "r2": "r2",
+            "adjusted_r2": "r2",
+        }[metric_name]
+    return {
+        "roc_auc": "roc_auc",
+        "pr_auc": "average_precision",
+        "accuracy": "accuracy",
+        "precision": "precision",
+        "recall": "recall",
+        "f1": "f1",
+        # KS and Gini are monotone transformations of ROC evidence for
+        # parameter search. Their actual selection values are computed from
+        # governed out-of-fold predictions below.
+        "ks": "roc_auc",
+        "gini": "roc_auc",
+    }[metric_name]
+
+
+def _validated_cv_splits(
+    cv_splits: Optional[List[Tuple[List[int], List[int]]]],
+    row_count: int,
+) -> List[Tuple[np.ndarray, np.ndarray]]:
+    if not cv_splits or len(cv_splits) < 2:
+        raise ValueError(
+            "Candidate selection requires at least two exact governed cross-validation folds."
+        )
+    normalized: List[Tuple[np.ndarray, np.ndarray]] = []
+    validation_coverage = np.zeros(row_count, dtype=int)
+    for sequence, (train_positions, validation_positions) in enumerate(cv_splits, start=1):
+        train_idx = np.asarray(train_positions, dtype=int)
+        validation_idx = np.asarray(validation_positions, dtype=int)
+        if not len(train_idx) or not len(validation_idx):
+            raise ValueError(f"Governed fold {sequence} is empty.")
+        all_positions = np.concatenate([train_idx, validation_idx])
+        if int(np.min(all_positions)) < 0 or int(np.max(all_positions)) >= row_count:
+            raise ValueError(f"Governed fold {sequence} contains an out-of-range row position.")
+        if np.intersect1d(train_idx, validation_idx).size:
+            raise ValueError(f"Governed fold {sequence} overlaps training and validation rows.")
+        validation_coverage[validation_idx] += 1
+        normalized.append((train_idx, validation_idx))
+    if not np.any(validation_coverage):
+        raise ValueError("The governed fold definition contains no validation observations.")
+    return normalized
+
+
+def _encode_binary_training_target(
+    y_train: pd.Series,
+    positive_class: Any | None,
+) -> tuple[np.ndarray, Dict[str, Any]]:
+    def canonical_label(value: Any) -> str:
+        text = str(value).strip()
+        try:
+            numeric = float(text)
+        except (TypeError, ValueError):
+            return text
+        if np.isfinite(numeric) and numeric.is_integer():
+            return str(int(numeric))
+        return text
+
+    cleaned = _clean_target_values(y_train).map(canonical_label)
+    classes = sorted(str(value) for value in pd.unique(cleaned))
+    if len(classes) != 2:
+        raise ValueError(
+            f"Binary classification requires exactly two training classes; found {len(classes)}."
+        )
+    requested_positive = (
+        None if positive_class is None else canonical_label(positive_class)
+    )
+    if requested_positive is not None and requested_positive not in classes:
+        raise ValueError("The governed positive class is not present in the training partition.")
+    resolved_positive = (
+        requested_positive
+        or ("1" if "1" in classes else classes[-1])
+    )
+    negative = next(value for value in classes if value != resolved_positive)
+    encoded = (cleaned.astype(str).to_numpy() == resolved_positive).astype(int)
+    return encoded, {
+        "encoding": "binary_training_partition",
+        "class_labels": [negative, resolved_positive],
+        "positive_class_label": resolved_positive,
+        "positive_class_index": 1,
+        "fit_partition": "training_only",
+    }
+
+
+def _predict_classification_scores(estimator: Any, X: pd.DataFrame) -> np.ndarray:
+    if hasattr(estimator, "predict_proba"):
+        probabilities = np.asarray(estimator.predict_proba(X), dtype=float)
+        if probabilities.ndim != 2 or probabilities.shape[1] < 2:
+            raise ValueError("The classifier did not return a binary probability matrix.")
+        return probabilities[:, 1]
+    if hasattr(estimator, "decision_function"):
+        raw = np.asarray(estimator.decision_function(X), dtype=float)
+        # A deterministic sigmoid preserves the score ordering without using
+        # validation-population extrema as an implicit transformation fit.
+        return 1.0 / (1.0 + np.exp(-np.clip(raw, -40.0, 40.0)))
+    return np.asarray(estimator.predict(X), dtype=float)
+
+
+def _selection_metric_record(
+    *,
+    key: str,
+    metric_name: str,
+    aggregate_metrics: Dict[str, Any],
+    fold_metrics: List[Dict[str, Any]],
+    selection_partition_id: str,
+    fold_definition_id: str,
+    oof_y_true: np.ndarray,
+    oof_predictions: np.ndarray,
+    threshold_source: str,
+    calibration_source: str,
+    created_at: str,
+) -> Dict[str, Any]:
+    selection_value = _metric_value(aggregate_metrics, metric_name)
+    fold_values = [
+        value
+        for metrics in fold_metrics
+        if (value := _metric_value(metrics, metric_name)) is not None
+    ]
+    if selection_value is None or len(fold_values) != len(fold_metrics):
+        raise ValueError(
+            f"The governed folds could not produce a complete {metric_name} selection metric."
+        )
+    digest_payload = {
+        "algorithm_id": key,
+        "selection_partition_id": selection_partition_id,
+        "fold_definition_id": fold_definition_id,
+        "y_true": oof_y_true.tolist(),
+        "predictions": oof_predictions.tolist(),
+    }
+    digest = hashlib.sha256(
+        json.dumps(digest_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return {
+        "selection_metric_name": metric_name,
+        "selection_metric_value": float(selection_value),
+        "selection_metric_source": "out_of_fold",
+        "selection_partition_id": selection_partition_id,
+        "fold_definition_id": fold_definition_id,
+        "fold_count": len(fold_metrics),
+        "fold_values": [float(value) for value in fold_values],
+        "mean": float(np.mean(fold_values)),
+        "standard_deviation": float(np.std(fold_values, ddof=0)),
+        "out_of_fold_prediction_artifact_id": f"oof-{digest[:24]}",
+        "threshold_source": threshold_source,
+        "calibration_source": calibration_source,
+        "created_at": created_at,
+    }
+
+
+def selection_sort_key(
+    row: Dict[str, Any],
+    primary_metric: str,
+    problem_type: str,
+) -> tuple[Any, ...]:
+    metric_name = normalize_selection_metric(primary_metric, problem_type)
+    metric = row.get("selection_metric") if isinstance(row.get("selection_metric"), dict) else {}
+    value = _finite_float(metric.get("selection_metric_value"))
+    if value is None or metric.get("selection_metric_name") != metric_name:
+        value = float("-inf") if _metric_higher_is_better(metric_name) else float("inf")
+    ordered_value = -value if _metric_higher_is_better(metric_name) else value
+    return (
+        not bool(row.get("champion_eligible", True)),
+        ordered_value,
+        str(row.get("candidate_id") or row.get("key") or ""),
+    )
+
+
 def _train_classification_model(
     key: str,
     spec: Dict[str, Any],
     X_train: pd.DataFrame,
-    X_test: pd.DataFrame,
     y_train: pd.Series,
-    y_test: pd.Series,
     grid_search: bool = False,
     grid_search_level: str = "quick",
     model_params: Optional[Dict[str, Any]] = None,
     calibrate: bool = False,
     cv_folds: int = 3,
     cv_splits: Optional[List[Tuple[List[int], List[int]]]] = None,
+    primary_metric: str = "roc_auc",
+    positive_class: Any | None = None,
+    selection_partition_id: str = "",
+    fold_definition_id: str = "",
+    selection_created_at: str = "",
 ) -> Optional[Dict[str, Any]]:
     factory = spec.get("factory")
     if factory is None:
@@ -966,6 +1368,7 @@ def _train_classification_model(
     model = factory()
     if model is None:
         return None
+    runtime_profile = _apply_neural_runtime_profile(key, model, len(X_train))
     model_params = model_params or {}
     if key == "knn":
         try:
@@ -990,25 +1393,17 @@ def _train_classification_model(
             # contract rather than receiving an invalid parameter.
             pass
 
-    if Pipeline is None or LabelEncoder is None:
+    if Pipeline is None or clone is None:
         return None
 
-    encoder = LabelEncoder()
-    encoder.fit(
-        pd.concat(
-            [_clean_target_values(y_train), _clean_target_values(y_test)],
-            ignore_index=True,
-        )
+    y_train_arr, class_encoding = _encode_binary_training_target(
+        y_train,
+        positive_class,
     )
-    if len(encoder.classes_) != 2:
-        raise ValueError(
-            f"{spec['label']} supports binary classification only; target has {len(encoder.classes_)} classes."
-        )
+    governed_splits = _validated_cv_splits(cv_splits, len(X_train))
+    metric_name = normalize_selection_metric(primary_metric, "classification")
 
-    y_train_arr = encoder.transform(_clean_target_values(y_train))
-    y_test_arr = encoder.transform(_clean_target_values(y_test))
-
-    estimator = Pipeline(
+    estimator_template = Pipeline(
         steps=[
             ("preprocess", _make_preprocessor(X_train)),
             ("model", model),
@@ -1020,6 +1415,16 @@ def _train_classification_model(
     search_runtime_ms = 0
     applied_param_grid: Dict[str, Any] = {}
     param_grid = spec.get("param_grid") or {}
+    if runtime_profile:
+        # Keep an explicit, bounded regularization comparison when tuning is
+        # requested.  Do not multiply small-data neural fits across larger
+        # architecture grids.
+        param_grid = {
+            "model__hidden_layer_sizes": [
+                runtime_profile["hidden_layer_sizes"]
+            ],
+            "model__alpha": [0.001, 0.01],
+        }
     class_counts = np.bincount(y_train_arr)
     min_class_count = int(np.min(class_counts)) if len(class_counts) else 0
     can_search = (
@@ -1057,94 +1462,129 @@ def _train_classification_model(
             limited_grid[param] = kept_values
             combinations *= len(kept_values)
 
-        fallback_cv_splits = max(2, min(int(cv_folds), min_class_count))
-        search_cv: Any = (
-            [
-                (
-                    np.asarray(train_positions, dtype=int),
-                    np.asarray(validation_positions, dtype=int),
-                )
-                for train_positions, validation_positions in cv_splits
-            ]
-            if cv_splits
-            else StratifiedKFold(
-                n_splits=fallback_cv_splits,
-                shuffle=True,
-                random_state=42,
-            )
-        )
+        search_cv: Any = governed_splits
         applied_param_grid = limited_grid
         search_started = time.perf_counter()
         search = GridSearchCV(
-            estimator=estimator,
+            estimator=estimator_template,
             param_grid=limited_grid,
-            scoring="roc_auc",
+            scoring=_grid_scoring(metric_name, "classification"),
             cv=search_cv,
             n_jobs=1,
             refit=True,
         )
         search.fit(X_train, y_train_arr)
         search_runtime_ms = int((time.perf_counter() - search_started) * 1000)
-        estimator = search.best_estimator_
+        estimator_template = search.best_estimator_
         best_params = {
             str(k).replace("model__", ""): v for k, v in search.best_params_.items()
         }
         best_score = float(search.best_score_)
     precalibrated_keys = {"linsvm", "ridge_clf"}
-    wrapped_for_calibration = bool(calibrate and key not in precalibrated_keys and CalibratedClassifierCV is not None)
-    if wrapped_for_calibration:
-        calibration_cv = max(2, min(int(cv_folds), min_class_count))
-        governed_calibration_cv: Any = (
-            [
-                (
-                    np.asarray(train_positions, dtype=int),
-                    np.asarray(validation_positions, dtype=int),
-                )
-                for train_positions, validation_positions in cv_splits
-            ]
-            if cv_splits
-            else calibration_cv
-        )
-        estimator = CalibratedClassifierCV(
-            estimator,
-            method="sigmoid",
-            cv=governed_calibration_cv,
-        )
-        estimator.fit(X_train, y_train_arr)
-        calibration_applied = True
-        calibration_method = "sigmoid"
-    else:
-        calibration_applied = key in precalibrated_keys
-        calibration_method = "sigmoid" if key in precalibrated_keys else None
-    if not can_search and not wrapped_for_calibration:
-        estimator.fit(X_train, y_train_arr)
+    calibration_requested = bool(
+        calibrate
+        and key not in precalibrated_keys
+        and CalibratedClassifierCV is not None
+    )
 
-    if hasattr(estimator, "predict_proba"):
-        scores = estimator.predict_proba(X_test)[:, 1]
-    elif hasattr(estimator, "decision_function"):
-        raw = estimator.decision_function(X_test)
-        mn, mx = float(np.min(raw)), float(np.max(raw))
-        scores = (raw - mn) / (mx - mn + 1e-9)
-    else:
-        scores = estimator.predict(X_test)
+    def fitted_for_partition(
+        X_partition: pd.DataFrame,
+        y_partition: np.ndarray,
+    ) -> tuple[Any, str]:
+        partition_estimator = clone(estimator_template)
+        if calibration_requested:
+            counts = np.bincount(y_partition, minlength=2)
+            inner_folds = max(2, min(int(cv_folds), int(np.min(counts))))
+            partition_estimator = CalibratedClassifierCV(
+                partition_estimator,
+                method="sigmoid",
+                cv=inner_folds,
+            )
+            source = "fold_local_training_cross_validation"
+        elif key in precalibrated_keys:
+            source = "model_internal_training_cross_validation"
+        else:
+            source = "not_applied"
+        partition_estimator.fit(X_partition, y_partition)
+        return partition_estimator, source
 
-    scores = np.asarray(scores, dtype=float)
-    metrics = _compute_classification_metrics(y_test_arr, scores)
+    score_sums = np.zeros(len(X_train), dtype=float)
+    score_counts = np.zeros(len(X_train), dtype=int)
+    fold_metrics: List[Dict[str, Any]] = []
+    calibration_sources: set[str] = set()
+    for train_positions, validation_positions in governed_splits:
+        fold_estimator, fold_calibration_source = fitted_for_partition(
+            X_train.iloc[train_positions],
+            y_train_arr[train_positions],
+        )
+        fold_scores = _predict_classification_scores(
+            fold_estimator,
+            X_train.iloc[validation_positions],
+        )
+        score_sums[validation_positions] += fold_scores
+        score_counts[validation_positions] += 1
+        fold_metrics.append(
+            _compute_classification_metrics(
+                y_train_arr[validation_positions],
+                fold_scores,
+            )
+        )
+        calibration_sources.add(fold_calibration_source)
+
+    covered = score_counts > 0
+    if not np.any(covered):
+        raise ValueError("The governed folds did not produce out-of-fold predictions.")
+    oof_scores = score_sums[covered] / score_counts[covered]
+    oof_y_true = y_train_arr[covered]
+    metrics = _compute_classification_metrics(oof_y_true, oof_scores)
+    final_estimator, final_calibration_source = fitted_for_partition(
+        X_train,
+        y_train_arr,
+    )
+    calibration_sources.add(final_calibration_source)
+    calibration_source = (
+        next(iter(calibration_sources))
+        if len(calibration_sources) == 1
+        else "fold_local_training_cross_validation"
+    )
+    created_at = selection_created_at or _utc_now()
+    selection_metric = _selection_metric_record(
+        key=key,
+        metric_name=metric_name,
+        aggregate_metrics=metrics,
+        fold_metrics=fold_metrics,
+        selection_partition_id=selection_partition_id,
+        fold_definition_id=fold_definition_id,
+        oof_y_true=oof_y_true,
+        oof_predictions=oof_scores,
+        threshold_source="platform_governed_default_0_5",
+        calibration_source=calibration_source,
+        created_at=created_at,
+    )
+    calibration_applied = calibration_source != "not_applied"
+    calibration_method = "sigmoid" if calibration_applied else None
 
     return {
         "key": key,
         "name": spec["label"],
         "task": "classification",
         "metrics": metrics,
-        "y_true": y_test_arr.tolist(),
-        "y_score": scores.tolist(),
+        "oof_y_true": oof_y_true.tolist(),
+        "oof_y_score": oof_scores.tolist(),
+        "oof_row_positions": np.flatnonzero(covered).astype(int).tolist(),
+        "selection_metric": selection_metric,
+        "locked_threshold": 0.5,
+        "selection_integrity_status": "verified",
+        "holdout_isolation_status": "verified",
+        "class_encoding": class_encoding,
         "best_params": best_params,
         "best_score": best_score,
         "parameter_grid": applied_param_grid,
         "search_runtime_ms": search_runtime_ms,
         "calibration_applied": calibration_applied,
         "calibration_method": calibration_method,
-        "model": estimator,
+        "runtime_profile": runtime_profile,
+        "model": final_estimator,
     }
 
 
@@ -1152,54 +1592,95 @@ def _train_anomaly_model(
     key: str,
     spec: Dict[str, Any],
     X_train: pd.DataFrame,
-    X_test: pd.DataFrame,
     y_train: pd.Series,
-    y_test: pd.Series,
+    cv_splits: Optional[List[Tuple[List[int], List[int]]]] = None,
+    primary_metric: str = "roc_auc",
+    positive_class: Any | None = None,
+    selection_partition_id: str = "",
+    fold_definition_id: str = "",
+    selection_created_at: str = "",
 ) -> Optional[Dict[str, Any]]:
     factory = spec.get("factory")
     if factory is None:
         return None
 
     model = factory()
-    if model is None or Pipeline is None or LabelEncoder is None:
+    if model is None or Pipeline is None or clone is None:
         return None
 
-    encoder = LabelEncoder()
-    encoder.fit(
-        pd.concat(
-            [_clean_target_values(y_train), _clean_target_values(y_test)],
-            ignore_index=True,
-        )
+    y_train_arr, class_encoding = _encode_binary_training_target(
+        y_train,
+        positive_class,
     )
-    if len(encoder.classes_) != 2:
-        raise ValueError(
-            f"{spec['label']} supports binary anomaly evaluation only; target has {len(encoder.classes_)} classes."
-        )
-
-    y_test_arr = encoder.transform(_clean_target_values(y_test))
-    fit_frame = X_train.sample(n=10_000, random_state=42) if len(X_train) > 10_000 else X_train
-    estimator = Pipeline(
+    governed_splits = _validated_cv_splits(cv_splits, len(X_train))
+    metric_name = normalize_selection_metric(primary_metric, "classification")
+    estimator_template = Pipeline(
         steps=[
-            ("preprocess", _make_preprocessor(fit_frame)),
+            ("preprocess", _make_preprocessor(X_train)),
             ("model", model),
         ]
     )
-    estimator.fit(fit_frame)
 
-    fitted_model = estimator.named_steps["model"]
-    X_test_prepared = estimator.named_steps["preprocess"].transform(X_test)
-    if hasattr(fitted_model, "decision_function"):
-        raw_scores = -np.asarray(fitted_model.decision_function(X_test_prepared), dtype=float)
-    elif hasattr(fitted_model, "score_samples"):
-        raw_scores = -np.asarray(fitted_model.score_samples(X_test_prepared), dtype=float)
-    else:
-        preds = np.asarray(estimator.predict(X_test), dtype=float)
-        raw_scores = np.where(preds < 0, 1.0, 0.0)
+    def anomaly_scores(estimator: Any, X: pd.DataFrame) -> np.ndarray:
+        fitted_model = estimator.named_steps["model"]
+        prepared = estimator.named_steps["preprocess"].transform(X)
+        if hasattr(fitted_model, "decision_function"):
+            raw = -np.asarray(fitted_model.decision_function(prepared), dtype=float)
+        elif hasattr(fitted_model, "score_samples"):
+            raw = -np.asarray(fitted_model.score_samples(prepared), dtype=float)
+        else:
+            predictions = np.asarray(estimator.predict(X), dtype=float)
+            raw = np.where(predictions < 0, 1.0, 0.0)
+        return 1.0 / (1.0 + np.exp(-np.clip(raw, -40.0, 40.0)))
 
-    mn = float(np.min(raw_scores))
-    mx = float(np.max(raw_scores))
-    scores = (raw_scores - mn) / (mx - mn + 1e-9)
-    metrics = _compute_classification_metrics(y_test_arr, scores)
+    score_sums = np.zeros(len(X_train), dtype=float)
+    score_counts = np.zeros(len(X_train), dtype=int)
+    fold_metrics: List[Dict[str, Any]] = []
+    for train_positions, validation_positions in governed_splits:
+        fold_estimator = clone(estimator_template)
+        fold_frame = X_train.iloc[train_positions]
+        if len(fold_frame) > 10_000:
+            fold_frame = fold_frame.sample(n=10_000, random_state=42)
+        fold_estimator.fit(fold_frame)
+        fold_scores = anomaly_scores(
+            fold_estimator,
+            X_train.iloc[validation_positions],
+        )
+        score_sums[validation_positions] += fold_scores
+        score_counts[validation_positions] += 1
+        fold_metrics.append(
+            _compute_classification_metrics(
+                y_train_arr[validation_positions],
+                fold_scores,
+            )
+        )
+
+    covered = score_counts > 0
+    if not np.any(covered):
+        raise ValueError("The governed folds did not produce anomaly out-of-fold predictions.")
+    oof_scores = score_sums[covered] / score_counts[covered]
+    oof_y_true = y_train_arr[covered]
+    metrics = _compute_classification_metrics(oof_y_true, oof_scores)
+    fit_frame = (
+        X_train.sample(n=10_000, random_state=42)
+        if len(X_train) > 10_000
+        else X_train
+    )
+    final_estimator = clone(estimator_template)
+    final_estimator.fit(fit_frame)
+    selection_metric = _selection_metric_record(
+        key=key,
+        metric_name=metric_name,
+        aggregate_metrics=metrics,
+        fold_metrics=fold_metrics,
+        selection_partition_id=selection_partition_id,
+        fold_definition_id=fold_definition_id,
+        oof_y_true=oof_y_true,
+        oof_predictions=oof_scores,
+        threshold_source="platform_governed_default_0_5",
+        calibration_source="not_applied",
+        created_at=selection_created_at or _utc_now(),
+    )
 
     return {
         "key": key,
@@ -1208,11 +1689,17 @@ def _train_anomaly_model(
         "kind": "anomaly",
         "champion_eligible": False,
         "fit_sample_count": int(len(fit_frame)),
-        "target_usage": "The estimator was fit without the target. Target labels were used only for retrospective score evaluation.",
+        "target_usage": "The estimator was fit without the target. Training-fold labels were used only for out-of-fold diagnostic evaluation.",
         "metrics": metrics,
-        "y_true": y_test_arr.tolist(),
-        "y_score": scores.tolist(),
-        "model": estimator,
+        "oof_y_true": oof_y_true.tolist(),
+        "oof_y_score": oof_scores.tolist(),
+        "oof_row_positions": np.flatnonzero(covered).astype(int).tolist(),
+        "selection_metric": selection_metric,
+        "locked_threshold": 0.5,
+        "selection_integrity_status": "verified",
+        "holdout_isolation_status": "verified",
+        "class_encoding": class_encoding,
+        "model": final_estimator,
     }
 
 
@@ -1220,13 +1707,15 @@ def _train_regression_model(
     key: str,
     spec: Dict[str, Any],
     X_train: pd.DataFrame,
-    X_test: pd.DataFrame,
     y_train: pd.Series,
-    y_test: pd.Series,
     grid_search: bool = False,
     grid_search_level: str = "quick",
     cv_folds: int = 3,
     cv_splits: Optional[List[Tuple[List[int], List[int]]]] = None,
+    primary_metric: str = "r2",
+    selection_partition_id: str = "",
+    fold_definition_id: str = "",
+    selection_created_at: str = "",
 ) -> Optional[Dict[str, Any]]:
     factory = spec.get("factory")
     if factory is None:
@@ -1240,9 +1729,10 @@ def _train_regression_model(
         return None
 
     y_train_arr = np.asarray(y_train, dtype=float)
-    y_test_arr = np.asarray(y_test, dtype=float)
+    governed_splits = _validated_cv_splits(cv_splits, len(X_train))
+    metric_name = normalize_selection_metric(primary_metric, "regression")
 
-    estimator = Pipeline(
+    estimator_template = Pipeline(
         steps=[
             ("preprocess", _make_preprocessor(X_train)),
             ("model", model),
@@ -1271,51 +1761,88 @@ def _train_regression_model(
         applied_param_grid = limited_grid
         search_started = time.perf_counter()
         search = GridSearchCV(
-            estimator=estimator,
+            estimator=estimator_template,
             param_grid=limited_grid,
-            scoring="neg_root_mean_squared_error",
-            cv=(
-                [
-                    (
-                        np.asarray(train_positions, dtype=int),
-                        np.asarray(validation_positions, dtype=int),
-                    )
-                    for train_positions, validation_positions in cv_splits
-                ]
-                if cv_splits
-                else max(2, min(int(cv_folds), len(y_train)))
-            ),
+            scoring=_grid_scoring(metric_name, "regression"),
+            cv=governed_splits,
             n_jobs=1,
             refit=True,
         )
         search.fit(X_train, y_train_arr)
         search_runtime_ms = int((time.perf_counter() - search_started) * 1000)
-        estimator = search.best_estimator_
+        estimator_template = search.best_estimator_
         best_params = {
             str(k).replace("model__", ""): v for k, v in search.best_params_.items()
         }
         best_score = float(search.best_score_)
-    else:
-        estimator.fit(X_train, y_train_arr)
-    preds = estimator.predict(X_test)
-    preds = np.asarray(preds, dtype=float)
 
-    metrics = _compute_regression_metrics(y_test_arr, preds, n_features=len(X_train.columns))
+    prediction_sums = np.zeros(len(X_train), dtype=float)
+    prediction_counts = np.zeros(len(X_train), dtype=int)
+    fold_metrics: List[Dict[str, Any]] = []
+    for train_positions, validation_positions in governed_splits:
+        fold_estimator = clone(estimator_template)
+        fold_estimator.fit(
+            X_train.iloc[train_positions],
+            y_train_arr[train_positions],
+        )
+        fold_predictions = np.asarray(
+            fold_estimator.predict(X_train.iloc[validation_positions]),
+            dtype=float,
+        )
+        prediction_sums[validation_positions] += fold_predictions
+        prediction_counts[validation_positions] += 1
+        fold_metrics.append(
+            _compute_regression_metrics(
+                y_train_arr[validation_positions],
+                fold_predictions,
+                n_features=len(X_train.columns),
+            )
+        )
+    covered = prediction_counts > 0
+    if not np.any(covered):
+        raise ValueError("The governed folds did not produce regression out-of-fold predictions.")
+    oof_predictions = prediction_sums[covered] / prediction_counts[covered]
+    oof_y_true = y_train_arr[covered]
+    metrics = _compute_regression_metrics(
+        oof_y_true,
+        oof_predictions,
+        n_features=len(X_train.columns),
+    )
+    final_estimator = clone(estimator_template)
+    final_estimator.fit(X_train, y_train_arr)
+    selection_metric = _selection_metric_record(
+        key=key,
+        metric_name=metric_name,
+        aggregate_metrics=metrics,
+        fold_metrics=fold_metrics,
+        selection_partition_id=selection_partition_id,
+        fold_definition_id=fold_definition_id,
+        oof_y_true=oof_y_true,
+        oof_predictions=oof_predictions,
+        threshold_source="not_applicable",
+        calibration_source="not_applicable",
+        created_at=selection_created_at or _utc_now(),
+    )
 
     return {
         "key": key,
         "name": spec["label"],
         "task": "regression",
         "metrics": metrics,
-        "y_true": y_test_arr.tolist(),
-        "y_score": preds.tolist(),  # kept name for schema compatibility
+        "oof_y_true": oof_y_true.tolist(),
+        "oof_y_score": oof_predictions.tolist(),
+        "oof_row_positions": np.flatnonzero(covered).astype(int).tolist(),
+        "selection_metric": selection_metric,
+        "locked_threshold": None,
+        "selection_integrity_status": "verified",
+        "holdout_isolation_status": "verified",
         "best_params": best_params,
         "best_score": best_score,
         "parameter_grid": applied_param_grid,
         "search_runtime_ms": search_runtime_ms,
         "calibration_applied": False,
         "calibration_method": None,
-        "model": estimator,
+        "model": final_estimator,
     }
 
 
@@ -1324,9 +1851,7 @@ def _train_regression_model(
 # -----------------------------------------------------------------------------
 def train_models(
     X_train: pd.DataFrame,
-    X_test: pd.DataFrame,
     y_train: pd.Series,
-    y_test: pd.Series,
     requested_models: Optional[List[str]] = None,
     grid_search: bool = False,
     grid_search_level: str = "quick",
@@ -1334,6 +1859,12 @@ def train_models(
     calibrate: bool = False,
     cv_folds: int = 3,
     cv_splits: Optional[List[Tuple[List[int], List[int]]]] = None,
+    primary_metric: str = "",
+    positive_class: Any | None = None,
+    selection_partition_id: str = "",
+    fold_definition_id: str = "",
+    selection_created_at: str = "",
+    balancing_status: str = "not_applied",
 ) -> Dict[str, Any]:
     """
     Train requested models and return a structure suitable for:
@@ -1341,10 +1872,15 @@ def train_models(
       • Step08 evaluation (classification models only)
     """
     X_train = _coerce_feature_frame(X_train)
-    X_test = _coerce_feature_frame(X_test)
 
     # Infer problem type
     problem_type = infer_problem_type(y_train)
+    metric_name = normalize_selection_metric(primary_metric, problem_type)
+    governed_splits = _validated_cv_splits(cv_splits, len(X_train))
+    if not str(selection_partition_id or "").strip():
+        raise ValueError("A governed selection_partition_id is required for candidate training.")
+    if not str(fold_definition_id or "").strip():
+        raise ValueError("A governed fold_definition_id is required for candidate training.")
 
     # Filter the catalog to relevant task
     available_keys = [
@@ -1377,35 +1913,49 @@ def train_models(
         try:
             if spec.get("kind") == "anomaly":
                 details = _train_anomaly_model(
-                    key, spec, X_train, X_test, y_train, y_test
+                    key,
+                    spec,
+                    X_train,
+                    y_train,
+                    cv_splits=governed_splits,
+                    primary_metric=metric_name,
+                    positive_class=positive_class,
+                    selection_partition_id=selection_partition_id,
+                    fold_definition_id=fold_definition_id,
+                    selection_created_at=selection_created_at,
                 )
             elif spec["task"] == "classification":
                 details = _train_classification_model(
                     key,
                     spec,
                     X_train,
-                    X_test,
                     y_train,
-                    y_test,
                     grid_search=grid_search,
                     grid_search_level=grid_search_level,
                     model_params=model_params.get(key) or {},
                     calibrate=calibrate,
                     cv_folds=cv_folds,
-                    cv_splits=cv_splits,
+                    cv_splits=governed_splits,
+                    primary_metric=metric_name,
+                    positive_class=positive_class,
+                    selection_partition_id=selection_partition_id,
+                    fold_definition_id=fold_definition_id,
+                    selection_created_at=selection_created_at,
                 )
             else:
                 details = _train_regression_model(
                     key,
                     spec,
                     X_train,
-                    X_test,
                     y_train,
-                    y_test,
                     grid_search=grid_search,
                     grid_search_level=grid_search_level,
                     cv_folds=cv_folds,
-                    cv_splits=cv_splits,
+                    cv_splits=governed_splits,
+                    primary_metric=metric_name,
+                    selection_partition_id=selection_partition_id,
+                    fold_definition_id=fold_definition_id,
+                    selection_created_at=selection_created_at,
                 )
         except Exception as exc:
             failed_rows.append(
@@ -1456,8 +2006,15 @@ def train_models(
                 "best_score": details.get("best_score"),
                 "parameter_grid": details.get("parameter_grid") or {},
                 "search_runtime_ms": details.get("search_runtime_ms", 0),
+                "runtime_profile": details.get("runtime_profile"),
                 "calibration_applied": bool(details.get("calibration_applied")),
                 "calibration_method": details.get("calibration_method"),
+                "selection_metric": details.get("selection_metric"),
+                "locked_threshold": details.get("locked_threshold"),
+                "selection_integrity_status": details.get("selection_integrity_status"),
+                "holdout_isolation_status": details.get("holdout_isolation_status"),
+                "selection_balancing_status": str(balancing_status or "not_applied"),
+                "class_encoding": details.get("class_encoding"),
                 "mae": m.get("mae"),
                 "mse": m.get("mse"),
                 "rmse": m.get("rmse"),
@@ -1485,19 +2042,18 @@ def train_models(
     # Ranking:
     #   • Classification: by AUC
     #   • Regression: by R²
-    def _rank_key(row: Dict[str, Any]) -> float:
-        if not row.get("champion_eligible", True):
-            return -2.0
-        if row["task"] == "classification" and row.get("auc") is not None:
-            return row["auc"]
-        if row["task"] == "regression" and row.get("r2") is not None:
-            return row["r2"]
-        return -1.0
-
-    ranked_rows.sort(key=_rank_key, reverse=True)
+    ranked_rows.sort(
+        key=lambda row: selection_sort_key(row, metric_name, problem_type)
+    )
 
     summary = {
         "problem_type": problem_type,
+        "primary_metric": metric_name,
+        "selection_partition_id": selection_partition_id,
+        "fold_definition_id": fold_definition_id,
+        "selection_integrity_status": "verified",
+        "holdout_isolation_status": "verified",
+        "selection_balancing_status": str(balancing_status or "not_applied"),
         "ranked": ranked_rows,
         "raw": trained_rows,
         "failed": failed_rows,

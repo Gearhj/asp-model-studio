@@ -18,13 +18,34 @@ import {
 const savedMetadata = {
   name: "final_model",
   project_id: "proj-1",
-  dataset_version: "Class|classification|360|4|20|amount,velocity",
+  dataset_id: "ds-1",
+  dataset_version_id: "dsv-1",
   target: "Class",
+  candidate_id: "cand-1",
+  training_run_id: "run-1",
+  feature_manifest_version: "fm-1",
+  validation_design_id: "vd-1",
+  split_id: "split-1",
+  model_version_id: "mv-1",
+  artifact_verified: true,
+  checksum: "sha256:abc",
+  promotion_status: "finalized",
+  lineage_status: "verified",
+  designation: "champion",
+  candidate_decision_id: "decision-1",
+  evaluation_package_id: "eval-1",
+  holdout_exposure_id: "exposure-1",
+  selection_integrity_status: "verified",
+  holdout_isolation_status: "verified",
+  evaluation_package_integrity_status: "verified",
+  promotion_readiness_status: "verified",
+  final_holdout_status: "evaluated",
 };
 
 const matchingContext = {
   projectId: "proj-1",
-  datasetVersion: savedMetadata.dataset_version,
+  datasetId: "ds-1",
+  datasetVersion: savedMetadata.dataset_version_id,
   target: "Class",
 };
 
@@ -36,15 +57,14 @@ test.describe("resolveFinalModelReadiness", () => {
     expect(view.metadata).toEqual(savedMetadata);
   });
 
-  test("ready + absent local expectation (new tab / no sessionStorage dataset) -> ready, no error", () => {
-    // The Stage B.6 defect: this exact input used to produce the mismatch error.
+  test("ready + absent canonical local expectation fails closed", () => {
     const view = resolveFinalModelReadiness(
       { ready: true, metadata: savedMetadata },
       { projectId: "proj-1", datasetVersion: "", target: "" }
     );
-    expect(view.ready).toBe(true);
-    expect(view.error).toBe("");
-    expect(view.metadata).toEqual(savedMetadata);
+    expect(view.ready).toBe(false);
+    expect(view.error).toBe(FINAL_MODEL_CONTEXT_MISMATCH_MESSAGE);
+    expect(view.metadata).toEqual({});
   });
 
   test("genuine dataset-version mismatch still rejects with the mismatch error", () => {
@@ -75,13 +95,31 @@ test.describe("resolveFinalModelReadiness", () => {
     expect(view.error).toBe(FINAL_MODEL_CONTEXT_MISMATCH_MESSAGE);
   });
 
-  test("metadata missing a context field skips that comparison (unchanged behavior)", () => {
+  test("metadata missing durable lineage fails closed", () => {
     const view = resolveFinalModelReadiness(
       { ready: true, metadata: { name: "final_model", project_id: "proj-1" } },
       matchingContext
     );
-    expect(view.ready).toBe(true);
-    expect(view.error).toBe("");
+    expect(view.ready).toBe(false);
+    expect(view.error).not.toBe("");
+  });
+
+  test("legacy or contaminated promotion evidence fails closed", () => {
+    for (const override of [
+      { candidate_decision_id: "" },
+      { selection_integrity_status: "legacy_unresolved" },
+      { holdout_isolation_status: "invalid_final_holdout_ranking" },
+      { evaluation_package_integrity_status: "invalid" },
+      { promotion_readiness_status: "blocked" },
+      { final_holdout_status: "opened" },
+    ]) {
+      const view = resolveFinalModelReadiness(
+        { ready: true, metadata: { ...savedMetadata, ...override } },
+        matchingContext,
+      );
+      expect(view.ready).toBe(false);
+      expect(view.metadata).toEqual({});
+    }
   });
 
   test("backend not ready -> not ready and no mismatch error, regardless of context", () => {

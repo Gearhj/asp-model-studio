@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+from io import StringIO
 import logging
 import os
 import threading
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -26,10 +27,13 @@ LOGGER = logging.getLogger("atlas.checkpoint")
 # file -- a second process (e.g. a test run) writing the REAL path clobbers the
 # live backend's scopes, so anything that is not the one production backend
 # should set this to its own path.
+_DEFAULT_CHECKPOINT_PATH = (
+    Path(__file__).resolve().parents[2] / ".runtime" / "workflow_checkpoint.json"
+).resolve()
 CHECKPOINT_PATH = Path(
     os.getenv(
         "ATLAS_CHECKPOINT_PATH",
-        str(Path(__file__).resolve().parents[2] / ".runtime" / "workflow_checkpoint.json"),
+        str(_DEFAULT_CHECKPOINT_PATH),
     )
 )
 _CHECKPOINT_LOCK = threading.Lock()
@@ -261,11 +265,41 @@ CHECKPOINT_SCHEMA_VERSION = 2
 LEGACY_SCOPE: Tuple[str, str] = ("anonymous", UNSCOPED_PROJECT)
 
 
-def _encode(value: Any) -> Any:
+def _encode(value: Any, _seen: Optional[Set[int]] = None) -> Any:
     if isinstance(value, pd.DataFrame):
         return {"__atlas_type__": "dataframe", "payload": json.loads(value.to_json(orient="split", date_format="iso"))}
     if isinstance(value, pd.Series):
         return {"__atlas_type__": "series", "payload": json.loads(value.to_json(orient="split", date_format="iso"))}
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, (datetime, date)):
+        return {"__atlas_type__": "datetime", "payload": value.isoformat()}
+    if isinstance(value, Path):
+        return {"__atlas_type__": "path", "payload": str(value)}
+    if _seen is None:
+        _seen = set()
+    if isinstance(value, (dict, list, tuple, set)):
+        identity = id(value)
+        if identity in _seen:
+            return None
+        _seen.add(identity)
+        try:
+            if isinstance(value, dict):
+                return {
+                    str(key): _encode(item, _seen)
+                    for key, item in value.items()
+                }
+            if isinstance(value, set):
+                return [_encode(item, _seen) for item in sorted(value, key=repr)]
+            return [_encode(item, _seen) for item in value]
+        finally:
+            _seen.discard(identity)
+    item_method = getattr(value, "item", None)
+    if callable(item_method):
+        try:
+            return _encode(item_method(), _seen)
+        except (TypeError, ValueError):
+            pass
     try:
         json.dumps(value)
         return value
@@ -274,13 +308,23 @@ def _encode(value: Any) -> Any:
 
 
 def _decode(value: Any) -> Any:
-    if not isinstance(value, dict) or "__atlas_type__" not in value:
+    if isinstance(value, list):
+        return [_decode(item) for item in value]
+    if not isinstance(value, dict):
         return value
-    payload = value.get("payload") or {}
+    if "__atlas_type__" not in value:
+        return {key: _decode(item) for key, item in value.items()}
+    payload = value.get("payload")
     if value.get("__atlas_type__") == "dataframe":
-        return pd.read_json(json.dumps(payload), orient="split")
+        return pd.read_json(StringIO(json.dumps(payload or {})), orient="split")
     if value.get("__atlas_type__") == "series":
-        return pd.read_json(json.dumps(payload), orient="split", typ="series")
+        return pd.read_json(
+            StringIO(json.dumps(payload or {})), orient="split", typ="series"
+        )
+    if value.get("__atlas_type__") == "datetime":
+        return payload
+    if value.get("__atlas_type__") == "path":
+        return payload
     return None
 
 
@@ -314,6 +358,9 @@ def _encode_results(store: Any) -> Dict[str, Any]:
         "model_artifacts": _encode(store.model_artifacts) or {},
         "final_model_metadata": _encode(store.final_model_metadata),
         "scoring_reference": _encode(store.scoring_reference),
+        "evaluation_packages": _encode(store.evaluation_packages) or {},
+        "holdout_evaluations": _encode(store.holdout_evaluations) or {},
+        "selection_integrity_records": _encode(store.selection_integrity_records) or {},
     }
 
 
@@ -341,6 +388,11 @@ def _apply_results(store: Any, fields: Dict[str, Any]) -> None:
     store.final_model = None
     store.final_model_metadata = _decode(fields.get("final_model_metadata"))
     store.scoring_reference = _decode(fields.get("scoring_reference"))
+    store.evaluation_packages = _decode(fields.get("evaluation_packages")) or {}
+    store.holdout_evaluations = _decode(fields.get("holdout_evaluations")) or {}
+    store.selection_integrity_records = (
+        _decode(fields.get("selection_integrity_records")) or {}
+    )
 
 
 def _record_has_exact_identity(
@@ -376,6 +428,8 @@ def _checkpoint_pretraining_lineage_errors(
         "validation_design",
         "split_record",
         "training_execution",
+        "training_model_portfolio",
+        "training_preflight",
         "model_selection_decision",
     )
     for key in identity_bound_keys:
@@ -469,6 +523,9 @@ def _is_result_store_empty(store: Any) -> bool:
         and not store.model_artifacts
         and store.final_model_metadata is None
         and store.scoring_reference is None
+        and not store.evaluation_packages
+        and not store.holdout_evaluations
+        and not store.selection_integrity_records
     )
 
 
@@ -532,6 +589,31 @@ def save_checkpoint() -> bool:
     in LAST_SAVE_REPORT.
     """
     global CHECKPOINT_WRITE_COUNT, LAST_SAVE_REPORT
+    if (
+        os.getenv("ATLAS_ENV", "").strip().casefold() in {"test", "testing"}
+        or os.getenv("ATLAS_TEST_MODE", "").strip().casefold()
+        in {"1", "true", "yes"}
+        or bool(os.getenv("PYTEST_CURRENT_TEST"))
+    ):
+        configured = os.getenv("ATLAS_CHECKPOINT_PATH")
+        try:
+            configured_path = (
+                Path(configured).expanduser().resolve() if configured else None
+            )
+            active_path = CHECKPOINT_PATH.expanduser().resolve()
+        except OSError as exc:
+            LOGGER.error("Unsafe checkpoint test path: %s", type(exc).__name__)
+            return False
+        if (
+            configured_path is None
+            or active_path != configured_path
+            or active_path == _DEFAULT_CHECKPOINT_PATH
+        ):
+            LOGGER.error(
+                "Refusing checkpoint test write because the cached path is not "
+                "the explicit isolated ATLAS_CHECKPOINT_PATH."
+            )
+            return False
     try:
         CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
     except Exception as exc:
@@ -617,7 +699,20 @@ def save_checkpoint() -> bool:
         serialized = json.dumps(payload, indent=2, sort_keys=True)
         with _CHECKPOINT_LOCK:
             temp_path.write_text(serialized, encoding="utf-8")
-            temp_path.replace(CHECKPOINT_PATH)
+            # Windows can transiently reject an otherwise valid atomic
+            # replace while an indexing/antivirus reader releases its file
+            # handle. Keep the operation bounded and serialized; a persistent
+            # sharing violation still fails closed and leaves the previous
+            # checkpoint untouched.
+            replace_attempts = 8 if os.name == "nt" else 1
+            for attempt in range(replace_attempts):
+                try:
+                    temp_path.replace(CHECKPOINT_PATH)
+                    break
+                except PermissionError:
+                    if attempt + 1 >= replace_attempts:
+                        raise
+                    time.sleep(0.01 * (2**attempt))
     except Exception as exc:
         LOGGER.warning("Failed to save workflow checkpoint: %r", exc)
         try:

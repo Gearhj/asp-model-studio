@@ -6,6 +6,7 @@ import io
 import os
 import shutil
 import sys
+import tempfile
 import time
 import unittest
 import uuid
@@ -16,12 +17,17 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 TEST_ROOT = REPO_ROOT / ".tmp" / f"evidence_identity_{uuid.uuid4().hex}"
 TEST_ROOT.mkdir(parents=True, exist_ok=False)
+BACKUP_ROOT = Path(
+    tempfile.mkdtemp(prefix=f"atlas_evidence_identity_backups_{uuid.uuid4().hex}_")
+)
 
 ENVIRONMENT = {
+    "ATLAS_SECURITY_ROOT": str(TEST_ROOT),
     "ATLAS_SECURITY_DB_PATH": str(TEST_ROOT / "security.db"),
     "ATLAS_SQLITE_PATH": str(TEST_ROOT / "persistence.db"),
     "ATLAS_CHECKPOINT_PATH": str(TEST_ROOT / "checkpoint.json"),
     "ATLAS_DATASET_LIBRARY_ROOT": str(TEST_ROOT / "dataset-library"),
+    "ATLAS_DATASET_LIBRARY_BACKUP_ROOT": str(BACKUP_ROOT),
     "ATLAS_EVIDENCE_ROOT": str(TEST_ROOT / "evidence"),
     "ATLAS_AUTH_ENABLED": "true",
     "ATLAS_ALLOW_PUBLIC_REGISTRATION": "true",
@@ -33,17 +39,96 @@ import pandas as pd  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 
 from server.main import app  # noqa: E402
+from server.datasets import dataset_registry  # noqa: E402
+from server.evidence import evidence_store  # noqa: E402
 from server.persistence import initialize_persistence  # noqa: E402
 from server.security.security_store import init_security_store  # noqa: E402
+import server.security.security_store as security_store  # noqa: E402
+import server.core.session_checkpoint as checkpoint  # noqa: E402
 
 
 CLIENTS: list[TestClient] = []
 
 
+def _bind_security_and_persistence_paths() -> None:
+    """Rebind import-cached authorities after another collected test module."""
+    expected_security_root = TEST_ROOT.resolve()
+    expected_security_db = (TEST_ROOT / "security.db").resolve()
+    expected_persistence_db = (TEST_ROOT / "persistence.db").resolve()
+    os.environ["ATLAS_SECURITY_ROOT"] = str(expected_security_root)
+    os.environ["ATLAS_SECURITY_DB_PATH"] = str(expected_security_db)
+    os.environ["ATLAS_SQLITE_PATH"] = str(expected_persistence_db)
+    os.environ["ATLAS_AUTH_ENABLED"] = "true"
+    os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
+    security_store.SECURITY_ROOT = expected_security_root
+    security_store.DB_PATH = expected_security_db
+    security_store.ATLAS_AUTH_ENABLED = True
+    security_store.ATLAS_ALLOW_PUBLIC_REGISTRATION = True
+    assert Path(os.environ["ATLAS_SECURITY_DB_PATH"]).resolve() == expected_security_db
+    assert Path(os.environ["ATLAS_SQLITE_PATH"]).resolve() == expected_persistence_db
+    assert security_store.SECURITY_ROOT.resolve() == expected_security_root
+    assert security_store.DB_PATH.resolve() == expected_security_db
+
+
+def _bind_dataset_library_paths() -> None:
+    root = (TEST_ROOT / "dataset-library").resolve()
+    backup_root = BACKUP_ROOT.resolve()
+    os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(root)
+    os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(backup_root)
+    dataset_registry.ARTIFACT_ROOT = root
+    dataset_registry.REGISTRY_PATH = root / "registry.json"
+    dataset_registry.USERS_PATH = root / "users.json"
+    dataset_registry.PROJECT_LINKS_PATH = root / "project_links.json"
+    assert Path(os.environ["ATLAS_DATASET_LIBRARY_ROOT"]).resolve() == root
+    assert Path(os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"]).resolve() == backup_root
+    assert dataset_registry.ARTIFACT_ROOT.resolve() == root
+
+
+def _bind_checkpoint_path() -> None:
+    """Keep this suite isolated even when ``server.main`` was imported first."""
+    expected = (TEST_ROOT / "checkpoint.json").resolve()
+    os.environ["ATLAS_CHECKPOINT_PATH"] = str(expected)
+    checkpoint.CHECKPOINT_PATH = expected
+    assert Path(os.environ["ATLAS_CHECKPOINT_PATH"]).resolve() == expected
+    assert checkpoint.CHECKPOINT_PATH.resolve() == expected
+
+
+def _bind_evidence_paths() -> None:
+    """Rebind the evidence registry cached by an earlier ``server.main`` import."""
+    expected_root = (TEST_ROOT / "evidence").resolve()
+    os.environ["ATLAS_EVIDENCE_ROOT"] = str(expected_root)
+    evidence_store.EVIDENCE_ROOT = expected_root
+    evidence_store.ITEMS_ROOT = expected_root / "items"
+    evidence_store.REGISTRY_PATH = expected_root / "evidence_registry.json"
+    assert Path(os.environ["ATLAS_EVIDENCE_ROOT"]).resolve() == expected_root
+    assert evidence_store.EVIDENCE_ROOT.resolve() == expected_root
+
+
+_bind_security_and_persistence_paths()
+_bind_dataset_library_paths()
+_bind_checkpoint_path()
+_bind_evidence_paths()
+
+
+def setUpModule() -> None:
+    _bind_security_and_persistence_paths()
+    _bind_checkpoint_path()
+    _bind_dataset_library_paths()
+    _bind_evidence_paths()
+
+
 def cleanup() -> None:
+    # A second cleanup pass can run at process exit after other suites have
+    # rebound the shared modules. Restore this suite's owned paths before any
+    # pending asynchronous checkpoint work is flushed.
+    _bind_security_and_persistence_paths()
+    _bind_dataset_library_paths()
+    _bind_checkpoint_path()
+    _bind_evidence_paths()
     for client in list(CLIENTS):
         client.close()
     CLIENTS.clear()
+    checkpoint.flush_checkpoint()
     for base_name in ("security.db", "persistence.db"):
         base = TEST_ROOT / base_name
         for suffix in ("", "-wal", "-shm"):
@@ -56,6 +141,7 @@ def cleanup() -> None:
                     if attempt < 19:
                         time.sleep(0.1)
     shutil.rmtree(TEST_ROOT, ignore_errors=True)
+    shutil.rmtree(BACKUP_ROOT, ignore_errors=True)
     for key, value in ORIGINAL_ENVIRONMENT.items():
         if value is None:
             os.environ.pop(key, None)
@@ -86,6 +172,10 @@ def register_client(label: str) -> tuple[TestClient, str]:
 class EvidenceCanonicalIdentityTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        _bind_security_and_persistence_paths()
+        _bind_dataset_library_paths()
+        _bind_checkpoint_path()
+        _bind_evidence_paths()
         init_security_store()
         initialize_persistence()
         cls.owner, cls.owner_id = register_client("owner")

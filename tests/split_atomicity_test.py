@@ -4,6 +4,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from pathlib import Path
 import sys
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -365,7 +366,11 @@ class SplitAtomicityTests(unittest.TestCase):
             patch.object(
                 training_preflight_service,
                 "DATASTORE",
-                self.store,
+                SimpleNamespace(
+                    current=lambda: self.store,
+                    meta=self.store.meta,
+                    target=self.store.target,
+                ),
             ),
             patch.object(
                 training_preflight_service,

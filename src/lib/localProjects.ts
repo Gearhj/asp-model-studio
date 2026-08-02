@@ -145,6 +145,7 @@ function minimalSnapshot(snapshot: WorkflowProjectSnapshot): WorkflowProjectSnap
     })),
     currentStepId: snapshot.currentStepId || workflow.steps[0]?.id || "step00",
     hasDataset: Boolean(snapshot.hasDataset),
+    datasetIdentity: snapshot.datasetIdentity ?? null,
     projectTools: snapshot.projectTools,
     restoreWarnings: snapshot.restoreWarnings,
   };
@@ -365,6 +366,7 @@ function snapshotFromLegacyPersisted(candidate: any): WorkflowProjectSnapshot | 
     workflowSteps: Array.isArray(state.workflowSteps) && state.workflowSteps.length ? state.workflowSteps : workflow.steps,
     currentStepId: state.currentStepId || workflow.steps[0]?.id || "step00",
     hasDataset: Boolean(state.hasDataset),
+    datasetIdentity: state.datasetIdentity ?? null,
     projectTools: state.projectTools,
   };
   return isMeaningfulProjectSnapshot(snapshot) ? snapshot : null;
@@ -587,6 +589,7 @@ export function createSnapshotFromState(state: CurrentWorkflowState): WorkflowPr
     workflowSteps: state.workflowSteps?.length ? state.workflowSteps : workflow.steps,
     currentStepId,
     hasDataset: Boolean(state.hasDataset),
+    datasetIdentity: state.datasetIdentity ?? null,
     projectTools: state.projectTools,
   };
 }
