@@ -83,6 +83,9 @@ async function compileTestModules() {
   await transpileSource("src/lib/serverPersistence.ts", path.join(TMP_DIR, "src/lib/serverPersistence.js"));
   await transpileSource("src/lib/activeProjectContext.ts", path.join(TMP_DIR, "src/lib/activeProjectContext.js"));
   await transpileSource("src/lib/authSession.ts", path.join(TMP_DIR, "src/lib/authSession.js"));
+  await transpileSource("src/lib/datasetIdentity.ts", path.join(TMP_DIR, "src/lib/datasetIdentity.js"));
+  await transpileSource("src/lib/authoritativeProjectContext.ts", path.join(TMP_DIR, "src/lib/authoritativeProjectContext.js"));
+  await transpileSource("src/lib/projectScopedRoutes.ts", path.join(TMP_DIR, "src/lib/projectScopedRoutes.js"));
   await transpileSource("src/lib/localDataset.ts", path.join(TMP_DIR, "src/lib/localDataset.js"));
   await transpileSource("src/lib/localProjects.ts", path.join(TMP_DIR, "src/lib/localProjects.js"));
   return {
@@ -300,11 +303,12 @@ test("Predictive workflow keeps Project Context concise and downstream regressio
   assert.match(projectContext, /Not yet defined/);
   assert.doesNotMatch(projectContext, /Overprediction cost|Underprediction cost/, "Project Context must not restore the removed cost questionnaire.");
   assert.match(dataAcquisition, /Corr\(Target\)/);
-  assert.match(dataAcquisition, /Target Mean/);
-  assert.match(dataAcquisition, /props\.targetInfo\.kind === "continuous"/);
+  assert.match(dataAcquisition, /Correlation/);
+  assert.doesNotMatch(dataAcquisition, /Target Mean/, "The consolidated Data Acquisition table must not restore the removed duplicate target-mean column.");
+  assert.match(dataAcquisition, /targetInfo\.kind === "continuous"/);
   assert.match(balancing, /problemType === "classification"/);
   assert.match(balancing, /Class balancing is not applicable to regression/);
-  assert.match(balancing, /Training and validation populations retain their observed target distributions/);
+  assert.match(balancing, /Training and\s+validation populations retain their observed distributions/);
   assert.match(scoring, /External Validation Dataset/);
   assert.match(scoring, /Out-of-Time Dataset/);
   assert.doesNotMatch(scoring, /Mark Complete &amp; Build Document|Mark Complete & Build Document|navigate\("\/step11"\)/);
@@ -363,7 +367,7 @@ test("EDA and Interpretation handle classification-specific predictive workflow 
   for (const term of [
     "target_profile",
     "Target balance",
-    "Full Governed Population class prevalence",
+    "Development Population class prevalence",
     "Non-event",
     "Event",
     "Rare-event safeguards are required",

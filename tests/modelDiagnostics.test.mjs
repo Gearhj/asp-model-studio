@@ -60,7 +60,7 @@ assert.match(scoring, /Residual Diagnostics/, "Regression scored output should a
 assert.match(scoring, /Pozzolo Prior Correction \/ Undersampling Calibration/, "Scoring page must show Pozzolo correction in classification/scoring context.");
 assert.match(scoring, /alpha = \[pi \/ \(1 - pi\)\] \/ \[pi_s \/ \(1 - pi_s\)\]/, "Scoring page must show Pozzolo alpha equation.");
 assert.match(scoring, /p_corrected = \(alpha \* p_s\) \/ \(1 - p_s \+ alpha \* p_s\)/, "Scoring page must show Pozzolo probability equation.");
-assert.match(scoring, /Pozzolo correction is classification-only and does not apply to regression predictions/, "Scoring page must mark Pozzolo as not applicable for regression.");
+assert.match(scoring, /Use this when a classification model was trained on a sampled or balanced class distribution/, "Scoring page must scope Pozzolo correction to classification probability calibration.");
 assert.match(scoring, /registerScoredDataset/, "Scoring page must call scored registration API.");
 assert.match(evalRouter, /\/score\/development-split/, "Backend must expose development TRAIN split scoring.");
 assert.match(evalService, /def score_development_split/, "Evaluation service must score development TRAIN and TEST splits.");
@@ -149,26 +149,26 @@ assert.match(workbench, /Scored output context detected/);
 for (const vifTerm of ["Predictor Redundancy Check", "VIF", "Use in model", "VIF_AUTO_EXCLUDE_THRESHOLD = 10", "Uncheck VIF", "Excluded after VIF review", "saveFeatureManifest"]) {
   assert.match(featureEngineering, new RegExp(vifTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Feature Engineering VIF card missing ${vifTerm}.`);
 }
-for (const vifTerm of ["def _vif", "len(work) > 20000", "random_state=42", "1 / max(1 - r_squared", '"high" if vif >= 10', '"review" if vif >= 5']) {
+for (const vifTerm of ["def _vif", "work.shape[1] < 2 or len(work) < 5", "np.linalg.lstsq", "1 / max(1 - r_squared", '"high" if vif >= 10', '"review" if vif >= 5']) {
   assert.match(edaWorkspaceService, new RegExp(vifTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Backend Feature Engineering VIF analysis missing ${vifTerm}.`);
 }
 for (const vifTerm of ["VIF_EXCLUDED_FIELD_RE", "Diagnostic/output field", "Non-numeric variable", "Too many missing values", "Constant variable", "Singular matrix", "Not enough rows", "Tolerance = 1 / VIF"]) {
   assert.match(diagStore, new RegExp(vifTerm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Backend VIF analysis missing ${vifTerm}.`);
 }
 
-for (const term of ["Validation Split", "Holdout policy", "Reserved for final, untouched validation", "Full-data split", "CV set in training", "full backend dataset"]) {
+for (const term of ["Training and Validation Design", "Data Acquisition Analysis Partition", "read-only reference", "sealed final holdout", "Cross-validation stays inside the development population", "Final-holdout, TEST, and OOT target distributions are not inspected here"]) {
   assert.match(balancingSplit, new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Balance & Split validation design missing ${term}.`);
 }
 assert.doesNotMatch(balancingSplit, /Additional validation designs|Planned future validation designs/);
 
-for (const term of ["Training Readiness", "Algorithm Selection", "Execution Policy", "Train Selected Models", "Parallel model workers", "Actual concurrency is capped by preflight", "Probability calibration", "Hyperparameter search", "Governed defaults", "Cancel Training", "Live Training", "Candidate Leaderboard"]) {
+for (const term of ["Training Readiness", "Algorithm Selection", "Execution Policy", "Selected Model Bench", "primaryTrainingActionLabel", "Parallel model workers", "Actual concurrency is capped by preflight", "Probability calibration", "Hyperparameter search", "Governed defaults", "Cancel Training", "Live Training", "Candidate Leaderboard"]) {
   assert.match(modelTraining, new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Model Training UX missing ${term}.`);
 }
 for (const term of ["Best use:", "Interpretability:", "Scaling:", "Categorical:", "Probability:", "Tuning:"]) {
   assert.match(modelTraining, new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Model Training algorithm card missing ${term}.`);
 }
 
-for (const term of ["Actual vs Predicted", "Residuals vs Predicted", "Q-Q Plot", "Residual Distribution", "Residual Diagnostics by Predicted Decile", "Recommended action", "target transformation", "robust regression", "OOT residual behavior"]) {
+for (const term of ["Recommended action", "Final holdout - reporting only", "verified selection evidence only", "cannot reorder the leaderboard", "does not derive, optimize, or recommend a threshold", "cannot affect candidate selection, feature selection, or threshold tuning"]) {
   assert.match(evaluation, new RegExp(term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Evaluation interpretation missing ${term}.`);
 }
 
@@ -181,10 +181,10 @@ assert.match(diagRouter, /positiveClass: Optional\[str\]/, "Diagnostics export e
 assert.match(diagnostics, /export created from the current field mapping and diagnostic results/, "Diagnostics export success message should confirm current mapping/result export.");
 
 assert.match(outliers, /NONE/, "Outliers must support a None method.");
-assert.match(outliers, /None - preserve observed values/, "Outliers global method list must expose None.");
+assert.match(outliers, /None — preserve observed values/, "Outliers global method list must expose None.");
 assert.match(outliers, /USE_GLOBAL/, "Outliers individual method list must expose Use global method.");
 assert.match(outliers, /effectiveMethod\(config\[row\.feature\], globalMethod\)/, "Variable-level None must affect full-data outlier counts.");
-assert.match(outliers, /localStorage\.setItem\(CONFIG_KEY/, "Outlier method selections must persist.");
+assert.match(outliers, /localStorage\.setItem\([\s\S]{0,120}canonicalDatasetStorageKey\(CONFIG_KEY, datasetIdentity\)/, "Outlier method selections must persist under the exact canonical dataset identity.");
 assert.match(outliers, /\/outliers\/apply/, "Outlier treatments must be materialized through the backend.");
 
 console.log("Model Diagnostics Phase 10G checks passed.");

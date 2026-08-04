@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { FileClock, LockKeyhole, LogOut, ShieldCheck, UserPlus, Users } from "lucide-react";
 import BrandLogo from "../components/BrandLogo";
 import {
@@ -19,6 +19,7 @@ import {
 import { listDatasets, listProjectDatasets, type AtlasUser, type DatasetSummary, type ProjectDatasetLink } from "../lib/datasetLibrary";
 import { loadLocalProjects } from "../lib/localProjects";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { safeAuthReturnPath } from "../lib/authReturnPath";
 import { auditExportUrl, searchAuditLog, type AuditEvent } from "../lib/adminSharing";
 
 const roles = ["admin", "data_scientist", "validator", "manager", "viewer", "data_steward", "model_owner", "model_manager", "auditor"];
@@ -30,6 +31,7 @@ type AuthPageProps = {
 
 export function LoginPage({ onAuthenticated }: AuthPageProps = {}) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [email, setEmail] = useState(() => localStorage.getItem(KEEP_SIGNED_IN_EMAIL_KEY) || "admin@atlas.local");
   const [password, setPassword] = useState("");
   const [keepSignedIn, setKeepSignedIn] = useState(() => Boolean(localStorage.getItem(KEEP_SIGNED_IN_EMAIL_KEY)));
@@ -45,7 +47,8 @@ export function LoginPage({ onAuthenticated }: AuthPageProps = {}) {
         localStorage.removeItem(KEEP_SIGNED_IN_EMAIL_KEY);
       }
       onAuthenticated?.(response.user);
-      navigate("/dashboard", { replace: true });
+      const returnTo = safeAuthReturnPath(new URLSearchParams(location.search).get("returnTo"));
+      navigate(returnTo || "/dashboard", { replace: true });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Sign in failed. Check your email and password.");
     }
@@ -67,6 +70,7 @@ export function LoginPage({ onAuthenticated }: AuthPageProps = {}) {
 
 export function RegisterPage({ onAuthenticated }: AuthPageProps = {}) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
   const [password, setPassword] = useState("");
@@ -82,7 +86,8 @@ export function RegisterPage({ onAuthenticated }: AuthPageProps = {}) {
     try {
       const response = await register(email, displayName, password);
       onAuthenticated?.(response.user);
-      navigate("/dashboard", { replace: true });
+      const returnTo = safeAuthReturnPath(new URLSearchParams(location.search).get("returnTo"));
+      navigate(returnTo || "/dashboard", { replace: true });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "ATLAS could not create this account.");
     }
@@ -169,6 +174,9 @@ export function AccountPage() {
           <button
             onClick={async () => {
               await logout();
+              // Clear only the ambient selected-workflow view. Durable project
+              // records remain in the authorized backend registry.
+              useWorkflowStore.getState().reset();
               navigate("/login");
             }}
             className="inline-flex w-fit items-center gap-2 rounded-lg border border-red-200 bg-white px-3 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"

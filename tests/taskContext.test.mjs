@@ -40,7 +40,9 @@ async function loadModule() {
   await rm(TMP_DIR, { recursive: true, force: true });
   await transpileSource("src/lib/activeProjectContext.ts", path.join(TMP_DIR, "src/lib/activeProjectContext.js"));
   await transpileSource("src/lib/authSession.ts", path.join(TMP_DIR, "src/lib/authSession.js"));
+  await transpileSource("src/lib/datasetIdentity.ts", path.join(TMP_DIR, "src/lib/datasetIdentity.js"));
   await transpileSource("src/lib/localDataset.ts", path.join(TMP_DIR, "src/lib/localDataset.js"));
+  await transpileSource("src/lib/scopedTrainingHistory.ts", path.join(TMP_DIR, "src/lib/scopedTrainingHistory.js"));
   await transpileSource("src/lib/taskContext.ts", path.join(TMP_DIR, "src/lib/taskContext.js"));
   return import(pathToFileURL(path.join(TMP_DIR, "src/lib/taskContext.js")).href);
 }
@@ -56,11 +58,11 @@ test("backend regression truth wins even when the local dataset cache says class
   assert.equal(result.source, "backend-training");
 });
 
-test("falls back to the local dataset cache when no backend summary exists", () => {
+test("uses explicit target-contract metadata when no backend training summary exists", () => {
   const localDataset = { headers: ["MedHouseVal", "AveRooms"], rows: Array.from({ length: 20 }, (_, i) => ({ MedHouseVal: i * 0.3, AveRooms: i })), target: "MedHouseVal", selected_columns: ["AveRooms"], problem_type: "regression" };
   const result = deriveTaskContext(null, localDataset);
   assert.equal(result.problemType, "regression");
-  assert.equal(result.source, "local-cache");
+  assert.equal(result.source, "target-contract-metadata");
 });
 
 test("returns null problemType (never defaults to classification) when nothing is known", () => {
@@ -69,9 +71,22 @@ test("returns null problemType (never defaults to classification) when nothing i
   assert.equal(result.source, "unknown");
 });
 
-test("backend summary with an unrecognized problem_type value falls back to local cache instead of trusting it", () => {
+test("backend summary with an unrecognized problem_type uses explicit target-contract metadata instead", () => {
   const localDataset = { headers: ["MedHouseVal"], rows: Array.from({ length: 20 }, (_, i) => ({ MedHouseVal: i })), target: "MedHouseVal", selected_columns: [], problem_type: "regression" };
   const result = deriveTaskContext({ problem_type: "anomaly" }, localDataset);
   assert.equal(result.problemType, "regression");
-  assert.equal(result.source, "local-cache");
+  assert.equal(result.source, "target-contract-metadata");
+});
+
+test("browser target values never infer problem type without authoritative metadata", () => {
+  const targetBearingRows = {
+    headers: ["Class", "V1"],
+    rows: [{ Class: 0, V1: 1 }, { Class: 1, V1: 2 }],
+    target: "Class",
+    selected_columns: ["V1"],
+  };
+  const result = deriveTaskContext(null, targetBearingRows);
+  assert.equal(result.problemType, null);
+  assert.equal(result.target, null);
+  assert.equal(result.source, "unknown");
 });

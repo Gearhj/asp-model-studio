@@ -7,11 +7,15 @@ from __future__ import annotations
 
 import logging
 import os
+import uuid
 from typing import Dict, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Body
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import JSONResponse
 
 from ..core.dataset_store import DATASTORE
+from ..core.json_safety import json_safe
 from ..core.modeling_scope import authorize_modeling_scope
 from ..security.security_store import require_user
 from .documentation_service import (
@@ -68,6 +72,23 @@ def _raise_documentation_validation(
     ) from exc
 
 
+def _raise_analytical_readiness(exc: EDAAnalyticalContractError) -> None:
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "ok": False,
+            "code": getattr(exc, "code", "analysis_partition_stale"),
+            "message": str(exc),
+            "recovery": getattr(
+                exc,
+                "recovery",
+                "Return to Data Acquisition and confirm the Analysis Partition.",
+            ),
+            "stale_artifacts": getattr(exc, "stale_artifacts", []),
+        },
+    ) from exc
+
+
 @router.get("/documentation/{project_id}")
 def get_eda_documentation(
     project_id: str,
@@ -86,6 +107,8 @@ def get_eda_documentation(
         )
     except EDADocumentationValidationError as exc:
         _raise_documentation_validation(exc)
+    except EDAAnalyticalContractError as exc:
+        _raise_analytical_readiness(exc)
 
 
 @router.post("/documentation/draft")
@@ -100,6 +123,8 @@ def save_eda_documentation_draft(
         return eda_documentation_service.upsert_draft(request, user)
     except EDADocumentationValidationError as exc:
         _raise_documentation_validation(exc)
+    except EDAAnalyticalContractError as exc:
+        _raise_analytical_readiness(exc)
 
 
 @router.post("/confirmation")
@@ -114,6 +139,8 @@ def confirm_eda_documentation(
         return eda_documentation_service.confirm(request, user)
     except EDADocumentationValidationError as exc:
         _raise_documentation_validation(exc)
+    except EDAAnalyticalContractError as exc:
+        _raise_analytical_readiness(exc)
 
 
 @router.post("/completion")
@@ -128,6 +155,8 @@ def complete_eda_governance(
         return eda_documentation_service.complete(request, user)
     except EDADocumentationValidationError as exc:
         _raise_documentation_validation(exc)
+    except EDAAnalyticalContractError as exc:
+        _raise_analytical_readiness(exc)
 
 
 @router.post("/documentation/{project_id}/invalidate")
@@ -150,12 +179,16 @@ def invalidate_eda_documentation(
         )
     except EDADocumentationValidationError as exc:
         _raise_documentation_validation(exc)
+    except EDAAnalyticalContractError as exc:
+        _raise_analytical_readiness(exc)
 
 
 @router.post("/workspace/{section}")
 def eda_workspace_section(section: str, request: EDAWorkspaceRequest, user: Dict[str, Any] = Depends(require_user)):
-    authorize_modeling_scope(user, request.project_id, "view")
+    correlation_id = f"eda-{uuid.uuid4().hex}"
+    correlation_headers = {"X-Request-Correlation-ID": correlation_id}
     try:
+        authorize_modeling_scope(user, request.project_id, "view")
         result = eda_workspace_service.section(section, request)
         if DEV_LOGGING:
             logger.info(
@@ -166,38 +199,120 @@ def eda_workspace_section(section: str, request: EDAWorkspaceRequest, user: Dict
                 result.get("column_count"),
                 result.get("target"),
             )
-        return result
-    except ValueError as exc:
-        detail = str(exc)
-        status = (
-            409
-            if isinstance(exc, EDAAnalyticalContractError)
-            or "dataset" in detail.lower()
-            or "target" in detail.lower()
-            else 400
+        # JSONResponse performs the final serialization here, inside the
+        # guarded boundary.  `json_safe` removes NumPy scalar/array values and
+        # `jsonable_encoder` verifies the remainder before control returns to
+        # FastAPI's outer response machinery.
+        payload = jsonable_encoder(json_safe(result))
+        return JSONResponse(
+            status_code=200,
+            content=payload,
+            headers=correlation_headers,
         )
-        if DEV_LOGGING:
-            logger.info(
-                "EDA request received section=%s dataset=unavailable found=false rows=0 cols=0 target=%s status=%s detail=%s",
-                section,
-                request.target,
-                status,
-                detail,
-            )
+    except HTTPException as exc:
+        # Identity and authorization helpers raise HTTPException directly.
+        # Normalize those expected failures here so they carry the same safe
+        # correlation contract as analytical-readiness failures.
+        status_code = int(exc.status_code)
+        if status_code in {401, 403}:
+            code = "eda_authorization_required"
+            message = "The current session is not authorized for this project-scoped EDA request."
+            recovery = "Sign in again or ask a project administrator to confirm access."
+        elif status_code == 422:
+            code = "dataset_identity_required"
+            message = "EDA requires the exact active dataset and dataset-version identifiers."
+            recovery = "Reload the project from Data Acquisition and retry."
+        elif status_code == 409:
+            code = "dataset_identity_mismatch"
+            message = "The requested dataset identity is not the exact active Dataset Library version."
+            recovery = "Reload Data Acquisition and retry against its active version."
+        else:
+            code = "eda_request_invalid"
+            message = "The governed EDA request could not be accepted."
+            recovery = "Review the project and dataset context, then retry."
+        logger.info(
+            "EDA governed request rejected correlation_id=%s section=%s project_id=%s code=%s status=%s",
+            correlation_id,
+            section,
+            request.project_id,
+            code,
+            status_code,
+        )
         raise HTTPException(
-            status_code=status,
+            status_code=status_code,
             detail={
                 "ok": False,
-                "code": (
-                    "eda_analytical_scope_not_current"
-                    if isinstance(exc, EDAAnalyticalContractError)
-                    else "backend_dataset_missing"
-                    if status == 409
-                    else "eda_request_invalid"
-                ),
-                "message": detail,
-                "recovery": "Return to Data Acquisition and re-register the dataset, or retry after confirming the backend is running.",
+                "code": code,
+                "message": message,
+                "recovery": recovery,
+                "correlation_id": correlation_id,
             },
+            headers=correlation_headers,
+        ) from exc
+    except EDAAnalyticalContractError as exc:
+        if DEV_LOGGING:
+            logger.info(
+                "EDA governed prerequisite unavailable correlation_id=%s section=%s project_id=%s code=%s status=409",
+                correlation_id,
+                section,
+                request.project_id,
+                getattr(exc, "code", "eda_contract_unavailable"),
+            )
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "ok": False,
+                "code": getattr(exc, "code", "eda_contract_unavailable"),
+                "message": str(exc),
+                "recovery": getattr(
+                    exc,
+                    "recovery",
+                    "Return to Data Acquisition and confirm the governed EDA prerequisites.",
+                ),
+                "stale_artifacts": getattr(exc, "stale_artifacts", []),
+                "correlation_id": correlation_id,
+            },
+            headers=correlation_headers,
+        ) from exc
+    except (RelationshipSampleValidationError, ValueError) as exc:
+        if DEV_LOGGING:
+            logger.info(
+                "EDA request validation failed correlation_id=%s section=%s project_id=%s status=422",
+                correlation_id,
+                section,
+                request.project_id,
+            )
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "ok": False,
+                "code": "eda_request_invalid",
+                "message": str(exc),
+                "recovery": "Review the requested EDA section and governed field selections.",
+                "correlation_id": correlation_id,
+            },
+            headers=correlation_headers,
+        ) from exc
+    except Exception as exc:
+        logger.exception(
+            "Unexpected EDA execution failure correlation_id=%s section=%s project_id=%s",
+            correlation_id,
+            section,
+            request.project_id,
+        )
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "ok": False,
+                "code": "internal_eda_execution_error",
+                "message": "EDA could not complete the governed analytical request.",
+                "recovery": (
+                    "Retry the request once. If it continues to fail, provide "
+                    "the correlation ID to an administrator."
+                ),
+                "correlation_id": correlation_id,
+            },
+            headers=correlation_headers,
         ) from exc
 
 
@@ -216,14 +331,19 @@ def eda_target_by_predictor(request: TargetByPredictorRequest, user: Dict[str, A
             detail={
                 "ok": False,
                 "code": (
-                    "eda_analytical_scope_not_current"
+                    getattr(exc, "code", "analysis_partition_stale")
                     if scope_error
                     else "backend_dataset_missing"
                     if status == 409
                     else "eda_request_invalid"
                 ),
                 "message": detail,
-                "recovery": "Confirm a target and a valid predictor, or return to Data Acquisition and re-register the dataset.",
+                "recovery": (
+                    getattr(exc, "recovery", "Return to Data Acquisition and confirm the Analysis Partition.")
+                    if scope_error
+                    else "Confirm a target and a valid predictor in Data Acquisition."
+                ),
+                "stale_artifacts": getattr(exc, "stale_artifacts", []) if scope_error else [],
             },
         ) from exc
 
@@ -385,21 +505,21 @@ def _authorized_df(project_id: str, *, include_target: bool = True):
 @router.get("/overview")
 def eda_overview(project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)):
     authorize_modeling_scope(user, project_id, "view")
-    df, _target, _authorization = _authorized_df(project_id)
+    df, _target, _authorization = _authorized_df(project_id, include_target=False)
     return eda_service.dataset_overview(df)
 
 
 @router.get("/numeric_summary")
 def numeric_summary(project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)):
     authorize_modeling_scope(user, project_id, "view")
-    df, _target, _authorization = _authorized_df(project_id)
+    df, _target, _authorization = _authorized_df(project_id, include_target=False)
     return eda_service.numeric_summary(df)
 
 
 @router.get("/missing")
 def missing_summary(project_id: str = Query(...), user: Dict[str, Any] = Depends(require_user)):
     authorize_modeling_scope(user, project_id, "view")
-    df, _target, _authorization = _authorized_df(project_id)
+    df, _target, _authorization = _authorized_df(project_id, include_target=False)
     return eda_service.missing_summary(df)
 
 
@@ -466,8 +586,32 @@ def correlation(project_id: str = Query(...), user: Dict[str, Any] = Depends(req
 @router.get("/sample")
 def sample(project_id: str = Query(...), max_rows: int = 10000, user: Dict[str, Any] = Depends(require_user)):
     authorize_modeling_scope(user, project_id, "view")
-    df, _target, _authorization = _authorized_df(project_id)
-    return eda_service.sample_records(df, max_rows=max_rows)
+    try:
+        df, _target, _y, _problem, _event, authorization, scope = (
+            eda_workspace_service.authorized_development_dataset(
+                EDAWorkspaceRequest(
+                    project_id=project_id,
+                    target=DATASTORE.target,
+                ),
+                include_target=False,
+            )
+        )
+    except EDAAnalyticalContractError as exc:
+        _raise_analytical_readiness(exc)
+    result = eda_service.sample_records(df, max_rows=max_rows)
+    result.update(
+        {
+            "scope": "development_population",
+            "analysis_partition_id": scope["analysis_partition_id"],
+            "analysis_partition_revision": scope[
+                "analysis_partition_revision"
+            ],
+            "predictor_authorization": authorization,
+            "target_excluded": True,
+            "final_holdout_accessed": False,
+        }
+    )
+    return result
 
 
 # ---------------------------------------------------------------------------
@@ -476,7 +620,17 @@ def sample(project_id: str = Query(...), max_rows: int = 10000, user: Dict[str, 
 @router.post("/d3_histogram")
 def d3_histogram(payload: Dict[str, Any] = Body(...), user: Dict[str, Any] = Depends(require_user)):
     project_id = authorize_modeling_scope(user, payload.get("project_id"), "view")
-    df, target, authorization = _authorized_df(project_id)
+    try:
+        df, target, _y, _problem, _event, authorization, scope = (
+            eda_workspace_service.authorized_development_dataset(
+                EDAWorkspaceRequest(
+                    project_id=project_id,
+                    target=DATASTORE.target,
+                )
+            )
+        )
+    except EDAAnalyticalContractError as exc:
+        _raise_analytical_readiness(exc)
     feature = payload.get("feature") or ""
     bins = int(payload.get("bins") or 20)
     sample_pct = int(payload.get("sample_pct") or 10)
@@ -498,6 +652,17 @@ def d3_histogram(payload: Dict[str, Any] = Body(...), user: Dict[str, Any] = Dep
     )
     if not res.get("ok"):
         raise HTTPException(status_code=400, detail=res.get("error", "Histogram failed."))
+    res.update(
+        {
+            "scope": "development_population",
+            "analysis_partition_id": scope["analysis_partition_id"],
+            "analysis_partition_revision": scope[
+                "analysis_partition_revision"
+            ],
+            "final_holdout_accessed": False,
+            "final_holdout_used_for_selection": False,
+        }
+    )
     return res
 
 

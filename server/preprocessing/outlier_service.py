@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Mapping
 
 import numpy as np
 import pandas as pd
@@ -9,7 +9,6 @@ from .feature_profile_service import information_value
 from .predictor_authorization import (
     bureau_special_mask,
     bureau_special_summary,
-    governed_predictor_authorization,
 )
 
 
@@ -75,24 +74,6 @@ def _rendered_sample(values: pd.Series, limit: int = 600) -> list[float]:
     return [float(value) for value in clean.iloc[indexes].tolist()]
 
 
-def _problem_type(target: pd.Series | None, requested: str | None) -> str:
-    if requested in {"classification", "regression"}:
-        return str(requested)
-    if target is None:
-        return "classification"
-    distinct = int(target.dropna().nunique())
-    return "classification" if 1 < distinct <= 20 else "regression"
-
-
-def _event_value(target: pd.Series, requested: Any) -> Any:
-    if requested is not None and str(requested) != "":
-        return requested
-    for value in target.dropna().unique():
-        if str(value) == "1":
-            return value
-    return None
-
-
 class OutlierService:
     def summary(
         self,
@@ -101,26 +82,44 @@ class OutlierService:
         event_value: Any = None,
         problem_type: str | None = None,
         selected_columns: list[str] | None = None,
+        *,
+        predictor_authorization: Mapping[str, Any] | None = None,
+        target_analysis_features: pd.DataFrame | None = None,
+        target_analysis_target: pd.Series | None = None,
     ) -> dict[str, Any]:
         if df is None or df.empty:
-            raise ValueError("No full backend dataset is loaded.")
+            raise ValueError("No full governed predictor population is loaded.")
+        if not isinstance(predictor_authorization, Mapping):
+            raise ValueError(
+                "Exact durable predictor authorization is required for outlier analysis."
+            )
+        if target_analysis_features is None or target_analysis_target is None:
+            raise ValueError(
+                "The exact development population is required for target-directed outlier analysis."
+            )
 
-        y = df[target] if target and target in df.columns else None
-        resolved_problem = _problem_type(y, problem_type)
-        resolved_event = _event_value(y, event_value) if y is not None and resolved_problem == "classification" else None
+        y = target_analysis_target
+        resolved_problem = str(problem_type or "").strip().lower()
+        if resolved_problem not in {"classification", "regression"}:
+            raise ValueError(
+                "The exact governed problem type is required for outlier analysis."
+            )
+        resolved_event = event_value if resolved_problem == "classification" else None
+        if resolved_problem == "classification" and resolved_event in (None, ""):
+            raise ValueError(
+                "The exact governed event value is required for classification outlier analysis."
+            )
         event_rate = None
         if y is not None and resolved_event is not None:
             valid = y.notna()
             event_rate = float((y[valid].astype(str) == str(resolved_event)).mean()) if int(valid.sum()) else None
 
-        authorization = governed_predictor_authorization(
-            df,
-            target=target,
-            selected_columns=selected_columns,
-        )
+        authorization = dict(predictor_authorization)
         rows: list[dict[str, Any]] = []
         for name in authorization["authorized_predictors"]:
             column = name
+            if column not in df.columns or column not in target_analysis_features.columns:
+                continue
             numeric = _numeric(df[column])
             if numeric is None:
                 continue
@@ -130,20 +129,31 @@ class OutlierService:
 
             signal = None
             association_status = "not_evaluated"
-            if y is not None:
-                if resolved_problem == "classification":
-                    try:
-                        signal, resolved_event = information_value(df[column], y, resolved_event)
+            development_series = target_analysis_features[column]
+            if resolved_problem == "classification":
+                try:
+                    signal, resolved_event = information_value(
+                        development_series,
+                        y,
+                        resolved_event,
+                    )
+                    association_status = "evaluated"
+                except ValueError:
+                    association_status = "target_definition_required"
+            else:
+                pairs = pd.DataFrame(
+                    {
+                        "feature": pd.to_numeric(
+                            development_series, errors="coerce"
+                        ),
+                        "target": pd.to_numeric(y, errors="coerce"),
+                    }
+                ).dropna()
+                if len(pairs) >= 3:
+                    correlation = pairs["feature"].corr(pairs["target"])
+                    if pd.notna(correlation):
+                        signal = float(correlation)
                         association_status = "evaluated"
-                    except ValueError:
-                        association_status = "target_definition_required"
-                else:
-                    pairs = pd.DataFrame({"feature": ordinary, "target": pd.to_numeric(y, errors="coerce")}).dropna()
-                    if len(pairs) >= 3:
-                        correlation = pairs["feature"].corr(pairs["target"])
-                        if pd.notna(correlation):
-                            signal = float(correlation)
-                            association_status = "evaluated"
 
             clean = ordinary.dropna().astype(float)
             quantiles = clean.quantile([0.01, 0.05, 0.25, 0.5, 0.75, 0.95, 0.99]) if len(clean) else None
@@ -181,8 +191,12 @@ class OutlierService:
         rows.sort(key=lambda row: abs(float(row["signal_metric"] or 0)), reverse=True)
         return {
             "ok": True,
-            "scope": "full_dataset",
+            "scope": "development_population",
+            "analysis_scope": "development_population",
+            "target_directed_scope": "development_population",
+            "structural_scope": "full_governed_population_predictors_only",
             "row_count": int(len(df)),
+            "development_row_count": int(len(y)),
             "target": target,
             "problem_type": resolved_problem,
             "event_value": resolved_event,
@@ -199,18 +213,20 @@ class OutlierService:
         global_method: str = "IQR_1_5",
         target: str | None = None,
         selected_columns: list[str] | None = None,
+        *,
+        predictor_authorization: Mapping[str, Any] | None = None,
     ) -> tuple[pd.DataFrame, list[dict[str, Any]]]:
         if df is None or df.empty:
             raise ValueError("No full backend dataset is loaded.")
         if global_method not in OUTLIER_METHODS:
             raise ValueError(f"Unsupported global outlier method: {global_method}.")
 
+        if not isinstance(predictor_authorization, Mapping):
+            raise ValueError(
+                "Exact durable predictor authorization is required for outlier treatment."
+            )
         work = df.copy()
-        authorization = governed_predictor_authorization(
-            work,
-            target=target,
-            selected_columns=selected_columns,
-        )
+        authorization = dict(predictor_authorization)
         authorized = set(authorization["authorized_predictors"])
         applied: list[dict[str, Any]] = []
         for column, configured_value in config.items():

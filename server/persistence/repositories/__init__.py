@@ -1,4 +1,9 @@
 from .access_repository import AccessRepository
+from .analysis_partition_repository import (
+    AnalysisPartitionConflictError,
+    AnalysisPartitionRepository,
+    AnalysisPartitionStateError,
+)
 from .audit_repository import AuditRepository
 from .collaboration_repository import CollaborationRepository
 from .dataset_repository import DatasetRepository
@@ -30,9 +35,18 @@ from .monitoring_repository import MonitoringRepository
 from .user_repository import UserRepository
 from .validation_repository import ValidationRepository
 from .analytics_repository import AnalyticsRepository
+from .predictor_authorization_repository import PredictorAuthorizationRepository
+from .special_value_review_repository import (
+    SpecialValueReviewConflictError,
+    SpecialValueReviewRepository,
+    SpecialValueReviewStateError,
+)
 
 __all__ = [
     "AccessRepository",
+    "AnalysisPartitionConflictError",
+    "AnalysisPartitionRepository",
+    "AnalysisPartitionStateError",
     "AuditRepository",
     "CollaborationRepository",
     "DatasetRepository",
@@ -60,4 +74,8 @@ __all__ = [
     "UserRepository",
     "ValidationRepository",
     "AnalyticsRepository",
+    "PredictorAuthorizationRepository",
+    "SpecialValueReviewConflictError",
+    "SpecialValueReviewRepository",
+    "SpecialValueReviewStateError",
 ]

@@ -46,6 +46,7 @@ import { loadLocalProjects, projectProgress, type LocalProjectRecord } from "../
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { getProjectPersistenceBundle } from "../lib/serverPersistence";
 import { summarizePersistedEvidence } from "../lib/persistedEvidenceStatus";
+import { projectWorkflowRoute } from "../lib/projectScopedRoutes";
 
 type ProjectOption = {
   projectId: string;
@@ -513,7 +514,7 @@ export default function ModelDocumentationStudio() {
             {rightTab === "export" && document && (
               <ExportPackage document={document} exporting={exporting} onExport={handleExport} />
             )}
-            {rightTab === "source" && <OpenSourcePages />}
+            {rightTab === "source" && <OpenSourcePages projectId={projectId} />}
           </div>
         </aside>
       </section>
@@ -906,7 +907,7 @@ function ExportPackage({ document, exporting, onExport }: { document: ModelDocum
   );
 }
 
-function OpenSourcePages() {
+function OpenSourcePages({ projectId }: { projectId: string }) {
   return (
     <Panel title="Open Source Pages" icon={<Sparkles size={17} />}>
       <Link className="atlas-secondary-button" to="/project-overview">Project Overview</Link>
@@ -914,7 +915,12 @@ function OpenSourcePages() {
       <Link className="atlas-secondary-button" to="/chart-studio">Chart Studio</Link>
       <Link className="atlas-secondary-button" to="/notebook-studio">Notebook Studio</Link>
       <Link className="atlas-secondary-button" to="/analytics">Analytics Workbench</Link>
-      <Link className="atlas-secondary-button" to="/step11">Documentation Review Checkpoint</Link>
+      <Link
+        className="atlas-secondary-button"
+        to={projectId ? projectWorkflowRoute(projectId, "/step11") : "/projects/open"}
+      >
+        Documentation Review Checkpoint
+      </Link>
     </Panel>
   );
 }

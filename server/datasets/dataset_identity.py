@@ -471,6 +471,23 @@ def invalidate_dataset_identity(
     clear_frames: bool = False,
 ) -> None:
     """Mark unresolved legacy state stale without substituting another version."""
+    prior_project_id = _clean(store.meta.get("project_id"))
+    prior_dataset_id = _clean(store.meta.get("dataset_id"))
+    prior_dataset_version_id = _clean(store.meta.get("dataset_version_id"))
+    if prior_project_id and prior_dataset_id and prior_dataset_version_id:
+        try:
+            from ..analysis_partition.service import analysis_partition_service
+
+            analysis_partition_service.invalidate(
+                project_id=prior_project_id,
+                reason=str(reason),
+                expected_dataset_id=prior_dataset_id,
+                expected_dataset_version_id=prior_dataset_version_id,
+            )
+        except (ImportError, ValueError, RuntimeError):
+            # Dataset identity still fails closed even if the additive
+            # partition authority is unavailable during startup/migration.
+            pass
     store.meta["dataset_identity_status"] = "invalid"
     store.meta["dataset_identity_error"] = str(reason)
     store.meta["split_status"] = "stale"
@@ -653,6 +670,37 @@ def _publish_active_dataset_identity(
 
     cache_matches = _runtime_cache_matches(durable, store=store)
     paired_results = _paired_runtime_results(store, result_store)
+    prior_identity = {
+        "project_id": _clean(store.meta.get("project_id")),
+        "dataset_id": _clean(store.meta.get("dataset_id")),
+        "dataset_version_id": _clean(store.meta.get("dataset_version_id")),
+    }
+    next_identity = {
+        "project_id": _clean(durable.get("project_id")),
+        "dataset_id": _clean(durable.get("dataset_id")),
+        "dataset_version_id": _clean(durable.get("dataset_version_id")),
+    }
+    if (
+        not cache_matches
+        and all(prior_identity.values())
+        and prior_identity != next_identity
+    ):
+        try:
+            from ..analysis_partition.service import analysis_partition_service
+
+            analysis_partition_service.invalidate(
+                project_id=prior_identity["project_id"],
+                reason=(
+                    "The exact active Dataset Library version changed; the "
+                    "prior Analysis Partition is stale."
+                ),
+                expected_dataset_id=prior_identity["dataset_id"],
+                expected_dataset_version_id=prior_identity[
+                    "dataset_version_id"
+                ],
+            )
+        except (ImportError, ValueError, RuntimeError):
+            pass
     if not cache_matches and paired_results is not None:
         invalidate_downstream_training_state(
             "The durable dataset activation revision changed; prior "

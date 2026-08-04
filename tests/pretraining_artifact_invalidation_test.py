@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from threading import Event, Thread
 import unittest
 from unittest.mock import Mock, patch
@@ -19,8 +20,11 @@ from server.core.pretraining_invalidation import (
 )
 from server.core.result_store import RESULTS, ResultStore
 from server.datasets.dataset_router import activate_dataset_version
+from server.persistence.db import Database
+from server.persistence.service import PersistenceService
 from server.training.candidate_contract import (
     build_candidate_contract,
+    canonical_contract_hash,
     complete_training_contract,
 )
 from server.training.training_job_service import TrainingJobService
@@ -32,6 +36,27 @@ IDENTITY = {
     "dataset_id": "dataset-old",
     "dataset_version_id": "version-old",
 }
+
+
+def _target_semantics_authority() -> dict[str, object]:
+    """Return the same sealed target-authority shape emitted by preflight."""
+
+    authority: dict[str, object] = {
+        "target": "target",
+        "source_target_contract_id": "target-contract-old",
+        "problem_type": "classification",
+        "event_value": 1,
+        "non_event_value": 0,
+        "authority_source": (
+            "approved_validation_design_bound_to_sealed_analysis_partition"
+        ),
+        "analysis_partition_id": "analysis-partition-old",
+        "analysis_partition_revision": 1,
+        "validation_design_id": "design-old",
+        "validation_design_version": "design-version-old",
+    }
+    authority["target_authority_hash"] = canonical_contract_hash(authority)
+    return authority
 
 
 def _seed_downstream(store: DatasetStore, results: ResultStore) -> None:
@@ -194,54 +219,60 @@ class PretrainingArtifactInvalidationTests(unittest.TestCase):
             selected_columns=[],
             dataset_id=IDENTITY["dataset_id"],
             dataset_version_id=IDENTITY["dataset_version_id"],
+            event_value=1,
+            non_event_value=0,
         )
-        with (
-            patch(
-                "server.core.metadata_router.authorize_modeling_scope",
-                return_value=None,
-            ),
-            patch(
-                "server.core.metadata_router.assert_expected_active_identity",
-                return_value=IDENTITY,
-            ),
-            patch(
-                "server.core.metadata_router.schedule_checkpoint_save",
-                return_value=None,
-            ),
-        ):
-            changed = set_target(payload, user={})
+        # Direct unit invocation bypasses FastAPI startup, so provide the same
+        # fully migrated durable authority that production startup guarantees.
+        # This keeps the test isolated from both the live database and legacy
+        # minimal test databases without adding a non-durable runtime fallback.
+        with TemporaryDirectory(prefix="atlas-pretraining-invalidation-") as root:
+            database = Database(Path(root) / "atlas.db")
+            database.initialize()
+            persistence = PersistenceService(database)
+            with (
+                patch(
+                    "server.core.metadata_router.authorize_modeling_scope",
+                    return_value=None,
+                ),
+                patch(
+                    "server.core.metadata_router.assert_expected_active_identity",
+                    return_value=IDENTITY,
+                ),
+                patch(
+                    "server.core.metadata_router.schedule_checkpoint_save",
+                    return_value=None,
+                ),
+                patch(
+                    "server.core.metadata_router.get_persistence_service",
+                    return_value=persistence,
+                ),
+                patch(
+                    "server.analysis_partition.service.get_persistence_service",
+                    return_value=persistence,
+                ),
+            ):
+                changed = set_target(payload, user={})
 
-        self.assertTrue(changed["ok"])
-        self.assertNotIn("split_record", store.meta)
-        self.assertNotIn("validation_design", store.meta)
-        self.assertNotIn("training_execution", store.meta)
-        self.assertNotIn("model_selection_decision", store.meta)
-        self.assertIsNone(results.get_last_summary())
+                self.assertTrue(changed["ok"])
+                self.assertNotIn("split_record", store.meta)
+                self.assertNotIn("validation_design", store.meta)
+                self.assertNotIn("training_execution", store.meta)
+                self.assertNotIn("model_selection_decision", store.meta)
+                self.assertIsNone(results.get_last_summary())
 
-        _seed_downstream(store, results)
-        unchanged_payload = payload.model_copy(update={"selected_columns": []})
-        with (
-            patch(
-                "server.core.metadata_router.authorize_modeling_scope",
-                return_value=None,
-            ),
-            patch(
-                "server.core.metadata_router.assert_expected_active_identity",
-                return_value=IDENTITY,
-            ),
-            patch(
-                "server.core.metadata_router.schedule_checkpoint_save",
-                return_value=None,
-            ),
-        ):
-            unchanged = set_target(unchanged_payload, user={})
+                _seed_downstream(store, results)
+                unchanged_payload = payload.model_copy(
+                    update={"selected_columns": []}
+                )
+                unchanged = set_target(unchanged_payload, user={})
 
-        self.assertTrue(unchanged["ok"])
-        self.assertEqual(
-            results.get_last_summary(),
-            {"training_job_id": "job-old"},
-        )
-        self.assertIn("training_execution", store.meta)
+                self.assertTrue(unchanged["ok"])
+                self.assertEqual(
+                    results.get_last_summary(),
+                    {"training_job_id": "job-old"},
+                )
+                self.assertIn("training_execution", store.meta)
 
     def test_activation_injected_at_final_persistence_leaves_no_old_training_result(
         self,
@@ -276,6 +307,7 @@ class PretrainingArtifactInvalidationTests(unittest.TestCase):
             target="target",
             problem_type="classification",
         )
+        target_authority = _target_semantics_authority()
         training_contract = complete_training_contract(
             {
                 "project_id": IDENTITY["project_id"],
@@ -285,6 +317,19 @@ class PretrainingArtifactInvalidationTests(unittest.TestCase):
                 "problem_type": "classification",
                 "event_value": 1,
                 "non_event_value": 0,
+                "target_semantics_authority": target_authority,
+                "target_authority_hash": target_authority[
+                    "target_authority_hash"
+                ],
+                "source_target_contract_id": target_authority[
+                    "source_target_contract_id"
+                ],
+                "analysis_partition_id": target_authority[
+                    "analysis_partition_id"
+                ],
+                "analysis_partition_revision": target_authority[
+                    "analysis_partition_revision"
+                ],
                 "feature_manifest_version": "manifest-old",
                 "selected_original_features": ["x"],
                 "selected_engineered_features": [],
@@ -359,6 +404,19 @@ class PretrainingArtifactInvalidationTests(unittest.TestCase):
             "target": "target",
             "event_value": 1,
             "non_event_value": 0,
+            "target_semantics_authority": target_authority,
+            "target_authority_hash": target_authority[
+                "target_authority_hash"
+            ],
+            "source_target_contract_id": target_authority[
+                "source_target_contract_id"
+            ],
+            "analysis_partition_id": target_authority[
+                "analysis_partition_id"
+            ],
+            "analysis_partition_revision": target_authority[
+                "analysis_partition_revision"
+            ],
             "partial_ranked_results": [
                 {
                     "key": "logreg",
@@ -601,6 +659,7 @@ class PretrainingArtifactInvalidationTests(unittest.TestCase):
             "target": "target",
             "event_value": 1,
             "non_event_value": 0,
+            "target_semantics_authority": _target_semantics_authority(),
             "selected_original_features": ["x"],
             "engineered_features": [],
         }

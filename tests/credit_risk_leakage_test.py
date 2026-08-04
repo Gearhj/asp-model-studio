@@ -1,6 +1,7 @@
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 import pandas as pd
 from fastapi import HTTPException
@@ -31,20 +32,57 @@ class CreditRiskLeakageTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 422)
         self.assertIn("RiskPerformance", raised.exception.detail["columns"])
 
-    def test_ml_training_uses_atlas_split_and_excludes_it_from_features(self) -> None:
+    def test_ml_training_uses_only_authorized_development_scope(self) -> None:
         df = pd.DataFrame(
             {
                 "bad_flag": [1, 0, 1, 0, 1, 0, 1, 0],
-                "RiskPerformance": ["Bad", "Good", "Bad", "Good", "Bad", "Good", "Bad", "Good"],
-                "atlas_split": ["train", "train", "train", "train", "test", "test", "test", "test"],
                 "ExternalRiskEstimate": [10, 90, 20, 80, 30, 70, 40, 60],
-                "score": [1, 2, 3, 4, 5, 6, 7, 8],
             }
         )
-
-        original_loader = ml_engine.load_dataset_frame
+        scope = SimpleNamespace(
+            identity={
+                "project_id": "p",
+                "dataset_id": "d",
+                "dataset_version_id": "v1",
+                "dataset": {"datasetId": "d", "name": "Fixture"},
+            },
+            target="bad_flag",
+            problem_type="classification",
+            event_value=1,
+            non_event_value=0,
+            development_features=df[["ExternalRiskEstimate"]].copy(),
+            development_target=df["bad_flag"].copy(),
+            authorized_predictors=["ExternalRiskEstimate"],
+            metadata=lambda: {
+                "scope": "development_population",
+                "analysis_scope": "development_population",
+                "analytical_scope": "development_population",
+                "target_directed_scope": "development_population",
+                "scope_resolution": "durable_current_exact",
+                "row_selection_method": "verified_positional_assignment",
+                "project_id": "p",
+                "dataset_id": "d",
+                "dataset_version_id": "v1",
+                "target_contract_id": "target-contract-1",
+                "analysis_partition_id": "ap-1",
+                "analysis_partition_revision": 1,
+                "development_partition_id": "dev-1",
+                "population_id": "dev-1",
+                "population_count": 8,
+                "partition_id": "ap-1",
+                "partition_revision": 1,
+                "holdout_excluded": True,
+                "final_holdout_accessed": False,
+                "final_holdout_used_for_selection": False,
+                "raw_dataset_target_fallback_used": False,
+                "browser_target_semantics_used": False,
+                "source_checksum": "sha256:fixture",
+                "actor": "user-1",
+                "actor_source": "authenticated_request",
+                "timestamp": "2026-08-04T00:00:00+00:00",
+            },
+        )
         original_save = ml_engine.save_ml_model
-        ml_engine.load_dataset_frame = lambda dataset_id, version_id: ({"datasetId": dataset_id, "name": "Fixture"}, "v1", df)
         ml_engine.save_ml_model = lambda model: model
         try:
             result = train_ml_model(
@@ -56,14 +94,16 @@ class CreditRiskLeakageTests(unittest.TestCase):
                     "eventValue": 1,
                     "selectedVariables": [],
                     "modelType": "Logistic Regression Baseline",
-                }
+                },
+                scope,
             )
         finally:
-            ml_engine.load_dataset_frame = original_loader
             ml_engine.save_ml_model = original_save
 
-        self.assertEqual(result["splitSource"], "atlas_split")
+        self.assertEqual(result["splitSource"], "governed_development_stratified_fold")
         self.assertEqual(result["selectedVariables"], ["ExternalRiskEstimate"])
+        self.assertEqual(result["analysis_scope"], "development_population")
+        self.assertTrue(result["holdout_excluded"])
 
 
 if __name__ == "__main__":

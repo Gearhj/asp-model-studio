@@ -11,6 +11,8 @@ import numpy as np
 import pandas as pd
 from fastapi import HTTPException
 
+from ..analysis_partition.service import analysis_partition_service
+from ..analysis_partition.types import AnalysisPartitionError
 from ..core.dataset_store import DATASTORE
 from ..datasets.dataset_identity import (
     assert_expected_active_identity,
@@ -26,6 +28,868 @@ from .training_job_types import TrainingJobRequest
 LARGE_RUN_FIT_THRESHOLD = max(
     1, int(os.getenv("ATLAS_LARGE_TRAINING_FIT_THRESHOLD", "160"))
 )
+
+TRAINING_TARGET_AUTHORITY_UNAVAILABLE = "training_target_authority_unavailable"
+TRAINING_TARGET_SEMANTICS_CONTRADICTORY = (
+    "training_target_semantics_contradictory"
+)
+
+
+class TrainingTargetSemanticsError(ValueError):
+    """Structured fail-closed target-authority failure."""
+
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        identifiers: dict[str, Any] | None = None,
+        mismatches: dict[str, Any] | None = None,
+        authority: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.authority = dict(authority or {})
+        self.detail = {
+            "ok": False,
+            "code": str(code),
+            "message": str(message),
+            "recovery": (
+                "Refresh Model Training from the exact approved Validation "
+                "Design. Changing target semantics requires an explicit "
+                "Analysis Partition reset in Data Acquisition."
+            ),
+            "identifiers": dict(identifiers or {}),
+            "mismatches": dict(mismatches or {}),
+        }
+
+
+def _contract_value_equal(left: Any, right: Any) -> bool:
+    """Compare exact governed JSON scalars without truthiness coercion."""
+
+    return canonical_contract_hash({"value": left}) == canonical_contract_hash(
+        {"value": right}
+    )
+
+
+def _resolve_durable_training_partition(
+    *,
+    active_identity: dict[str, Any],
+    cached_partition: dict[str, Any],
+    identifiers: dict[str, Any],
+    target: str,
+) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    """Resolve one exact, documented partition before training semantics pass.
+
+    Browser/checkpoint metadata is an optimistic copy, never documentation
+    authority.  This read verifies the exact current repository row and its
+    evidence/MDD sidecars for native-v2 and integrity-gated legacy-v1 records.
+    It inspects partition metadata only; no development or holdout rows are
+    materialized here.
+    """
+
+    expected_identity = {
+        field: str(active_identity.get(field) or "")
+        for field in ("project_id", "dataset_id", "dataset_version_id")
+    }
+    scoped_identifiers = {**identifiers, **expected_identity}
+    try:
+        durable_partition = analysis_partition_service.current(
+            expected_identity["project_id"],
+            expected_identity["dataset_id"],
+            expected_identity["dataset_version_id"],
+            target=target,
+            target_contract_id=str(
+                identifiers.get("target_contract_id") or ""
+            ),
+            predictor_authorization_id=str(
+                cached_partition.get("predictor_authorization_id") or ""
+            )
+            or None,
+            require_documentation_ready=True,
+        )
+        durable_authority = (
+            analysis_partition_service.target_authority_compatibility(
+                durable_partition
+            )
+        )
+        durable_safe = analysis_partition_service.safe_record(
+            durable_partition
+        )
+    except AnalysisPartitionError as exc:
+        raise TrainingTargetSemanticsError(
+            TRAINING_TARGET_AUTHORITY_UNAVAILABLE,
+            (
+                "The exact durable Analysis Partition and its documentation "
+                "could not be verified for training."
+            ),
+            identifiers=scoped_identifiers,
+            mismatches={
+                "durable_analysis_partition": {
+                    "code": exc.code,
+                    "message": exc.message,
+                }
+            },
+        ) from exc
+    except Exception as exc:
+        raise TrainingTargetSemanticsError(
+            TRAINING_TARGET_AUTHORITY_UNAVAILABLE,
+            "The durable Analysis Partition repository could not be read safely for training.",
+            identifiers=scoped_identifiers,
+            mismatches={
+                "durable_analysis_partition": {
+                    "code": "analysis_partition_repository_unavailable",
+                    "error_type": type(exc).__name__,
+                }
+            },
+        ) from exc
+
+    mismatches: dict[str, Any] = {}
+
+    def compare(name: str, recorded: Any, authoritative: Any) -> None:
+        if not _contract_value_equal(recorded, authoritative):
+            mismatches[name] = {
+                "recorded": recorded,
+                "authoritative": authoritative,
+            }
+
+    for field, expected in expected_identity.items():
+        compare(
+            f"durable_analysis_partition.{field}",
+            durable_partition.get(field),
+            expected,
+        )
+    for field, expected in (
+        ("analysis_partition_id", identifiers.get("analysis_partition_id")),
+        ("revision", identifiers.get("analysis_partition_revision")),
+        ("target_column", target),
+        ("target_contract_id", identifiers.get("target_contract_id")),
+    ):
+        compare(
+            f"durable_analysis_partition.{field}",
+            durable_partition.get(field),
+            expected,
+        )
+
+    cached_to_durable = (
+        ("analysis_partition_id", "analysis_partition_id"),
+        ("revision", "revision"),
+        ("project_id", "project_id"),
+        ("dataset_id", "dataset_id"),
+        ("dataset_version_id", "dataset_version_id"),
+        ("target", "target"),
+        ("target_contract_id", "target_contract_id"),
+        ("predictor_authorization_id", "predictor_authorization_id"),
+        ("development_partition_id", "development_partition_id"),
+        ("sealed_holdout_partition_id", "sealed_holdout_partition_id"),
+        ("assignment_hash", "assignment_hash"),
+        ("artifact_hash", "artifact_hash"),
+    )
+    for cached_field, durable_field in cached_to_durable:
+        recorded = cached_partition.get(cached_field)
+        if recorded is None or (
+            isinstance(recorded, str) and not recorded.strip()
+        ):
+            continue
+        compare(
+            f"cached_analysis_partition.{cached_field}",
+            recorded,
+            durable_safe.get(durable_field),
+        )
+
+    if mismatches:
+        raise TrainingTargetSemanticsError(
+            TRAINING_TARGET_AUTHORITY_UNAVAILABLE,
+            (
+                "The cached Analysis Partition identity does not match the "
+                "exact documented current partition."
+            ),
+            identifiers=scoped_identifiers,
+            mismatches=mismatches,
+        )
+    return durable_partition, durable_safe, durable_authority
+
+
+def _verified_legacy_partition_authority(
+    *,
+    split_record: dict[str, Any],
+    validation_design: dict[str, Any],
+    target_definition: dict[str, Any],
+    analysis_partition: dict[str, Any],
+    active_identity: dict[str, Any],
+    identifiers: dict[str, Any],
+    target: str,
+    problem_type: str,
+    event_value: Any,
+    non_event_value: Any,
+    durable_partition: dict[str, Any],
+    durable_authority: dict[str, Any],
+) -> dict[str, Any]:
+    """Re-verify a v1 partition from its exact durable repository record."""
+
+    expected_identity = {
+        field: str(active_identity.get(field) or "")
+        for field in ("project_id", "dataset_id", "dataset_version_id")
+    }
+    scoped_identifiers = {**identifiers, **expected_identity}
+    mismatches: dict[str, Any] = {}
+
+    def compare(
+        name: str,
+        recorded: Any,
+        authoritative: Any,
+        *,
+        required: bool = True,
+    ) -> None:
+        if required and (
+            recorded is None
+            or (isinstance(recorded, str) and not recorded.strip())
+        ):
+            mismatches[name] = {
+                "recorded": recorded,
+                "authoritative": authoritative,
+            }
+        elif not _contract_value_equal(recorded, authoritative):
+            mismatches[name] = {
+                "recorded": recorded,
+                "authoritative": authoritative,
+            }
+
+    for field, expected in expected_identity.items():
+        if not expected:
+            mismatches[f"active_identity.{field}"] = {
+                "recorded": expected,
+                "authoritative": "exact active identity required",
+            }
+            continue
+        compare(f"split_record.{field}", split_record.get(field), expected)
+        compare(
+            f"validation_design.{field}",
+            validation_design.get(field),
+            expected,
+        )
+        compare(
+            f"analysis_partition.{field}",
+            analysis_partition.get(field),
+            expected,
+        )
+
+    required_legacy_markers = {
+        "authority_source": "verified_legacy_analysis_partition",
+        "compatibility_status": "verified_legacy_v1",
+        "lineage_contract": "analysis_partition_v1",
+    }
+    for field, expected in required_legacy_markers.items():
+        compare(
+            f"validation_design.target_definition.{field}",
+            target_definition.get(field),
+            expected,
+        )
+    split_target_authority = (
+        split_record.get("target_authority")
+        if isinstance(split_record.get("target_authority"), dict)
+        else {}
+    )
+    split_marker_names = {
+        "source": "verified_legacy_analysis_partition",
+        "compatibility_status": "verified_legacy_v1",
+        "lineage_contract": "analysis_partition_v1",
+        "target_membership_fingerprint_status": "legacy_not_recorded",
+    }
+    for field, expected in split_marker_names.items():
+        compare(
+            f"split_record.target_authority.{field}",
+            split_target_authority.get(field),
+            expected,
+        )
+
+    partition_id = identifiers.get("analysis_partition_id")
+    partition_revision = identifiers.get("analysis_partition_revision")
+    development_partition_id = analysis_partition.get(
+        "development_partition_id"
+    )
+    sealed_holdout_partition_id = analysis_partition.get(
+        "sealed_holdout_partition_id"
+    )
+    for record_name, record in (
+        ("split_record", split_record),
+        ("validation_design", validation_design),
+    ):
+        compare(
+            f"{record_name}.development_partition_id",
+            record.get("development_partition_id"),
+            development_partition_id,
+        )
+        compare(
+            f"{record_name}.sealed_holdout_partition_id",
+            record.get("sealed_holdout_partition_id"),
+            sealed_holdout_partition_id,
+        )
+    for record_name, record in (
+        ("split_record", split_record),
+        ("validation_design", validation_design),
+    ):
+        for field in ("training_population_id", "selection_partition_id"):
+            compare(
+                f"{record_name}.{field}",
+                record.get(field),
+                development_partition_id,
+            )
+        for field in (
+            "holdout_population_id",
+            "final_holdout_partition_id",
+        ):
+            compare(
+                f"{record_name}.{field}",
+                record.get(field),
+                sealed_holdout_partition_id,
+            )
+
+    if mismatches:
+        raise TrainingTargetSemanticsError(
+            TRAINING_TARGET_AUTHORITY_UNAVAILABLE,
+            (
+                "The approved Validation Design does not preserve the exact "
+                "verified legacy Analysis Partition lineage."
+            ),
+            identifiers=scoped_identifiers,
+            mismatches=mismatches,
+        )
+
+    durable_comparisons = (
+        ("project_id", expected_identity["project_id"]),
+        ("dataset_id", expected_identity["dataset_id"]),
+        ("dataset_version_id", expected_identity["dataset_version_id"]),
+        ("analysis_partition_id", partition_id),
+        ("revision", partition_revision),
+        ("target_column", target),
+        ("target_contract_id", identifiers["target_contract_id"]),
+        ("positive_value_json", event_value),
+        ("negative_value_json", non_event_value),
+        ("development_partition_id", development_partition_id),
+        ("sealed_holdout_partition_id", sealed_holdout_partition_id),
+        ("assignment_hash", analysis_partition.get("assignment_hash")),
+        ("artifact_hash", analysis_partition.get("artifact_hash")),
+    )
+    for field, expected in durable_comparisons:
+        compare(
+            f"durable_analysis_partition.{field}",
+            durable_partition.get(field),
+            expected,
+        )
+    authority_comparisons = (
+        ("target_contract_id", identifiers["target_contract_id"]),
+        ("target", target),
+        ("problem_type", problem_type),
+        ("event_value", event_value),
+        ("non_event_value", non_event_value),
+        ("source", "verified_legacy_analysis_partition"),
+        ("compatibility_status", "verified_legacy_v1"),
+        ("lineage_contract", "analysis_partition_v1"),
+        ("target_membership_fingerprint_status", "legacy_not_recorded"),
+    )
+    for field, expected in authority_comparisons:
+        compare(
+            f"durable_target_authority.{field}",
+            durable_authority.get(field),
+            expected,
+        )
+    if mismatches:
+        raise TrainingTargetSemanticsError(
+            TRAINING_TARGET_AUTHORITY_UNAVAILABLE,
+            (
+                "The approved Validation Design target semantics do not "
+                "match the exact integrity-verified legacy partition."
+            ),
+            identifiers=scoped_identifiers,
+            mismatches=mismatches,
+        )
+
+    return {
+        "partition_authority_source": durable_authority["source"],
+        "compatibility_status": durable_authority["compatibility_status"],
+        "lineage_contract": durable_authority["lineage_contract"],
+        "target_membership_fingerprint_status": durable_authority[
+            "target_membership_fingerprint_status"
+        ],
+        "project_id": expected_identity["project_id"],
+        "dataset_id": expected_identity["dataset_id"],
+        "dataset_version_id": expected_identity["dataset_version_id"],
+        "development_partition_id": str(development_partition_id),
+        "sealed_holdout_partition_id": str(sealed_holdout_partition_id),
+        "assignment_hash": str(durable_partition["assignment_hash"]),
+        "artifact_hash": str(durable_partition["artifact_hash"]),
+    }
+
+
+def _verify_legacy_development_arrays(
+    *,
+    store: Any,
+    X_train: pd.DataFrame,
+    y_train: pd.Series,
+    active_identity: dict[str, Any],
+    analysis_partition: dict[str, Any],
+    target_authority: dict[str, Any],
+) -> None:
+    """Bind legacy training arrays to durable development membership only."""
+
+    identifiers = {
+        "project_id": str(active_identity.get("project_id") or ""),
+        "dataset_id": str(active_identity.get("dataset_id") or ""),
+        "dataset_version_id": str(
+            active_identity.get("dataset_version_id") or ""
+        ),
+        "analysis_partition_id": str(
+            target_authority.get("analysis_partition_id") or ""
+        ),
+        "analysis_partition_revision": int(
+            target_authority.get("analysis_partition_revision") or 0
+        ),
+    }
+    try:
+        durable = analysis_partition_service.current(
+            identifiers["project_id"],
+            identifiers["dataset_id"],
+            identifiers["dataset_version_id"],
+            target=str(target_authority.get("target") or ""),
+            target_contract_id=str(
+                target_authority.get("source_target_contract_id") or ""
+            ),
+            predictor_authorization_id=str(
+                analysis_partition.get("predictor_authorization_id") or ""
+            ),
+            require_documentation_ready=True,
+        )
+        compatibility = (
+            analysis_partition_service.target_authority_compatibility(durable)
+        )
+        if compatibility.get("compatibility_status") != "verified_legacy_v1":
+            raise AnalysisPartitionError(
+                "analysis_partition_target_authority_unverified",
+                "The training array verifier expected an integrity-verified legacy Analysis Partition.",
+                identifiers=identifiers,
+            )
+        expected_X, expected_y = (
+            analysis_partition_service.materialize_training_development(
+                store,
+                durable,
+                list(X_train.columns),
+            )
+        )
+    except AnalysisPartitionError as exc:
+        raise TrainingTargetSemanticsError(
+            TRAINING_TARGET_AUTHORITY_UNAVAILABLE,
+            "The verified legacy training population could not be bound to its exact durable development membership.",
+            identifiers=identifiers,
+            mismatches={
+                "durable_development_membership": {
+                    "code": exc.code,
+                    "message": exc.message,
+                }
+            },
+        ) from exc
+    except Exception as exc:
+        raise TrainingTargetSemanticsError(
+            TRAINING_TARGET_AUTHORITY_UNAVAILABLE,
+            "The verified legacy training population could not be checked safely.",
+            identifiers=identifiers,
+            mismatches={
+                "durable_development_membership": {
+                    "code": "development_membership_verification_failed",
+                    "error_type": type(exc).__name__,
+                }
+            },
+        ) from exc
+
+    mismatches: dict[str, Any] = {}
+    if (
+        str(durable.get("analysis_partition_id") or "")
+        != identifiers["analysis_partition_id"]
+        or int(durable.get("revision") or 0)
+        != identifiers["analysis_partition_revision"]
+        or str(durable.get("assignment_hash") or "")
+        != str(target_authority.get("assignment_hash") or "")
+        or str(durable.get("artifact_hash") or "")
+        != str(target_authority.get("artifact_hash") or "")
+    ):
+        mismatches["durable_partition_identity"] = {
+            "recorded": "changed",
+            "authoritative": "exact preflight target authority",
+        }
+    if list(X_train.columns) != list(expected_X.columns):
+        mismatches["development_feature_columns"] = {
+            "recorded_count": int(len(X_train.columns)),
+            "authoritative_count": int(len(expected_X.columns)),
+        }
+    if len(X_train) != len(expected_X) or len(y_train) != len(expected_y):
+        mismatches["development_row_count"] = {
+            "recorded_features": int(len(X_train)),
+            "recorded_target": int(len(y_train)),
+            "authoritative": int(len(expected_y)),
+        }
+    if not X_train.index.equals(expected_X.index) or not y_train.index.equals(
+        expected_y.index
+    ):
+        mismatches["development_row_order"] = {
+            "recorded": "different",
+            "authoritative": "durable development positions",
+        }
+    if not X_train.equals(expected_X):
+        mismatches["development_feature_values"] = {
+            "recorded": "different",
+            "authoritative": "exact processed development rows",
+        }
+    if not y_train.equals(expected_y):
+        mismatches["development_target_values"] = {
+            "recorded": "different",
+            "authoritative": "exact development target rows",
+        }
+    if mismatches:
+        raise TrainingTargetSemanticsError(
+            TRAINING_TARGET_AUTHORITY_UNAVAILABLE,
+            "The in-memory training arrays do not match the exact durable legacy development membership.",
+            identifiers=identifiers,
+            mismatches=mismatches,
+        )
+
+
+def _governed_training_target_semantics(
+    *,
+    split_record: dict[str, Any],
+    active_target: str,
+    analysis_partition: dict[str, Any] | None = None,
+    active_identity: dict[str, Any] | None = None,
+    request: TrainingJobRequest | None = None,
+) -> dict[str, Any]:
+    """Resolve training semantics only from an approved sealed authority.
+
+    The approved Validation Design is the immediate training authority.  Its
+    target definition must be a native projection of the exact sealed Analysis
+    Partition and must agree with the split record.  Request fields are only
+    optimistic expectations; they can never define or invert the target.
+    """
+
+    validation_design = (
+        split_record.get("validation_design")
+        if isinstance(split_record.get("validation_design"), dict)
+        else {}
+    )
+    target_definition = (
+        validation_design.get("target_definition")
+        if isinstance(validation_design.get("target_definition"), dict)
+        else {}
+    )
+    identifiers = {
+        "analysis_partition_id": validation_design.get(
+            "analysis_partition_id"
+        )
+        or split_record.get("analysis_partition_id"),
+        "analysis_partition_revision": validation_design.get(
+            "analysis_partition_revision"
+        )
+        or split_record.get("analysis_partition_revision"),
+        "validation_design_id": validation_design.get(
+            "validation_design_id"
+        ),
+        "validation_design_version": validation_design.get("design_version"),
+        "target_contract_id": target_definition.get("target_contract_id")
+        or validation_design.get("target_contract_id")
+        or split_record.get("target_contract_id"),
+    }
+    required = {
+        "validation_design_id": identifiers["validation_design_id"],
+        "validation_design_version": identifiers["validation_design_version"],
+        "analysis_partition_id": identifiers["analysis_partition_id"],
+        "analysis_partition_revision": identifiers[
+            "analysis_partition_revision"
+        ],
+        "target_contract_id": identifiers["target_contract_id"],
+        "target": target_definition.get("target"),
+        "problem_type": target_definition.get("problem_type"),
+        "authority_source": target_definition.get("authority_source"),
+    }
+    missing = [
+        key
+        for key, value in required.items()
+        if value is None or (isinstance(value, str) and not value.strip())
+    ]
+    if missing or validation_design.get("status") != "approved":
+        raise TrainingTargetSemanticsError(
+            TRAINING_TARGET_AUTHORITY_UNAVAILABLE,
+            (
+                "The approved Validation Design does not contain a complete "
+                "sealed Analysis Partition target authority."
+            ),
+            identifiers=identifiers,
+            mismatches={"missing_or_invalid_fields": missing},
+        )
+
+    target = str(target_definition.get("target") or "")
+    problem_type = str(target_definition.get("problem_type") or "").lower()
+    event_value = target_definition.get("positive_value")
+    non_event_value = target_definition.get("negative_value")
+    authority_source = str(target_definition.get("authority_source") or "")
+    is_native_authority = authority_source == "sealed_analysis_partition"
+    is_verified_legacy_authority = (
+        authority_source == "verified_legacy_analysis_partition"
+    )
+    authority_invalid = (
+        not (is_native_authority or is_verified_legacy_authority)
+        or problem_type not in {"classification", "regression"}
+        or target != str(active_target or "")
+        or (
+            problem_type == "classification"
+            and (
+                event_value is None
+                or non_event_value is None
+                or _contract_value_equal(event_value, non_event_value)
+            )
+        )
+        or (
+            problem_type == "regression"
+            and (event_value is not None or non_event_value is not None)
+        )
+    )
+    cached_partition = (
+        analysis_partition if isinstance(analysis_partition, dict) else {}
+    )
+    durable_partition: dict[str, Any] = {}
+    durable_authority: dict[str, Any] = {}
+    partition = cached_partition
+    if not authority_invalid:
+        (
+            durable_partition,
+            partition,
+            durable_authority,
+        ) = _resolve_durable_training_partition(
+            active_identity=(
+                active_identity if isinstance(active_identity, dict) else {}
+            ),
+            cached_partition=cached_partition,
+            identifiers=identifiers,
+            target=target,
+        )
+    internal_mismatches: dict[str, Any] = {}
+    comparison_fields = (
+        ("target", target),
+        ("target_contract_id", identifiers["target_contract_id"]),
+        ("problem_type", problem_type),
+        ("event_value", event_value),
+        ("non_event_value", non_event_value),
+        ("analysis_partition_id", identifiers["analysis_partition_id"]),
+        (
+            "analysis_partition_revision",
+            identifiers["analysis_partition_revision"],
+        ),
+    )
+    for field, sealed_value in comparison_fields:
+        split_value = split_record.get(field)
+        if field == "target_contract_id":
+            design_value = validation_design.get(field)
+        elif field == "event_value":
+            design_value = validation_design.get("event_value")
+        elif field == "non_event_value":
+            design_value = validation_design.get("non_event_value")
+        else:
+            design_value = validation_design.get(field)
+        for record_name, value in (
+            ("split_record", split_value),
+            ("validation_design", design_value),
+        ):
+            if value is None and field not in {
+                "event_value",
+                "non_event_value",
+            }:
+                internal_mismatches[f"{record_name}.{field}"] = {
+                    "recorded": value,
+                    "sealed": sealed_value,
+                }
+            elif not _contract_value_equal(value, sealed_value):
+                internal_mismatches[f"{record_name}.{field}"] = {
+                    "recorded": value,
+                    "sealed": sealed_value,
+                }
+
+    if not partition:
+        internal_mismatches["analysis_partition"] = {
+            "recorded": "missing",
+            "sealed": "exact current Analysis Partition required",
+        }
+    else:
+        partition_fields = (
+            ("analysis_partition_id", identifiers["analysis_partition_id"]),
+            ("revision", identifiers["analysis_partition_revision"]),
+            ("target_contract_id", identifiers["target_contract_id"]),
+            ("target", target),
+            ("positive_value", event_value),
+            ("negative_value", non_event_value),
+        )
+        if is_native_authority:
+            partition_fields = (
+                *partition_fields,
+                ("problem_type", problem_type),
+            )
+        for field, sealed_value in partition_fields:
+            value = partition.get(field)
+            if not _contract_value_equal(value, sealed_value):
+                internal_mismatches[f"analysis_partition.{field}"] = {
+                    "recorded": value,
+                    "sealed": sealed_value,
+                }
+        if (
+            is_native_authority
+            and partition.get("problem_type_status") != "verified"
+        ):
+            internal_mismatches["analysis_partition.problem_type_status"] = {
+                "recorded": partition.get("problem_type_status"),
+                "sealed": "verified",
+            }
+        if partition.get("status") not in {None, "current"}:
+            internal_mismatches["analysis_partition.status"] = {
+                "recorded": partition.get("status"),
+                "sealed": "current",
+            }
+        documentation_ready = (
+            str(partition.get("evidence_status") or "").lower()
+            == "recorded"
+            and bool(str(partition.get("evidence_ref") or "").strip())
+            and str(partition.get("mdd_status") or "").lower()
+            == "recorded"
+            and bool(str(partition.get("mdd_ref") or "").strip())
+        )
+        if not documentation_ready:
+            internal_mismatches[
+                "analysis_partition.documentation_readiness"
+            ] = {
+                "recorded": "pending_or_unverified",
+                "sealed": "evidence_and_mdd_recorded",
+            }
+
+    if durable_authority:
+        expected_source = (
+            "verified_legacy_analysis_partition"
+            if is_verified_legacy_authority
+            else "sealed_analysis_partition"
+        )
+        for field, expected in (
+            ("target_contract_id", identifiers["target_contract_id"]),
+            ("target", target),
+            ("problem_type", problem_type),
+            ("event_value", event_value),
+            ("non_event_value", non_event_value),
+            ("source", expected_source),
+        ):
+            value = durable_authority.get(field)
+            if not _contract_value_equal(value, expected):
+                internal_mismatches[
+                    f"durable_target_authority.{field}"
+                ] = {
+                    "recorded": value,
+                    "sealed": expected,
+                }
+
+    legacy_provenance: dict[str, Any] = {}
+    if (
+        is_verified_legacy_authority
+        and not authority_invalid
+        and not internal_mismatches
+    ):
+        legacy_provenance = _verified_legacy_partition_authority(
+            split_record=split_record,
+            validation_design=validation_design,
+            target_definition=target_definition,
+            analysis_partition=partition,
+            active_identity=(
+                active_identity if isinstance(active_identity, dict) else {}
+            ),
+            identifiers=identifiers,
+            target=target,
+            problem_type=problem_type,
+            event_value=event_value,
+            non_event_value=non_event_value,
+            durable_partition=durable_partition,
+            durable_authority=durable_authority,
+        )
+
+    if authority_invalid or internal_mismatches:
+        raise TrainingTargetSemanticsError(
+            TRAINING_TARGET_AUTHORITY_UNAVAILABLE,
+            (
+                "The Validation Design target semantics do not verify against "
+                "the exact sealed Analysis Partition contract."
+            ),
+            identifiers=identifiers,
+            mismatches=internal_mismatches,
+        )
+
+    authority = {
+        "target": target,
+        "source_target_contract_id": str(identifiers["target_contract_id"]),
+        "problem_type": problem_type,
+        "event_value": event_value,
+        "non_event_value": non_event_value,
+        "authority_source": (
+            "approved_validation_design_bound_to_"
+            + (
+                "verified_legacy_analysis_partition"
+                if is_verified_legacy_authority
+                else "sealed_analysis_partition"
+            )
+        ),
+        "analysis_partition_id": str(identifiers["analysis_partition_id"]),
+        "analysis_partition_revision": int(
+            identifiers["analysis_partition_revision"]
+        ),
+        "validation_design_id": str(identifiers["validation_design_id"]),
+        "validation_design_version": str(
+            identifiers["validation_design_version"]
+        ),
+        **legacy_provenance,
+    }
+    authority["target_authority_hash"] = canonical_contract_hash(authority)
+
+    client_mismatches: dict[str, Any] = {}
+    if request is not None:
+        supplied = request.model_fields_set
+        if "target" in supplied and request.target and request.target != target:
+            client_mismatches["target"] = {
+                "requested": request.target,
+                "authoritative": target,
+            }
+        if (
+            "problem_type" in supplied
+            and request.problem_type
+            and request.problem_type != problem_type
+        ):
+            client_mismatches["problem_type"] = {
+                "requested": request.problem_type,
+                "authoritative": problem_type,
+            }
+        if "event_value" in supplied and not _contract_value_equal(
+            request.event_value, event_value
+        ):
+            client_mismatches["event_value"] = {
+                "requested": request.event_value,
+                "authoritative": event_value,
+            }
+        if "non_event_value" in supplied and not _contract_value_equal(
+            request.non_event_value, non_event_value
+        ):
+            client_mismatches["non_event_value"] = {
+                "requested": request.non_event_value,
+                "authoritative": non_event_value,
+            }
+    if client_mismatches:
+        raise TrainingTargetSemanticsError(
+            TRAINING_TARGET_SEMANTICS_CONTRADICTORY,
+            (
+                "Training target claims conflict with the exact approved "
+                "Validation Design and sealed Analysis Partition."
+            ),
+            identifiers=identifiers,
+            mismatches=client_mismatches,
+            authority=authority,
+        )
+    return authority
 
 
 def _package_for_algorithm(key: str, model: Any) -> str:
@@ -95,7 +959,11 @@ def _model_runtime_status(key: str) -> dict[str, Any]:
     }
 
 
-def _distribution(series: pd.Series, event_value: Any | None) -> dict[str, Any]:
+def _distribution(
+    series: pd.Series,
+    event_value: Any | None,
+    non_event_value: Any | None = None,
+) -> dict[str, Any]:
     values = series.dropna()
     counts = values.value_counts()
     result: dict[str, Any] = {
@@ -107,19 +975,42 @@ def _distribution(series: pd.Series, event_value: Any | None) -> dict[str, Any]:
         "non_events": None,
         "event_rate": None,
         "event_value": event_value,
+        "non_event_value": non_event_value,
+        "event_mapping_status": "not_applicable",
+        "non_event_mapping_status": "not_applicable",
     }
     if len(counts) != 2:
         return result
     labels = list(counts.index)
     resolved = next((label for label in labels if str(label) == str(event_value)), None)
     if resolved is None:
-        resolved = next((label for label in labels if str(label).strip() == "1"), labels[-1])
+        result["event_mapping_status"] = "authoritative_event_not_found"
+        return result
+    resolved_non_event = next(
+        (label for label in labels if str(label) == str(non_event_value)), None
+    )
+    if (
+        resolved_non_event is None
+        or _contract_value_equal(resolved, resolved_non_event)
+    ):
+        result["event_mapping_status"] = "authoritative_event_resolved"
+        result["non_event_mapping_status"] = (
+            "authoritative_non_event_not_found"
+        )
+        return result
     events = int(counts[resolved])
     result.update({
         "event_value": resolved.item() if hasattr(resolved, "item") else resolved,
+        "non_event_value": (
+            resolved_non_event.item()
+            if hasattr(resolved_non_event, "item")
+            else resolved_non_event
+        ),
         "events": events,
         "non_events": int(len(values) - events),
         "event_rate": float(events / len(values)) if len(values) else None,
+        "event_mapping_status": "authoritative_event_resolved",
+        "non_event_mapping_status": "authoritative_non_event_resolved",
     })
     return result
 
@@ -338,6 +1229,42 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         else []
     )
     target = str(DATASTORE.target or "")
+    analysis_partition = (
+        scoped_store.meta.get("analysis_partition")
+        if isinstance(scoped_store.meta.get("analysis_partition"), dict)
+        else {}
+    )
+    target_authority_errors: list[dict[str, Any]] = []
+    try:
+        target_semantics_authority = _governed_training_target_semantics(
+            split_record=split_record,
+            active_target=target,
+            analysis_partition=analysis_partition,
+            active_identity=identity,
+            request=request,
+        )
+    except TrainingTargetSemanticsError as exc:
+        target_semantics_authority = dict(exc.authority)
+        target_authority_errors.append(dict(exc.detail))
+        blocking.append(str(exc.detail["message"]))
+    if (
+        target_semantics_authority.get("compatibility_status")
+        == "verified_legacy_v1"
+        and X_train is not None
+        and y_train is not None
+    ):
+        try:
+            _verify_legacy_development_arrays(
+                store=scoped_store,
+                X_train=X_train,
+                y_train=y_train,
+                active_identity=identity,
+                analysis_partition=analysis_partition,
+                target_authority=target_semantics_authority,
+            )
+        except TrainingTargetSemanticsError as exc:
+            target_authority_errors.append(dict(exc.detail))
+            blocking.append(str(exc.detail["message"]))
 
     external_reference_errors = [
         error
@@ -462,8 +1389,6 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         blocking.append(
             "Validation Design version mismatch. The approved validation contract changed."
         )
-    if request.target and target and request.target != target:
-        blocking.append(f"Target mismatch: request '{request.target}', active '{target}'.")
     if not target:
         blocking.append("No active target is defined.")
 
@@ -501,7 +1426,24 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
     if X_train is not None and X_train.shape[1] == 0:
         blocking.append("The training feature matrix is empty.")
 
-    train_distribution = _distribution(y_train, request.event_value) if y_train is not None else {}
+    authoritative_event_value = target_semantics_authority.get("event_value")
+    authoritative_non_event_value = target_semantics_authority.get(
+        "non_event_value"
+    )
+    problem_type = str(
+        target_semantics_authority.get("problem_type") or ""
+    )
+    train_distribution = (
+        _distribution(
+            y_train,
+            authoritative_event_value,
+            authoritative_non_event_value,
+        )
+        if y_train is not None and problem_type == "classification"
+        else _distribution(y_train, None)
+        if y_train is not None
+        else {}
+    )
     governed_distributions = (
         split_record.get("distributions")
         if isinstance(split_record.get("distributions"), dict)
@@ -514,13 +1456,28 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         if isinstance(governed_distributions.get("holdout_untouched"), dict)
         else {}
     )
-    problem_type = request.problem_type or ("classification" if train_distribution.get("class_count", 0) <= 20 else "regression")
     if y_train is not None and y_train.isna().any():
         blocking.append("The training target contains missing values.")
     if problem_type == "classification":
         if train_distribution.get("class_count") != 2:
             blocking.append("The training target does not contain exactly two classes.")
-        if not train_distribution.get("events"):
+        if (
+            train_distribution.get("event_mapping_status")
+            != "authoritative_event_resolved"
+        ):
+            blocking.append(
+                "The authoritative positive class is not present in the "
+                "development target."
+            )
+        elif (
+            train_distribution.get("non_event_mapping_status")
+            != "authoritative_non_event_resolved"
+        ):
+            blocking.append(
+                "The authoritative negative class is not present in the "
+                "development target."
+            )
+        elif not train_distribution.get("events"):
             blocking.append("The training split contains no positive-class events.")
         event_rate = train_distribution.get("event_rate")
         if isinstance(event_rate, float) and event_rate < 0.01:
@@ -722,6 +1679,86 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         blocking.append(
             "Candidate-selection folds must not inherit population-level label resampling. Rebuild Validation Design without resampling."
         )
+    preprocessing_values = {
+        str(value)
+        for value in (
+            validation_design.get("fold_local_preprocessing"),
+            cv_design.get("fold_local_preprocessing"),
+            balancing_policy.get("fold_local_preprocessing"),
+        )
+        if str(value or "").strip()
+    }
+    if len(preprocessing_values) > 1:
+        blocking.append(
+            "The approved Validation Design contains contradictory fold-local preprocessing policies."
+        )
+    fold_local_preprocessing = next(
+        iter(preprocessing_values), "fit_transform_per_fold"
+    )
+    if fold_local_preprocessing not in {
+        "fit_transform_per_fold",
+        "model_native_per_fold",
+    }:
+        blocking.append(
+            "The approved fold-local preprocessing policy is not executable."
+        )
+    balancing_method = str(balancing_policy.get("method") or "none")
+    if balancing_method not in {"none", "undersample", "oversample", "smote"}:
+        blocking.append("The approved balancing method is not executable.")
+    fold_local_resampling_status = str(
+        balancing_policy.get("fold_local_resampling_status")
+        or ("not_requested" if balancing_method == "none" else "")
+    )
+    if (
+        balancing_method != "none"
+        and fold_local_resampling_status != "planned_fold_local_training_only"
+    ):
+        blocking.append(
+            "The approved balancing method is not bound to fold-local training rows. Rebuild Validation Design."
+        )
+    class_weight_policy = str(
+        balancing_policy.get("class_weight_policy") or "none"
+    )
+    if class_weight_policy not in {"none", "balanced"}:
+        blocking.append(
+            "Custom class weights require explicit governed weights and are not executable by the approved design."
+        )
+    if problem_type != "classification" and (
+        balancing_method != "none" or class_weight_policy != "none"
+    ):
+        blocking.append(
+            "Balancing and class weights are available only for classification Validation Designs."
+        )
+    try:
+        policy_minority_share = float(
+            balancing_policy.get("minority_share", 0.5)
+        )
+    except (TypeError, ValueError):
+        policy_minority_share = -1.0
+    if not 0.05 <= policy_minority_share <= 0.5:
+        blocking.append(
+            "The approved balancing minority share must be between 0.05 and 0.5."
+        )
+    validation_execution_policy = {
+        "source": "approved_validation_design",
+        "fold_local_preprocessing": fold_local_preprocessing,
+        "balancing_method": balancing_method,
+        "minority_share": policy_minority_share,
+        "class_weight_policy": class_weight_policy,
+        "random_seed": int(
+            cv_design.get("random_seed")
+            or (split_record.get("fold_architecture") or {}).get(
+                "random_seed"
+            )
+            or (split_record.get("config") or {}).get("random_seed")
+            or 42
+        ),
+        "fold_local_resampling_status": fold_local_resampling_status,
+        "selection_resampling_status": selection_resampling_status,
+        "fit_scope": "development_fold_training_rows_only",
+        "validation_rows_resampled": False,
+        "final_holdout_access": "none",
+    }
     if request.use_pca:
         blocking.append(
             "PCA is not implemented by the governed training pipeline and cannot be enabled."
@@ -796,7 +1833,9 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         and cv_execution_splits
         and not invalid_execution_folds
     )
-    target_ready = bool(target and y_train is not None)
+    target_ready = bool(
+        target and y_train is not None and target_semantics_authority
+    )
     dependency_ready = bool(
         selected_algorithm_ids
         and all(
@@ -950,15 +1989,38 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         or manifest_version
     )
     target_contract = {
-        "target": target,
+        "target": target_semantics_authority.get("target") or target,
         "problem_type": problem_type,
-        "event_value": train_distribution.get(
-            "event_value", request.event_value
+        "event_value": authoritative_event_value,
+        "non_event_value": authoritative_non_event_value,
+        "source_target_contract_id": target_semantics_authority.get(
+            "source_target_contract_id"
         ),
-        "non_event_value": request.non_event_value,
+        "authority_source": target_semantics_authority.get(
+            "authority_source"
+        ),
+        "analysis_partition_id": target_semantics_authority.get(
+            "analysis_partition_id"
+        ),
+        "analysis_partition_revision": target_semantics_authority.get(
+            "analysis_partition_revision"
+        ),
+        "validation_design_id": target_semantics_authority.get(
+            "validation_design_id"
+        ),
+        "validation_design_version": target_semantics_authority.get(
+            "validation_design_version"
+        ),
+        "target_authority_hash": target_semantics_authority.get(
+            "target_authority_hash"
+        ),
         "development_rows": rows,
         "development_events": train_distribution.get("events"),
-        "status": "current" if target_ready else "missing",
+        "status": (
+            "current"
+            if target_ready and bool(target_semantics_authority)
+            else "missing"
+        ),
     }
     portfolio = (
         scoped_store.meta.get("training_model_portfolio")
@@ -979,6 +2041,7 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         "validation_design_version": validation_design_version,
         "split_id": split_id,
         "target_contract": target_contract,
+        "target_semantics_authority": target_semantics_authority,
         "selected_algorithm_ids": selected_algorithm_ids,
         "selected_algorithm_versions": selected_algorithm_versions,
         "k_folds": request.k_folds,
@@ -992,6 +2055,7 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         "final_holdout_partition_id": final_holdout_partition_id,
         "final_holdout_status": final_holdout_status,
         "holdout_isolation_status": holdout_isolation_status,
+        "validation_execution_policy": validation_execution_policy,
     }
     state_hash = canonical_contract_hash(state_payload)
     preflight_id = f"training-preflight-{state_hash[:20]}"
@@ -1001,6 +2065,7 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         "ready": ready,
         "readiness_status": "ready" if ready else "blocked",
         "blocking_errors": unique_blocking,
+        "blocking_details": target_authority_errors,
         "warnings": unique_warnings,
         "checks": checks,
         "preflight_id": preflight_id,
@@ -1016,10 +2081,14 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
         "dataset_id": dataset_id,
         "dataset_version_id": dataset_version_id,
         "dataset_version": dataset_version,
-        "target": target,
+        "target": target_semantics_authority.get("target") or target,
         "target_contract": target_contract,
-        "event_value": train_distribution.get("event_value", request.event_value),
-        "non_event_value": request.non_event_value,
+        "target_semantics_authority": target_semantics_authority,
+        "target_authority_hash": target_semantics_authority.get(
+            "target_authority_hash"
+        ),
+        "event_value": authoritative_event_value,
+        "non_event_value": authoritative_non_event_value,
         "problem_type": problem_type,
         "train_rows": rows,
         "test_rows": int(test_distribution.get("rows") or split_record.get("n_test") or 0),
@@ -1049,6 +2118,7 @@ def training_preflight(request: TrainingJobRequest) -> dict[str, Any]:
             else None
         ),
         "selection_resampling_status": selection_resampling_status,
+        "validation_execution_policy": validation_execution_policy,
         "split_status": split_status,
         "validation_design": validation_design,
         "validation_design_id": validation_design_id,

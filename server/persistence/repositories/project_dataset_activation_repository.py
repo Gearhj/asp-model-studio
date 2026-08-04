@@ -473,6 +473,13 @@ class ProjectDatasetActivationRepository(BaseRepository):
                     SELECT * FROM candidate_selection_decisions
                     WHERE candidate_decision_id = ? AND project_id = ?
                       AND dataset_id = ? AND dataset_version_id = ?
+                      AND NOT EXISTS (
+                        SELECT 1
+                        FROM analysis_partition_derivative_invalidations di
+                        WHERE di.artifact_type = 'candidate_decision'
+                          AND di.artifact_id = candidate_selection_decisions.candidate_decision_id
+                          AND di.invalidation_status = 'invalidated'
+                      )
                     """,
                     (decision_id, project_id, dataset_id, dataset_version_id),
                 ).fetchone()
@@ -517,6 +524,13 @@ class ProjectDatasetActivationRepository(BaseRepository):
                   AND package_integrity_status = 'verified'
                   AND final_holdout_status = 'evaluated'
                   AND recommendations_derived_from_final_holdout = 0
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM analysis_partition_derivative_invalidations di
+                    WHERE di.artifact_type = 'evaluation_package'
+                      AND di.artifact_id = evaluation_packages.evaluation_package_id
+                      AND di.invalidation_status = 'invalidated'
+                  )
                 ORDER BY created_at DESC
                 LIMIT 1
                 """,

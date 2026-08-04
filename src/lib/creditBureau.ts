@@ -1,5 +1,5 @@
 import { logDecision } from "./decisionJournal";
-import { inferLocalProblemType, loadLocalDataset } from "./localDataset";
+import { loadLocalDataset } from "./localDataset";
 import { loadProjectContext } from "./projectContext";
 import { BRAND } from "../config/brand";
 
@@ -125,15 +125,6 @@ function mean(values: number[]) {
   return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
 }
 
-function eventRate(values: unknown[]) {
-  const nums = values.map(toNumber).filter((value): value is number => value !== null);
-  if (!nums.length) return null;
-  const zeros = nums.filter((value) => value === 0).length;
-  const ones = nums.filter((value) => value === 1).length;
-  if (zeros + ones >= nums.length * 0.8) return ones / Math.max(1, zeros + ones);
-  return mean(nums);
-}
-
 function metadataByVariable(metadata: BureauMetadataRow[]) {
   return new Map(metadata.map((row) => [row.variableName.toLowerCase(), row]));
 }
@@ -171,8 +162,6 @@ function isLikelyBureauVariable(name: string, metadata?: BureauMetadataRow) {
 
 function profileRecommendation(input: {
   percent: number;
-  eventRate: number | null;
-  regularEventRate: number | null;
   count: number;
   group: string;
   variableName: string;
@@ -181,10 +170,6 @@ function profileRecommendation(input: {
   const regulated = context.regulatoryEnvironment.some((item) =>
     ["Fair Lending", "FCRA", "ECOA", "SR 11-7", "OCC", "internal governance"].includes(item)
   );
-  const eventDelta =
-    input.eventRate !== null && input.regularEventRate !== null
-      ? Math.abs(input.eventRate - input.regularEventRate)
-      : null;
   let recommendedTreatment: BureauTreatment = "indicator_and_impute";
   let recommendationReason =
     "Special bureau values should generally be preserved through an indicator or explicit treatment rather than handled as ordinary missing values.";
@@ -195,10 +180,6 @@ function profileRecommendation(input: {
     warning = "Special values exceed 30% of records. Document before using this variable because it may proxy bureau availability or thin-file status.";
     recommendationReason =
       "Dominant special values can represent availability, thin-file, or no-hit behavior rather than ordinary numeric values.";
-  } else if (eventDelta !== null && eventDelta >= 0.05) {
-    recommendedTreatment = "indicator_and_impute";
-    recommendationReason =
-      "The special value has a materially different target rate from regular numeric values, so preserving the signal is recommended.";
   } else if (input.count < 30 || input.percent < 0.01) {
     recommendedTreatment = "group_special_values";
     recommendationReason = "The special value is rare and may be unstable on its own; grouping with similar bureau codes is recommended.";
@@ -258,8 +239,7 @@ export function saveBureauTreatmentDecision(
       `${treatmentLabels[profile.recommendedTreatment]}: ${profile.recommendationReason}`,
       `Count: ${profile.count}`,
       `Percent: ${(profile.percent * 100).toFixed(2)}%`,
-      `Special event rate: ${profile.eventRate === null ? "-" : (profile.eventRate * 100).toFixed(2) + "%"}`,
-      `Regular event rate: ${profile.regularEventRate === null ? "-" : (profile.regularEventRate * 100).toFixed(2) + "%"}`,
+      "Target comparison: pending governed development-population evidence",
     ].join(" | "),
     followStatus: treatment === profile.recommendedTreatment ? "followed" : "overrode",
     userReason: rationale,
@@ -299,7 +279,6 @@ export function detectBureauSpecialValues() {
   const metadata = loadBureauMetadata();
   const metadataMap = metadataByVariable(metadata);
   const target = dataset.target;
-  const problemType = inferLocalProblemType(dataset);
   const profiles: BureauSpecialValueProfile[] = [];
 
   for (const variableName of dataset.headers.filter((header) => header !== target)) {
@@ -312,27 +291,16 @@ export function detectBureauSpecialValues() {
     const specialValues = Array.from(new Set(numericValues.filter((value) => definitions.has(value)))).sort((a, b) => a - b);
     if (!specialValues.length) continue;
     const regularValues = numericValues.filter((value) => !definitions.has(value)).sort((a, b) => a - b);
-    const regularRows = dataset.rows.filter((row) => {
-      const value = toNumber(row[variableName]);
-      return value !== null && !definitions.has(value);
-    });
-    const regularTargets = target ? regularRows.map((row) => row[target]) : [];
-    const regularEventRate = problemType === "classification" ? eventRate(regularTargets) : null;
-    const regularMeanTarget = problemType === "regression" ? eventRate(regularTargets) : null;
     const regularMedian = percentile(regularValues, 0.5);
     const regularMean = mean(regularValues);
 
     for (const value of specialValues) {
       const definition = definitions.get(value)!;
       const rowsForValue = dataset.rows.filter((row) => toNumber(row[variableName]) === value);
-      const targetsForValue = target ? rowsForValue.map((row) => row[target]) : [];
       const count = rowsForValue.length;
       const percent = count / Math.max(1, dataset.rows.length);
-      const svEventRate = problemType === "classification" ? eventRate(targetsForValue) : null;
       const recommendation = profileRecommendation({
         percent,
-        eventRate: svEventRate,
-        regularEventRate,
         count,
         group: definition.group,
         variableName,
@@ -344,9 +312,9 @@ export function detectBureauSpecialValues() {
         group: definition.group,
         count,
         percent,
-        eventRate: svEventRate,
-        regularEventRate,
-        regularMeanTarget,
+        eventRate: null,
+        regularEventRate: null,
+        regularMeanTarget: null,
         regularMedian,
         regularMean,
         metadata: meta,
@@ -400,6 +368,11 @@ import numpy as np
 import pandas as pd
 
 def profile_bureau_special_values(df, target=None):
+    if target is not None:
+        raise RuntimeError(
+            "Target-aware bureau comparisons require backend-verified exact development membership; "
+            "this generated browser helper is structural-only."
+        )
     rows = []
     for rule in BUREAU_SPECIAL_VALUE_TREATMENTS:
         variable = rule["variable"]
@@ -415,9 +388,6 @@ def profile_bureau_special_values(df, target=None):
             "treatment": rule["treatment"],
             "rationale": rule["rationale"],
         }
-        if target and target in df.columns:
-            row["target_rate"] = float(df.loc[mask, target].mean()) if mask.any() else np.nan
-            row["regular_target_rate"] = float(df.loc[~mask, target].mean()) if (~mask).any() else np.nan
         rows.append(row)
     return pd.DataFrame(rows)
 

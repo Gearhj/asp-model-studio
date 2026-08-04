@@ -8,7 +8,11 @@ const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
   "http://127.0.0.1:8001/api";
 
-export type FeatureProfileScope = "full_dataset" | "complete_browser_dataset" | "preview_profile";
+export type FeatureProfileScope =
+  | "development_population"
+  | "full_dataset"
+  | "complete_browser_dataset"
+  | "preview_profile";
 
 export type FeatureProfileRow = {
   selected: boolean;
@@ -58,6 +62,15 @@ export type FeatureProfileResponse = {
   selectedColumns: string[];
   features: FeatureProfileRow[];
   featureManifestVersion?: string | null;
+  analytical_scope?: string;
+  population_id?: string;
+  population_count?: number;
+  partition_id?: string;
+  partition_revision?: number;
+  holdout_excluded?: boolean;
+  source_checksum?: string;
+  actor?: string;
+  timestamp?: string;
   warning?: string;
 };
 
@@ -104,92 +117,16 @@ export function predictorEligibility(column: string, dataset: LocalDataset) {
   return { role: "eligible", reason: "" };
 }
 
-function eventValueFor(dataset: LocalDataset, rows: Record<string, unknown>[]) {
-  if (dataset.event_value !== undefined && dataset.event_value !== null && String(dataset.event_value) !== "") {
-    return dataset.event_value;
-  }
-  if (!dataset.target) return null;
-  const values = rows.map((row) => row[dataset.target as string]).filter((value) => !isMissing(value));
-  return values.find((value) => String(value) === "1") ?? null;
-}
-
-function informationValue(rows: Record<string, unknown>[], column: string, target: string, eventValue: unknown) {
-  if (!rows.length || eventValue === null || eventValue === undefined) return null;
-  const valid = rows.filter((row) => !isMissing(row[target]));
-  const targetValues = new Set(valid.map((row) => String(row[target])));
-  if (targetValues.size !== 2) return null;
-  const featureNumbers = numericValues(valid, column);
-  const numeric = featureNumbers.length / Math.max(valid.length, 1) >= 0.8;
-  const breaks = numeric && new Set(featureNumbers).size > 10
-    ? Array.from({ length: 9 }, (_, index) => quantile(featureNumbers, (index + 1) / 10)).filter((value): value is number => value !== null)
-    : [];
-  const categoryCounts = new Map<string, number>();
-  if (!numeric) {
-    valid.forEach((row) => {
-      const key = isMissing(row[column]) ? "__MISSING__" : String(row[column]);
-      categoryCounts.set(key, (categoryCounts.get(key) ?? 0) + 1);
-    });
-  }
-  const topCategories = new Set([...categoryCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 50).map(([key]) => key));
-  const bucketFor = (value: unknown) => {
-    if (isMissing(value)) return "__MISSING__";
-    if (!numeric) return topCategories.has(String(value)) ? String(value) : "__OTHER__";
-    const number = Number(value);
-    if (!Number.isFinite(number)) return "__MISSING__";
-    const index = breaks.findIndex((boundary) => number <= boundary);
-    return index < 0 ? `bin_${breaks.length}` : `bin_${index}`;
-  };
-  const buckets = new Map<string, { event: number; nonEvent: number }>();
-  valid.forEach((row) => {
-    const key = bucketFor(row[column]);
-    const bucket = buckets.get(key) ?? { event: 0, nonEvent: 0 };
-    if (String(row[target]) === String(eventValue)) bucket.event += 1;
-    else bucket.nonEvent += 1;
-    buckets.set(key, bucket);
-  });
-  const totalEvent = [...buckets.values()].reduce((sum, bucket) => sum + bucket.event, 0);
-  const totalNonEvent = [...buckets.values()].reduce((sum, bucket) => sum + bucket.nonEvent, 0);
-  if (!totalEvent || !totalNonEvent) return null;
-  const smoothing = 0.5;
-  const denominatorEvent = totalEvent + smoothing * buckets.size;
-  const denominatorNonEvent = totalNonEvent + smoothing * buckets.size;
-  let iv = 0;
-  buckets.forEach((bucket) => {
-    const eventDistribution = (bucket.event + smoothing) / denominatorEvent;
-    const nonEventDistribution = (bucket.nonEvent + smoothing) / denominatorNonEvent;
-    iv += (eventDistribution - nonEventDistribution) * Math.log(eventDistribution / nonEventDistribution);
-  });
-  return Number.isFinite(iv) ? Math.max(0, iv) : null;
-}
-
-function correlation(rows: Record<string, unknown>[], column: string, target: string) {
-  const pairs = rows
-    .map((row) => [Number(row[column]), Number(row[target])])
-    .filter(([x, y]) => Number.isFinite(x) && Number.isFinite(y));
-  if (pairs.length < 3) return null;
-  const meanX = pairs.reduce((sum, pair) => sum + pair[0], 0) / pairs.length;
-  const meanY = pairs.reduce((sum, pair) => sum + pair[1], 0) / pairs.length;
-  const numerator = pairs.reduce((sum, pair) => sum + (pair[0] - meanX) * (pair[1] - meanY), 0);
-  const denominator = Math.sqrt(pairs.reduce((sum, pair) => sum + (pair[0] - meanX) ** 2, 0)) * Math.sqrt(pairs.reduce((sum, pair) => sum + (pair[1] - meanY) ** 2, 0));
-  const value = numerator / denominator;
-  return Number.isFinite(value) ? value : null;
-}
-
-function strength(value: number | null, problemType: "classification" | "regression") {
-  if (value === null) return "Not Evaluated";
-  const magnitude = Math.abs(value);
-  if (problemType === "regression") return magnitude < 0.05 ? "Very Weak" : magnitude < 0.15 ? "Weak" : magnitude < 0.3 ? "Moderate" : "Strong";
-  return magnitude < 0.02 ? "Not Predictive" : magnitude < 0.1 ? "Weak" : magnitude < 0.3 ? "Medium" : magnitude < 0.5 ? "Strong" : "Very Strong";
-}
-
 export function profileFeaturesInBrowser(
   dataset: LocalDataset,
   rows: Record<string, unknown>[],
-  scope: Exclude<FeatureProfileScope, "full_dataset">,
+  scope: Extract<FeatureProfileScope, "complete_browser_dataset" | "preview_profile">,
 ): FeatureProfileResponse {
-  if (!dataset.target) throw new Error("Select a target before profiling predictors.");
   const problemType = dataset.problem_type ?? "classification";
-  const eventValue = eventValueFor(dataset, rows);
+  // Browser rows do not prove Analysis Partition membership. Keep this fallback
+  // structural-only; all target association must come from an exact backend
+  // development-population materialization with the sealed holdout excluded.
+  const eventValue = dataset.event_value ?? null;
   const selected = new Set(dataset.selected_columns ?? []);
   const features = dataset.headers.map((column): FeatureProfileRow => {
     const eligibility = predictorEligibility(column, dataset);
@@ -197,11 +134,6 @@ export function profileFeaturesInBrowser(
     const values = rows.map((row) => row[column]);
     const numbers = numericValues(rows, column);
     const numeric = numbers.length / Math.max(values.filter((value) => !isMissing(value)).length, 1) >= 0.8;
-    const metric = !eligible
-      ? null
-      : problemType === "regression"
-        ? numeric ? correlation(rows, column, dataset.target as string) : null
-        : informationValue(rows, column, dataset.target as string, eventValue);
     const average = numbers.length ? numbers.reduce((sum, value) => sum + value, 0) / numbers.length : null;
     const variance = average === null || numbers.length < 2 ? null : numbers.reduce((sum, value) => sum + (value - average) ** 2, 0) / (numbers.length - 1);
     return {
@@ -209,11 +141,11 @@ export function profileFeaturesInBrowser(
       predictor: column,
       role: eligibility.role,
       datatype: numeric ? "numeric" : "categorical",
-      iv: problemType === "classification" ? metric : null,
-      ivStrength: problemType === "classification" ? strength(metric, problemType) : null,
-      correlationWithTarget: problemType === "regression" ? metric : null,
-      correlationStrength: problemType === "regression" ? strength(metric, problemType) : null,
-      associationStatus: metric === null ? "not_evaluated" : "evaluated",
+      iv: null,
+      ivStrength: null,
+      correlationWithTarget: null,
+      correlationStrength: null,
+      associationStatus: "not_evaluated",
       missingCount: values.filter(isMissing).length,
       missingPercent: values.length ? values.filter(isMissing).length / values.length : 0,
       distinctCount: new Set(values.filter((value) => !isMissing(value)).map(String)).size,
@@ -235,11 +167,12 @@ export function profileFeaturesInBrowser(
     profiledRowCount: rows.length,
     registeredRowCount: dataset.registered_row_count ?? rows.length,
     problemType,
-    target: dataset.target,
+    target: dataset.target ?? "",
     eventValue,
     selectedColumns: dataset.selected_columns,
     features,
-    warning: scope === "preview_profile" ? "Predictor statistics are based on preview rows and are not full-dataset evidence." : undefined,
+    warning:
+      "Browser rows provide structural statistics only. Target-directed evidence is withheld until the backend verifies the exact development population and excludes the sealed holdout.",
   };
 }
 

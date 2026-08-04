@@ -12,6 +12,7 @@ import { loadLocalDataset } from "../lib/localDataset";
 import { requireLocalDatasetCanonicalIdentity } from "../lib/datasetIdentity";
 import { upsertProjectFromState } from "../lib/localProjects";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { projectWorkflowRoute } from "../lib/projectScopedRoutes";
 
 export default function Step11ModelDevelopmentDocument() {
   const [navigationError, setNavigationError] = useState("");
@@ -56,7 +57,7 @@ export default function Step11ModelDevelopmentDocument() {
       setNavigationError("");
       markComplete("step11");
       await upsertProjectFromState(useWorkflowStore.getState());
-      navigate("/step12");
+      navigate(projectWorkflowRoute(projectId, "/step12"));
       window.scrollTo({ top: 0, left: 0 });
     } catch (error: any) {
       setNavigationError(error?.message ?? "ATLAS could not save this documentation checkpoint before navigating.");

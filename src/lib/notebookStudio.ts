@@ -48,6 +48,12 @@ export type AtlasNotebook = {
   primaryVersionId?: string;
   secondaryDatasetId?: string;
   secondaryVersionId?: string;
+  target?: string;
+  eventValue?: unknown;
+  nonEventValue?: unknown;
+  targetContractId?: string;
+  analysisPartitionId?: string;
+  analysisPartitionRevision?: number;
   createdAt?: string;
   updatedAt?: string;
   createdBy?: string;
@@ -260,6 +266,12 @@ export async function runNotebookCell(notebookId: string, cell: NotebookCell, co
       primaryVersionId: context.primaryVersionId ?? "",
       secondaryDatasetId: context.secondaryDatasetId ?? "",
       secondaryVersionId: context.secondaryVersionId ?? "",
+      target: context.target ?? "",
+      eventValue: context.eventValue ?? null,
+      nonEventValue: context.nonEventValue ?? null,
+      targetContractId: context.targetContractId ?? "",
+      analysisPartitionId: context.analysisPartitionId ?? "",
+      analysisPartitionRevision: context.analysisPartitionRevision ?? 0,
     }),
   });
 }

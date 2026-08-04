@@ -336,6 +336,35 @@ export type GovernedEvidenceResult = {
   createdAt: string;
 };
 
+export type GovernedTargetSummaryExport = {
+  ok: true;
+  scopeMode: "governed_version";
+  markers: [];
+  governed: true;
+  datasetId: string;
+  datasetVersionId: string;
+  artifactChecksum: string;
+  target: string;
+  exact: boolean;
+  sampled: boolean;
+  evidenceEligible: boolean;
+  mddEligible: boolean;
+  analysisPopulationId: string;
+  analysisPartitionId: string;
+  analysisPartitionRevision: number;
+  splitId: string;
+  populationScope: "development_population";
+  populationRows: number;
+  fullGovernedPopulationRows: number;
+  finalHoldoutAccessed: false;
+  finalHoldoutUsedForSelection: false;
+  generatedAt: string;
+  classBalance: TargetAssessmentResult["classBalance"];
+  imbalance: TargetAssessmentResult["imbalance"];
+  confidenceInterval: TargetAssessmentResult["confidenceInterval"];
+  disclosure: string;
+};
+
 /**
  * Requests a governed Target Intelligence evidence artifact.
  *
@@ -380,6 +409,32 @@ export async function saveGovernedTargetEvidence(input: {
     title: input.title ?? null,
     notes: input.notes ?? "",
   });
+}
+
+/**
+ * Downloads a governed Target Intelligence summary only after the backend
+ * re-resolves the exact documented development population. The browser sends
+ * selection identity, never calculated counts, scope, or governance claims.
+ */
+export async function exportGovernedTargetSummary(input: {
+  projectId: string;
+  datasetId: string;
+  versionId: string;
+  target: string;
+  eventValue?: unknown;
+  nonEventValue?: unknown;
+}): Promise<GovernedTargetSummaryExport> {
+  return postJson<GovernedTargetSummaryExport>(
+    "/analytics/target-summary-export",
+    {
+      projectId: input.projectId,
+      datasetId: input.datasetId,
+      versionId: input.versionId,
+      target: input.target,
+      eventValue: input.eventValue ?? null,
+      nonEventValue: input.nonEventValue ?? null,
+    }
+  );
 }
 
 export async function updateTargetFinding(

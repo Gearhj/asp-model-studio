@@ -39,21 +39,22 @@ const aiActions = [
 
 assert.match(page, /export default function Step00ProjectContext/, "Project Context page must load as an exported route component.");
 assert.match(page, /Step 0: Define the Modeling Mission/);
-assert.match(page, /data-testid="model-charter"/);
-assert.match(page, /Project Context readiness/);
-assert.match(page, /Business Purpose/);
-assert.match(page, /Intended Use/);
-assert.match(page, /Time Windows/);
-assert.match(page, /concise\(context\.businessObjective\)/, "Model Charter must use actual entered content.");
+assert.match(page, /data-testid="model-identity-card"/);
+assert.match(page, /Project Setup/);
+assert.match(page, /Decision foundation/);
+assert.match(page, /Business Decision and Intended Use/);
+assert.match(page, /Target and Population/);
+assert.match(page, /Observation and Performance Windows/);
+assert.match(page, /Project Context Review/);
 assert.match(page, /context\.modelTypeSelection/);
 assert.match(page, /context\.fraudDetails\.deploymentMode/);
 
 assert.doesNotMatch(page, /Validation Plan/, "Visible legacy Validation Plan must be removed.");
 assert.doesNotMatch(page, /TRAIN \/ TEST \/ OOT/, "Premature validation choices must not be visible.");
 assert.doesNotMatch(page, /validationDesign/, "Legacy validation values must not drive this page.");
-assert.match(page, /Pending Data Review/);
-assert.match(page, /\/balancing_split\/status/);
-assert.match(page, /Read-only contract from Balance &amp; Split/);
+assert.doesNotMatch(page, /Pending Data Review/);
+assert.doesNotMatch(page, /\/balancing_split\/status/);
+assert.doesNotMatch(page, /Read-only contract from Balance &amp; Split/);
 
 for (const option of exactModelTypes) assert.match(contextSource, new RegExp(option), `Missing professional model type: ${option}`);
 for (const option of deploymentModes) assert.match(page, new RegExp(option), `Missing deployment mode: ${option}`);
@@ -71,9 +72,9 @@ assert.match(page, /acceptedBy: currentUserId \|\| current\.updatedBy/);
 
 assert.match(page, /<details[^>]*className="mt-4/s, "Optional Use Boundaries must be collapsed by default.");
 for (const field of ["approvedUses", "prohibitedUses", "humanReviewRequired", "overrideAuthority"]) assert.match(page, new RegExp(field));
-assert.match(page, /data-testid="target-column-binding"/);
-assert.match(page, /Pending Data Acquisition/);
-assert.match(page, /localDataset\?\.target/);
+assert.doesNotMatch(page, /data-testid="target-column-binding"/);
+assert.doesNotMatch(page, /localDataset\?\.target/);
+assert.match(page, /Physical columns are selected during Data Acquisition/);
 
 assert.match(page, /reviewItems\(context\)/);
 assert.match(page, /Complete/);
@@ -82,22 +83,24 @@ assert.match(page, /Needs clarification/);
 assert.match(page, /buildMissionSummary/);
 assert.match(page, /Copy Summary/);
 assert.match(page, /Save to Evidence Center/);
-assert.match(page, /Draft Documentation Language/);
+assert.match(page, /draft documentation language/);
 
 assert.match(page, /completionStatus: "complete"/);
-assert.match(page, /nextDisabled=\{!pageCompleted\}/);
+assert.match(page, /nextDisabled=\{!isComplete\}/);
 assert.match(page, /onNext=\{continueToDataAcquisition\}/);
 assert.match(shell, /if \(result === false\) return/);
 assert.match(page, /markWorkflowStepComplete\("step00"\)/);
-assert.match(page, /savePredictiveProjectContextToDatabase/);
+assert.match(page, /useProjectContextAutosave/);
+assert.match(page, /publishSavedProjectMetadata/);
+assert.match(page, /onHydrated: \(hydrated\) => setContext\(hydrated\)/);
 assert.match(page, /sourceRoute: "\/step00"/);
 assert.doesNotMatch(page, /validationDesign: saved/, "Evidence payload must not promote a legacy Project Context validation choice.");
 
 assert.match(guide, /buildProjectContextRecommendations/);
 assert.match(guide, /Complete the modeling mission/);
-assert.match(guide, /physical target column will be selected during Data Acquisition/);
+assert.match(guide, /physical target binding/);
 assert.match(guide, /Project Context is complete/);
-assert.match(guide, /location\.pathname === "\/step00" \? \[\]/, "Generic adaptive recommendations must be suppressed on Project Context.");
+assert.match(guide, /if \(context\.route === "\/step00"\) return buildProjectContextRecommendations\(context\)/, "Project Context must use its dedicated recommendation contract.");
 
 assert.match(persistence, /readStorageKeys\(localStorage, \["modeling-tool-project-context"\]\)/, "Project reopen snapshots must retain Project Context.");
 for (const field of ["modelTypeSelection", "modelingMissionSummary", "acceptedAiDrafts", "completionStatus", "completedAt", "completedBy", "updatedBy"]) {

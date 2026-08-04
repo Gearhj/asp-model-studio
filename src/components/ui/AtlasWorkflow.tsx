@@ -9,6 +9,12 @@ import {
   ShieldCheck,
   XCircle,
 } from "lucide-react";
+import {
+  resolveAtlasDataScope,
+  type AtlasDataScope,
+} from "../../lib/dataScope";
+
+export type { AtlasDataScope } from "../../lib/dataScope";
 
 export type AtlasWorkflowVariant = "standard" | "data" | "analysis" | "preparation" | "modeling";
 export type AtlasWorkflowTone = "neutral" | "info" | "success" | "warning" | "danger";
@@ -151,21 +157,24 @@ export function AtlasDataScopeBadge({
   scope,
   rows,
 }: {
-  scope: "full_dataset" | "complete_browser_dataset" | "preview_profile" | "rendered_sample" | "training_pipeline" | "unavailable";
+  scope: AtlasDataScope;
   rows?: number | null;
 }) {
-  const content = {
-    full_dataset: ["Full Dataset", "success"],
-    complete_browser_dataset: ["Complete Browser Dataset", "info"],
-    preview_profile: ["Preview Profile", "warning"],
-    rendered_sample: ["Rendered Sample", "neutral"],
-    training_pipeline: ["Training-Only Pipeline", "info"],
-    unavailable: ["Scope Unavailable", "danger"],
-  }[scope] as [string, AtlasWorkflowTone];
+  // API payloads are validated at runtime, not by TypeScript. Keep this lookup
+  // total so a newly introduced backend scope fails closed in the badge instead
+  // of taking down the entire workflow route.
+  const content = resolveAtlasDataScope(scope);
   return (
-    <span className={`atlas-data-scope atlas-data-scope--${content[1]}`}>
+    <span
+      className={`atlas-data-scope atlas-data-scope--${content.tone}`}
+      data-scope={content.scope}
+      data-scope-recognized={String(content.recognized)}
+    >
       <ShieldCheck size={14} aria-hidden="true" />
-      {content[0]}{typeof rows === "number" ? `: ${rows.toLocaleString()} Rows` : ""}
+      {content.label}
+      {content.scope !== "unavailable" && typeof rows === "number"
+        ? `: ${rows.toLocaleString()} Rows`
+        : ""}
     </span>
   );
 }

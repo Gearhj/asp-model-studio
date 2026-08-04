@@ -179,7 +179,7 @@ test.describe("Open Project authoritative registry loading", () => {
       projects: () => ({ status: 401, body: { ok: false, detail: "authentication required" } }),
     });
     await page.goto("/projects/open?registry-test=401");
-    await expect(page).toHaveURL(/\/login$/);
+    await expect(page).toHaveURL(/\/login\?returnTo=%2Fprojects%2Fopen%3Fregistry-test%3D401$/);
     await expect(page.getByRole("heading", { name: "Sign in to ATLAS" })).toBeVisible();
     await expect(page.getByText(/Backend project registry unavailable/i)).toHaveCount(0);
   });

@@ -17,7 +17,7 @@
     "datasetId": "ds_heloc_train_6bdb184b_05905",
     "datasetVersion": "v_1785186305905_6bdb184b"
   },
-  "projectName": "Credit Card Transaction Fraud Model - TEST",
+  "projectName": "HELOC Credit Risk - CLASSIFICATION TEST",
   "evidenceType": "outliers",
   "title": "Governed Outlier Treatment and Special-Value Separation",
   "summary": "5,468 ordinary values were treated across 23 predictors; bureau special values were preserved and no rows were removed.",
@@ -40,7 +40,7 @@
   "status": "ready",
   "importance": "high",
   "payload": {
-    "applied_at": "2026-08-01T17:01:14.932473+00:00",
+    "applied_at": "2026-08-03T21:44:37.804266+00:00",
     "project_id": "atlas-mrzpau4t",
     "dataset_id": "ds_heloc_train_6bdb184b_05905",
     "dataset_version_id": "v_1785186305905_6bdb184b",
@@ -48,32 +48,41 @@
     "row_count": 6275,
     "global_method": "IQR_1_5",
     "config": {
-      "ExternalRiskEstimate": "USE_GLOBAL",
-      "MSinceOldestTradeOpen": "USE_GLOBAL",
-      "MSinceMostRecentTradeOpen": "USE_GLOBAL",
       "AverageMInFile": "USE_GLOBAL",
-      "NumSatisfactoryTrades": "USE_GLOBAL",
-      "NumTrades60Ever2DerogPubRec": "USE_GLOBAL",
-      "NumTrades90Ever2DerogPubRec": "USE_GLOBAL",
-      "PercentTradesNeverDelq": "USE_GLOBAL",
+      "ExternalRiskEstimate": "USE_GLOBAL",
       "MSinceMostRecentDelq": "USE_GLOBAL",
+      "MSinceMostRecentInqexcl7days": "USE_GLOBAL",
+      "MSinceMostRecentTradeOpen": "USE_GLOBAL",
+      "MSinceOldestTradeOpen": "USE_GLOBAL",
       "MaxDelq2PublicRecLast12M": "USE_GLOBAL",
       "MaxDelqEver": "USE_GLOBAL",
-      "NumTotalTrades": "USE_GLOBAL",
-      "NumTradesOpeninLast12M": "USE_GLOBAL",
-      "PercentInstallTrades": "USE_GLOBAL",
-      "MSinceMostRecentInqexcl7days": "USE_GLOBAL",
+      "NetFractionInstallBurden": "USE_GLOBAL",
+      "NetFractionRevolvingBurden": "USE_GLOBAL",
+      "NumBank2NatlTradesWHighUtilization": "USE_GLOBAL",
       "NumInqLast6M": "USE_GLOBAL",
       "NumInqLast6Mexcl7days": "USE_GLOBAL",
-      "NetFractionRevolvingBurden": "USE_GLOBAL",
-      "NetFractionInstallBurden": "USE_GLOBAL",
-      "NumRevolvingTradesWBalance": "USE_GLOBAL",
       "NumInstallTradesWBalance": "USE_GLOBAL",
-      "NumBank2NatlTradesWHighUtilization": "USE_GLOBAL",
+      "NumRevolvingTradesWBalance": "USE_GLOBAL",
+      "NumSatisfactoryTrades": "USE_GLOBAL",
+      "NumTotalTrades": "USE_GLOBAL",
+      "NumTrades60Ever2DerogPubRec": "USE_GLOBAL",
+      "NumTrades90Ever2DerogPubRec": "USE_GLOBAL",
+      "NumTradesOpeninLast12M": "USE_GLOBAL",
+      "PercentInstallTrades": "USE_GLOBAL",
+      "PercentTradesNeverDelq": "USE_GLOBAL",
       "PercentTradesWBalance": "USE_GLOBAL"
     },
     "rationales": {},
     "treatments": [
+      {
+        "feature": "AverageMInFile",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 148,
+        "lower_threshold": -3,
+        "upper_threshold": 157,
+        "special_values_preserved": 352
+      },
       {
         "feature": "ExternalRiskEstimate",
         "configured_method": "USE_GLOBAL",
@@ -84,13 +93,22 @@
         "special_values_preserved": 357
       },
       {
-        "feature": "MSinceOldestTradeOpen",
+        "feature": "MSinceMostRecentDelq",
         "configured_method": "USE_GLOBAL",
         "applied_method": "IQR_1_5",
-        "changed_values": 100,
-        "lower_threshold": -47,
-        "upper_threshold": 441,
-        "special_values_preserved": 486
+        "changed_values": 42,
+        "lower_threshold": -38.5,
+        "upper_threshold": 77.5,
+        "special_values_preserved": 3262
+      },
+      {
+        "feature": "MSinceMostRecentInqexcl7days",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 549,
+        "lower_threshold": -4.5,
+        "upper_threshold": 7.5,
+        "special_values_preserved": 1754
       },
       {
         "feature": "MSinceMostRecentTradeOpen",
@@ -102,13 +120,94 @@
         "special_values_preserved": 352
       },
       {
-        "feature": "AverageMInFile",
+        "feature": "MSinceOldestTradeOpen",
         "configured_method": "USE_GLOBAL",
         "applied_method": "IQR_1_5",
-        "changed_values": 148,
-        "lower_threshold": -3,
-        "upper_threshold": 157,
+        "changed_values": 100,
+        "lower_threshold": -47,
+        "upper_threshold": 441,
+        "special_values_preserved": 486
+      },
+      {
+        "feature": "MaxDelq2PublicRecLast12M",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 230,
+        "lower_threshold": 2,
+        "upper_threshold": 10,
         "special_values_preserved": 352
+      },
+      {
+        "feature": "MaxDelqEver",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 425,
+        "lower_threshold": 3,
+        "upper_threshold": 11,
+        "special_values_preserved": 352
+      },
+      {
+        "feature": "NetFractionInstallBurden",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 11,
+        "lower_threshold": 2,
+        "upper_threshold": 138,
+        "special_values_preserved": 2411
+      },
+      {
+        "feature": "NetFractionRevolvingBurden",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 3,
+        "lower_threshold": -61.5,
+        "upper_threshold": 126.5,
+        "special_values_preserved": 458
+      },
+      {
+        "feature": "NumBank2NatlTradesWHighUtilization",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 105,
+        "lower_threshold": -3,
+        "upper_threshold": 5,
+        "special_values_preserved": 684
+      },
+      {
+        "feature": "NumInqLast6M",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 249,
+        "lower_threshold": -3,
+        "upper_threshold": 5,
+        "special_values_preserved": 352
+      },
+      {
+        "feature": "NumInqLast6Mexcl7days",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 230,
+        "lower_threshold": -3,
+        "upper_threshold": 5,
+        "special_values_preserved": 352
+      },
+      {
+        "feature": "NumInstallTradesWBalance",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 141,
+        "lower_threshold": -2,
+        "upper_threshold": 6,
+        "special_values_preserved": 893
+      },
+      {
+        "feature": "NumRevolvingTradesWBalance",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 323,
+        "lower_threshold": -2.5,
+        "upper_threshold": 9.5,
+        "special_values_preserved": 438
       },
       {
         "feature": "NumSatisfactoryTrades",
@@ -117,6 +216,15 @@
         "changed_values": 134,
         "lower_threshold": -8,
         "upper_threshold": 48,
+        "special_values_preserved": 352
+      },
+      {
+        "feature": "NumTotalTrades",
+        "configured_method": "USE_GLOBAL",
+        "applied_method": "IQR_1_5",
+        "changed_values": 120,
+        "lower_threshold": -12.5,
+        "upper_threshold": 55.5,
         "special_values_preserved": 352
       },
       {
@@ -138,51 +246,6 @@
         "special_values_preserved": 352
       },
       {
-        "feature": "PercentTradesNeverDelq",
-        "configured_method": "USE_GLOBAL",
-        "applied_method": "IQR_1_5",
-        "changed_values": 417,
-        "lower_threshold": 72.5,
-        "upper_threshold": 116.5,
-        "special_values_preserved": 352
-      },
-      {
-        "feature": "MSinceMostRecentDelq",
-        "configured_method": "USE_GLOBAL",
-        "applied_method": "IQR_1_5",
-        "changed_values": 42,
-        "lower_threshold": -38.5,
-        "upper_threshold": 77.5,
-        "special_values_preserved": 3262
-      },
-      {
-        "feature": "MaxDelq2PublicRecLast12M",
-        "configured_method": "USE_GLOBAL",
-        "applied_method": "IQR_1_5",
-        "changed_values": 230,
-        "lower_threshold": 2,
-        "upper_threshold": 10,
-        "special_values_preserved": 352
-      },
-      {
-        "feature": "MaxDelqEver",
-        "configured_method": "USE_GLOBAL",
-        "applied_method": "IQR_1_5",
-        "changed_values": 425,
-        "lower_threshold": 3,
-        "upper_threshold": 11,
-        "special_values_preserved": 352
-      },
-      {
-        "feature": "NumTotalTrades",
-        "configured_method": "USE_GLOBAL",
-        "applied_method": "IQR_1_5",
-        "changed_values": 120,
-        "lower_threshold": -12.5,
-        "upper_threshold": 55.5,
-        "special_values_preserved": 352
-      },
-      {
         "feature": "NumTradesOpeninLast12M",
         "configured_method": "USE_GLOBAL",
         "applied_method": "IQR_1_5",
@@ -201,76 +264,13 @@
         "special_values_preserved": 352
       },
       {
-        "feature": "MSinceMostRecentInqexcl7days",
+        "feature": "PercentTradesNeverDelq",
         "configured_method": "USE_GLOBAL",
         "applied_method": "IQR_1_5",
-        "changed_values": 549,
-        "lower_threshold": -4.5,
-        "upper_threshold": 7.5,
-        "special_values_preserved": 1754
-      },
-      {
-        "feature": "NumInqLast6M",
-        "configured_method": "USE_GLOBAL",
-        "applied_method": "IQR_1_5",
-        "changed_values": 249,
-        "lower_threshold": -3,
-        "upper_threshold": 5,
+        "changed_values": 417,
+        "lower_threshold": 72.5,
+        "upper_threshold": 116.5,
         "special_values_preserved": 352
-      },
-      {
-        "feature": "NumInqLast6Mexcl7days",
-        "configured_method": "USE_GLOBAL",
-        "applied_method": "IQR_1_5",
-        "changed_values": 230,
-        "lower_threshold": -3,
-        "upper_threshold": 5,
-        "special_values_preserved": 352
-      },
-      {
-        "feature": "NetFractionRevolvingBurden",
-        "configured_method": "USE_GLOBAL",
-        "applied_method": "IQR_1_5",
-        "changed_values": 3,
-        "lower_threshold": -61.5,
-        "upper_threshold": 126.5,
-        "special_values_preserved": 458
-      },
-      {
-        "feature": "NetFractionInstallBurden",
-        "configured_method": "USE_GLOBAL",
-        "applied_method": "IQR_1_5",
-        "changed_values": 11,
-        "lower_threshold": 2,
-        "upper_threshold": 138,
-        "special_values_preserved": 2411
-      },
-      {
-        "feature": "NumRevolvingTradesWBalance",
-        "configured_method": "USE_GLOBAL",
-        "applied_method": "IQR_1_5",
-        "changed_values": 323,
-        "lower_threshold": -2.5,
-        "upper_threshold": 9.5,
-        "special_values_preserved": 438
-      },
-      {
-        "feature": "NumInstallTradesWBalance",
-        "configured_method": "USE_GLOBAL",
-        "applied_method": "IQR_1_5",
-        "changed_values": 141,
-        "lower_threshold": -2,
-        "upper_threshold": 6,
-        "special_values_preserved": 893
-      },
-      {
-        "feature": "NumBank2NatlTradesWHighUtilization",
-        "configured_method": "USE_GLOBAL",
-        "applied_method": "IQR_1_5",
-        "changed_values": 105,
-        "lower_threshold": -3,
-        "upper_threshold": 5,
-        "special_values_preserved": 684
       },
       {
         "feature": "PercentTradesWBalance",
@@ -285,14 +285,14 @@
     "changed_values": 5468,
     "high_impact_features": [
       {
-        "feature": "NumTrades90Ever2DerogPubRec",
-        "changed_values": 1352,
-        "changed_rate": 0.2282627047104508
-      },
-      {
         "feature": "MSinceMostRecentInqexcl7days",
         "changed_values": 549,
         "changed_rate": 0.12143331121433311
+      },
+      {
+        "feature": "NumTrades90Ever2DerogPubRec",
+        "changed_values": 1352,
+        "changed_rate": 0.2282627047104508
       }
     ],
     "high_impact_acknowledged": true,
@@ -301,28 +301,28 @@
     "predictor_authorization": {
       "target": "bad_flag",
       "authorized_predictors": [
-        "ExternalRiskEstimate",
-        "MSinceOldestTradeOpen",
-        "MSinceMostRecentTradeOpen",
         "AverageMInFile",
-        "NumSatisfactoryTrades",
-        "NumTrades60Ever2DerogPubRec",
-        "NumTrades90Ever2DerogPubRec",
-        "PercentTradesNeverDelq",
+        "ExternalRiskEstimate",
         "MSinceMostRecentDelq",
+        "MSinceMostRecentInqexcl7days",
+        "MSinceMostRecentTradeOpen",
+        "MSinceOldestTradeOpen",
         "MaxDelq2PublicRecLast12M",
         "MaxDelqEver",
-        "NumTotalTrades",
-        "NumTradesOpeninLast12M",
-        "PercentInstallTrades",
-        "MSinceMostRecentInqexcl7days",
+        "NetFractionInstallBurden",
+        "NetFractionRevolvingBurden",
+        "NumBank2NatlTradesWHighUtilization",
         "NumInqLast6M",
         "NumInqLast6Mexcl7days",
-        "NetFractionRevolvingBurden",
-        "NetFractionInstallBurden",
-        "NumRevolvingTradesWBalance",
         "NumInstallTradesWBalance",
-        "NumBank2NatlTradesWHighUtilization",
+        "NumRevolvingTradesWBalance",
+        "NumSatisfactoryTrades",
+        "NumTotalTrades",
+        "NumTrades60Ever2DerogPubRec",
+        "NumTrades90Ever2DerogPubRec",
+        "NumTradesOpeninLast12M",
+        "PercentInstallTrades",
+        "PercentTradesNeverDelq",
         "PercentTradesWBalance"
       ],
       "excluded_predictors": {
@@ -333,31 +333,31 @@
         "RiskPerformance"
       ],
       "selected_predictors": [
-        "ExternalRiskEstimate",
-        "MSinceOldestTradeOpen",
-        "MSinceMostRecentTradeOpen",
         "AverageMInFile",
-        "NumSatisfactoryTrades",
-        "NumTrades60Ever2DerogPubRec",
-        "NumTrades90Ever2DerogPubRec",
-        "PercentTradesNeverDelq",
+        "ExternalRiskEstimate",
         "MSinceMostRecentDelq",
+        "MSinceMostRecentInqexcl7days",
+        "MSinceMostRecentTradeOpen",
+        "MSinceOldestTradeOpen",
         "MaxDelq2PublicRecLast12M",
         "MaxDelqEver",
-        "NumTotalTrades",
-        "NumTradesOpeninLast12M",
-        "PercentInstallTrades",
-        "MSinceMostRecentInqexcl7days",
+        "NetFractionInstallBurden",
+        "NetFractionRevolvingBurden",
+        "NumBank2NatlTradesWHighUtilization",
         "NumInqLast6M",
         "NumInqLast6Mexcl7days",
-        "NetFractionRevolvingBurden",
-        "NetFractionInstallBurden",
-        "NumRevolvingTradesWBalance",
         "NumInstallTradesWBalance",
-        "NumBank2NatlTradesWHighUtilization",
-        "PercentTradesWBalance",
-        "atlas_split"
-      ]
+        "NumRevolvingTradesWBalance",
+        "NumSatisfactoryTrades",
+        "NumTotalTrades",
+        "NumTrades60Ever2DerogPubRec",
+        "NumTrades90Ever2DerogPubRec",
+        "NumTradesOpeninLast12M",
+        "PercentInstallTrades",
+        "PercentTradesNeverDelq",
+        "PercentTradesWBalance"
+      ],
+      "target_source_detection_scope": "provided_analysis_frame"
     }
   },
   "projectId": "atlas-mrzpau4t",
@@ -370,7 +370,7 @@
   "creditRiskContext": {},
   "createdAt": "2026-07-31T21:53:43.616624+00:00",
   "capturedAt": "2026-07-31T21:53:43.616624+00:00",
-  "updatedAt": "2026-08-01T17:05:11.098018+00:00",
+  "updatedAt": "2026-08-03T21:44:43.663116+00:00",
   "createdBy": "ATLAS",
   "qualityScore": 86
 }

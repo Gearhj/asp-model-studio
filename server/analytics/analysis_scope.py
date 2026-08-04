@@ -104,11 +104,12 @@ def _now() -> str:
 def workspace_fingerprint(df: Any, target: Optional[str], source: Optional[Dict[str, Any]] = None) -> str:
     """Durable identity for one loaded workspace dataset.
 
-    Combines shape, column names, target, and the declared source with a content
-    hash of bounded head/tail slices. A replacement upload therefore produces a
-    different fingerprint even when it happens to share a row count -- which is
-    what stops a draft finding written against one uploaded file from appearing
-    against the next one.
+    Combines predictor shape, predictor column names, the target *name*, and the
+    declared source with a content hash of bounded predictor-only head/tail
+    slices.  Target values are intentionally excluded: the workspace fingerprint
+    is structural identity, while target-directed cache identity is supplied by
+    the exact materialized development target.  A sealed-holdout target change
+    therefore cannot invalidate or influence structural EDA.
 
     Deliberately NOT a whole-frame hash: `pd.util.hash_pandas_object` over a
     170,884 x 31 frame is a second full pass, and scope resolution must be free.
@@ -116,17 +117,23 @@ def workspace_fingerprint(df: Any, target: Optional[str], source: Optional[Dict[
     try:
         import pandas as pd  # noqa: PLC0415
 
+        target_name = str(target or "")
+        structural_df = df.drop(columns=[target_name], errors="ignore")
         identity: Dict[str, Any] = {
-            "columns": [str(column) for column in df.columns],
-            "shape": [int(df.shape[0]), int(df.shape[1])],
-            "target": str(target or ""),
+            "columns": [str(column) for column in structural_df.columns],
+            "shape": [int(structural_df.shape[0]), int(structural_df.shape[1])],
+            # Preserve target schema identity without hashing any target value.
+            "target": target_name,
             "sourceKind": str((source or {}).get("kind") or ""),
             "sourceFilename": str((source or {}).get("filename") or ""),
         }
         digest = hashlib.sha256(json.dumps(identity, sort_keys=True).encode("utf-8"))
-        edge = min(FINGERPRINT_EDGE_ROWS, int(df.shape[0]))
+        edge = min(FINGERPRINT_EDGE_ROWS, int(structural_df.shape[0]))
         if edge:
-            for slice_frame in (df.head(edge), df.tail(edge)):
+            for slice_frame in (
+                structural_df.head(edge),
+                structural_df.tail(edge),
+            ):
                 digest.update(pd.util.hash_pandas_object(slice_frame, index=False).values.tobytes())
         return f"wsfp_{digest.hexdigest()[:32]}"
     except Exception:  # noqa: BLE001 - a fingerprint must never break an analysis

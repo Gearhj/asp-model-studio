@@ -21,6 +21,7 @@ from typing import Any, Dict, Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from .core.dataset_store import DATASTORE
 from .core.modeling_scope import authorize_modeling_scope
 from .datasets.dataset_identity import (
     active_dataset_identity,
@@ -31,11 +32,19 @@ from .security.security_store import require_user
 from .code_execution.sas_compatible import SUPPORTED_PROCS, run_sas_compatible
 from .code_execution import sandbox_policy
 from .code_execution.dataset_binding import (
+    BoundDataset,
+    bind_development_dataset,
     build_runtime_prelude,
     resolve_bound_dataset,
     runtime_contract_description,
     stage_dataset_for_sandbox,
 )
+from .preprocessing.development_scope import (
+    resolve_development_analysis_scope,
+    scope_http_exception,
+)
+from .analysis_partition.types import AnalysisPartitionError
+from .persistence.service import get_persistence_service
 
 
 router = APIRouter()
@@ -168,7 +177,35 @@ def sandbox_command(script_path: Path, workdir: Path) -> list[str] | None:
         return None
 
 
-def run_python_request(request: PythonRunRequest) -> Dict[str, Any]:
+def project_requires_development_binding(project_id: str) -> bool:
+    """Return whether code execution for ``project_id`` is predictive.
+
+    This lookup is deliberately server-side.  Internal callers must not be
+    able to downgrade a Predictive Modeling project to the registered-version
+    or browser-preview runtime by omitting a flag.
+    """
+
+    resolved_project_id = str(project_id or "").strip()
+    if not resolved_project_id:
+        return False
+    project = get_persistence_service().projects.get(resolved_project_id)
+    if not isinstance(project, dict):
+        raise HTTPException(
+            status_code=404,
+            detail="ATLAS project was not found in the persistence database.",
+        )
+    project_types = {
+        str(project.get(key) or "").strip().casefold().replace("_", "-")
+        for key in ("project_type", "workflow_type")
+    }
+    return "predictive-modeling" in project_types
+
+
+def run_python_request(
+    request: PythonRunRequest,
+    *,
+    governed_bound: BoundDataset | None = None,
+) -> Dict[str, Any]:
     # Capability is resolved per request (not at import time) so a deployment can
     # configure the sandbox without restarting, and so the UI and the executor
     # always agree about what is possible.
@@ -195,6 +232,17 @@ def run_python_request(request: PythonRunRequest) -> Dict[str, Any]:
             "runtimeMs": 0,
         }
 
+    predictive_execution = project_requires_development_binding(request.projectId)
+    if predictive_execution and governed_bound is None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Predictive Python execution requires an explicitly verified "
+                "development-population binding. Registered-version and browser-preview "
+                "fallbacks are prohibited."
+            ),
+        )
+
     RUNTIME_ROOT.mkdir(parents=True, exist_ok=True)
     started = time.perf_counter()
     temp_dir = RUNTIME_ROOT / f"atlas-python-{uuid.uuid4().hex[:12]}"
@@ -206,7 +254,7 @@ def run_python_request(request: PythonRunRequest) -> Dict[str, Any]:
         # CODE-DATAACQ-002: bind to the exact authorized dataset version instead
         # of emitting an unresolvable placeholder path. The artifact is resolved
         # server-side and staged read-only inside this run's isolated workdir.
-        bound = resolve_bound_dataset(
+        bound = governed_bound or resolve_bound_dataset(
             dataset_id=str(context.get("datasetId") or ""),
             version_id=str(context.get("versionId") or ""),
             target=str(context.get("target") or ""),
@@ -370,13 +418,15 @@ def run_python_request(request: PythonRunRequest) -> Dict[str, Any]:
 def run_python(request: PythonRunRequest, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
     # Execution is scoped to a project the caller may actually view. Without this
     # an authenticated user could run code bound to another project's dataset.
+    governed_bound: BoundDataset | None = None
     if request.projectId:
         authorize_modeling_scope(user, request.projectId, "view")
         context = request.context or {}
         requested_dataset_id = str(context.get("datasetId") or "").strip()
         requested_version_id = str(context.get("versionId") or "").strip()
+        predictive_project = project_requires_development_binding(request.projectId)
         try:
-            active_dataset_identity(
+            identity = active_dataset_identity(
                 request.projectId,
                 user=user,
             )
@@ -385,17 +435,97 @@ def run_python(request: PythonRunRequest, user: Dict[str, Any] = Depends(require
             # caller claims governed identity, it must resolve exactly.
             if requested_dataset_id or requested_version_id:
                 raise
+            if predictive_project:
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        "Predictive code execution requires an exact registered dataset and "
+                        "a current sealed Analysis Partition. Browser preview rows are not a fallback."
+                    ),
+                )
         else:
             # Once the project has a governed dataset, omitting its identity
             # would downgrade execution to ungoverned preview rows.
-            assert_expected_active_identity(
+            identity = assert_expected_active_identity(
                 request.projectId,
                 expected_dataset_id=requested_dataset_id,
                 expected_dataset_version_id=requested_version_id,
                 require_expected=True,
                 user=user,
             )
-    return run_python_request(request)
+            if predictive_project:
+                partition_id = str(context.get("analysisPartitionId") or "").strip()
+                try:
+                    partition_revision = int(context.get("analysisPartitionRevision") or 0)
+                except (TypeError, ValueError):
+                    partition_revision = 0
+                target_contract_id = str(context.get("targetContractId") or "").strip()
+                if not partition_id or partition_revision <= 0 or not target_contract_id:
+                    raise HTTPException(
+                        status_code=422,
+                        detail=(
+                            "Predictive code execution requires the exact Analysis Partition ID, "
+                            "positive revision, and target contract ID."
+                        ),
+                    )
+                try:
+                    scope = resolve_development_analysis_scope(
+                        DATASTORE.current(),
+                        identity,
+                        requested_target=context.get("target"),
+                        requested_problem_type=context.get("problemType"),
+                        requested_event_value=context.get("eventValue"),
+                        expected_analysis_partition_id=partition_id,
+                        expected_analysis_partition_revision=partition_revision,
+                        actor=user.get("userId"),
+                    )
+                except AnalysisPartitionError as exc:
+                    raise scope_http_exception(exc) from exc
+                if str(scope.partition.get("target_contract_id") or "") != target_contract_id:
+                    raise HTTPException(
+                        status_code=409,
+                        detail="The requested target contract does not match the exact sealed Analysis Partition.",
+                    )
+                requested_non_event = context.get("nonEventValue")
+                if requested_non_event not in (None, "") and str(requested_non_event) != str(scope.non_event_value):
+                    raise HTTPException(
+                        status_code=409,
+                        detail="The requested non-event value contradicts the exact sealed Analysis Partition.",
+                    )
+                governed_bound = bind_development_dataset(scope)
+                notebook_preview = (
+                    governed_bound.development_frame.head(500).to_dict("records")
+                    if request.page == "Notebook Studio"
+                    and governed_bound.development_frame is not None
+                    else []
+                )
+                request.context = {
+                    **context,
+                    "previewRows": notebook_preview,
+                    "datasetId": governed_bound.dataset_id,
+                    "versionId": governed_bound.version_id,
+                    "datasetName": governed_bound.dataset_name,
+                    "target": scope.target,
+                    "problemType": scope.problem_type,
+                    "eventValue": scope.event_value,
+                    "nonEventValue": scope.non_event_value,
+                    "selectedFeatures": list(scope.authorized_predictors),
+                    "targetContractId": str(scope.partition.get("target_contract_id") or ""),
+                    "analysisPartitionId": governed_bound.partition_id,
+                    "analysisPartitionRevision": governed_bound.partition_revision,
+                    "analyticalScope": governed_bound.analytical_scope,
+                    "populationId": governed_bound.population_id,
+                    "holdoutExcluded": True,
+                    "sourceChecksum": governed_bound.source_checksum,
+                }
+    elif str((request.context or {}).get("datasetId") or "").strip() or str(
+        (request.context or {}).get("versionId") or ""
+    ).strip():
+        raise HTTPException(
+            status_code=422,
+            detail="A projectId is required to execute code against a registered Dataset Library version.",
+        )
+    return run_python_request(request, governed_bound=governed_bound)
 
 
 @router.get("/python/environment")

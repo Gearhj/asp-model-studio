@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field
 from .trainer_service import TRAINER
 from .training_job_service import TRAINING_JOBS
 from .training_job_types import TrainingJobRequest, TrainingPortfolioRequest
+from .training_preflight_service import TrainingTargetSemanticsError
 from .candidate_contract import (
     CandidateContractError,
     assert_candidate_contract_intact,
@@ -376,6 +377,8 @@ def get_training_model_selection(
         return json_safe({"ok": True, **portfolio})
     except HTTPException:
         raise
+    except TrainingTargetSemanticsError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
@@ -399,6 +402,8 @@ def save_training_model_selection(
         return json_safe({"ok": True, **portfolio})
     except HTTPException:
         raise
+    except TrainingTargetSemanticsError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except Exception as exc:
@@ -460,6 +465,8 @@ def create_training_job(request: TrainingJobRequest, user: Dict[str, Any] = Depe
         return json_safe({"ok": True, **result})
     except HTTPException:
         raise
+    except TrainingTargetSemanticsError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -476,6 +483,8 @@ def run_training_preflight(request: TrainingJobRequest, user: Dict[str, Any] = D
         return json_safe(TRAINING_JOBS.preflight(request))
     except HTTPException:
         raise
+    except TrainingTargetSemanticsError as exc:
+        raise HTTPException(status_code=409, detail=exc.detail) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:

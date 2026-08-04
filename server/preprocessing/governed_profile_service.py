@@ -1,4 +1,4 @@
-"""Governed full-population profiling -- data quality and WOE/IV.
+"""Governed target profiling with an explicit population boundary.
 
 Why this exists
 ---------------
@@ -16,7 +16,9 @@ This module replaces that for target-dependent profiling. It:
   * refuses, with a stable `full_artifact_missing` reason, to profile a legacy
     version whose full artifact was never stored -- it does NOT fall back to
     that version's 5,000-row `data_sample.csv`;
-  * computes quality and IV over the governed population with DuckDB;
+  * computes the labeled Data Acquisition target distribution over the full
+    governed population (the sole full-target exception);
+  * computes WOE/IV only over the exact sealed development population;
   * returns bounded aggregates only -- no population rows, no filesystem paths;
   * reports an explicit per-predictor IV STATUS, so "not estimable" is never
     encoded as the number zero.
@@ -40,7 +42,10 @@ from ..analytics.analysis_scope import (
     scope_identity,
 )
 from ..analytics import result_cache
+from ..core.dataset_store import DATASTORE
 from ..datasets.dataset_registry import ARTIFACT_ROOT, require_dataset
+from ..persistence import service as persistence_service_module
+from .development_scope import resolve_development_analysis_scope
 
 CALCULATION_VERSION = "governed-profile/1"
 
@@ -80,6 +85,7 @@ IV_STRENGTH_BANDS: List[Dict[str, Any]] = [
 # Explicit IV states. Numeric zero is NEVER an error or unavailable state.
 IV_STATUS = (
     "pending",
+    "pending_analysis_partition",
     "available",
     "unavailable_no_events",
     "unavailable_no_non_events",
@@ -794,17 +800,49 @@ def governed_target_profile(
     include_iv: bool = True,
     selected_columns: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """Governed quality + WOE/IV over ONE immutable artifact.
+    """Full-population target distribution plus development-only WOE/IV.
 
-    The artifact is resolved once and read once; every predictor is then profiled
-    against the materialized table.
+    The immutable artifact is read for the explicitly labeled Data Acquisition
+    target distribution and structural inventory only. Predictor/target
+    analysis is unavailable before the first Analysis Partition and is bound to
+    its exact durable development membership afterward.
     """
     started = time.perf_counter()
     artifact = resolve_governed_artifact(dataset_id, version_id)
+    partition_repository = (
+        persistence_service_module.get_persistence_service().analysis_partitions
+    )
+    current_partition = partition_repository.get_current(project_id)
+    partition_history = partition_repository.history(project_id)
+    development_scope = None
+    if current_partition is not None or partition_history:
+        development_scope = resolve_development_analysis_scope(
+            DATASTORE.current(),
+            {
+                "project_id": project_id,
+                "dataset_id": dataset_id,
+                "dataset_version_id": str(artifact["versionId"]),
+                "dataset_content_hash": str(artifact.get("checksum") or ""),
+            },
+            requested_target=target,
+            requested_event_value=event_value,
+            requested_problem_type=problem_type,
+            actor=user_scope,
+        )
+        target = development_scope.target
+        event_value = development_scope.event_value
+        non_event_value = development_scope.non_event_value
+        problem_type = development_scope.problem_type
+    partition_cache_identity = (
+        f"{development_scope.partition.get('analysis_partition_id')}:"
+        f"r{int(development_scope.partition.get('revision') or 0)}"
+        if development_scope is not None
+        else "pre_partition_structural_only"
+    )
 
     cache_key = result_cache.RESULT_CACHE.build_key(
         user_scope=user_scope, project_id=project_id, dataset_id=dataset_id,
-        version_id=str(artifact["versionId"]), partition=None, model_id=None, scoring_run_id=None,
+        version_id=str(artifact["versionId"]), partition=partition_cache_identity, model_id=None, scoring_run_id=None,
         operation="governed_target_profile",
         selected_columns=[target], filters=[],
         # Target AND event mapping participate in cache identity: changing either
@@ -822,7 +860,10 @@ def governed_target_profile(
 
     with _QUERY_LOCK:
         session = _Session(artifact)
+        development_session = None
         try:
+            # This is the sole full-target exception: Data Acquisition's
+            # labeled target distribution and target-quality contract.
             mapping = resolve_target_mapping(session, target, event_value, non_event_value)
             quality = compute_quality(session, mapping, target)
 
@@ -836,12 +877,56 @@ def governed_target_profile(
             scope["profiledRows"] = quality["populationRows"]
             scope["decisionReady"] = True
 
-            # Detect deterministic target sources BEFORE classifying predictors,
-            # so a field that defines the target can never be offered as one.
-            target_source_fields = detect_target_source_fields(session, session.columns, target)
+            durable_authorization = (
+                development_scope.predictor_authorization
+                if development_scope is not None
+                else {}
+            )
+            target_source_fields = {
+                str(row.get("field")): dict(row)
+                for row in durable_authorization.get(
+                    "target_source_fields", []
+                )
+                if isinstance(row, dict) and row.get("field")
+            }
+            for name in durable_authorization.get(
+                "target_source_excluded", []
+            ):
+                target_source_fields.setdefault(
+                    str(name),
+                    {
+                        "field": str(name),
+                        "target": target,
+                        "relationship": "governed_upstream_target_source",
+                        "mapping": [],
+                    },
+                )
             predictors: List[Dict[str, Any]] = []
+            development_mapping = None
+            development_columns: set[str] = set()
+            if development_scope is not None:
+                development_frame = development_scope.development_features.copy()
+                # Positional assignment avoids duplicate-index label alignment.
+                development_frame[development_scope.target] = (
+                    development_scope.development_target.to_numpy(copy=True)
+                )
+                development_session = _FrameSession(development_frame)
+                development_mapping = resolve_target_mapping(
+                    development_session,
+                    development_scope.target,
+                    development_scope.event_value,
+                    development_scope.non_event_value,
+                )
+                development_columns = set(
+                    development_scope.authorized_predictors
+                )
             if include_iv:
-                allowed = set(selected_columns or []) or None
+                requested = set(selected_columns or [])
+                allowed = (
+                    development_columns.intersection(requested)
+                    if requested and development_scope is not None
+                    else development_columns
+                )
                 for column in session.columns:
                     role, reason = _role_for(str(column), target, target_source_fields)
                     entry: Dict[str, Any] = {
@@ -855,24 +940,64 @@ def governed_target_profile(
                             "iv": None, "ivStatus": "unavailable_not_eligible", "ivStrength": None,
                             "bins": [], "effectiveBinCount": 0,
                         })
-                    elif allowed is not None and str(column) not in allowed:
+                    elif development_scope is None:
+                        entry.update({
+                            "iv": None,
+                            "ivStatus": "pending_analysis_partition",
+                            "ivStrength": None,
+                            "bins": [],
+                            "effectiveBinCount": 0,
+                            "exclusionReason": (
+                                "Create the Analysis Partition to calculate "
+                                "development-only WOE/IV."
+                            ),
+                        })
+                    elif str(column) not in allowed:
                         entry.update({
                             "iv": None, "ivStatus": "unavailable_not_eligible", "ivStrength": None,
                             "bins": [], "effectiveBinCount": 0,
                             "exclusionReason": "Not in the approved predictor selection",
                         })
                     else:
-                        entry.update(compute_predictor_iv(session, str(column), target, mapping, problem_type))
+                        entry.update(
+                            compute_predictor_iv(
+                                development_session,
+                                str(column),
+                                development_scope.target,
+                                development_mapping,
+                                development_scope.problem_type,
+                            )
+                        )
                     # Bin detail is bounded; the browser gets summaries, not curves.
                     entry["bins"] = entry.get("bins", [])[:MAX_CATEGORY_BINS + 2]
                     predictors.append(entry)
-            scans = session.scans
+            scans = session.scans + (
+                development_session.scans
+                if development_session is not None
+                else 0
+            )
         finally:
+            if development_session is not None:
+                development_session.close()
             session.close()
 
     available = [item for item in predictors if item.get("ivStatus") == "available"]
     payload: Dict[str, Any] = {
         "ok": True,
+        **(
+            development_scope.metadata()
+            if development_scope is not None
+            else {
+                "scope": "full_governed_population_target_distribution_only",
+                "analysis_scope": "structural_only_pre_partition",
+                "target_directed_scope": "unavailable_analysis_partition_required",
+                "structural_scope": "full_governed_population_predictors_only",
+                "final_holdout_accessed": False,
+                "final_holdout_used_for_selection": False,
+                "raw_dataset_target_fallback_used": False,
+                "browser_target_semantics_used": False,
+            }
+        ),
         "analysisScope": scope,
         "scopeIdentity": scope_identity(scope),
         "profileScope": GOVERNED_VERSION,
@@ -897,7 +1022,15 @@ def governed_target_profile(
             "targetSourceExcluded": sorted(target_source_fields.keys()),
         },
         "methodology": {
-            "sourcePopulation": f"Registered dataset version {artifact['versionId']} ({quality['populationRows']:,} rows)",
+            "sourcePopulation": (
+                f"Target distribution: full registered dataset version {artifact['versionId']} "
+                f"({quality['populationRows']:,} rows); WOE/IV: "
+                + (
+                    f"sealed development population ({len(development_scope.development_target):,} rows)"
+                    if development_scope is not None
+                    else "unavailable until an Analysis Partition is created"
+                )
+            ),
             "targetMapping": f"event = {mapping['eventValue']}, non-event = {mapping['nonEventValue']}",
             "numericBinning": f"Up to {MAX_NUMERIC_BINS} quantile bins with duplicate cut points collapsed; predictors with at most {LOW_CARDINALITY_NUMERIC} distinct values are binned by value.",
             "categoricalGrouping": f"Top {MAX_CATEGORY_BINS} categories retained, remainder aggregated into a disclosed 'Other' bin; Missing is always separate.",
@@ -944,127 +1077,21 @@ def workspace_target_profile(
     include_iv: bool = True,
     selected_columns: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """Profiles the in-memory backend population, declaring its scope honestly.
+    """Reject the retired anonymous/workspace target-analysis fallback."""
 
-    `workspace_draft` when the backend holds what the source says is the whole
-    population; `preview_only` when it demonstrably holds less. A preview_only
-    result never carries IV, because a bounded preview cannot answer a
-    population question -- that refusal is the point of this phase.
-    """
-    from ..analytics.analysis_scope import preview_scope, workspace_fingerprint, workspace_scope  # noqa: PLC0415
-    from ..core.dataset_store import DATASTORE  # noqa: PLC0415
-
-    started = time.perf_counter()
-    frame = DATASTORE.get_base_df()
-    if frame is None or frame.empty:
-        raise HTTPException(status_code=409, detail="No backend dataset is loaded for this project.")
-
-    source = DATASTORE.meta.get("source") if isinstance(DATASTORE.meta.get("source"), dict) else {}
-    declared_rows = int(source.get("rows") or 0)
-    loaded_rows = int(len(frame))
-    # The backend holds fewer rows than the source declares => what is loaded is
-    # a bounded preview, not the population.
-    is_preview = bool(declared_rows and loaded_rows < declared_rows)
-    fingerprint = workspace_fingerprint(frame, target, source)
-
-    with _QUERY_LOCK:
-        session = _FrameSession(frame)
-        try:
-            mapping = resolve_target_mapping(session, target, event_value, non_event_value)
-            quality = compute_quality(session, mapping, target)
-            target_source_fields = (
-                detect_target_source_fields(session, session.columns, target)
-                if not is_preview else {}
-            )
-            predictors: List[Dict[str, Any]] = []
-            # preview_only never produces IV.
-            if include_iv and not is_preview:
-                allowed = set(selected_columns or []) or None
-                for column in session.columns:
-                    role, reason = _role_for(str(column), target, target_source_fields)
-                    entry: Dict[str, Any] = {
-                        "predictor": str(column), "role": role,
-                        "exclusionReason": reason, "eligible": role == "eligible",
-                    }
-                    if role != "eligible" or (allowed is not None and str(column) not in allowed):
-                        entry.update({"iv": None, "ivStatus": "unavailable_not_eligible", "ivStrength": None, "bins": [], "effectiveBinCount": 0})
-                    else:
-                        entry.update(compute_predictor_iv(session, str(column), target, mapping, problem_type))
-                    entry["bins"] = entry.get("bins", [])[:MAX_CATEGORY_BINS + 2]
-                    predictors.append(entry)
-            elif include_iv and is_preview:
-                for column in session.columns:
-                    role, reason = _role_for(str(column), target, target_source_fields)
-                    predictors.append({
-                        "predictor": str(column), "role": role, "exclusionReason": reason,
-                        "eligible": role == "eligible", "iv": None,
-                        "ivStatus": "preview_only", "ivStrength": None, "bins": [], "effectiveBinCount": 0,
-                    })
-        finally:
-            session.close()
-
-    if is_preview:
-        scope = preview_scope(
-            project_id=project_id, target=target, profiled_rows=loaded_rows,
-            population_rows=declared_rows or loaded_rows, fingerprint=fingerprint,
-            dataset_name=str(source.get("filename") or "Browser preview"),
-            analysis_source="preprocessing.workspace_target_profile",
-        )
-    else:
-        scope = workspace_scope(
-            project_id=project_id, target=target, population_rows=loaded_rows,
-            fingerprint=fingerprint, dataset_name=str(source.get("filename") or "Workspace dataset"),
-            analysis_source="preprocessing.workspace_target_profile", exact=True,
-            linked_dataset_id=source.get("datasetId") if source.get("kind") == "dataset_library" else None,
-            linked_version_id=source.get("version") if source.get("kind") == "dataset_library" else None,
-        )
-        scope["profiledRows"] = loaded_rows
-        scope["decisionReady"] = False
-
-    available = [item for item in predictors if item.get("ivStatus") == "available"]
-    return {
-        "ok": True,
-        "analysisScope": scope,
-        "scopeIdentity": scope_identity(scope),
-        "profileScope": scope["mode"],
-        "calculationVersion": CALCULATION_VERSION,
-        "generatedAt": scope["resolvedAt"],
-        "datasetId": None,
-        "datasetVersionId": None,
-        "datasetName": scope["datasetName"],
-        "artifactChecksum": None,
-        "target": target,
-        "targetMapping": mapping,
-        "quality": quality,
-        "problemType": problem_type,
-        "predictors": predictors,
-        "predictorSummary": {
-            "total": len(predictors),
-            "evaluated": len(available),
-            "unavailable": len([item for item in predictors if str(item.get("ivStatus", "")).startswith("unavailable")]),
-            "previewOnly": len([item for item in predictors if item.get("ivStatus") == "preview_only"]),
-            "failed": len([item for item in predictors if item.get("ivStatus") == "failed"]),
-            "leakageReview": len([item for item in predictors if item.get("role") == "potential_leakage"]),
-            "targetSourceFields": list(target_source_fields.values()),
-            "targetSourceExcluded": sorted(target_source_fields.keys()),
-        },
-        "methodology": {
-            "sourcePopulation": (
-                f"Browser preview ({loaded_rows:,} of {declared_rows:,} declared rows)"
-                if is_preview
-                else f"Full backend workspace population ({loaded_rows:,} rows)"
+    raise HTTPException(
+        status_code=409,
+        detail={
+            "ok": False,
+            "code": "exact_dataset_identity_required",
+            "message": (
+                "Target profiling requires an exact registered dataset version. "
+                "The workspace/full-frame fallback is disabled."
             ),
-            "targetMapping": f"event = {mapping['eventValue']}, non-event = {mapping['nonEventValue']}",
-            "numericBinning": f"Up to {MAX_NUMERIC_BINS} quantile bins with duplicate cut points collapsed.",
-            "categoricalGrouping": f"Top {MAX_CATEGORY_BINS} categories retained; Missing always separate.",
-            "missingTreatment": "Missing predictor values form their own bin.",
-            "smoothing": f"{SMOOTHING_METHOD} with constant {SMOOTHING_CONSTANT}",
-            "strengthBands": IV_STRENGTH_BANDS,
-            "exact": not is_preview,
-            "sampled": is_preview,
+            "recovery": (
+                "Activate the exact Dataset Library version. Full-population "
+                "target distribution remains available in Data Acquisition; "
+                "WOE/IV requires the sealed development population."
+            ),
         },
-        "artifactResolutions": 0,
-        "datasetScans": 1,
-        "cached": False,
-        "durationMs": int((time.perf_counter() - started) * 1000),
-    }
+    )

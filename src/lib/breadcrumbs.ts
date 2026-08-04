@@ -15,6 +15,8 @@
 // Breadcrumbs are now a pure function of the ACTIVE ROUTE plus project identity.
 // Workflow completion state is never consulted.
 
+import { normalizeWorkflowRoute } from "./projectScopedRoutes";
+
 export type Crumb = {
   label: string;
   href?: string;
@@ -57,10 +59,11 @@ const WORKFLOW_ROUTE = /^\/step\d+/;
 const PROJECT_MANAGEMENT_ROUTES = new Set(["/projects/open", "/projects/new", "/dashboard"]);
 
 export function routePageLabel(pathname: string): string {
-  if (ROUTE_LABELS[pathname]) return ROUTE_LABELS[pathname];
+  const routePathname = normalizeWorkflowRoute(pathname);
+  if (ROUTE_LABELS[routePathname]) return ROUTE_LABELS[routePathname];
   // Longest-prefix match so nested routes still resolve to their page.
   const match = Object.keys(ROUTE_LABELS)
-    .filter((route) => pathname.startsWith(route))
+    .filter((route) => routePathname.startsWith(route))
     .sort((a, b) => b.length - a.length)[0];
   return match ? ROUTE_LABELS[match] : "Workflow";
 }
@@ -77,8 +80,9 @@ export function buildBreadcrumbs(input: {
   projectName?: string | null;
   workflowLabel?: string | null;
 }): Crumb[] {
-  const pathname = input.pathname || "/";
-  const page = routePageLabel(pathname);
+  const actualPathname = input.pathname || "/";
+  const pathname = normalizeWorkflowRoute(actualPathname);
+  const page = routePageLabel(actualPathname);
 
   if (PROJECT_MANAGEMENT_ROUTES.has(pathname)) {
     // ATLAS / Projects / Open Project -- no project or workflow segment,

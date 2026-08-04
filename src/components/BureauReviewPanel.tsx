@@ -15,9 +15,14 @@ import {
 } from "./ui/AtlasWorkflow";
 import {
   bureauMetadata,
+  assertSpecialValueReviewContract,
   fetchBureauDetection,
+  fetchSpecialValueReview,
   loadBureauReviewState,
   saveBureauReviewState,
+  specialValueDraftAuthority,
+  updateSpecialValueReview,
+  SpecialValueReviewApiError,
   type BureauDeclaration,
   type BureauDetectionResponse,
   type BureauDetectionVariable,
@@ -25,6 +30,9 @@ import {
   type BureauReviewDecision,
   type BureauReviewState,
   type BureauVariableDefault,
+  type SpecialValueReviewContract,
+  type SpecialValueReviewLineage,
+  type SpecialValueReviewVariableDecision,
 } from "../lib/bureauDetection";
 import { parseBureauMetadataCsv, saveBureauMetadata } from "../lib/creditBureau";
 import { createEvidence } from "../lib/evidenceGraph";
@@ -154,16 +162,77 @@ function pct(value: number | null | undefined, digits = 2) {
     : "Not available";
 }
 
+export type BureauReviewPanelStatus = {
+  loading: boolean;
+  detected: boolean;
+  totalVariables: number;
+  reviewedVariables: number;
+  unresolvedRequirements: number;
+  confirmed: boolean;
+  blocking: boolean;
+  durableStatus?: SpecialValueReviewContract["status"];
+  durableRevision?: number;
+  error?: boolean;
+};
+
+function exactReviewLineage(
+  result: BureauDetectionResponse,
+  datasetIdentity: CanonicalDatasetIdentity,
+  projectId: string,
+): SpecialValueReviewLineage {
+  return {
+    projectId,
+    datasetIdentity,
+    activationRevision: result.activation_revision,
+    predictorAuthorizationId: result.predictor_authorization_id,
+    targetContractId: result.target_contract_id,
+  };
+}
+
+function stateFromDurableReview(
+  previous: BureauReviewState,
+  review: SpecialValueReviewContract,
+): BureauReviewState {
+  const now = review.updated_at ?? new Date().toISOString();
+  return {
+    ...previous,
+    rationale: review.reviewer_rationale,
+    variableDefaults: review.variable_decisions.map((decision) => ({
+      variable: decision.variable,
+      handling: decision.policy,
+      rationale: decision.rationale,
+      updatedAt: now,
+    })),
+    decisions: review.variable_decisions.flatMap((decision) =>
+      decision.overrides.map((override) => ({
+        variable: decision.variable,
+        value: Number(override.value),
+        handling: override.policy,
+        rationale: override.rationale,
+        updatedAt: now,
+        override: true as const,
+      })),
+    ),
+    status: "draft",
+    evidenceStatus: review.status === "confirmed" ? "ready" : "draft",
+    confirmedAt: undefined,
+    savedAt: review.updated_at ?? undefined,
+    draftAuthority: specialValueDraftAuthority(review),
+  };
+}
+
 export default function BureauReviewPanel({
   target,
   eventValue,
   enabled,
   datasetIdentity,
+  onReviewStatus,
 }: {
   target: string;
   eventValue: unknown;
   enabled: boolean;
   datasetIdentity: CanonicalDatasetIdentity | null;
+  onReviewStatus?: (status: BureauReviewPanelStatus) => void;
 }) {
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
@@ -171,6 +240,9 @@ export default function BureauReviewPanel({
     loadBureauReviewState,
   );
   const [result, setResult] = useState<BureauDetectionResponse | null>(null);
+  const [durableReview, setDurableReview] =
+    useState<SpecialValueReviewContract | null>(null);
+  const [draftDirty, setDraftDirty] = useState(false);
   const [selectedVariable, setSelectedVariable] = useState("");
   const [variableSearch, setVariableSearch] = useState("");
   const [reviewFilter, setReviewFilter] = useState<
@@ -190,18 +262,39 @@ export default function BureauReviewPanel({
 
   async function runDetection(signal?: AbortSignal) {
     if (!enabled) return;
+    if (!datasetIdentity) {
+      setResult(null);
+      setError(
+        "Credit bureau detection requires the exact active Dataset Library version. Reload Data Acquisition and retry.",
+      );
+      return;
+    }
     setLoading(true);
     setError("");
+    setResult(null);
+    setDurableReview(null);
     try {
       const payload = await fetchBureauDetection({
         projectId,
+        datasetIdentity,
         target,
         eventValue,
         state,
         metadata: bureauMetadata(),
         signal,
       });
+      const lineage = exactReviewLineage(payload, datasetIdentity, projectId);
+      assertSpecialValueReviewContract(payload.special_value_review, lineage);
+      const exactReview = await fetchSpecialValueReview({ lineage, signal });
+      if (signal?.aborted) return;
       setResult(payload);
+      setDurableReview(exactReview);
+      setState((previous) => {
+        const hydrated = stateFromDurableReview(previous, exactReview);
+        saveBureauReviewState(hydrated);
+        return hydrated;
+      });
+      setDraftDirty(false);
     } catch (cause) {
       if (cause instanceof DOMException && cause.name === "AbortError") return;
       setError(
@@ -209,6 +302,8 @@ export default function BureauReviewPanel({
           ? cause.message
           : "Credit bureau detection failed.",
       );
+      setResult(null);
+      setDurableReview(null);
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
@@ -220,7 +315,17 @@ export default function BureauReviewPanel({
     return () => controller.abort();
     // Detection inputs do not include the local treatment draft.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, target, eventValue, state.declaration, metadataVersion]);
+  }, [
+    enabled,
+    projectId,
+    target,
+    eventValue,
+    state.declaration,
+    metadataVersion,
+    datasetIdentity?.dataset_id,
+    datasetIdentity?.dataset_version_id,
+    datasetIdentity?.activation_revision,
+  ]);
 
   useEffect(() => {
     if (
@@ -287,14 +392,23 @@ export default function BureauReviewPanel({
   }, [likelyVariables, state]);
 
   const reviewByVariable = useMemo(
-    () =>
+    () => {
+      const durablyReviewed = new Set(
+        durableReview?.variable_decisions.map((decision) => decision.variable) ?? [],
+      );
+      return (
       new Map(
         likelyVariables.map((variable) => [
           variable.variable,
-          reviewStateForVariable(state, variable),
+          {
+            ...reviewStateForVariable(state, variable),
+            reviewed: durablyReviewed.has(variable.variable),
+          },
         ]),
-      ),
-    [likelyVariables, state],
+      )
+      );
+    },
+    [durableReview?.variable_decisions, likelyVariables, state],
   );
 
   const filteredVariables = useMemo(() => {
@@ -346,7 +460,7 @@ export default function BureauReviewPanel({
     filteredVariables[0] ??
     null;
 
-  const unresolvedCount = useMemo(
+  const draftUnresolvedCount = useMemo(
     () =>
       likelyVariables.reduce(
         (total, variable) =>
@@ -356,15 +470,53 @@ export default function BureauReviewPanel({
       ),
     [likelyVariables, reviewByVariable],
   );
-  const reviewedCount = likelyVariables.filter(
-    (variable) => reviewByVariable.get(variable.variable)?.reviewed,
-  ).length;
-  const reviewState =
-    state.status === "confirmed" && unresolvedCount === 0
+  const reviewedCount = durableReview?.reviewed_count ?? 0;
+  const unresolvedCount = durableReview?.open_count ?? likelyVariables.length;
+  const reviewState = draftDirty
+    ? "Unsaved draft"
+    : durableReview?.status === "confirmed"
       ? "Confirmed"
-      : unresolvedCount
-        ? "Needs review"
-        : "Draft ready";
+      : durableReview?.status === "not_required"
+        ? "Not required"
+        : durableReview?.status === "ready_for_confirmation"
+          ? "Ready to confirm"
+          : durableReview?.status === "in_review"
+            ? "In review"
+            : "Not started";
+
+  useEffect(() => {
+    onReviewStatus?.({
+      loading,
+      detected: Boolean(durableReview && durableReview.detected_count > 0),
+      totalVariables: durableReview?.detected_count ?? likelyVariables.length,
+      reviewedVariables: reviewedCount,
+      unresolvedRequirements: unresolvedCount,
+      confirmed: Boolean(
+        durableReview?.status === "confirmed" &&
+          durableReview.open_count === 0 &&
+          !draftDirty,
+      ),
+      blocking: Boolean(
+        loading ||
+          error ||
+          !durableReview ||
+          draftDirty ||
+          durableReview.blocks_continuation,
+      ),
+      durableStatus: durableReview?.status,
+      durableRevision: durableReview?.revision,
+      error: Boolean(error),
+    });
+  }, [
+    draftDirty,
+    durableReview,
+    error,
+    likelyVariables.length,
+    loading,
+    onReviewStatus,
+    reviewedCount,
+    unresolvedCount,
+  ]);
 
   function updateState(next: BureauReviewState) {
     const draft: BureauReviewState = {
@@ -375,9 +527,13 @@ export default function BureauReviewPanel({
           ? "not_recorded"
           : "stale",
       confirmedAt: undefined,
+      draftAuthority: durableReview
+        ? specialValueDraftAuthority(durableReview)
+        : next.draftAuthority,
     };
     setState(draft);
     saveBureauReviewState(draft);
+    setDraftDirty(true);
     setMessage("");
   }
 
@@ -490,21 +646,24 @@ export default function BureauReviewPanel({
       return;
     }
     saveBureauMetadata(rows);
+    setResult(null);
+    setDurableReview(null);
+    setDraftDirty(true);
     setMetadataVersion((value) => value + 1);
     setMessage(`${rows.length.toLocaleString()} bureau metadata rows loaded.`);
   }
 
   async function persistReview(mode: "draft" | "confirmed") {
-    if (!result) return;
+    if (!result || !durableReview) return;
     if (!datasetIdentity) {
       setError(
         "Credit bureau evidence requires an exact active Dataset Library version. Reactivate the registered dataset before saving this review.",
       );
       return;
     }
-    if (mode === "confirmed" && unresolvedCount) {
+    if (mode === "confirmed" && draftUnresolvedCount) {
       setError(
-        `${unresolvedCount} treatment requirement${unresolvedCount === 1 ? "" : "s"} remain unresolved. Add the indicated rationale before confirmation.`,
+        `${draftUnresolvedCount} treatment requirement${draftUnresolvedCount === 1 ? "" : "s"} remain unresolved. Add the indicated rationale before confirmation.`,
       );
       return;
     }
@@ -515,15 +674,59 @@ export default function BureauReviewPanel({
         ? "Confirming the governed special-value treatment..."
         : "Saving the draft special-value review...",
     );
-    const now = new Date().toISOString();
-    const nextState: BureauReviewState = {
-      ...state,
-      status: mode,
-      evidenceStatus: mode === "confirmed" ? "ready" : "draft",
-      confirmedAt: mode === "confirmed" ? now : undefined,
-      savedAt: now,
-    };
+    const lineage = exactReviewLineage(result, datasetIdentity, projectId);
+    const variableDecisions: SpecialValueReviewVariableDecision[] =
+      likelyVariables.map((variable) => {
+        const policy = defaultDecision(state, variable.variable);
+        return {
+          variable: variable.variable,
+          policy: policy.handling,
+          rationale: policy.rationale.trim(),
+          overrides: state.decisions
+            .filter((decision) => decision.variable === variable.variable)
+            .map((decision) => ({
+              value: decision.value,
+              policy: decision.handling,
+              rationale: decision.rationale.trim(),
+            })),
+        };
+      });
+    let savedReview: SpecialValueReviewContract;
     try {
+      savedReview = await updateSpecialValueReview({
+        lineage,
+        current: durableReview,
+        intent: mode === "confirmed" ? "confirm" : "draft",
+        variableDecisions,
+        reviewerRationale: state.rationale.trim(),
+      });
+      const nextState = stateFromDurableReview(state, savedReview);
+      setDurableReview(savedReview);
+      setState(nextState);
+      saveBureauReviewState(nextState);
+      setDraftDirty(false);
+    } catch (cause) {
+      if (cause instanceof SpecialValueReviewApiError && cause.currentReview) {
+        try {
+          setDurableReview(
+            assertSpecialValueReviewContract(cause.currentReview, lineage),
+          );
+        } catch {
+          // The conflict payload was not current for this exact lineage.
+        }
+      }
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "The durable special-value review could not be saved.",
+      );
+      setMessage("");
+      setSaving(false);
+      return;
+    }
+
+    try {
+      const nextState = stateFromDurableReview(state, savedReview);
       await createEvidence({
         ...buildCanonicalEvidenceEnvelope(datasetIdentity, {
           scope: result.scope,
@@ -563,11 +766,18 @@ export default function BureauReviewPanel({
           declaration: nextState.declaration,
           variableDefaults: nextState.variableDefaults,
           valueOverrides: nextState.decisions,
-          reviewerRationale: nextState.rationale,
-          reviewStatus: nextState.status,
+          reviewerRationale: savedReview.reviewer_rationale,
+          reviewStatus: savedReview.status,
+          durableReviewId: savedReview.special_value_review_id,
+          durableRevision: savedReview.revision,
+          detectionFingerprint: savedReview.detection_fingerprint,
+          activationRevision: savedReview.activation_revision,
+          predictorAuthorizationId:
+            savedReview.predictor_authorization_id,
+          targetContractId: savedReview.target_contract_id,
           reviewer: "Current ATLAS user",
           reviewedAt: result.reviewed_at,
-          confirmedAt: nextState.confirmedAt,
+          confirmedAt: savedReview.confirmed_at,
           semanticSeparation: {
             nullMissingValues: "separate",
             parseFailures: "separate",
@@ -575,32 +785,32 @@ export default function BureauReviewPanel({
           },
         },
       });
-      setState(nextState);
-      saveBureauReviewState(nextState);
       setMessage(
-        mode === "confirmed"
-          ? "Special-value treatment confirmed and evidence is current."
-          : "Draft review saved. Evidence remains draft until confirmation.",
+        savedReview.status === "confirmed"
+          ? `Special-value treatment confirmed durably at revision ${savedReview.revision}; supporting evidence is current.`
+          : savedReview.status === "not_required"
+            ? `No special-value review is required. Durable revision ${savedReview.revision} is current.`
+            : `Draft review saved durably at revision ${savedReview.revision}. Evidence remains draft until confirmation.`,
       );
       logDecision({
         workflowStep: "Data Acquisition",
         actionType: "workflow_setting_changed",
         subject: "Special-Value Treatment Review",
-        previousValue: state.status,
-        newValue: mode,
+        previousValue: durableReview.status,
+        newValue: savedReview.status,
         systemRecommendation:
           "Preserve bureau special-value semantics unless a documented governed treatment requires a change.",
         followStatus:
-          mode === "confirmed" ? "followed" : "not_applicable",
+          savedReview.status === "confirmed" ? "followed" : "not_applicable",
         userReason: state.rationale,
       });
     } catch (cause) {
       setError(
-        cause instanceof Error
-          ? cause.message
-          : "Bureau review evidence could not be saved.",
+        `Durable special-value review revision ${savedReview.revision} was saved, but supporting evidence could not be updated. ${cause instanceof Error ? cause.message : "Retry evidence creation."}`,
       );
-      setMessage("");
+      setMessage(
+        `The backend review remains authoritative at revision ${savedReview.revision}.`,
+      );
     } finally {
       setSaving(false);
     }
@@ -611,39 +821,48 @@ export default function BureauReviewPanel({
   return (
     <section id="credit-bureau-review" className="scroll-mt-24">
       <details
-        className="atlas-workflow-section atlas-workflow-section--info"
+        className="overflow-hidden rounded-xl border-2 border-indigo-800 bg-indigo-50/50 shadow-[0_16px_36px_rgba(30,41,99,0.14)]"
         open={!!(result?.detected || state.declaration !== "auto")}
+        data-testid="special-value-decision-workspace"
       >
-        <summary className="flex cursor-pointer list-none items-center justify-between gap-3">
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 bg-gradient-to-r from-slate-950 via-indigo-950 to-indigo-900 px-5 py-4 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-3px] focus-visible:outline-white">
           <span className="flex min-w-0 items-center gap-3">
-            <span className="rounded-lg bg-blue-100 p-2 text-blue-700">
+            <span className="rounded-lg border border-violet-300/40 bg-violet-400/15 p-2 text-violet-100">
               <ShieldCheck size={18} />
             </span>
             <span>
-              <span className="block text-sm font-semibold text-slate-950">
-                Credit Bureau Review
+              <span className="block text-[10px] font-bold uppercase tracking-[0.18em] text-violet-200">
+                Credit Bureau and Special Values
               </span>
-              <span className="mt-0.5 block text-xs text-slate-600">
+              <span className="mt-1 block text-base font-semibold text-white">
+                Special-Value Treatment Review
+              </span>
+              <span className="mt-1 block text-xs text-indigo-100">
                 {loading
                   ? "Analyzing full-population bureau signals"
                   : result?.detected
-                    ? `${result.likely_variable_count} bureau variables · ${result.rows_with_special_values.toLocaleString()} rows with special values · ${reviewState}`
+                    ? `${result.likely_variable_count} bureau variables · ${reviewedCount} reviewed · ${unresolvedCount} unresolved requirements`
                     : "No bureau data confirmed; manual declaration remains available"}
               </span>
             </span>
           </span>
           <span className="flex items-center gap-2">
             {result ? (
-              <AtlasDataScopeBadge
-                scope="full_dataset"
-                rows={result.row_count}
-              />
+              <span className="rounded-full border border-indigo-300/50 bg-white/10 px-3 py-1 text-xs font-semibold text-indigo-50">
+                {reviewState}
+              </span>
             ) : null}
-            <ChevronDown size={17} />
+            <ChevronDown size={17} className="text-indigo-100" />
           </span>
         </summary>
 
-        <div className="mt-4 space-y-4 border-t border-blue-200 pt-4">
+        <div className="space-y-4 bg-gradient-to-b from-indigo-50/80 to-white p-5">
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-indigo-200 bg-white px-3 py-2">
+            <div className="text-xs font-medium text-slate-700">
+              Bureau special values remain separate from true nulls, parse failures, and ordinary outliers.
+            </div>
+            {result ? <AtlasDataScopeBadge scope="full_dataset" rows={result.row_count} /> : null}
+          </div>
           <div className="grid gap-3 lg:grid-cols-[minmax(240px,340px)_1fr_auto] lg:items-end">
             <label>
               <span className="atlas-label">Manual declaration</span>
@@ -708,7 +927,7 @@ export default function BureauReviewPanel({
           {result ? (
             <>
               <div
-                className="grid gap-2 sm:grid-cols-2 xl:grid-cols-5"
+                className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6"
                 data-testid="special-value-review-summary"
               >
                 <Metric
@@ -735,6 +954,15 @@ export default function BureauReviewPanel({
                   }
                 />
                 <Metric
+                  label="Durable revision"
+                  value={
+                    durableReview
+                      ? `${durableReview.revision}`
+                      : "Unavailable"
+                  }
+                  tone={durableReview ? "info" : "warning"}
+                />
+                <Metric
                   label="Evidence state"
                   value={state.evidenceStatus.replace(/_/g, " ")}
                   tone={
@@ -745,6 +973,19 @@ export default function BureauReviewPanel({
                         : "neutral"
                   }
                 />
+              </div>
+
+              <div
+                className={`rounded-lg border px-3 py-2 text-xs font-medium ${
+                  durableReview
+                    ? "border-indigo-200 bg-indigo-50 text-indigo-950"
+                    : "border-amber-200 bg-amber-50 text-amber-950"
+                }`}
+                data-testid="durable-special-value-review-authority"
+              >
+                {durableReview
+                  ? `Backend durable exact-version authority · status ${durableReview.status.replace(/_/g, " ")} · revision ${durableReview.revision}`
+                  : "Backend durable exact-version authority is not available; browser draft data cannot satisfy this review."}
               </div>
 
               {result.reasons.length ? (
@@ -762,25 +1003,25 @@ export default function BureauReviewPanel({
 
               {result.detected && likelyVariables.length ? (
                 <div
-                  className="rounded-xl border border-amber-200 bg-amber-50/40 p-4"
+                  className="overflow-hidden rounded-xl border border-indigo-300 bg-indigo-50/60"
                   data-testid="special-value-treatment-review"
                 >
-                  <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+                  <div className="flex flex-col gap-2 border-b border-indigo-300 bg-indigo-900 px-4 py-3 text-white lg:flex-row lg:items-start lg:justify-between">
                     <div>
-                      <div className="text-[10px] font-semibold uppercase tracking-wide text-amber-800">
+                      <div className="text-[10px] font-semibold uppercase tracking-wide text-violet-200">
                         Governed data-quality contract
                       </div>
-                      <h3 className="mt-1 text-base font-semibold text-slate-950">
-                        Special-Value Treatment Review
+                      <h3 className="mt-1 text-base font-semibold text-white">
+                        Review each detected variable and its observed special codes
                       </h3>
-                      <p className="mt-1 max-w-4xl text-xs leading-5 text-slate-600">
+                      <p className="mt-1 max-w-4xl text-xs leading-5 text-indigo-100">
                         Select one variable-level default, then add only
                         necessary value-level overrides. Bureau special values
                         remain distinct from null missing values, parse
                         failures, and ordinary outliers.
                       </p>
                       <p
-                        className="mt-2 max-w-4xl rounded-lg border border-amber-200 bg-white px-3 py-2 text-xs font-medium leading-5 text-slate-700"
+                        className="mt-2 max-w-4xl rounded-lg border border-violet-300/50 bg-white/10 px-3 py-2 text-xs font-medium leading-5 text-indigo-50"
                         data-testid="special-value-treatment-help"
                       >
                         Choose the modeling outcome in plain language: create
@@ -792,8 +1033,8 @@ export default function BureauReviewPanel({
                     <span
                       className={`rounded-full border px-3 py-1 text-xs font-semibold ${
                         unresolvedCount
-                          ? "border-amber-300 bg-white text-amber-900"
-                          : "border-emerald-200 bg-emerald-50 text-emerald-800"
+                          ? "border-amber-300 bg-amber-100 text-amber-950"
+                          : "border-emerald-300 bg-emerald-100 text-emerald-900"
                       }`}
                     >
                       {unresolvedCount
@@ -802,8 +1043,8 @@ export default function BureauReviewPanel({
                     </span>
                   </div>
 
-                  <div className="mt-4 grid gap-4 xl:grid-cols-[280px_minmax(0,1fr)]">
-                    <aside className="rounded-xl border border-slate-200 bg-white p-3">
+                  <div className="grid gap-4 p-4 xl:grid-cols-[280px_minmax(0,1fr)]">
+                    <aside className="sticky top-24 self-start rounded-xl border border-indigo-200 bg-white p-3 shadow-sm">
                       <div className="flex items-center gap-2 text-sm font-semibold text-slate-950">
                         <Filter size={15} className="text-blue-700" />
                         Variable navigator
@@ -905,8 +1146,8 @@ export default function BureauReviewPanel({
                               type="button"
                               className={`w-full rounded-lg border p-3 text-left transition ${
                                 active
-                                  ? "border-blue-500 bg-blue-50 ring-1 ring-blue-100"
-                                  : "border-slate-200 bg-white hover:border-blue-200"
+                                  ? "border-violet-500 bg-violet-50 ring-1 ring-violet-100"
+                                  : "border-slate-200 bg-white hover:border-violet-200"
                               }`}
                               onClick={() =>
                                 setSelectedVariable(variable.variable)
@@ -946,6 +1187,12 @@ export default function BureauReviewPanel({
                       <VariableTreatmentWorkspace
                         variable={activeVariable}
                         state={state}
+                        durableReviewed={Boolean(
+                          durableReview?.variable_decisions.some(
+                            (decision) =>
+                              decision.variable === activeVariable.variable,
+                          ),
+                        )}
                         onDefault={updateVariableDefault}
                         onOverride={updateOverride}
                         onOverrideRationale={updateOverrideRationale}
@@ -977,11 +1224,19 @@ export default function BureauReviewPanel({
                 Section completion
               </div>
               <div className="mt-1 text-xs leading-5 text-slate-600">
-                {unresolvedCount
-                  ? `${unresolvedCount} rationale requirement${unresolvedCount === 1 ? "" : "s"} remain. Draft saving is available; confirmation is blocked.`
-                  : state.status === "confirmed"
-                    ? "The treatment contract and supporting evidence are current."
-                    : "All treatment rows are resolved. Confirm when the review is complete."}
+                {loading
+                  ? "Loading the exact durable review authority. Continuation remains blocked."
+                  : error
+                    ? "The durable review authority is unavailable. Continuation remains blocked."
+                    : draftDirty
+                      ? "This browser draft has unsaved changes and is not authoritative. Save or confirm it before continuing."
+                      : unresolvedCount
+                        ? `${unresolvedCount} backend-detected variable${unresolvedCount === 1 ? " remains" : "s remain"} open in durable revision ${durableReview?.revision ?? "unavailable"}.`
+                        : durableReview?.status === "confirmed"
+                          ? `The backend treatment contract is confirmed at durable revision ${durableReview.revision}.`
+                          : durableReview?.status === "not_required"
+                            ? `The backend reports that review is not required at durable revision ${durableReview.revision}.`
+                            : "All backend-detected variables are durably reviewed. Confirm the contract to continue."}
               </div>
               {message ? (
                 <div className="mt-1 text-xs font-medium text-blue-800">
@@ -994,7 +1249,7 @@ export default function BureauReviewPanel({
                 type="button"
                 className="atlas-secondary-button"
                 onClick={() => void persistReview("draft")}
-                disabled={!result || saving}
+                disabled={!result || !durableReview || saving}
               >
                 <Save size={15} /> Save Draft Review
               </button>
@@ -1002,11 +1257,16 @@ export default function BureauReviewPanel({
                 type="button"
                 className="atlas-primary-button"
                 onClick={() => void persistReview("confirmed")}
-                disabled={!result || saving || unresolvedCount > 0}
+                disabled={
+                  !result ||
+                  !durableReview ||
+                  saving ||
+                  draftUnresolvedCount > 0
+                }
                 title={
-                  unresolvedCount
+                  draftUnresolvedCount
                     ? "Resolve the indicated rationale requirements before confirmation."
-                    : "Persist the governed treatment and current evidence."
+                    : "Submit this exact-version draft to the backend for governed confirmation."
                 }
               >
                 {saving ? (
@@ -1027,12 +1287,14 @@ export default function BureauReviewPanel({
 function VariableTreatmentWorkspace({
   variable,
   state,
+  durableReviewed,
   onDefault,
   onOverride,
   onOverrideRationale,
 }: {
   variable: BureauDetectionVariable;
   state: BureauReviewState;
+  durableReviewed: boolean;
   onDefault: (
     variable: string,
     patch: Partial<BureauVariableDefault>,
@@ -1086,12 +1348,16 @@ function VariableTreatmentWorkspace({
               </Badge>
               <span
                 className={`rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
-                  reviewed.reviewed
+                  durableReviewed
                     ? "border-emerald-200 bg-emerald-50 text-emerald-800"
                     : "border-amber-200 bg-amber-50 text-amber-900"
                 }`}
               >
-                {reviewed.reviewed ? "Reviewed" : "Review required"}
+                {durableReviewed
+                  ? "Durably reviewed"
+                  : reviewed.reviewed
+                    ? "Draft ready to save"
+                    : "Review required"}
               </span>
             </div>
           </div>
@@ -1216,7 +1482,7 @@ function VariableTreatmentWorkspace({
                   key={`${variable.variable}-${profile.value}`}
                   className="odd:bg-white even:bg-slate-50/70"
                 >
-                  <NumericCell className="text-sm font-semibold text-slate-950">
+                  <NumericCell className="bg-violet-50 text-sm font-bold text-violet-900">
                     {profile.value}
                   </NumericCell>
                   <BodyCell className="whitespace-normal break-words leading-5 text-slate-700">
@@ -1245,7 +1511,7 @@ function VariableTreatmentWorkspace({
                       : "Not available"}
                   </NumericCell>
                   <BodyCell>
-                    <span className="inline-flex max-w-full whitespace-normal rounded-full border border-blue-100 bg-blue-50 px-2.5 py-1 text-[10px] font-semibold leading-4 text-blue-900">
+                    <span className="inline-flex max-w-full whitespace-normal rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[10px] font-semibold leading-4 text-violet-900">
                       {handlingLabels[policy.handling]}
                     </span>
                   </BodyCell>

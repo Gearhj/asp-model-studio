@@ -137,7 +137,6 @@ function buildSections(): NotebookSection[] {
     rationales: preparation.outlierRationales,
   };
   const balanceMethod = preparation.balanceMethod;
-  const splitStrategy = preparation.splitStrategy;
   const balanceRatio = preparation.balanceRatio;
   const dataAccess = dataset?.data_access ?? null;
   const trainingConfig = preparation.trainingConfig;
@@ -204,7 +203,9 @@ display(df.head())`,
       outputPlaceholder: "Special value profiles, selected treatments, and transformation documentation should display here.",
       code: `${generateBureauPythonCode()}
 
-bureau_profile = profile_bureau_special_values(df, target=TARGET)
+# This pre-partition profile is structural only. Target-rate comparisons are
+# deferred until exact development membership has been verified below.
+bureau_profile = profile_bureau_special_values(df[SELECTED_FEATURES], target=None)
 display(bureau_profile)
 
 df, bureau_treatment_documentation = apply_bureau_special_value_treatments(df)
@@ -215,23 +216,19 @@ display(bureau_treatment_documentation)`,
       routes: ["/step02"],
       title: "EDA",
       explanation:
-        "Reproduce core exploratory diagnostics: target distribution, missingness, descriptive statistics, and pairwise/correlation review.",
+        "Reproduce predictor-only structural diagnostics here. Target-directed EDA is emitted only after the exact durable Analysis Partition is verified and the development population is materialized.",
       decisionMatchers: ["eda", "exploratory"],
       outputPlaceholder: "EDA tables and charts should display here.",
       code: `import matplotlib.pyplot as plt
 
-display(df[SELECTED_FEATURES + [TARGET]].describe(include="all").T)
-missing = df[SELECTED_FEATURES + [TARGET]].isna().mean().sort_values(ascending=False)
+display(df[SELECTED_FEATURES].describe(include="all").T)
+missing = df[SELECTED_FEATURES].isna().mean().sort_values(ascending=False)
 display(missing.to_frame("missing_rate"))
 
-if PROBLEM_TYPE == "classification":
-    target_rate = df[TARGET].mean() if pd.api.types.is_numeric_dtype(df[TARGET]) else df[TARGET].value_counts(normalize=True)
-    print("Target distribution:")
-    display(target_rate)
-else:
-    df[TARGET].hist(bins=40)
-    plt.title("Target distribution")
-    plt.show()`,
+print(
+    "Target-directed EDA is deferred until the exact Analysis Partition is "
+    "verified; this cell does not access target values."
+)`,
     },
     {
       sectionKey: "outliers",
@@ -300,7 +297,6 @@ print("Missing after:", int(df[SELECTED_FEATURES].isna().sum().sum()))`,
       code: `# Generated feature engineering scaffold.
 # Add or replace with the exact governed transformations from the workflow.
 X = df[SELECTED_FEATURES].copy()
-y = df[TARGET].copy()
 
 numeric_features = X.select_dtypes(include=[np.number]).columns.tolist()
 categorical_features = [col for col in X.columns if col not in numeric_features]
@@ -312,41 +308,127 @@ print("Feature matrix shape before encoding:", X.shape)`,
     {
       sectionKey: "train_test_split",
       routes: ["/step06"],
-      title: "Train/Test Split",
+      title: "Analysis Partition Assignment",
       explanation:
-        "Reproduce the selected train/test or cross-validation split. Use time-based or OOT validation when production performance depends on future populations.",
+        "Load the exact durable Analysis Partition assignment. This export never redraws row membership from a browser preference, seed, ratio, first record, or latest record.",
       decisionMatchers: ["split", "holdout", "kfold"],
-      outputPlaceholder: "Train and validation sample sizes should display here.",
-      code: `from sklearn.model_selection import train_test_split
+      outputPlaceholder: "Exact Analysis Partition identity and development/final-holdout row counts should display here.",
+      code: `from pathlib import Path
+import json
 
-SPLIT_STRATEGY = ${safeJson(splitStrategy)}
-test_size = 0.20
+# Supply the exact durable assignment exported for this project and immutable
+# dataset version. There is no first/latest/browser fallback and no random redraw.
+ANALYSIS_PARTITION_ASSIGNMENT_PATH = Path("EXACT_ANALYSIS_PARTITION_ASSIGNMENT.json")
+if not ANALYSIS_PARTITION_ASSIGNMENT_PATH.is_file():
+    raise RuntimeError(
+        "Exact Analysis Partition assignment required. Export the assignment for "
+        "this exact project and dataset version; random redraws are prohibited."
+    )
 
-stratify = y if PROBLEM_TYPE == "classification" and y.nunique() <= 20 else None
-X_train, X_test, y_train, y_test = train_test_split(
-    X, y, test_size=test_size, random_state=42, stratify=stratify
-)
+with ANALYSIS_PARTITION_ASSIGNMENT_PATH.open("r", encoding="utf-8") as handle:
+    analysis_partition_assignment = json.load(handle)
 
-print("Split strategy:", SPLIT_STRATEGY)
-print("Train rows:", len(X_train))
-print("Test rows:", len(X_test))`,
+EXPECTED_PARTITION_IDENTITY = {
+    "project_id": PROJECT_ID,
+    "dataset_id": DATASET_ID,
+    "dataset_version_id": DATASET_VERSION_ID,
+}
+for field, expected in EXPECTED_PARTITION_IDENTITY.items():
+    actual = str(analysis_partition_assignment.get(field) or "").strip()
+    if not actual or actual != str(expected):
+        raise RuntimeError(
+            f"Analysis Partition identity mismatch for {field}: "
+            f"expected {expected!r}, received {actual!r}."
+        )
+
+ANALYSIS_PARTITION_ID = str(
+    analysis_partition_assignment.get("analysis_partition_id") or ""
+).strip()
+ANALYSIS_PARTITION_ASSIGNMENT_HASH = str(
+    analysis_partition_assignment.get("assignment_hash") or ""
+).strip()
+ANALYSIS_PARTITION_REVISION = analysis_partition_assignment.get("revision")
+if not ANALYSIS_PARTITION_ID or not ANALYSIS_PARTITION_ASSIGNMENT_HASH:
+    raise RuntimeError("Analysis Partition ID and assignment hash are required.")
+if type(ANALYSIS_PARTITION_REVISION) is not int or ANALYSIS_PARTITION_REVISION <= 0:
+    raise RuntimeError("Analysis Partition revision must be a positive integer.")
+if analysis_partition_assignment.get("final_holdout_status") != "sealed":
+    raise RuntimeError("Final holdout must remain sealed.")
+if analysis_partition_assignment.get("holdout_isolation_status") != "verified":
+    raise RuntimeError("Final-holdout isolation must be verified.")
+
+def _exact_row_positions(field):
+    values = analysis_partition_assignment.get(field)
+    if not isinstance(values, list) or not values:
+        raise RuntimeError(f"Exact {field} are required in the assignment artifact.")
+    if any(type(position) is not int for position in values):
+        raise RuntimeError(f"Every {field} entry must be an integer row position.")
+    if len(values) != len(set(values)):
+        raise RuntimeError(f"Duplicate row positions found in {field}.")
+    if any(position < 0 or position >= len(X) for position in values):
+        raise RuntimeError(f"Out-of-range row position found in {field}.")
+    return tuple(values)
+
+DEVELOPMENT_POSITIONS = _exact_row_positions("development_positions")
+_sealed_holdout_positions = _exact_row_positions("holdout_positions")
+if set(DEVELOPMENT_POSITIONS).intersection(_sealed_holdout_positions):
+    raise RuntimeError("Development and final-holdout assignments overlap.")
+if set(DEVELOPMENT_POSITIONS).union(_sealed_holdout_positions) != set(range(len(X))):
+    raise RuntimeError("Analysis Partition assignment does not cover this exact dataset frame.")
+
+X_development = X.iloc[list(DEVELOPMENT_POSITIONS)].copy()
+# Read target values only at the verified development row positions. Do not
+# materialize a full-population target vector in this exported workflow.
+y_development = df.iloc[list(DEVELOPMENT_POSITIONS)][TARGET].copy()
+SEALED_FINAL_HOLDOUT_ROW_COUNT = len(_sealed_holdout_positions)
+
+# Deliberately do not materialize final-holdout features or target in this notebook.
+del _sealed_holdout_positions
+analysis_partition_assignment.pop("holdout_positions", None)
+
+print("Analysis Partition ID:", ANALYSIS_PARTITION_ID)
+print("Analysis Partition revision:", ANALYSIS_PARTITION_REVISION)
+print("Assignment hash:", ANALYSIS_PARTITION_ASSIGNMENT_HASH)
+print("Development rows materialized:", len(X_development))
+print("Final holdout rows (sealed, not materialized):", SEALED_FINAL_HOLDOUT_ROW_COUNT)
+
+print("Target-directed EDA scope: exact governed development population only.")
+if PROBLEM_TYPE == "classification":
+    print("Development target distribution:")
+    display(y_development.value_counts(dropna=False, normalize=True).to_frame("share"))
+else:
+    y_development.hist(bins=40)
+    plt.title("Development target distribution")
+    plt.show()
+
+if "profile_bureau_special_values" in globals():
+    bureau_development_frame = X_development.copy()
+    print("Development-population bureau special-value structural profile:")
+    # The generated bureau helper is intentionally structural-only. Any
+    # target-aware bureau comparison must be returned by the governed backend
+    # with exact development-scope lineage.
+    display(profile_bureau_special_values(bureau_development_frame, target=None))`,
     },
     {
       sectionKey: "balancing",
       routes: ["/step06"],
       title: "Balancing",
       explanation:
-        "Apply the selected balancing method to the training split only. Holdout, TEST, and OOT data should not be balanced.",
+        "Review the selected balancing policy without materializing it. Balancing may be fit only after the exact governed development-training assignment is loaded; final holdout, TEST, and OOT data must remain untouched.",
       decisionMatchers: ["balancing", "balance", "smote", "undersample", "class weight"],
-      outputPlaceholder: "Class distribution before and after balancing should display here.",
+      outputPlaceholder: "Development-population class distribution and the unmaterialized balancing policy should display here.",
       code: `BALANCE_METHOD = ${safeJson(balanceMethod)}
 BALANCE_RATIO = ${safeJson(balanceRatio)}
 
 print("Balance method:", BALANCE_METHOD)
+print("Balancing status: planning only; no rows have been resampled.")
 if PROBLEM_TYPE == "classification":
-    print("Training target distribution before balancing:")
-    display(y_train.value_counts(normalize=True).to_frame("share"))
-    # Implement governed balancing here. Examples: class_weight in model params, random undersampling, or SMOTE.
+    print("Development target distribution (not a training assignment):")
+    display(y_development.value_counts(normalize=True).to_frame("share"))
+    print(
+        "Load the exact governed development-validation assignment in Model Training "
+        "before fitting any fold-local or training-only balancing transform."
+    )
 else:
     print("Balancing is not applicable to regression targets.")`,
     },
@@ -358,7 +440,76 @@ else:
         "Train candidate models and record selected models, hyperparameter search settings, calibration, runtime controls, and metrics.",
       decisionMatchers: ["model training", "model_selected", "hyperparameter"],
       outputPlaceholder: "Candidate model leaderboard should display here.",
-      code: `TRAINING_CONFIG = ${safeJson(trainingConfig)}
+      code: `# Candidate ranking requires an exact governed assignment within the
+# development population. It may never reuse or infer final-holdout membership.
+DEVELOPMENT_VALIDATION_ASSIGNMENT_PATH = Path(
+    "EXACT_GOVERNED_DEVELOPMENT_VALIDATION_ASSIGNMENT.json"
+)
+if not DEVELOPMENT_VALIDATION_ASSIGNMENT_PATH.is_file():
+    raise RuntimeError(
+        "Exact governed development-validation assignment required before training. "
+        "The sealed final holdout cannot be used for candidate ranking."
+    )
+
+with DEVELOPMENT_VALIDATION_ASSIGNMENT_PATH.open("r", encoding="utf-8") as handle:
+    development_validation_assignment = json.load(handle)
+
+EXPECTED_DEVELOPMENT_VALIDATION_IDENTITY = {
+    "project_id": PROJECT_ID,
+    "dataset_id": DATASET_ID,
+    "dataset_version_id": DATASET_VERSION_ID,
+    "analysis_partition_id": ANALYSIS_PARTITION_ID,
+    "analysis_partition_assignment_hash": ANALYSIS_PARTITION_ASSIGNMENT_HASH,
+}
+for field, expected in EXPECTED_DEVELOPMENT_VALIDATION_IDENTITY.items():
+    actual = str(development_validation_assignment.get(field) or "").strip()
+    if not actual or actual != str(expected):
+        raise RuntimeError(
+            f"Development-validation identity mismatch for {field}: "
+            f"expected {expected!r}, received {actual!r}."
+        )
+
+VALIDATION_DESIGN_ID = str(
+    development_validation_assignment.get("validation_design_id") or ""
+).strip()
+VALIDATION_DESIGN_VERSION = str(
+    development_validation_assignment.get("validation_design_version") or ""
+).strip()
+DEVELOPMENT_VALIDATION_ASSIGNMENT_HASH = str(
+    development_validation_assignment.get("assignment_hash") or ""
+).strip()
+if not all((VALIDATION_DESIGN_ID, VALIDATION_DESIGN_VERSION, DEVELOPMENT_VALIDATION_ASSIGNMENT_HASH)):
+    raise RuntimeError(
+        "Validation design ID, version, and exact development-validation assignment hash are required."
+    )
+
+def _exact_development_positions(field):
+    values = development_validation_assignment.get(field)
+    if not isinstance(values, list) or not values:
+        raise RuntimeError(f"Exact {field} are required for candidate training.")
+    if any(type(position) is not int for position in values):
+        raise RuntimeError(f"Every {field} entry must be an integer row position.")
+    if len(values) != len(set(values)):
+        raise RuntimeError(f"Duplicate row positions found in {field}.")
+    if not set(values).issubset(set(DEVELOPMENT_POSITIONS)):
+        raise RuntimeError(f"{field} includes a row outside the development population.")
+    return tuple(values)
+
+TRAINING_POSITIONS = _exact_development_positions("training_positions")
+VALIDATION_POSITIONS = _exact_development_positions("validation_positions")
+if set(TRAINING_POSITIONS).intersection(VALIDATION_POSITIONS):
+    raise RuntimeError("Training and development-validation assignments overlap.")
+if set(TRAINING_POSITIONS).union(VALIDATION_POSITIONS) != set(DEVELOPMENT_POSITIONS):
+    raise RuntimeError("Development-validation assignment does not cover the exact development population.")
+
+X_train = X.iloc[list(TRAINING_POSITIONS)].copy()
+# Target reads happen only after both governed development subsets have passed
+# exact identity, membership, overlap, and coverage validation.
+y_train = df.iloc[list(TRAINING_POSITIONS)][TARGET].copy()
+X_validation = X.iloc[list(VALIDATION_POSITIONS)].copy()
+y_validation = df.iloc[list(VALIDATION_POSITIONS)][TARGET].copy()
+
+TRAINING_CONFIG = ${safeJson(trainingConfig)}
 
 SELECTED_MODEL_KEYS = TRAINING_CONFIG.get("selected_models", [])
 SELECTED_MODEL_LABELS = TRAINING_CONFIG.get("selected_model_labels", {})
@@ -428,15 +579,16 @@ for name, estimator in estimators.items():
     pipe.fit(X_train, y_train)
     fitted_models[name] = pipe
     if PROBLEM_TYPE == "classification":
-        score = pipe.predict_proba(X_test)[:, 1] if hasattr(pipe.named_steps["model"], "predict_proba") else pipe.predict(X_test)
+        score = pipe.predict_proba(X_validation)[:, 1] if hasattr(pipe.named_steps["model"], "predict_proba") else pipe.predict(X_validation)
         pred = (score >= 0.5).astype(int)
-        results.append({"model": name, "auc": roc_auc_score(y_test, score), "pr_auc": average_precision_score(y_test, score), "f1": f1_score(y_test, pred)})
+        results.append({"model": name, "auc": roc_auc_score(y_validation, score), "pr_auc": average_precision_score(y_validation, score), "f1": f1_score(y_validation, pred)})
     else:
-        pred = pipe.predict(X_test)
-        rmse = mean_squared_error(y_test, pred) ** 0.5
-        results.append({"model": name, "rmse": rmse, "mae": mean_absolute_error(y_test, pred), "r2": r2_score(y_test, pred)})
+        pred = pipe.predict(X_validation)
+        rmse = mean_squared_error(y_validation, pred) ** 0.5
+        results.append({"model": name, "rmse": rmse, "mae": mean_absolute_error(y_validation, pred), "r2": r2_score(y_validation, pred)})
 
 leaderboard = pd.DataFrame(results).sort_values("auc" if PROBLEM_TYPE == "classification" else "rmse", ascending=PROBLEM_TYPE != "classification")
+print("Candidate ranking population: exact governed development validation only")
 display(leaderboard)`,
     },
     {
@@ -446,29 +598,12 @@ display(leaderboard)`,
       explanation:
         "Evaluate champion and challenger models using metrics aligned to the target type and business objective.",
       decisionMatchers: ["evaluation", "champion"],
-      outputPlaceholder: "ROC/PR or residual diagnostics should display here.",
-      code: `CHAMPION_MODEL_NAME = ${safeJson(champion?.modelType ?? null)}
-if CHAMPION_MODEL_NAME not in fitted_models:
-    CHAMPION_MODEL_NAME = leaderboard.iloc[0]["model"]
-champion_model = fitted_models[CHAMPION_MODEL_NAME]
-
-print("Champion model:", CHAMPION_MODEL_NAME)
-if PROBLEM_TYPE == "classification":
-    from sklearn.metrics import classification_report, confusion_matrix, RocCurveDisplay, PrecisionRecallDisplay
-    score = champion_model.predict_proba(X_test)[:, 1] if hasattr(champion_model.named_steps["model"], "predict_proba") else champion_model.predict(X_test)
-    pred = (score >= 0.5).astype(int)
-    print(classification_report(y_test, pred))
-    display(pd.DataFrame(confusion_matrix(y_test, pred), index=["Actual 0", "Actual 1"], columns=["Pred 0", "Pred 1"]))
-    RocCurveDisplay.from_predictions(y_test, score)
-    PrecisionRecallDisplay.from_predictions(y_test, score)
-else:
-    pred = champion_model.predict(X_test)
-    residuals = y_test - pred
-    display(pd.DataFrame({"actual": y_test, "predicted": pred, "residual": residuals}).head())
-    plt.scatter(pred, residuals, alpha=0.35)
-    plt.axhline(0, color="black", linewidth=1)
-    plt.title("Residuals vs Predicted")
-    plt.show()`,
+      outputPlaceholder: "A governed evaluation package bound to the exact promoted candidate and Analysis Partition should display here.",
+      code: `raise RuntimeError(
+    "Final holdout remains sealed and unmaterialized in this notebook export. "
+    "Run governed ATLAS Evaluation for an exact candidate, Analysis Partition, "
+    "feature manifest, and evaluation package; do not infer or redraw holdout membership."
+)`,
     },
     {
       sectionKey: "interpretation",

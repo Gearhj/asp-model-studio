@@ -21,6 +21,7 @@ from server.core.result_store import ResultStore
 from server.splitting import split_router
 from server.training import trainer_router, training_preflight_service
 from server.training.training_job_types import TrainingJobRequest
+from tests.analysis_partition_fixture import GovernedAnalysisFixture
 
 
 IDENTITY = {
@@ -87,6 +88,11 @@ def _seed_current_split(store: DatasetStore) -> None:
         frame.loc[:14, "bad_flag"],
         frame.loc[15:, "bad_flag"],
     )
+    analysis_partition = (
+        store.meta.get("analysis_partition")
+        if isinstance(store.meta.get("analysis_partition"), dict)
+        else {}
+    )
     design = {
         **IDENTITY,
         "dataset_version": IDENTITY["dataset_version_id"],
@@ -94,6 +100,21 @@ def _seed_current_split(store: DatasetStore) -> None:
         "validation_design_id": "design-old",
         "design_version": "design-version-old",
         "feature_manifest_hash": MANIFEST_ID,
+        "analysis_partition_id": analysis_partition.get(
+            "analysis_partition_id"
+        ),
+        "analysis_partition_revision": analysis_partition.get("revision"),
+        "development_partition_id": analysis_partition.get(
+            "development_partition_id"
+        ),
+        "sealed_holdout_partition_id": analysis_partition.get(
+            "sealed_holdout_partition_id"
+        ),
+        "target": "bad_flag",
+        "target_contract_id": analysis_partition.get("target_contract_id"),
+        "problem_type": analysis_partition.get("problem_type"),
+        "event_value": analysis_partition.get("positive_value"),
+        "non_event_value": analysis_partition.get("negative_value"),
         "status": "approved",
     }
     store.meta.update(
@@ -103,6 +124,25 @@ def _seed_current_split(store: DatasetStore) -> None:
                 "dataset_version": IDENTITY["dataset_version_id"],
                 "data_revision": store.data_revision,
                 "split_id": "split-old",
+                "analysis_partition_id": analysis_partition.get(
+                    "analysis_partition_id"
+                ),
+                "analysis_partition_revision": analysis_partition.get(
+                    "revision"
+                ),
+                "development_partition_id": analysis_partition.get(
+                    "development_partition_id"
+                ),
+                "sealed_holdout_partition_id": analysis_partition.get(
+                    "sealed_holdout_partition_id"
+                ),
+                "target": "bad_flag",
+                "target_contract_id": analysis_partition.get(
+                    "target_contract_id"
+                ),
+                "problem_type": analysis_partition.get("problem_type"),
+                "event_value": analysis_partition.get("positive_value"),
+                "non_event_value": analysis_partition.get("negative_value"),
                 "feature_manifest_version": MANIFEST_ID,
                 "selected_features": ["predictor"],
                 "validation_design": design,
@@ -150,6 +190,20 @@ class SplitAtomicityTests(unittest.TestCase):
     def setUp(self) -> None:
         self.store = _seed_store()
         self.results = ResultStore()
+        self.governed_fixture = GovernedAnalysisFixture(
+            project_id=IDENTITY["project_id"],
+            owner="split-owner",
+        )
+        self.governed_fixture.install(
+            self.store,
+            dataset_id=IDENTITY["dataset_id"],
+            dataset_version_id=IDENTITY["dataset_version_id"],
+            target="bad_flag",
+            authorized_predictors=["predictor"],
+        )
+
+    def tearDown(self) -> None:
+        self.governed_fixture.close()
 
     @staticmethod
     def _assert_identity(

@@ -465,6 +465,36 @@ class TrainingAndDocumentationContractTests(unittest.TestCase):
             "dataset_id": "heloc-train",
             "dataset_version_id": "heloc-validation-v1",
         }
+        self.analysis_partition_id = "analysis-partition-heloc-v1"
+        self.analysis_partition_revision = 1
+        self.target_contract_id = "target-contract-heloc-v1"
+        self.safe_analysis_partition = {
+            **self.expected_identity,
+            "analysis_partition_id": self.analysis_partition_id,
+            "revision": self.analysis_partition_revision,
+            "target": "bad_flag",
+            "target_contract_id": self.target_contract_id,
+            "predictor_authorization_id": "predictor-auth-heloc-v1",
+            "problem_type": "classification",
+            "problem_type_status": "verified",
+            "positive_value": 1,
+            "negative_value": 0,
+            "development_partition_id": "train-pop-heloc-v1",
+            "sealed_holdout_partition_id": "holdout-pop-heloc-v1",
+            "assignment_hash": "assignment-hash-heloc-v1",
+            "artifact_hash": "artifact-hash-heloc-v1",
+            "status": "current",
+            "evidence_status": "recorded",
+            "evidence_ref": "analysis-partition-evidence-heloc-v1",
+            "mdd_status": "recorded",
+            "mdd_ref": "analysis-partition-mdd-heloc-v1",
+        }
+        self.durable_analysis_partition = {
+            **self.safe_analysis_partition,
+            "target_column": "bad_flag",
+            "positive_value_json": 1,
+            "negative_value_json": 0,
+        }
         self._identity_scope = exact_registered_identity(
             self.expected_identity
         )
@@ -485,6 +515,32 @@ class TrainingAndDocumentationContractTests(unittest.TestCase):
         )
         self._persistence_scope.start()
         self.addCleanup(self._persistence_scope.stop)
+        self._partition_current_scope = patch(
+            "server.training.training_preflight_service.analysis_partition_service.current",
+            return_value=self.durable_analysis_partition,
+        )
+        self._partition_safe_scope = patch(
+            "server.training.training_preflight_service.analysis_partition_service.safe_record",
+            return_value=self.safe_analysis_partition,
+        )
+        self._partition_authority_scope = patch(
+            "server.training.training_preflight_service.analysis_partition_service.target_authority_compatibility",
+            return_value={
+                "target_contract_id": self.target_contract_id,
+                "target": "bad_flag",
+                "problem_type": "classification",
+                "event_value": 1,
+                "non_event_value": 0,
+                "source": "sealed_analysis_partition",
+            },
+        )
+        for scope in (
+            self._partition_current_scope,
+            self._partition_safe_scope,
+            self._partition_authority_scope,
+        ):
+            scope.start()
+            self.addCleanup(scope.stop)
 
     def tearDown(self):
         DATASTORE.reset_all()
@@ -542,6 +598,21 @@ class TrainingAndDocumentationContractTests(unittest.TestCase):
             **identity,
             "validation_design_id": "validation-design-heloc",
             "design_version": "validation-design-v1",
+            "analysis_partition_id": self.analysis_partition_id,
+            "analysis_partition_revision": self.analysis_partition_revision,
+            "target": "bad_flag",
+            "target_contract_id": self.target_contract_id,
+            "problem_type": "classification",
+            "event_value": 1,
+            "non_event_value": 0,
+            "target_definition": {
+                "target": "bad_flag",
+                "target_contract_id": self.target_contract_id,
+                "problem_type": "classification",
+                "positive_value": 1,
+                "negative_value": 0,
+                "authority_source": "sealed_analysis_partition",
+            },
             "feature_manifest_hash": "fm-heloc-v1",
             "development_dataset_version": "heloc-validation-v1",
             "development_dataset": {
@@ -551,6 +622,9 @@ class TrainingAndDocumentationContractTests(unittest.TestCase):
             "strategy": "hybrid",
             "status": "approved",
         }
+        DATASTORE.meta["analysis_partition"] = dict(
+            self.safe_analysis_partition
+        )
         gates = {
             "strategy_selected": True,
             "dataset_versions_pinned": True,
@@ -568,6 +642,13 @@ class TrainingAndDocumentationContractTests(unittest.TestCase):
         DATASTORE.meta["split_record"] = {
             **identity,
             "split_id": "split-heloc-v1",
+            "analysis_partition_id": self.analysis_partition_id,
+            "analysis_partition_revision": self.analysis_partition_revision,
+            "target": "bad_flag",
+            "target_contract_id": self.target_contract_id,
+            "problem_type": "classification",
+            "event_value": 1,
+            "non_event_value": 0,
             "dataset_version": "heloc-validation-v1",
             "feature_manifest_version": "fm-heloc-v1",
             "selected_features": ["bureau_score", "trade_count"],

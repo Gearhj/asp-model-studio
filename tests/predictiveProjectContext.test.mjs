@@ -36,7 +36,9 @@ for (const value of [
 ]) assert.match(context, new RegExp(value), `Persisted Project Context field missing: ${value}`);
 
 assert.match(page, /scrollIntoView/);
-assert.match(page, /savePredictiveProjectContextToDatabase/);
+assert.match(page, /useProjectContextAutosave/);
+assert.match(page, /publishSavedProjectMetadata/);
+assert.match(page, /onHydrated: \(hydrated\) => setContext\(hydrated\)/);
 assert.match(page, /buildMissionSummary\(context\)/);
 assert.match(persistence, /modeling-tool-project-context/);
 assert.match(shell, /nextExtraActions/);

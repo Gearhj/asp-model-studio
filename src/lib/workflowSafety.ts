@@ -1,3 +1,5 @@
+import { getAtlasDataScopeLabel } from "./dataScope";
+
 export function safeArray<T = unknown>(value: unknown): T[] {
   return Array.isArray(value) ? (value as T[]) : [];
 }
@@ -13,9 +15,5 @@ export function formatNullableMetric(value: unknown, digits = 2, unavailable = "
 }
 
 export function getDatasetScopeLabel(scope: unknown) {
-  if (scope === "full_dataset") return "Full Dataset";
-  if (scope === "complete_browser_dataset") return "Complete Browser Dataset";
-  if (scope === "preview_profile") return "Preview Profile";
-  if (scope === "rendered_sample") return "Rendered Sample";
-  return "Unavailable";
+  return getAtlasDataScopeLabel(scope);
 }

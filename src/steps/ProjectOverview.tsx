@@ -22,6 +22,7 @@ import { getCreditRiskProfileForProject, getLatestCreditRiskMlModelForProject, g
 import { selectEffectiveWorkflowSteps, useWorkflowStore } from "../state/useWorkflowStore";
 import { getProjectPersistenceBundle, type ProjectPersistenceBundle } from "../lib/serverPersistence";
 import { summarizePersistedEvidence } from "../lib/persistedEvidenceStatus";
+import { projectWorkflowRoute } from "../lib/projectScopedRoutes";
 import { getRegistryAsset, getRegistryAssets, type RegistryAssetDetail } from "../lib/registryApi";
 import { RegistryStatus, formatRegistryDate } from "../components/registry/RegistryPrimitives";
 import { createProjectMonitoringPlan, createMonitoringRun, getProjectMonitoringPlan, monitoringPlanStatusLabels, monitoringRunStatusLabels, monitoringStatusTone, startMonitoringRun, type MonitoringPlanDetail } from "../lib/monitoringApi";
@@ -46,6 +47,8 @@ export default function ProjectOverview() {
   const workflow = getWorkflowDefinition(workflowId);
   const completed = workflowSteps.filter((step) => step.status === "complete").length;
   const current = workflowSteps.find((step) => step.status !== "complete" && step.status !== "skipped");
+  const workflowPath = (targetPath: string) =>
+    projectId ? projectWorkflowRoute(projectId, targetPath) : "/projects/open";
   const progress = workflowSteps.length ? Math.round((completed / workflowSteps.length) * 100) : 0;
   const modelId = context.modelId || useWorkflowStore.getState().modelId || "Not assigned";
   const cadence = context.monitoringCadence === "custom" ? context.monitoringCadenceCustom || "Custom cadence not documented" : context.monitoringCadence;
@@ -203,7 +206,7 @@ export default function ProjectOverview() {
             <div className="rounded-2xl border border-blue-200 bg-blue-50 p-5">
               <div className="text-xl font-semibold text-blue-950">{current?.label ?? (projectType === "optimization" && optimizationEvidence?.packageReady ? "Optimization study complete" : "Workflow complete")}</div>
               <p className="mt-2 text-sm leading-6 text-blue-900">{current?.description ?? (projectType === "optimization" ? optimizationEvidence?.statusLabel : workflow.description)}</p>
-              {current && <Link to={current.route} className="atlas-primary-button mt-4">Continue workflow</Link>}
+              {current && <Link to={workflowPath(current.route)} className="atlas-primary-button mt-4">Continue workflow</Link>}
             </div>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
               <AtlasMetricCard label="Workflow completion" value={`${displayedProgress}%`} detail={`${displayedCompleted} of ${workflowSteps.length} steps complete`} tone={displayedProgress >= 80 ? "success" : "info"} />
@@ -337,7 +340,7 @@ export default function ProjectOverview() {
               const statusLabel = optimizationStatus ?? (step.status === "complete" ? "Complete" : isCurrent ? "Current" : step.status === "skipped" ? "Skipped" : "Pending");
               const tone = optimizationStatus === "Evidence" || optimizationStatus === "Complete" || step.status === "complete" ? "success" : optimizationStatus === "Blocked" ? "warning" : isCurrent ? "info" : step.status === "skipped" ? "warning" : "neutral";
               return (
-                <Link key={step.id} to={step.route} className={`grid gap-3 rounded-xl border px-4 py-3 transition hover:border-blue-200 hover:bg-blue-50 sm:grid-cols-[2.5rem_minmax(0,1fr)_auto] sm:items-center ${isCurrent ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white"}`}>
+                <Link key={step.id} to={workflowPath(step.route)} className={`grid gap-3 rounded-xl border px-4 py-3 transition hover:border-blue-200 hover:bg-blue-50 sm:grid-cols-[2.5rem_minmax(0,1fr)_auto] sm:items-center ${isCurrent ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white"}`}>
                   <span className="grid h-9 w-9 place-items-center rounded-full bg-slate-100 text-xs font-semibold text-slate-700">{index + 1}</span>
                   <span>
                     <span className="block text-sm font-semibold text-slate-950">{step.label}</span>
@@ -427,7 +430,7 @@ export default function ProjectOverview() {
         subtitle={`${labelize(projectType)} / ${workflow.label}. ${workflow.description}`}
         actions={
           <>
-            {current && <Link to={current.route} className="atlas-primary-button">Continue {current.shortLabel ?? current.label}<ArrowRight size={15} /></Link>}
+            {current && <Link to={workflowPath(current.route)} className="atlas-primary-button">Continue {current.shortLabel ?? current.label}<ArrowRight size={15} /></Link>}
             <Link to="/model-evidence-center" className="atlas-secondary-button">Open Evidence Center</Link>
             <Link to={`/model-document-studio?projectId=${projectId}`} className="atlas-secondary-button">Open Documentation Studio</Link>
           </>

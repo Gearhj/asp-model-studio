@@ -18,6 +18,7 @@ const registry = read("server/datasets/dataset_registry.py");
 const appRoutes = read("src/apps/ModelingApp.tsx");
 const sidebar = read("src/components/Sidebar.tsx");
 const dataAcquisition = read("src/steps/Step01_DataAcquisition.tsx");
+const datasetLibraryClient = read("src/lib/datasetLibrary.ts");
 const localDataset = read("src/lib/localDataset.ts");
 
 [
@@ -47,7 +48,12 @@ assert(sidebar.includes("Dataset Library"), "Sidebar is missing Dataset Library 
 assert(sidebar.includes("System Diagnostics"), "Sidebar is missing System Diagnostics navigation.");
 
 assert(dataAcquisition.includes("getDatasetPreview"), "Data Acquisition Existing Dataset does not load Dataset Library previews.");
-assert(dataAcquisition.includes("linkDatasetToProject"), "Data Acquisition does not link selected datasets to projects.");
+assert(dataAcquisition.includes("activateDatasetVersion"), "Data Acquisition does not activate the exact selected Dataset Library version.");
+assert(
+  datasetLibraryClient.includes("active durable project-dataset link")
+    && datasetLibraryClient.includes("requireDurableDatasetActivation"),
+  "Dataset activation must return and verify its durable project-dataset link.",
+);
 assert(localDataset.includes("dataset_library"), "LocalDataset does not preserve Dataset Library references.");
 
 // Card View and Detailed View no longer duplicate their action JSX -- both

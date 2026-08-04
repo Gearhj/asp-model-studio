@@ -10,6 +10,7 @@ import { runAnalyticsPreviewSql } from "../lib/analyticsWorkbench";
 import { runUserPython, runUserR, runUserSasCompatible, type CodeRunResult } from "../lib/codeExecution";
 import { createEvidence } from "../lib/evidenceGraph";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { projectWorkflowRoute } from "../lib/projectScopedRoutes";
 
 type DatasetDetail = DatasetSummary & { versions?: DatasetVersionSummary[]; sourceInfo?: Record<string, unknown> };
 type CodeTab = "python" | "sql" | "r" | "sas";
@@ -276,7 +277,7 @@ export default function ModelDiagnostics() {
                 <div className="font-semibold">No scored-output datasets found.</div>
                 <div>Register scored output from the Predictive Modeling Scoring step.</div>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Link className="rounded-md bg-slate-950 px-3 py-2 text-xs font-semibold text-white" to="/step10">Go to Scoring</Link>
+                  <Link className="rounded-md bg-slate-950 px-3 py-2 text-xs font-semibold text-white" to={projectId ? projectWorkflowRoute(projectId, "/step10") : "/projects/open"}>Go to Scoring</Link>
                   <Link className="rounded-md border border-amber-300 bg-white px-3 py-2 text-xs font-semibold text-amber-950" to="/datasets">Open Dataset Library</Link>
                 </div>
               </div>
@@ -491,7 +492,7 @@ export default function ModelDiagnostics() {
               </p>
               {!scoredDatasets.length && (
                 <div className="mt-5 flex justify-center gap-3">
-                  <Link className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white" to="/step10">Go to Scoring</Link>
+                  <Link className="rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white" to={projectId ? projectWorkflowRoute(projectId, "/step10") : "/projects/open"}>Go to Scoring</Link>
                   <Link className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-semibold text-slate-800" to="/datasets">Open Dataset Library</Link>
                 </div>
               )}

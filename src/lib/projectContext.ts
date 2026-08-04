@@ -204,6 +204,10 @@ export type ProjectContext = {
 
 export const PROJECT_CONTEXT_KEY = "modeling-tool-project-context";
 
+export function scopedProjectContextKey(projectId: string, userId: string) {
+  return `${PROJECT_CONTEXT_KEY}:${encodeURIComponent(userId || "anonymous")}:${encodeURIComponent(projectId || "unassigned")}`;
+}
+
 export const modelTypeOptions: ModelType[] = [
   "fraud",
   "credit risk",
@@ -360,10 +364,13 @@ export const defaultProjectContext: ProjectContext = {
   },
 };
 
-export function loadProjectContext(): ProjectContext {
+export function loadProjectContext(projectId = "", userId = ""): ProjectContext {
   if (typeof localStorage === "undefined") return defaultProjectContext;
   try {
-    const raw = localStorage.getItem(PROJECT_CONTEXT_KEY);
+    const key = projectId && userId
+      ? scopedProjectContextKey(projectId, userId)
+      : PROJECT_CONTEXT_KEY;
+    const raw = localStorage.getItem(key);
     if (!raw) return defaultProjectContext;
     const parsed = JSON.parse(raw) as Partial<ProjectContext>;
     const fraudDetails = { ...defaultProjectContext.fraudDetails, ...(parsed.fraudDetails ?? {}), deploymentMode: professionalDeploymentMode(parsed.fraudDetails?.deploymentMode), stakeholders: parsed.fraudDetails?.stakeholders ?? {}, reviewRequirements: parsed.fraudDetails?.reviewRequirements ?? {}, risks: Array.isArray(parsed.fraudDetails?.risks) ? parsed.fraudDetails.risks : [], successCriteria: Array.isArray(parsed.fraudDetails?.successCriteria) ? parsed.fraudDetails.successCriteria : [], validationFindings: Array.isArray(parsed.fraudDetails?.validationFindings) ? parsed.fraudDetails.validationFindings : [] };
@@ -395,13 +402,20 @@ export function loadProjectContext(): ProjectContext {
   }
 }
 
-export function saveProjectContext(context: ProjectContext) {
+export function saveProjectContext(
+  context: ProjectContext,
+  projectId = "",
+  userId = "",
+) {
   const next: ProjectContext = {
     ...defaultProjectContext,
     ...context,
     updatedAt: new Date().toISOString(),
   };
-  localStorage.setItem(PROJECT_CONTEXT_KEY, JSON.stringify(next));
+  const key = projectId && userId
+    ? scopedProjectContextKey(projectId, userId)
+    : PROJECT_CONTEXT_KEY;
+  localStorage.setItem(key, JSON.stringify(next));
   return next;
 }
 

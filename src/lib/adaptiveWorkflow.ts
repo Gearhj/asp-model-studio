@@ -1,4 +1,4 @@
-import { inferLocalProblemType, loadLocalDataset } from "./localDataset";
+import { loadLocalDataset } from "./localDataset";
 import { loadProjectContext } from "./projectContext";
 
 export type AdaptiveRecommendation = {
@@ -39,22 +39,6 @@ function missingCellCount(rows: Record<string, unknown>[], headers: string[]) {
   return count;
 }
 
-function eventRateForTarget(rows: Record<string, unknown>[], target: string | null) {
-  if (!target || !rows.length) return null;
-  const values = rows.map((row) => row[target]).filter((value) => !isMissing(value));
-  if (!values.length) return null;
-  const nums = numericValues(values);
-  if (nums.length / values.length >= 0.8) {
-    const positives = nums.filter((value) => value === 1).length;
-    const zeros = nums.filter((value) => value === 0).length;
-    if (positives + zeros >= values.length * 0.8) return positives / Math.max(1, positives + zeros);
-  }
-  const counts = new Map<string, number>();
-  values.forEach((value) => counts.set(String(value), (counts.get(String(value)) ?? 0) + 1));
-  const sorted = Array.from(counts.values()).sort((a, b) => a - b);
-  return sorted.length > 1 ? sorted[0] / values.length : null;
-}
-
 function standardizedFeatureShare(rows: Record<string, unknown>[], numericHeaders: string[]) {
   if (!rows.length || !numericHeaders.length) return 0;
   const standardized = numericHeaders.filter((header) => {
@@ -86,8 +70,6 @@ export function getAdaptiveRecommendations(route: string): AdaptiveRecommendatio
   const kinds = columnKinds(rows, headers, target);
   const numericHeaders = kinds.filter((column) => column.numeric).map((column) => column.header);
   const categoricalHeaders = kinds.filter((column) => !column.numeric).map((column) => column.header);
-  const problemType = inferLocalProblemType(dataset);
-  const eventRate = eventRateForTarget(rows, target);
   const standardizedShare = standardizedFeatureShare(rows, numericHeaders);
   const pcaShare = pcaLikeShare(featureHeaders);
   const recommendations: AdaptiveRecommendation[] = [];
@@ -97,8 +79,8 @@ export function getAdaptiveRecommendations(route: string): AdaptiveRecommendatio
       route,
       kind: "skip",
       headline: "Recommended: Skip this step",
-      explanation: "No missing values were detected in the active development dataset sample.",
-      why: "Imputation adds transformation complexity without benefit when the development data has no missing cells. Still confirm this against full training, TEST, and OOT files before final governance sign-off.",
+      explanation: "No missing values were detected in the browser dataset sample.",
+      why: "This target-independent structural check can simplify review, but it is not evidence of governed development membership or holdout scope.",
       suggestedAction: "Mark this step complete as No Action Needed, or keep it open if you expect missingness in scoring data.",
       confidence: 0.96,
     });
@@ -128,18 +110,6 @@ export function getAdaptiveRecommendations(route: string): AdaptiveRecommendatio
       why: "Repeated scaling can make lineage harder to explain and may not improve models that already receive standardized inputs.",
       suggestedAction: "Keep scaling set to None unless a selected model specifically requires a new scaling step.",
       confidence: pcaShare >= 0.5 ? 0.93 : 0.84,
-    });
-  }
-
-  if (problemType === "classification" && eventRate !== null && eventRate < 0.01) {
-    recommendations.push({
-      route,
-      kind: "warning",
-      headline: "Rare-event workflow recommended",
-      explanation: `The target event rate is approximately ${(eventRate * 100).toFixed(2)}%. Accuracy will be misleading.`,
-      why: "Rare-event classification should be evaluated with PR-AUC, recall, lift, capture rate, threshold analysis, and calibration rather than accuracy alone.",
-      suggestedAction: "Use rare-event metrics and compare class weights, undersampling, or SMOTE before choosing a champion.",
-      confidence: 0.95,
     });
   }
 

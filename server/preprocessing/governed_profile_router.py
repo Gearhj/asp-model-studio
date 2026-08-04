@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from ..analysis_partition.types import AnalysisPartitionError
 from ..core.modeling_scope import authorize_modeling_scope
 from ..datasets.dataset_identity import assert_expected_active_identity
 from ..security.security_store import audit_event, require_user, user_can_access_project
@@ -82,14 +83,20 @@ def target_profile(payload: TargetProfileRequest, user: Dict[str, Any] = Depends
             require_expected=True,
             user=user,
         )
-        return governed_target_profile(
-            user_scope=user_scope, project_id=identity["project_id"],
-            dataset_id=identity["dataset_id"],
-            version_id=identity["dataset_version_id"],
-            target=payload.target, event_value=payload.event_value,
-            non_event_value=payload.non_event_value, problem_type=payload.problem_type,
-            include_iv=payload.include_iv, selected_columns=payload.selected_columns,
-        )
+        try:
+            return governed_target_profile(
+                user_scope=user_scope, project_id=identity["project_id"],
+                dataset_id=identity["dataset_id"],
+                version_id=identity["dataset_version_id"],
+                target=payload.target, event_value=payload.event_value,
+                non_event_value=payload.non_event_value, problem_type=payload.problem_type,
+                include_iv=payload.include_iv, selected_columns=payload.selected_columns,
+            )
+        except AnalysisPartitionError as exc:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail=exc.as_detail(),
+            ) from exc
 
     return workspace_target_profile(
         user_scope=user_scope, project_id=payload.project_id, target=payload.target,

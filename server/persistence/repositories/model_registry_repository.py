@@ -187,6 +187,23 @@ def _assert_durable_promotion_governance(
         raise ModelRegistryConflictError(
             "Finalized publication requires exact durable governance lineage."
         )
+    for artifact_type, artifact_id in (
+        ("candidate_decision", record.get("candidate_decision_id")),
+        ("evaluation_package", record.get("evaluation_package_id")),
+    ):
+        if artifact_id and connection.execute(
+            """
+            SELECT 1
+            FROM analysis_partition_derivative_invalidations
+            WHERE artifact_type = ? AND artifact_id = ?
+              AND invalidation_status = 'invalidated'
+            LIMIT 1
+            """,
+            (artifact_type, artifact_id),
+        ).fetchone():
+            raise ModelRegistryConflictError(
+                "Model publication references governance evidence invalidated by an Analysis Partition reset."
+            )
     decision = decode_row(
         connection.execute(
             """

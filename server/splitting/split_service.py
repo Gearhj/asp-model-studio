@@ -32,6 +32,8 @@ class SplitResult:
     synthetic_rows_added: int
     rows_removed: int
     evaluation_population_role: str
+    fold_local_preprocessing: str
+    balancing_application_status: str
 
 
 def target_distribution(series: pd.Series, event_value: Any | None = None) -> dict[str, Any]:
@@ -87,6 +89,10 @@ class SplitService:
         config: dict[str, Any],
         external_test_frame: pd.DataFrame | None = None,
         external_test_target: str | None = None,
+        prepartitioned_development: pd.DataFrame | None = None,
+        prepartitioned_holdout: pd.DataFrame | None = None,
+        prepartitioned_development_target: pd.Series | None = None,
+        prepartitioned_holdout_target: pd.Series | None = None,
     ) -> SplitResult:
         if target_col not in frame.columns:
             raise ValueError(f"Target column '{target_col}' is not available in the full dataset.")
@@ -115,23 +121,72 @@ class SplitService:
         problem_type = str(config.get("problem_type") or "classification")
         event_value = config.get("event_value")
 
+        supplied_partition_parts = (
+            prepartitioned_development,
+            prepartitioned_holdout,
+            prepartitioned_development_target,
+            prepartitioned_holdout_target,
+        )
+        has_prepartition = all(part is not None for part in supplied_partition_parts)
+        if any(part is not None for part in supplied_partition_parts) and not has_prepartition:
+            raise ValueError(
+                "Development and sealed-holdout frames and targets must be supplied together."
+            )
+
         X = frame.loc[:, selected_features].copy()
         y = frame[target_col].copy()
-        if y.isna().any():
-            valid = y.notna()
-            X = X.loc[valid]
-            y = y.loc[valid]
-        if len(y) < 4:
-            raise ValueError("At least four valid target rows are required to create a development split.")
-
         stratify = None
-        if problem_type == "classification" and bool(config.get("stratify", True)):
-            counts = y.value_counts()
-            if len(counts) < 2:
-                raise ValueError("The target contains one class. A stratified holdout cannot be created.")
-            if int(counts.min()) < 2:
-                raise ValueError("The minority class has fewer than two records. Both train and holdout sets need at least one event.")
-            stratify = y
+        if not has_prepartition:
+            if y.isna().any():
+                valid = y.notna()
+                X = X.loc[valid]
+                y = y.loc[valid]
+            if len(y) < 4:
+                raise ValueError(
+                    "At least four valid target rows are required to create a development split."
+                )
+            if problem_type == "classification" and bool(
+                config.get("stratify", True)
+            ):
+                counts = y.value_counts()
+                if len(counts) < 2:
+                    raise ValueError(
+                        "The target contains one class. A stratified holdout cannot be created."
+                    )
+                if int(counts.min()) < 2:
+                    raise ValueError(
+                        "The minority class has fewer than two records. Both train and holdout sets need at least one event."
+                    )
+                stratify = y
+        if has_prepartition:
+            # These populations were sealed before EDA. Validation Design may
+            # configure folds and training-only balancing, but it must never
+            # redraw or infer their membership.
+            development_constraint_frame = prepartitioned_development.copy()
+            development_X = development_constraint_frame.loc[:, selected_features].copy()
+            holdout_X = prepartitioned_holdout.loc[:, selected_features].copy()
+            development_y = prepartitioned_development_target.copy()
+            holdout_y = prepartitioned_holdout_target.copy()
+            if development_X.empty or holdout_X.empty:
+                raise ValueError(
+                    "The governed Analysis Partition must contain both development and sealed-holdout rows."
+                )
+            if len(development_X) != len(development_y) or len(holdout_X) != len(holdout_y):
+                raise ValueError(
+                    "The governed Analysis Partition frames and targets are not aligned."
+                )
+            if not development_X.index.equals(development_y.index):
+                raise ValueError(
+                    "Development predictors and target do not preserve the sealed membership order."
+                )
+            if not holdout_X.index.equals(holdout_y.index):
+                raise ValueError(
+                    "Final-holdout predictors and target do not preserve the sealed membership order."
+                )
+            if development_y.isna().any():
+                raise ValueError(
+                    "The governed development population contains rows without a target value."
+                )
 
         evaluation_population_role = "untouched_holdout"
         if strategy in {"separate_test", "separate_test_oot"}:
@@ -150,15 +205,23 @@ class SplitService:
                 raise ValueError(
                     f"Mapped TEST target '{resolved_external_target}' is unavailable."
                 )
-            X_train = X.copy()
-            y_train = y.copy()
-            X_test = external_test_frame.loc[:, selected_features].copy()
-            y_test = external_test_frame[resolved_external_target].copy()
-            valid_test = y_test.notna()
-            X_test = X_test.loc[valid_test]
-            y_test = y_test.loc[valid_test]
-            evaluation_population_role = "separate_test"
-        elif strategy == "cross_validation":
+            X_train = development_X.copy() if has_prepartition else X.copy()
+            y_train = development_y.copy() if has_prepartition else y.copy()
+            if has_prepartition:
+                # External TEST/OOT versions are additional validation
+                # references. They never replace or unseal the canonical final
+                # holdout created before EDA.
+                X_test = holdout_X.copy()
+                y_test = holdout_y.copy()
+                evaluation_population_role = "untouched_holdout"
+            else:
+                X_test = external_test_frame.loc[:, selected_features].copy()
+                y_test = external_test_frame[resolved_external_target].copy()
+                valid_test = y_test.notna()
+                X_test = X_test.loc[valid_test]
+                y_test = y_test.loc[valid_test]
+                evaluation_population_role = "separate_test"
+        elif strategy == "cross_validation" and not has_prepartition:
             # The persisted fold architecture owns model selection. A fixed,
             # untouched reference fold is also materialized for legacy trainer
             # compatibility and is explicitly labelled as such downstream.
@@ -183,6 +246,12 @@ class SplitService:
             X_test = X.iloc[validation_position].copy()
             y_test = y.iloc[validation_position].copy()
             evaluation_population_role = "cv_reference_fold"
+        elif has_prepartition:
+            X_train = development_X.copy()
+            y_train = development_y.copy()
+            X_test = holdout_X.copy()
+            y_test = holdout_y.copy()
+            evaluation_population_role = "untouched_holdout"
         else:
             X_train, X_test, y_train, y_test = train_test_split(
                 X,
@@ -193,21 +262,62 @@ class SplitService:
             )
 
         original_train = target_distribution(y_train, event_value)
-        test_distribution = target_distribution(y_test, event_value)
-        if problem_type == "classification" and len(y.value_counts()) == 2:
-            if not original_train.get("events") or not test_distribution.get("events"):
-                raise ValueError("The proposed split leaves train or holdout without an event. Increase the data or change the holdout size.")
+        test_distribution = (
+            {
+                "rows": int(len(y_test)),
+                "status": "sealed",
+                "target_statistics_withheld": True,
+            }
+            if evaluation_population_role == "untouched_holdout"
+            else target_distribution(y_test, event_value)
+        )
+        if problem_type == "classification" and len(y_train.value_counts()) == 2:
+            if not original_train.get("events"):
+                raise ValueError(
+                    "The governed development population has no events. Correct the Analysis Partition before defining validation."
+                )
 
         original_train_rows = int(len(y_train))
         training_index = list(y_train.index)
         validation_index = list(y_test.index)
+        fold_constraint_frame = (
+            development_constraint_frame.copy()
+            if has_prepartition
+            else frame.loc[training_index].copy()
+        )
         fold_architecture = self._build_fold_architecture(
-            frame.loc[training_index],
+            fold_constraint_frame,
             y_train,
             config,
         )
         balance_method = str(config.get("balance_method") or "none")
-        if balance_method == "undersample":
+        fold_method = str(config.get("fold_method") or "none")
+        fold_local_preprocessing = str(
+            config.get("fold_local_preprocessing")
+            or "fit_transform_per_fold"
+        )
+        if fold_local_preprocessing not in {
+            "fit_transform_per_fold",
+            "model_native_per_fold",
+        }:
+            raise ValueError(
+                "Fold-local preprocessing must be fit_transform_per_fold or model_native_per_fold."
+            )
+        fold_local_balancing = (
+            fold_method != "none"
+            and balance_method in {"undersample", "oversample", "smote"}
+        )
+        if fold_local_balancing:
+            if problem_type != "classification" or len(y_train.value_counts()) != 2:
+                raise ValueError(
+                    "Fold-local resampling requires a binary classification target."
+                )
+            # Persist the policy for the training engine.  Validation Design
+            # must not pre-resample the development population because that
+            # would contaminate validation folds and invalidate their stored
+            # positional membership.
+            balancing_application_status = "planned_fold_local_training_only"
+        elif balance_method == "undersample":
             if problem_type != "classification" or len(y_train.value_counts()) != 2:
                 raise ValueError("Training-only undersampling requires a binary classification target.")
             X_train, y_train = self._undersample_train(
@@ -216,6 +326,7 @@ class SplitService:
                 minority_share=float(config.get("minority_share", 0.5)),
                 random_seed=random_seed,
             )
+            balancing_application_status = "applied_training_population_only"
         elif balance_method == "oversample":
             if problem_type != "classification" or len(y_train.value_counts()) != 2:
                 raise ValueError("Training-only oversampling requires a binary classification target.")
@@ -225,6 +336,7 @@ class SplitService:
                 minority_share=float(config.get("minority_share", 0.5)),
                 random_seed=random_seed,
             )
+            balancing_application_status = "applied_training_population_only"
         elif balance_method == "smote":
             if problem_type != "classification" or len(y_train.value_counts()) != 2:
                 raise ValueError("Training-only SMOTE requires a binary classification target.")
@@ -234,8 +346,11 @@ class SplitService:
                 minority_share=float(config.get("minority_share", 0.5)),
                 random_seed=random_seed,
             )
+            balancing_application_status = "applied_training_population_only"
         elif balance_method != "none":
             raise ValueError(f"Balancing method '{balance_method}' is not implemented by the split backend.")
+        else:
+            balancing_application_status = "not_requested"
 
         synthetic_rows_added = max(0, int(len(y_train)) - original_train_rows)
         rows_removed = max(0, original_train_rows - int(len(y_train)))
@@ -254,6 +369,8 @@ class SplitService:
             synthetic_rows_added=synthetic_rows_added,
             rows_removed=rows_removed,
             evaluation_population_role=evaluation_population_role,
+            fold_local_preprocessing=fold_local_preprocessing,
+            balancing_application_status=balancing_application_status,
         )
 
     def _build_fold_architecture(

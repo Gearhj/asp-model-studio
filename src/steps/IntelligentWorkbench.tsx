@@ -18,6 +18,7 @@ import { useWorkflowStore } from "../state/useWorkflowStore";
 import { BRAND } from "../config/brand";
 import { requestScopedTrainingHistory } from "../lib/scopedTrainingHistory";
 import { usePredictiveIdentity } from "../components/PredictiveIdentityProvider";
+import { projectWorkflowRoute } from "../lib/projectScopedRoutes";
 
 const EXPERIMENT_KEY = "modeling-tool-experiments";
 const DECISION_KEY = "modeling-tool-decisions";
@@ -235,7 +236,7 @@ export default function IntelligentWorkbench() {
               notebook handoffs, decision rationale, and governance-ready outputs.
             </p>
             <div className="mt-4 flex flex-wrap gap-2">
-              <Link className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800" to="/step07">
+              <Link className="rounded-lg bg-slate-950 px-3 py-2 text-sm font-medium text-white shadow-sm hover:bg-slate-800" to={projectId ? projectWorkflowRoute(projectId, "/step07") : "/projects/open"}>
                 Continue Modeling
               </Link>
               <button

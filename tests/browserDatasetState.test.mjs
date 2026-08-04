@@ -149,7 +149,33 @@ test("dataset version change invalidates stale cached identity for that project"
   saveProjectDataset("user-a", "project-1", makeDataset({ dataset_version: "v2", rows: [{ Class: 1, V1: 9, V2: 9 }] }));
   const restored = loadProjectDataset("user-a", "project-1");
   assert.equal(restored.dataset_version, "v2");
-  assert.deepEqual(restored.rows, [{ Class: 1, V1: 9, V2: 9 }]);
+  assert.deepEqual(restored.rows, [{ V1: 9, V2: 9 }]);
+  assert.equal(restored.target, "Class", "target contract metadata remains available");
+  assert.equal(restored.target_values_included, false);
+});
+
+test("target values are never persisted in a new project-scoped browser cache", () => {
+  sessionStorage.clear();
+  saveProjectDataset("user-a", "project-1", makeDataset({
+    rows: [{ Class: 1, V1: 7, V2: 8 }],
+  }));
+  const raw = JSON.parse(sessionStorage.getItem(buildProjectDatasetStorageKey("user-a", "project-1")));
+  assert.equal(raw.cache_schema_version, 2);
+  assert.equal(raw.target_values_included, false);
+  assert.equal(Object.hasOwn(raw.rows[0], "Class"), false);
+  assert.deepEqual(raw.rows[0], { V1: 7, V2: 8 });
+});
+
+test("an exact-ID legacy cache containing target values is quarantined for backend refetch", () => {
+  sessionStorage.clear();
+  const key = buildProjectDatasetStorageKey("user-a", "project-1");
+  sessionStorage.setItem(key, JSON.stringify({
+    ...makeDataset(),
+    dataset_id: "ds-1",
+    dataset_version_id: "v1",
+  }));
+  assert.equal(loadProjectDataset("user-a", "project-1"), null);
+  assert.equal(sessionStorage.getItem(key), null);
 });
 
 test("project deletion removes that project's browser snapshot", () => {

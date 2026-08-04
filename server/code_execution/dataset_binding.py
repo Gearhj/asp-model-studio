@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import pandas as pd
 from fastapi import HTTPException
 
 from .runtime_context import build_context_assignment, normalize_runtime_context
@@ -46,11 +47,69 @@ class BoundDataset:
     dataset_id: str
     version_id: str
     dataset_name: str
-    artifact_path: Path
+    artifact_path: Optional[Path]
     artifact_format: str
     row_count: int
     target: str
     selected_features: List[str]
+    development_frame: Optional[pd.DataFrame] = None
+    analytical_scope: str = "registered_version"
+    population_id: str = ""
+    partition_id: str = ""
+    partition_revision: int = 0
+    source_checksum: str = ""
+    holdout_excluded: bool = False
+
+
+def bind_development_dataset(scope: Any) -> BoundDataset:
+    """Build a sandbox binding from one verified development-only scope.
+
+    The returned frame is assembled positionally from the scope materialized by
+    ``resolve_development_analysis_scope``.  It contains authorized predictors
+    plus the development target and never opens or copies the registered full
+    artifact into the sandbox.
+    """
+
+    identity = dict(getattr(scope, "identity", {}) or {})
+    metadata = dict(scope.metadata())
+    target = str(getattr(scope, "target", "") or "").strip()
+    features = getattr(scope, "development_features", None)
+    target_values = getattr(scope, "development_target", None)
+    if not target or not isinstance(features, pd.DataFrame) or not isinstance(target_values, pd.Series):
+        raise HTTPException(
+            status_code=409,
+            detail="The verified development population is unavailable for governed code execution.",
+        )
+    if len(features) != len(target_values):
+        raise HTTPException(
+            status_code=409,
+            detail="The development predictors and target are not positionally aligned.",
+        )
+
+    frame = features.reset_index(drop=True).copy()
+    frame[target] = target_values.reset_index(drop=True).to_numpy(copy=True)
+    return BoundDataset(
+        dataset_id=str(identity.get("dataset_id") or ""),
+        version_id=str(identity.get("dataset_version_id") or ""),
+        dataset_name=str(
+            identity.get("dataset_version_label")
+            or identity.get("dataset_name")
+            or identity.get("dataset_id")
+            or "Registered Dataset Library asset"
+        ),
+        artifact_path=None,
+        artifact_format="csv",
+        row_count=int(len(frame)),
+        target=target,
+        selected_features=[str(value) for value in getattr(scope, "authorized_predictors", [])],
+        development_frame=frame,
+        analytical_scope="development_population",
+        population_id=str(metadata.get("population_id") or ""),
+        partition_id=str(metadata.get("partition_id") or ""),
+        partition_revision=int(metadata.get("partition_revision") or 0),
+        source_checksum=str(metadata.get("source_checksum") or ""),
+        holdout_excluded=metadata.get("holdout_excluded") is True,
+    )
 
 
 def resolve_bound_dataset(
@@ -115,7 +174,17 @@ def stage_dataset_for_sandbox(bound: BoundDataset, workdir: Path) -> Path:
     directory. The sandbox therefore never receives a path outside its own
     workdir and cannot browse the server's artifact tree."""
     destination = workdir / f"atlas_dataset.{'parquet' if bound.artifact_format == 'parquet' else 'csv'}"
-    shutil.copyfile(bound.artifact_path, destination)
+    if bound.development_frame is not None:
+        if bound.analytical_scope != "development_population" or not bound.holdout_excluded:
+            raise HTTPException(
+                status_code=409,
+                detail="Governed code execution requires an explicitly holdout-excluded development binding.",
+            )
+        bound.development_frame.to_csv(destination, index=False)
+    elif bound.artifact_path is not None:
+        shutil.copyfile(bound.artifact_path, destination)
+    else:
+        raise HTTPException(status_code=409, detail="The governed sandbox dataset is unavailable.")
     return destination
 
 
@@ -210,5 +279,15 @@ def runtime_contract_description(bound: Optional[BoundDataset]) -> Dict[str, Any
         "datasetName": bound.dataset_name if bound else "",
         "artifactFormat": bound.artifact_format if bound else "",
         "rowCount": bound.row_count if bound else 0,
-        "source": "registered_version" if bound else "browser_preview",
+        "source": (
+            "sealed_analysis_partition_development"
+            if bound and bound.analytical_scope == "development_population"
+            else "registered_version" if bound else "browser_preview"
+        ),
+        "analyticalScope": bound.analytical_scope if bound else "browser_preview",
+        "populationId": bound.population_id if bound else "",
+        "partitionId": bound.partition_id if bound else "",
+        "partitionRevision": bound.partition_revision if bound else 0,
+        "sourceChecksum": bound.source_checksum if bound else "",
+        "holdoutExcluded": bound.holdout_excluded if bound else False,
     }

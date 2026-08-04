@@ -1,0 +1,344 @@
+{
+  "evidenceId": "ev-target-intel-af288f22039b46c69429",
+  "lineage_contract": "canonical_dataset_version",
+  "project_id": "atlas-mrzpau4t",
+  "dataset_id": "ds_heloc_train_6bdb184b_05905",
+  "dataset_version_id": "v_1785186305905_6bdb184b",
+  "projectId": "atlas-mrzpau4t",
+  "evidenceType": "eda",
+  "title": "Target Intelligence -- bad_flag @ v_1785186305905_6bdb184b",
+  "summary": "3,275 events in 6,275 rows (52.1912%); Common event; version v_1785186305905_6bdb184b.",
+  "sourcePage": "Exploratory Data Analysis -- Target Intelligence",
+  "sourceRoute": "/step02",
+  "artifactType": "target_intelligence",
+  "artifactId": "ds_heloc_train_6bdb184b_05905:v_1785186305905_6bdb184b:bad_flag",
+  "datasetIds": [
+    "ds_heloc_train_6bdb184b_05905"
+  ],
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Exploratory Data Analysis",
+    "Data Quality",
+    "Model Development"
+  ],
+  "tags": [
+    "predictive_modeling",
+    "eda",
+    "target_intelligence",
+    "governed_version"
+  ],
+  "status": "needs_review",
+  "importance": "high",
+  "workflowStep": "Exploratory Data Analysis",
+  "createdBy": "user_d8bbe3ff73a84fb5",
+  "lineage": {
+    "lineage_contract": "canonical_dataset_version",
+    "project_id": "atlas-mrzpau4t",
+    "dataset_id": "ds_heloc_train_6bdb184b_05905",
+    "dataset_version_id": "v_1785186305905_6bdb184b",
+    "projectId": "atlas-mrzpau4t",
+    "datasetId": "ds_heloc_train_6bdb184b_05905",
+    "datasetVersion": "v_1785186305905_6bdb184b",
+    "datasetVersionId": "v_1785186305905_6bdb184b",
+    "artifactChecksum": "6bdb184b84f8954d34c950b86489e0359e27198ab773d14878f54468c5cab7d8",
+    "target": "bad_flag",
+    "scopeMode": "governed_version",
+    "immutableVersion": true,
+    "exact": true,
+    "mddEligible": true
+  },
+  "payload": {
+    "analysisScope": {
+      "contractVersion": "analysis-scope/1",
+      "mode": "governed_version",
+      "label": "Governed Dataset Version",
+      "projectId": "atlas-mrzpau4t",
+      "datasetId": "ds_heloc_train_6bdb184b_05905",
+      "datasetVersionId": "v_1785186305905_6bdb184b",
+      "workspaceDatasetId": null,
+      "datasetName": "HELOC_TRAIN",
+      "datasetFingerprint": null,
+      "artifactChecksum": "6bdb184b84f8954d34c950b86489e0359e27198ab773d14878f54468c5cab7d8",
+      "target": "bad_flag",
+      "populationRows": 6275,
+      "exact": true,
+      "sampled": false,
+      "immutableVersion": true,
+      "analysisSource": "analytics.target_assessment",
+      "evidenceEligible": true,
+      "mddEligible": true,
+      "disclosure": "Governed Dataset Version. This analysis is pinned to an immutable, registered dataset version and is eligible to be saved as governed evidence.",
+      "resolvedAt": "2026-08-03T15:35:37.106257+00:00"
+    },
+    "datasetIdentity": {
+      "datasetId": "ds_heloc_train_6bdb184b_05905",
+      "datasetName": "HELOC_TRAIN",
+      "datasetVersionId": "v_1785186305905_6bdb184b",
+      "artifactChecksum": "6bdb184b84f8954d34c950b86489e0359e27198ab773d14878f54468c5cab7d8",
+      "immutableVersion": true,
+      "populationRows": 6275
+    },
+    "targetDefinition": {
+      "target": "bad_flag",
+      "positiveValue": "1",
+      "negativeValue": "0",
+      "eventValueResolution": "configured"
+    },
+    "classCounts": {
+      "eventCount": 3275,
+      "nonEventCount": 3000,
+      "missingTargetCount": 0,
+      "totalModelingPopulation": 6275
+    },
+    "eventRate": 0.5219123505976095,
+    "eventPrevalence": {
+      "label": "Common event",
+      "severity": "none",
+      "eventRate": 0.5219123505976095,
+      "nonEventRate": 0.47808764940239046,
+      "eventIsRare": false,
+      "eventIsMajority": true,
+      "singleClass": false,
+      "rule": "Observed event rate 52.191235% falls in the [40%, upper) tier for 'Common event'.",
+      "thresholds": [
+        {
+          "label": "Common event",
+          "minEventRate": 0.4,
+          "severity": "none",
+          "rare": false
+        },
+        {
+          "label": "Moderately common event",
+          "minEventRate": 0.2,
+          "severity": "none",
+          "rare": false
+        },
+        {
+          "label": "Uncommon event",
+          "minEventRate": 0.05,
+          "severity": "low",
+          "rare": false
+        },
+        {
+          "label": "Rare event",
+          "minEventRate": 0.01,
+          "severity": "high",
+          "rare": true
+        },
+        {
+          "label": "Extreme rare event",
+          "minEventRate": 0.0,
+          "severity": "critical",
+          "rare": true
+        }
+      ]
+    },
+    "classImbalance": {
+      "label": "Balanced",
+      "severity": "none",
+      "minorityShare": 0.47808764940239046,
+      "minorityClass": "non_event",
+      "minorityCount": 3000,
+      "majorityCount": 3275,
+      "majorityToMinorityRatio": 1.0916666666666666,
+      "rule": "Minority class share 47.808765% falls in the [40%, upper) tier for 'Balanced'.",
+      "thresholds": [
+        {
+          "label": "Balanced",
+          "minMinorityShare": 0.4,
+          "severity": "none"
+        },
+        {
+          "label": "Mild imbalance",
+          "minMinorityShare": 0.2,
+          "severity": "low"
+        },
+        {
+          "label": "Moderate imbalance",
+          "minMinorityShare": 0.05,
+          "severity": "medium"
+        },
+        {
+          "label": "Severe imbalance",
+          "minMinorityShare": 0.01,
+          "severity": "high"
+        },
+        {
+          "label": "Extreme imbalance",
+          "minMinorityShare": 0.0,
+          "severity": "critical"
+        }
+      ]
+    },
+    "ratios": {
+      "nonEventsPerEvent": 0.916030534351145,
+      "eventsPerNonEvent": 1.0916666666666666,
+      "majorityToMinorityRatio": 1.0916666666666666,
+      "orientation": "non-events per event"
+    },
+    "confidenceInterval": {
+      "method": "Wilson score interval",
+      "confidenceLevel": 0.95,
+      "z": 1.959963984540054,
+      "eventCount": 3275,
+      "totalCount": 6275,
+      "pointEstimate": 0.5219123505976095,
+      "lowerBound": 0.5095434212874738,
+      "upperBound": 0.5342544675115294,
+      "halfWidth": 0.012355523112027832,
+      "explanation": "The interval describes uncertainty in the observed event prevalence. It does not measure model-performance uncertainty."
+    },
+    "resolution": {
+      "exact": true,
+      "sampled": false,
+      "state": "exact"
+    },
+    "selectedPredictorAnalysis": {
+      "predictor": "ExternalRiskEstimate",
+      "analysisType": "numeric_quantile",
+      "rows": [
+        {
+          "group": "Q1",
+          "population": 628,
+          "eventCount": 424,
+          "eventRate": 0.6751592356687898,
+          "smallGroup": false
+        },
+        {
+          "group": "Q2",
+          "population": 628,
+          "eventCount": 511,
+          "eventRate": 0.8136942675159236,
+          "smallGroup": false
+        },
+        {
+          "group": "Q3",
+          "population": 628,
+          "eventCount": 485,
+          "eventRate": 0.7722929936305732,
+          "smallGroup": false
+        },
+        {
+          "group": "Q4",
+          "population": 628,
+          "eventCount": 448,
+          "eventRate": 0.7133757961783439,
+          "smallGroup": false
+        },
+        {
+          "group": "Q5",
+          "population": 628,
+          "eventCount": 392,
+          "eventRate": 0.6242038216560509,
+          "smallGroup": false
+        },
+        {
+          "group": "Q6",
+          "population": 627,
+          "eventCount": 322,
+          "eventRate": 0.5135566188197768,
+          "smallGroup": false
+        },
+        {
+          "group": "Q7",
+          "population": 627,
+          "eventCount": 253,
+          "eventRate": 0.40350877192982454,
+          "smallGroup": false
+        },
+        {
+          "group": "Q8",
+          "population": 627,
+          "eventCount": 206,
+          "eventRate": 0.32854864433811803,
+          "smallGroup": false
+        },
+        {
+          "group": "Q9",
+          "population": 627,
+          "eventCount": 138,
+          "eventRate": 0.22009569377990432,
+          "smallGroup": false
+        },
+        {
+          "group": "Q10",
+          "population": 627,
+          "eventCount": 96,
+          "eventRate": 0.15311004784688995,
+          "smallGroup": false
+        }
+      ],
+      "missingGroup": null,
+      "otherGroup": null,
+      "summary": {
+        "highest": {
+          "label": "Q2",
+          "eventRate": 0.8136942675159236,
+          "eventCount": 511,
+          "population": 628
+        },
+        "lowest": {
+          "label": "Q10",
+          "eventRate": 0.15311004784688995,
+          "eventCount": 96,
+          "population": 627
+        },
+        "eventRateSpread": 0.6605842196690336,
+        "eventRateRatio": 5.314440684713376,
+        "monotonicity": "Non-monotonic",
+        "eventConcentration": 0.15603053435114503,
+        "missingEffect": null,
+        "smallGroupCount": 0,
+        "limitations": [],
+        "interpretation": "Event rate ranges from 15.3110% in Q10 to 81.3694% in Q2 (spread 66.0584%). A spread alone does not establish predictive value; confirm it survives out-of-sample and is not a leakage artifact."
+      },
+      "truncatedRows": false
+    },
+    "timeAndSegmentSelection": {
+      "timeField": null,
+      "segmentField": null
+    },
+    "chartSpecification": {
+      "classBalanceChart": {
+        "library": "echarts",
+        "type": "bar",
+        "modes": [
+          "population",
+          "rare-event"
+        ]
+      },
+      "targetByPredictorChart": {
+        "library": "echarts",
+        "type": "bar+line",
+        "predictor": "ExternalRiskEstimate",
+        "analysisType": "numeric_quantile",
+        "groups": 11
+      }
+    },
+    "analysisSpecification": {
+      "engineVersion": "target-intelligence/2",
+      "scopeContractVersion": "analysis-scope/1",
+      "sourceOperation": "POST /api/analytics/target-evidence",
+      "analysisSource": "analytics.target_assessment"
+    },
+    "boundedResultDisclosure": "Aggregate rows only, capped at 60 rows and 96 KB. No population data is stored.",
+    "truncationDisclosure": null,
+    "notes": "",
+    "capturedBy": "user_d8bbe3ff73a84fb5",
+    "capturedAt": "2026-08-03T15:35:37.643246+00:00"
+  },
+  "governance": {
+    "scopeMode": "governed_version",
+    "evidenceEligible": true,
+    "mddEligible": true,
+    "scopeIdentity": "scope|governed_version|atlas-mrzpau4t|ds_heloc_train_6bdb184b_05905|v_1785186305905_6bdb184b||6bdb184b84f8954d34c950b86489e0359e27198ab773d14878f54468c5cab7d8|bad_flag",
+    "resolvedBy": "server"
+  },
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-08-03T15:35:37.910219+00:00",
+  "updatedAt": "2026-08-03T15:35:37.910219+00:00",
+  "qualityScore": 100
+}

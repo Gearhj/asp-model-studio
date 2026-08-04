@@ -14,7 +14,7 @@
 // refresh reloads the exact same run rather than losing it. Falls back to
 // live workspace data (previous behavior, unchanged) whenever no
 // scoringRunId is present, so existing usage is unaffected.
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { getCachedUserId } from "../lib/authSession";
 import { resolveTaskContext } from "../lib/taskContext";
@@ -76,6 +76,7 @@ export function VisualIntelligenceProvider({ children }: { children: ReactNode }
   const [value, setValue] = useState<VisualIntelligenceContextValue>({
     baseReference: null, problemType: null, target: null, loading: true, scoringRunId: null, selectScoringRun,
   });
+  const priorProjectId = useRef<string>("");
 
   // Re-read the URL whenever a sibling component calls setScoringRunInUrl (same-tab
   // navigation doesn't fire popstate, so components that change the URL also call
@@ -94,6 +95,10 @@ export function VisualIntelligenceProvider({ children }: { children: ReactNode }
     // state left over from the previous project before resolving the new one (Phase M:
     // "Project switching clears DuckDB registrations... Stale queries from Project A
     // cannot update Project B").
+    if (priorProjectId.current && priorProjectId.current !== projectId) {
+      void clearVisualDataForProject(priorProjectId.current);
+    }
+    priorProjectId.current = projectId;
     void clearVisualDataForProject(projectId);
     useInteractionStore.getState().reset();
     setValue((current) => ({ ...current, loading: true }));
@@ -128,12 +133,27 @@ export function VisualIntelligenceProvider({ children }: { children: ReactNode }
         });
       return () => {
         cancelled = true;
+        void clearVisualDataForProject(projectId);
       };
     }
 
     const exactIdentity = identityReadiness.status === "ready"
       ? identityReadiness.identity
       : null;
+    if (!exactIdentity?.dataset_id || !exactIdentity.dataset_version_id) {
+      setValue((current) => ({
+        ...current,
+        baseReference: null,
+        problemType: null,
+        target: null,
+        loading: false,
+        scoringRunId: null,
+      }));
+      return () => {
+        cancelled = true;
+        void clearVisualDataForProject(projectId);
+      };
+    }
     resolveTaskContext(exactIdentity, undefined).then((task) => {
       if (cancelled) return;
       const reference: VisualDatasetReference = {
@@ -150,6 +170,7 @@ export function VisualIntelligenceProvider({ children }: { children: ReactNode }
 
     return () => {
       cancelled = true;
+      void clearVisualDataForProject(projectId);
     };
   }, [
     identityReadiness.identity?.dataset_id,

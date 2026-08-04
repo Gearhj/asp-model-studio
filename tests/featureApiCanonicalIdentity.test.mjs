@@ -33,10 +33,12 @@ test("feature and profile services validate identity before reading the frame", 
     featureService.indexOf("identity = _active_identity(") <
       featureService.indexOf("df = DATASTORE.get_base_df()", featureService.indexOf("def preview_features(")),
   );
-  for (const profile of [featureProfile, qualityProfile]) {
-    assert.ok(
-      profile.indexOf("identity = assert_expected_active_identity(") <
-        profile.indexOf("df = DATASTORE.get_base_df()"),
-    );
-  }
+  assert.ok(
+    featureProfile.indexOf("identity = assert_expected_active_identity(") <
+      featureProfile.indexOf("df = DATASTORE.get_raw_active_df()"),
+  );
+  assert.ok(
+    qualityProfile.indexOf("identity = assert_expected_active_identity(") <
+      qualityProfile.indexOf("df = DATASTORE.get_base_df()"),
+  );
 });

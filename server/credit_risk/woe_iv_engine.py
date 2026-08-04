@@ -12,8 +12,9 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 from fastapi import HTTPException
 
-from ..datasets.dataset_registry import latest_version_id, require_dataset, version_dir
 from ..evidence.evidence_store import upsert_evidence
+from ..preprocessing.development_scope import DevelopmentAnalysisScope
+from .governed_scope import canonical_scope_fields, require_artifact_scope
 from .leakage_guard import default_predictors, validate_predictors
 
 
@@ -68,6 +69,12 @@ def compact_analysis(analysis: Dict[str, Any]) -> Dict[str, Any]:
         "status": "Needs Review" if any(row.get("status") == "needs_review" for row in analysis.get("variableSummaries") or []) else "Complete",
         "generatedAt": analysis.get("generatedAt"),
         "updatedAt": analysis.get("updatedAt") or analysis.get("generatedAt"),
+        "analysis_scope": analysis.get("analysis_scope"),
+        "analysis_partition_id": analysis.get("analysis_partition_id"),
+        "analysis_partition_revision": analysis.get("analysis_partition_revision"),
+        "development_partition_id": analysis.get("development_partition_id"),
+        "source_checksum": analysis.get("source_checksum"),
+        "holdout_excluded": analysis.get("holdout_excluded"),
     }
 
 
@@ -99,46 +106,76 @@ def get_analysis(analysis_id: str) -> Optional[Dict[str, Any]]:
 
 
 def get_project_analysis(project_id: str) -> Optional[Dict[str, Any]]:
-    match = next((row for row in load_registry() if row.get("projectId") == project_id), None)
-    return get_analysis(str(match.get("analysisId"))) if match else None
-
-
-def load_dataset_frame(dataset_id: str, version_id: Optional[str] = None) -> tuple[Dict[str, Any], str, pd.DataFrame]:
-    dataset = require_dataset(dataset_id)
-    resolved_version = version_id or latest_version_id(dataset)
-    if not resolved_version:
-        raise HTTPException(status_code=400, detail="Dataset has no version available for WOE / IV analysis.")
-    full_path = version_dir(dataset_id, resolved_version) / "data_full.csv"
-    if not full_path.exists():
-        raise HTTPException(status_code=409, detail="Full dataset artifact is required for governed WOE / IV analysis. Re-register the dataset so ATLAS can materialize data_full.csv; sample artifacts are not valid for reporting.")
-    df = pd.read_csv(full_path)
-    if df.empty:
-        raise HTTPException(status_code=400, detail="Dataset full artifact has no rows.")
-    return dataset, resolved_version, df
-
-
-def run_woe_iv(payload: Dict[str, Any]) -> Dict[str, Any]:
-    dataset, resolved_version, df = load_dataset_frame(str(payload.get("datasetId")), payload.get("datasetVersionId"))
-    target = str(payload.get("targetColumn") or "")
-    if target not in df.columns:
-        raise HTTPException(status_code=400, detail=f"Target column {target!r} was not found in the dataset.")
-    event_value = payload.get("eventValue")
-    requested_predictors = [str(col) for col in payload.get("predictorColumns") or []]
-    predictors = validate_predictors(
-        requested_predictors,
-        target=target,
-        dataset_meta=dataset,
-        columns=df.columns,
-        explicit=bool(requested_predictors),
+    raise HTTPException(
+        status_code=409,
+        detail="Project-latest WOE / IV lookup is disabled. Resolve the exact active dataset version and Analysis Partition.",
     )
-    if not predictors:
-        predictors = default_predictors(target=target, dataset_meta=dataset, columns=df.columns, limit=10)
+
+
+def get_project_analysis_exact(
+    project_id: str,
+    dataset_id: str,
+    dataset_version_id: str,
+    analysis_partition_id: str,
+    analysis_partition_revision: int,
+) -> Optional[Dict[str, Any]]:
+    matches = [
+            row
+            for row in load_registry()
+            if row.get("projectId") == project_id
+            and row.get("datasetId") == dataset_id
+            and row.get("datasetVersionId") == dataset_version_id
+            and row.get("analysis_partition_id") == analysis_partition_id
+            and int(row.get("analysis_partition_revision") or 0)
+            == int(analysis_partition_revision)
+            and row.get("analysis_scope") == "development_population"
+            and row.get("holdout_excluded") is True
+    ]
+    if len(matches) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail="Multiple current WOE / IV analyses exist. Select one by exact analysisId; first/latest fallback is prohibited.",
+        )
+    return get_analysis(str(matches[0].get("analysisId"))) if matches else None
+
+
+def authorized_predictors_for_request(
+    payload: Dict[str, Any],
+    scope: DevelopmentAnalysisScope,
+    *,
+    limit: int | None = None,
+) -> List[str]:
+    authorized = list(scope.authorized_predictors)
+    requested_predictors = [str(col) for col in payload.get("predictorColumns") or []]
+    unauthorized = [name for name in requested_predictors if name not in authorized]
+    if unauthorized:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Credit Risk predictors contradict the exact current Data "
+                f"Acquisition authorization: {', '.join(unauthorized[:10])}."
+            ),
+        )
+    selected = requested_predictors or authorized
+    return selected[:limit] if limit is not None else selected
+
+
+def run_woe_iv(
+    payload: Dict[str, Any],
+    scope: DevelopmentAnalysisScope,
+) -> Dict[str, Any]:
+    dataset = scope.identity.get("dataset") or {}
+    resolved_version = str(scope.identity.get("dataset_version_id") or "")
+    df = scope.development_features.copy()
+    target = scope.target
+    event_value = scope.event_value
+    predictors = authorized_predictors_for_request(payload, scope, limit=10)
     max_bins = max(2, min(int(payload.get("maxBins") or 5), 20))
     min_bin_pct = max(0.0, min(float(payload.get("minBinPct") or 0.05), 0.5))
     smoothing = max(0.0, float(payload.get("smoothing") if payload.get("smoothing") is not None else 0.5))
     method = str(payload.get("binningMethod") or "quantile")
     warnings: List[str] = []
-    y = event_mask(df[target], event_value)
+    y = event_mask(scope.development_target, event_value)
     event_count = int(y.sum())
     row_count = int(len(df))
     non_event_count = int(row_count - event_count)
@@ -164,11 +201,22 @@ def run_woe_iv(payload: Dict[str, Any]) -> Dict[str, Any]:
                     "bins": [],
                 }
             )
-    analysis_id = analysis_id_for(payload, resolved_version)
+    analysis_id = analysis_id_for(
+        {
+            **payload,
+            **canonical_scope_fields(scope),
+            "projectId": scope.identity.get("project_id"),
+            "datasetId": scope.identity.get("dataset_id"),
+            "targetColumn": target,
+            "eventValue": event_value,
+            "predictorColumns": predictors,
+        },
+        resolved_version,
+    )
     analysis = {
         "analysisId": analysis_id,
-        "projectId": payload.get("projectId"),
-        "datasetId": dataset.get("datasetId"),
+        "projectId": scope.identity.get("project_id"),
+        "datasetId": scope.identity.get("dataset_id"),
         "datasetName": dataset.get("name"),
         "datasetVersionId": resolved_version,
         "targetColumn": target,
@@ -188,6 +236,9 @@ def run_woe_iv(payload: Dict[str, Any]) -> Dict[str, Any]:
         "generatedCode": generate_code(
             {
                 **payload,
+                **canonical_scope_fields(scope),
+                "targetColumn": target,
+                "eventValue": event_value,
                 "datasetVersionId": resolved_version,
                 "predictorColumns": predictors,
                 "binningMethod": method,
@@ -198,6 +249,7 @@ def run_woe_iv(payload: Dict[str, Any]) -> Dict[str, Any]:
         ),
         "generatedAt": now_iso(),
         "warnings": dedupe(warnings),
+        **canonical_scope_fields(scope),
     }
     return save_analysis(analysis)
 
@@ -212,6 +264,14 @@ def analysis_id_for(payload: Dict[str, Any], version_id: str) -> str:
             "event": payload.get("eventValue"),
             "predictors": payload.get("predictorColumns"),
             "method": payload.get("binningMethod"),
+            "partitionId": payload.get("analysis_partition_id")
+            or payload.get("partition_id")
+            or payload.get("analysisPartitionId"),
+            "partitionRevision": payload.get("analysis_partition_revision")
+            or payload.get("partition_revision")
+            or payload.get("analysisPartitionRevision"),
+            "sourceChecksum": payload.get("source_checksum")
+            or payload.get("sourceChecksum"),
         },
         sort_keys=True,
         default=str,
@@ -437,15 +497,26 @@ def recommendation(iv: float, monotonicity: str, warnings: List[str]) -> str:
     return "Weak characteristic. Retain only with business rationale."
 
 
-def apply_manual_bins(payload: Dict[str, Any]) -> Dict[str, Any]:
+def apply_manual_bins(
+    payload: Dict[str, Any],
+    scope: DevelopmentAnalysisScope,
+) -> Dict[str, Any]:
     analysis = get_analysis(str(payload.get("analysisId")))
     if not analysis:
         raise HTTPException(status_code=404, detail="WOE / IV analysis not found.")
+    require_artifact_scope(
+        analysis,
+        scope,
+        artifact_label="WOE / IV analysis",
+    )
     variable = str(payload.get("variable") or "")
-    dataset_id = str(analysis.get("datasetId"))
-    version_id = str(analysis.get("datasetVersionId") or "")
-    _, _, df = load_dataset_frame(dataset_id, version_id)
-    y = event_mask(df[str(analysis.get("targetColumn"))], analysis.get("eventValue"))
+    if variable not in scope.authorized_predictors:
+        raise HTTPException(
+            status_code=409,
+            detail="Manual WOE bins may be applied only to an exactly authorized predictor.",
+        )
+    df = scope.development_features
+    y = event_mask(scope.development_target, scope.event_value)
     bins = payload.get("bins") or []
     warnings = validate_manual_bins(bins, bool(payload.get("allowNumericGaps")))
     series = df[variable]
@@ -490,6 +561,7 @@ def apply_manual_bins(payload: Dict[str, Any]) -> Dict[str, Any]:
     if not updated:
         raise HTTPException(status_code=404, detail="Variable not found in WOE / IV analysis.")
     analysis["manualOverrides"] = {**(analysis.get("manualOverrides") or {}), variable: bins}
+    analysis.update(canonical_scope_fields(scope))
     analysis["generatedCode"] = generate_code({**analysis.get("settings", {}), **analysis, "manualBins": analysis.get("manualOverrides")})
     return save_analysis(analysis)
 
@@ -564,6 +636,24 @@ def create_woe_iv_evidence(analysis_id: str, technique: str = "woe_iv", label: s
             "variableCount": len(analysis.get("variableSummaries") or []),
             "topVariablesByIv": [{"variable": row.get("variable"), "iv": row.get("iv")} for row in top],
             "variablesNeedingReview": needs_review,
+            "scopeMetadata": {
+                key: analysis.get(key)
+                for key in (
+                    "project_id",
+                    "dataset_id",
+                    "dataset_version_id",
+                    "analysis_scope",
+                    "analysis_partition_id",
+                    "analysis_partition_revision",
+                    "development_partition_id",
+                    "population_id",
+                    "population_count",
+                    "holdout_excluded",
+                    "source_checksum",
+                    "actor",
+                    "timestamp",
+                )
+            },
         },
         "status": "ready",
         "importance": "high",
@@ -618,11 +708,14 @@ def generate_code(settings: Dict[str, Any]) -> Dict[str, str]:
     first_var = predictors[0] if predictors else "variable_name"
     method = settings.get("binningMethod") or "quantile"
     max_bins = settings.get("maxBins") or 5
+    partition_id = settings.get("analysis_partition_id") or settings.get("partition_id") or settings.get("analysisPartitionId")
+    revision = settings.get("analysis_partition_revision") or settings.get("partition_revision") or settings.get("analysisPartitionRevision")
+    scope_header = f"Analysis Partition: {partition_id}; revision: {revision}; development population only; final holdout excluded."
     return {
-        "python": f"""import numpy as np\nimport pandas as pd\n\n# ATLAS WOE / IV analysis\n# Dataset: {settings.get('datasetId')}\ntarget = {target!r}\nevent_value = {event!r}\npredictors = {predictors!r}\n\n# Bad = event, Good = non-event. WOE = ln(dist_good / dist_bad).\ndf['_bad'] = (df[target].astype(str) == str(event_value)).astype(int)\nfor variable in predictors:\n    df['_bin'] = pd.qcut(df[variable].rank(method='first'), q={max_bins}, duplicates='drop')\n    grouped = df.groupby('_bin').agg(total=(target, 'size'), bad=('_bad', 'sum'))\n    grouped['good'] = grouped['total'] - grouped['bad']\n    grouped['dist_good'] = (grouped['good'] + 0.5) / (grouped['good'].sum() + 0.5 * len(grouped))\n    grouped['dist_bad'] = (grouped['bad'] + 0.5) / (grouped['bad'].sum() + 0.5 * len(grouped))\n    grouped['woe'] = np.log(grouped['dist_good'] / grouped['dist_bad'])\n    grouped['iv_contribution'] = (grouped['dist_good'] - grouped['dist_bad']) * grouped['woe']\n    print(variable, grouped['iv_contribution'].sum())\n""",
-        "sql": f"""-- ATLAS WOE / IV skeleton for {first_var}\nwith binned as (\n  select *, ntile({max_bins}) over (order by {first_var}) as {first_var}_bin\n  from input_table\n), counts as (\n  select {first_var}_bin,\n         count(*) as total_count,\n         sum(case when {target} = {json.dumps(event)} then 1 else 0 end) as bad_count,\n         sum(case when {target} <> {json.dumps(event)} then 1 else 0 end) as good_count\n  from binned\n  group by {first_var}_bin\n)\nselect * from counts;\n""",
-        "r": f"""library(dplyr)\n# ATLAS WOE / IV analysis\ninput <- input %>% mutate(.bad = as.integer(as.character({target}) == as.character({json.dumps(event)})))\n# Use ntile for {method} binning, then calculate WOE = log(dist_good / dist_bad).\n""",
-        "sas": f"""/* ATLAS SAS-compatible WOE / IV code. No SAS license is required to generate this code. */\nproc rank data=work.input groups={max_bins} out=work.binned;\n  var {first_var};\n  ranks {first_var}_bin;\nrun;\n\nproc sql;\n  create table work.woe_iv as\n  select\n    {first_var}_bin,\n    count(*) as total_count,\n    sum(case when {target} = {event} then 1 else 0 end) as bad_count,\n    sum(case when {target} ne {event} then 1 else 0 end) as good_count\n  from work.binned\n  group by {first_var}_bin;\nquit;\n""",
+        "python": f"""import numpy as np\nimport pandas as pd\n\n# ATLAS governed WOE / IV analysis\n# {scope_header}\n# DEVELOPMENT_POSITIONS must come from the exact verified Analysis Partition.\nif not DEVELOPMENT_POSITIONS:\n    raise RuntimeError('Exact development positions are required; no full-frame fallback is permitted.')\ndevelopment = df.iloc[list(DEVELOPMENT_POSITIONS)].copy()\ntarget = {target!r}\nevent_value = {event!r}\npredictors = {predictors!r}\ndevelopment['_bad'] = (development[target].astype(str) == str(event_value)).astype(int)\nfor variable in predictors:\n    development['_bin'] = pd.qcut(development[variable].rank(method='first'), q={max_bins}, duplicates='drop')\n    grouped = development.groupby('_bin').agg(total=(target, 'size'), bad=('_bad', 'sum'))\n    grouped['good'] = grouped['total'] - grouped['bad']\n    grouped['dist_good'] = (grouped['good'] + 0.5) / (grouped['good'].sum() + 0.5 * len(grouped))\n    grouped['dist_bad'] = (grouped['bad'] + 0.5) / (grouped['bad'].sum() + 0.5 * len(grouped))\n    grouped['woe'] = np.log(grouped['dist_good'] / grouped['dist_bad'])\n    grouped['iv_contribution'] = (grouped['dist_good'] - grouped['dist_bad']) * grouped['woe']\n    print(variable, grouped['iv_contribution'].sum())\n""",
+        "sql": f"""-- ATLAS governed WOE / IV skeleton for {first_var}\n-- {scope_header}\n-- governed_development_input must be materialized from exact verified development positions.\nwith binned as (\n  select *, ntile({max_bins}) over (order by {first_var}) as {first_var}_bin\n  from governed_development_input\n), counts as (\n  select {first_var}_bin,\n         count(*) as total_count,\n         sum(case when {target} = {json.dumps(event)} then 1 else 0 end) as bad_count,\n         sum(case when {target} <> {json.dumps(event)} then 1 else 0 end) as good_count\n  from binned\n  group by {first_var}_bin\n)\nselect * from counts;\n""",
+        "r": f"""library(dplyr)\n# ATLAS governed WOE / IV analysis\n# {scope_header}\nstopifnot(exists('governed_development_input'))\ndevelopment <- governed_development_input %>% mutate(.bad = as.integer(as.character({target}) == as.character({json.dumps(event)})))\n# Use ntile for {method} binning, then calculate WOE = log(dist_good / dist_bad).\n""",
+        "sas": f"""/* ATLAS governed WOE / IV code. {scope_header} */\n/* WORK.GOVERNED_DEVELOPMENT must be the exact verified development population. */\nproc rank data=work.governed_development groups={max_bins} out=work.binned;\n  var {first_var};\n  ranks {first_var}_bin;\nrun;\n\nproc sql;\n  create table work.woe_iv as\n  select\n    {first_var}_bin,\n    count(*) as total_count,\n    sum(case when {target} = {event} then 1 else 0 end) as bad_count,\n    sum(case when {target} ne {event} then 1 else 0 end) as good_count\n  from work.binned\n  group by {first_var}_bin;\nquit;\n""",
     }
 
 

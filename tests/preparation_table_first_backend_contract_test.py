@@ -80,6 +80,49 @@ def configure(frame: pd.DataFrame) -> None:
     )
 
 
+def _test_authorization() -> dict[str, object]:
+    return {
+        "authorized_predictors": ["signal_driver", "secondary"],
+        "excluded_predictors": {"bad_flag": "Modeling target"},
+        "target_source_excluded": [],
+    }
+
+
+class TestDevelopmentScope:
+    target = "bad_flag"
+    event_value = 1
+    non_event_value = 0
+    problem_type = "classification"
+    predictor_authorization = _test_authorization()
+    partition = {
+        "analysis_partition_id": "analysis-partition-table-first",
+        "revision": 1,
+    }
+
+    @property
+    def development_features(self):
+        return DATASTORE.get_raw_active_df(include_target=False)
+
+    @property
+    def development_target(self):
+        return DATASTORE.raw_df["bad_flag"].copy()
+
+    def materialize_aligned_features(self, frame):
+        return frame.loc[:, self.predictor_authorization["authorized_predictors"]].copy()
+
+    def metadata(self):
+        return {
+            "scope": "development_population",
+            "analysis_scope": "development_population",
+            "target_directed_scope": "development_population",
+            "structural_scope": "full_governed_population_predictors_only",
+            "analysis_partition_id": self.partition["analysis_partition_id"],
+            "analysis_partition_revision": 1,
+            "final_holdout_accessed": False,
+            "final_holdout_used_for_selection": False,
+        }
+
+
 class TableFirstBackendContractTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
@@ -87,11 +130,15 @@ class TableFirstBackendContractTests(unittest.TestCase):
         cls.original_missing_identity = (
             missing_router_module.assert_expected_active_identity
         )
+        cls.original_development_scope = missing_router_module._development_scope
         missing_router_module.authorize_modeling_scope = (
             lambda user, project_id, permission: project_id
         )
         missing_router_module.assert_expected_active_identity = (
             resolve_test_identity
+        )
+        missing_router_module._development_scope = (
+            lambda *args, **kwargs: TestDevelopmentScope()
         )
 
     @classmethod
@@ -100,6 +147,7 @@ class TableFirstBackendContractTests(unittest.TestCase):
         missing_router_module.assert_expected_active_identity = (
             cls.original_missing_identity
         )
+        missing_router_module._development_scope = cls.original_development_scope
 
     def tearDown(self) -> None:
         DATASTORE.reset_all()
@@ -116,9 +164,12 @@ class TableFirstBackendContractTests(unittest.TestCase):
             event_value=1,
             problem_type="classification",
             selected_columns=DATASTORE.get_selected_columns(),
+            predictor_authorization=_test_authorization(),
+            target_analysis_features=frame[["signal_driver", "secondary"]],
+            target_analysis_target=frame["bad_flag"],
         )
 
-        self.assertEqual(payload["scope"], "full_dataset")
+        self.assertEqual(payload["scope"], "development_population")
         self.assertEqual(len(payload["features"]), 2)
         signals = [
             abs(float(row["signal_metric"] or 0))
@@ -178,6 +229,7 @@ class TableFirstBackendContractTests(unittest.TestCase):
             global_method="PCT_05_95",
             target="bad_flag",
             selected_columns=DATASTORE.get_selected_columns(),
+            predictor_authorization=_test_authorization(),
         )
 
         applied = {row["feature"]: row for row in applications}
@@ -204,7 +256,7 @@ class TableFirstBackendContractTests(unittest.TestCase):
         )
         row = payload["stats"]["signal_driver"]
 
-        self.assertEqual(payload["scope"], "full_dataset")
+        self.assertEqual(payload["scope"], "development_population")
         for field in (
             "missing",
             "missingPct",

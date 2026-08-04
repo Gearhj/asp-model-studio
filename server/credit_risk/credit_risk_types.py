@@ -120,7 +120,9 @@ class CreditRiskEvidenceRequest(BaseModel):
 class WoeIvRunRequest(BaseModel):
     projectId: str
     datasetId: str
-    datasetVersionId: Optional[str] = None
+    datasetVersionId: str
+    analysisPartitionId: Optional[str] = None
+    analysisPartitionRevision: Optional[int] = None
     targetColumn: str
     eventValue: Any
     predictorColumns: List[str] = Field(default_factory=list)
@@ -166,7 +168,9 @@ class WoeIvEvidenceRequest(BaseModel):
 class ScorecardTrainRequest(BaseModel):
     projectId: str
     datasetId: str
-    datasetVersionId: Optional[str] = None
+    datasetVersionId: str
+    analysisPartitionId: Optional[str] = None
+    analysisPartitionRevision: Optional[int] = None
     targetColumn: str
     eventValue: Any = 1
     woeAnalysisId: Optional[str] = None
@@ -209,7 +213,9 @@ class ScorecardRegisterRequest(BaseModel):
 class CreditRiskMlTrainRequest(BaseModel):
     projectId: str
     datasetId: str
-    datasetVersionId: Optional[str] = None
+    datasetVersionId: str
+    analysisPartitionId: Optional[str] = None
+    analysisPartitionRevision: Optional[int] = None
     targetColumn: str
     eventValue: Any = 1
     selectedVariables: List[str] = Field(default_factory=list)
@@ -228,8 +234,11 @@ class CreditRiskMlEvidenceRequest(BaseModel):
 
 
 class CreditRiskDatasetSummaryRequest(BaseModel):
+    projectId: str
     datasetId: str
-    datasetVersionId: Optional[str] = None
+    datasetVersionId: str
+    analysisPartitionId: Optional[str] = None
+    analysisPartitionRevision: Optional[int] = None
     targetColumn: Optional[str] = None
     eventValue: Optional[str] = None
     nonEventValue: Optional[str] = None

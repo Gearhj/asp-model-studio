@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Link } from "react-router-dom";
 import {
   Activity,
   AlertTriangle,
@@ -70,6 +71,7 @@ import {
   type SelectionMetricEvidence,
 } from "../lib/selectionProvenance";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { projectWorkflowRoute } from "../lib/projectScopedRoutes";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
@@ -2143,14 +2145,14 @@ export default function Step07ModelTraining() {
           action={<span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-700"><LockKeyhole size={14} /> Contract locked</span>}
         >
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" data-testid="locked-training-inputs">
-            <LockedInputCard title="Feature manifest" value={manifest?.manifest_hash ?? "Unavailable"} detail={`${selectedFeatures.length} selected · ${engineeredFeatures.length} engineered`} href="/step05" />
-            <LockedInputCard title="Target contract" value={dataset?.target ?? "Unavailable"} detail={`${problemType} · target/source exclusion enforced`} href="/step01" />
-            <LockedInputCard title="Validation Design" value={splitStatus?.validation_design_version ?? "Unavailable"} detail={validationDesignLabel(splitStatus)} href="/step06" />
-            <LockedInputCard title="Balancing policy" value={String(splitStatus?.balancing_policy?.method ?? "none").replace(/_/g, " ")} detail={`${String(splitStatus?.balancing_policy?.scope ?? "training_population_only").replace(/_/g, " ")} · class weights ${String(splitStatus?.balancing_policy?.class_weight_policy ?? "none")}`} href="/step06" />
-            <LockedInputCard title="Preprocessing pipeline" value={`${manifest?.pipeline_steps.length ?? 0} learned step(s)`} detail={(manifest?.pipeline_steps.map((step) => String(step.config?.method ?? step.transformation_type)).join(" · ") || "No learned transformations")} href="/step05" />
-            <LockedInputCard title="Dataset version" value={datasetIdentity?.dataset_version_id ?? "Unavailable"} detail={datasetIdentity?.dataset_id ?? "Return to Data Acquisition"} href="/step01" />
-            <LockedInputCard title="Excluded fields" value={`${(manifest?.predictor_authorization?.target_source_excluded ?? []).length + 1} protected`} detail={[dataset?.target, ...(manifest?.predictor_authorization?.target_source_excluded ?? [])].filter(Boolean).join(" · ")} href="/step05" />
-            <LockedInputCard title="CV configuration" value={`${splitStatus?.cv_design?.method?.replace(/_/g, " ") ?? "none"} · ${splitStatus?.cv_design?.fold_count ?? 0} folds`} detail="Read-only; owned by Validation Design" href="/step06" testId="validation-contract-readonly" />
+            <LockedInputCard title="Feature manifest" value={manifest?.manifest_hash ?? "Unavailable"} detail={`${selectedFeatures.length} selected · ${engineeredFeatures.length} engineered`} to={projectWorkflowRoute(projectId, "/step05")} />
+            <LockedInputCard title="Target contract" value={dataset?.target ?? "Unavailable"} detail={`${problemType} · target/source exclusion enforced`} to={projectWorkflowRoute(projectId, "/step01")} />
+            <LockedInputCard title="Validation Design" value={splitStatus?.validation_design_version ?? "Unavailable"} detail={validationDesignLabel(splitStatus)} to={projectWorkflowRoute(projectId, "/step06")} />
+            <LockedInputCard title="Balancing policy" value={String(splitStatus?.balancing_policy?.method ?? "none").replace(/_/g, " ")} detail={`${String(splitStatus?.balancing_policy?.scope ?? "training_population_only").replace(/_/g, " ")} · class weights ${String(splitStatus?.balancing_policy?.class_weight_policy ?? "none")}`} to={projectWorkflowRoute(projectId, "/step06")} />
+            <LockedInputCard title="Preprocessing pipeline" value={`${manifest?.pipeline_steps.length ?? 0} learned step(s)`} detail={(manifest?.pipeline_steps.map((step) => String(step.config?.method ?? step.transformation_type)).join(" · ") || "No learned transformations")} to={projectWorkflowRoute(projectId, "/step05")} />
+            <LockedInputCard title="Dataset version" value={datasetIdentity?.dataset_version_id ?? "Unavailable"} detail={datasetIdentity?.dataset_id ?? "Return to Data Acquisition"} to={projectWorkflowRoute(projectId, "/step01")} />
+            <LockedInputCard title="Excluded fields" value={`${(manifest?.predictor_authorization?.target_source_excluded ?? []).length + 1} protected`} detail={[dataset?.target, ...(manifest?.predictor_authorization?.target_source_excluded ?? [])].filter(Boolean).join(" · ")} to={projectWorkflowRoute(projectId, "/step05")} />
+            <LockedInputCard title="CV configuration" value={`${splitStatus?.cv_design?.method?.replace(/_/g, " ") ?? "none"} · ${splitStatus?.cv_design?.fold_count ?? 0} folds`} detail="Read-only; owned by Validation Design" to={projectWorkflowRoute(projectId, "/step06")} testId="validation-contract-readonly" />
           </div>
         </AtlasWorkflowSection>
 
@@ -2676,14 +2678,14 @@ function MissionMetric({ label, value }: { label: string; value: string }) {
   return <div className="min-w-0 rounded-lg border border-slate-800 bg-slate-900/80 p-2.5"><div className="text-[9px] font-bold uppercase tracking-wide text-slate-500">{label}</div><div className="mt-1 truncate text-xs font-semibold text-slate-100" title={value}>{value}</div></div>;
 }
 
-function LockedInputCard({ title, value, detail, href, testId }: { title: string; value: string; detail: string; href: string; testId?: string }) {
+function LockedInputCard({ title, value, detail, to, testId }: { title: string; value: string; detail: string; to: string; testId?: string }) {
   return (
-    <a href={href} className="group rounded-xl border border-slate-200 bg-white p-4 transition hover:border-blue-300 hover:bg-blue-50/30" data-testid={testId}>
+    <Link to={to} className="group rounded-xl border border-slate-200 bg-white p-4 transition hover:border-blue-300 hover:bg-blue-50/30" data-testid={testId}>
       <div className="flex items-center justify-between gap-2"><span className="text-[10px] font-bold uppercase tracking-wide text-slate-500">{title}</span><LockKeyhole size={13} className="text-emerald-600" /></div>
       <div className="mt-2 truncate text-sm font-semibold text-slate-950" title={value}>{value}</div>
       <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-600">{detail || "No additional configuration"}</div>
       <div className="mt-3 text-[10px] font-bold text-blue-700 group-hover:underline">Open source contract →</div>
-    </a>
+    </Link>
   );
 }
 

@@ -72,7 +72,12 @@ export default function DistributionExplorer() {
         setRows(result.rows);
         setSampled(result.meta.sampled);
         const fields = result.rows.length
-          ? Object.keys(result.rows[0]).filter((key) => result.rows.every((row) => row[key] === null || row[key] === "" || Number.isFinite(Number(row[key]))))
+          ? Object.keys(result.rows[0]).filter(
+              (key) => key !== result.reference.target
+                && result.rows.every(
+                  (row) => row[key] === null || row[key] === "" || Number.isFinite(Number(row[key])),
+                ),
+            )
           : [];
         setNumericFields(fields);
         setVariable((current) => (current && fields.includes(current) ? current : fields[0] ?? ""));

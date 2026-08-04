@@ -357,8 +357,12 @@ test("preparation state is exact-version scoped and ignores global and other-ver
       randomSeed: 42,
       foldMethod: "stratified_k_fold",
       foldCount: 7,
+      foldLocalPreprocessing: "fit_transform_per_fold",
       balanceMethod: "smote",
       minorityShare: 0.4,
+      externalValidationMode: "oot",
+      ootDatasetId: "dataset-oot",
+      browserPartitionAuthority: "must-not-survive",
     }),
   );
   localStorage.setItem(
@@ -374,10 +378,23 @@ test("preparation state is exact-version scoped and ignores global and other-ver
     risk_score: "Exact-version rationale",
   });
   assert.equal(state.missingPolicy.globalStrategy, "Median");
-  assert.equal(state.splitStrategy, "hybrid");
+  assert.equal(state.splitStrategy, "Requires exact Analysis Partition");
   assert.equal(state.balanceMethod, "smote");
   assert.equal(state.balanceRatio, "0.4");
   assert.equal(state.kFolds, "7");
+  assert.deepEqual(state.validationDraft, {
+    foldMethod: "stratified_k_fold",
+    foldLocalPreprocessing: "fit_transform_per_fold",
+    balanceMethod: "smote",
+    externalValidationMode: "oot",
+    ootDatasetId: "dataset-oot",
+    foldCount: 7,
+    minorityShare: 0.4,
+  });
+  assert.doesNotMatch(
+    JSON.stringify(state.validationDraft),
+    /holdoutSize|randomSeed|browserPartitionAuthority/,
+  );
   assert.deepEqual(state.trainingConfig, {
     candidateStrategy: "balanced",
   });
@@ -416,7 +433,14 @@ test("preparation state is exact-version scoped and ignores global and other-ver
     calibrated: false,
   });
   assert.equal(captured[0].balancingMethod, "smote");
-  assert.equal(captured[0].splitStrategy, "hybrid");
+  assert.equal(
+    captured[0].splitStrategy,
+    "Requires exact Analysis Partition",
+  );
+  assert.doesNotMatch(
+    JSON.stringify(captured[0].preprocessingSteps.validationDesign),
+    /holdoutSize|randomSeed|browserPartitionAuthority/,
+  );
   assert.equal(
     captured[0].preprocessingSteps.outlierGlobalMethod,
     "IQR_3_0",
@@ -480,4 +504,26 @@ test("documentation sources select and render only canonical experiment identity
   assert.doesNotMatch(document, /exact\.length\s*\?\s*exact\s*:\s*experiments/);
   assert.doesNotMatch(document, /champion\?\.datasetVersion/);
   assert.doesNotMatch(governance, /champion\.datasetVersion/);
+  assert.match(notebook, /ANALYSIS_PARTITION_ASSIGNMENT_PATH/);
+  assert.match(notebook, /EXACT_ANALYSIS_PARTITION_ASSIGNMENT\.json/);
+  assert.match(notebook, /development_positions/);
+  assert.match(notebook, /holdout_positions/);
+  assert.match(notebook, /X_development = X\.iloc/);
+  assert.match(notebook, /Final holdout rows \(sealed, not materialized\)/);
+  assert.match(notebook, /DEVELOPMENT_VALIDATION_ASSIGNMENT_PATH/);
+  assert.match(notebook, /EXACT_GOVERNED_DEVELOPMENT_VALIDATION_ASSIGNMENT\.json/);
+  assert.match(notebook, /X_validation = X\.iloc/);
+  assert.match(notebook, /sealed final holdout cannot be used for candidate ranking/i);
+  assert.match(notebook, /Balancing status: planning only/);
+  assert.doesNotMatch(notebook, /display\(y_train\.value_counts/);
+  assert.doesNotMatch(
+    notebook,
+    /from sklearn\.model_selection import train_test_split/,
+  );
+  assert.doesNotMatch(notebook, /test_size\s*=\s*0\.20/);
+  assert.doesNotMatch(notebook, /\bX_test\b|\by_test\b/);
+  assert.doesNotMatch(
+    notebook,
+    /roc_auc_score\(y_test|predict(?:_proba)?\(X_test/,
+  );
 });

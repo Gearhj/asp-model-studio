@@ -1,0 +1,2770 @@
+{
+  "config": {
+    "argv": [
+      "C:\\Program Files\\nodejs\\node.exe",
+      "C:\\Users\\james\\ds-workflow-starter\\node_modules\\@playwright\\test\\cli.js",
+      "test",
+      "--config",
+      "tests\\e2e\\playwright.config.ts",
+      "--list"
+    ],
+    "configFile": "C:\\Users\\james\\ds-workflow-starter\\tests\\e2e\\playwright.config.ts",
+    "rootDir": "C:/Users/james/ds-workflow-starter/tests/e2e",
+    "failOnFlakyTests": false,
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {},
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "C:/Users/james/ds-workflow-starter/test-results/e2e/artifacts",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "C:/Users/james/ds-workflow-starter/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 180000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "html",
+        {
+          "outputFolder": "../../test-results/e2e/html-report",
+          "open": "never"
+        }
+      ],
+      [
+        "json",
+        {
+          "outputFile": "../../test-results/e2e/results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.61.1",
+    "workers": 1,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "_recon.spec.ts",
+      "file": "_recon.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "clean-restart diagnostic: single preflight submission",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "a880788eedbaeca4562f-8209999f36d3c4efba85",
+          "file": "_recon.spec.ts",
+          "line": 12,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "analysis-scope.spec.ts",
+      "file": "analysis-scope.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "EDA Governed Analysis Scope and Evidence Integrity",
+          "file": "analysis-scope.spec.ts",
+          "line": 22,
+          "column": 6,
+          "specs": [
+            {
+              "title": "workspace draft cannot become governed evidence; registration produces a governed, version-pinned analysis",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "1f2c3afe7cf9097d978e-9951404157245788d703",
+              "file": "analysis-scope.spec.ts",
+              "line": 23,
+              "column": 3
+            },
+            {
+              "title": "event-majority fixture: a majority positive class is not described as a rare event",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "1f2c3afe7cf9097d978e-5d1a7e1129d352cc2493",
+              "file": "analysis-scope.spec.ts",
+              "line": 230,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "browser-dataset-state.spec.ts",
+      "file": "browser-dataset-state.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Browser dataset state: project and user isolation",
+          "file": "browser-dataset-state.spec.ts",
+          "line": 21,
+          "column": 6,
+          "specs": [
+            {
+              "title": "same-tab project switching never leaks a stale dataset banner or wrong target",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "ad31ae074d97fe777582-523b212364aead56e474",
+              "file": "browser-dataset-state.spec.ts",
+              "line": 22,
+              "column": 3
+            },
+            {
+              "title": "two browser tabs stay independent, and sign-out prevents the next user from reading the prior cache",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "ad31ae074d97fe777582-9a3c5a8a811060e480a8",
+              "file": "browser-dataset-state.spec.ts",
+              "line": 67,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "code-workspace.spec.ts",
+      "file": "code-workspace.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Multi-Language Code Workspace",
+          "file": "code-workspace.spec.ts",
+          "line": 19,
+          "column": 6,
+          "specs": [
+            {
+              "title": "Python capability mirrors the backend and generated code carries no placeholder path",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aec3fbb6daf9116d669c-99acde052d4f83e818e2",
+              "file": "code-workspace.spec.ts",
+              "line": 32,
+              "column": 3
+            },
+            {
+              "title": "SAS-compatible execution binds to the active dataset and never to reg_train",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "aec3fbb6daf9116d669c-053be25ee13e0f79f0c5",
+              "file": "code-workspace.spec.ts",
+              "line": 95,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "data-acquisition-status.spec.ts",
+      "file": "data-acquisition-status.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Data Acquisition status and predictor interpretation integrity",
+          "file": "data-acquisition-status.spec.ts",
+          "line": 15,
+          "column": 6,
+          "specs": [
+            {
+              "title": "one consistent status model, truthful pre-load identity, conservative high-IV semantics",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "ed22675d7df0e51546fd-fcb209e1bc5d49197048",
+              "file": "data-acquisition-status.spec.ts",
+              "line": 21,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "data-acquisition-ui-load.spec.ts",
+      "file": "data-acquisition-ui-load.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Data Acquisition: UI-driven Dataset Version load",
+          "file": "data-acquisition-ui-load.spec.ts",
+          "line": 15,
+          "column": 6,
+          "specs": [
+            {
+              "title": "selects and loads the exact version through the UI, then reconciles the loaded page",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d984893e608f8e97e3de-82f472e2e1a6eaa6473f",
+              "file": "data-acquisition-ui-load.spec.ts",
+              "line": 22,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "data-acquisition-ux.spec.ts",
+      "file": "data-acquisition-ux.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Data Acquisition UX and lifecycle",
+          "file": "data-acquisition-ux.spec.ts",
+          "line": 22,
+          "column": 6,
+          "specs": [
+            {
+              "title": "new upload keeps persistence choices, shows readiness, and reports a true rare-event rate",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "a224c64c06d2f457b284-b9e06484dbec8fd187c0",
+              "file": "data-acquisition-ux.spec.ts",
+              "line": 23,
+              "column": 3
+            },
+            {
+              "title": "a registered Library asset shows the load lifecycle and a read-only registered status",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "a224c64c06d2f457b284-6c385e0894924ae32475",
+              "file": "data-acquisition-ux.spec.ts",
+              "line": 126,
+              "column": 3
+            },
+            {
+              "title": "target distribution loads from a bounded server aggregate without duplicate queries",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "a224c64c06d2f457b284-0354f56c7ca26da224f4",
+              "file": "data-acquisition-ux.spec.ts",
+              "line": 253,
+              "column": 3
+            },
+            {
+              "title": "the page remains usable at a narrow viewport",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "a224c64c06d2f457b284-c9fedd3bfe56f3a58e6b",
+              "file": "data-acquisition-ux.spec.ts",
+              "line": 324,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "dataset-library-action-parity.spec.ts",
+      "file": "dataset-library-action-parity.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Dataset Library: Card and Detailed View action parity",
+          "file": "dataset-library-action-parity.spec.ts",
+          "line": 57,
+          "column": 6,
+          "specs": [
+            {
+              "title": "the same authorized action set is reachable from both views",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [
+                    {
+                      "type": "skip",
+                      "description": "Set ATLAS_E2E_EMAIL and ATLAS_E2E_PASSWORD to run this walkthrough. Authentication is hardened (795178d): self-registration and the dev-user header are disabled by design, so this spec needs a real account rather than a bypass.",
+                      "location": {
+                        "file": "C:\\Users\\james\\ds-workflow-starter\\tests\\e2e\\dataset-library-action-parity.spec.ts",
+                        "line": 58,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "6a9aaa73c39aeb276774-4262a633f9999e59df22",
+              "file": "dataset-library-action-parity.spec.ts",
+              "line": 63,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "dataset-lifecycle.spec.ts",
+      "file": "dataset-lifecycle.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Dataset Lifecycle: CLASS_TRAIN workspace upload through Library registration",
+          "file": "dataset-lifecycle.spec.ts",
+          "line": 22,
+          "column": 6,
+          "specs": [
+            {
+              "title": "upload stays workspace-only, registers to Library, second project reuses it",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "20e12332e7b4c9f04c46-8e44875b0e3bb86be81d",
+              "file": "dataset-lifecycle.spec.ts",
+              "line": 23,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "eda-final-acceptance-polish.spec.ts",
+      "file": "eda-final-acceptance-polish.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "authenticated HELOC_TRAIN / bad_flag final acceptance walkthrough",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "8cfea99841718bdfd205-1b8339341534448a04cc",
+          "file": "eda-final-acceptance-polish.spec.ts",
+          "line": 59,
+          "column": 1
+        },
+        {
+          "title": "reduced motion leaves final analytical visuals visible",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "8cfea99841718bdfd205-bd9c6e64e5840bdf99d9",
+          "file": "eda-final-acceptance-polish.spec.ts",
+          "line": 297,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "eda-final-polish.spec.ts",
+      "file": "eda-final-polish.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "compact EDA and predictor visual suite pass at 1366x768",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "cfe35aecb5b6c798f569-eb481a250e203e0f5112",
+          "file": "eda-final-polish.spec.ts",
+          "line": 39,
+          "column": 3
+        },
+        {
+          "title": "compact EDA and predictor visual suite pass at 1536x864",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "cfe35aecb5b6c798f569-dc5d8e482293732d83e9",
+          "file": "eda-final-polish.spec.ts",
+          "line": 39,
+          "column": 3
+        },
+        {
+          "title": "compact EDA and predictor visual suite pass at 1920x1080",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "cfe35aecb5b6c798f569-972e20702bb00854e9d9",
+          "file": "eda-final-polish.spec.ts",
+          "line": 39,
+          "column": 3
+        },
+        {
+          "title": "reduced motion renders every predictor visual in its final state",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "cfe35aecb5b6c798f569-53d08211a6231bb40c59",
+          "file": "eda-final-polish.spec.ts",
+          "line": 151,
+          "column": 1
+        },
+        {
+          "title": "confirmation, MDD approval, and stale draft remain separate",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "cfe35aecb5b6c798f569-93131aad17584bd325da",
+          "file": "eda-final-polish.spec.ts",
+          "line": 175,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "eda-premium-experience.spec.ts",
+      "file": "eda-premium-experience.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "premium EDA composition remains usable at 1366x768",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "bf8faa438cfcd6209975-63754948c82850cceb03",
+          "file": "eda-premium-experience.spec.ts",
+          "line": 10,
+          "column": 3
+        },
+        {
+          "title": "premium EDA composition remains usable at 1536x864",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "bf8faa438cfcd6209975-a271d1feefca33a253a3",
+          "file": "eda-premium-experience.spec.ts",
+          "line": 10,
+          "column": 3
+        },
+        {
+          "title": "premium EDA composition remains usable at 1920x1080",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "bf8faa438cfcd6209975-4fe2feb6c38d7d448fac",
+          "file": "eda-premium-experience.spec.ts",
+          "line": 10,
+          "column": 3
+        }
+      ]
+    },
+    {
+      "title": "eda-project-scoped-entry.spec.ts",
+      "file": "eda-project-scoped-entry.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "project-scoped EDA renders the governed development population after Data Acquisition",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "ffa33c155244871343e2-b80593309856c9f18757",
+          "file": "eda-project-scoped-entry.spec.ts",
+          "line": 176,
+          "column": 1
+        },
+        {
+          "title": "an unrecognized backend scope fails closed without crashing the workflow route",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "ffa33c155244871343e2-a8bc53f4c9e8ede78c1d",
+          "file": "eda-project-scoped-entry.spec.ts",
+          "line": 197,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "eda-visual-intelligence-phase1.spec.ts",
+      "file": "eda-visual-intelligence-phase1.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "EDA Visual Intelligence Phase 1",
+          "file": "eda-visual-intelligence-phase1.spec.ts",
+          "line": 69,
+          "column": 6,
+          "specs": [
+            {
+              "title": "motion, linked analysis, authorization, responsiveness, and reduced motion",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [
+                    {
+                      "type": "skip",
+                      "description": "Set real ATLAS_E2E_EMAIL and ATLAS_E2E_PASSWORD credentials.",
+                      "location": {
+                        "file": "C:\\Users\\james\\ds-workflow-starter\\tests\\e2e\\eda-visual-intelligence-phase1.spec.ts",
+                        "line": 70,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "ffb725f64cd0addc41d5-c38593683c799fc37557",
+              "file": "eda-visual-intelligence-phase1.spec.ts",
+              "line": 75,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "eda-visual-intelligence-phase11.spec.ts",
+      "file": "eda-visual-intelligence-phase11.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "EDA Visual Intelligence Phase 1.1",
+          "file": "eda-visual-intelligence-phase11.spec.ts",
+          "line": 20,
+          "column": 6,
+          "specs": [
+            {
+              "title": "readability, governed sample reuse, linked state, and lazy WebGL",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [
+                    {
+                      "type": "skip",
+                      "description": "Set real ATLAS_E2E_EMAIL and ATLAS_E2E_PASSWORD credentials.",
+                      "location": {
+                        "file": "C:\\Users\\james\\ds-workflow-starter\\tests\\e2e\\eda-visual-intelligence-phase11.spec.ts",
+                        "line": 21,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "102d3e41ef7b291660c9-90d9bf068b6a83f5d483",
+              "file": "eda-visual-intelligence-phase11.spec.ts",
+              "line": 26,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "final-model-promotion-governance.unit.spec.ts",
+      "file": "final-model-promotion-governance.unit.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "promotion posts the exact locked decision and accepts only verified durable governance",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "28fa08d5c68941e0cace-185002e6fa2e60837800",
+          "file": "final-model-promotion-governance.unit.spec.ts",
+          "line": 80,
+          "column": 1
+        },
+        {
+          "title": "promotion does not issue a request for contaminated or incomplete evidence",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "28fa08d5c68941e0cace-e2bb66fe179efebefc61",
+          "file": "final-model-promotion-governance.unit.spec.ts",
+          "line": 142,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "final-model-readiness.unit.spec.ts",
+      "file": "final-model-readiness.unit.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "resolveFinalModelReadiness",
+          "file": "final-model-readiness.unit.spec.ts",
+          "line": 52,
+          "column": 6,
+          "specs": [
+            {
+              "title": "ready + fully matching local context -> ready, no error, metadata kept",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d3aec3ae65eacbbd5e3a-dd9db9ac5f0b0113f938",
+              "file": "final-model-readiness.unit.spec.ts",
+              "line": 53,
+              "column": 3
+            },
+            {
+              "title": "ready + absent canonical local expectation fails closed",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d3aec3ae65eacbbd5e3a-363cd3d57e20f38278f2",
+              "file": "final-model-readiness.unit.spec.ts",
+              "line": 60,
+              "column": 3
+            },
+            {
+              "title": "genuine dataset-version mismatch still rejects with the mismatch error",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d3aec3ae65eacbbd5e3a-5f91dbfcea6f6ea3f132",
+              "file": "final-model-readiness.unit.spec.ts",
+              "line": 70,
+              "column": 3
+            },
+            {
+              "title": "genuine target mismatch still rejects",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d3aec3ae65eacbbd5e3a-468f70d61dae908128b2",
+              "file": "final-model-readiness.unit.spec.ts",
+              "line": 80,
+              "column": 3
+            },
+            {
+              "title": "genuine project mismatch still rejects",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d3aec3ae65eacbbd5e3a-0dffe73700040a88d7cb",
+              "file": "final-model-readiness.unit.spec.ts",
+              "line": 89,
+              "column": 3
+            },
+            {
+              "title": "metadata missing durable lineage fails closed",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d3aec3ae65eacbbd5e3a-1db9656e49da7e6a4bcd",
+              "file": "final-model-readiness.unit.spec.ts",
+              "line": 98,
+              "column": 3
+            },
+            {
+              "title": "legacy or contaminated promotion evidence fails closed",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d3aec3ae65eacbbd5e3a-bf2c8a4974226ce5651a",
+              "file": "final-model-readiness.unit.spec.ts",
+              "line": 107,
+              "column": 3
+            },
+            {
+              "title": "backend not ready -> not ready and no mismatch error, regardless of context",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d3aec3ae65eacbbd5e3a-65e1dbd41b61053c34df",
+              "file": "final-model-readiness.unit.spec.ts",
+              "line": 125,
+              "column": 3
+            },
+            {
+              "title": "a later response for a changed context recomputes from scratch (no sticky error)",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d3aec3ae65eacbbd5e3a-c1e12fef905e418cd7b2",
+              "file": "final-model-readiness.unit.spec.ts",
+              "line": 138,
+              "column": 3
+            },
+            {
+              "title": "null/undefined response -> not ready, no error",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d3aec3ae65eacbbd5e3a-0b06955c3f3fcec941c1",
+              "file": "final-model-readiness.unit.spec.ts",
+              "line": 153,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "governed-profile.spec.ts",
+      "file": "governed-profile.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Data Acquisition governed profiling and IV integrity",
+          "file": "governed-profile.spec.ts",
+          "line": 26,
+          "column": 6,
+          "specs": [
+            {
+              "title": "governed CLASS_TRAIN version reconciles, IV is real, and weak-signal automation is safe",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "6b7f23a451d5c6cd0caa-7e82a18f072b71360f12",
+              "file": "governed-profile.spec.ts",
+              "line": 33,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "how-to-choose-removal.spec.ts",
+      "file": "how-to-choose-removal.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Model Identity treatment and global How to Choose removal",
+          "file": "how-to-choose-removal.spec.ts",
+          "line": 15,
+          "column": 6,
+          "specs": [
+            {
+              "title": "Project Context: Model Identity card is visually distinct and Deployment Mode opens no explanation panel",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "b84b64c2306ac6345589-c721a6ef53060eceaddf",
+              "file": "how-to-choose-removal.spec.ts",
+              "line": 16,
+              "column": 3
+            },
+            {
+              "title": "A later Predictive Modeling page with real dropdowns renders no chooser panel",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "b84b64c2306ac6345589-5b3a0a1f98f59da3ada9",
+              "file": "how-to-choose-removal.spec.ts",
+              "line": 70,
+              "column": 3
+            },
+            {
+              "title": "A non-Predictive-Modeling workflow page renders no chooser panel",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "b84b64c2306ac6345589-aac94bf12137af9997e2",
+              "file": "how-to-choose-removal.spec.ts",
+              "line": 90,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "new-project-ux.spec.ts",
+      "file": "new-project-ux.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "New Project page: unified setup section is shared across all workflow types",
+          "file": "new-project-ux.spec.ts",
+          "line": 132,
+          "column": 6,
+          "specs": [
+            {
+              "title": "Predictive Modeling: unified section, validation, and creation behave correctly",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "3fd4bf4cf819a12a0746-3ad984d84460a2441adf",
+              "file": "new-project-ux.spec.ts",
+              "line": 134,
+              "column": 5
+            },
+            {
+              "title": "Optimization: unified section, validation, and creation behave correctly",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "3fd4bf4cf819a12a0746-819787349cc6b0db4e5f",
+              "file": "new-project-ux.spec.ts",
+              "line": 134,
+              "column": 5
+            },
+            {
+              "title": "Experimentation: unified section, validation, and creation behave correctly",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "3fd4bf4cf819a12a0746-fa5769db620a011ced14",
+              "file": "new-project-ux.spec.ts",
+              "line": 134,
+              "column": 5
+            },
+            {
+              "title": "Custom Workflow: unified section, validation, and creation behave correctly",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "3fd4bf4cf819a12a0746-905e2d8fadb76a636f08",
+              "file": "new-project-ux.spec.ts",
+              "line": 134,
+              "column": 5
+            },
+            {
+              "title": "Switching workflow types updates the shared setup section without stale values or labels",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "3fd4bf4cf819a12a0746-c8f14b764edaec7f69f3",
+              "file": "new-project-ux.spec.ts",
+              "line": 198,
+              "column": 3
+            },
+            {
+              "title": "A long custom workflow name does not overflow or break the unified section",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "3fd4bf4cf819a12a0746-e3dae913f77b5ced6851",
+              "file": "new-project-ux.spec.ts",
+              "line": 222,
+              "column": 3
+            },
+            {
+              "title": "Unified setup section stays above the Workflow Library at a narrow viewport",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "3fd4bf4cf819a12a0746-d78043cf3c3e076d414f",
+              "file": "new-project-ux.spec.ts",
+              "line": 242,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "open-project-registry.spec.ts",
+      "file": "open-project-registry.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Open Project authoritative registry loading",
+          "file": "open-project-registry.spec.ts",
+          "line": 111,
+          "column": 6,
+          "specs": [
+            {
+              "title": "renders 132 projects after valid HTTP 200 and isolates optional enrichment failure",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "ba58e6a6d263858f339d-c01a2d34f93738d88f6f",
+              "file": "open-project-registry.spec.ts",
+              "line": 112,
+              "column": 3
+            },
+            {
+              "title": "renders a valid empty state for an empty HTTP 200 response",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "ba58e6a6d263858f339d-30b945059310fb29dc98",
+              "file": "open-project-registry.spec.ts",
+              "line": 137,
+              "column": 3
+            },
+            {
+              "title": "identifies malformed HTTP 200 data and a controlled retry recovers",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "ba58e6a6d263858f339d-5368bf2804609a51acd7",
+              "file": "open-project-registry.spec.ts",
+              "line": 147,
+              "column": 3
+            },
+            {
+              "title": "HTTP 401 follows the existing sign-in flow",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "ba58e6a6d263858f339d-e1ae392d1cb1d6dfb956",
+              "file": "open-project-registry.spec.ts",
+              "line": 168,
+              "column": 3
+            },
+            {
+              "title": "HTTP 403 remains an authorization error in the authenticated shell",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "ba58e6a6d263858f339d-e18f987d8f78008c2f70",
+              "file": "open-project-registry.spec.ts",
+              "line": 187,
+              "column": 3
+            },
+            {
+              "title": "a genuine network failure renders an error and retry recovers",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "ba58e6a6d263858f339d-2227f230b146a6f4e185",
+              "file": "open-project-registry.spec.ts",
+              "line": 198,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "predictive-identity-readiness.spec.ts",
+      "file": "predictive-identity-readiness.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Predictive route canonical identity readiness",
+          "file": "predictive-identity-readiness.spec.ts",
+          "line": 118,
+          "column": 6,
+          "specs": [
+            {
+              "title": "keeps the shell visible while exact identity is delayed, then renders Model Training",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "944d100c6c9bbcf16d90-f221f5a720d2405c6fdc",
+              "file": "predictive-identity-readiness.spec.ts",
+              "line": 119,
+              "column": 3
+            },
+            {
+              "title": "renders a controlled recovery action for a legacy project instead of a blank workspace",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "944d100c6c9bbcf16d90-836fab13ef271c0e1124",
+              "file": "predictive-identity-readiness.spec.ts",
+              "line": 185,
+              "column": 3
+            },
+            {
+              "title": "contains a late DatasetIdentityError inside the notebook panel and preserves Model Training",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "944d100c6c9bbcf16d90-71ed168797cde13478b3",
+              "file": "predictive-identity-readiness.spec.ts",
+              "line": 216,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "predictive-modeling-classification-stage-a.spec.ts",
+      "file": "predictive-modeling-classification-stage-a.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Stage A: Classification workflow through Model Training",
+          "file": "predictive-modeling-classification-stage-a.spec.ts",
+          "line": 14,
+          "column": 6,
+          "specs": [
+            {
+              "title": "Project Context -> Data Acquisition -> EDA -> Outliers -> Missing -> Features -> Encoding -> Balance/Split -> Train",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "7862e0d20e86a61150ff-50b152614f645905e2f5",
+              "file": "predictive-modeling-classification-stage-a.spec.ts",
+              "line": 15,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "predictive-modeling-classification-stage-b.spec.ts",
+      "file": "predictive-modeling-classification-stage-b.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Stage B: Classification Evaluation, Interpretation, Scoring, OOT",
+          "file": "predictive-modeling-classification-stage-b.spec.ts",
+          "line": 24,
+          "column": 6,
+          "specs": [
+            {
+              "title": "Downstream flow from a pre-seeded completed model",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "35f01890b6bdb5300f74-2c64a95f1642c53c56ed",
+              "file": "predictive-modeling-classification-stage-b.spec.ts",
+              "line": 25,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "predictive-modeling-final-model-save.spec.ts",
+      "file": "predictive-modeling-final-model-save.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "exact evaluated candidate -> Save as Final Model -> Scoring accepts the saved model",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "e9d28758b4d30818a048-b4d21d21da8b72a464cf",
+          "file": "predictive-modeling-final-model-save.spec.ts",
+          "line": 19,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "predictive-modeling-regression-stage-a.spec.ts",
+      "file": "predictive-modeling-regression-stage-a.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Regression Stage A: Project Context through Model Training",
+          "file": "predictive-modeling-regression-stage-a.spec.ts",
+          "line": 27,
+          "column": 6,
+          "specs": [
+            {
+              "title": "Project Context -> Data Acquisition -> EDA -> Outliers -> Missing -> Features -> Encoding -> Balance/Split -> Train",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "99699829fe322cfc8d58-1122027068f723d2147e",
+              "file": "predictive-modeling-regression-stage-a.spec.ts",
+              "line": 28,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "predictive-modeling-regression-stage-b.spec.ts",
+      "file": "predictive-modeling-regression-stage-b.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Regression Stage B: Evaluation, Interpretation, Scoring, TEST, OOT",
+          "file": "predictive-modeling-regression-stage-b.spec.ts",
+          "line": 41,
+          "column": 6,
+          "specs": [
+            {
+              "title": "Downstream regression flow from a pre-seeded completed model",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "16e703f25a337656620c-b4087d3200866743137f",
+              "file": "predictive-modeling-regression-stage-b.spec.ts",
+              "line": 42,
+              "column": 3
+            },
+            {
+              "title": "Regression and classification projects do not leak evaluation framing across each other",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "16e703f25a337656620c-2c2cbf2d1acc445a3fb2",
+              "file": "predictive-modeling-regression-stage-b.spec.ts",
+              "line": 222,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "predictive-modeling-scoring-oot.spec.ts",
+      "file": "predictive-modeling-scoring-oot.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "Scoring: development, TEST, OOT, comparison, PSI/VSI, isolation",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "3a8773f4e87b4f5dcd50-bf481e7abc7c8bee42f5",
+          "file": "predictive-modeling-scoring-oot.spec.ts",
+          "line": 53,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "predictive-route-integrity-matrix.spec.ts",
+      "file": "predictive-route-integrity-matrix.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "project-scoped Predictive Modeling route matrix preserves exact identity through Model Training",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "7665b6d6045d6ef874f8-50e66cadf34e282e805c",
+          "file": "predictive-route-integrity-matrix.spec.ts",
+          "line": 968,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "project-context-hydration.spec.ts",
+      "file": "project-context-hydration.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Project-scoped authoritative frontend hydration",
+          "file": "project-context-hydration.spec.ts",
+          "line": 591,
+          "column": 6,
+          "specs": [
+            {
+              "title": "a configured Credit Risk Studio project hydrates as predictive modeling",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "0ff42841f621166c4d97-aeece075a451f09d5a21",
+              "file": "project-context-hydration.spec.ts",
+              "line": 592,
+              "column": 3
+            },
+            {
+              "title": "the real Project Context composition hydrates once and remains mounted",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "0ff42841f621166c4d97-3759e8eefde60e027441",
+              "file": "project-context-hydration.spec.ts",
+              "line": 628,
+              "column": 3
+            },
+            {
+              "title": "one acknowledged user save refreshes metadata in place without rehydrating identity",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "0ff42841f621166c4d97-4c41f99f4c63d638fe54",
+              "file": "project-context-hydration.spec.ts",
+              "line": 693,
+              "column": 3
+            },
+            {
+              "title": "a newer user-scoped draft survives immediate SPA navigation before the debounce",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "0ff42841f621166c4d97-656e28e277b5b4448280",
+              "file": "project-context-hydration.spec.ts",
+              "line": 788,
+              "column": 3
+            },
+            {
+              "title": "editing and reverting before the debounce clears the draft and never writes",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "0ff42841f621166c4d97-80b14689b81eecfb3ddb",
+              "file": "project-context-hydration.spec.ts",
+              "line": 813,
+              "column": 3
+            },
+            {
+              "title": "a newer edit waits for a delayed acknowledgement and is saved next without losing its draft",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "0ff42841f621166c4d97-b75d1d1de9b5a275c22a",
+              "file": "project-context-hydration.spec.ts",
+              "line": 870,
+              "column": 3
+            },
+            {
+              "title": "reverting while a save acknowledgement is delayed serializes a restoring save",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "0ff42841f621166c4d97-c3802fb57ecacc13c70b",
+              "file": "project-context-hydration.spec.ts",
+              "line": 961,
+              "column": 3
+            },
+            {
+              "title": "an already-complete bottom CTA recovers its exact committed revision and advances",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "0ff42841f621166c4d97-d7f58515a57c33f4b36b",
+              "file": "project-context-hydration.spec.ts",
+              "line": 1052,
+              "column": 3
+            },
+            {
+              "title": "Generate, Accept Summary, and Continue survive backend JSON key sorting",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "0ff42841f621166c4d97-2fdbcd90290234152eb4",
+              "file": "project-context-hydration.spec.ts",
+              "line": 1107,
+              "column": 3
+            },
+            {
+              "title": "governed completion waits for its exact serialized acknowledgement before evidence and navigation",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "0ff42841f621166c4d97-9f07927d1033b5b46bfe",
+              "file": "project-context-hydration.spec.ts",
+              "line": 1197,
+              "column": 3
+            },
+            {
+              "title": "a fresh direct link blocks Data Acquisition until exact hydration and survives refresh",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "0ff42841f621166c4d97-7dd8ce8428729d02eab9",
+              "file": "project-context-hydration.spec.ts",
+              "line": 1298,
+              "column": 3
+            },
+            {
+              "title": "an unauthorized scoped URL fails closed with a precise 403 state",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "0ff42841f621166c4d97-4c9888c0cb1080fc4ba6",
+              "file": "project-context-hydration.spec.ts",
+              "line": 1356,
+              "column": 3
+            },
+            {
+              "title": "a missing scoped URL reports project unavailable without opening a default project",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "0ff42841f621166c4d97-88745b4b1930a8b134a6",
+              "file": "project-context-hydration.spec.ts",
+              "line": 1375,
+              "column": 3
+            },
+            {
+              "title": "a late Project A response cannot replace ready Project B context",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "0ff42841f621166c4d97-446669c910d0586811c6",
+              "file": "project-context-hydration.spec.ts",
+              "line": 1392,
+              "column": 3
+            },
+            {
+              "title": "Project A and Project B remain isolated across two tabs and refreshes",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "0ff42841f621166c4d97-574884ca761ff0fa591d",
+              "file": "project-context-hydration.spec.ts",
+              "line": 1444,
+              "column": 3
+            },
+            {
+              "title": "sign-out and a different sign-in cannot recover the prior user's unsaved Project Context draft",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "0ff42841f621166c4d97-6f5ac9f1f89f5f62a8f4",
+              "file": "project-context-hydration.spec.ts",
+              "line": 1473,
+              "column": 3
+            },
+            {
+              "title": "legacy routes choose only an exact current project or Open Project",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "0ff42841f621166c4d97-2fb7c61c0d5c06d42093",
+              "file": "project-context-hydration.spec.ts",
+              "line": 1514,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "project-context-persistence.spec.ts",
+      "file": "project-context-persistence.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Project Context durable persistence",
+          "file": "project-context-persistence.spec.ts",
+          "line": 20,
+          "column": 6,
+          "specs": [
+            {
+              "title": "narrative and governance text survive navigation, refresh, and project reopen",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "50aa0cb8dd75e29bf4a6-473b9bf61069af6e2e88",
+              "file": "project-context-persistence.spec.ts",
+              "line": 21,
+              "column": 3
+            },
+            {
+              "title": "a failed save is reported honestly and can be retried",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "50aa0cb8dd75e29bf4a6-ccf85f770158bb27fe2e",
+              "file": "project-context-persistence.spec.ts",
+              "line": 126,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "project-context-stability-soak.spec.ts",
+      "file": "project-context-stability-soak.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Project Context stability soak",
+          "file": "project-context-stability-soak.spec.ts",
+          "line": 930,
+          "column": 6,
+          "specs": [
+            {
+              "title": "actual composition remains stable under saves, reloads, history, and isolated contexts",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [
+                    {
+                      "type": "skip",
+                      "description": "Set ATLAS_PROJECT_CONTEXT_SOAK=1 for the full soak or ATLAS_PROJECT_CONTEXT_SOAK_SMOKE=1 for a short validation.",
+                      "location": {
+                        "file": "C:\\Users\\james\\ds-workflow-starter\\tests\\e2e\\project-context-stability-soak.spec.ts",
+                        "line": 931,
+                        "column": 8
+                      }
+                    }
+                  ],
+                  "expectedStatus": "skipped",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "eef613d9626668c900db-4cbe570001aa8cb64514",
+              "file": "project-context-stability-soak.spec.ts",
+              "line": 936,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "project-scoped-composition-lifecycle.spec.ts",
+      "file": "project-scoped-composition-lifecycle.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "project-scoped EDA composition hydrates and drafts once without a lifecycle loop",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "e1401c9f7850bb4d93b5-b8ecd9bb2373cc6f042d",
+          "file": "project-scoped-composition-lifecycle.spec.ts",
+          "line": 333,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "scoring-runs.spec.ts",
+      "file": "scoring-runs.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Persistent Scoring Runs, Phase 1",
+          "file": "scoring-runs.spec.ts",
+          "line": 28,
+          "column": 6,
+          "specs": [
+            {
+              "title": "Visual Intelligence Lab loads a durable scoring run from the URL and survives a refresh",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "6081038f9b60e0a20b23-81f342a14ea96826370a",
+              "file": "scoring-runs.spec.ts",
+              "line": 29,
+              "column": 3
+            },
+            {
+              "title": "Step10 Scoring page's history panel lists durable runs and links into the Visual Intelligence Lab",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "6081038f9b60e0a20b23-d1b88a48ae410e388fa6",
+              "file": "scoring-runs.spec.ts",
+              "line": 74,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "selection-provenance.unit.spec.ts",
+      "file": "selection-provenance.unit.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [
+        {
+          "title": "selection ranking ignores final-holdout fields and is deterministic",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "19985bb8f74fc93863ea-f14033f2d4d98c6aa76c",
+          "file": "selection-provenance.unit.spec.ts",
+          "line": 85,
+          "column": 1
+        },
+        {
+          "title": "fold outcome changes can change the selection leaderboard",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "19985bb8f74fc93863ea-60a77274b23fe2893fb9",
+          "file": "selection-provenance.unit.spec.ts",
+          "line": 110,
+          "column": 1
+        },
+        {
+          "title": "missing, final-holdout, and failed integrity evidence cannot rank",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "19985bb8f74fc93863ea-0982c51739a950f1283c",
+          "file": "selection-provenance.unit.spec.ts",
+          "line": 123,
+          "column": 1
+        },
+        {
+          "title": "selection metric labels state the non-holdout source",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "19985bb8f74fc93863ea-a1465b0af6e066c1c780",
+          "file": "selection-provenance.unit.spec.ts",
+          "line": 146,
+          "column": 1
+        },
+        {
+          "title": "locked decision is exact and promotion readiness passes only a clean package",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "19985bb8f74fc93863ea-874833edc08e2a0abc00",
+          "file": "selection-provenance.unit.spec.ts",
+          "line": 152,
+          "column": 1
+        },
+        {
+          "title": "promotion fails closed for unlocked, contaminated, or incomplete evidence",
+          "ok": true,
+          "tags": [],
+          "tests": [
+            {
+              "timeout": 180000,
+              "annotations": [],
+              "expectedStatus": "passed",
+              "projectId": "chromium",
+              "projectName": "chromium",
+              "results": [],
+              "status": "skipped"
+            }
+          ],
+          "id": "19985bb8f74fc93863ea-42286bd39441d16f3707",
+          "file": "selection-provenance.unit.spec.ts",
+          "line": 165,
+          "column": 1
+        }
+      ]
+    },
+    {
+      "title": "target-intelligence.spec.ts",
+      "file": "target-intelligence.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "EDA Target Intelligence walkthrough",
+          "file": "target-intelligence.spec.ts",
+          "line": 22,
+          "column": 6,
+          "specs": [
+            {
+              "title": "Target tab: identity, exact class balance, rare-event detail, confidence interval, V4 quantile analysis, finding persistence",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "92bdfcb7c0fd6fc49107-e6125a3f992a7eca306c",
+              "file": "target-intelligence.spec.ts",
+              "line": 23,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "vi-production-integration.spec.ts",
+      "file": "vi-production-integration.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Visual Intelligence Production Integration, Phase 2",
+          "file": "vi-production-integration.spec.ts",
+          "line": 27,
+          "column": 6,
+          "specs": [
+            {
+              "title": "Regression path: EDA distribution + Evaluation regression explorer, both against a durable scoring run",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "c19ade1cec3082248972-080639bd0e76d638b6b1",
+              "file": "vi-production-integration.spec.ts",
+              "line": 28,
+              "column": 3
+            },
+            {
+              "title": "Classification path: Evaluation classification explorer against a durable scoring run",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "c19ade1cec3082248972-7ee8015f86394f8042c1",
+              "file": "vi-production-integration.spec.ts",
+              "line": 64,
+              "column": 3
+            },
+            {
+              "title": "Scoring history: Open Analysis deep-links into the durable run, and Register Scored Dataset is reachable",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "c19ade1cec3082248972-2e8e244483946852bad8",
+              "file": "vi-production-integration.spec.ts",
+              "line": 89,
+              "column": 3
+            },
+            {
+              "title": "Cross-project isolation: a foreign scoringRunId in the URL is honestly rejected, not silently substituted",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "c19ade1cec3082248972-92ca05ad0111dfd053a8",
+              "file": "vi-production-integration.spec.ts",
+              "line": 111,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "visual-intelligence-lab.spec.ts",
+      "file": "visual-intelligence-lab.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Visual Intelligence Foundation Phase 1: prototypes",
+          "file": "visual-intelligence-lab.spec.ts",
+          "line": 39,
+          "column": 6,
+          "specs": [
+            {
+              "title": "Interactive Distribution Explorer and Regression Diagnostic Explorer render real data for a regression project",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "1ee00fffaa8b0c0bac3b-d9a92dd2e6f15e907f0f",
+              "file": "visual-intelligence-lab.spec.ts",
+              "line": 40,
+              "column": 3
+            },
+            {
+              "title": "Classification Decision Explorer renders real data and stays free of regression terminology",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "1ee00fffaa8b0c0bac3b-e26469fc7b5380c037b3",
+              "file": "visual-intelligence-lab.spec.ts",
+              "line": 92,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-08-03T13:58:12.956Z",
+    "duration": 1477.169,
+    "expected": 0,
+    "skipped": 105,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

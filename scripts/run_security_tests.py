@@ -11,8 +11,8 @@ import json
 import os
 import re
 import subprocess
-import shutil
 import sys
+import tempfile
 import uuid
 from pathlib import Path
 
@@ -26,6 +26,7 @@ CHECKED_IN_MUTABLE_ROOTS = tuple(
         ROOT / "server" / "artifacts" / "datasets",
         ROOT / "server" / "artifacts" / "security",
         ROOT / "server" / "artifacts" / "evidence",
+        ROOT / "server" / "artifacts" / "feature_manifests",
         ROOT / "server" / "artifacts" / "model_registry",
         ROOT / "server" / "artifacts" / "scoring_runs",
     )
@@ -47,16 +48,27 @@ def isolated_environment(runtime_root: Path) -> dict[str, str]:
         "ATLAS_SQLITE_PATH": runtime_root / "persistence" / "atlas_local.db",
         "ATLAS_CHECKPOINT_PATH": runtime_root / "checkpoint" / "workflow_checkpoint.json",
         "ATLAS_DATASET_LIBRARY_ROOT": runtime_root / "dataset-library",
+        "ATLAS_DATASET_LIBRARY_BACKUP_ROOT": runtime_root / "dataset-backups",
         "ATLAS_EVIDENCE_ROOT": runtime_root / "evidence",
+        "ATLAS_FEATURE_MANIFEST_ROOT": runtime_root / "feature-manifests",
         "ATLAS_MODEL_REGISTRY_ARTIFACT_ROOT": runtime_root / "model-registry",
         "ATLAS_SCORING_RUN_ARTIFACT_ROOT": runtime_root / "scoring-runs",
+        "ATLAS_VIF_PLAN_ROOT": runtime_root / "vif-plans",
+        "ATLAS_PYTHON_RUNTIME_DIR": runtime_root / "python-runtime",
+        "ATLAS_SAS_CONFIG_DIR": runtime_root / "sas-config",
+        "ATLAS_BROWSER_STORAGE_ROOT": runtime_root / "browser-storage",
+        "ATLAS_PLAYWRIGHT_OUTPUT_ROOT": runtime_root / "playwright-output",
     }
     for label, path in paths.items():
         resolved = path.resolve()
         if resolved != runtime_root and runtime_root not in resolved.parents:
             raise RuntimeError(f"{label} escaped the security gate temporary root: {resolved}")
         for forbidden in CHECKED_IN_MUTABLE_ROOTS:
-            if resolved == forbidden or forbidden in resolved.parents:
+            if (
+                resolved == forbidden
+                or forbidden in resolved.parents
+                or resolved in forbidden.parents
+            ):
                 raise RuntimeError(f"{label} targets checked-in runtime state: {resolved}")
 
     for variable, path in paths.items():
@@ -64,8 +76,52 @@ def isolated_environment(runtime_root: Path) -> dict[str, str]:
             path.mkdir(parents=True, exist_ok=True)
         else:
             path.parent.mkdir(parents=True, exist_ok=True)
-    environment = os.environ.copy()
+    inherited_keys = {
+        "ALLUSERSPROFILE",
+        "COMSPEC",
+        "NUMBER_OF_PROCESSORS",
+        "OS",
+        "PATH",
+        "PATHEXT",
+        "PROCESSOR_ARCHITECTURE",
+        "SYSTEMDRIVE",
+        "SYSTEMROOT",
+        "WINDIR",
+        "PYTHONPATH",
+        "ATLAS_HERMETIC_MODE",
+        "ATLAS_HERMETIC_ROOT",
+        "ATLAS_HERMETIC_SOURCE_ROOT",
+        "ATLAS_LIVE_REPOSITORY_ROOT",
+        "ATLAS_LIVE_DATASET_LIBRARY_BACKUP_ROOT",
+        "ATLAS_RUN_ID",
+        "ATLAS_TEST_BACKEND_URL",
+    }
+    environment = {
+        name: value for name, value in os.environ.items() if name.upper() in inherited_keys
+    }
     environment.update({name: str(path) for name, path in paths.items()})
+    environment.update(
+        {
+            "ATLAS_TEST_MODE": "1",
+            "ATLAS_ENV": "testing",
+            "ATLAS_PROCESS_ROLE": "test",
+            "ATLAS_HERMETIC_GUARD_PASSED": "0",
+            "ATLAS_SESSION_SECRET": uuid.uuid4().hex + uuid.uuid4().hex,
+            "ATLAS_ENABLE_LOCAL_USER_BOOTSTRAP": "0",
+            "ATLAS_ALLOW_PUBLIC_REGISTRATION": "0",
+            "ATLAS_LOCAL_DEV": "0",
+            "ATLAS_HOSTED_MODE": "0",
+            "ATLAS_AUTH_ENABLED": "0",
+            "TEMP": str(runtime_root / "process-temp"),
+            "TMP": str(runtime_root / "process-temp"),
+            "PYTHONPYCACHEPREFIX": str(runtime_root / "pycache"),
+        }
+    )
+    for directory in (
+        runtime_root / "process-temp",
+        runtime_root / "pycache",
+    ):
+        directory.mkdir(parents=True, exist_ok=True)
     return environment
 
 
@@ -105,6 +161,7 @@ def run_entry(kind: str, entry: dict, gate_root: Path) -> None:
     command = [python_executable(), path] if runner == "python" else [runner, path]
     suite_name = re.sub(r"[^A-Za-z0-9_.-]+", "-", path).strip("-")
     environment = isolated_environment(gate_root / suite_name)
+    environment["ATLAS_TEST_NAME"] = suite_name
     print(f"\n[{kind}] {path}: {entry['description']}", flush=True)
     result = subprocess.run(
         command,
@@ -130,19 +187,20 @@ def main() -> None:
         f"ATLAS security inventory: {len(behavioral)} behavioral suites, "
         f"{len(structural)} structural suite."
     )
-    temp_parent = ROOT / ".tmp"
-    temp_parent.mkdir(parents=True, exist_ok=True)
-    gate_root = (
-        temp_parent / f"atlas_security_gate_{uuid.uuid4().hex}"
-    ).resolve()
+    configured_hermetic_root = os.getenv("ATLAS_HERMETIC_ROOT")
+    if configured_hermetic_root:
+        temp_parent = Path(configured_hermetic_root).resolve() / "authorities" / "security-gate"
+        temp_parent.mkdir(parents=True, exist_ok=True)
+        gate_root = (temp_parent / f"atlas_security_gate_{uuid.uuid4().hex}").resolve()
+    else:
+        gate_root = Path(
+            tempfile.mkdtemp(prefix=f"atlas_security_gate_{uuid.uuid4().hex}_")
+        ).resolve()
     gate_root.mkdir(parents=True, exist_ok=True)
-    try:
-        for entry in behavioral:
-            run_entry("behavioral", entry, gate_root)
-        for entry in structural:
-            run_entry("structural security check", entry, gate_root)
-    finally:
-        shutil.rmtree(gate_root, ignore_errors=True)
+    for entry in behavioral:
+        run_entry("behavioral", entry, gate_root)
+    for entry in structural:
+        run_entry("structural security check", entry, gate_root)
     print(
         f"\nATLAS security gate passed: {len(behavioral)} behavioral suites and "
         f"{len(structural)} structural suite."

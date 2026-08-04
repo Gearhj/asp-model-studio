@@ -98,10 +98,14 @@ test("Feature Engineering makes the seven-stage execution pipeline and hash gate
   assert.match(featureClient, /confirmFeatureManifest/);
   assert.match(featureService, /Preview the saved feature contract before materializing/);
   assert.match(featureService, /materialized_manifest_hash.*manifest_hash/s);
-  assert.match(featureService, /DATASTORE\.reset_splits\(\)/);
+  assert.match(
+    featureService,
+    /invalidate_downstream_training_state\([\s\S]{0,200}The governed feature manifest changed/,
+  );
 });
 
 test("Validation Design owns all five strategies, folds, protections, and visuals", () => {
+  const normalizedValidationUi = validationUi.replace(/\s+/g, " ");
   assert.match(validationUi, /title="Training and Validation Design"/);
   for (const testId of [
     "advanced-balancing-settings",
@@ -121,7 +125,7 @@ test("Validation Design owns all five strategies, folds, protections, and visual
     "Cross-Validation Strategy",
     "Hybrid Holdout plus Cross-Validation",
   ]) {
-    assert.ok(validationUi.includes(strategy), `missing validation strategy: ${strategy}`);
+    assert.ok(normalizedValidationUi.includes(strategy), `missing validation strategy: ${strategy}`);
   }
   for (const control of [
     "Fold method",
@@ -155,14 +159,14 @@ test("Validation Design owns all five strategies, folds, protections, and visual
 });
 
 test("Balancing is training-only and the HELOC recommendation is honest", () => {
-  assert.match(validationUi, /Balancing policy · training population only/i);
-  assert.match(validationUi, /No balancing is applied to holdout, TEST, or OOT/);
-  assert.match(validationUi, /No balancing required/);
+  assert.match(validationUi, /Training population only/i);
+  assert.match(validationUi, /Balancing can modify only training rows; it never changes the untouched holdout, TEST, or OOT populations/);
+  assert.match(validationUi, /No resampling/);
   assert.match(validationUi, /Threshold optimization: Evaluation only/);
   assert.match(splitService, /original_train_rows/);
   assert.match(splitService, /synthetic_rows_added/);
   assert.match(splitService, /rows_removed/);
-  assert.match(splitRouter, /global resampling before cross-validation|fold-local/i);
+  assert.match(splitService, /must not pre-resample the development population|planned_fold_local_training_only/i);
 });
 
 test("Model Training consumes locked inputs and acts as Mission Control", () => {
@@ -187,7 +191,14 @@ test("Model Training consumes locked inputs and acts as Mission Control", () => 
   assert.match(trainingJobs, /_cv_execution_splits/);
   assert.match(trainingJobs, /cv_splits=/);
   assert.match(trainingPreflight, /return to Balance & Split/);
-  assert.match(trainingJobs, /estimated_fits >= 160/);
+  assert.match(
+    trainingPreflight,
+    /large_run_required = estimated_fits >= LARGE_RUN_FIT_THRESHOLD/,
+  );
+  assert.match(
+    trainingJobs,
+    /preflight\.get\("large_run"\)[\s\S]{0,120}get\("required"\)/,
+  );
   assert.match(trainingJobs, /large_job_confirmed/);
 });
 
@@ -199,7 +210,7 @@ test("Training execution, diagnostic separation, and governed proposal are expli
     "Diagnostic only",
     "Performance versus Interpretability frontier",
     "Only verified non-holdout selection evidence appears here",
-    "Calibration treatment versus discrimination",
+    "Calibration treatment versus selection evidence",
     "Runtime versus performance",
     "Candidate decision lock",
   ]) {

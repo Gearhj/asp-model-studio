@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "mode": "HERMETIC_REGRESSION",
+  "suites": [
+    {
+      "name": "harness-guard",
+      "target": "tests/hermetic_test_harness_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "import-cache-store-probe",
+      "target": "tests/hermetic_import_cache_probe.py",
+      "kind": "python-probe"
+    },
+    {
+      "name": "node-browser-guard",
+      "target": "tests/hermetic_node_guard.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "storage-isolation-static-guard",
+      "target": "tests/test_storage_isolation_guard_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "security-release-gate",
+      "target": "scripts/run_security_tests.py",
+      "kind": "python-probe"
+    },
+    {
+      "name": "dataset-library-recovery",
+      "target": "tests/dataset_library_recovery_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "canonical-dataset-identity",
+      "target": "tests/canonical_dataset_identity_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "analysis-scope",
+      "target": "tests/analysis_scope_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "analysis-partition",
+      "target": "tests/analysis_partition_contract_test.py",
+      "kind": "python-test",
+      "isolatedMigrations": [
+        "server/persistence/migrations/0028_project_deletion_append_only_cascade.sql"
+      ]
+    },
+    {
+      "name": "project-context-hydration",
+      "target": "tests/project_context_hydration_authority_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "feature-engineering",
+      "target": "tests/feature_engineering_acceptance_repair_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "model-registry-durability",
+      "target": "tests/model_registry_durability_test.py",
+      "kind": "python-test"
+    }
+  ]
+}

@@ -61,7 +61,7 @@ export function TargetBalanceConfidenceVisual({
         className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-5 text-sm text-slate-600"
         data-testid="target-balance-confidence-empty"
       >
-        Target balance is unavailable until the Full Governed Population aggregate resolves.
+        Target balance is unavailable until the exact Development Population profile resolves.
       </div>
     );
   }
@@ -78,7 +78,7 @@ export function TargetBalanceConfidenceVisual({
     <div
       className="rounded-xl border border-blue-200 bg-white p-4 shadow-sm"
       data-testid="target-balance-confidence"
-      data-scope="full-governed-population"
+      data-scope="development-population"
       data-reduced-motion={reducedMotion ? "true" : "false"}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -88,7 +88,7 @@ export function TargetBalanceConfidenceVisual({
             Target balance and confidence
           </div>
           <p className="mt-1 text-xs leading-5 text-slate-600">
-            How common the configured event is, and how precisely prevalence is measured across the full governed population.
+            How common the configured event is, and how precisely prevalence is measured across the Development Population.
           </p>
         </div>
         <span
@@ -102,7 +102,7 @@ export function TargetBalanceConfidenceVisual({
       <div
         className="mt-4 overflow-hidden rounded-full bg-slate-100"
         role="img"
-        aria-label={`Target balance: ${formatCount(balance.eventCount)} events at ${formatEventRate(eventRate)} and ${formatCount(balance.nonEventCount)} non-events at ${formatEventRate(nonEventRate)} across the full governed population.`}
+        aria-label={`Target balance: ${formatCount(balance.eventCount)} events at ${formatEventRate(eventRate)} and ${formatCount(balance.nonEventCount)} non-events at ${formatEventRate(nonEventRate)} across the Development Population.`}
         data-testid="target-balance-bar"
       >
         <div className="flex h-10 w-full">
@@ -190,7 +190,7 @@ export function TargetBalanceConfidenceVisual({
           <span data-testid="ci-upper-bound">{formatEventRate(upper)}</span>
         </div>
         <p className="mt-2 text-[11px] leading-4 text-slate-500" data-testid="ci-explanation">
-          The band quantifies measurement uncertainty on this registered population; it is not a forecast interval.
+          The band quantifies measurement uncertainty on the Development Population; it is not a forecast interval.
         </p>
       </div>
     </div>
@@ -259,9 +259,8 @@ export function TargetQualityDiagnostic({
             Target quality diagnostic
           </div>
           <p className="mt-1 text-xs leading-5 text-slate-600">
-            Governed mixed scope: completeness, unexpected values, and duplicate-row
-            counts use the Full Governed Population; target-derived and post-outcome
-            candidate checks use the Development Population with the final holdout excluded.
+            Missingness, unexpected values, duplicate-row checks, and leakage review
+            use the exact Development Population with the sealed final holdout excluded.
           </p>
         </div>
         <span

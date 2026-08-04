@@ -79,6 +79,9 @@ async function compileTestModules() {
   await transpileSource("src/lib/serverPersistence.ts", path.join(TMP_DIR, "src/lib/serverPersistence.js"));
   await transpileSource("src/lib/activeProjectContext.ts", path.join(TMP_DIR, "src/lib/activeProjectContext.js"));
   await transpileSource("src/lib/authSession.ts", path.join(TMP_DIR, "src/lib/authSession.js"));
+  await transpileSource("src/lib/datasetIdentity.ts", path.join(TMP_DIR, "src/lib/datasetIdentity.js"));
+  await transpileSource("src/lib/authoritativeProjectContext.ts", path.join(TMP_DIR, "src/lib/authoritativeProjectContext.js"));
+  await transpileSource("src/lib/projectScopedRoutes.ts", path.join(TMP_DIR, "src/lib/projectScopedRoutes.js"));
   await transpileSource("src/lib/localDataset.ts", path.join(TMP_DIR, "src/lib/localDataset.js"));
   await transpileSource("src/lib/localProjects.ts", path.join(TMP_DIR, "src/lib/localProjects.js"));
   await transpileSource("src/lib/projectRegistryLoadState.ts", path.join(TMP_DIR, "src/lib/projectRegistryLoadState.js"));
@@ -353,6 +356,17 @@ test("import validation errors are returned inline-style and do not throw", () =
   const validation = modules.projectImportValidation.validateProjectImport({ not: "a project" });
   assert.equal(validation.ok, false);
   assert.equal(validation.errors.length > 0, true);
+});
+
+test("save-before-navigation infers predictive current step from a project-scoped route", () => {
+  resetStorage();
+  window.location.pathname = "/projects/open-project-predictive/step07";
+  const result = modules.localProjects.saveActiveProjectBeforeNavigation(
+    predictiveSnapshot({ currentStepId: "step00" }),
+  );
+  assert.equal(result.ok, true);
+  const projects = modules.localProjects.loadLocalProjects();
+  assert.equal(projects[0].snapshot.currentStepId, "step07");
 });
 
 test("project registry 1: a successful project response produces the rendered list state", async () => {

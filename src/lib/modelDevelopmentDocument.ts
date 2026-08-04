@@ -11,6 +11,7 @@ import { loadBureauReviewState } from "./bureauDetection";
 import { buildReportReadiness } from "./reportReadiness";
 import { BRAND } from "../config/brand";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { getCachedUserId } from "./authSession";
 import {
   requireLocalDatasetCanonicalIdentity,
 } from "./datasetIdentity";
@@ -491,9 +492,9 @@ function buildSections(
   mode: ModelDevelopmentDocumentMode,
   options: ModelDevelopmentDocumentOptions = {}
 ): ModelDevelopmentDocumentSection[] {
-  const context = loadProjectContext();
-  const dataset = loadLocalDataset();
   const projectId = currentProjectId();
+  const context = loadProjectContext(projectId, getCachedUserId() || "");
+  const dataset = loadLocalDataset();
   const datasetIdentity = resolveDocumentDatasetIdentity(projectId, dataset);
   const problemType = getProblemType(context, dataset);
   const experiments = filterExperimentsForProblem(
@@ -797,7 +798,10 @@ export function buildModelDevelopmentDocument(
   mode: ModelDevelopmentDocumentMode = "governance",
   options: ModelDevelopmentDocumentOptions = {}
 ): ModelDevelopmentDocument {
-  const context = loadProjectContext();
+  const context = loadProjectContext(
+    currentProjectId(),
+    getCachedUserId() || "",
+  );
   const generatedAt = new Date().toISOString();
   const title = `${safe(context.projectName, "Model")} Model Development Document`;
   const sections = buildSections(mode, options);

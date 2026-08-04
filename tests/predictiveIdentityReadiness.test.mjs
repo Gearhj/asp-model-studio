@@ -268,7 +268,8 @@ test("frontend wiring keeps identity-dependent rendering and notebook constructi
   assert.match(provider, /readiness\.status === "ready"/);
   assert.doesNotMatch(provider, /latestVersion|links\[0\]|versions\[0\]/);
   assert.match(panel, /!supportsRoute \|\| !expanded \|\| readiness\.status !== "ready"/);
-  assert.match(panel, /getNotebookSectionsForRoute\(location\.pathname\)/);
+  assert.match(panel, /const workflowRoute = normalizeWorkflowRoute\(location\.pathname\)/);
+  assert.match(panel, /getNotebookSectionsForRoute\(workflowRoute\)/);
   assert.match(panel, /error instanceof DatasetIdentityError/);
   assert.match(panel, /step-python-panel-identity-disabled/);
   assert.match(notebook, /requireLocalDatasetCanonicalIdentity/);

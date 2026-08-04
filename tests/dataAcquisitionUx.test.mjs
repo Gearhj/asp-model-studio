@@ -76,19 +76,14 @@ assert.match(page, /recordDatasetVersion\(localPayload, meta\)/, "Dataset lineag
 // --- Part C: source-aware persistence --------------------------------------
 
 assert.match(page, /persistenceMode === "registered-status"/, "A registered asset must render a status panel instead of the persistence choice.");
-assert.match(page, /Registered Dataset Library Asset/, "Registered status panel title required.");
-assert.match(page, /The source asset remains in the\s+Dataset Library if this project is deleted\./, "Registered status body copy required.");
-assert.match(page, /data-testid="already-linked-badge"/, "An already-linked asset must say so.");
-assert.match(page, /Already linked/, "Duplicate linking must be surfaced, not silently repeated.");
-for (const field of ["Dataset ID", "Version ID", "Owner", "Linked project status", "Source type", "Registration status"]) {
-  assert.ok(page.includes(field), `Registered status panel must display ${field}`);
+assert.match(page, /View dataset provenance/, "Registered provenance must remain available without a second large summary card.");
+assert.match(page, /Registered and linked to this project/, "Registered provenance title required.");
+assert.match(page, /Project link" value="Current"/, "The exact project-link state must remain available in provenance.");
+for (const field of ["Dataset ID", "Version ID", "Owner", "Source type"]) {
+  assert.ok(page.includes(field), `Registered provenance must display ${field}`);
 }
 assert.match(page, /Open in Dataset Library/, "Optional Open in Dataset Library action required.");
-assert.match(
-  page,
-  /Registration is not offered for a source asset that is already registered/,
-  "The page must state that duplicate registration/overwrite is not possible here."
-);
+assert.doesNotMatch(page, /Registered Dataset Library Asset/, "The former duplicate asset-summary heading must be removed.");
 
 // The workspace/register choice still exists for genuinely unregistered data.
 assert.match(page, /Project Workspace Only/, "New uploads keep the workspace-only choice.");
@@ -109,53 +104,29 @@ assert.match(page, /data-testid="data-quality-readiness"/, "The readiness sectio
 assert.match(page, /border-2 border-teal-300 bg-teal-50/, "Data Quality must use a distinct light-teal readiness treatment, not flat grey.");
 assert.match(page, /data-testid="readiness-status-badge"/, "A visible readiness status badge is required.");
 assert.match(page, /data-readiness-status=\{status\.readiness\}/, "The shared lifecycle readiness status must be inspectable.");
-assert.match(page, /data-testid="readiness-summary"/, "A concise readiness summary must precede the detailed cards.");
-const readinessComputation = sourceSection(
-  page,
-  "const readiness = useMemo(",
-  "const sqlWarnings",
-  "readiness computation",
-);
-assert.match(readinessComputation, /computeReadinessStatus\(\{/);
-for (const input of [
-  "quality",
-  "target",
-  "registeredRowCount",
-  "selectedPredictorCount: selected.length",
-  "profileScopeMode:",
-  "authoritativeEventCount:",
-]) {
-  assert.ok(readinessComputation.includes(input), `Readiness computation must include ${input}.`);
-}
+assert.doesNotMatch(page, /data-testid="readiness-summary"/, "The former duplicate readiness-summary rail must remain removed.");
+assert.match(page, /<ReadinessBadge status=\{acquisitionStatus\} \/>/, "The quality section must render the single shared lifecycle state.");
 // Semantic tone, not uniform grey.
 assert.match(page, /data-quality-tone=\{tone\}/, "Quality groups must carry a semantic tone.");
 assert.match(page, /tone === "warning" \? "border-amber-300 bg-amber-50" : "border-emerald-200 bg-emerald-50"/, "Clear groups are green and warning groups amber.");
 assert.match(page, /\{tone === "warning" \? "Review" : "Clear"\}/, "Status must be readable without color.");
-for (const group of ["Row and column health", "Missingness and duplicates", "Predictor readiness", "Leakage and target health"]) {
+for (const group of ["Row and column health", "Missingness and duplicates", "Predictor readiness", "Leakage screening"]) {
   assert.ok(page.includes(group), `Findings must stay visually separated: ${group}`);
 }
-assert.match(page, /Dataset identity and scope/, "Dataset identity and scope group must remain.");
+assert.doesNotMatch(page, /Dataset identity and scope/, "Dataset identity must not be repeated inside Data Quality.");
 
 // --- Part E: modeling rows vs preview rows ---------------------------------
 
-for (const label of ["Modeling Rows", "Browser Preview Rows", "Dataset Columns", "Selected Predictors", "Dataset Version", "Source Type"]) {
-  assert.ok(page.includes(label), `Current Dataset Summary must use the clarified label: ${label}`);
-}
-assert.doesNotMatch(page, /Stat label="Rows Cached for UI"/, "The ambiguous 'Rows Cached for UI' label must be replaced.");
-assert.doesNotMatch(page, /label="Browser data" value=\{props\.browserDataComplete \? "Complete dataset" : "Preview only"\}/, "The ambiguous 'Browser Data: Preview only' stat must be replaced by explicit row counts.");
-assert.match(page, /data-testid="modeling-vs-preview-note"/, "The page must state that the preview limit does not reduce the modeling population.");
-assert.match(page, /the preview limit does not reduce the modeling population/, "Explicit preview-vs-modeling wording required.");
+assert.doesNotMatch(page, /function CurrentDatasetSummary/, "The duplicate Current Dataset Summary must remain removed.");
+assert.match(page, /data-testid="browser-preview-scope-note"/, "Data Preview must retain one concise scope sentence.");
+assert.match(page, /Preview limits do not change backend modeling scope/, "The preview must not imply a smaller modeling population.");
 
 // --- Part F: authoritative event rate --------------------------------------
 
-assert.match(page, /resolveAuthoritativeEventRate\(\{ quality, previewEventRate: targetInfo\.eventRate, completeBrowserDataset \}\)/, "Event rate must resolve from the authoritative population.");
-assert.match(page, /eventRate=\{authoritativeEventRate\.rate\}/, "Target Profile must consume the authoritative rate.");
-assert.match(page, /label=\{`Event Rate \(\$\{props\.eventRateScopeLabel\}\)`\}/, "The event rate must disclose which population it describes.");
-assert.match(page, /data-testid="preview-only-event-rate-warning"/, "A preview-derived rate must be labelled Preview only.");
-// The old preview-derived, 2-decimal rate is gone from both surfaces.
-assert.doesNotMatch(page, /value=\{props\.targetInfo\.eventRate === null \? "-" : formatPercent\(props\.targetInfo\.eventRate\)\}/, "Target Profile must not display the preview-derived event rate.");
-assert.doesNotMatch(page, /formatPercent\(quality\.classBalance\.eventRate\)/, "Data Quality must use rare-event-safe precision.");
-assert.match(page, /formatEventRate\(quality\.classBalance\?\.eventRate\)/, "Data Quality event rate must use rare-event-safe formatting.");
+assert.match(page, /const serverDistribution = useTargetDistribution\(targetDistributionRequest\)/, "Target rates must come from the dedicated governed aggregate.");
+assert.match(page, /scopeLabel=\{[\s\S]{0,260}?"full registered population"/, "The target distribution must disclose its governed population scope.");
+assert.doesNotMatch(page, /resolveAuthoritativeEventRate\(/, "A dead preview-rate fallback must not compete with the dedicated aggregate.");
+assert.doesNotMatch(page, /targetInfo\.eventRate === null[\s\S]{0,100}?formatPercent/, "The UI must not render a preview-derived target rate.");
 
 // --- Part H1: real milestones, no fake percentage --------------------------
 
@@ -262,11 +233,10 @@ assert.match(page, /targetDistributionState/, "The chart must support loading/em
 
 // --- Part H2: readiness track ----------------------------------------------
 
-for (const stage of ["Source selected", "Import completed", "Dataset registered or linked", "Target confirmed", "Quality reviewed", "Predictors approved"]) {
-  assert.ok(page.includes(stage), `Readiness track must include stage: ${stage}`);
+for (const stage of ["Registered", "Linked", "Version loaded", "Target confirmed", "Predictor authorization", "Partition current"]) {
+  assert.ok(page.includes(stage), `The canonical Data Contract must include status: ${stage}`);
 }
-assert.match(page, /acquisitionStatus\.readiness === "blocked"\s*\n?\s*\?\s*"blocked"/, "Blocked must be reserved for blockers from the shared lifecycle status.");
-assert.match(page, /acquisitionStatus\.readinessLabel[\s\S]*?acquisitionStatus\.reviewLabel/, "Track detail must derive from the shared readiness and review state.");
+assert.match(page, /<DataContractStatusChips/, "One compact lifecycle status surface must replace the former readiness track.");
 
 // --- Part H6: visual hierarchy ---------------------------------------------
 

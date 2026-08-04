@@ -1,24 +1,24 @@
 {
   "actorUserId": "user_d8bbe3ff73a84fb5",
-  "backupBundleName": "atlas-dataset-library-20260801T171859.754387Z-85af291e55dd4ce28e453f7cc66ccd2b",
-  "backupManifestSha256": "564004f93af624a92c54c211b631a021edb02e38c728884e98e089392e58588b",
+  "backupBundleName": "atlas-dataset-library-20260804T032112.575514Z-8e99d5e107b344de90b2f9790d577d4d",
+  "backupManifestSha256": "a1ff55ef4ff5d9c027fd8797751f6b14f01b01eda17d5b0abdc507ba9ed6f4c2",
   "before": {
-    "projectLinksSha256": "54a84e8ada419f0afbae994c04f065d9397fa12bb632a0772abdd04df33d5776",
-    "registrySha256": "c606135157fb0c8acb6131f63ccb9cc4015b1d358871f16e309f672342a69b59"
+    "projectLinksSha256": "117b673906b9b88423abaec3aab62c0c1557089ba3c9ba477d54c5c330a7627b",
+    "registrySha256": "e2192a6eea0ef077f7d5647e7aede418114f21a2a972c1b4faf0c6fb991dc7cc"
   },
-  "createdAt": "2026-08-01T17:18:59.772431+00:00",
+  "createdAt": "2026-08-04T03:21:12.609776+00:00",
   "datasetId": "ds_heloc_train_6bdb184b_05905",
   "datasetVersionId": "v_1785186305905_6bdb184b",
   "expectedAfter": {
-    "projectLinksSha256": "dd454353dbdb09298f5da0cbe0c452962fd5850dc03896cefbd6540b7107dd6f",
-    "registrySha256": "02274e9f4c5062f6c8152fed3636e81794efc5c2f67b4075fd7f66acb7e82484"
+    "projectLinksSha256": "8559687b838fdc6d5afc34c14872d0ef7666b7076f1e6f7a4668b94719a5ac23",
+    "registrySha256": "69a2ae2949d4852eea82bffd6d96826e320c5584b11e977638a6e07f78046973"
   },
   "formatVersion": 1,
   "kind": "atlas_dataset_library_recovery_journal",
-  "operationId": "dataset-projection-d159d56638584b869280cb0d6dc53cff",
+  "operationId": "dataset-projection-b1115cccf9db47319f7444804c3f5433",
   "operationType": "link_project",
   "projectId": "atlas-mrzpau4t",
   "reason": "Before linking an exact Dataset Library version to a project",
-  "resolvedAt": "2026-08-01T17:18:59.846033+00:00",
+  "resolvedAt": "2026-08-04T03:21:12.676240+00:00",
   "status": "committed"
 }

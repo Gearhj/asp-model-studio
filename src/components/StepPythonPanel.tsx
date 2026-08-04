@@ -33,6 +33,19 @@ import {
   type CodeDraftEnvelope,
 } from "../lib/codeContextSafety";
 import {
+  buildConfirmedDataAcquisitionCodeContext,
+  buildDataAcquisitionMetadataContext,
+  buildDataAcquisitionPythonContext,
+  buildDataAcquisitionSasContext,
+  fetchDataAcquisitionReproducibilityContext,
+  isCurrentDataAcquisitionReproducibilityContext,
+  REPRODUCIBILITY_CONTEXT_CONFIRMED_EVENT,
+  REPRODUCIBILITY_CONTEXT_PENDING_EVENT,
+  reproducibilityContextPendingMessage,
+  type CurrentDataAcquisitionReproducibilityContext,
+  type DataAcquisitionReproducibilityContext,
+} from "../lib/dataAcquisitionReproducibility";
+import {
   getNotebookSectionsForRoute,
   notebookRouteSupported,
   USER_STEP_PYTHON_CODE_KEY,
@@ -42,6 +55,11 @@ import {
 import { createCodeCell, createNotebookCell, saveNotebook } from "../lib/notebookStudio";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { usePredictiveIdentity } from "./PredictiveIdentityProvider";
+import {
+  normalizeWorkflowRoute,
+  projectWorkflowNavigationPath,
+  scopedProjectIdForPathname,
+} from "../lib/projectScopedRoutes";
 
 type SasRunMode = "saspy" | "compatible" | "template" | "external";
 
@@ -59,6 +77,18 @@ function writeCode(key: string, value: Record<string, string>) {
   window.dispatchEvent(new CustomEvent("step-code-updated"));
 }
 
+function downloadGeneratedContext(fileName: string, value: string) {
+  if (!value) return;
+  const href = URL.createObjectURL(
+    new Blob([value], { type: "text/plain;charset=utf-8" }),
+  );
+  const anchor = document.createElement("a");
+  anchor.href = href;
+  anchor.download = fileName;
+  anchor.click();
+  URL.revokeObjectURL(href);
+}
+
 function combinedGeneratedCode(sections: NotebookSection[]) {
   return sections.map((section) => `# ${section.title}\n${section.code}`).join("\n\n");
 }
@@ -68,60 +98,11 @@ function generatedPythonForRoute(
   sections: NotebookSection[],
   projectId: string,
 ) {
-  if (route !== "/step01") return combinedGeneratedCode(sections);
-
-  const metadata = loadDataAccessMetadata();
-  const dataset = loadLocalDataset();
-  const target = dataset?.target ?? "";
-  const selectedFeatures = (dataset?.selected_columns ?? dataset?.headers.filter((column) => column !== target) ?? [])
-    .filter((column) => column !== target);
-  let accessCode = metadata?.generatedPython || combinedGeneratedCode(sections);
-
-  // CODE-DATAACQ-002: a registered Dataset Library version is bound by the
-  // governed runtime, which provides df/TARGET/SELECTED_FEATURES directly. The
-  // generated code therefore carries no dataset path at all -- the previous
-  // placeholder export path could never resolve and would fail once execution
-  // was enabled.
-  let canonicalIdentity:
-    | ReturnType<typeof requireLocalDatasetCanonicalIdentity>
-    | null = null;
-  try {
-    canonicalIdentity = requireLocalDatasetCanonicalIdentity(
-      projectId,
-      dataset,
-      "Generated code dataset identity",
-    );
-  } catch {
-    canonicalIdentity = null;
-  }
-  if (dataset?.dataset_library && canonicalIdentity) {
-    const library = dataset.dataset_library;
-    return `# ATLAS provides df from the authorized project dataset and version.
-# Runtime objects: df, TARGET, SELECTED_FEATURES, ATLAS_DATASET_PATH
-# Dataset: ${library.datasetName} (${canonicalIdentity.dataset_id})
-# Version: ${canonicalIdentity.dataset_version_id}
-
-print("Dataset shape:", df.shape)
-print("Target:", TARGET or "Not selected")
-print("Selected predictors:", len(SELECTED_FEATURES))`;
-  }
-
-  return `${accessCode}
-
-# ATLAS provides df, TARGET, and SELECTED_FEATURES at runtime.
-if TARGET:
-    if TARGET not in df.columns:
-        raise KeyError(f"Target column {TARGET!r} is not present in the loaded dataset.")
-    missing_features = [column for column in SELECTED_FEATURES if column not in df.columns]
-    if missing_features:
-        raise KeyError(f"Selected features are missing from the loaded dataset: {missing_features}")
-    modeling_df = df[SELECTED_FEATURES + [TARGET]].copy()
-else:
-    modeling_df = df.copy()
-
-print("Rows available to this runtime:", len(df))
-print("Modeling columns:", len(modeling_df.columns))
-print("Target:", TARGET or "Not selected")`;
+  // Data Acquisition is generated only from the exact backend response below.
+  // Returning an empty string here prevents a browser-derived fallback.
+  if (route === "/step01") return "";
+  void projectId;
+  return combinedGeneratedCode(sections);
 }
 
 function combinedSavedCode(sections: NotebookSection[], saved: Record<string, string>) {
@@ -144,10 +125,21 @@ function sasDatasetName() {
 }
 
 /**
+ * Returns a SAS-safe variable reference. Ordinary V7 identifiers remain
+ * readable; every other governed column name becomes a quoted name literal so
+ * punctuation, quotes, macro triggers, and statement delimiters stay data.
+ */
+function sasColumnReference(value: string) {
+  const normalized = String(value ?? "");
+  if (/^[A-Za-z_][A-Za-z0-9_]{0,31}$/.test(normalized)) return normalized;
+  return `'${normalized.replace(/'/g, "''")}'n`;
+}
+
+/**
  * Part H: under SAS-compatible execution only statements the compatibility
  * engine actually supports are generated, so the starter program cannot be
- * guaranteed to fail. Data-access statements (PROC IMPORT, LIBNAME, SET) are
- * outside the subset and belong to the export-oriented templates.
+ * guaranteed to fail. Physical data-access statements are outside the subset
+ * and must be configured through an approved external access mechanism.
  */
 function generatedSasCompatibleProgram(route: string) {
   const dataset = loadLocalDataset();
@@ -158,42 +150,48 @@ function generatedSasCompatibleProgram(route: string) {
     "run;",
     "",
   ];
-  if (target) {
-    lines.push(`proc freq data=work.${table};`, `    tables ${target} / missing;`, "run;", "");
-  }
   const numericCandidates = (dataset?.selected_columns ?? [])
     .filter((column) => column !== target)
     .slice(0, 12);
   lines.push(
     `proc means data=work.${table} n nmiss mean std min median max;`,
-    numericCandidates.length ? `    var ${numericCandidates.join(" ")};` : "",
+    numericCandidates.length
+      ? `    var ${numericCandidates.map(sasColumnReference).join(" ")};`
+      : "",
     "run;",
+    "",
+    ...(numericCandidates.length
+      ? [
+          `proc freq data=work.${table};`,
+          `    tables ${numericCandidates.slice(0, 3).map(sasColumnReference).join(" ")} / missing;`,
+          "run;",
+          "",
+        ]
+      : []),
+    "/* Target-directed summaries are withheld until the backend verifies the exact development population and excludes the sealed holdout. */",
   );
-  return lines.filter((line) => line !== "").join("\n") + (route === "/step01" ? "\n" : "\n");
+  void route;
+  return lines.filter((line) => line !== "").join("\n") + "\n";
 }
 
 function generatedSasForRoute(route: string) {
-  const metadata = loadDataAccessMetadata();
   const dataset = loadLocalDataset();
   const table = sasDatasetName();
-  const fileName = metadata?.fileName || dataset?.dataset_library?.datasetName || "path/to/modeling_data.csv";
-  let access = "";
-  if (metadata?.sourceType === "sql") {
-    access = `/* Supply credentials through the configured SAS environment. */\nlibname source ODBC dsn=\"GOVERNED_DSN\";\nproc sql;\n  create table work.${table} as\n  ${metadata.sqlQuery || "select * from source.governed_table"}\n  ;\nquit;`;
-  } else if (metadata?.sourceType === "existing") {
-    access = `/* Replace the library reference with the registered Dataset Library location. */\ndata work.${table};\n  set atlas.${table};\nrun;`;
-  } else if (metadata?.sourceType === "cloud") {
-    access = `/* Configure cloud credentials outside this program. */\nfilename source temp;\n/* Download the governed object ${String(metadata.cloudPath || "cloud://path/to/data").replace(/\*\//g, "")} into the SOURCE fileref using the approved SAS access method. */\nproc import datafile=source out=work.${table} dbms=csv replace; guessingrows=max; run;`;
-  } else if (metadata?.sourceType === "python") {
-    access = `/* Python loader sources require a governed interchange artifact before SAS execution. */\ndata work.${table};\n  set atlas.governed_interchange;\nrun;`;
-  } else if (/\.sas7bdat$/i.test(fileName)) {
-    access = `libname source \"path/to/sas/library\";\ndata work.${table};\n  set source.${table};\nrun;`;
-  } else {
-    access = `proc import datafile=\"${fileName.replace(/"/g, "") }\"\n  out=work.${table}\n  dbms=csv replace;\n  guessingrows=max;\nrun;`;
-  }
+  // Data Acquisition is generated only from the exact backend response below.
+  // Other pages may inspect the actual work table supplied by their execution
+  // context, but this function never fabricates a physical data connection.
+  if (route === "/step01") return "";
   const verification = `proc contents data=work.${table}; run;\nproc means data=work.${table} n mean std min median max; run;`;
-  if (route === "/step01") return `${access}\n\n${verification}`;
-  if (route === "/step02") return `proc contents data=work.${table}; run;\nproc means data=work.${table} n mean std min median max; run;\nproc freq data=work.${table}; tables ${dataset?.target || "target"}; run;`;
+  if (route === "/step02") {
+    const predictors = (dataset?.selected_columns ?? [])
+      .filter((column) => column !== dataset?.target)
+      .slice(0, 32)
+      .map(sasColumnReference);
+    const predictorMeans = predictors.length
+      ? `proc means data=work.${table} n nmiss mean std min median max; var ${predictors.join(" ")}; run;`
+      : `proc contents data=work.${table}; run;`;
+    return `/* Structural EDA only. Target-directed analysis requires exact verified development membership; no full-population target fallback is permitted. */\nproc contents data=work.${table}; run;\n${predictorMeans}`;
+  }
   if (route === "/step06") return `/* Reproduce final split-readiness checks for the governed feature list. */\n${verification}`;
   if (route === "/step07") return `/* Exportable training handoff. Model fitting remains governed by the ATLAS training service. */\n${verification}`;
   return `/* ${route} reproducibility program */\n${verification}`;
@@ -211,9 +209,11 @@ function sasStatus(diagnostics: SasDiagnostics | null, mode: SasRunMode) {
 
 export default function StepPythonPanel() {
   const location = useLocation();
+  const workflowRoute = normalizeWorkflowRoute(location.pathname);
   const { readiness, retry: retryIdentity } = usePredictiveIdentity();
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
+  const projectType = useWorkflowStore((state) => state.projectType);
   const currentStepId = useWorkflowStore((state) => state.currentStepId);
   const [expanded, setExpanded] = useState(false);
   const [pythonCodeByStep, setPythonCodeByStep] = useState(() => readCode(USER_STEP_PYTHON_CODE_KEY));
@@ -231,18 +231,29 @@ export default function StepPythonPanel() {
   const [sasDiagnostics, setSasDiagnostics] = useState<SasDiagnostics | null>(null);
   const [sasMode, setSasMode] = useState<SasRunMode>("template");
   const [datasetContextRevision, setDatasetContextRevision] = useState(0);
+  const [reproducibilityContext, setReproducibilityContext] =
+    useState<DataAcquisitionReproducibilityContext | null>(null);
+  const [reproducibilityContextPhase, setReproducibilityContextPhase] =
+    useState<"idle" | "loading" | "pending" | "current" | "error">("idle");
+  const [reproducibilityContextError, setReproducibilityContextError] =
+    useState("");
+  const [reproducibilityContextExplicitlyPending, setReproducibilityContextExplicitlyPending] =
+    useState(false);
   // CODE-DATAACQ-001: capability comes from the backend, never from a hard-coded
   // badge. Until it resolves the panel reports "Checking runtime", not "Executable".
   const [pythonCapability, setPythonCapability] = useState<PythonCapability | null>(null);
 
-  const supportsRoute = notebookRouteSupported(location.pathname);
+  const supportsRoute = notebookRouteSupported(workflowRoute);
+  const predictiveProject =
+    String(projectType || "").trim().toLowerCase().replaceAll("_", "-") ===
+    "predictive-modeling";
   const sectionResolution = useMemo(() => {
     if (!supportsRoute || !expanded || readiness.status !== "ready") {
       return { sections: [] as NotebookSection[], error: "" };
     }
     try {
       return {
-        sections: getNotebookSectionsForRoute(location.pathname),
+        sections: getNotebookSectionsForRoute(workflowRoute),
         error: "",
       };
     } catch (error) {
@@ -257,7 +268,7 @@ export default function StepPythonPanel() {
   }, [
     datasetContextRevision,
     expanded,
-    location.pathname,
+    workflowRoute,
     readiness.identity?.dataset_id,
     readiness.identity?.dataset_version_id,
     readiness.status,
@@ -266,13 +277,28 @@ export default function StepPythonPanel() {
   const sections = sectionResolution.sections;
 
   const sectionKey = sections[0]?.sectionKey ?? "";
-  const generatedPython = generatedPythonForRoute(
-    location.pathname,
-    sections,
-    projectId,
-  );
-  const generatedSas =
-    sasMode === "compatible" ? generatedSasCompatibleProgram(location.pathname) : generatedSasForRoute(location.pathname);
+  const currentReproducibilityContext:
+    | CurrentDataAcquisitionReproducibilityContext
+    | null =
+    reproducibilityContext &&
+    isCurrentDataAcquisitionReproducibilityContext(reproducibilityContext)
+      ? reproducibilityContext
+      : null;
+  const generatedPython = workflowRoute === "/step01"
+    ? currentReproducibilityContext
+      ? buildDataAcquisitionPythonContext(currentReproducibilityContext)
+      : ""
+    : generatedPythonForRoute(workflowRoute, sections, projectId);
+  const generatedSas = workflowRoute === "/step01"
+    ? currentReproducibilityContext
+      ? buildDataAcquisitionSasContext(currentReproducibilityContext)
+      : ""
+    : sasMode === "compatible"
+      ? generatedSasCompatibleProgram(workflowRoute)
+      : generatedSasForRoute(workflowRoute);
+  const generatedMetadata = currentReproducibilityContext
+    ? buildDataAcquisitionMetadataContext(currentReproducibilityContext)
+    : "";
   const pageTitle = sections.map((section) => section.title).join(" / ");
   const activeDataset = useMemo(
     () => loadLocalDataset(),
@@ -289,22 +315,34 @@ export default function StepPythonPanel() {
       return null;
     }
   }, [activeDataset, projectId]);
-  const pythonCodeContext = buildCurrentCodeContext({
-    workflowPage: location.pathname,
-    language: "python",
-    projectId,
-    dataset: activeDataset,
-  });
-  const sasCodeContext = buildCurrentCodeContext({
-    workflowPage: location.pathname,
-    language: "sas",
-    projectId,
-    dataset: activeDataset,
-  });
+  const pythonCodeContext = currentReproducibilityContext
+    ? buildConfirmedDataAcquisitionCodeContext(
+        currentReproducibilityContext,
+        "python",
+        workflowRoute,
+      )
+    : buildCurrentCodeContext({
+        workflowPage: workflowRoute,
+        language: "python",
+        projectId,
+        dataset: activeDataset,
+      });
+  const sasCodeContext = currentReproducibilityContext
+    ? buildConfirmedDataAcquisitionCodeContext(
+        currentReproducibilityContext,
+        "sas",
+        workflowRoute,
+      )
+    : buildCurrentCodeContext({
+        workflowPage: workflowRoute,
+        language: "sas",
+        projectId,
+        dataset: activeDataset,
+      });
   const draftLoadOptions = (language: CodeContextLanguage, legacyCode?: string) => ({
     scope: {
       projectId,
-      workflowPage: location.pathname,
+      workflowPage: workflowRoute,
       language,
     },
     legacyStorageKey: language === "python" ? USER_STEP_PYTHON_CODE_KEY : USER_STEP_SAS_CODE_KEY,
@@ -315,13 +353,76 @@ export default function StepPythonPanel() {
   useEffect(() => {
     const refreshContext = () =>
       setDatasetContextRevision((revision) => revision + 1);
+    const markPending = () => {
+      setReproducibilityContextExplicitlyPending(true);
+      setReproducibilityContext(null);
+      setReproducibilityContextPhase("pending");
+      setReproducibilityContextError("");
+    };
+    const refreshConfirmed = () => {
+      setReproducibilityContextExplicitlyPending(false);
+      refreshContext();
+    };
     window.addEventListener("atlas-dataset-updated", refreshContext);
     window.addEventListener("atlas-eda-code-context-updated", refreshContext);
+    window.addEventListener(REPRODUCIBILITY_CONTEXT_PENDING_EVENT, markPending);
+    window.addEventListener(REPRODUCIBILITY_CONTEXT_CONFIRMED_EVENT, refreshConfirmed);
     return () => {
       window.removeEventListener("atlas-dataset-updated", refreshContext);
       window.removeEventListener("atlas-eda-code-context-updated", refreshContext);
+      window.removeEventListener(REPRODUCIBILITY_CONTEXT_PENDING_EVENT, markPending);
+      window.removeEventListener(REPRODUCIBILITY_CONTEXT_CONFIRMED_EVENT, refreshConfirmed);
     };
   }, []);
+
+  useEffect(() => {
+    if (!predictiveProject) {
+      setReproducibilityContext(null);
+      setReproducibilityContextPhase("idle");
+      setReproducibilityContextError("");
+      setReproducibilityContextExplicitlyPending(false);
+      return;
+    }
+    if (
+      !expanded ||
+      readiness.status !== "ready" ||
+      !projectId ||
+      reproducibilityContextExplicitlyPending
+    ) {
+      return;
+    }
+    const controller = new AbortController();
+    setReproducibilityContext(null);
+    setReproducibilityContextPhase("loading");
+    setReproducibilityContextError("");
+    fetchDataAcquisitionReproducibilityContext(projectId, controller.signal)
+      .then((context) => {
+        if (controller.signal.aborted) return;
+        setReproducibilityContext(context);
+        setReproducibilityContextPhase(
+          context.state === "current" ? "current" : "pending",
+        );
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return;
+        setReproducibilityContext(null);
+        setReproducibilityContextPhase("error");
+        setReproducibilityContextError(
+          error instanceof Error
+            ? error.message
+            : "The exact reproducibility context could not be verified.",
+        );
+      });
+    return () => controller.abort();
+  }, [
+    datasetContextRevision,
+    expanded,
+    projectId,
+    predictiveProject,
+    readiness.status,
+    reproducibilityContextExplicitlyPending,
+    workflowRoute,
+  ]);
 
   useEffect(() => {
     if (!sectionKey) return;
@@ -338,11 +439,14 @@ export default function StepPythonPanel() {
     setPythonDraftEnvelope(pythonLoaded.draft);
     setSasDraftEnvelope(sasLoaded.draft);
     setPythonDraft(pythonLoaded.draft?.code ?? "");
-    setSasDraft(sasLoaded.draft?.code || generatedSasForRoute(location.pathname));
+    setSasDraft(
+      sasLoaded.draft?.code ||
+        (workflowRoute === "/step01" ? "" : generatedSasForRoute(workflowRoute)),
+    );
     setContextMessages({});
     // Scope changes are the only time the working draft should be replaced.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname, projectId, sectionKey, sections]);
+  }, [projectId, sectionKey, sections, workflowRoute]);
 
   useEffect(() => {
     if (!expanded || readiness.status !== "ready") return;
@@ -386,8 +490,28 @@ export default function StepPythonPanel() {
   const sasContextEvaluation = evaluateCodeDraftContext(sasDraftEnvelope, sasCodeContext, sasDraft);
   const setContextMessage = (language: CodeContextLanguage, message: string) =>
     setContextMessages((current) => ({ ...current, [language]: message }));
+  const exactDataAcquisitionContextReady = predictiveProject
+    ? Boolean(currentReproducibilityContext)
+    : Boolean(String(projectType || "").trim());
+  const exactContextStatusMessage = (() => {
+    if (currentReproducibilityContext) {
+      return `Exact backend context ${currentReproducibilityContext.context_id} is current.`;
+    }
+    if (reproducibilityContextError) return reproducibilityContextError;
+    if (reproducibilityContext?.state && reproducibilityContext.state !== "current") {
+      return reproducibilityContextPendingMessage(reproducibilityContext.state);
+    }
+    if (reproducibilityContextPhase === "loading") {
+      return "Verifying the exact dataset, target authorization, and Analysis Partition...";
+    }
+    return "Generated code is withheld until the backend confirms the exact current context.";
+  })();
 
   const persist = (language: CodeContextLanguage) => {
+    if (!exactDataAcquisitionContextReady) {
+      setContextMessage(language, exactContextStatusMessage);
+      return false;
+    }
     const key = language === "python" ? USER_STEP_PYTHON_CODE_KEY : USER_STEP_SAS_CODE_KEY;
     const current = language === "python" ? pythonCodeByStep : sasCodeByStep;
     const draft = language === "python" ? pythonDraft : sasDraft;
@@ -430,6 +554,10 @@ export default function StepPythonPanel() {
   };
 
   const acknowledgeMismatch = (language: CodeContextLanguage) => {
+    if (!exactDataAcquisitionContextReady) {
+      setContextMessage(language, exactContextStatusMessage);
+      return;
+    }
     const current = language === "python" ? pythonCodeByStep : sasCodeByStep;
     const code = language === "python" ? pythonDraft : sasDraft;
     const currentContext = language === "python" ? pythonCodeContext : sasCodeContext;
@@ -464,6 +592,10 @@ export default function StepPythonPanel() {
   };
 
   const resetForCurrentContext = (language: CodeContextLanguage) => {
+    if (!exactDataAcquisitionContextReady) {
+      setContextMessage(language, exactContextStatusMessage);
+      return;
+    }
     const current = language === "python" ? pythonCodeByStep : sasCodeByStep;
     const historicalCode = language === "python" ? pythonDraft : sasDraft;
     const generatedCode = language === "python" ? generatedPython : generatedSas;
@@ -509,6 +641,15 @@ export default function StepPythonPanel() {
         projectName,
         primaryDatasetId: envelope.context?.datasetId || undefined,
         primaryVersionId: envelope.context?.datasetVersion || undefined,
+        target: currentReproducibilityContext?.target_contract.target,
+        eventValue: currentReproducibilityContext?.target_contract.event_value,
+        nonEventValue: currentReproducibilityContext?.target_contract.non_event_value,
+        targetContractId:
+          currentReproducibilityContext?.target_contract.target_contract_id,
+        analysisPartitionId:
+          currentReproducibilityContext?.analysis_partition.analysis_partition_id,
+        analysisPartitionRevision:
+          currentReproducibilityContext?.analysis_partition.revision,
         tags: ["historical-code-copy", "code-context", language],
         defaultCodeLanguage: language === "python" ? "python" : "sas_compatible",
         cells: [
@@ -560,14 +701,62 @@ ${codeContextSummary(currentContext).map((line) => `- ${line}`).join("\n")}`,
 
   // The governed identity travels with every execution request so the backend can
   // resolve the exact authorized artifact rather than trusting a client path.
-  const context = {
-    previewRows: activeDataset?.rows.slice(0, 500) ?? [],
-    datasetName: sasDatasetName(),
-    datasetId: activeDatasetIdentity?.dataset_id ?? "",
-    versionId: activeDatasetIdentity?.dataset_version_id ?? "",
-    target: activeDataset?.target ?? "",
-    selectedFeatures: activeDataset?.selected_columns ?? [],
-  };
+  const context = currentReproducibilityContext
+    ? {
+        previewRows: [],
+        datasetName: currentReproducibilityContext.identity.dataset_name,
+        datasetId: currentReproducibilityContext.identity.dataset_id,
+        versionId: currentReproducibilityContext.identity.dataset_version_id,
+        target: currentReproducibilityContext.target_contract.target,
+        selectedFeatures:
+          currentReproducibilityContext.predictor_authorization
+            .authorized_predictors,
+        targetContractId:
+          currentReproducibilityContext.target_contract.target_contract_id,
+        analysisPartitionId:
+          currentReproducibilityContext.analysis_partition.analysis_partition_id,
+        analysisPartitionRevision:
+          currentReproducibilityContext.analysis_partition.revision,
+        eventValue: currentReproducibilityContext.target_contract.event_value,
+        nonEventValue: currentReproducibilityContext.target_contract.non_event_value,
+      }
+    : predictiveProject
+      ? {
+          previewRows: [],
+          datasetName: "",
+          datasetId: "",
+          versionId: "",
+          target: "",
+          selectedFeatures: [],
+        }
+      : {
+          previewRows: activeDataset?.rows.slice(0, 500) ?? [],
+          datasetName: sasDatasetName(),
+          datasetId: activeDatasetIdentity?.dataset_id ?? "",
+          versionId: activeDatasetIdentity?.dataset_version_id ?? "",
+          target: activeDataset?.target ?? "",
+          selectedFeatures: activeDataset?.selected_columns ?? [],
+        };
+
+  const notebookStudioPath = currentReproducibilityContext
+    ? `/notebook-studio?${new URLSearchParams({
+        projectId: currentReproducibilityContext.project_id,
+        datasetId: currentReproducibilityContext.identity.dataset_id,
+        versionId: currentReproducibilityContext.identity.dataset_version_id,
+        target: currentReproducibilityContext.target_contract.target,
+        eventValue:
+          JSON.stringify(currentReproducibilityContext.target_contract.event_value) ?? "",
+        nonEventValue:
+          JSON.stringify(currentReproducibilityContext.target_contract.non_event_value) ?? "",
+        targetContractId:
+          currentReproducibilityContext.target_contract.target_contract_id,
+        analysisPartitionId:
+          currentReproducibilityContext.analysis_partition.analysis_partition_id,
+        analysisPartitionRevision: String(
+          currentReproducibilityContext.analysis_partition.revision,
+        ),
+      }).toString()}`
+    : "/notebook-studio";
 
   const pythonBadge = !pythonCapability
     ? "Checking runtime"
@@ -586,7 +775,7 @@ ${codeContextSummary(currentContext).map((line) => `- ${line}`).join("\n")}`,
         <span className="flex items-center gap-2">
           <Code2 size={17} className="text-slate-700" />
           <span>
-            <span className="block text-sm font-semibold text-slate-950">{location.pathname === "/step01" ? "Data Access & Reproducibility Code" : "Code & Reproducibility"}</span>
+            <span className="block text-sm font-semibold text-slate-950">{workflowRoute === "/step01" ? "Data Access & Reproducibility Code" : "Code & Reproducibility"}</span>
             <span className="block text-xs text-slate-500">Review generated code, add governed custom code, and preserve context-checked drafts for execution and notebook export.</span>
           </span>
         </span>
@@ -599,42 +788,86 @@ ${codeContextSummary(currentContext).map((line) => `- ${line}`).join("\n")}`,
             {sectionResolution.error || readiness.message || "Verify the active registered Dataset Library version before opening generated code."}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Link to="/step01" className="atlas-primary-button">Open Data Acquisition</Link>
+            <Link
+              to={projectWorkflowNavigationPath({
+                targetPath: "/step01",
+                routeProjectId: scopedProjectIdForPathname(location.pathname),
+                projectId,
+                projectName,
+                projectType: useWorkflowStore.getState().projectType,
+              })}
+              className="atlas-primary-button"
+            >
+              Open Data Acquisition
+            </Link>
             <button type="button" className="atlas-secondary-button" onClick={retryIdentity}>Retry identity verification</button>
           </div>
         </div>
       ) : expanded ? (
         <div className="border-t border-slate-200 p-4">
-          <div className="mb-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-end">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">SAS runtime status</div>
-              <div className="mt-1 text-sm font-semibold text-slate-900">{sasStatus(sasDiagnostics, sasMode)}</div>
-              <div className="mt-1 text-xs text-slate-600">Local compatibility supports a governed subset of SAS syntax and reports unsupported statements. It is not a SASPy session.</div>
+          {workflowRoute === "/step01" ? (
+            <div
+              className={`mb-4 rounded-xl border p-3 text-sm ${currentReproducibilityContext ? "border-emerald-200 bg-emerald-50 text-emerald-950" : reproducibilityContextPhase === "error" ? "border-rose-200 bg-rose-50 text-rose-950" : "border-amber-200 bg-amber-50 text-amber-950"}`}
+              data-testid="data-acquisition-reproducibility-status"
+              data-context-state={reproducibilityContext?.state ?? reproducibilityContextPhase}
+              role="status"
+            >
+              <div className="font-semibold">
+                {currentReproducibilityContext
+                  ? "Backend-confirmed reproducibility context"
+                  : "Reproducibility context pending"}
+              </div>
+              <p className="mt-1 leading-6">{exactContextStatusMessage}</p>
+              <p className="mt-1 text-xs">
+                No local data path is assumed. Final-holdout rows and values are never exposed here.
+              </p>
+              {currentReproducibilityContext ? (
+                <Link
+                  className="atlas-secondary-button mt-3 inline-flex"
+                  to={notebookStudioPath}
+                >
+                  Open in Notebook Studio
+                </Link>
+              ) : null}
             </div>
-            <label className="grid gap-1 text-xs font-semibold text-slate-700">
-              SAS execution mode
-              <select className="atlas-input" value={sasMode} onChange={(event) => setSasMode(event.target.value as SasRunMode)}>
-                <option value="saspy" disabled={!sasDiagnostics?.sasExecutionAvailable}>SASPy session</option>
-                <option value="compatible">ATLAS SAS-compatible local execution</option>
-                <option value="template">Template only</option>
-                <option value="external">External SAS export</option>
-              </select>
-            </label>
-          </div>
+          ) : (
+            <div className="mb-4 grid gap-3 rounded-xl border border-slate-200 bg-slate-50 p-3 md:grid-cols-[minmax(0,1fr)_260px] md:items-end">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">SAS runtime status</div>
+                <div className="mt-1 text-sm font-semibold text-slate-900">{sasStatus(sasDiagnostics, sasMode)}</div>
+                <div className="mt-1 text-xs text-slate-600">Local compatibility supports a governed subset of SAS syntax and reports unsupported statements. It is not a SASPy session.</div>
+              </div>
+              <label className="grid gap-1 text-xs font-semibold text-slate-700">
+                SAS execution mode
+                <select className="atlas-input" value={sasMode} onChange={(event) => setSasMode(event.target.value as SasRunMode)}>
+                  <option value="saspy" disabled={!sasDiagnostics?.sasExecutionAvailable}>SASPy session</option>
+                  <option value="compatible">ATLAS SAS-compatible local execution</option>
+                  <option value="template">Template only</option>
+                  <option value="external">External SAS export</option>
+                </select>
+              </label>
+            </div>
+          )}
           <CodeWorkspacePanel
             languages={[
               {
                 language: "python",
                 label: "Python",
-                supportBadge: pythonBadge,
+                supportBadge: workflowRoute === "/step01"
+                  ? currentReproducibilityContext
+                    ? "Exact current"
+                    : "Pending"
+                  : pythonBadge,
                 generatedCode: generatedPython,
                 userCode: pythonDraft,
                 setUserCode: setPythonDraft,
-                note: pythonRunnable
-                  ? `Runtime objects available: df (authorized dataset version${activeDatasetIdentity?.dataset_version_id ? ` ${activeDatasetIdentity.dataset_version_id}` : ""}), TARGET (selected target column), SELECTED_FEATURES (approved predictor list).${contextMessages.python ? ` ${contextMessages.python}` : ""}`
-                  : `${pythonCapability?.reason ?? "Checking whether the governed code sandbox is available for this ATLAS environment."}${contextMessages.python ? ` ${contextMessages.python}` : ""}`,
+                note: workflowRoute === "/step01"
+                  ? `${exactContextStatusMessage} This is a metadata-only context block; it does not load either population.${contextMessages.python ? ` ${contextMessages.python}` : ""}`
+                  : pythonRunnable
+                    ? `Runtime objects available: df (authorized dataset version${activeDatasetIdentity?.dataset_version_id ? ` ${activeDatasetIdentity.dataset_version_id}` : ""}), TARGET (selected target column), SELECTED_FEATURES (approved predictor list).${contextMessages.python ? ` ${contextMessages.python}` : ""}`
+                    : `${pythonCapability?.reason ?? "Checking whether the governed code sandbox is available for this ATLAS environment."}${contextMessages.python ? ` ${contextMessages.python}` : ""}`,
                 runLabel: "Run Python",
-                canRun: pythonRunnable && Boolean(pythonDraft.trim()) && pythonContextEvaluation.canUseAsCurrent,
+                canRun: workflowRoute !== "/step01" && exactDataAcquisitionContextReady && pythonRunnable && Boolean(pythonDraft.trim()) && pythonContextEvaluation.canUseAsCurrent,
                 running: pythonRunning,
                 result: pythonResult,
                 onRun: async () => {
@@ -650,21 +883,31 @@ ${codeContextSummary(currentContext).map((line) => `- ${line}`).join("\n")}`,
                   }
                 },
                 onCopy: () => void navigator.clipboard?.writeText(pythonDraft || generatedPython),
+                onDownload: workflowRoute === "/step01" && currentReproducibilityContext
+                  ? () => downloadGeneratedContext("atlas-data-acquisition-context.py", generatedPython)
+                  : undefined,
+                downloadLabel: "Download .py",
                 onSave: () => persist("python"),
-                canSave: pythonContextEvaluation.canUseAsCurrent,
+                canSave: exactDataAcquisitionContextReady && pythonContextEvaluation.canUseAsCurrent,
                 saveLabel: "Save Python Draft",
                 contextSafety: contextSafety("python", pythonContextEvaluation),
               },
               {
                 language: "sas",
                 label: "SAS",
-                supportBadge: sasStatus(sasDiagnostics, sasMode),
+                supportBadge: workflowRoute === "/step01"
+                  ? currentReproducibilityContext
+                    ? "Exact current"
+                    : "Pending"
+                  : sasStatus(sasDiagnostics, sasMode),
                 generatedCode: generatedSas,
                 userCode: sasDraft,
                 setUserCode: setSasDraft,
-                note: `${sasMode === "compatible" ? "Runs only the supported local compatibility subset and lists unsupported statements." : sasMode === "saspy" ? "Runs explicit SAS code through the configured and tested SASPy session." : "Editable and exportable. Execution is disabled in this mode."}${contextMessages.sas ? ` ${contextMessages.sas}` : ""}`,
+                note: workflowRoute === "/step01"
+                  ? `${exactContextStatusMessage} SAS values are safely quoted metadata only; no physical data connection is assumed.${contextMessages.sas ? ` ${contextMessages.sas}` : ""}`
+                  : `${sasMode === "compatible" ? "Runs only the supported local compatibility subset and lists unsupported statements." : sasMode === "saspy" ? "Runs explicit SAS code through the configured and tested SASPy session." : "Editable and exportable. Execution is disabled in this mode."}${contextMessages.sas ? ` ${contextMessages.sas}` : ""}`,
                 runLabel: sasMode === "compatible" ? "Run SAS-Compatible" : "Run SAS",
-                canRun: Boolean(sasDraft.trim()) && (sasMode === "compatible" || (sasMode === "saspy" && Boolean(sasDiagnostics?.sasExecutionAvailable))) && sasContextEvaluation.canUseAsCurrent,
+                canRun: workflowRoute !== "/step01" && exactDataAcquisitionContextReady && Boolean(sasDraft.trim()) && (sasMode === "compatible" || (sasMode === "saspy" && Boolean(sasDiagnostics?.sasExecutionAvailable))) && sasContextEvaluation.canUseAsCurrent,
                 running: sasRunning,
                 result: sasResult,
                 onRun: async () => {
@@ -680,11 +923,37 @@ ${codeContextSummary(currentContext).map((line) => `- ${line}`).join("\n")}`,
                   }
                 },
                 onCopy: () => void navigator.clipboard?.writeText(sasDraft || generatedSas),
+                onDownload: workflowRoute === "/step01" && currentReproducibilityContext
+                  ? () => downloadGeneratedContext("atlas-data-acquisition-context.sas", generatedSas)
+                  : undefined,
+                downloadLabel: "Download .sas",
                 onSave: () => persist("sas"),
-                canSave: sasContextEvaluation.canUseAsCurrent,
+                canSave: exactDataAcquisitionContextReady && sasContextEvaluation.canUseAsCurrent,
                 saveLabel: "Save SAS Draft",
                 contextSafety: contextSafety("sas", sasContextEvaluation),
               },
+              ...(workflowRoute === "/step01"
+                ? [
+                    {
+                      language: "metadata" as const,
+                      label: "Metadata",
+                      supportBadge: currentReproducibilityContext ? "Exact current" : "Pending",
+                      generatedCode: generatedMetadata,
+                      userCode: "",
+                      setUserCode: () => undefined,
+                      note: `${exactContextStatusMessage} This view contains identifiers and protected population counts only.`,
+                      runLabel: "",
+                      canRun: false,
+                      onCopy: () =>
+                        void navigator.clipboard?.writeText(generatedMetadata),
+                      onDownload: currentReproducibilityContext
+                        ? () => downloadGeneratedContext("atlas-data-acquisition-context.json", generatedMetadata)
+                        : undefined,
+                      downloadLabel: "Download .json",
+                      readOnlyGenerated: true,
+                    },
+                  ]
+                : []),
             ]}
           />
         </div>

@@ -5,6 +5,7 @@ import {
   loadBureauTreatmentDecisions,
   type BureauMetadataRow,
 } from "./creditBureau";
+import type { CanonicalDatasetIdentity } from "./datasetIdentity";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
@@ -78,6 +79,84 @@ export type BureauDetectionResponse = {
   variables: BureauDetectionVariable[];
   metadata_source: string;
   reviewed_at: string;
+  project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
+  activation_revision: number;
+  predictor_authorization_id: string;
+  target_contract_id: string;
+  correlation_id: string;
+  target_analysis_scope: "development_partition" | "full_dataset_pre_partition";
+  analysis_partition_id: string | null;
+  development_partition_id: string | null;
+  final_holdout_accessed: false;
+  special_value_review: SpecialValueReviewContract;
+};
+
+export type SpecialValueReviewStatus =
+  | "not_required"
+  | "not_started"
+  | "in_review"
+  | "ready_for_confirmation"
+  | "confirmed";
+
+export type SpecialValueReviewVariableDecision = {
+  variable: string;
+  policy: BureauHandling;
+  rationale: string;
+  overrides: Array<{
+    value: unknown;
+    policy: BureauHandling;
+    rationale: string;
+  }>;
+};
+
+/**
+ * Durable, exact-version authority returned by FastAPI. Browser state is never
+ * accepted as a substitute for this contract.
+ */
+export type SpecialValueReviewContract = {
+  special_value_review_id: string;
+  project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
+  activation_revision: number;
+  predictor_authorization_id: string;
+  target_contract_id: string;
+  detection_fingerprint: string;
+  status: SpecialValueReviewStatus;
+  detected_count: number;
+  reviewed_count: number;
+  open_count: number;
+  open_items: string[];
+  blocks_confirmation: boolean;
+  blocks_continuation: boolean;
+  confirmation_allowed: boolean;
+  revision: number;
+  variable_decisions: SpecialValueReviewVariableDecision[];
+  reviewer_rationale: string;
+  confirmed_at: string | null;
+  updated_at: string | null;
+  authority: "backend_durable_exact_version";
+  browser_cache_authority: false;
+};
+
+export type SpecialValueReviewLineage = {
+  projectId: string;
+  datasetIdentity: CanonicalDatasetIdentity;
+  activationRevision: number;
+  predictorAuthorizationId: string;
+  targetContractId: string;
+};
+
+export type BureauReviewDraftAuthority = {
+  project_id: string;
+  dataset_id: string;
+  dataset_version_id: string;
+  activation_revision: number;
+  predictor_authorization_id: string;
+  target_contract_id: string;
+  detection_fingerprint: string;
 };
 
 export type BureauReviewState = {
@@ -89,7 +168,123 @@ export type BureauReviewState = {
   evidenceStatus: "not_recorded" | "draft" | "ready" | "stale";
   confirmedAt?: string;
   savedAt?: string;
+  /** Exact scope for this non-authoritative browser draft cache. */
+  draftAuthority?: BureauReviewDraftAuthority;
 };
+
+function positiveInteger(value: unknown) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0;
+}
+
+function nonnegativeInteger(value: unknown) {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+}
+
+function requiredText(value: unknown) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+export function assertSpecialValueReviewContract(
+  value: unknown,
+  lineage: SpecialValueReviewLineage,
+): SpecialValueReviewContract {
+  const contract = value as Partial<SpecialValueReviewContract> | null;
+  if (!contract || typeof contract !== "object") {
+    throw new Error("The backend did not return a durable special-value review contract.");
+  }
+  const identity = lineage.datasetIdentity;
+  const exactIdentity =
+    contract.project_id === lineage.projectId &&
+    contract.project_id === identity.project_id &&
+    contract.dataset_id === identity.dataset_id &&
+    contract.dataset_version_id === identity.dataset_version_id;
+  const exactLineage =
+    contract.activation_revision === lineage.activationRevision &&
+    contract.predictor_authorization_id === lineage.predictorAuthorizationId &&
+    contract.target_contract_id === lineage.targetContractId;
+  const identityRevision = identity.activation_revision;
+  if (
+    !exactIdentity ||
+    !exactLineage ||
+    (identityRevision != null && contract.activation_revision !== identityRevision)
+  ) {
+    throw new Error(
+      "The durable special-value review does not match the exact project, dataset version, activation, predictor authorization, and target contract.",
+    );
+  }
+  if (
+    contract.authority !== "backend_durable_exact_version" ||
+    contract.browser_cache_authority !== false ||
+    !positiveInteger(contract.activation_revision) ||
+    !positiveInteger(contract.revision) ||
+    !requiredText(contract.special_value_review_id) ||
+    !requiredText(contract.detection_fingerprint) ||
+    !requiredText(contract.predictor_authorization_id) ||
+    !requiredText(contract.target_contract_id) ||
+    !Array.isArray(contract.variable_decisions) ||
+    !Array.isArray(contract.open_items) ||
+    ![
+      "not_required",
+      "not_started",
+      "in_review",
+      "ready_for_confirmation",
+      "confirmed",
+    ].includes(String(contract.status)) ||
+    typeof contract.blocks_confirmation !== "boolean" ||
+    typeof contract.blocks_continuation !== "boolean" ||
+    typeof contract.confirmation_allowed !== "boolean" ||
+    !nonnegativeInteger(contract.detected_count) ||
+    !nonnegativeInteger(contract.reviewed_count) ||
+    !nonnegativeInteger(contract.open_count)
+  ) {
+    throw new Error("The backend special-value review authority is incomplete or invalid.");
+  }
+  const detectedCount = contract.detected_count as number;
+  const reviewedCount = contract.reviewed_count as number;
+  const openCount = contract.open_count as number;
+  if (
+    reviewedCount > detectedCount ||
+    openCount !== detectedCount - reviewedCount ||
+    contract.open_items.length !== openCount ||
+    contract.blocks_confirmation !== (openCount > 0) ||
+    contract.confirmation_allowed !== (openCount === 0) ||
+    (contract.status === "confirmed" &&
+      (openCount !== 0 || contract.blocks_continuation)) ||
+    (contract.status === "not_required" &&
+      (detectedCount !== 0 || contract.blocks_continuation))
+  ) {
+    throw new Error("The backend special-value review counts and status are contradictory.");
+  }
+  return contract as SpecialValueReviewContract;
+}
+
+export function specialValueDraftAuthority(
+  contract: SpecialValueReviewContract,
+): BureauReviewDraftAuthority {
+  return {
+    project_id: contract.project_id,
+    dataset_id: contract.dataset_id,
+    dataset_version_id: contract.dataset_version_id,
+    activation_revision: contract.activation_revision,
+    predictor_authorization_id: contract.predictor_authorization_id,
+    target_contract_id: contract.target_contract_id,
+    detection_fingerprint: contract.detection_fingerprint,
+  };
+}
+
+export function bureauDraftMatchesContract(
+  state: BureauReviewState,
+  contract: SpecialValueReviewContract,
+) {
+  const authority = state.draftAuthority;
+  return Boolean(
+    authority &&
+      Object.entries(specialValueDraftAuthority(contract)).every(
+        ([key, expected]) =>
+          authority[key as keyof BureauReviewDraftAuthority] === expected,
+      ),
+  );
+}
 
 function mapLegacyHandling(treatment: string): BureauHandling {
   if (treatment === "convert_to_missing") return "convert_to_missing";
@@ -114,19 +309,22 @@ export function loadBureauReviewState(): BureauReviewState {
         variableDefaults: Array.isArray(parsed.variableDefaults)
           ? parsed.variableDefaults
           : [],
-        status: parsed.status === "confirmed" ? "confirmed" : "draft",
+        // A browser record is a convenience draft only. Durable confirmation
+        // is loaded from /api/data/special-value-review.
+        status: "draft",
         evidenceStatus:
           parsed.evidenceStatus === "draft" ||
           parsed.evidenceStatus === "ready" ||
           parsed.evidenceStatus === "stale"
             ? parsed.evidenceStatus
             : "not_recorded",
-        confirmedAt:
-          typeof parsed.confirmedAt === "string"
-            ? parsed.confirmedAt
-            : undefined,
+        confirmedAt: undefined,
         savedAt:
           typeof parsed.savedAt === "string" ? parsed.savedAt : undefined,
+        draftAuthority:
+          parsed.draftAuthority && typeof parsed.draftAuthority === "object"
+            ? parsed.draftAuthority
+            : undefined,
       };
     }
   } catch {
@@ -151,7 +349,15 @@ export function loadBureauReviewState(): BureauReviewState {
 }
 
 export function saveBureauReviewState(state: BureauReviewState) {
-  localStorage.setItem(BUREAU_REVIEW_KEY, JSON.stringify(state));
+  localStorage.setItem(
+    BUREAU_REVIEW_KEY,
+    JSON.stringify({
+      ...state,
+      status: "draft",
+      confirmedAt: undefined,
+      browserCacheAuthority: false,
+    }),
+  );
   window.dispatchEvent(new CustomEvent("bureau-review-updated"));
 }
 
@@ -161,6 +367,7 @@ export function bureauMetadata(): BureauMetadataRow[] {
 
 export async function fetchBureauDetection(input: {
   projectId: string;
+  datasetIdentity: CanonicalDatasetIdentity;
   target?: string;
   eventValue?: unknown;
   state: BureauReviewState;
@@ -174,6 +381,8 @@ export async function fetchBureauDetection(input: {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       project_id: input.projectId,
+      expected_dataset_id: input.datasetIdentity.dataset_id,
+      expected_dataset_version_id: input.datasetIdentity.dataset_version_id,
       target: input.target || undefined,
       event_value: input.eventValue,
       manual_declaration: input.state.declaration,
@@ -184,9 +393,122 @@ export async function fetchBureauDetection(input: {
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok || !payload?.ok) {
-    throw new Error(payload?.detail ?? payload?.error ?? "Credit bureau detection is unavailable.");
+    const detail =
+      payload?.detail && typeof payload.detail === "object"
+        ? payload.detail
+        : payload;
+    const message =
+      (typeof payload?.detail === "string" ? payload.detail : "") ||
+      detail?.message ||
+      detail?.error ||
+      "Credit bureau detection is unavailable.";
+    const correctiveAction = detail?.corrective_action;
+    const reference = detail?.correlation_id;
+    throw new Error(
+      [
+        message,
+        correctiveAction,
+        reference ? `Reference: ${reference}.` : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+    );
   }
   return payload as BureauDetectionResponse;
+}
+
+export class SpecialValueReviewApiError extends Error {
+  readonly status: number;
+  readonly currentReview?: unknown;
+
+  constructor(message: string, status: number, currentReview?: unknown) {
+    super(message);
+    this.name = "SpecialValueReviewApiError";
+    this.status = status;
+    this.currentReview = currentReview;
+  }
+}
+
+async function readSpecialValueReviewResponse(response: Response) {
+  const payload = await response.json().catch(() => null);
+  if (!response.ok || !payload?.ok) {
+    const detail =
+      payload?.detail && typeof payload.detail === "object"
+        ? payload.detail
+        : payload;
+    const message =
+      (typeof payload?.detail === "string" ? payload.detail : "") ||
+      detail?.message ||
+      detail?.error ||
+      "The durable special-value review is unavailable.";
+    const correctiveAction = detail?.corrective_action;
+    const reference = detail?.correlation_id;
+    throw new SpecialValueReviewApiError(
+      [
+        message,
+        correctiveAction,
+        reference ? `Reference: ${reference}.` : "",
+      ]
+        .filter(Boolean)
+        .join(" "),
+      response.status,
+      detail?.special_value_review ??
+        detail?.context?.special_value_review,
+    );
+  }
+  return payload.special_value_review as unknown;
+}
+
+export async function fetchSpecialValueReview(input: {
+  lineage: SpecialValueReviewLineage;
+  signal?: AbortSignal;
+}) {
+  const query = new URLSearchParams({
+    project_id: input.lineage.projectId,
+    expected_dataset_id: input.lineage.datasetIdentity.dataset_id,
+    expected_dataset_version_id:
+      input.lineage.datasetIdentity.dataset_version_id,
+  });
+  const response = await fetch(
+    `${API_BASE}/data/special-value-review?${query.toString()}`,
+    { credentials: "include", signal: input.signal },
+  );
+  return assertSpecialValueReviewContract(
+    await readSpecialValueReviewResponse(response),
+    input.lineage,
+  );
+}
+
+export async function updateSpecialValueReview(input: {
+  lineage: SpecialValueReviewLineage;
+  current: SpecialValueReviewContract;
+  intent: "draft" | "confirm";
+  variableDecisions: SpecialValueReviewVariableDecision[];
+  reviewerRationale: string;
+  signal?: AbortSignal;
+}) {
+  assertSpecialValueReviewContract(input.current, input.lineage);
+  const response = await fetch(`${API_BASE}/data/special-value-review`, {
+    method: "PUT",
+    credentials: "include",
+    signal: input.signal,
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      project_id: input.lineage.projectId,
+      expected_dataset_id: input.lineage.datasetIdentity.dataset_id,
+      expected_dataset_version_id:
+        input.lineage.datasetIdentity.dataset_version_id,
+      expected_revision: input.current.revision,
+      detection_fingerprint: input.current.detection_fingerprint,
+      intent: input.intent,
+      variable_decisions: input.variableDecisions,
+      reviewer_rationale: input.reviewerRationale,
+    }),
+  });
+  return assertSpecialValueReviewContract(
+    await readSpecialValueReviewResponse(response),
+    input.lineage,
+  );
 }
 
 export const bureauCompatibilityKeys = [BUREAU_METADATA_KEY, BUREAU_TREATMENT_KEY, BUREAU_REVIEW_KEY];

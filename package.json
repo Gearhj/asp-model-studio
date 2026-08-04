@@ -68,6 +68,7 @@
     "test:entry-pages": "node tests/entryPageIntegrity.test.mjs",
     "test:preparation-premium": "node tests/preparationPremiumWorkflow.test.mjs && node tests/preparationTableFirstContract.test.mjs && .\\.venv\\Scripts\\python.exe tests\\preparation_premium_backend_test.py && .\\.venv\\Scripts\\python.exe -m unittest tests.preparation_table_first_backend_contract_test tests.missing_table_first_backend_test -v",
     "test:data-acquisition-status": "node tests/dataAcquisitionStatus.test.mjs",
+    "test:data-acquisition-reproducibility": "node tests/dataAcquisitionReproducibility.test.mjs && .\\.venv\\Scripts\\python.exe -m pytest tests/data_acquisition_reproducibility_context_test.py -q",
     "test:security": "python scripts/run_security_tests.py"
   },
   "dependencies": {

@@ -508,16 +508,16 @@
     {
       "attachedEvidence": [
         {
-          "attachedAt": "2026-08-01T19:18:07.196Z",
+          "attachedAt": "2026-08-03T21:51:12.326Z",
           "dataset_id": "ds_heloc_train_6bdb184b_05905",
           "dataset_version_id": "v_1785186305905_6bdb184b",
           "evidenceId": "ev-governed-feature-manifest-7a80399a072f0da4",
-          "manifest_hash": "fm-d366e0c1cc6c8514",
-          "materialization_hash": "mt-844801a48e1b045f",
+          "manifest_hash": "fm-8e2dc2933912d428",
+          "materialization_hash": "mt-72e2e97ee20cf6c1",
           "project_id": "atlas-mrzpau4t",
           "source": "Feature Engineering",
           "sourceRef": "ev-governed-feature-manifest-7a80399a072f0da4",
-          "summary": "0 included deterministic engineered features, 5 excluded planned definitions, and 0 training-only pipeline steps were recorded in manifest fm-d366e0c1cc6c8514.",
+          "summary": "0 included deterministic engineered features, 5 excluded planned definitions, and 0 training-only pipeline steps were recorded in manifest fm-8e2dc2933912d428.",
           "title": "Governed Feature Manifest",
           "type": "feature_engineering"
         }
@@ -831,6 +831,6 @@
   ],
   "templateFamily": "predictive_classification",
   "templateType": "model_development_document",
-  "updatedAt": "2026-08-01T19:18:07.260636+00:00",
+  "updatedAt": "2026-08-03T21:51:12.588494+00:00",
   "versionControlEntries": []
 }

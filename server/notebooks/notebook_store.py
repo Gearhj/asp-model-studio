@@ -178,6 +178,20 @@ def normalize_notebook(payload: Dict[str, Any], existing: Dict[str, Any] | None 
         "primaryVersionId": str(payload.get("primaryVersionId") or existing.get("primaryVersionId") or ""),
         "secondaryDatasetId": str(payload.get("secondaryDatasetId") or existing.get("secondaryDatasetId") or ""),
         "secondaryVersionId": str(payload.get("secondaryVersionId") or existing.get("secondaryVersionId") or ""),
+        "target": str(payload.get("target") or existing.get("target") or ""),
+        "eventValue": payload.get("eventValue") if payload.get("eventValue") is not None else existing.get("eventValue"),
+        "nonEventValue": (
+            payload.get("nonEventValue")
+            if payload.get("nonEventValue") is not None
+            else existing.get("nonEventValue")
+        ),
+        "targetContractId": str(payload.get("targetContractId") or existing.get("targetContractId") or ""),
+        "analysisPartitionId": str(payload.get("analysisPartitionId") or existing.get("analysisPartitionId") or ""),
+        "analysisPartitionRevision": int(
+            payload.get("analysisPartitionRevision")
+            or existing.get("analysisPartitionRevision")
+            or 0
+        ),
         "createdAt": existing.get("createdAt") or timestamp,
         "updatedAt": timestamp,
         "createdBy": str(payload.get("createdBy") or existing.get("createdBy") or "ATLAS local user"),
@@ -189,7 +203,8 @@ def normalize_notebook(payload: Dict[str, Any], existing: Dict[str, Any] | None 
             "previewRowsOnly": True,
             "warnings": [
                 "Local development execution only.",
-                "Dataset-backed execution uses preview/sample rows unless full artifact execution is explicitly enabled.",
+                "Predictive Modeling execution requires the exact sealed development-population binding; final holdout rows are excluded.",
+                "Other workflow types retain their registered preview/sample-row behavior.",
                 "Attach notebook outputs to documentation before final model approval.",
             ],
         },

@@ -82,6 +82,15 @@ export type VisualDataSourceMeta = {
   ephemeral: boolean;
   aggregationMethod?: "none" | "server-aggregate" | "duckdb-wasm" | "client-sample";
   queryDurationMs?: number;
+  analyticalScope?:
+    | "development_population_predictors_only"
+    | "full_governed_population_predictors_only";
+  populationId?: string;
+  partitionId?: string;
+  partitionRevision?: number;
+  holdoutExcluded?: boolean;
+  targetValuesIncluded?: false;
+  sourceChecksum?: string;
 };
 
 export type VisualDataResult<T> = {

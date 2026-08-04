@@ -11,6 +11,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import tempfile
 import textwrap
 import unittest
 import uuid
@@ -510,10 +511,13 @@ class TestStorageIsolationGuardTests(unittest.TestCase):
     def test_phase2a_fixture_rebinds_a_preimported_registry(self) -> None:
         """Reproduce the prior module-cache signature without touching live data."""
 
-        root = (
-            REPO_ROOT / f".storage-isolation-guard-{uuid.uuid4().hex}"
+        external_base = Path(
+            os.environ.get("ATLAS_HERMETIC_ROOT") or tempfile.gettempdir()
         ).resolve()
-        self.assertEqual(root.parent, REPO_ROOT)
+        root = (
+            external_base / f"storage-isolation-guard-{uuid.uuid4().hex}"
+        ).resolve()
+        self.assertEqual(root.parent, external_base)
         root.mkdir(exist_ok=False)
         try:
             preimported = root / "preimported-catalog"
@@ -530,6 +534,10 @@ class TestStorageIsolationGuardTests(unittest.TestCase):
             environment = os.environ.copy()
             environment.update(
                 {
+                    # A nested Python interpreter must independently pass the
+                    # pre-import hermetic guard; never inherit the parent's
+                    # post-guard sentinel.
+                    "ATLAS_HERMETIC_GUARD_PASSED": "0",
                     "ATLAS_TEST_MODE": "1",
                     "ATLAS_DATASET_LIBRARY_ROOT": str(preimported),
                     "ATLAS_DATASET_LIBRARY_BACKUP_ROOT": str(root / "backups"),
@@ -586,7 +594,7 @@ class TestStorageIsolationGuardTests(unittest.TestCase):
                 msg=f"stdout:\n{completed.stdout}\nstderr:\n{completed.stderr}",
             )
         finally:
-            if root.parent == REPO_ROOT:
+            if os.environ.get("ATLAS_HERMETIC_MODE") != "HERMETIC_REGRESSION":
                 shutil.rmtree(root, ignore_errors=True)
 
 

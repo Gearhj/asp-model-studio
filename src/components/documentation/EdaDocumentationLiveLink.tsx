@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import {
   EDA_DOCUMENTATION_SECTION_KEYS,
+  EdaDocumentationRequestError,
   getEdaDocumentationState,
   subscribeEdaDocumentationUpdates,
   type EdaDocumentationConfirmationSummary,
@@ -23,12 +24,18 @@ import {
   type EdaDocumentationState,
   type EdaDocumentationStatus,
 } from "../../lib/edaDocumentationApi";
-import { loadLocalDataset } from "../../lib/localDataset";
-import { requireLocalDatasetCanonicalIdentity } from "../../lib/datasetIdentity";
+import {
+  useAuthoritativeProjectContext,
+  usePredictiveIdentity,
+} from "../PredictiveIdentityProvider";
+import type { PredictiveIdentityReadiness } from "../../lib/predictiveIdentityReadiness";
+import {
+  compareProjectMetadataRevisions,
+  type ProjectContextUpdatedEventDetail,
+} from "../../lib/projectContextMetadata";
 
 const UPSTREAM_REFRESH_EVENTS = [
   "atlas-dataset-updated",
-  "atlas-project-context-updated",
   "atlas-workflow-node-updated",
   "atlas-eda-code-context-updated",
 ] as const;
@@ -79,30 +86,79 @@ type Props = {
   projectId: string;
 };
 
+function verifiedPredictiveIdentity(readiness: PredictiveIdentityReadiness) {
+  return readiness.status === "ready" ? readiness.identity : null;
+}
+
 export default function EdaDocumentationLiveLink({ projectId }: Props) {
+  const { readiness: identityReadiness } = usePredictiveIdentity();
+  const { readiness: projectContextReadiness } = useAuthoritativeProjectContext();
+  const verifiedIdentity = useMemo(
+    () => verifiedPredictiveIdentity(identityReadiness),
+    [identityReadiness],
+  );
   const [state, setState] = useState<EdaDocumentationState | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
   const requestRef = useRef<AbortController | null>(null);
+  const projectContextEventGuardRef = useRef({
+    projectId: "",
+    revision: "",
+    savedAt: "",
+    requestIds: new Set<string>(),
+  });
+  const authoritativeMetadataRevision =
+    projectContextReadiness.status === "ready"
+    && projectContextReadiness.routeProjectId === projectId
+      ? projectContextReadiness.project.metadataRevision
+      : "";
+  const authoritativeMetadataSavedAt =
+    projectContextReadiness.status === "ready"
+    && projectContextReadiness.routeProjectId === projectId
+      ? projectContextReadiness.project.metadataSavedAt
+      : "";
+
+  useEffect(() => {
+    const guard = projectContextEventGuardRef.current;
+    if (guard.projectId !== projectId) {
+      projectContextEventGuardRef.current = {
+        projectId,
+        revision: authoritativeMetadataRevision,
+        savedAt: authoritativeMetadataSavedAt,
+        requestIds: new Set<string>(),
+      };
+      return;
+    }
+    const comparison = compareProjectMetadataRevisions(
+      guard.revision,
+      authoritativeMetadataRevision,
+    );
+    if (!guard.revision || comparison === "newer") {
+      guard.revision = authoritativeMetadataRevision;
+      guard.savedAt = authoritativeMetadataSavedAt;
+    }
+  }, [authoritativeMetadataRevision, authoritativeMetadataSavedAt, projectId]);
 
   const refresh = useCallback(
     async (silent = false) => {
       if (!projectId) return;
+      if (!verifiedIdentity || verifiedIdentity.project_id !== projectId) {
+        setError(
+          identityReadiness.message ||
+            "ATLAS has not verified an exact active dataset identity for this project.",
+        );
+        return;
+      }
       requestRef.current?.abort();
       const controller = new AbortController();
       requestRef.current = controller;
       if (silent) setRefreshing(true);
       else setLoading(true);
       try {
-        const identity = requireLocalDatasetCanonicalIdentity(
-          projectId,
-          loadLocalDataset(),
-          "EDA documentation dataset identity",
-        );
         const next = await getEdaDocumentationState(
           projectId,
-          identity,
+          verifiedIdentity,
           controller.signal
         );
         if (!controller.signal.aborted) {
@@ -118,7 +174,11 @@ export default function EdaDocumentationLiveLink({ projectId }: Props) {
           )
         ) {
           setError(
-            requestError instanceof Error
+            requestError instanceof EdaDocumentationRequestError
+              ? `${requestError.message}${
+                  requestError.recovery ? ` ${requestError.recovery}` : ""
+                }`
+              : requestError instanceof Error
               ? requestError.message
               : "ATLAS could not load the governed EDA documentation state."
           );
@@ -130,7 +190,7 @@ export default function EdaDocumentationLiveLink({ projectId }: Props) {
         }
       }
     },
-    [projectId]
+    [identityReadiness.message, projectId, verifiedIdentity]
   );
 
   useEffect(() => {
@@ -146,12 +206,49 @@ export default function EdaDocumentationLiveLink({ projectId }: Props) {
       }
       });
     const handleUpstreamUpdate = () => void refresh(true);
+    const handleProjectContextUpdate = (event: Event) => {
+      const detail = (event as CustomEvent<Partial<ProjectContextUpdatedEventDetail>>).detail;
+      if (
+        detail?.source !== "user_save"
+        || detail.project_id !== projectId
+        || !detail.project_revision
+        || !detail.request_id
+        || !detail.saved_at
+        || !Array.isArray(detail.changed_fields)
+      ) return;
+
+      const guard = projectContextEventGuardRef.current;
+      if (guard.projectId !== projectId) return;
+      if (guard.requestIds.has(detail.request_id)) return;
+      const comparison = compareProjectMetadataRevisions(
+        guard.revision,
+        detail.project_revision,
+      );
+      if (comparison === "same" || comparison === "older") return;
+      if (comparison === "unknown" && guard.revision) {
+        const currentSavedAt = Date.parse(guard.savedAt);
+        const incomingSavedAt = Date.parse(detail.saved_at);
+        if (
+          !Number.isFinite(incomingSavedAt)
+          || (Number.isFinite(currentSavedAt) && incomingSavedAt <= currentSavedAt)
+        ) return;
+      }
+
+      guard.requestIds.add(detail.request_id);
+      guard.revision = detail.project_revision;
+      guard.savedAt = detail.saved_at;
+      void refresh(true);
+    };
     const handleVisibility = () => {
       if (document.visibilityState === "visible") void refresh(true);
     };
 
     UPSTREAM_REFRESH_EVENTS.forEach((eventName) =>
       window.addEventListener(eventName, handleUpstreamUpdate)
+    );
+    window.addEventListener(
+      "atlas-project-context-updated",
+      handleProjectContextUpdate,
     );
     document.addEventListener("visibilitychange", handleVisibility);
     const poll = window.setInterval(() => {
@@ -164,6 +261,10 @@ export default function EdaDocumentationLiveLink({ projectId }: Props) {
       unsubscribeDocumentationUpdates();
       UPSTREAM_REFRESH_EVENTS.forEach((eventName) =>
         window.removeEventListener(eventName, handleUpstreamUpdate)
+      );
+      window.removeEventListener(
+        "atlas-project-context-updated",
+        handleProjectContextUpdate,
       );
       document.removeEventListener("visibilitychange", handleVisibility);
     };

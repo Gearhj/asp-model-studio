@@ -11,6 +11,7 @@ from pydantic import ValidationError
 from server.core.dataset_store import DATASTORE
 from server.eda.workspace_service import eda_workspace_service
 from server.eda.workspace_types import EDAWorkspaceRequest
+from tests.analysis_partition_fixture import GovernedAnalysisFixture
 
 
 PROJECT_ID = "eda-predictor-visual-project"
@@ -107,33 +108,21 @@ class EDAPredictorVisualContractTests(unittest.TestCase):
                 for feature in ("RiskPerformance", "outcome_code")
             ],
         }
-        source = DATASTORE.get_active_df()
-        development = source.iloc[:288]
-        holdout = source.iloc[288:]
-        DATASTORE.set_splits(
-            development.loc[:, sorted(SAFE_FEATURES)],
-            holdout.loc[:, sorted(SAFE_FEATURES)],
-            development[TARGET],
-            holdout[TARGET],
+        self.governed_fixture = GovernedAnalysisFixture(project_id=PROJECT_ID)
+        self.partition_fixture = self.governed_fixture.install(
+            DATASTORE.current(),
+            dataset_id="dataset-heloc-predictor",
+            dataset_version_id="heloc-predictor-v1",
+            target=TARGET,
+            authorized_predictors=sorted(SAFE_FEATURES),
+            target_sources=("RiskPerformance", "outcome_code"),
+            development_share=0.8,
         )
-        DATASTORE.meta.update(
-            {
-                "split_status": "current",
-                "split_record": {
-                    "project_id": PROJECT_ID,
-                    "dataset_id": "dataset-heloc-predictor",
-                    "dataset_version_id": "heloc-predictor-v1",
-                    "split_id": "split-eda-predictor-visual-v1",
-                    "target": TARGET,
-                    "feature_manifest_version": "pm-heloc-predictor-v1",
-                    "selection_partition_id": "population-eda-predictor-visual-development",
-                    "n_train": 288,
-                    "n_test": 72,
-                    "final_holdout_status": "sealed",
-                    "holdout_isolation_status": "verified",
-                },
-            }
-        )
+        DATASTORE.meta["selected_columns"] = [
+            "RiskPerformance",
+            "outcome_code",
+            *sorted(SAFE_FEATURES),
+        ]
         self.identity_patch = patch(
             "server.eda.workspace_service.assert_expected_active_identity",
             return_value={
@@ -151,6 +140,7 @@ class EDAPredictorVisualContractTests(unittest.TestCase):
         eda_workspace_service._cache.clear()
         eda_workspace_service._contract_cache.clear()
         DATASTORE.reset_all()
+        self.governed_fixture.close()
 
     def _request(self, shape_limit: int = 8) -> EDAWorkspaceRequest:
         return EDAWorkspaceRequest(

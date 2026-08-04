@@ -9,6 +9,8 @@ import pandas as pd
 from ..core.dataset_store import DATASTORE
 from ..core.modeling_scope import active_project_id
 from ..datasets.dataset_identity import assert_expected_active_identity
+from ..persistence import service as persistence_service_module
+from .development_scope import resolve_development_analysis_scope
 
 
 _SYSTEM_FIELD = re.compile(r"(^|_)(atlas|system|row)(_id|_key|_split|_metadata)?($|_)", re.IGNORECASE)
@@ -138,17 +140,56 @@ def profile_features(
         legacy_dataset_version=legacy_dataset_version,
         user=user,
     )
-    df = DATASTORE.get_base_df()
+    df = DATASTORE.get_raw_active_df()
     if df is None or df.empty:
-        raise ValueError("No full backend dataset is loaded.")
+        raise ValueError("No full governed predictor population is loaded.")
+    requested_target = target
     target = target if target in df.columns else DATASTORE.target if DATASTORE.target in df.columns else None
     if not target:
         raise ValueError("Select a valid target before profiling predictors.")
-    y = df[target]
-    inferred_problem = problem_type
-    if inferred_problem not in {"classification", "regression"}:
-        inferred_problem = "classification" if 1 < y.dropna().nunique() <= 20 else "regression"
-    selected = set(DATASTORE.get_selected_columns())
+    scoped_store = DATASTORE.current()
+    partition_repository = (
+        persistence_service_module.get_persistence_service().analysis_partitions
+    )
+    current_partition = partition_repository.get_current(resolved_project_id)
+    partition_history = partition_repository.history(resolved_project_id)
+    development_scope = None
+    # Before the first Analysis Partition exists, this endpoint remains a
+    # predictor-only structural inventory. It intentionally does not inspect
+    # target values or publish IV/correlation. Once any partition authority
+    # exists, exact development resolution is mandatory and every failure is
+    # propagated fail-closed; stale history never reopens the structural path.
+    if current_partition is not None or partition_history:
+        development_scope = resolve_development_analysis_scope(
+            scoped_store,
+            identity,
+            requested_target=requested_target,
+            requested_event_value=event_value,
+            requested_problem_type=problem_type,
+            actor=(user or {}).get("userId"),
+        )
+        target = development_scope.target
+        y = development_scope.development_target.reset_index(drop=True)
+        analysis_features = development_scope.development_features.reset_index(
+            drop=True
+        )
+        inferred_problem = development_scope.problem_type
+        governed_event = development_scope.event_value
+        durable_authorization = development_scope.predictor_authorization
+        selected = set(development_scope.authorized_predictors)
+        target_directed_available = True
+    else:
+        y = None
+        analysis_features = None
+        inferred_problem = (
+            problem_type
+            if problem_type in {"classification", "regression"}
+            else "unresolved"
+        )
+        governed_event = None
+        durable_authorization = {}
+        selected = set(DATASTORE.get_selected_columns())
+        target_directed_available = False
     manifest = DATASTORE.meta.get("feature_manifest") if isinstance(DATASTORE.meta.get("feature_manifest"), dict) else {}
     manifest_by_name = {
         str(row.get("feature_name")): row
@@ -157,25 +198,57 @@ def profile_features(
     }
     source_meta = DATASTORE.meta.get("source") if isinstance(DATASTORE.meta.get("source"), dict) else {}
     rows: list[dict[str, Any]] = []
-    governed_event = event_value
-
     for column in df.columns:
         series = df[column]
         manifest_row = manifest_by_name.get(str(column), {})
         role, exclusion_reason = _locked_reason(str(column), str(target), source_meta)
+        durable_exclusion = (
+            durable_authorization.get("excluded_predictors", {}).get(
+                str(column)
+            )
+            if isinstance(
+                durable_authorization.get("excluded_predictors"), dict
+            )
+            else None
+        )
+        if durable_exclusion:
+            role, exclusion_reason = "governed_exclusion", str(
+                durable_exclusion
+            )
         numeric = pd.to_numeric(series, errors="coerce")
         numeric_rate = float(numeric.notna().mean()) if len(series) else 0.0
         is_numeric = pd.api.types.is_numeric_dtype(series) or numeric_rate >= 0.8
         metric: float | None = None
-        association_status = "evaluated"
-        if role == "eligible":
+        association_status = (
+            "not_evaluated_analysis_partition_required"
+            if not target_directed_available
+            else "evaluated"
+        )
+        if (
+            role == "eligible"
+            and target_directed_available
+            and analysis_features is not None
+            and str(column) in analysis_features.columns
+            and y is not None
+        ):
             if inferred_problem == "classification":
                 try:
-                    metric, governed_event = information_value(series, y, governed_event)
+                    metric, governed_event = information_value(
+                        analysis_features[str(column)],
+                        y,
+                        governed_event,
+                    )
                 except ValueError:
                     association_status = "not_evaluated"
             elif is_numeric:
-                pairs = pd.DataFrame({"x": numeric, "y": pd.to_numeric(y, errors="coerce")}).dropna()
+                pairs = pd.DataFrame(
+                    {
+                        "x": pd.to_numeric(
+                            analysis_features[str(column)], errors="coerce"
+                        ),
+                        "y": pd.to_numeric(y, errors="coerce"),
+                    }
+                ).dropna()
                 metric = float(pairs["x"].corr(pairs["y"])) if len(pairs) >= 3 else None
                 if metric is None or not np.isfinite(metric):
                     metric = None
@@ -223,15 +296,31 @@ def profile_features(
         expected_dataset_version_id=identity["dataset_version_id"],
         user=user,
     )
+    scope_metadata = (
+        development_scope.metadata()
+        if development_scope is not None
+        else {
+            "scope": "full_governed_population_predictors_only",
+            "analysis_scope": "structural_only_pre_partition",
+            "target_directed_scope": "unavailable_analysis_partition_required",
+            "structural_scope": "full_governed_population_predictors_only",
+            "final_holdout_accessed": False,
+            "final_holdout_used_for_selection": False,
+            "raw_dataset_target_fallback_used": False,
+            "browser_target_semantics_used": False,
+        }
+    )
     return {
         "ok": True,
+        **scope_metadata,
         "project_id": identity["project_id"],
         "dataset_id": identity["dataset_id"],
         "dataset_version_id": identity["dataset_version_id"],
         # Transitional response compatibility only.
         "dataset_version": identity["dataset_version_id"],
-        "profileScope": "full_dataset",
+        "profileScope": scope_metadata["analysis_scope"],
         "profiledRowCount": int(df.shape[0]),
+        "targetDirectedRowCount": int(len(y)) if y is not None else 0,
         "registeredRowCount": int(df.shape[0]),
         "problemType": inferred_problem,
         "target": target,

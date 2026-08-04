@@ -97,11 +97,13 @@ test("special-value semantics and section completion remain governed", () => {
 test("the rendered validation flow is one recommended holdout-plus-CV path", () => {
   for (const text of [
     "Training and Validation Design",
-    "20% · recommended",
+    "Data Acquisition Analysis Partition",
+    'data-testid="analysis-partition-read-only-summary"',
     "Stratified K-fold · recommended",
-    "cross-validation inside the training population",
+    "Only cross-validation inside development and training-only policies can be configured here.",
     "Holdout remains untouched",
-    "Recommended: No balancing required",
+    "Development event rate",
+    "Current policy",
   ]) {
     assert.ok(activeValidationUi.includes(text), `missing standard validation path: ${text}`);
   }
@@ -140,7 +142,7 @@ test("balancing, external validation, and predictor review remain visible workfl
   assert.match(splitRouter, /external_validation_mode/);
 });
 
-test("readiness is exact, target distribution is available before split, and drafts auto-save", () => {
+test("readiness is exact, lazy full-population fallback is absent, and drafts auto-save", () => {
   for (const blocker of [
     "Create and confirm the current feature manifest before defining validation.",
     "Select a cross-validation method.",
@@ -154,7 +156,7 @@ test("readiness is exact, target distribution is available before split, and dra
   assert.match(activeValidationUi, /canonicalDatasetStorageKey\(VALIDATION_DRAFT_PREFIX, identity\)/);
   assert.match(activeValidationUi, /Draft auto-saved/);
   assert.match(activeValidationUi, /Retry target distribution/);
-  assert.match(
+  assert.doesNotMatch(
     splitRouter,
     /"full_dataset"\s+not\s+in\s+distributions[\s\S]*target_distribution\(/,
   );

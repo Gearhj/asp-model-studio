@@ -5,6 +5,7 @@ import { buildWorkflowNotebook, exportWorkflowNotebookJson, exportWorkflowPython
 import { DatasetIdentityError } from "../lib/datasetIdentity";
 import { usePredictiveIdentity } from "../components/PredictiveIdentityProvider";
 import { Link } from "react-router-dom";
+import { projectWorkflowRoute } from "../lib/projectScopedRoutes";
 
 function downloadText(filename: string, content: string, type: string) {
   const blob = new Blob([content], { type });
@@ -45,7 +46,12 @@ export default function NotebookExport() {
         <h1 className="text-lg font-semibold">Notebook export requires a verified dataset version</h1>
         <p className="mt-2 max-w-3xl text-sm leading-6">{notebookResolution.error || readiness.message}</p>
         <div className="mt-4 flex flex-wrap gap-2">
-          <Link to="/step01" className="atlas-primary-button">Open Data Acquisition</Link>
+          <Link
+            to={readiness.projectId ? projectWorkflowRoute(readiness.projectId, "/step01") : "/projects/open"}
+            className="atlas-primary-button"
+          >
+            Open Data Acquisition
+          </Link>
           <button type="button" className="atlas-secondary-button" onClick={retry}>Retry verification</button>
         </div>
       </section>

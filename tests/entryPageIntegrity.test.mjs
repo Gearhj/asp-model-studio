@@ -18,9 +18,13 @@ const TMP_DIR = fileURLToPath(new URL("../.tmp/entry-page-tests", import.meta.ur
 
 async function transpile(sourcePath, outputName) {
   const source = await readFile(new URL(sourcePath, ROOT), "utf8");
-  const output = ts.transpileModule(source, {
+  let output = ts.transpileModule(source, {
     compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 },
   }).outputText;
+  output = output.replace(/from\s+["'](\.{1,2}\/[^"']+)["']/g, (match, specifier) => {
+    if (specifier.endsWith(".js") || specifier.endsWith(".json") || specifier.endsWith(".css")) return match;
+    return match.replace(specifier, `${specifier}.js`);
+  });
   const outPath = path.join(TMP_DIR, outputName);
   await mkdir(path.dirname(outPath), { recursive: true });
   await writeFile(outPath, output, "utf8");
@@ -28,6 +32,10 @@ async function transpile(sourcePath, outputName) {
 }
 
 await rm(TMP_DIR, { recursive: true, force: true });
+await transpile("src/config/workflows.ts", "../config/workflows.js");
+await transpile("src/lib/datasetIdentity.ts", "datasetIdentity.js");
+await transpile("src/lib/authoritativeProjectContext.ts", "authoritativeProjectContext.js");
+await transpile("src/lib/projectScopedRoutes.ts", "projectScopedRoutes.js");
 const crumbs = await transpile("src/lib/breadcrumbs.ts", "breadcrumbs.js");
 
 const modelingApp = await readFile(new URL("src/apps/ModelingApp.tsx", ROOT), "utf8");
@@ -95,7 +103,7 @@ test("the active page is marked with aria-current semantics", () => {
 });
 
 test("the breadcrumb is derived from the route, not workflow completion", () => {
-  assert.match(modelingApp, /pathname: location\.pathname/, "the active route must drive the trail");
+  assert.match(modelingApp, /<AuthoritativeBreadcrumb[\s\S]{0,120}pathname=\{location\.pathname\}/, "the active route must drive the trail");
   // The old derivation is still used for progress, but must not feed the trail.
   const header = modelingApp.slice(modelingApp.indexOf("<nav"), modelingApp.indexOf("</nav>"));
   assert.doesNotMatch(header, /currentStep/, "workflow completion state must not appear in the breadcrumb");

@@ -93,6 +93,15 @@ function emptyNotebook(projectId: string, projectName: string, dataset?: Dataset
   };
 }
 
+function parsedSearchScalar(value: string | null): unknown {
+  if (value === null || value === "") return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
 const LANGUAGE_LABELS: Record<NotebookCodeLanguage, string> = {
   python: "Python",
   sql: "SQL",
@@ -300,6 +309,15 @@ export default function NotebookStudio() {
   const [searchParams] = useSearchParams();
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
+  const routedProjectId = searchParams.get("projectId") || projectId;
+  const routedTarget = searchParams.get("target") || "";
+  const routedTargetContractId = searchParams.get("targetContractId") || "";
+  const routedAnalysisPartitionId = searchParams.get("analysisPartitionId") || "";
+  const routedAnalysisPartitionRevision = Number(
+    searchParams.get("analysisPartitionRevision") || 0,
+  );
+  const routedEventValue = parsedSearchScalar(searchParams.get("eventValue"));
+  const routedNonEventValue = parsedSearchScalar(searchParams.get("nonEventValue"));
   const [datasets, setDatasets] = useState<DatasetSummary[]>([]);
   const [notebooks, setNotebooks] = useState<NotebookSummary[]>([]);
   const [notebook, setNotebook] = useState<AtlasNotebook | null>(null);
@@ -380,9 +398,17 @@ export default function NotebookStudio() {
         await openNotebook(queryNotebook);
       } else if (!notebook) {
         const queryDataset = datasetPayload.datasets.find((dataset) => dataset.datasetId === selectedDatasetId) || datasetPayload.datasets[0];
-        const draft = normalizeNotebook(emptyNotebook(projectId, projectName, queryDataset));
+        const draft = normalizeNotebook(emptyNotebook(routedProjectId, projectName, queryDataset));
         if (selectedDatasetId) draft.primaryDatasetId = selectedDatasetId;
         if (selectedVersionId) draft.primaryVersionId = selectedVersionId;
+        if (routedTargetContractId && routedAnalysisPartitionId && routedAnalysisPartitionRevision > 0) {
+          draft.target = routedTarget;
+          draft.eventValue = routedEventValue;
+          draft.nonEventValue = routedNonEventValue;
+          draft.targetContractId = routedTargetContractId;
+          draft.analysisPartitionId = routedAnalysisPartitionId;
+          draft.analysisPartitionRevision = routedAnalysisPartitionRevision;
+        }
         setNotebook(draft);
         if (!selectedDatasetId && queryDataset) {
           setSelectedDatasetId(queryDataset.datasetId);
@@ -402,7 +428,25 @@ export default function NotebookStudio() {
       const [profilePayload, previewPayload] = await Promise.all([getDatasetProfile(selectedDatasetId, selectedVersionId), getDatasetPreview(selectedDatasetId, selectedVersionId)]);
       setProfile(profilePayload.profile);
       setPreview(previewPayload);
-      setNotebook((current) => current ? normalizeNotebook({ ...current, primaryDatasetId: selectedDatasetId, primaryVersionId: selectedVersionId }) : current);
+      setNotebook((current) => {
+        if (!current) return current;
+        const identityUnchanged =
+          current.primaryDatasetId === selectedDatasetId &&
+          current.primaryVersionId === selectedVersionId;
+        return normalizeNotebook({
+          ...current,
+          primaryDatasetId: selectedDatasetId,
+          primaryVersionId: selectedVersionId,
+          target: identityUnchanged ? current.target : "",
+          eventValue: identityUnchanged ? current.eventValue : null,
+          nonEventValue: identityUnchanged ? current.nonEventValue : null,
+          targetContractId: identityUnchanged ? current.targetContractId : "",
+          analysisPartitionId: identityUnchanged ? current.analysisPartitionId : "",
+          analysisPartitionRevision: identityUnchanged
+            ? current.analysisPartitionRevision
+            : 0,
+        });
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "ATLAS could not load dataset context.");
     }
@@ -424,7 +468,7 @@ export default function NotebookStudio() {
     try {
       const saved = normalizeNotebook(await saveNotebook({
         ...current,
-        projectId,
+        projectId: routedProjectId,
         projectName,
         primaryDatasetId: selectedDatasetId,
         primaryVersionId: selectedVersionId,
@@ -444,7 +488,7 @@ export default function NotebookStudio() {
   }
 
   async function createNotebookFromTemplate(template = templateId) {
-    const draft = emptyNotebook(projectId, projectName, selectedDataset);
+    const draft = emptyNotebook(routedProjectId, projectName, selectedDataset);
     draft.name = `${projectName || "ATLAS"} - ${TEMPLATE_OPTIONS.find((item) => item.id === template)?.label || "Notebook"}`;
     draft.defaultCodeLanguage = defaultCodeLanguage;
     draft.cells = notebookTemplateCells(template, defaultCodeLanguage);

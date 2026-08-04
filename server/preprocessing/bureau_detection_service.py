@@ -4,9 +4,11 @@ from datetime import datetime, timezone
 import re
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from ..core.dataset_store import DATASTORE
+from ..core.json_safety import json_safe
 from .bureau_detection_types import BureauDetectionRequest
 from .bureau_registry import BUREAU_SPECIAL_VALUES, name_signals
 
@@ -15,34 +17,52 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _event_rate(values: pd.Series, target: pd.Series, event_value: Any) -> float | None:
-    valid = target.loc[values.index].dropna()
+def _aligned_target_subset(mask: pd.Series, target: pd.Series) -> pd.Series:
+    """Select target rows by position so duplicate index labels stay harmless."""
+
+    if len(mask) != len(target):
+        raise ValueError(
+            "Development predictor and target rows are not positionally aligned."
+        )
+    positions = np.flatnonzero(mask.to_numpy(dtype=bool, copy=False))
+    return target.iloc[positions]
+
+
+def _event_rate(mask: pd.Series, target: pd.Series, event_value: Any) -> float | None:
+    valid = _aligned_target_subset(mask, target).dropna()
     if valid.empty or event_value is None:
         return None
     return float((valid.astype(str) == str(event_value)).mean())
 
 
-def _event_count(values: pd.Series, target: pd.Series, event_value: Any) -> int | None:
-    valid = target.loc[values.index].dropna()
+def _event_count(mask: pd.Series, target: pd.Series, event_value: Any) -> int | None:
+    valid = _aligned_target_subset(mask, target).dropna()
     if valid.empty or event_value is None:
         return None
     return int((valid.astype(str) == str(event_value)).sum())
 
 
-def _resolve_event(target: pd.Series | None, requested: Any) -> Any:
-    if target is None:
-        return None
+def _resolve_event(target: pd.Series | None, governed: Any) -> Any:
+    def native_scalar(value: Any) -> Any:
+        item = getattr(value, "item", None)
+        if callable(item):
+            try:
+                value = item()
+            except (TypeError, ValueError):
+                pass
+        return json_safe(value)
+
+    if target is None or governed in (None, ""):
+        raise ValueError(
+            "The exact governed event value is required for bureau detection."
+        )
     unique = list(pd.unique(target.dropna()))
-    if requested is not None:
-        for value in unique:
-            if str(value) == str(requested):
-                return value
     for value in unique:
-        if str(value).strip().lower() in {"1", "true", "yes", "bad", "fraud", "event"}:
-            return value
-    if len(unique) == 2:
-        return target.value_counts().index[-1]
-    return None
+        if str(value) == str(governed):
+            return native_scalar(value)
+    raise ValueError(
+        "The governed event value is absent from the development population."
+    )
 
 
 def _metadata_special_values(text: str | None) -> dict[float, str]:
@@ -59,13 +79,49 @@ def _metadata_special_values(text: str | None) -> dict[float, str]:
     return output
 
 
-def detect_bureau_data(request: BureauDetectionRequest) -> dict[str, Any]:
-    df = DATASTORE.get_base_df()
+def detect_bureau_data(
+    request: BureauDetectionRequest,
+    *,
+    authorized_predictors: list[str] | None = None,
+    target_analysis_features: pd.DataFrame | None = None,
+    target_analysis_target: pd.Series | None = None,
+    target_analysis_scope: str = "",
+    analysis_partition_id: str | None = None,
+    analysis_partition_revision: int | None = None,
+    development_partition_id: str | None = None,
+    governed_event_value: Any = None,
+    analysis_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    # Bureau structure belongs to the immutable activated Dataset Library
+    # version. A downstream processed_df must never silently replace it.
+    df = DATASTORE.get_raw_active_df(include_target=False)
     if df is None or df.empty:
         raise ValueError("No full backend dataset is loaded.")
-    target_name = request.target if request.target in df.columns else DATASTORE.target if DATASTORE.target in df.columns else None
-    target = df[target_name] if target_name else None
-    event_value = _resolve_event(target, request.event_value)
+    raw_df = DATASTORE.raw_df
+    target_name = request.target if request.target in raw_df.columns else None
+    if authorized_predictors is not None:
+        predictors = list(dict.fromkeys(str(value).strip() for value in authorized_predictors if str(value).strip()))
+        missing = [column for column in predictors if column not in raw_df.columns]
+        if missing:
+            raise ValueError("Authorized predictors are absent from the exact active dataset artifact.")
+        df = raw_df.loc[:, list(predictors)].copy()
+    else:
+        raise ValueError(
+            "Exact durable predictor authorization is required for bureau detection."
+        )
+
+    if target_analysis_target is None or target_analysis_features is None:
+        raise ValueError(
+            "The exact development population is required for target-aware bureau detection."
+        )
+    if target_analysis_scope != "development_population":
+        raise ValueError(
+            "Bureau target analysis is not bound to the development population."
+        )
+    event_value = _resolve_event(
+        target_analysis_target,
+        governed_event_value,
+    )
     metadata = {row.variableName.lower(): row for row in request.metadata}
     variable_results: list[dict[str, Any]] = []
     special_row_mask = pd.Series(False, index=df.index)
@@ -99,13 +155,60 @@ def detect_bureau_data(request: BureauDetectionRequest) -> dict[str, Any]:
                 score += 0.2
                 signals.append("Multiple special values are concentrated in the distribution, but no bureau name or metadata signal is present.")
         profile_rows: list[dict[str, Any]] = []
-        regular_mask = ordinary_mask
-        regular_event_rate = _event_rate(numeric[regular_mask], target, event_value) if target is not None else None
+        analysis_numeric = (
+            pd.to_numeric(target_analysis_features[column], errors="coerce")
+            if target_analysis_target is not None
+            and target_analysis_features is not None
+            and column in target_analysis_features.columns
+            else None
+        )
+        analysis_special_mask = (
+            analysis_numeric.isin(list(definitions))
+            if analysis_numeric is not None
+            else None
+        )
+        analysis_regular_mask = (
+            analysis_numeric.notna() & ~analysis_special_mask
+            if analysis_numeric is not None and analysis_special_mask is not None
+            else None
+        )
+        regular_event_rate = (
+            _event_rate(
+                analysis_regular_mask,
+                target_analysis_target,
+                event_value,
+            )
+            if analysis_numeric is not None
+            and analysis_regular_mask is not None
+            and target_analysis_target is not None
+            else None
+        )
         for value in distinct_special:
             mask = numeric == value
             count = int(mask.sum())
-            special_event_rate = _event_rate(numeric[mask], target, event_value) if target is not None else None
-            special_event_count = _event_count(numeric[mask], target, event_value) if target is not None else None
+            analysis_mask = analysis_numeric == value if analysis_numeric is not None else None
+            special_event_rate = (
+                _event_rate(
+                    analysis_mask,
+                    target_analysis_target,
+                    event_value,
+                )
+                if analysis_numeric is not None
+                and analysis_mask is not None
+                and target_analysis_target is not None
+                else None
+            )
+            special_event_count = (
+                _event_count(
+                    analysis_mask,
+                    target_analysis_target,
+                    event_value,
+                )
+                if analysis_numeric is not None
+                and analysis_mask is not None
+                and target_analysis_target is not None
+                else None
+            )
             rate_difference = (
                 special_event_rate - regular_event_rate
                 if special_event_rate is not None
@@ -167,7 +270,17 @@ def detect_bureau_data(request: BureauDetectionRequest) -> dict[str, Any]:
 
     result = {
         "ok": True,
-        "scope": "full_dataset",
+        **dict(analysis_metadata or {}),
+        "scope": "development_population",
+        "analysis_scope": "development_population",
+        "structural_scope": "full_governed_population_predictors_only",
+        "target_analysis_scope": target_analysis_scope,
+        "analysis_partition_id": analysis_partition_id,
+        "analysis_partition_revision": analysis_partition_revision,
+        "development_partition_id": development_partition_id,
+        "final_holdout_accessed": False,
+        "final_holdout_used_for_selection": False,
+        "raw_dataset_target_fallback_used": False,
         "row_count": int(len(df)),
         "target": target_name,
         "event_value": event_value,
@@ -184,5 +297,7 @@ def detect_bureau_data(request: BureauDetectionRequest) -> dict[str, Any]:
         "metadata_source": "uploaded" if request.metadata else "none",
         "reviewed_at": _now(),
     }
-    DATASTORE.meta["bureau_review"] = result
-    return result
+    # Route handlers still perform a defensive outbound conversion before
+    # publishing the review, but the service contract itself must never leak a
+    # pandas/numpy scalar to another Python caller or response encoder.
+    return json_safe(result)

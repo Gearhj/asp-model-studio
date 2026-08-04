@@ -110,8 +110,28 @@ def get_profile(profile_id: str) -> Dict[str, Any] | None:
 
 
 def get_project_profile(project_id: str) -> Dict[str, Any] | None:
-    match = next((row for row in load_registry() if row.get("projectId") == project_id), None)
-    return get_profile(str(match.get("profileId"))) if match else None
+    raise ValueError(
+        "Project-latest Credit Risk profile lookup is disabled. Resolve the exact active dataset version."
+    )
+
+
+def get_project_profile_exact(
+    project_id: str,
+    dataset_id: str,
+    dataset_version_id: str,
+) -> Dict[str, Any] | None:
+    matches = [
+        row
+        for row in load_registry()
+        if row.get("projectId") == project_id
+        and row.get("datasetId") == dataset_id
+        and row.get("datasetVersionId") == dataset_version_id
+    ]
+    if len(matches) > 1:
+        raise ValueError(
+            "Multiple Credit Risk profiles match the exact active dataset version. Select one by exact profileId."
+        )
+    return get_profile(str(matches[0].get("profileId"))) if matches else None
 
 
 def save_profile(payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -196,6 +216,7 @@ def create_credit_risk_evidence(profile: Dict[str, Any], technique: str, label: 
         "artifactType": "credit_risk_profile",
         "artifactId": profile.get("profileId") or "",
         "datasetIds": [profile.get("datasetId")] if profile.get("datasetId") else [],
+        "datasetVersionIds": [profile.get("datasetVersionId")] if profile.get("datasetVersionId") else [],
         "supportsSections": sections,
         "tags": ["credit_risk", technique, "underwriting", "governance"],
         "financialDomain": "credit_risk",
@@ -212,8 +233,36 @@ def create_credit_risk_evidence(profile: Dict[str, Any], technique: str, label: 
             "model_risk": True,
             "adverse_action": technique == "adverse_action",
         },
-        "lineage": {"profileId": profile.get("profileId"), "source": "Credit Risk Studio"},
-        "payload": {"technique": technique, "profileSummary": compact_profile(profile)},
+        "lineage": {
+            "profileId": profile.get("profileId"),
+            "source": "Credit Risk Studio",
+            "project_id": profile.get("project_id"),
+            "dataset_id": profile.get("dataset_id"),
+            "dataset_version_id": profile.get("dataset_version_id"),
+            "analysis_partition_id": profile.get("analysis_partition_id"),
+            "analysis_partition_revision": profile.get("analysis_partition_revision"),
+            "development_partition_id": profile.get("development_partition_id"),
+            "source_checksum": profile.get("source_checksum"),
+            "holdout_excluded": profile.get("holdout_excluded"),
+        },
+        "payload": {
+            "technique": technique,
+            "profileSummary": compact_profile(profile),
+            "scopeMetadata": {
+                key: profile.get(key)
+                for key in (
+                    "analysis_scope",
+                    "population_id",
+                    "population_count",
+                    "partition_id",
+                    "partition_revision",
+                    "holdout_excluded",
+                    "source_checksum",
+                    "actor",
+                    "timestamp",
+                )
+            },
+        },
         "governance": {"note": "Credit Risk Studio stores compact evidence metadata and profile references only."},
         "status": "ready",
         "importance": "high",

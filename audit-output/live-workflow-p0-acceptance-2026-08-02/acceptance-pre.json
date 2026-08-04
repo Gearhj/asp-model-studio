@@ -1,0 +1,90 @@
+{
+  "schema_version": 1,
+  "phase": "pre",
+  "ok": false,
+  "started_at": "2026-08-02T18:51:48.243Z",
+  "project_id": "atlas-mrzpau4t",
+  "project_name": "HELOC Credit Risk - CLASSIFICATION TEST",
+  "dataset_id": "ds_heloc_train_6bdb184b_05905",
+  "dataset_version_id": "v_1785186305905_6bdb184b",
+  "target": "bad_flag",
+  "target_contract_id": "target-contract-9a0bbd69645b7e5e0b4c",
+  "predictor_authorization_id": "predictor-auth-491392549aa93a6ad258",
+  "authorized_predictor_count": 23,
+  "expected_activation_revision": 1,
+  "expected_analysis_partition_id": "analysis-partition-688c2184b4e9b8181946-r1",
+  "current_step": "project_context_exact_scope",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200,
+      "response_correlation_id": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200,
+      "response_correlation_id": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200,
+      "response_correlation_id": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/data/active-identity",
+      "status": 200,
+      "response_correlation_id": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200,
+      "response_correlation_id": ""
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200,
+      "response_correlation_id": ""
+    }
+  ],
+  "direct_api_failures": [],
+  "screenshots": [
+    "C:\\Users\\james\\ds-workflow-starter\\audit-output\\live-workflow-p0-acceptance-2026-08-02\\acceptance-pre-failure.png"
+  ],
+  "console_errors": [
+    "Failed to load resource: net::ERR_BLOCKED_BY_CLIENT.Inspector"
+  ],
+  "page_errors": [],
+  "network_failures": [],
+  "forbidden_requests": [
+    {
+      "rule": "downstream_training_evaluation_interpretation_promotion_or_scoring",
+      "method": "GET",
+      "path": "/api/train/last",
+      "blocked_before_dispatch": true
+    }
+  ],
+  "dataset_registration_performed": false,
+  "dataset_activation_performed": false,
+  "project_dataset_link_mutated": false,
+  "analysis_partition_confirmed_or_invalidated": false,
+  "training_performed": false,
+  "evaluation_opened": false,
+  "interpretation_opened": false,
+  "promotion_performed": false,
+  "scoring_performed": false,
+  "auth_storage_inspected": false,
+  "source_or_git_operation_performed": false,
+  "authenticated_user_id": "user_d8bbe3ff73a84fb5",
+  "error": {
+    "code": "acceptance_failed",
+    "message": "The breadcrumb is not bound to the exact project."
+  },
+  "failed_at": "2026-08-02T18:51:51.042Z",
+  "final_url_path": "/projects/atlas-mrzpau4t/step00"
+}

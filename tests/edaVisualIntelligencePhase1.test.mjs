@@ -164,8 +164,9 @@ assert.match(motion, /const durationMs = enabled \? ATLAS_MOTION_TOKENS\.duratio
 // narrow the already-filtered frame; target and deterministic target sources
 // never reach Phase 1 visual calculations.
 assert.match(service, /def _predictor_authorization/);
-assert.match(service, /governed_target = str\(DATASTORE\.target or ""\)\.strip\(\)/);
-assert.match(service, /requested target does not match the server-governed modeling target/);
+assert.match(service, /def _restore_target_from_exact_predictor_authorization/);
+assert.match(service, /record_target = str\(record\.get\("target_column"\) or ""\)\.strip\(\)/);
+assert.match(service, /The requested target does not match the exact Data Acquisition target contract/);
 assert.match(service, /authorization\["authorized_predictors"\]/);
 assert.match(service, /df = active\.loc\[:, \[\*keep, target\]\]\.copy\(\)/);
 assert.match(service, /"target_source_excluded": sorted\(target_sources\)/);

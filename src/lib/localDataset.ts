@@ -36,6 +36,20 @@ export type LocalDataset = {
   };
   data_access?: import("./enterpriseDataAccess").DataAccessMetadata;
   data_quality?: import("./enterpriseDataAccess").DataQualitySummary;
+  /** Versioned browser contract: target values are never persisted. */
+  cache_schema_version?: 2;
+  target_values_included?: false;
+  target_contract_id?: string;
+  activation_revision?: number;
+  source_checksum?: string;
+  analytical_scope?:
+    | "development_population_predictors_only"
+    | "full_governed_population_predictors_only";
+  population_id?: string;
+  population_count?: number;
+  analysis_partition_id?: string;
+  analysis_partition_revision?: number;
+  holdout_excluded?: boolean;
 };
 
 // Browser dataset storage contract (Predictive Modeling Repair Stage 6.2 --
@@ -60,6 +74,7 @@ const KEY_PREFIX = "atlas:modeling-dataset";
 const LEGACY_STORAGE_KEY = "modeling-tool-dataset";
 const MAX_LOCAL_ROWS = 5000;
 const FALLBACK_USER_ID = "anonymous";
+const SAFE_CACHE_SCHEMA_VERSION = 2 as const;
 
 let legacyKeyQuarantined = false;
 
@@ -102,7 +117,11 @@ function uniqueStrings(values: unknown[]) {
 function normalizeSelectedDataset(dataset: Partial<LocalDataset>): LocalDataset | null {
   if (!Array.isArray(dataset.headers) || !Array.isArray(dataset.rows)) return null;
   const headers = uniqueStrings(dataset.headers);
-  const target = dataset.target && headers.includes(dataset.target) ? dataset.target : null;
+  // The target name is safe contract metadata and does not need to be present
+  // in predictor-only headers.  Its row values are intentionally never copied.
+  const target = typeof dataset.target === "string" && dataset.target.trim()
+    ? dataset.target.trim()
+    : null;
   const hasExplicitSelectedColumns = Array.isArray(dataset.selected_columns);
   const selected = uniqueStrings(dataset.selected_columns ?? []).filter(
     (column) => headers.includes(column) && column !== target
@@ -111,7 +130,7 @@ function normalizeSelectedDataset(dataset: Partial<LocalDataset>): LocalDataset 
   const persistedHeaders = target ? [...selectedColumns, target] : [...selectedColumns];
   const rows = (dataset.rows as Record<string, unknown>[]).map((row) => {
     const filtered: Record<string, unknown> = {};
-    persistedHeaders.forEach((header) => {
+    selectedColumns.forEach((header) => {
       filtered[header] = row?.[header];
     });
     return filtered;
@@ -143,6 +162,44 @@ function normalizeSelectedDataset(dataset: Partial<LocalDataset>): LocalDataset 
     dataset_library: dataset.dataset_library,
     data_access: dataset.data_access,
     data_quality: dataset.data_quality,
+    cache_schema_version: SAFE_CACHE_SCHEMA_VERSION,
+    target_values_included: false,
+    target_contract_id:
+      typeof dataset.target_contract_id === "string" && dataset.target_contract_id.trim()
+        ? dataset.target_contract_id.trim()
+        : undefined,
+    activation_revision: Number.isSafeInteger(Number(dataset.activation_revision))
+      && Number(dataset.activation_revision) > 0
+      ? Number(dataset.activation_revision)
+      : undefined,
+    source_checksum:
+      typeof dataset.source_checksum === "string" && dataset.source_checksum.trim()
+        ? dataset.source_checksum.trim()
+        : undefined,
+    analytical_scope:
+      dataset.analytical_scope === "development_population_predictors_only"
+      || dataset.analytical_scope === "full_governed_population_predictors_only"
+        ? dataset.analytical_scope
+        : undefined,
+    population_id:
+      typeof dataset.population_id === "string" && dataset.population_id.trim()
+        ? dataset.population_id.trim()
+        : undefined,
+    population_count: Number.isFinite(Number(dataset.population_count))
+      ? Number(dataset.population_count)
+      : undefined,
+    analysis_partition_id:
+      typeof dataset.analysis_partition_id === "string" && dataset.analysis_partition_id.trim()
+        ? dataset.analysis_partition_id.trim()
+        : undefined,
+    analysis_partition_revision: Number.isSafeInteger(Number(dataset.analysis_partition_revision))
+      && Number(dataset.analysis_partition_revision) > 0
+      ? Number(dataset.analysis_partition_revision)
+      : undefined,
+    holdout_excluded:
+      typeof dataset.holdout_excluded === "boolean"
+        ? dataset.holdout_excluded
+        : undefined,
   };
 }
 
@@ -174,8 +231,28 @@ export function loadProjectDataset(userId: string, projectId: string): LocalData
 
   try {
     const parsed = JSON.parse(raw) as Partial<LocalDataset>;
+    const parsedTarget = typeof parsed.target === "string" && parsed.target.trim()
+      ? parsed.target.trim()
+      : null;
+    const containsTargetValues = Boolean(
+      parsedTarget
+      && Array.isArray(parsed.rows)
+      && parsed.rows.some((row) => Object.prototype.hasOwnProperty.call(row, parsedTarget)),
+    );
+    if (
+      parsed.cache_schema_version !== SAFE_CACHE_SCHEMA_VERSION
+      || parsed.target_values_included !== false
+      || containsTargetValues
+    ) {
+      // Exact dataset IDs are not sufficient to make an old row cache safe.
+      // Quarantine it so the identity provider refetches the current scoped,
+      // target-free sample from the backend.
+      sessionStorage.removeItem(buildProjectDatasetStorageKey(userId, projectId));
+      return null;
+    }
     return normalizeSelectedDataset(parsed);
   } catch {
+    sessionStorage.removeItem(buildProjectDatasetStorageKey(userId, projectId));
     return null;
   }
 }
@@ -230,20 +307,12 @@ export function loadLocalDataset(): LocalDataset | null {
 }
 
 export function inferLocalProblemType(dataset: LocalDataset | null): "classification" | "regression" | null {
-  if (!dataset?.rows.length || !dataset.target) return null;
-  if (dataset.problem_type === "classification" || dataset.problem_type === "regression") {
+  if (dataset?.problem_type === "classification" || dataset?.problem_type === "regression") {
     return dataset.problem_type;
   }
-
-  const values = dataset.rows
-    .map((row) => row[dataset.target as string])
-    .filter((value) => value !== null && value !== undefined && String(value).trim() !== "");
-  if (!values.length) return null;
-
-  const numericCount = values.filter((value) => Number.isFinite(Number(value))).length;
-  const uniqueCount = new Set(values.map((value) => String(value))).size;
-  if (numericCount / values.length >= 0.9 && uniqueCount > 10) return "regression";
-  return "classification";
+  // Never infer task semantics from browser row values.  Only explicit
+  // backend-authoritative target-contract metadata may populate problem_type.
+  return null;
 }
 
 export function localDatasetVersion(dataset: LocalDataset | null): string {

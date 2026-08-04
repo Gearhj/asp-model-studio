@@ -174,6 +174,10 @@ class ProjectDatasetActivationPersistenceTest(unittest.TestCase):
                 "server.persistence.service.get_persistence_service",
                 return_value=selected_service,
             ),
+            patch(
+                "server.analysis_partition.service.get_persistence_service",
+                return_value=selected_service,
+            ),
             patch("server.datasets.dataset_identity.audit_event"),
             patch("server.security.security_store.audit_event"),
         ):

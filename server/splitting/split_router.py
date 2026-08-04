@@ -12,6 +12,12 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel, Field
 
+from ..analysis_partition.service import analysis_partition_service
+from ..analysis_partition.types import (
+    ANALYSIS_PARTITION_CONTRADICTORY,
+    ANALYSIS_PARTITION_TARGET_AUTHORITY_UNVERIFIED,
+    AnalysisPartitionError,
+)
 from ..core.dataset_store import DATASTORE
 from ..core.modeling_scope import authorize_modeling_scope
 from ..core.pretraining_invalidation import invalidate_downstream_training_state
@@ -46,6 +52,10 @@ class SplitConfigPayload(BaseModel):
     minority_share: float = Field(default=0.5, ge=0.05, le=0.5)
     problem_type: Literal["classification", "regression"] = "classification"
     event_value: Any | None = None
+    # Optional comparison-only claims.  Validation Design always rebinds both
+    # class labels from the exact sealed Analysis Partition contract.
+    negative_value: Any | None = None
+    non_event_value: Any | None = None
     selected_features: list[str] = Field(default_factory=list)
     feature_manifest_version: str = ""
     dataset_id: str = ""
@@ -86,6 +96,10 @@ class SplitConfigPayload(BaseModel):
     fold_count: int = Field(default=5, ge=2, le=20)
     repeats: int = Field(default=1, ge=1, le=10)
     inner_fold_count: int = Field(default=3, ge=2, le=10)
+    fold_local_preprocessing: Literal[
+        "fit_transform_per_fold",
+        "model_native_per_fold",
+    ] = "fit_transform_per_fold"
     group_field: str = ""
     time_field: str = ""
     shuffle: bool = True
@@ -118,6 +132,36 @@ def _now() -> str:
 def _stable_hash(payload: dict[str, Any]) -> str:
     encoded = json.dumps(payload, sort_keys=True, default=str, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _validation_request_hash(
+    *,
+    config: dict[str, Any],
+    selected_features: list[str],
+    identity: dict[str, Any],
+    feature_manifest_version: str,
+    partition: dict[str, Any],
+) -> str:
+    return _stable_hash(
+        {
+            "contract": "validation_design_from_analysis_partition_v1",
+            "identity": {
+                key: identity.get(key)
+                for key in ("project_id", "dataset_id", "dataset_version_id")
+            },
+            "analysis_partition_id": partition.get("analysis_partition_id"),
+            "analysis_partition_revision": int(partition.get("revision") or 0),
+            "development_partition_id": partition.get(
+                "development_partition_id"
+            ),
+            "sealed_holdout_partition_id": partition.get(
+                "sealed_holdout_partition_id"
+            ),
+            "feature_manifest_version": feature_manifest_version,
+            "selected_features": list(selected_features),
+            "config": config,
+        }
+    )
 
 
 def _current_store(proxy: Any) -> Any:
@@ -469,6 +513,281 @@ def _require_full_dataset(store: Any = DATASTORE):
     return frame, target
 
 
+def _authorization_id(meta: dict[str, Any]) -> str:
+    authorization = (
+        meta.get("predictor_authorization")
+        if isinstance(meta.get("predictor_authorization"), dict)
+        else meta.get("predictor_authorization_manifest")
+        if isinstance(meta.get("predictor_authorization_manifest"), dict)
+        else {}
+    )
+    return str(
+        authorization.get("predictor_authorization_id")
+        or authorization.get("authorization_id")
+        or authorization.get("manifest_id")
+        or authorization.get("manifest_version")
+        or meta.get("predictor_authorization_id")
+        or ""
+    ).strip()
+
+
+def _current_analysis_partition(
+    store: Any,
+    identity: dict[str, Any],
+    *,
+    target: str,
+) -> dict[str, Any]:
+    try:
+        partition = analysis_partition_service.current(
+            str(identity["project_id"]),
+            str(identity["dataset_id"]),
+            str(identity["dataset_version_id"]),
+            target=target,
+            target_contract_id=str(store.meta.get("target_contract_id") or ""),
+            predictor_authorization_id=_authorization_id(store.meta),
+            require_documentation_ready=True,
+        )
+        analysis_partition_service.publish_safe(store, partition)
+        return partition
+    except AnalysisPartitionError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.as_detail(),
+        ) from exc
+
+
+def _immutable_partition_mismatch(
+    payload: SplitConfigPayload,
+    partition: dict[str, Any],
+) -> dict[str, Any] | None:
+    expected_holdout = float(partition.get("holdout_share") or 0.0)
+    expected_seed = int(partition.get("random_seed") or 0)
+    expected_stratify = str(partition.get("stratification_policy") or "none") == "target"
+    mismatches: dict[str, Any] = {}
+    if not np.isclose(float(payload.test_size), expected_holdout):
+        mismatches["holdout_share"] = {
+            "requested": float(payload.test_size),
+            "sealed": expected_holdout,
+        }
+    if int(payload.random_seed) != expected_seed:
+        mismatches["random_seed"] = {
+            "requested": int(payload.random_seed),
+            "sealed": expected_seed,
+        }
+    if bool(payload.stratify) != expected_stratify:
+        mismatches["stratification"] = {
+            "requested": bool(payload.stratify),
+            "sealed": expected_stratify,
+        }
+    return mismatches or None
+
+
+def _partition_conflict_detail(
+    partition: dict[str, Any],
+    mismatches: dict[str, Any],
+) -> dict[str, Any]:
+    safe = analysis_partition_service.safe_record(partition)
+    return {
+        "ok": False,
+        "code": ANALYSIS_PARTITION_CONTRADICTORY,
+        "message": (
+            "Validation Design cannot redraw the pre-EDA Analysis Partition. "
+            "The requested holdout controls conflict with sealed membership."
+        ),
+        "recovery": (
+            "Keep the sealed values or use Reset Analysis Partition, review the "
+            "impact list, and explicitly acknowledge downstream invalidation."
+        ),
+        "impacts": analysis_partition_service.impact_for_reset(partition),
+        "identifiers": {
+            "analysis_partition_id": safe.get("analysis_partition_id"),
+            "revision": safe.get("revision"),
+            "development_partition_id": safe.get("development_partition_id"),
+            "sealed_holdout_partition_id": safe.get(
+                "sealed_holdout_partition_id"
+            ),
+        },
+        "mismatches": mismatches,
+    }
+
+
+def _contract_value_equal(left: Any, right: Any) -> bool:
+    """Compare exact JSON contract scalars without string coercion."""
+
+    return _stable_hash({"value": left}) == _stable_hash({"value": right})
+
+
+def _sealed_partition_target_authority(
+    partition: dict[str, Any],
+) -> dict[str, Any]:
+    """Resolve target semantics from a native or verified legacy partition.
+
+    Migration 0025 necessarily assigned a database default to historical rows.
+    For a row without the v2 preview fingerprint, the compatibility linker
+    verifies the v1 artifact and assignment hashes and derives target semantics
+    only from the original label/stratification contract. The migration's
+    default ``problem_type`` is never used as authority.
+    """
+
+    safe = analysis_partition_service.safe_record(partition)
+    identifiers = {
+        "analysis_partition_id": safe.get("analysis_partition_id"),
+        "analysis_partition_revision": safe.get("revision"),
+        "project_id": safe.get("project_id"),
+        "dataset_id": safe.get("dataset_id"),
+        "dataset_version_id": safe.get("dataset_version_id"),
+        "target_contract_id": safe.get("target_contract_id"),
+    }
+    if safe.get("problem_type_status") != "verified":
+        try:
+            return analysis_partition_service.target_authority_compatibility(
+                partition
+            )
+        except AnalysisPartitionError as exc:
+            detail = exc.as_detail()
+            detail["identifiers"] = {
+                **identifiers,
+                **dict(detail.get("identifiers") or {}),
+            }
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail=detail,
+            ) from exc
+
+    problem_type = str(safe.get("problem_type") or "").strip().lower()
+    target_contract_id = str(safe.get("target_contract_id") or "").strip()
+    positive_value = safe.get("positive_value")
+    negative_value = safe.get("negative_value")
+    contract_invalid = (
+        problem_type not in {"classification", "regression"}
+        or not target_contract_id
+        or (
+            problem_type == "classification"
+            and (
+                positive_value is None
+                or negative_value is None
+                or _contract_value_equal(positive_value, negative_value)
+            )
+        )
+        or (
+            problem_type == "regression"
+            and (positive_value is not None or negative_value is not None)
+        )
+    )
+    if contract_invalid:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "ok": False,
+                "code": ANALYSIS_PARTITION_TARGET_AUTHORITY_UNVERIFIED,
+                "message": (
+                    "The sealed Analysis Partition does not contain a "
+                    "complete, internally consistent target contract."
+                ),
+                "recovery": (
+                    "Return to Data Acquisition and explicitly reset and "
+                    "confirm the target and Analysis Partition."
+                ),
+                "identifiers": identifiers,
+            },
+        )
+    return {
+        "target_contract_id": target_contract_id,
+        "target": safe.get("target"),
+        "problem_type": problem_type,
+        "event_value": positive_value,
+        "non_event_value": negative_value,
+        "source": "sealed_analysis_partition",
+    }
+
+
+def _partition_target_authority(
+    payload: SplitConfigPayload,
+    partition: dict[str, Any],
+) -> dict[str, Any]:
+    """Rebind target semantics and reject contradictory client claims."""
+
+    authority = _sealed_partition_target_authority(partition)
+    supplied = payload.model_fields_set
+    mismatches: dict[str, Any] = {}
+    if (
+        "problem_type" in supplied
+        and payload.problem_type != authority["problem_type"]
+    ):
+        mismatches["problem_type"] = {
+            "requested": payload.problem_type,
+            "sealed": authority["problem_type"],
+        }
+    if (
+        "event_value" in supplied
+        and not _contract_value_equal(
+            payload.event_value,
+            authority["event_value"],
+        )
+    ):
+        mismatches["event_value"] = {
+            "requested": payload.event_value,
+            "sealed": authority["event_value"],
+        }
+    for field in ("negative_value", "non_event_value"):
+        if field in supplied and not _contract_value_equal(
+            getattr(payload, field),
+            authority["non_event_value"],
+        ):
+            mismatches[field] = {
+                "requested": getattr(payload, field),
+                "sealed": authority["non_event_value"],
+            }
+    if mismatches:
+        safe = analysis_partition_service.safe_record(partition)
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "ok": False,
+                "code": ANALYSIS_PARTITION_CONTRADICTORY,
+                "message": (
+                    "Validation Design target claims conflict with the exact "
+                    "sealed Analysis Partition target contract."
+                ),
+                "recovery": (
+                    "Refresh Validation Design and use the inherited target "
+                    "semantics. Changing them requires an explicit Analysis "
+                    "Partition reset in Data Acquisition."
+                ),
+                "identifiers": {
+                    "analysis_partition_id": safe.get(
+                        "analysis_partition_id"
+                    ),
+                    "analysis_partition_revision": safe.get("revision"),
+                    "target_contract_id": safe.get("target_contract_id"),
+                },
+                "mismatches": mismatches,
+            },
+        )
+    return authority
+
+
+def _safe_partition_with_target_authority(
+    safe_partition: dict[str, Any],
+    target_authority: dict[str, Any],
+) -> dict[str, Any]:
+    """Expose successful legacy verification without altering durable state."""
+
+    if target_authority.get("compatibility_status") != "verified_legacy_v1":
+        return safe_partition
+    return {
+        **safe_partition,
+        "problem_type": target_authority["problem_type"],
+        "problem_type_status": "verified_legacy",
+        "compatibility_status": target_authority["compatibility_status"],
+        "compatibility_source": target_authority["source"],
+        "lineage_contract": target_authority["lineage_contract"],
+        "target_membership_fingerprint_status": target_authority[
+            "target_membership_fingerprint_status"
+        ],
+    }
+
+
 def _current_status(
     project_id: str,
     *,
@@ -477,6 +796,17 @@ def _current_status(
     scoped_store = _current_store(DATASTORE)
     identity = active_dataset_identity(project_id, user=user, store=scoped_store)
     meta = scoped_store.meta
+    current_target = str(scoped_store.target or "")
+    partition = _current_analysis_partition(
+        scoped_store,
+        identity,
+        target=current_target,
+    )
+    safe_partition = analysis_partition_service.safe_record(partition)
+    target_authority = _sealed_partition_target_authority(partition)
+    safe_partition = _safe_partition_with_target_authority(
+        safe_partition, target_authority
+    )
     record = meta.get("split_record") if isinstance(meta.get("split_record"), dict) else {}
     manifest = meta.get("feature_manifest") if isinstance(meta.get("feature_manifest"), dict) else {}
     stored_status = str(meta.get("split_status") or "not_created")
@@ -495,23 +825,42 @@ def _current_status(
             ),
         )
     current_selected = _selected_manifest_features(manifest)
-    current_target = str(scoped_store.target or "")
     has_engineered_features = any(
         isinstance(row, dict) and row.get("origin") != "original"
         for row in manifest.get("features") or []
     )
     record_selected = [str(value) for value in record.get("selected_features") or []]
     distributions = dict(record.get("distributions") or {})
-    current_frame = scoped_store.get_base_df()
+    distributions.pop("full_dataset", None)
+    existing_holdout = distributions.get("holdout_untouched")
+    distributions["holdout_untouched"] = {
+        "rows": int(
+            (existing_holdout or {}).get("rows")
+            or safe_partition.get("holdout_count")
+            or 0
+        ),
+        "status": "sealed",
+        "target_statistics_withheld": True,
+    }
     if (
-        "full_dataset" not in distributions
-        and current_frame is not None
-        and not current_frame.empty
-        and current_target
-        and current_target in current_frame.columns
+        "development_population" not in distributions
+        and isinstance(partition.get("row_assignments_json"), dict)
     ):
-        distributions["full_dataset"] = target_distribution(
-            current_frame[current_target],
+        try:
+            _development_features, development_target = (
+                analysis_partition_service.materialize_development(
+                    scoped_store,
+                    partition,
+                    [],
+                )
+            )
+        except AnalysisPartitionError as exc:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail=exc.as_detail(),
+            ) from exc
+        distributions["development_population"] = target_distribution(
+            development_target,
             record.get("event_value")
             if record
             else scoped_store.meta.get("event_value"),
@@ -545,6 +894,20 @@ def _current_status(
     elif status == "current" and not has_split:
         status = "stale"
         reason = "Validation split is stale because split data is not loaded in the backend session."
+    elif (
+        status == "current"
+        and (
+            record.get("analysis_partition_id")
+            != safe_partition.get("analysis_partition_id")
+            or int(record.get("analysis_partition_revision") or 0)
+            != int(safe_partition.get("revision") or 0)
+        )
+    ):
+        status = "stale"
+        reason = (
+            "Validation Design is stale because it is not bound to the exact "
+            "current Analysis Partition revision."
+        )
     elif status == "current" and record.get("feature_manifest_version") and record.get("feature_manifest_version") != current_manifest_version:
         status = "stale"
         reason = "Validation split is stale because engineered features were updated."
@@ -554,6 +917,28 @@ def _current_status(
     elif status == "current" and record.get("target") and record.get("target") != current_target:
         status = "stale"
         reason = "Validation split is stale because the target changed."
+    elif (
+        status == "current"
+        and (
+            str(record.get("target_contract_id") or "")
+            != str(target_authority["target_contract_id"])
+            or str(record.get("problem_type") or "")
+            != str(target_authority["problem_type"])
+            or not _contract_value_equal(
+                record.get("event_value"),
+                target_authority["event_value"],
+            )
+            or not _contract_value_equal(
+                record.get("non_event_value"),
+                target_authority["non_event_value"],
+            )
+        )
+    ):
+        status = "stale"
+        reason = (
+            "Validation Design is stale because its target semantics are not "
+            "bound to the exact sealed Analysis Partition contract."
+        )
     elif (
         status == "current"
         and has_engineered_features
@@ -586,16 +971,9 @@ def _current_status(
                 )
                 or {}
             )
-            holdout_distribution = (
-                (record.get("distributions") or {}).get("holdout_untouched")
-                or {}
-            )
             if train_distribution.get("events") == 0:
                 status = "stale"
                 reason = "Training split has zero events."
-            elif holdout_distribution.get("events") == 0:
-                status = "stale"
-                reason = "Holdout split has zero events."
     if not reason:
         if status == "current":
             reason = "Ready for next step. Validation split is current."
@@ -603,6 +981,14 @@ def _current_status(
             reason = "Validation split is stale. Rebuild Validation Split."
         else:
             reason = "Create a governed validation split before continuing."
+    config = dict(record.get("config") or {})
+    config.update(
+        {
+            "test_size": float(safe_partition.get("holdout_share") or 0.0),
+            "random_seed": int(safe_partition.get("random_seed") or 0),
+            "stratify": safe_partition.get("stratification_policy") == "target",
+        }
+    )
     return {
         "ok": True,
         **_identity_fields(identity),
@@ -618,10 +1004,28 @@ def _current_status(
         "created_at": record.get("created_at"),
         "target": record.get("target"),
         "event_value": record.get("event_value"),
+        "negative_value": record.get("negative_value"),
+        "non_event_value": record.get("non_event_value"),
+        "problem_type": record.get("problem_type"),
+        "target_contract_id": record.get("target_contract_id"),
+        "target_authority": record.get("target_authority") or {},
         "feature_manifest_version": record.get("feature_manifest_version"),
         "selected_features": record.get("selected_features") or [],
         "feature_count": len(record.get("selected_features") or []),
-        "config": record.get("config") or {},
+        "config": config,
+        "analysis_partition": safe_partition,
+        "analysis_partition_id": safe_partition.get("analysis_partition_id"),
+        "analysis_partition_revision": safe_partition.get("revision"),
+        "development_partition_id": safe_partition.get(
+            "development_partition_id"
+        ),
+        "sealed_holdout_partition_id": safe_partition.get(
+            "sealed_holdout_partition_id"
+        ),
+        "final_holdout_status": safe_partition.get("final_holdout_status"),
+        "holdout_isolation_status": safe_partition.get(
+            "holdout_isolation_status"
+        ),
         "distributions": distributions,
         "n_train": record.get("n_train"),
         "n_test": record.get("n_test"),
@@ -693,11 +1097,41 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
             store=scoped_store,
         )
         frame, target = _require_full_dataset(scoped_store)
+        partition = _current_analysis_partition(
+            scoped_store,
+            identity,
+            target=target,
+        )
+        safe_partition = analysis_partition_service.safe_record(partition)
+        target_authority = _partition_target_authority(payload, partition)
+        safe_partition = _safe_partition_with_target_authority(
+            safe_partition, target_authority
+        )
+        immutable_mismatches = _immutable_partition_mismatch(payload, partition)
+        if immutable_mismatches:
+            raise HTTPException(
+                status_code=409,
+                detail=_partition_conflict_detail(
+                    partition,
+                    immutable_mismatches,
+                ),
+            )
         frame = frame.copy(deep=True)
         manifest = (
             deepcopy(scoped_store.meta.get("feature_manifest"))
             if isinstance(scoped_store.meta.get("feature_manifest"), dict)
             else {}
+        )
+        existing_record = (
+            deepcopy(scoped_store.meta.get("split_record"))
+            if isinstance(scoped_store.meta.get("split_record"), dict)
+            else {}
+        )
+        existing_has_split = all(
+            part is not None for part in scoped_store.get_splits()
+        )
+        existing_split_status = str(
+            scoped_store.meta.get("split_status") or ""
         )
         captured_data_revision = int(scoped_store.data_revision)
         captured_manifest_token = _manifest_concurrency_token(manifest)
@@ -844,9 +1278,113 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
             status_code=400,
             detail="Select and approve a cross-validation fold method for this strategy.",
         )
-    if payload.split_strategy == "cross_validation":
-        config["final_holdout_policy"] = "cv_only_no_final_holdout"
+    config["test_size"] = float(safe_partition.get("holdout_share") or 0.0)
+    config["random_seed"] = int(safe_partition.get("random_seed") or 0)
+    config["stratify"] = (
+        safe_partition.get("stratification_policy") == "target"
+    )
+    config["analysis_partition_id"] = safe_partition.get(
+        "analysis_partition_id"
+    )
+    config["analysis_partition_revision"] = safe_partition.get("revision")
+    config["development_partition_id"] = safe_partition.get(
+        "development_partition_id"
+    )
+    config["sealed_holdout_partition_id"] = safe_partition.get(
+        "sealed_holdout_partition_id"
+    )
+    # Cross-validation is always internal to the development population. The
+    # pre-EDA final holdout remains sealed for every validation architecture.
+    config["final_holdout_policy"] = "untouched_until_final_comparison"
     config["target"] = target
+    config["target_contract_id"] = target_authority["target_contract_id"]
+    config["problem_type"] = target_authority["problem_type"]
+    config["event_value"] = target_authority["event_value"]
+    config["negative_value"] = target_authority["non_event_value"]
+    config["non_event_value"] = target_authority["non_event_value"]
+
+    validation_request_hash = _validation_request_hash(
+        config=config,
+        selected_features=selected,
+        identity=identity,
+        feature_manifest_version=current_manifest_version,
+        partition=safe_partition,
+    )
+    if (
+        existing_has_split
+        and existing_split_status == "current"
+        and existing_record.get("validation_request_hash")
+        == validation_request_hash
+        and existing_record.get("analysis_partition_id")
+        == safe_partition.get("analysis_partition_id")
+        and int(existing_record.get("analysis_partition_revision") or 0)
+        == int(safe_partition.get("revision") or 0)
+    ):
+        # HTTP-level idempotence: "Continue" must reuse the approved design,
+        # not invalidate results, bump revision, or rematerialize membership.
+        return _current_status(payload.project_id, user=user)
+
+    # Materialize the exact pre-EDA membership only when a new Validation
+    # Design is actually required. Feature transformations may change the
+    # columns, never the row assignments. The service verifies both assignment
+    # checksums before it exposes the sealed holdout at this boundary.
+    with scoped_store.state_lock:
+        current_partition = _current_analysis_partition(
+            scoped_store,
+            identity,
+            target=target,
+        )
+        if (
+            current_partition.get("analysis_partition_id")
+            != partition.get("analysis_partition_id")
+            or int(current_partition.get("revision") or 0)
+            != int(partition.get("revision") or 0)
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "ok": False,
+                    "code": "analysis_partition_stale",
+                    "message": (
+                        "The Analysis Partition changed while Validation Design "
+                        "was being prepared."
+                    ),
+                    "recovery": "Refresh Balance & Split; no membership was redrawn.",
+                },
+            )
+        try:
+            partition_materialization_fields = list(
+                dict.fromkeys(
+                    [
+                        *selected,
+                        *(
+                            [str(config.get("group_field"))]
+                            if config.get("group_field")
+                            else []
+                        ),
+                        *(
+                            [str(config.get("time_field"))]
+                            if config.get("time_field")
+                            else []
+                        ),
+                    ]
+                )
+            )
+            (
+                development_X,
+                sealed_holdout_X,
+                development_y,
+                sealed_holdout_y,
+            ) = analysis_partition_service.materialize_validation(
+                scoped_store,
+                current_partition,
+                partition_materialization_fields,
+            )
+        except AnalysisPartitionError as exc:
+            raise HTTPException(
+                status_code=exc.status_code,
+                detail=exc.as_detail(),
+            ) from exc
 
     test_frame: pd.DataFrame | None = None
     test_reference: dict[str, Any] | None = None
@@ -858,6 +1396,8 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
     }
     test_target = payload.test_target_field or target
     oot_target = payload.oot_target_field or target
+    development_compatibility_frame = development_X.copy()
+    development_compatibility_frame[target] = development_y
     test_requested = (
         payload.split_strategy in {"separate_test", "separate_test_oot"}
         or payload.external_validation_mode in {"test", "test_oot"}
@@ -882,12 +1422,12 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
             user=user,
         )
         test_compatibility = _compatibility_matrix(
-            frame,
+            development_compatibility_frame,
             test_frame,
             selected,
             target,
             test_target,
-            payload.event_value,
+            target_authority["event_value"],
             payload.time_field,
         )
         compatibility_matrix = {
@@ -918,12 +1458,12 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
             user=user,
         )
         oot_compatibility = _compatibility_matrix(
-            frame,
+            development_compatibility_frame,
             oot_frame,
             selected,
             target,
             oot_target,
-            payload.event_value,
+            target_authority["event_value"],
             payload.time_field,
         )
         compatibility_matrix["populations"]["OOT"] = oot_compatibility
@@ -960,19 +1500,6 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
             status_code=400,
             detail="Approve the cross-validation design before creating the training populations.",
         )
-    if (
-        config.get("fold_method") != "none"
-        and payload.balance_method in {"undersample", "oversample", "smote"}
-    ):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "Fold-local resampling is required for cross-validation and is not "
-                "silently approximated. Choose no resampling or class weights for "
-                "this CV design."
-            ),
-        )
-
     try:
         result = split_service.make_validation_split(
             frame,
@@ -985,6 +1512,10 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
                 else None
             ),
             external_test_target=test_target,
+            prepartitioned_development=development_X,
+            prepartitioned_holdout=sealed_holdout_X,
+            prepartitioned_development_target=development_y,
+            prepartitioned_holdout_target=sealed_holdout_y,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -996,11 +1527,16 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
         "data_revision": committed_data_revision,
         "feature_manifest_version": current_manifest_version,
         "selected_features": selected,
+        "validation_request_hash": validation_request_hash,
     }
-    config_hash = _stable_hash(config_payload)[:20]
+    config_hash = validation_request_hash[:20]
     selected_feature_hash = _stable_hash({"selected_features": selected})[:20]
     split_config_hash = _stable_hash(
         {
+            "analysis_partition_id": safe_partition.get(
+                "analysis_partition_id"
+            ),
+            "analysis_partition_revision": safe_partition.get("revision"),
             "split": {
                 key: config.get(key)
                 for key in (
@@ -1023,6 +1559,7 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
                     "balance_method",
                     "minority_share",
                     "balancing_scope",
+                    "fold_local_preprocessing",
                     "class_weight_policy",
                     "threshold_optimization_policy",
                     "focal_loss_policy",
@@ -1034,7 +1571,16 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
     design_seed = {
         "strategy": payload.split_strategy,
         **_identity_fields(identity),
-        "data_revision": committed_data_revision,
+        "analysis_partition_id": safe_partition.get(
+            "analysis_partition_id"
+        ),
+        "analysis_partition_revision": safe_partition.get("revision"),
+        "development_partition_id": safe_partition.get(
+            "development_partition_id"
+        ),
+        "sealed_holdout_partition_id": safe_partition.get(
+            "sealed_holdout_partition_id"
+        ),
         "feature_manifest_version": current_manifest_version,
         "target": target,
         "selected_feature_hash": selected_feature_hash,
@@ -1051,14 +1597,14 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
     design_hash = _stable_hash(design_seed)[:20]
     validation_design_id = f"validation-design-{design_hash}"
     design_version = f"vd-{design_hash}"
-    training_population_id = f"population-train-{config_hash[:12]}"
-    holdout_population_id = (
-        f"population-{result.evaluation_population_role}-{config_hash[:12]}"
-        if result.evaluation_population_role
-        else None
+    training_population_id = str(
+        safe_partition.get("development_partition_id") or ""
+    )
+    holdout_population_id = str(
+        safe_partition.get("sealed_holdout_partition_id") or ""
     )
     distributions = {
-        "full_dataset": target_distribution(frame[target], payload.event_value),
+        "development_population": result.original_train_distribution,
         "train_before_balancing": result.original_train_distribution,
         "train_after_balancing": result.applied_train_distribution,
         "holdout_untouched": result.test_distribution,
@@ -1073,11 +1619,11 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
     }
     if test_frame is not None and test_target in test_frame.columns:
         distributions["test_untouched"] = target_distribution(
-            test_frame[test_target], payload.event_value
+            test_frame[test_target], target_authority["event_value"]
         )
     if oot_frame is not None and oot_target in oot_frame.columns:
         distributions["oot_untouched"] = target_distribution(
-            oot_frame[oot_target], payload.event_value
+            oot_frame[oot_target], target_authority["event_value"]
         )
 
     fold_rows = result.fold_architecture.get("folds") or []
@@ -1097,17 +1643,22 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
         or fold.get("validation_distribution", {}).get("non_events") == 0
         for fold in fold_rows
     )
-    full_event_rate = distributions["full_dataset"].get("event_rate")
-    full_events = distributions["full_dataset"].get("events")
+    development_event_rate = distributions["development_population"].get(
+        "event_rate"
+    )
+    development_events = distributions["development_population"].get(
+        "events"
+    )
     compatibility_failed = compatibility_matrix.get("status") == "failed"
     validation_risks = [
         {
             "risk": "Low event count",
             "status": "attention"
-            if isinstance(full_events, int)
-            and full_events < max(50, int(config.get("fold_count") or 2) * 10)
+            if isinstance(development_events, int)
+            and development_events
+            < max(50, int(config.get("fold_count") or 2) * 10)
             else "low",
-            "detail": f"{full_events if full_events is not None else 'N/A'} events in the governed population.",
+            "detail": f"{development_events if development_events is not None else 'N/A'} events in the governed development population.",
         },
         {
             "risk": "Fold insufficiency",
@@ -1121,11 +1672,11 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
         {
             "risk": "Target imbalance",
             "status": "attention"
-            if isinstance(full_event_rate, (int, float))
-            and not 0.20 <= float(full_event_rate) <= 0.80
+            if isinstance(development_event_rate, (int, float))
+            and not 0.20 <= float(development_event_rate) <= 0.80
             else "low",
-            "detail": f"Governed event rate {float(full_event_rate):.2%}."
-            if isinstance(full_event_rate, (int, float))
+            "detail": f"Development-population event rate {float(development_event_rate):.2%}."
+            if isinstance(development_event_rate, (int, float))
             else "Binary event rate is unavailable.",
         },
         {
@@ -1174,9 +1725,9 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
             ),
         },
     ]
-    event_coverage_sufficient = not fold_event_failure and not (
-        result.original_train_distribution.get("events") == 0
-        or result.test_distribution.get("events") == 0
+    event_coverage_sufficient = (
+        not fold_event_failure
+        and result.original_train_distribution.get("events") != 0
     )
     external_required = test_requested or oot_requested
     oot_required = oot_requested
@@ -1237,6 +1788,7 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
         "scoring_fold_requirements": config.get("scoring_fold_requirements"),
         "nested": result.fold_architecture.get("nested"),
         "inner_folds": result.fold_architecture.get("inner_folds"),
+        "fold_local_preprocessing": result.fold_local_preprocessing,
         "approved": payload.cv_design_approved
         if result.fold_architecture.get("enabled")
         else True,
@@ -1256,12 +1808,27 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
         "test_untouched": True,
         "oot_untouched": True,
         "selection_resampling_status": "not_applied",
+        "fold_local_preprocessing": result.fold_local_preprocessing,
+        "fold_local_resampling_status": result.balancing_application_status,
+        "global_rows_changed": int(
+            result.synthetic_rows_added + result.rows_removed
+        ),
     }
     validation_design = {
         **_identity_fields(identity),
         "data_revision": committed_data_revision,
         "validation_design_id": validation_design_id,
         "design_version": design_version,
+        "analysis_partition_id": safe_partition.get(
+            "analysis_partition_id"
+        ),
+        "analysis_partition_revision": safe_partition.get("revision"),
+        "development_partition_id": safe_partition.get(
+            "development_partition_id"
+        ),
+        "sealed_holdout_partition_id": safe_partition.get(
+            "sealed_holdout_partition_id"
+        ),
         "strategy": payload.split_strategy,
         "development_dataset": {
             "dataset_id": current_dataset_id,
@@ -1274,13 +1841,13 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
         "selection_partition_id": training_population_id,
         "holdout_population_id": holdout_population_id,
         "final_holdout_partition_id": holdout_population_id,
-        "final_holdout_status": "sealed" if holdout_population_id else "not_applicable",
+        "final_holdout_status": "sealed",
         "holdout_isolation_status": "verified",
         "fold_definition_id": fold_definition_id,
         "test_reference": test_reference,
         "oot_reference": oot_reference,
-        "split_seed": payload.random_seed,
-        "stratification": payload.stratify,
+        "split_seed": safe_partition.get("random_seed"),
+        "stratification": safe_partition.get("stratification_policy"),
         "group_field": payload.group_field or None,
         "time_field": payload.time_field or None,
         "fold_method": cv_design["method"],
@@ -1289,12 +1856,38 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
         "tuning_scope": payload.tuning_scope,
         "final_holdout_use_policy": config.get("final_holdout_policy"),
         "balancing_scope": payload.balancing_scope,
+        "fold_local_preprocessing": result.fold_local_preprocessing,
         "balancing_policy": balancing_policy,
         "approved_by": actor,
         "approved_at": approved_at,
         "approval_note": payload.approval_note,
         "feature_manifest_hash": current_manifest_version,
         "target": target,
+        "target_contract_id": target_authority["target_contract_id"],
+        "problem_type": target_authority["problem_type"],
+        "event_value": target_authority["event_value"],
+        "negative_value": target_authority["non_event_value"],
+        "non_event_value": target_authority["non_event_value"],
+        "target_definition": {
+            "target": target,
+            "target_contract_id": target_authority["target_contract_id"],
+            "problem_type": target_authority["problem_type"],
+            "positive_value": target_authority["event_value"],
+            "negative_value": target_authority["non_event_value"],
+            "authority_source": target_authority["source"],
+            **(
+                {
+                    "compatibility_status": target_authority[
+                        "compatibility_status"
+                    ],
+                    "lineage_contract": target_authority[
+                        "lineage_contract"
+                    ],
+                }
+                if target_authority.get("compatibility_status")
+                else {}
+            ),
+        },
         "selected_feature_hash": selected_feature_hash,
         "status": "approved",
     }
@@ -1302,13 +1895,46 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
         **_identity_fields(identity),
         "data_revision": committed_data_revision,
         "split_id": split_id,
+        "validation_request_hash": validation_request_hash,
+        "analysis_partition_id": safe_partition.get(
+            "analysis_partition_id"
+        ),
+        "analysis_partition_revision": safe_partition.get("revision"),
+        "development_partition_id": safe_partition.get(
+            "development_partition_id"
+        ),
+        "sealed_holdout_partition_id": safe_partition.get(
+            "sealed_holdout_partition_id"
+        ),
         "config_hash": config_hash,
         "selected_feature_hash": selected_feature_hash,
         "split_config_hash": split_config_hash,
         "balancing_config_hash": balancing_config_hash,
         "created_at": _now(),
         "target": target,
-        "event_value": payload.event_value,
+        "target_contract_id": target_authority["target_contract_id"],
+        "problem_type": target_authority["problem_type"],
+        "event_value": target_authority["event_value"],
+        "negative_value": target_authority["non_event_value"],
+        "non_event_value": target_authority["non_event_value"],
+        **(
+            {
+                "target_authority": {
+                    "source": target_authority["source"],
+                    "compatibility_status": target_authority[
+                        "compatibility_status"
+                    ],
+                    "lineage_contract": target_authority[
+                        "lineage_contract"
+                    ],
+                    "target_membership_fingerprint_status": target_authority[
+                        "target_membership_fingerprint_status"
+                    ],
+                }
+            }
+            if target_authority.get("compatibility_status")
+            else {}
+        ),
         "feature_manifest_version": current_manifest_version,
         "selected_features": selected,
         "config": config,
@@ -1318,7 +1944,7 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
         "selection_partition_id": training_population_id,
         "holdout_population_id": holdout_population_id,
         "final_holdout_partition_id": holdout_population_id,
-        "final_holdout_status": "sealed" if holdout_population_id else "not_applicable",
+        "final_holdout_status": "sealed",
         "holdout_isolation_status": "verified",
         "fold_definition_id": fold_definition_id,
         "test_reference": test_reference,
@@ -1364,6 +1990,11 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
             if isinstance(scoped_store.meta.get("feature_manifest"), dict)
             else {}
         )
+        committed_partition = _current_analysis_partition(
+            scoped_store,
+            current_identity,
+            target=target,
+        )
         if (
             any(
                 str(current_identity.get(key) or "")
@@ -1374,6 +2005,10 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
             or not _record_identity_is_current(current_manifest, identity)
             or _manifest_concurrency_token(current_manifest)
             != captured_manifest_token
+            or committed_partition.get("analysis_partition_id")
+            != safe_partition.get("analysis_partition_id")
+            or int(committed_partition.get("revision") or 0)
+            != int(safe_partition.get("revision") or 0)
         ):
             raise HTTPException(
                 status_code=409,
@@ -1427,9 +2062,11 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
         scoped_store.meta["split_config"] = config_payload
         scoped_store.meta["validation_design"] = validation_design
         scoped_store.meta["target_prevalence"] = {
-            "original": distributions["full_dataset"].get("event_rate"),
+            "original": distributions["development_population"].get(
+                "event_rate"
+            ),
             "train": distributions["train_after_balancing"].get("event_rate"),
-            "test": distributions["holdout_untouched"].get("event_rate"),
+            "scope": "development_population",
         }
         scoped_store.meta["split_status"] = "current"
         manifest["split_status"] = "current"
@@ -1446,6 +2083,12 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
             "strategy": payload.split_strategy,
             "datasetId": current_dataset_id,
             "datasetVersionId": current_dataset_version,
+            "analysisPartitionId": safe_partition.get(
+                "analysis_partition_id"
+            ),
+            "analysisPartitionRevision": safe_partition.get("revision"),
+            "developmentPartitionId": training_population_id,
+            "sealedHoldoutPartitionId": holdout_population_id,
         },
         user_id=user.get("userId"),
     )
@@ -1461,5 +2104,8 @@ def balancing_split_config(payload: SplitConfigPayload, user: Dict[str, Any] = D
         "ready": True,
         "readiness_reason": "Ready for next step. Validation split is current.",
         "has_split": True,
+        "validation_design_id": validation_design_id,
+        "validation_design_version": design_version,
+        "analysis_partition": safe_partition,
         **public_record,
     }

@@ -27,6 +27,7 @@ from .core.session_checkpoint import load_checkpoint, schedule_checkpoint_save, 
 from .core.metadata_router import _infer_target, router as metadata_router
 from .core.utils import df_to_records
 from .eda.eda_router import router as eda_router
+from .analysis_partition.router import router as analysis_partition_router
 from .preprocessing.outlier_router import router as outlier_router
 from .preprocessing.missing_router import router as missing_router
 from .preprocessing.preparation_documentation_router import router as preparation_documentation_router
@@ -79,7 +80,7 @@ from .credit_risk.credit_risk_router import router as credit_risk_router
 from .experimentation.ab_router import router as experimentation_router
 from .experimental_design.router import router as experimental_design_router
 from .optimization.optimization_router import router as optimization_router
-from .persistence import PersistenceUnavailableError, get_persistence_service, initialize_persistence
+from .persistence import get_persistence_service, initialize_persistence
 from .persistence.persistence_router import router as persistence_router
 from .persistence.repositories.project_dataset_activation_repository import (
     project_dataset_activation_lock,
@@ -190,16 +191,14 @@ def create_app() -> FastAPI:
             print("ATLAS local security settings: " + "; ".join(summary["warnings"]))
         init_security_store()
         security_users = list_users()
-        persistence_database = None
-        try:
-            initialize_persistence()
-            service = get_persistence_service()
-            persistence_database = service.database
-            for security_user in security_users:
-                service.sync_user(security_user)
-        except PersistenceUnavailableError as exc:
-            # Browser and legacy JSON persistence remain available when SQLite cannot start.
-            print(f"ATLAS SQLite persistence unavailable; local fallback remains active: {exc}")
+        # Persistence initialization is a startup authority.  A failed schema
+        # migration must stop startup instead of serving requests against a
+        # partially upgraded database or a legacy fallback.
+        initialize_persistence()
+        service = get_persistence_service()
+        persistence_database = service.database
+        for security_user in security_users:
+            service.sync_user(security_user)
         try:
             known_users = {
                 str(security_user.get("userId") or ""): security_user
@@ -455,6 +454,12 @@ def create_app() -> FastAPI:
     #   • /api/evaluation/*      – ROC, PR, Deciles (Step08)
     authenticated = [Depends(require_user)]
     app.include_router(metadata_router, prefix="/api", tags=["Metadata"], dependencies=authenticated)
+    app.include_router(
+        analysis_partition_router,
+        prefix="/api/analysis-partitions",
+        tags=["Analysis Partition"],
+        dependencies=authenticated,
+    )
     app.include_router(eda_router, prefix="/api/eda", tags=["EDA"], dependencies=authenticated)
     app.include_router(outlier_router, prefix="/api/outliers", tags=["Outliers"], dependencies=authenticated)
     app.include_router(missing_router, prefix="/api/missing", tags=["Missing Values"], dependencies=authenticated)

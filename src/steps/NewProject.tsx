@@ -33,6 +33,8 @@ import { grantProjectAccess, me } from "../lib/auth";
 import { upsertProjectFromState } from "../lib/localProjects";
 import { defaultMonitoringMetricsForModelType, loadProjectContext, saveProjectContext } from "../lib/projectContext";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { saveProjectToDatabase } from "../lib/serverPersistence";
+import { projectWorkflowRoute } from "../lib/projectScopedRoutes";
 
 const inputClass = "atlas-input";
 
@@ -65,6 +67,7 @@ export default function NewProject() {
   // instead.
   const [projectName, setProjectName] = useState("");
   const [projectType, setProjectType] = useState<ProjectType>("predictive-modeling");
+  const [projectCreationError, setProjectCreationError] = useState("");
   const [customWorkflowName, setCustomWorkflowName] = useState("Custom Workflow");
   const [customSteps, setCustomSteps] = useState(["Project Context", "Data Review", "Analysis", "Documentation"]);
 
@@ -99,6 +102,7 @@ export default function NewProject() {
 
   const startProject = async () => {
     if (!canStartProject) return;
+    setProjectCreationError("");
     const projectIdentifier = modelId.trim() || `${selectedWorkflow.id}-${Date.now()}`;
     const workflowSteps: WorkflowStep[] | undefined = projectType === "custom-workflow" ? selectedWorkflow.steps : undefined;
     const modelType = projectType === "time_series_forecasting" || projectType === "forecasting" || projectType === "optimization" ? "regression" : "generic classification";
@@ -110,7 +114,29 @@ export default function NewProject() {
       workflowSteps,
     });
     const nextState = useWorkflowStore.getState();
-    upsertProjectFromState(nextState);
+    const createdProject = upsertProjectFromState(nextState);
+    if (!createdProject) {
+      setProjectCreationError("ATLAS could not create the local project handoff required for durable registration.");
+      return;
+    }
+    if (projectType === "predictive-modeling") {
+      try {
+        // Scoped workflow hydration starts with an exact backend GET. Await the
+        // existing durable save so that request cannot race the compatibility
+        // store's delayed mirror and produce a false project-not-found state.
+        const saved = await saveProjectToDatabase(createdProject.snapshot);
+        if (!saved) {
+          throw new Error("the backend did not confirm the project and workflow-state save");
+        }
+      } catch (error) {
+        setProjectCreationError(
+          error instanceof Error
+            ? `ATLAS could not establish the authoritative project record: ${error.message}`
+            : "ATLAS could not establish the authoritative project record. Retry before opening the workflow.",
+        );
+        return;
+      }
+    }
     try {
       const current = await me();
       await grantProjectAccess(nextState.projectId, current.user.userId, "owner");
@@ -133,11 +159,21 @@ export default function NewProject() {
       systemRecommendation: "Choose the project type that best matches the analytical objective and governance deliverable.",
       followStatus: "not_applicable",
     });
-    navigate(projectType === "predictive-modeling" ? "/step00" : "/project-overview");
+    navigate(
+      projectType === "predictive-modeling"
+        ? projectWorkflowRoute(nextState.projectId, "/step00")
+        : "/project-overview",
+    );
   };
 
   return (
     <div className="atlas-page-shell">
+      {projectCreationError ? (
+        <section className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900" role="alert">
+          <div className="font-semibold">Project creation is not yet durable.</div>
+          <p className="mt-1">{projectCreationError}</p>
+        </section>
+      ) : null}
       <UnifiedProjectSetupSection
         config={setupConfig}
         selectedWorkflow={selectedWorkflow}

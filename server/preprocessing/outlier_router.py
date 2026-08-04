@@ -8,6 +8,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
+from ..analysis_partition.types import AnalysisPartitionError
 from ..core.dataset_store import DATASTORE
 from ..core.json_safety import json_safe
 from ..core.modeling_scope import authorize_modeling_scope
@@ -18,8 +19,13 @@ from ..datasets.dataset_identity import (
     coalesce_identity_expectations,
 )
 from ..security.security_store import require_user
+from .development_scope import (
+    DevelopmentAnalysisScope,
+    resolve_development_analysis_scope,
+    scope_http_exception,
+)
 from .outlier_service import outlier_service
-from .predictor_authorization import bureau_special_mask, governed_predictor_authorization
+from .predictor_authorization import bureau_special_mask
 
 
 router = APIRouter()
@@ -37,6 +43,8 @@ class OutlierSummaryRequest(BaseModel):
     dataset_id: str | None = None
     dataset_version_id: str | None = None
     dataset_version: str | None = None
+    analysis_partition_id: str | None = None
+    analysis_partition_revision: int | None = None
 
 
 class OutlierApplyRequest(BaseModel):
@@ -53,6 +61,8 @@ class OutlierApplyRequest(BaseModel):
     dataset_id: str | None = None
     dataset_version_id: str | None = None
     dataset_version: str | None = None
+    analysis_partition_id: str | None = None
+    analysis_partition_revision: int | None = None
 
 
 def _active_identity(request: Any, user: Dict[str, Any]) -> Dict[str, Any]:
@@ -100,32 +110,51 @@ def _record_matches_identity(
     )
 
 
-def _source_df():
+def _full_structural_source():
     df = DATASTORE.get_raw_active_df()
     if df is None or df.empty:
         raise HTTPException(status_code=400, detail="No full registered dataset is loaded.")
     return df
 
 
-def _merge_full_source_exclusions(authorization: dict[str, Any]) -> dict[str, Any]:
-    raw = DATASTORE.raw_df
-    if raw is None or raw.empty:
-        return authorization
-    full = governed_predictor_authorization(
-        raw,
-        target=DATASTORE.target,
-        selected_columns=DATASTORE.get_selected_columns(),
+def _development_scope(
+    request: Any,
+    identity: Dict[str, Any],
+    scoped_store: Any,
+    *,
+    actor: Any = None,
+) -> DevelopmentAnalysisScope:
+    try:
+        return resolve_development_analysis_scope(
+            scoped_store,
+            identity,
+            requested_target=getattr(request, "target", None),
+            requested_event_value=getattr(request, "event_value", None),
+            requested_problem_type=getattr(request, "problem_type", None),
+            expected_analysis_partition_id=getattr(
+                request, "analysis_partition_id", None
+            ),
+            expected_analysis_partition_revision=getattr(
+                request, "analysis_partition_revision", None
+            ),
+            actor=actor,
+        )
+    except AnalysisPartitionError as exc:
+        raise scope_http_exception(exc) from exc
+
+
+def _record_matches_scope(
+    record: Any,
+    identity: Dict[str, Any],
+    scope: DevelopmentAnalysisScope,
+) -> bool:
+    return bool(
+        _record_matches_identity(record, identity)
+        and record.get("analysis_partition_id")
+        == scope.partition.get("analysis_partition_id")
+        and int(record.get("analysis_partition_revision") or 0)
+        == int(scope.partition.get("revision") or 0)
     )
-    merged = dict(authorization)
-    merged["target_source_excluded"] = sorted(
-        set(authorization.get("target_source_excluded", []))
-        | set(full.get("target_source_excluded", []))
-    )
-    merged["excluded_predictors"] = {
-        **full.get("excluded_predictors", {}),
-        **authorization.get("excluded_predictors", {}),
-    }
-    return merged
 
 
 @router.post("/summary")
@@ -136,26 +165,32 @@ def outliers_summary(request: OutlierSummaryRequest, user: Dict[str, Any] = Depe
     # combine A's identity with B's frame or preparation metadata.
     with scoped_store.state_lock:
         identity = _active_identity(request, user)
+        scope = _development_scope(
+            request, identity, scoped_store, actor=user.get("userId")
+        )
+        source = _full_structural_source()
+        structural = source.drop(columns=[scope.target], errors="ignore")
         try:
             result = outlier_service.summary(
-                _source_df(),
-                target=request.target or scoped_store.target,
-                event_value=request.event_value,
-                problem_type=request.problem_type,
-                selected_columns=scoped_store.get_selected_columns(),
+                structural,
+                target=scope.target,
+                event_value=scope.event_value,
+                problem_type=scope.problem_type,
+                predictor_authorization=scope.predictor_authorization,
+                target_analysis_features=scope.development_features,
+                target_analysis_target=scope.development_target,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        result["predictor_authorization"] = (
-            _merge_full_source_exclusions(
-                result.get("predictor_authorization") or {}
-            )
+        result["predictor_authorization"] = dict(
+            scope.predictor_authorization
         )
         result.update(_identity_fields(identity))
+        result.update(scope.metadata())
         prior = scoped_store.meta.get("outlier_application")
         result["application"] = (
             deepcopy(prior)
-            if _record_matches_identity(prior, identity)
+            if _record_matches_scope(prior, identity, scope)
             else None
         )
         return json_safe(result)
@@ -167,17 +202,15 @@ def apply_outlier_treatments(request: OutlierApplyRequest, user: Dict[str, Any] 
     scoped_store = DATASTORE.current()
     with scoped_store.state_lock:
         identity = _active_identity(request, user)
+        scope = _development_scope(
+            request, identity, scoped_store, actor=user.get("userId")
+        )
         input_revision = int(scoped_store.data_revision)
-        target = request.target or scoped_store.target
+        target = scope.target
         selected_columns = scoped_store.get_selected_columns()
-        source = _source_df().copy()
+        source = _full_structural_source().copy()
         prior = deepcopy(scoped_store.meta.get("outlier_application"))
-    authorization = governed_predictor_authorization(
-        source,
-        target=target,
-        selected_columns=selected_columns,
-    )
-    authorization = _merge_full_source_exclusions(authorization)
+    authorization = dict(scope.predictor_authorization)
     authorized = set(authorization["authorized_predictors"])
     normalized_config = {
         feature: request.config.get(feature, "USE_GLOBAL")
@@ -189,7 +222,7 @@ def apply_outlier_treatments(request: OutlierApplyRequest, user: Dict[str, Any] 
         if str(request.rationales.get(feature) or "").strip()
     }
     if (
-        _record_matches_identity(prior, identity)
+        _record_matches_scope(prior, identity, scope)
         and prior.get("global_method") == request.global_method
         and prior.get("config") == normalized_config
         and (prior.get("rationales") or {}) == normalized_rationales
@@ -206,8 +239,8 @@ def apply_outlier_treatments(request: OutlierApplyRequest, user: Dict[str, Any] 
                 )
         return json_safe({
             "ok": True,
-            "scope": "full_dataset",
             **_identity_fields(identity),
+            **scope.metadata(),
             "application": prior,
             "idempotent": True,
         })
@@ -218,6 +251,7 @@ def apply_outlier_treatments(request: OutlierApplyRequest, user: Dict[str, Any] 
             global_method=request.global_method,
             target=target,
             selected_columns=selected_columns,
+            predictor_authorization=authorization,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -250,6 +284,7 @@ def apply_outlier_treatments(request: OutlierApplyRequest, user: Dict[str, Any] 
     application = {
         "applied_at": applied_at,
         **_identity_fields(identity),
+        **scope.metadata(),
         "row_count": int(len(work)),
         "global_method": request.global_method,
         "config": normalized_config,
@@ -297,7 +332,7 @@ def apply_outlier_treatments(request: OutlierApplyRequest, user: Dict[str, Any] 
         raise HTTPException(status_code=500, detail="Outlier treatments were calculated, but ATLAS could not persist the workflow checkpoint.")
     return json_safe({
         "ok": True,
-        "scope": "full_dataset",
         **_identity_fields(identity),
+        **scope.metadata(),
         "application": application,
     })

@@ -62,8 +62,8 @@ import {
   type WoeIvVariableSummary,
 } from "../lib/creditRiskStudio";
 import { getDatasetProfile, listDatasets, type DatasetProfile, type DatasetSummary } from "../lib/datasetLibrary";
-import { loadLocalDataset, localDatasetVersion, type LocalDataset } from "../lib/localDataset";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { projectWorkflowRoute } from "../lib/projectScopedRoutes";
 import Step01DataAcquisition from "./Step01_DataAcquisition";
 import Step01BCreditBureauReview from "./Step01B_CreditBureauReview";
 import Step02EDA from "./Step02_EDA";
@@ -94,7 +94,6 @@ const sections = [
   "Evidence and Documentation",
 ];
 
-const previewTargetSummaryMessage = "Full dataset artifact unavailable. Showing preview sample summary.";
 const HELOC_DEFAULT_TARGET_LABEL = "RiskPerformance";
 const HELOC_DEFAULT_PROJECT_NAME = "HELOC Traditional Scorecard Test Run";
 const BUREAU_SPECIAL_TREATMENT_KEY = "atlas.creditRisk.bureauSpecialTreatment";
@@ -304,7 +303,6 @@ export default function CreditRiskStudio() {
   const [schema, setSchema] = useState<string[]>([]);
   const [datasetProfile, setDatasetProfile] = useState<DatasetProfile | null>(null);
   const [targetSummary, setTargetSummary] = useState<CreditRiskTargetSummary | null>(null);
-  const [localDataset, setLocalDataset] = useState<LocalDataset | null>(() => loadLocalDataset());
   const [schemaLoadError, setSchemaLoadError] = useState("");
   const [schemaRefreshTick, setSchemaRefreshTick] = useState(0);
   const [message, setMessage] = useState("");
@@ -336,6 +334,15 @@ export default function CreditRiskStudio() {
   const [autoIvRunKey, setAutoIvRunKey] = useState("");
   const workflowStatus = useMemo(() => computeWorkflowStatus(profile, woeAnalysis, scorecardModel, mlModel, readiness.score), [profile, woeAnalysis, scorecardModel, mlModel, readiness.score]);
   const activeDataset = useMemo(() => datasets.find((dataset) => dataset.datasetId === profile.datasetId) || null, [datasets, profile.datasetId]);
+  const targetScopeReady = Boolean(
+    projectId
+    && profile.datasetId
+    && profile.datasetVersionId
+    && profile.targetColumn
+    && profile.eventValue
+    && exactProjectDatasetVersion(activeDataset || undefined, projectId) === profile.datasetVersionId
+    && targetSummary,
+  );
   const schemaMismatch = useMemo(() => {
     if (!schema.length || !(profile.variableMappings || []).length) return false;
     return (profile.variableMappings || []).some((row) => !schema.includes(row.variable));
@@ -345,18 +352,13 @@ export default function CreditRiskStudio() {
       .filter((column) => isCreditRiskPredictorCandidate(column, profile, scorecardRequest.targetColumn || mlRequest.targetColumn || profile.targetColumn)),
     [scorecardRequest.selectedVariables, scorecardRequest.targetColumn, mlRequest.selectedVariables, mlRequest.targetColumn, profile],
   );
-  const localDatasetKey = useMemo(() => localDatasetVersion(localDataset), [localDataset]);
-  const finalFeaturePreviewIv = useMemo(
-    () => previewIvByVariable(localDataset, scorecardRequest.targetColumn || mlRequest.targetColumn || profile.targetColumn, String(profile.eventValue || "1")),
-    [localDatasetKey, scorecardRequest.targetColumn, mlRequest.targetColumn, profile.targetColumn, profile.eventValue],
-  );
   const balanceSplitAutoIvKey = useMemo(
     () => [
       projectId,
       profile.datasetId || "",
       profile.datasetVersionId || "",
       profile.targetColumn || "",
-      profile.eventValue || "1",
+      profile.eventValue || "",
       schema.filter((column) => isCreditRiskPredictorCandidate(column, profile, profile.targetColumn)).join("|"),
     ].join("::"),
     [projectId, profile, schema],
@@ -402,28 +404,35 @@ export default function CreditRiskStudio() {
 
   useEffect(() => {
     let alive = true;
-    Promise.all([
-      listDatasets().then((payload) => payload.datasets).catch(() => []),
-      getCreditRiskProfileForProject(projectId).catch(() => null),
-      getLatestWoeIvAnalysisForProject(projectId).catch(() => null),
-      getLatestScorecardForProject(projectId).catch(() => null),
-      getLatestCreditRiskMlModelForProject(projectId).catch(() => null),
-    ]).then(([loadedDatasets, saved, savedWoe, savedScorecard, savedMlModel]) => {
+    void (async () => {
+      const [loadedDatasets, saved] = await Promise.all([
+        listDatasets().then((payload) => payload.datasets).catch(() => []),
+        getCreditRiskProfileForProject(projectId).catch(() => null),
+      ]);
       if (!alive) return;
       setDatasets(loadedDatasets);
-      const nextProfile = normalizeCreditRiskProfile(saved || defaultProfile(projectId, projectName, preferredCreditRiskDataset(loadedDatasets)), loadedDatasets, projectId, projectName);
+      const nextProfile = normalizeCreditRiskProfile(
+        saved || defaultProfile(projectId, projectName, preferredCreditRiskDataset(loadedDatasets, projectId)),
+        loadedDatasets,
+        projectId,
+        projectName,
+      );
       setProfile(nextProfile);
       setWoeRequest((current) => ({
         ...current,
         projectId,
-        datasetId: nextProfile.datasetId || loadedDatasets[0]?.datasetId || "",
-        datasetVersionId: nextProfile.datasetVersionId || loadedDatasets[0]?.latestVersion?.versionId,
+        datasetId: nextProfile.datasetId || "",
+        datasetVersionId: nextProfile.datasetVersionId || "",
+        targetColumn: nextProfile.targetColumn || "",
+        eventValue: nextProfile.eventValue || "",
       }));
       setScorecardRequest((current) => ({
         ...current,
         projectId,
-        datasetId: nextProfile.datasetId || loadedDatasets[0]?.datasetId || "",
-        datasetVersionId: nextProfile.datasetVersionId || loadedDatasets[0]?.latestVersion?.versionId,
+        datasetId: nextProfile.datasetId || "",
+        datasetVersionId: nextProfile.datasetVersionId || "",
+        targetColumn: nextProfile.targetColumn || "",
+        eventValue: nextProfile.eventValue || "",
         pdo: Number(nextProfile.scorecardScaling?.pdo || current.pdo),
         baseScore: Number(nextProfile.scorecardScaling?.baseScore || current.baseScore),
         baseOdds: nextProfile.scorecardScaling?.baseOdds || current.baseOdds,
@@ -432,10 +441,29 @@ export default function CreditRiskStudio() {
       setMlRequest((current) => ({
         ...current,
         projectId,
-        datasetId: nextProfile.datasetId || loadedDatasets[0]?.datasetId || "",
-        datasetVersionId: nextProfile.datasetVersionId || loadedDatasets[0]?.latestVersion?.versionId,
-        targetColumn: current.targetColumn || nextProfile.targetColumn || "",
+        datasetId: nextProfile.datasetId || "",
+        datasetVersionId: nextProfile.datasetVersionId || "",
+        targetColumn: nextProfile.targetColumn || "",
+        eventValue: nextProfile.eventValue || "",
       }));
+      if (!nextProfile.datasetId || !nextProfile.datasetVersionId || !nextProfile.targetColumn) {
+        setWoeAnalysis(null);
+        setScorecardModel(null);
+        setMlModel(null);
+        return;
+      }
+      const exactIdentity = {
+        projectId,
+        datasetId: nextProfile.datasetId,
+        datasetVersionId: nextProfile.datasetVersionId,
+        targetColumn: nextProfile.targetColumn,
+      };
+      const [savedWoe, savedScorecard, savedMlModel] = await Promise.all([
+        getLatestWoeIvAnalysisForProject(projectId, exactIdentity).catch(() => null),
+        getLatestScorecardForProject(projectId, exactIdentity).catch(() => null),
+        getLatestCreditRiskMlModelForProject(projectId, exactIdentity).catch(() => null),
+      ]);
+      if (!alive) return;
       if (savedWoe) {
         setWoeAnalysis(savedWoe);
         setSelectedWoeVariable(savedWoe.variableSummaries?.[0]?.variable || "");
@@ -451,16 +479,16 @@ export default function CreditRiskStudio() {
       if (savedMlModel) {
         setMlModel(savedMlModel);
       }
-    });
+    })();
     return () => {
       alive = false;
     };
   }, [projectId, projectName]);
 
   useEffect(() => {
-    if (!profile.datasetId) {
+    if (!profile.datasetId || !profile.datasetVersionId) {
       setSchema([]);
-      setSchemaLoadError("");
+      setSchemaLoadError(profile.datasetId ? "The selected dataset has no single exact version linked to this project." : "");
       return;
     }
     getDatasetProfile(profile.datasetId, profile.datasetVersionId)
@@ -473,47 +501,53 @@ export default function CreditRiskStudio() {
           const currentVariables = new Set((current.variableMappings || []).map((row) => row.variable));
           const matchesSchema = current.variableMappings?.length && (current.variableMappings || []).every((row) => columns.includes(row.variable));
           const completeSchemaMapping = Boolean(matchesSchema && columns.every((column) => currentVariables.has(column)));
-          const nextTarget = current.targetColumn && columns.includes(current.targetColumn) ? current.targetColumn : findTargetColumn(columns);
-          const splitColumn = current.splitColumn && columns.includes(current.splitColumn) ? current.splitColumn : columns.find((column) => /split/i.test(column)) || "";
+          const nextTarget = current.targetColumn && columns.includes(current.targetColumn) ? current.targetColumn : "";
+          const splitColumn = current.splitColumn && columns.includes(current.splitColumn) ? current.splitColumn : "";
           const originalTarget = current.originalTargetLabelColumn && columns.includes(current.originalTargetLabelColumn)
             ? current.originalTargetLabelColumn
-            : columns.find((column) => column === HELOC_DEFAULT_TARGET_LABEL || /riskperformance|original.*target|target.*label/i.test(column)) || "";
+            : "";
           const datasetName = payload.dataset?.name || datasets.find((dataset) => dataset.datasetId === current.datasetId)?.name || "";
           const validationDatasetId = current.validationDatasetId && datasets.some((dataset) => dataset.datasetId === current.validationDatasetId)
             ? current.validationDatasetId
-            : findDatasetIdByName(datasets, /^HELOC_TEST$/i);
+            : "";
           const ootDatasetId = current.ootDatasetId && datasets.some((dataset) => dataset.datasetId === current.ootDatasetId)
             ? current.ootDatasetId
-            : findDatasetIdByName(datasets, /^HELOC_OOT$/i);
+            : "";
           return {
             ...current,
             targetColumn: nextTarget,
-            eventValue: current.eventValue || "1",
-            nonEventValue: current.nonEventValue || "0",
+            eventValue: current.eventValue || "",
+            nonEventValue: current.nonEventValue || "",
             originalTargetLabelColumn: originalTarget,
             splitColumn,
             validationDatasetId,
             ootDatasetId,
-            ootType: current.ootType || (ootDatasetId ? "Synthetic holdout" : ""),
+            ootType: current.ootType || "",
             variableMappings: completeSchemaMapping ? current.variableMappings : buildVariableMappings(columns, datasetName, nextTarget, splitColumn, originalTarget),
           };
         });
         setWoeRequest((current) => {
-          const target = current.targetColumn && columns.includes(current.targetColumn) ? current.targetColumn : profile.targetColumn || findTargetColumn(columns);
+          const target = current.targetColumn && columns.includes(current.targetColumn)
+            ? current.targetColumn
+            : profile.targetColumn && columns.includes(profile.targetColumn) ? profile.targetColumn : "";
           const predictors = current.predictorColumns?.length
             ? current.predictorColumns.filter((column) => columns.includes(column) && isCreditRiskPredictorCandidate(column, profile, target))
             : columns.filter((column) => isCreditRiskPredictorCandidate(column, profile, target)).slice(0, 20);
           return { ...current, targetColumn: target, predictorColumns: predictors };
         });
         setScorecardRequest((current) => {
-          const target = current.targetColumn && columns.includes(current.targetColumn) ? current.targetColumn : profile.targetColumn || findTargetColumn(columns);
+          const target = current.targetColumn && columns.includes(current.targetColumn)
+            ? current.targetColumn
+            : profile.targetColumn && columns.includes(profile.targetColumn) ? profile.targetColumn : "";
           const selectedVariables = current.selectedVariables?.length
             ? current.selectedVariables.filter((column) => columns.includes(column) && isCreditRiskPredictorCandidate(column, profile, target))
             : columns.filter((column) => isCreditRiskPredictorCandidate(column, profile, target)).slice(0, 20);
           return { ...current, targetColumn: target, selectedVariables };
         });
         setMlRequest((current) => {
-          const target = current.targetColumn && columns.includes(current.targetColumn) ? current.targetColumn : profile.targetColumn || findTargetColumn(columns);
+          const target = current.targetColumn && columns.includes(current.targetColumn)
+            ? current.targetColumn
+            : profile.targetColumn && columns.includes(profile.targetColumn) ? profile.targetColumn : "";
           const selectedVariables = current.selectedVariables?.length
             ? current.selectedVariables.filter((column) => columns.includes(column) && isCreditRiskPredictorCandidate(column, profile, target))
             : columns.filter((column) => isCreditRiskPredictorCandidate(column, profile, target)).slice(0, 30);
@@ -529,11 +563,12 @@ export default function CreditRiskStudio() {
   }, [profile.datasetId, profile.datasetVersionId, datasets, schemaRefreshTick]);
 
   useEffect(() => {
-    if (!profile.datasetId || !profile.targetColumn) {
+    if (!profile.datasetId || !profile.datasetVersionId || !profile.targetColumn || !profile.eventValue) {
       setTargetSummary(null);
       return;
     }
     getCreditRiskDatasetSummary({
+      projectId,
       datasetId: profile.datasetId,
       datasetVersionId: profile.datasetVersionId,
       targetColumn: profile.targetColumn,
@@ -543,7 +578,7 @@ export default function CreditRiskStudio() {
       setTargetSummary(summary);
       setProfile((current) => ({ ...current, targetSummary: summary }));
     }).catch(() => setTargetSummary(null));
-  }, [profile.datasetId, profile.datasetVersionId, profile.targetColumn, profile.eventValue, profile.nonEventValue]);
+  }, [projectId, profile.datasetId, profile.datasetVersionId, profile.targetColumn, profile.eventValue, profile.nonEventValue]);
 
   function patch(update: Partial<CreditRiskProfile>) {
     setProfile((current) => ({ ...current, ...update }));
@@ -592,13 +627,13 @@ export default function CreditRiskStudio() {
 
   function handleDatasetChange(value: string) {
     const dataset = datasets.find((item) => item.datasetId === value);
-    const versionId = dataset?.latestVersion?.versionId || "";
+    const versionId = exactProjectDatasetVersion(dataset, projectId);
     const nextProfile: Partial<CreditRiskProfile> = {
       datasetId: value,
       datasetVersionId: versionId,
       targetColumn: "",
-      eventValue: "1",
-      nonEventValue: "0",
+      eventValue: "",
+      nonEventValue: "",
       originalTargetLabelColumn: "",
       splitColumn: "",
       variableMappings: [],
@@ -624,7 +659,9 @@ export default function CreditRiskStudio() {
     setWoeRequest(defaultWoeRequest(projectId, { ...profile, ...nextProfile } as CreditRiskProfile));
     setScorecardRequest(defaultScorecardRequest(projectId, { ...profile, ...nextProfile } as CreditRiskProfile));
     setMlRequest(defaultMlRequest(projectId, { ...profile, ...nextProfile } as CreditRiskProfile));
-    setMessage(`Active dataset changed to ${dataset?.name || value}. Stale schema-derived credit-risk outputs were cleared.`);
+    setMessage(versionId
+      ? `Active dataset changed to ${dataset?.name || value} at its exact project-linked version. Stale schema-derived credit-risk outputs were cleared.`
+      : `The selected dataset has no single exact version linked to this project. Target-directed actions remain unavailable.`);
   }
 
   function refreshDatasetSchema() {
@@ -654,7 +691,6 @@ export default function CreditRiskStudio() {
     const recommended = finalFeatureReviewRows({
       profile,
       woeAnalysis,
-      previewIvByVariable: finalFeaturePreviewIv,
       targetColumn: scorecardRequest.targetColumn || mlRequest.targetColumn || profile.targetColumn,
     })
       .filter((row) => row.recommended)
@@ -670,18 +706,8 @@ export default function CreditRiskStudio() {
   }, []);
 
   useEffect(() => {
-    const refreshLocalDataset = () => setLocalDataset(loadLocalDataset());
-    window.addEventListener("atlas-dataset-updated", refreshLocalDataset);
-    window.addEventListener("storage", refreshLocalDataset);
-    return () => {
-      window.removeEventListener("atlas-dataset-updated", refreshLocalDataset);
-      window.removeEventListener("storage", refreshLocalDataset);
-    };
-  }, []);
-
-  useEffect(() => {
     if (activeWorkflowStep.name !== "Balance & Split") return;
-    if (!profile.datasetId || !profile.targetColumn || !schema.length) return;
+    if (!profile.datasetId || !profile.datasetVersionId || !profile.targetColumn || !profile.eventValue || !schema.length) return;
     const alreadyLoaded = Boolean(
       woeAnalysis?.datasetId === profile.datasetId
       && woeAnalysis?.targetColumn === profile.targetColumn
@@ -698,7 +724,7 @@ export default function CreditRiskStudio() {
       datasetId: profile.datasetId,
       datasetVersionId: profile.datasetVersionId,
       targetColumn: profile.targetColumn,
-      eventValue: profile.eventValue || "1",
+      eventValue: profile.eventValue,
       predictorColumns,
     };
     runWoeIvAnalysis(request)
@@ -809,7 +835,12 @@ export default function CreditRiskStudio() {
     try {
       const sanitizedRequest = {
         ...woeRequest,
-        predictorColumns: woeRequest.predictorColumns.filter((column) => isCreditRiskPredictorCandidate(column, profile, woeRequest.targetColumn)),
+        projectId,
+        datasetId: profile.datasetId || "",
+        datasetVersionId: profile.datasetVersionId || "",
+        targetColumn: profile.targetColumn || "",
+        eventValue: profile.eventValue || "",
+        predictorColumns: woeRequest.predictorColumns.filter((column) => isCreditRiskPredictorCandidate(column, profile, profile.targetColumn)),
       };
       const analysis = await runWoeIvAnalysis(sanitizedRequest);
       setWoeAnalysis(analysis);
@@ -882,7 +913,12 @@ export default function CreditRiskStudio() {
     try {
       const generatedCode = await generateWoeIvCode({
         ...woeRequest,
-        predictorColumns: woeRequest.predictorColumns.filter((column) => isCreditRiskPredictorCandidate(column, profile, woeRequest.targetColumn)),
+        projectId,
+        datasetId: profile.datasetId || "",
+        datasetVersionId: profile.datasetVersionId || "",
+        targetColumn: profile.targetColumn || "",
+        eventValue: profile.eventValue || "",
+        predictorColumns: woeRequest.predictorColumns.filter((column) => isCreditRiskPredictorCandidate(column, profile, profile.targetColumn)),
       });
       setWoeAnalysis((current) => current ? { ...current, generatedCode } : current);
       setWoeMessage("WOE / IV generated code refreshed.");
@@ -899,7 +935,12 @@ export default function CreditRiskStudio() {
     try {
       const model = await trainScorecardModel({
         ...scorecardRequest,
-        selectedVariables: scorecardRequest.selectedVariables.filter((column) => isCreditRiskPredictorCandidate(column, profile, scorecardRequest.targetColumn)),
+        projectId,
+        datasetId: profile.datasetId || "",
+        datasetVersionId: profile.datasetVersionId || "",
+        targetColumn: profile.targetColumn || "",
+        eventValue: profile.eventValue || "",
+        selectedVariables: scorecardRequest.selectedVariables.filter((column) => isCreditRiskPredictorCandidate(column, profile, profile.targetColumn)),
         pdo: Number(profile.scorecardScaling?.pdo || scorecardRequest.pdo),
         baseScore: Number(profile.scorecardScaling?.baseScore || scorecardRequest.baseScore),
         baseOdds: profile.scorecardScaling?.baseOdds || scorecardRequest.baseOdds,
@@ -943,7 +984,12 @@ export default function CreditRiskStudio() {
     try {
       const generatedCode = await generateScorecardCode({
         ...scorecardRequest,
-        selectedVariables: scorecardRequest.selectedVariables.filter((column) => isCreditRiskPredictorCandidate(column, profile, scorecardRequest.targetColumn)),
+        projectId,
+        datasetId: profile.datasetId || "",
+        datasetVersionId: profile.datasetVersionId || "",
+        targetColumn: profile.targetColumn || "",
+        eventValue: profile.eventValue || "",
+        selectedVariables: scorecardRequest.selectedVariables.filter((column) => isCreditRiskPredictorCandidate(column, profile, profile.targetColumn)),
       });
       setScorecardModel((current) => current ? { ...current, generatedCode } : current);
       setScorecardMessage("Scorecard generated code refreshed.");
@@ -967,7 +1013,12 @@ export default function CreditRiskStudio() {
     try {
       const model = await trainCreditRiskMlModel({
         ...mlRequest,
-        selectedVariables: mlRequest.selectedVariables.filter((column) => isCreditRiskPredictorCandidate(column, profile, mlRequest.targetColumn)),
+        projectId,
+        datasetId: profile.datasetId || "",
+        datasetVersionId: profile.datasetVersionId || "",
+        targetColumn: profile.targetColumn || "",
+        eventValue: profile.eventValue || "",
+        selectedVariables: mlRequest.selectedVariables.filter((column) => isCreditRiskPredictorCandidate(column, profile, profile.targetColumn)),
       });
       setMlModel(model);
       const saved = await saveCreditRiskProfile({
@@ -1077,7 +1128,7 @@ export default function CreditRiskStudio() {
           <div className="grid gap-2 sm:grid-cols-2 xl:min-w-[520px] xl:grid-cols-3">
             <CompactMetric label="Project" value={profile.projectName || projectName || HELOC_DEFAULT_PROJECT_NAME} />
             <CompactMetric label="Dataset" value={activeDataset?.name || profile.datasetId || "HELOC_TRAIN"} />
-            <CompactMetric label="Target" value={`${profile.targetColumn || "bad_flag"} = ${profile.eventValue || "1"}`} />
+            <CompactMetric label="Target" value={profile.targetColumn && profile.eventValue ? `${profile.targetColumn} = ${profile.eventValue}` : "Pending exact target contract"} />
             <CompactMetric label="Model purpose" value={profile.modelPurpose || "Application Underwriting"} />
             <CompactMetric label="Current step" value={activeWorkflowStep.name} />
             <CompactMetric label="Readiness" value={`${readiness.score}%`} tone={readiness.score >= 70 ? "green" : "amber"} />
@@ -1161,10 +1212,17 @@ export default function CreditRiskStudio() {
         <main className="min-w-0 space-y-5">
           <PredictiveStepModePanel step={activeWorkflowStep} workflowStatus={workflowStatus} />
           <div className={`flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm font-semibold ${schemaMismatch || schemaLoadError ? "border-red-200 bg-red-50 text-red-800" : "border-emerald-200 bg-emerald-50 text-emerald-800"}`}>
-            <span>
-              {schemaLoadError || (schemaMismatch
+            <span className="grid gap-1">
+              <span>{schemaLoadError || (schemaMismatch
                 ? "Dataset schema mismatch. Reload selected dataset before continuing."
-                : `Active dataset: ${activeDataset?.name || profile.datasetId || "No dataset selected"}`)}
+                : `Active dataset: ${activeDataset?.name || profile.datasetId || "No dataset selected"}`)}</span>
+              {!schemaLoadError && !schemaMismatch && (
+                <span className="text-xs font-medium" data-testid="credit-risk-exact-scope-status">
+                  Exact version: {profile.datasetVersionId || "not project-linked"} · {targetSummary
+                    ? "governed development-population evidence verified; sealed holdout excluded"
+                    : "target-directed evidence pending exact governed development scope"}
+                </span>
+              )}
             </span>
             {activeWorkflowStep.name !== "Data Acquisition" && (
               <button type="button" className="rounded-lg border border-current px-3 py-1 text-xs font-semibold" onClick={refreshDatasetSchema} disabled={!profile.datasetId}>
@@ -1282,7 +1340,6 @@ export default function CreditRiskStudio() {
               <FinalModelFeatureReviewPanel
                 profile={profile}
                 woeAnalysis={woeAnalysis}
-                previewIvByVariable={finalFeaturePreviewIv}
                 selectedVariables={finalModelSelectedVariables}
                 targetColumn={scorecardRequest.targetColumn || mlRequest.targetColumn || profile.targetColumn}
                 statusMessage={woeMessage}
@@ -1297,9 +1354,9 @@ export default function CreditRiskStudio() {
             <StudioSection icon={<Database size={18} />} title="EDA" subtitle="Investigate underwriting model data quality, bad-rate behavior, missingness, concentration, variable mix, protected/sensitive flags, and potential leakage before screening.">
               <RealPredictiveStepEmbed title="Real ATLAS EDA Workflow" overlayPlacement="after" overlay={
                 <div className="space-y-4">
-                  <EdaCreditRiskOverlay profile={profile} woeAnalysis={woeAnalysis} variableCounts={variableCounts} targetSummary={targetSummary} localDataset={localDataset} />
+                  <EdaCreditRiskOverlay profile={profile} woeAnalysis={woeAnalysis} variableCounts={variableCounts} targetSummary={targetSummary} />
                   <CreditRiskEdaPanel profile={profile} woeAnalysis={woeAnalysis} variableCounts={variableCounts} />
-                  {!targetSummary && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{profile.targetColumn ? "Full dataset artifact unavailable. Showing schema-level EDA only." : "Target summary unavailable because target column is not selected."}</div>}
+                  {!targetSummary && <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">{profile.targetColumn ? "Governed development-population evidence is pending. Showing target-independent schema review only." : "Target summary unavailable because the exact target contract is not selected."}</div>}
                   <SpecialValueProfilePanel summary={targetSummary} />
                   <div className="flex flex-wrap gap-2">
                     <DownloadButton label="Download special-value profile CSV" onClick={() => downloadRowsCsv("atlas-eda-special-value-profile.csv", (targetSummary?.specialValueProfile || []) as unknown as Array<Record<string, unknown>>)} />
@@ -1421,8 +1478,9 @@ export default function CreditRiskStudio() {
               <div className="grid gap-3 lg:grid-cols-6">
                 <Select label="Dataset" value={woeRequest.datasetId} onChange={(value) => {
                   const dataset = datasets.find((row) => row.datasetId === value);
-                  patch({ datasetId: value, datasetVersionId: dataset?.latestVersion?.versionId });
-                  setWoeRequest((current) => ({ ...current, datasetId: value, datasetVersionId: dataset?.latestVersion?.versionId }));
+                  const datasetVersionId = exactProjectDatasetVersion(dataset, projectId);
+                  patch({ datasetId: value, datasetVersionId });
+                  setWoeRequest((current) => ({ ...current, datasetId: value, datasetVersionId }));
                 }} options={datasets.map((dataset) => ({ value: dataset.datasetId, label: dataset.name }))} />
                 <Select label="Target" value={woeRequest.targetColumn} onChange={(value) => setWoeRequest((current) => ({ ...current, targetColumn: value, predictorColumns: current.predictorColumns.filter((column) => isCreditRiskPredictorCandidate(column, profile, value)) }))} options={schema} />
                 <Input label="Event value" value={String(woeRequest.eventValue ?? "")} onChange={(value) => setWoeRequest((current) => ({ ...current, eventValue: value }))} placeholder="1, bad, default" />
@@ -1465,12 +1523,12 @@ export default function CreditRiskStudio() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <button type="button" onClick={runWoeIv} disabled={woeRunning || !woeRequest.datasetId || !woeRequest.targetColumn || !woeRequest.predictorColumns.length} className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                <button type="button" onClick={runWoeIv} disabled={woeRunning || !targetScopeReady || !woeRequest.predictorColumns.length} className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
                   {woeRunning ? "Running..." : "Run WOE / IV Analysis"}
                 </button>
                 <button type="button" onClick={saveWoeAnalysis} disabled={!woeAnalysis || woeRunning} className="atlas-secondary-button">Save Analysis</button>
                 <button type="button" onClick={exportWoeWorkbook} disabled={!woeAnalysis} className="atlas-secondary-button">Export WOE / IV to Excel</button>
-                <button type="button" onClick={refreshGeneratedCode} className="atlas-secondary-button">Generate Code</button>
+                <button type="button" onClick={refreshGeneratedCode} disabled={!targetScopeReady} className="atlas-secondary-button">Generate Code</button>
               </div>
               {woeMessage && <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">{woeMessage}</div>}
 
@@ -1594,7 +1652,11 @@ export default function CreditRiskStudio() {
                     <div className="mt-3 grid gap-3 md:grid-cols-4">
                       <Select label="Dataset" value={scorecardRequest.datasetId} onChange={(value) => {
                         const dataset = datasets.find((row) => row.datasetId === value);
-                        setScorecardRequest((current) => ({ ...current, datasetId: value, datasetVersionId: dataset?.latestVersion?.versionId }));
+                        setScorecardRequest((current) => ({
+                          ...current,
+                          datasetId: value,
+                          datasetVersionId: exactProjectDatasetVersion(dataset, projectId),
+                        }));
                       }} options={datasets.map((dataset) => ({ value: dataset.datasetId, label: dataset.name }))} />
                       <Select label="Target column" value={scorecardRequest.targetColumn} onChange={(value) => setScorecardRequest((current) => ({ ...current, targetColumn: value, selectedVariables: current.selectedVariables.filter((column) => isCreditRiskPredictorCandidate(column, profile, value)) }))} options={schema} />
                       <Input label="Event value / bad class" value={String(scorecardRequest.eventValue)} onChange={(value) => setScorecardRequest((current) => ({ ...current, eventValue: value }))} />
@@ -1671,12 +1733,12 @@ export default function CreditRiskStudio() {
                   </div>
 
                   <div className="flex flex-wrap gap-2">
-                    <button type="button" onClick={trainScorecard} disabled={scorecardRunning || !scorecardRequest.datasetId || !scorecardRequest.targetColumn || (!scorecardRequest.selectedVariables.length && !scorecardRequest.trainRawBaseline)} className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
+                    <button type="button" onClick={trainScorecard} disabled={scorecardRunning || !targetScopeReady || (!scorecardRequest.selectedVariables.length && !scorecardRequest.trainRawBaseline)} className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
                       {scorecardRunning ? "Training..." : "Train Scorecard Model"}
                     </button>
                     <button type="button" onClick={exportScorecardWorkbook} disabled={!scorecardModel} className="atlas-secondary-button">Export Scorecard to Excel</button>
                     <button type="button" onClick={registerChampionScorecard} disabled={!scorecardModel} className="atlas-secondary-button">Register Champion Scorecard</button>
-                    <button type="button" onClick={refreshScorecardCode} className="atlas-secondary-button">Generate Code</button>
+                    <button type="button" onClick={refreshScorecardCode} disabled={!targetScopeReady} className="atlas-secondary-button">Generate Code</button>
                   </div>
                   {scorecardMessage && <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900">{scorecardMessage}</div>}
 
@@ -1746,7 +1808,7 @@ export default function CreditRiskStudio() {
               {scorecardModel ? <ScorecardPointsTable model={scorecardModel} /> : <EmptyPanel text="Train a scorecard model to populate the scorecard points table." />}
               <TextArea label="Odds calibration approach and reference population" value={profile.scorecardScaling?.notes || ""} onChange={(value) => patchNested("scorecardScaling", { notes: value })} />
               <div className="flex flex-wrap gap-2">
-                <button type="button" onClick={trainScorecard} disabled={scorecardRunning || !scorecardRequest.datasetId || !scorecardRequest.targetColumn || (!scorecardRequest.selectedVariables.length && !scorecardRequest.trainRawBaseline)} className="atlas-secondary-button">Calculate Scorecard Points</button>
+                <button type="button" onClick={trainScorecard} disabled={scorecardRunning || !targetScopeReady || (!scorecardRequest.selectedVariables.length && !scorecardRequest.trainRawBaseline)} className="atlas-secondary-button">Calculate Scorecard Points</button>
                 <EvidenceButton onClick={() => saveEvidence("pdo")} label="Save PDO Scaling Evidence" />
                 <EvidenceButton onClick={() => saveEvidence("scorecard_scaling")} label="Save Scorecard Scaling and Odds Calibration Evidence" />
                 <button type="button" onClick={exportScorecardWorkbook} disabled={!scorecardModel} className="atlas-secondary-button">Export Scorecard Points to Excel</button>
@@ -1804,8 +1866,9 @@ export default function CreditRiskStudio() {
               <div className="grid gap-3 md:grid-cols-3">
                 <Select label="Dataset" value={mlRequest.datasetId} onChange={(value) => {
                   const dataset = datasets.find((row) => row.datasetId === value);
-                  patch({ datasetId: value, datasetVersionId: dataset?.latestVersion?.versionId });
-                  setMlRequest((current) => ({ ...current, datasetId: value, datasetVersionId: dataset?.latestVersion?.versionId }));
+                  const datasetVersionId = exactProjectDatasetVersion(dataset, projectId);
+                  patch({ datasetId: value, datasetVersionId });
+                  setMlRequest((current) => ({ ...current, datasetId: value, datasetVersionId }));
                 }} options={datasets.map((dataset) => ({ value: dataset.datasetId, label: dataset.name }))} />
                 <Select label="Target column" value={mlRequest.targetColumn} onChange={(value) => setMlRequest((current) => ({ ...current, targetColumn: value, selectedVariables: current.selectedVariables.filter((column) => isCreditRiskPredictorCandidate(column, profile, value)) }))} options={schema} />
                 <Input label="Event value" value={String(mlRequest.eventValue ?? "")} onChange={(value) => setMlRequest((current) => ({ ...current, eventValue: value }))} />
@@ -1818,7 +1881,7 @@ export default function CreditRiskStudio() {
               </div>
               <MonotonicConstraintsPanel profile={profile} schema={schema} patch={(constraints) => patch({ monotonicConstraints: constraints })} />
               <div className="flex flex-wrap gap-2">
-                <button type="button" className="atlas-secondary-button" onClick={trainMlChallenger} disabled={mlRunning || !mlRequest.datasetId || !mlRequest.targetColumn || !mlRequest.selectedVariables.length}>{mlRunning ? "Training..." : "Train AI/ML Challenger"}</button>
+                <button type="button" className="atlas-secondary-button" onClick={trainMlChallenger} disabled={mlRunning || !targetScopeReady || !mlRequest.selectedVariables.length}>{mlRunning ? "Training..." : "Train AI/ML Challenger"}</button>
                 <EvidenceButton onClick={() => saveMlEvidenceToCenter("monotonic_constraints", "Monotonic Constraint Evidence")} label="Save Monotonic Constraint Evidence" />
                 <EvidenceButton onClick={() => saveMlEvidenceToCenter("ml_underwriting", "AI/ML Underwriting Evidence")} label="Save AI/ML Underwriting Evidence" />
                 {mlMessage && <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-900">{mlMessage}</div>}
@@ -2029,14 +2092,14 @@ function defaultProfile(projectId: string, projectName: string, dataset?: Datase
     projectId,
     projectName,
     datasetId: dataset?.datasetId,
-    datasetVersionId: dataset?.latestVersion?.versionId,
+    datasetVersionId: exactProjectDatasetVersion(dataset, projectId),
     productType: "Credit Card",
     modelPurpose: "Application Underwriting",
     modelType: "Traditional Scorecard",
     targetEvent: "Default",
     targetColumn: "",
-    eventValue: "1",
-    nonEventValue: "0",
+    eventValue: "",
+    nonEventValue: "",
     originalTargetLabelColumn: "",
     splitColumn: "",
     validationDatasetId: "",
@@ -2051,48 +2114,34 @@ function defaultProfile(projectId: string, projectName: string, dataset?: Datase
   };
 }
 
-function preferredCreditRiskDataset(datasets: DatasetSummary[]) {
-  return datasets.find((dataset) => /^HELOC_TRAIN$/i.test(dataset.name))
-    || datasets.find((dataset) => /heloc/i.test(dataset.name))
-    || datasets[0];
+function exactProjectDatasetVersion(dataset: DatasetSummary | undefined, projectId: string) {
+  if (!dataset || !projectId) return "";
+  const linkedVersions = Array.from(new Set(
+    (dataset.linkedProjects || [])
+      .filter((link) => link.projectId === projectId)
+      .map((link) => String(link.versionId || "").trim())
+      .filter(Boolean),
+  ));
+  return linkedVersions.length === 1 ? linkedVersions[0] : "";
 }
 
-function datasetNameForId(datasets: DatasetSummary[], datasetId?: string) {
-  return datasets.find((dataset) => dataset.datasetId === datasetId)?.name || "";
+function preferredCreditRiskDataset(datasets: DatasetSummary[], projectId: string) {
+  const linked = datasets.filter((dataset) => exactProjectDatasetVersion(dataset, projectId));
+  return linked.find((dataset) => /^HELOC_TRAIN$/i.test(dataset.name))
+    || linked.find((dataset) => /heloc/i.test(dataset.name));
 }
 
 function normalizeCreditRiskProfile(profile: CreditRiskProfile, datasets: DatasetSummary[], projectId: string, projectName: string): CreditRiskProfile {
-  const helocTrain = preferredCreditRiskDataset(datasets);
-  const currentDatasetName = datasetNameForId(datasets, profile.datasetId);
-  const currentIsHelocTrain = /^HELOC_TRAIN$/i.test(currentDatasetName);
-  const staleDatasetPattern = new RegExp(`${["REG", "TRAIN"].join("_")}|california|housing`, "i");
-  const staleTargetPattern = new RegExp(["Med", "HouseVal"].join(""), "i");
-  const staleRegressionState = staleDatasetPattern.test(currentDatasetName)
-    || staleTargetPattern.test(profile.targetColumn || "")
-    || staleTargetPattern.test(profile.originalTargetLabelColumn || "");
-  if (!helocTrain || !/^HELOC_TRAIN$/i.test(helocTrain.name) || (profile.datasetId && !staleRegressionState && !currentIsHelocTrain)) {
-    return profile;
-  }
-  const normalizedDataset = currentIsHelocTrain ? datasets.find((dataset) => dataset.datasetId === profile.datasetId) || helocTrain : helocTrain;
-  const staleOrMissingTarget = !profile.targetColumn || staleTargetPattern.test(profile.targetColumn);
-  const staleOrMissingOriginal = !profile.originalTargetLabelColumn || staleTargetPattern.test(profile.originalTargetLabelColumn);
+  const dataset = datasets.find((item) => item.datasetId === profile.datasetId);
+  const exactVersion = exactProjectDatasetVersion(dataset, projectId);
   return {
-    ...defaultProfile(projectId, projectName, normalizedDataset),
     ...profile,
     projectId,
     projectName: profile.projectName || projectName,
-    datasetId: normalizedDataset.datasetId,
-    datasetVersionId: normalizedDataset.latestVersion?.versionId,
-    targetColumn: staleOrMissingTarget ? "bad_flag" : profile.targetColumn,
-    eventValue: "1",
-    nonEventValue: "0",
-    originalTargetLabelColumn: staleOrMissingOriginal ? "RiskPerformance" : profile.originalTargetLabelColumn,
-    splitColumn: staleRegressionState || !profile.splitColumn ? "atlas_split" : profile.splitColumn,
-    validationDatasetId: staleRegressionState || !profile.validationDatasetId ? findDatasetIdByName(datasets, /^HELOC_TEST$/i) : profile.validationDatasetId,
-    ootDatasetId: staleRegressionState || !profile.ootDatasetId ? findDatasetIdByName(datasets, /^HELOC_OOT$/i) : profile.ootDatasetId,
-    ootType: staleRegressionState || !profile.ootType || profile.ootType === "True out-of-time" ? "Synthetic holdout" : profile.ootType,
-    variableMappings: [],
-    targetSummary: undefined,
+    datasetVersionId:
+      profile.datasetVersionId && profile.datasetVersionId === exactVersion
+        ? profile.datasetVersionId
+        : exactVersion || undefined,
   };
 }
 
@@ -2100,9 +2149,9 @@ function defaultWoeRequest(projectId: string, profile: CreditRiskProfile): WoeIv
   return {
     projectId,
     datasetId: profile.datasetId || "",
-    datasetVersionId: profile.datasetVersionId,
+    datasetVersionId: profile.datasetVersionId || "",
     targetColumn: profile.targetColumn || "",
-    eventValue: profile.eventValue || "1",
+    eventValue: profile.eventValue || "",
     predictorColumns: [],
     binningMethod: "quantile",
     maxBins: 5,
@@ -2116,9 +2165,9 @@ function defaultScorecardRequest(projectId: string, profile: CreditRiskProfile):
   return {
     projectId,
     datasetId: profile.datasetId || "",
-    datasetVersionId: profile.datasetVersionId,
+    datasetVersionId: profile.datasetVersionId || "",
     targetColumn: profile.targetColumn || "",
-    eventValue: profile.eventValue || "1",
+    eventValue: profile.eventValue || "",
     selectedVariables: [],
     trainValidationSplit: 0.7,
     crossValidationFolds: 5,
@@ -2138,9 +2187,9 @@ function defaultMlRequest(projectId: string, profile: CreditRiskProfile): Credit
   return {
     projectId,
     datasetId: profile.datasetId || "",
-    datasetVersionId: profile.datasetVersionId,
+    datasetVersionId: profile.datasetVersionId || "",
     targetColumn: profile.targetColumn || "",
-    eventValue: profile.eventValue || "1",
+    eventValue: profile.eventValue || "",
     selectedVariables: (profile.variableMappings || []).filter((row) => row.include && isCreditRiskPredictorCandidate(row.variable, profile) && row.role !== "Protected / Sensitive" && row.role !== "Excluded").map((row) => row.variable).slice(0, 30),
     modelType: "Random Forest",
     trainValidationSplit: 0.7,
@@ -2184,133 +2233,6 @@ function uniqueStrings(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
-function previewIvByVariable(localDataset: LocalDataset | null, targetColumn?: string, eventValue = "1") {
-  const target = targetColumn || localDataset?.target || "";
-  if (!localDataset?.rows.length || !target || !localDataset.headers.includes(target)) return new Map<string, number>();
-  const candidates = uniqueStrings([...(localDataset.selected_columns || []), ...localDataset.headers])
-    .filter((column) => column !== target && localDataset.headers.includes(column));
-  return new Map(
-    candidates
-      .map((column) => [column, previewInformationValue(localDataset.rows, column, target, eventValue)] as const)
-      .filter((entry): entry is readonly [string, number] => typeof entry[1] === "number" && Number.isFinite(entry[1])),
-  );
-}
-
-function previewInformationValue(rows: Record<string, unknown>[], column: string, target: string, eventValue: string) {
-  if (!rows.length || column === target) return null;
-  const values = rows
-    .map((row) => row[column])
-    .filter((value) => value !== null && value !== undefined && String(value).trim() !== "");
-  if (!values.length) return null;
-  const numericValues = values.map(Number).filter(Number.isFinite);
-  const numeric = numericValues.length / values.length >= 0.8;
-  const sorted = [...numericValues].sort((a, b) => a - b);
-  const breaks = numeric
-    ? [0.2, 0.4, 0.6, 0.8].map((pct) => sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor(sorted.length * pct)))])
-    : [];
-  const categoryCounts = new Map<string, number>();
-  if (!numeric) {
-    values.forEach((value) => {
-      const key = String(value);
-      categoryCounts.set(key, (categoryCounts.get(key) || 0) + 1);
-    });
-  }
-  const topCategories = new Set(
-    Array.from(categoryCounts.entries())
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 20)
-      .map(([key]) => key),
-  );
-  const bucketFor = (value: unknown) => {
-    if (value === null || value === undefined || String(value).trim() === "") return "__MISSING__";
-    if (!numeric) {
-      const key = String(value);
-      return topCategories.has(key) ? key : "__OTHER__";
-    }
-    const num = Number(value);
-    if (!Number.isFinite(num)) return "__MISSING__";
-    const upper = breaks.find((breakValue) => num <= breakValue);
-    return upper === undefined ? `>${breaks.length ? breaks[breaks.length - 1] : "all"}` : `<=${upper}`;
-  };
-  const buckets = new Map<string, { event: number; nonEvent: number }>();
-  let totalEvents = 0;
-  let totalNonEvents = 0;
-  rows.forEach((row) => {
-    const targetValue = row[target];
-    if (targetValue === null || targetValue === undefined || String(targetValue).trim() === "") return;
-    const bucket = buckets.get(bucketFor(row[column])) || { event: 0, nonEvent: 0 };
-    if (String(targetValue) === String(eventValue)) {
-      bucket.event += 1;
-      totalEvents += 1;
-    } else {
-      bucket.nonEvent += 1;
-      totalNonEvents += 1;
-    }
-    buckets.set(bucketFor(row[column]), bucket);
-  });
-  if (!totalEvents || !totalNonEvents || !buckets.size) return null;
-  const epsilon = 0.000001;
-  let iv = 0;
-  buckets.forEach((bucket) => {
-    const eventDist = Math.max(bucket.event / totalEvents, epsilon);
-    const nonEventDist = Math.max(bucket.nonEvent / totalNonEvents, epsilon);
-    iv += (eventDist - nonEventDist) * Math.log(eventDist / nonEventDist);
-  });
-  return Number.isFinite(iv) ? Math.max(0, iv) : null;
-}
-
-function previewBadRateSpreadRows(localDataset: LocalDataset | null, targetColumn: string, eventValue = "1") {
-  if (!localDataset?.rows.length || !targetColumn || !localDataset.headers.includes(targetColumn)) return [];
-  return uniqueStrings([...(localDataset.selected_columns || []), ...localDataset.headers])
-    .filter((column) => column !== targetColumn && isHelocBureauField(column))
-    .map((variable) => {
-      const spread = previewBadRateSpread(localDataset.rows, variable, targetColumn, eventValue);
-      return {
-        variable,
-        badRateSpread: spread == null ? "Not available from preview" : formatPercent(spread),
-        source: "Data Acquisition preview",
-      };
-    })
-    .filter((row) => row.badRateSpread !== "Not available from preview")
-    .sort((a, b) => Number.parseFloat(String(b.badRateSpread)) - Number.parseFloat(String(a.badRateSpread)))
-    .slice(0, 10);
-}
-
-function previewBadRateSpread(rows: Record<string, unknown>[], column: string, target: string, eventValue: string) {
-  const values = rows
-    .map((row) => row[column])
-    .filter((value) => value !== null && value !== undefined && String(value).trim() !== "");
-  if (!values.length) return null;
-  const numericValues = values.map(Number).filter(Number.isFinite);
-  const numeric = numericValues.length / values.length >= 0.8;
-  const sorted = [...numericValues].sort((a, b) => a - b);
-  const breaks = numeric
-    ? [0.2, 0.4, 0.6, 0.8].map((pct) => sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor(sorted.length * pct)))])
-    : [];
-  const bucketFor = (value: unknown) => {
-    if (value === null || value === undefined || String(value).trim() === "") return "__MISSING__";
-    if (!numeric) return String(value);
-    const num = Number(value);
-    if (!Number.isFinite(num)) return "__MISSING__";
-    const upper = breaks.find((breakValue) => num <= breakValue);
-    return upper === undefined ? `>${breaks.length ? breaks[breaks.length - 1] : "all"}` : `<=${upper}`;
-  };
-  const buckets = new Map<string, { total: number; bad: number }>();
-  rows.forEach((row) => {
-    const targetValue = row[target];
-    if (targetValue === null || targetValue === undefined || String(targetValue).trim() === "") return;
-    const bucket = buckets.get(bucketFor(row[column])) || { total: 0, bad: 0 };
-    bucket.total += 1;
-    if (String(targetValue) === String(eventValue)) bucket.bad += 1;
-    buckets.set(bucketFor(row[column]), bucket);
-  });
-  const rates = Array.from(buckets.values())
-    .filter((bucket) => bucket.total > 0)
-    .map((bucket) => bucket.bad / bucket.total);
-  if (rates.length < 2) return null;
-  return Math.max(...rates) - Math.min(...rates);
-}
-
 function finalIvPredictorColumns(profile: CreditRiskProfile, schema: string[], targetColumn?: string) {
   const mappedVariables = (profile.variableMappings || [])
     .filter((row) => row.include && row.role !== "Protected / Sensitive" && row.role !== "Excluded")
@@ -2325,12 +2247,10 @@ function finalIvPredictorColumns(profile: CreditRiskProfile, schema: string[], t
 function finalFeatureReviewRows({
   profile,
   woeAnalysis,
-  previewIvByVariable,
   targetColumn,
 }: {
   profile: CreditRiskProfile;
   woeAnalysis: WoeIvAnalysis | null;
-  previewIvByVariable?: Map<string, number>;
   targetColumn?: string;
 }) {
   const woeByVariable = new Map((woeAnalysis?.variableSummaries || []).map((row) => [row.variable, row]));
@@ -2340,19 +2260,13 @@ function finalFeatureReviewRows({
   const variables = uniqueStrings([
     ...mappedVariables,
     ...(woeAnalysis?.variableSummaries || []).filter((row) => isCreditRiskPredictorCandidate(row.variable, profile, targetColumn)).map((row) => row.variable),
-    ...Array.from(previewIvByVariable?.keys() || []).filter((variable) => isCreditRiskPredictorCandidate(variable, profile, targetColumn)),
   ]);
   return variables.map((variable) => {
     const woe = woeByVariable.get(variable);
-    const previewIv = previewIvByVariable?.get(variable);
-    const iv = typeof woe?.iv === "number" ? woe.iv : typeof previewIv === "number" ? previewIv : null;
-    const ivSource = typeof woe?.iv === "number" ? "WOE / IV" : typeof previewIv === "number" ? "Preview IV" : "Not run";
+    const iv = typeof woe?.iv === "number" ? woe.iv : null;
+    const ivSource = typeof woe?.iv === "number" ? "Governed development WOE / IV" : "Pending governed evidence";
     const status = !woe
-      ? typeof previewIv === "number"
-        ? previewIv >= 0.02
-          ? "Preview candidate"
-          : "Weak preview IV"
-        : "IV pending"
+      ? "IV pending"
       : woe.status === "error"
         ? "Review"
         : iv == null
@@ -2368,13 +2282,11 @@ function finalFeatureReviewRows({
       ivLabel: iv == null ? "Not run" : iv.toFixed(4),
       ivSource,
       status,
-      statusTone: status === "Candidate" || status === "Preview candidate" ? "text-emerald-700" : status === "Leakage review" || status === "Weak IV" || status === "Weak preview IV" ? "text-amber-700" : "text-slate-500",
+      statusTone: status === "Candidate" ? "text-emerald-700" : status === "Leakage review" || status === "Weak IV" ? "text-amber-700" : "text-slate-500",
       recommended: Boolean(iv != null && iv >= 0.02 && iv < 0.5 && woe?.status !== "error" && !isScorecardExcluded(variable)),
       recommendation: woe
         ? scorecardExclusionReason(woe) || "Keep unless reviewer identifies business, policy, stability, or fair-lending concerns."
-        : typeof previewIv === "number"
-          ? "Preview IV from Data Acquisition is available. Keep for model training unless reviewer identifies a governance or stability concern."
-        : "Run WOE / IV to populate signal strength before final model training.",
+        : "Run governed development-population WOE / IV to populate signal strength before final model training.",
     };
   }).sort((a, b) => (b.iv ?? -1) - (a.iv ?? -1) || a.variable.localeCompare(b.variable));
 }
@@ -2499,17 +2411,6 @@ const HELOC_BUREAU_FIELDS = new Set(HELOC_BUREAU_FIELDS_LIST);
 
 function isHelocBureauField(name: string) {
   return HELOC_BUREAU_FIELDS.has(name);
-}
-
-function findDatasetIdByName(datasets: DatasetSummary[], pattern: RegExp) {
-  return datasets.find((dataset) => pattern.test(dataset.name))?.datasetId || "";
-}
-
-function findTargetColumn(columns: string[]) {
-  return columns.find((column) => column === "bad_flag")
-    || columns.find((column) => /bad|default|charge|target|class|label/i.test(column))
-    || columns[columns.length - 1]
-    || "";
 }
 
 function buildVariableMappings(columns: string[], datasetName: string, targetColumn: string, splitColumn: string, originalTarget: string): CreditRiskVariableMapping[] {
@@ -2942,22 +2843,21 @@ function DataTable({ title, columns, rows }: { title: string; columns: string[];
 }
 
 function TargetSummaryPanel({ profile, summary }: { profile: CreditRiskProfile; summary: CreditRiskTargetSummary | null }) {
-  const isPreview = summary?.scope === "preview";
-  const summaryMessage = summary?.message || (summary && !summary.fullDatasetAvailable ? previewTargetSummaryMessage : "");
+  const summaryMessage = summary?.message || "";
   return (
     <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <div className="text-sm font-semibold text-slate-950">{isPreview ? "Preview Sample Summary" : "Target Summary"}</div>
-        {summary && <span className={`rounded-full px-2 py-1 text-xs font-semibold ${isPreview ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>{summary.fullDatasetAvailable ? "Full dataset summary" : "Preview sample summary"}</span>}
+        <div className="text-sm font-semibold text-slate-950">Development Population Target Summary</div>
+        {summary && <span className="rounded-full bg-emerald-100 px-2 py-1 text-xs font-semibold text-emerald-800">Exact governed development scope</span>}
       </div>
       {summaryMessage && <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">{summaryMessage}</div>}
       {!summary && (
         <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-900">
-          Select a target column to calculate the target summary.
+          Target evidence is pending an exact project-linked dataset version, target contract, and verified Analysis Partition.
         </div>
       )}
       <div className="grid gap-3 md:grid-cols-6">
-        <Metric label={summary?.fullDatasetAvailable ? "Total rows" : "Profiled rows"} value={summary ? summary.totalRows.toLocaleString() : "Select target"} />
+        <Metric label="Development rows" value={summary ? summary.totalRows.toLocaleString() : "Pending scope"} />
         <Metric label="Good count" value={summary ? summary.goodCount.toLocaleString() : "-"} />
         <Metric label="Bad count" value={summary ? summary.badCount.toLocaleString() : "-"} />
         <Metric label="Bad rate" value={summary ? formatPercent(summary.badRate) : "-"} tone={summary && summary.badRate < 0.01 ? "amber" : "slate"} />
@@ -2965,7 +2865,7 @@ function TargetSummaryPanel({ profile, summary }: { profile: CreditRiskProfile; 
         <Metric label="Missing target count" value={summary ? summary.missingTargetCount.toLocaleString() : "-"} />
       </div>
       <div className="mt-3 grid gap-3 md:grid-cols-3">
-        <Metric label="Full dataset rows" value={summary ? summary.rowCount.toLocaleString() : "-"} />
+        <Metric label="Structural population rows" value={summary?.structuralRowCount != null ? summary.structuralRowCount.toLocaleString() : "-"} />
         <Metric label="Target window" value={profile.targetWindow || "Not documented"} />
         <Metric label="Outcome source" value={profile.outcomeSourceTable || "Not documented"} />
       </div>
@@ -3010,7 +2910,7 @@ function CreditRiskEdaPanel({ profile, woeAnalysis, variableCounts }: { profile:
     <div className="space-y-4">
       <div className="grid gap-3 md:grid-cols-4">
         <Metric label="Dataset" value={profile.datasetId ? "HELOC_TRAIN" : "Select dataset"} />
-        <Metric label="Target distribution" value={profile.targetColumn || "bad_flag"} />
+        <Metric label="Target distribution" value={profile.targetColumn || "Pending exact target contract"} />
         <Metric label="Good / bad count" value={profile.targetSummary ? `${profile.targetSummary.goodCount.toLocaleString()} / ${profile.targetSummary.badCount.toLocaleString()}` : "Target summary loading"} />
         <Metric label="Bad rate" value={profile.targetSummary ? formatPercent(profile.targetSummary.badRate) : "Target summary loading"} />
       </div>
@@ -3069,7 +2969,6 @@ function ApprovedPredictorSummary({ profile, woeAnalysis, datasetProfile, target
 function FinalModelFeatureReviewPanel({
   profile,
   woeAnalysis,
-  previewIvByVariable,
   selectedVariables,
   targetColumn,
   statusMessage,
@@ -3078,7 +2977,6 @@ function FinalModelFeatureReviewPanel({
 }: {
   profile: CreditRiskProfile;
   woeAnalysis: WoeIvAnalysis | null;
-  previewIvByVariable?: Map<string, number>;
   selectedVariables: string[];
   targetColumn?: string;
   statusMessage?: string;
@@ -3086,7 +2984,7 @@ function FinalModelFeatureReviewPanel({
   onApplyRecommended: () => void;
 }) {
   const selectedSet = new Set(selectedVariables);
-  const rows = finalFeatureReviewRows({ profile, woeAnalysis, previewIvByVariable, targetColumn });
+  const rows = finalFeatureReviewRows({ profile, woeAnalysis, targetColumn });
   const selectedCount = rows.filter((row) => selectedSet.has(row.variable)).length;
   const hasIvValues = rows.some((row) => row.iv != null);
   return (
@@ -3125,11 +3023,6 @@ function FinalModelFeatureReviewPanel({
       {!woeAnalysis && !hasIvValues && (
         <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-900">
           WOE / IV analysis is not available yet. ATLAS is showing approved schema-level predictors, but the IV column will populate after WOE / IV is run.
-        </div>
-      )}
-      {!woeAnalysis && hasIvValues && (
-        <div className="mt-4 rounded-xl border border-emerald-200 bg-white p-3 text-sm leading-6 text-emerald-900">
-          Showing Data Acquisition preview IV values now. Full WOE / IV values will replace these automatically when the governed full-dataset analysis is available.
         </div>
       )}
       {statusMessage && (
@@ -3372,31 +3265,34 @@ function EdaCreditRiskOverlay({
   woeAnalysis,
   variableCounts,
   targetSummary,
-  localDataset,
 }: {
   profile: CreditRiskProfile;
   woeAnalysis: WoeIvAnalysis | null;
   variableCounts: ReturnType<typeof summarizeVariables>;
   targetSummary: CreditRiskTargetSummary | null;
-  localDataset: LocalDataset | null;
 }) {
   const woeBadRateRows = (woeAnalysis?.variableSummaries || []).filter((row) => isHelocBureauField(row.variable)).slice(0, 10).map((row) => ({
     variable: row.variable,
     badRateSpread: row.bins?.length ? formatPercent(Math.max(...row.bins.map((bin) => bin.badRate)) - Math.min(...row.bins.map((bin) => bin.badRate))) : "Compute from full EDA or WOE / IV",
     source: "Real EDA / WOE artifact",
   }));
-  const badRateRows = woeBadRateRows.length ? woeBadRateRows : previewBadRateSpreadRows(localDataset, profile.targetColumn || "bad_flag", String(profile.eventValue || "1"));
+  const badRateRows = woeBadRateRows;
   return (
     <div className="space-y-3">
       <div className="grid gap-3 md:grid-cols-4">
-        <Metric label="Target distribution" value={profile.targetColumn || "bad_flag"} />
-        <Metric label="Good / bad counts" value={targetSummary ? `${targetSummary.goodCount.toLocaleString()} / ${targetSummary.badCount.toLocaleString()}` : "Full dataset artifact unavailable. Showing schema-level EDA only."} />
+        <Metric label="Target distribution" value={profile.targetColumn || "Pending exact target contract"} />
+        <Metric label="Good / bad counts" value={targetSummary ? `${targetSummary.goodCount.toLocaleString()} / ${targetSummary.badCount.toLocaleString()}` : "Governed development evidence pending"} />
         <Metric label="Bad rate" value={targetSummary ? formatPercent(targetSummary.badRate) : "Target summary unavailable"} />
         <Metric label="Candidate predictor ranking" value={`${variableCounts.total || 23} HELOC candidates`} />
       </div>
       <div className="flex flex-wrap gap-2">
         <DownloadButton label="Download bad-rate table CSV" onClick={() => downloadRowsCsv("atlas-eda-bad-rate-spread.csv", badRateRows)} />
       </div>
+      {!badRateRows.length && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+          Bad-rate comparisons are pending governed development-population evidence. Browser preview rows are not used.
+        </div>
+      )}
       <DataTable title="Bad-rate spread by bureau variable" columns={["variable", "badRateSpread", "source"]} rows={badRateRows} />
       <div className="flex flex-wrap gap-2">
         <Link to="/analytics" className="atlas-secondary-button">Open Analytics Workbench</Link>
@@ -3499,7 +3395,7 @@ function stepGuide(stepName: string, profile: CreditRiskProfile, readinessScore:
     Outliers: { inputs: "Numeric bureau variables, special value profile, and outlier treatment policy.", nextAction: "Review extreme values, preserve special bureau values, select treatment, and save evidence.", warning: "-7, -8, and -9 are special values, not automatic outliers." },
     "Missing Values": { inputs: "Missingness profile and bureau special value profile.", nextAction: "Document missing treatment and special bins, then continue to Feature Engineering.", warning: "Do not silently impute bureau special values." },
     "Feature Engineering": { inputs: "Approved predictors, exclusions, WOE/IV analysis, and manual binning decisions.", nextAction: "Run or review WOE / IV and manual binning, then save feature engineering evidence.", warning: "Leakage fields must not enter WOE / IV or scorecard variables." },
-    "Model Training": { inputs: "Approved predictors, WOE variables, scorecard settings, ML challenger controls, and full dataset availability.", nextAction: "Train the traditional scorecard or AI/ML challenger and save model training evidence.", warning: "Production-style training must not silently use preview samples." },
+    "Model Training": { inputs: "Approved predictors, WOE variables, scorecard settings, ML challenger controls, and exact development-population availability.", nextAction: "Train the traditional scorecard or AI/ML challenger and save model training evidence.", warning: "Production-style training must use the verified development population and exclude the sealed holdout." },
   };
   return map[stepName] || defaults;
 }
@@ -3598,6 +3494,7 @@ function CreditRiskSetupSummary({ profile, activeDataset, targetSummary, onOpenS
 }
 
 function PredictiveWorkflowWrapper({ workflowStatus }: { workflowStatus: Record<string, string | undefined> }) {
+  const projectId = useWorkflowStore((state) => state.projectId);
   return (
     <div className="mt-4 space-y-4">
       <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-950">
@@ -3616,7 +3513,12 @@ function PredictiveWorkflowWrapper({ workflowStatus }: { workflowStatus: Record<
             </div>
             <p className="mt-3 text-xs leading-5 text-slate-600">{step.relevance}</p>
             <div className="mt-3 rounded-lg border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-600">Evidence generated: {step.evidence}</div>
-            <Link to={step.route} className="mt-3 inline-flex rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white">Open {step.name}</Link>
+            <Link
+              to={projectId ? projectWorkflowRoute(projectId, step.route) : "/projects/open"}
+              className="mt-3 inline-flex rounded-lg bg-slate-950 px-3 py-2 text-xs font-semibold text-white"
+            >
+              Open {step.name}
+            </Link>
           </div>
         ))}
       </div>

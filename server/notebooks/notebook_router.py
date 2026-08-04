@@ -10,7 +10,16 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel, Field
 
 from ..datasets.dataset_registry import read_version_artifact, require_dataset
-from ..python_execution import CodeRunRequest, PythonRunRequest, run_python_request, run_r, run_sas_compatible_endpoint
+from ..core.modeling_scope import authorize_modeling_scope
+from ..python_execution import (
+    CodeRunRequest,
+    PythonRunRequest,
+    project_requires_development_binding,
+    run_python,
+    run_python_request,
+    run_r,
+    run_sas_compatible_endpoint,
+)
 from ..security.security_store import audit_event, require_user
 from ..sql_studio.sql_engine import run_preview_sql
 from .notebook_export import build_html, build_ipynb
@@ -30,6 +39,12 @@ class NotebookPayload(BaseModel):
     primaryVersionId: str = ""
     secondaryDatasetId: str = ""
     secondaryVersionId: str = ""
+    target: str = ""
+    eventValue: Any = None
+    nonEventValue: Any = None
+    targetContractId: str = ""
+    analysisPartitionId: str = ""
+    analysisPartitionRevision: int = 0
     createdBy: str = "ATLAS local user"
     tags: List[str] = Field(default_factory=list)
     defaultCodeLanguage: str = "python"
@@ -45,6 +60,12 @@ class RunCellRequest(BaseModel):
     primaryVersionId: str = ""
     secondaryDatasetId: str = ""
     secondaryVersionId: str = ""
+    target: str = ""
+    eventValue: Any = None
+    nonEventValue: Any = None
+    targetContractId: str = ""
+    analysisPartitionId: str = ""
+    analysisPartitionRevision: int = 0
 
 
 class AttachNotebookRequest(BaseModel):
@@ -91,19 +112,26 @@ def delete_one_notebook(notebook_id: str) -> Dict[str, Any]:
 
 
 @router.post("/notebooks/{notebook_id}/run-cell")
-def post_run_cell(notebook_id: str, payload: RunCellRequest) -> Dict[str, Any]:
+def post_run_cell(
+    notebook_id: str,
+    payload: RunCellRequest,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
     try:
         load_notebook(notebook_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Notebook artifact not found.") from exc
-    result = run_cell(payload)
+    result = run_cell(payload, user=user)
     update_cell_output(notebook_id, payload.cellId, result["output"])
     audit_event("notebook.cell.run", "notebook", notebook_id, "success" if result.get("ok") else "error", metadata={"cellType": payload.cellType, "cellId": payload.cellId})
     return result
 
 
 @router.post("/notebooks/{notebook_id}/run-all")
-def post_run_all(notebook_id: str) -> Dict[str, Any]:
+def post_run_all(
+    notebook_id: str,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
     notebook = load_notebook(notebook_id)
     results = []
     for cell in notebook.get("cells") or []:
@@ -121,8 +149,14 @@ def post_run_all(notebook_id: str) -> Dict[str, Any]:
             primaryVersionId=notebook.get("primaryVersionId") or "",
             secondaryDatasetId=notebook.get("secondaryDatasetId") or "",
             secondaryVersionId=notebook.get("secondaryVersionId") or "",
+            target=notebook.get("target") or "",
+            eventValue=notebook.get("eventValue"),
+            nonEventValue=notebook.get("nonEventValue"),
+            targetContractId=notebook.get("targetContractId") or "",
+            analysisPartitionId=notebook.get("analysisPartitionId") or "",
+            analysisPartitionRevision=int(notebook.get("analysisPartitionRevision") or 0),
         )
-        result = run_cell(request)
+        result = run_cell(request, user=user)
         update_cell_output(notebook_id, cell.get("cellId"), result["output"])
         results.append({"cellId": cell.get("cellId"), **result})
     return {"ok": True, "results": results, "notebook": load_notebook(notebook_id)}
@@ -182,16 +216,46 @@ def dataset_context(payload: RunCellRequest) -> Dict[str, Any]:
     }
 
 
-def run_cell(payload: RunCellRequest) -> Dict[str, Any]:
+def run_cell(payload: RunCellRequest, *, user: Dict[str, Any]) -> Dict[str, Any]:
     started = time.perf_counter()
     cell_type = payload.cellType
-    warnings = governance_warnings(payload)
-    context = dataset_context(payload)
+    predictive_project = False
+    if payload.projectId:
+        authorize_modeling_scope(user, payload.projectId, "view")
+        predictive_project = project_requires_development_binding(payload.projectId)
+    warnings = governance_warnings(payload, predictive_project=predictive_project)
+    if predictive_project:
+        context = {
+            "previewRows": [],
+            "datasetId": payload.primaryDatasetId,
+            "versionId": payload.primaryVersionId,
+            "target": payload.target,
+            "eventValue": payload.eventValue,
+            "nonEventValue": payload.nonEventValue,
+            "targetContractId": payload.targetContractId,
+            "analysisPartitionId": payload.analysisPartitionId,
+            "analysisPartitionRevision": payload.analysisPartitionRevision,
+        }
+    else:
+        context = dataset_context(payload)
     if cell_type == "markdown":
         output = {"status": "success", "stdout": "Markdown preview rendered.", "stderr": "", "runtimeMs": 0, "returnCode": 0}
     elif cell_type == "python":
-        output = run_python_request(PythonRunRequest(page="Notebook Studio", userCode=payload.source, projectId=payload.projectId, workflowStep="notebook", context=context, captureImages=True))
+        request = PythonRunRequest(
+            page="Notebook Studio",
+            userCode=payload.source,
+            projectId=payload.projectId,
+            workflowStep="notebook",
+            context=context,
+            captureImages=True,
+        )
+        output = run_python(request, user) if predictive_project else run_python_request(request)
     elif cell_type == "sql":
+        if predictive_project:
+            raise HTTPException(
+                status_code=409,
+                detail="Predictive Notebook SQL is blocked until it can use the exact development-population binding.",
+            )
         refs = []
         if payload.primaryDatasetId and payload.primaryVersionId:
             refs.append({"datasetId": payload.primaryDatasetId, "versionId": payload.primaryVersionId, "alias": "REG_TRAIN"})
@@ -210,8 +274,18 @@ def run_cell(payload: RunCellRequest) -> Dict[str, Any]:
             "messages": sql_result.get("warnings") or [],
         }
     elif cell_type == "r":
+        if predictive_project:
+            raise HTTPException(
+                status_code=409,
+                detail="Predictive Notebook R is blocked until it can use the exact development-population binding.",
+            )
         output = run_r(CodeRunRequest(code=payload.source, context=context))
     elif cell_type == "sas_compatible":
+        if predictive_project:
+            raise HTTPException(
+                status_code=409,
+                detail="Predictive Notebook SAS-compatible execution is blocked until it can use the exact development-population binding.",
+            )
         output = run_sas_compatible_endpoint(CodeRunRequest(code=payload.source, context=context))
     else:
         output = {"ok": False, "status": "blocked", "stdout": "", "stderr": f"Unsupported notebook cell type: {cell_type}", "runtimeMs": 0, "returnCode": 1}
@@ -227,8 +301,17 @@ def run_cell(payload: RunCellRequest) -> Dict[str, Any]:
     }
 
 
-def governance_warnings(payload: RunCellRequest) -> List[str]:
-    warnings = ["Local-development-only execution.", "Notebook dataset context uses preview/sample rows in Phase 13A."]
+def governance_warnings(
+    payload: RunCellRequest,
+    *,
+    predictive_project: bool = False,
+) -> List[str]:
+    warnings = ["Local-development-only execution."]
+    warnings.append(
+        "Predictive Notebook execution uses the exact sealed development population; final holdout rows are excluded."
+        if predictive_project
+        else "Notebook dataset context uses registered preview/sample rows."
+    )
     if payload.cellType == "sql":
         warnings.append("SQL notebook cells are read-only SELECT/WITH only.")
     if payload.cellType == "sas_compatible":

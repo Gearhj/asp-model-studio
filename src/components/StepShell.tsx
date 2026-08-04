@@ -16,6 +16,12 @@ import {
   type AtlasWorkflowMetric,
   type AtlasWorkflowVariant,
 } from "./ui/AtlasWorkflow";
+import {
+  normalizeWorkflowRoute,
+  projectWorkflowNavigationPath,
+  scopedProjectIdForPathname,
+  workflowStepIdFromPathname,
+} from "../lib/projectScopedRoutes";
 
 const creditRiskStepByPredictiveRoute: Record<string, string> = {
   "/step00": "project-context",
@@ -37,7 +43,7 @@ const creditRiskStepByPredictiveRoute: Record<string, string> = {
 
 function preserveCreditRiskStudioRoute(targetPath?: string) {
   if (!targetPath || window.location.pathname !== "/credit-risk-studio") return targetPath;
-  const slug = creditRiskStepByPredictiveRoute[targetPath];
+  const slug = creditRiskStepByPredictiveRoute[normalizeWorkflowRoute(targetPath)];
   return slug ? `/credit-risk-studio?step=${slug}` : targetPath;
 }
 
@@ -187,14 +193,17 @@ export default function StepShell({
         if (result === false) return;
       }
 
-      const currentStep = workflowStepId ?? location.pathname.replace("/", "");
+      const currentStep = workflowStepId
+        ?? workflowStepIdFromPathname(location.pathname)
+        ?? location.pathname.replace(/^\/+/, "");
       let targetPath = nextPath;
       if (/^step(?:0[0-9]|1[0-3])$/.test(currentStep) || currentStep === "step01b" || currentStep === "dashboard") {
         targetPath = targetPath ?? getNextStepPath(currentStep as Parameters<typeof markComplete>[0]);
         if (nextRequireDurableWorkflowSave) {
           const snapshot = createSnapshotFromState(useWorkflowStore.getState());
+          const normalizedTargetPath = targetPath ? normalizeWorkflowRoute(targetPath) : "";
           const targetStep = snapshot.workflowSteps.find(
-            (step) => step.route === targetPath || step.id === targetPath?.replace(/^\//, ""),
+            (step) => step.route === normalizedTargetPath || step.id === normalizedTargetPath.replace(/^\//, ""),
           );
           const completedSnapshot = {
             ...snapshot,
@@ -218,7 +227,17 @@ export default function StepShell({
         setNavigationError(`${saveResult.message} Navigation will continue, but reopen may restore only workflow progress.`);
       }
 
-      const guardedTargetPath = preserveCreditRiskStudioRoute(targetPath);
+      const currentState = useWorkflowStore.getState();
+      const projectScopedTargetPath = targetPath
+        ? projectWorkflowNavigationPath({
+            targetPath,
+            routeProjectId: scopedProjectIdForPathname(location.pathname),
+            projectId: currentState.projectId,
+            projectName: currentState.projectName,
+            projectType: currentState.projectType,
+          })
+        : targetPath;
+      const guardedTargetPath = preserveCreditRiskStudioRoute(projectScopedTargetPath);
       if (guardedTargetPath) {
         navigate(guardedTargetPath);
         window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: "auto" }));

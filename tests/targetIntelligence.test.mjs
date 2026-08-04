@@ -186,9 +186,13 @@ test("21b -- long narrative is excerpted on a word boundary", () => {
 
 // --- 22 / 23 / 25: class balance, rare-event disclosure, guidance ----------
 
-test("22 -- class balance is the exact server aggregate, never a browser preview", () => {
-  assert.match(workspace, /useTargetAssessment/, "Class balance must come from the target-assessment aggregate.");
-  assert.match(workspace, /useTargetDistribution/, "The chart must reuse the existing exact distribution aggregate.");
+test("22 -- EDA class balance is the exact Development Population result, never the full registered target", () => {
+  assert.doesNotMatch(workspace, /useTargetAssessment/, "EDA must not call the full-artifact target-assessment hook.");
+  assert.doesNotMatch(workspace, /useTargetDistribution/, "EDA must not call the full-artifact target-distribution hook.");
+  assert.doesNotMatch(workspace, /serverDistribution/, "The EDA chart must not prefer a registered-artifact result.");
+  assert.match(workspace, /profile\.class_distribution/, "The chart must use the development-scoped EDA target profile.");
+  assert.match(workspace, /developmentAssessment\?\.classBalance/, "Balance must use the development-scoped EDA assessment.");
+  assert.match(workspace, /sealed final holdout is excluded/i);
   assert.doesNotMatch(workspace, /computeClassDistributionFromRows/, "Counts must never be recomputed from browser rows.");
   assert.doesNotMatch(workspace, /quality-profile/, "Class counts must not be read from full quality profiling.");
   for (const testId of [
@@ -284,7 +288,8 @@ test("24b -- final-acceptance Target visuals answer distinct governed questions"
   ]) {
     assert.ok(targetVisuals.includes(`"${marker}"`), `Target visual suite must expose ${marker}.`);
   }
-  assert.match(targetVisuals, /data-scope="full-governed-population"/);
+  assert.match(targetVisuals, /data-scope="development-population"/);
+  assert.match(targetVisuals, /sealed final holdout excluded/);
   assert.match(targetVisuals, /preview\?\.scope/);
   assert.match(targetVisuals, /High IV is a review signal, not automatic leakage/);
   assert.match(targetVisuals, /data-reduced-motion=/);
@@ -327,9 +332,9 @@ test("24e -- target distribution exposes loading, success, empty, error, and ret
   assert.match(distributionPanel, /errorMessage=/);
   assert.match(distributionPanel, /data-testid="retry-target-distribution"/);
   assert.match(distributionPanel, /data-query-phase=\{query\.phase\}/);
-  assert.match(workspace, /serverDistribution\.phase === "queued"/);
-  assert.match(workspace, /serverDistribution\.phase === "failed"/);
-  assert.match(workspace, /distribution\s*\?\s*"ready"\s*:\s*"empty"/);
+  assert.doesNotMatch(workspace, /serverDistribution\.phase/);
+  assert.match(workspace, /state=\{distribution \? "ready" : "empty"\}/);
+  assert.match(workspace, /scopeLabel="exact Development Population \(sealed final holdout excluded\)"/);
 });
 
 test("24f -- new Target visual evidence is carried into the documentation draft", () => {
@@ -473,7 +478,7 @@ test("30 -- target findings persist to the backend, not to a browser key", () =>
   }
 });
 
-test("31 -- evidence saves a bounded analytical summary, never population data", () => {
+test("31 -- governed exports use the server while browser-local summaries remain bounded drafts", () => {
   // Governed evidence is now created by the server command; the generic
   // browser-asserted path was removed by the Governed Analysis Scope phase.
   assert.match(workspace, /saveGovernedTargetEvidence/);
@@ -488,7 +493,8 @@ test("31 -- evidence saves a bounded analytical summary, never population data",
     versionId: "v-1",
     datasetName: "CLASS_TRAIN",
     target: "Class",
-    // Governed scope, so the export carries version identity rather than draft markers.
+    // Even when handed a governed scope, this browser-local builder must stay
+    // a visibly marked draft. Governed export identity is resolved server-side.
     scope: {
       mode: "governed_version", datasetId: "ds-class-train", datasetVersionId: "v-1",
       artifactChecksum: "sha-1", evidenceEligible: true, mddEligible: true,
@@ -522,7 +528,16 @@ test("31 -- evidence saves a bounded analytical summary, never population data",
     capturedAt: "2026-07-25T00:00:00.000Z",
   });
 
-  assert.equal(payload.datasetIdentity.versionId, "v-1", "Evidence must name the exact dataset version.");
+  assert.equal(payload.scopeMode, "workspace_draft");
+  assert.equal(payload.governed, false);
+  assert.equal(payload.evidenceEligible, false);
+  assert.equal(payload.mddEligible, false);
+  assert.deepEqual(payload.markers, lib.DRAFT_EXPORT_MARKERS);
+  assert.equal(payload.analysisScope.mode, "workspace_draft");
+  assert.equal(payload.analysisScope.analysisSource, "target_intelligence.local_draft_export");
+  assert.equal(payload.datasetIdentity.datasetId, null);
+  assert.equal(payload.datasetIdentity.versionId, null, "The local builder must never assert an exact governed version.");
+  assert.equal(payload.datasetIdentity.artifactChecksum, null);
   assert.equal(payload.classCounts.eventCount, 360);
   assert.equal(payload.eventRate, 360 / 170884);
   assert.equal(payload.imbalanceAssessment.label, "Extreme rare event");
@@ -538,6 +553,14 @@ test("31 -- evidence saves a bounded analytical summary, never population data",
   assert.equal(payload.selectedPredictorAnalysis.truncatedRows, true);
   const serialized = JSON.stringify(payload);
   assert.ok(serialized.length < 20000, `Evidence payload must stay bounded (was ${serialized.length} bytes).`);
+
+  const exportHandlerStart = workspace.indexOf("async function handleExportSummary");
+  const exportHandlerEnd = workspace.indexOf("const timeRows", exportHandlerStart);
+  assert.ok(exportHandlerStart >= 0 && exportHandlerEnd > exportHandlerStart, "The export handler must be async and inspectable.");
+  const exportHandler = workspace.slice(exportHandlerStart, exportHandlerEnd);
+  assert.match(exportHandler, /if\s*\([^)]*governed[^)]*\)/, "Governed export must have an explicit server branch.");
+  assert.match(exportHandler, /exportGovernedTargetSummary\s*\(/, "Governed export must use the server-authoritative command.");
+  assert.match(String(api.exportGovernedTargetSummary), /\/analytics\/target-summary-export/);
 });
 
 // --- 32 / 33 / 34 -----------------------------------------------------------

@@ -31,7 +31,12 @@ const assertions = [
   ["user activity metrics", [">Projects<", ">Evidence<", ">Validations<", ">Exports<", "Last active"].every((label) => authPages.includes(label))],
   ["login routes", modelingApp.includes('path="/login"') && modelingApp.includes('path="/register"')],
   ["account routes", modelingApp.includes('path="/account"') && modelingApp.includes('path="/admin/users"') && modelingApp.includes('path="/audit"')],
-  ["auth guard", modelingApp.includes("Loading ATLAS security context") && modelingApp.includes("Navigate to=\"/login\"")],
+  [
+    "auth guard",
+    modelingApp.includes("Loading ATLAS security context") &&
+      modelingApp.includes("loginPathForReturnTo") &&
+      modelingApp.includes("<Navigate to={loginPath} replace />"),
+  ],
   ["header shows signed-in user", modelingApp.includes("HeaderUserMenu") && modelingApp.includes("Signed in as") && modelingApp.includes("Sign out")],
   ["auth pages", authPages.includes("LoginPage") && authPages.includes("AdminUsersPage") && authPages.includes("AuditPage")],
   ["keep signed in checkbox", authPages.includes("Keep me Signed In") && authPages.includes("KEEP_SIGNED_IN_EMAIL_KEY") && authPages.includes("keepSignedIn")],

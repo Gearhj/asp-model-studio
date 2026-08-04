@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 import pandas as pd
 
@@ -19,13 +21,152 @@ _SYSTEM_FIELD = re.compile(
 )
 
 
+class PredictorAuthorizationIntegrityError(ValueError):
+    """The durable Data Acquisition authorization failed exact verification."""
+
+
+def _stable_contract_id(prefix: str, payload: Mapping[str, Any]) -> str:
+    digest = hashlib.sha256(
+        json.dumps(
+            dict(payload),
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")
+    ).hexdigest()
+    return f"{prefix}-{digest[:20]}"
+
+
+def verify_durable_predictor_authorization(
+    record: Mapping[str, Any] | None,
+    *,
+    project_id: str,
+    dataset_id: str,
+    dataset_version_id: str,
+) -> dict[str, Any]:
+    """Verify the exact production Data Acquisition authorization checksum.
+
+    The repository query supplies exact identity scoping, but callers must
+    still prove that the stored row, embedded manifest, target contract,
+    authorization identifier, and artifact-hash suffix agree. This function
+    intentionally has no first/latest/legacy fallback.
+    """
+
+    if not isinstance(record, Mapping):
+        raise PredictorAuthorizationIntegrityError(
+            "The exact predictor authorization record is unavailable."
+        )
+    manifest = record.get("manifest_json")
+    if not isinstance(manifest, dict):
+        raise PredictorAuthorizationIntegrityError(
+            "The predictor authorization manifest is unavailable."
+        )
+    expected_identity = {
+        "project_id": str(project_id).strip(),
+        "dataset_id": str(dataset_id).strip(),
+        "dataset_version_id": str(dataset_version_id).strip(),
+    }
+    for field, expected in expected_identity.items():
+        if str(record.get(field) or "").strip() != expected:
+            raise PredictorAuthorizationIntegrityError(
+                "The predictor authorization row has a stale identity binding."
+            )
+        if str(manifest.get(field) or "").strip() != expected:
+            raise PredictorAuthorizationIntegrityError(
+                "The predictor authorization manifest has a stale identity binding."
+            )
+    if str(record.get("status") or "").casefold() != "current":
+        raise PredictorAuthorizationIntegrityError(
+            "The predictor authorization is not current."
+        )
+
+    target = str(manifest.get("target") or "").strip()
+    if not target or str(record.get("target_column") or "").strip() != target:
+        raise PredictorAuthorizationIntegrityError(
+            "The predictor authorization target binding is stale."
+        )
+    target_payload = {
+        **expected_identity,
+        "target": target,
+        "positive_value": manifest.get("positive_value"),
+        "negative_value": manifest.get("negative_value"),
+    }
+    expected_target_contract_id = _stable_contract_id(
+        "target-contract", target_payload
+    )
+    if any(
+        str(value or "").strip() != expected_target_contract_id
+        for value in (
+            record.get("target_contract_id"),
+            manifest.get("target_contract_id"),
+        )
+    ):
+        raise PredictorAuthorizationIntegrityError(
+            "The predictor authorization target-contract checksum is stale."
+        )
+
+    manifest_base = {
+        **target_payload,
+        "target_contract_id": expected_target_contract_id,
+        "authorized_predictors": sorted(
+            str(value)
+            for value in manifest.get("authorized_predictors", [])
+        ),
+        "excluded_predictors": dict(
+            manifest.get("excluded_predictors") or {}
+        ),
+        "selected_predictors": sorted(
+            str(value) for value in manifest.get("selected_predictors", [])
+        ),
+        "target_source_excluded": sorted(
+            str(value)
+            for value in manifest.get("target_source_excluded", [])
+        ),
+        "target_source_detection_scope": str(
+            manifest.get("target_source_detection_scope") or ""
+        ),
+        "source": str(manifest.get("source") or ""),
+    }
+    expected_authorization_id = _stable_contract_id(
+        "predictor-auth", manifest_base
+    )
+    identifiers = (
+        record.get("predictor_authorization_id"),
+        manifest.get("predictor_authorization_id"),
+        manifest.get("manifest_version"),
+    )
+    if any(
+        str(value or "").strip() != expected_authorization_id
+        for value in identifiers
+    ):
+        raise PredictorAuthorizationIntegrityError(
+            "The predictor authorization content checksum is stale."
+        )
+    expected_artifact_hash = expected_authorization_id.removeprefix(
+        "predictor-auth-"
+    )
+    if any(
+        str(value or "").strip() != expected_artifact_hash
+        for value in (
+            record.get("artifact_hash"),
+            manifest.get("artifact_hash"),
+        )
+    ):
+        raise PredictorAuthorizationIntegrityError(
+            "The predictor authorization artifact hash is stale."
+        )
+    return manifest
+
+
 def _string_set(values: Any) -> set[str]:
     if not isinstance(values, (list, tuple, set)):
         return set()
     return {str(value).strip() for value in values if str(value).strip()}
 
 
-def explicit_predictor_exclusions() -> set[str]:
+def explicit_predictor_exclusions(
+    *, include_prior_authorization: bool = True
+) -> set[str]:
     """Return predictor exclusions already established by upstream governance."""
 
     exclusions: set[str] = set()
@@ -39,7 +180,7 @@ def explicit_predictor_exclusions() -> set[str]:
         exclusions.update(_string_set(DATASTORE.meta.get(key)))
 
     authorization = DATASTORE.meta.get("predictor_authorization")
-    if isinstance(authorization, dict):
+    if include_prior_authorization and isinstance(authorization, dict):
         exclusions.update(_string_set(authorization.get("target_source_excluded")))
         exclusions.update(_string_set(authorization.get("excluded_predictors")))
     return exclusions
@@ -86,8 +227,19 @@ def governed_predictor_authorization(
     frame: pd.DataFrame,
     target: str | None = None,
     selected_columns: Iterable[str] | None = None,
+    *,
+    detect_target_sources: bool = True,
+    include_prior_authorization: bool = True,
 ) -> dict[str, Any]:
-    """Resolve the one authoritative predictor set used by preparation stages."""
+    """Resolve the one authoritative predictor set used by preparation stages.
+
+    ``detect_target_sources=False`` is the pre-EDA mode used by Data
+    Acquisition.  Deterministic target-source discovery is target-directed and
+    therefore must not inspect the full governed population after a final
+    holdout is reserved.  Data Acquisition can still enforce structural,
+    system-field, and explicit upstream exclusions; target-directed discovery
+    is subsequently performed on the development partition only.
+    """
 
     resolved_target = str(target or DATASTORE.target or "") or None
     selected = [
@@ -106,15 +258,21 @@ def governed_predictor_authorization(
         if str(column) != resolved_target
     ]
 
-    explicit = explicit_predictor_exclusions()
-    deterministic = detect_deterministic_target_sources(
-        frame,
-        resolved_target,
-        [
-            str(column)
-            for column in frame.columns
-            if str(column) != resolved_target
-        ],
+    explicit = explicit_predictor_exclusions(
+        include_prior_authorization=include_prior_authorization
+    )
+    deterministic = (
+        detect_deterministic_target_sources(
+            frame,
+            resolved_target,
+            [
+                str(column)
+                for column in frame.columns
+                if str(column) != resolved_target
+            ],
+        )
+        if detect_target_sources
+        else set()
     )
     excluded: dict[str, str] = {}
     # Record authoritative safety exclusions for the complete source schema,
@@ -151,6 +309,9 @@ def governed_predictor_authorization(
         "excluded_predictors": excluded,
         "target_source_excluded": sorted(deterministic | (explicit & set(frame.columns))),
         "selected_predictors": selected,
+        "target_source_detection_scope": (
+            "provided_analysis_frame" if detect_target_sources else "deferred_until_development_partition"
+        ),
     }
 
 

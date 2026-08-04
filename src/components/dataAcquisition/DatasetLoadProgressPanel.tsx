@@ -42,6 +42,47 @@ export default function DatasetLoadProgressPanel({ progress }: { progress: Datas
   const states = resolveStageStates(progress);
   const summary = summarizeLoadProgress(progress);
 
+  if (progress.phase === "loaded") {
+    return (
+      <details
+        className="mt-4 rounded-xl border border-emerald-300 bg-emerald-50/70"
+        data-testid="dataset-load-progress"
+        data-load-phase={progress.phase}
+      >
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+          <span className="flex min-w-0 items-center gap-3">
+            <span className="rounded-full bg-emerald-100 p-1.5 text-emerald-700" aria-hidden="true">
+              <Check size={15} />
+            </span>
+            <span>
+              <span className="block text-sm font-semibold text-emerald-950">Dataset loaded and verified</span>
+              <span className="mt-0.5 block text-xs text-emerald-800">{summary.completed} of {summary.total} checks completed</span>
+            </span>
+          </span>
+          <span className="shrink-0 text-xs font-semibold text-emerald-800">View load details</span>
+        </summary>
+        <div className="border-t border-emerald-200 bg-white px-4 py-3">
+          <ol className="grid gap-1.5" data-testid="dataset-load-completed-details">
+            {DATASET_LOAD_STAGES.map((stage, index) => (
+              <li
+                key={stage}
+                className={`flex items-center gap-2 rounded-lg border px-3 py-1.5 text-xs font-medium ${stateStyles[states[index]].row}`}
+                data-stage={stage}
+                data-stage-state={states[index]}
+              >
+                <StageIcon state={states[index]} />
+                <span className="min-w-0 flex-1 truncate">{stage}</span>
+                <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide opacity-80">
+                  {stateLabels[states[index]]}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </details>
+    );
+  }
+
   return (
     <div
       className="mt-4 rounded-xl border border-slate-300 bg-white p-4"

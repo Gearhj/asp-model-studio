@@ -350,7 +350,8 @@ test("badges, section navigation, ownership cleanup, and sticky completion are w
 test("Power User mode defaults the Guide to a reopenable full-width drawer state", () => {
   for (const marker of [
     "edaPowerGuideCollapsed",
-    'location.pathname === "/step02"',
+    'normalizedPathname === "/step02"',
+    'normalizeWorkflowRoute(location.pathname) === "/step02"',
     'loadModelingMode() === "advanced"',
     'data-eda-power-guide-layout={edaPowerGuideCollapsed ? "drawer-collapsed" : "available"}',
     'data-testid={edaPowerGuideCollapsed ? "eda-power-user-guide-restore" : undefined}',

@@ -4,6 +4,7 @@ from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 
+from ..analysis_partition.types import AnalysisPartitionError
 from ..core.modeling_scope import authorize_modeling_scope
 from ..security.security_store import require_user
 from .data_profile_types import FeatureProfileRequest
@@ -27,5 +28,10 @@ def feature_profile(request: FeatureProfileRequest, user: Dict[str, Any] = Depen
             legacy_dataset_version=request.dataset_version,
             user=user,
         )
+    except AnalysisPartitionError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.as_detail(),
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

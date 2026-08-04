@@ -17,6 +17,7 @@ solely on service-level unit tests.
 from __future__ import annotations
 
 import os
+import shutil
 import sqlite3
 import sys
 import time
@@ -31,16 +32,32 @@ if str(ROOT) not in sys.path:
 # security_store.DB_PATH is a module-level constant resolved at import time,
 # so this must be set BEFORE server.main (or anything importing
 # server.security.security_store) is imported for the first time in this
-# process. Mirrors tests/persistence_authorization_test.py and
-# tests/project_access_consolidation_test.py.
+# process. In hermetic mode the launcher is the authority: consuming its paths
+# keeps the child manifest truthful and preserves the child's evidence.
+_HERMETIC = os.environ.get("ATLAS_HERMETIC_MODE") == "HERMETIC_REGRESSION"
 _TEST_DATA_ROOT = ROOT / ".tmp"
-_TEST_DATA_ROOT.mkdir(parents=True, exist_ok=True)
+if not _HERMETIC:
+    _TEST_DATA_ROOT.mkdir(parents=True, exist_ok=True)
 _RUN_ID = uuid.uuid4().hex[:10]
-_SECURITY_DB_PATH = _TEST_DATA_ROOT / f"atlas_validation_sod_security_{_RUN_ID}.db"
-_PERSISTENCE_DB_PATH = _TEST_DATA_ROOT / f"atlas_validation_sod_persistence_{_RUN_ID}.db"
-os.environ["ATLAS_SECURITY_DB_PATH"] = str(_SECURITY_DB_PATH)
-os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH)
-os.environ.setdefault("ATLAS_AUTH_ENABLED", "true")
+if _HERMETIC:
+    _SECURITY_DB_PATH = Path(os.environ["ATLAS_SECURITY_DB_PATH"]).resolve()
+    _PERSISTENCE_DB_PATH = Path(os.environ["ATLAS_SQLITE_PATH"]).resolve()
+    _DATASET_LIBRARY_ROOT = Path(os.environ["ATLAS_DATASET_LIBRARY_ROOT"]).resolve()
+    _DATASET_LIBRARY_BACKUP_ROOT = Path(
+        os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"]
+    ).resolve()
+else:
+    _SECURITY_DB_PATH = _TEST_DATA_ROOT / f"atlas_validation_sod_security_{_RUN_ID}.db"
+    _PERSISTENCE_DB_PATH = _TEST_DATA_ROOT / f"atlas_validation_sod_persistence_{_RUN_ID}.db"
+    _DATASET_LIBRARY_ROOT = _TEST_DATA_ROOT / f"atlas_validation_sod_library_{_RUN_ID}"
+    _DATASET_LIBRARY_BACKUP_ROOT = _TEST_DATA_ROOT / f"atlas_validation_sod_library_backup_{_RUN_ID}"
+    os.environ["ATLAS_SECURITY_DB_PATH"] = str(_SECURITY_DB_PATH)
+    os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH)
+    os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(_DATASET_LIBRARY_ROOT)
+    os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(_DATASET_LIBRARY_BACKUP_ROOT)
+os.environ["ATLAS_TEST_MODE"] = "1"
+os.environ["ATLAS_ENV"] = "test"
+os.environ["ATLAS_AUTH_ENABLED"] = "true"
 os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -51,6 +68,8 @@ from server.security.security_store import create_user, init_security_store  # n
 
 
 def _cleanup_db_files() -> None:
+    if _HERMETIC:
+        return
     for base in (_SECURITY_DB_PATH, _PERSISTENCE_DB_PATH):
         for suffix in ("", "-wal", "-shm"):
             target = Path(f"{base}{suffix}")
@@ -61,6 +80,8 @@ def _cleanup_db_files() -> None:
                 except PermissionError:
                     if attempt < 24:
                         time.sleep(0.2)
+    for directory in (_DATASET_LIBRARY_ROOT, _DATASET_LIBRARY_BACKUP_ROOT):
+        shutil.rmtree(directory, ignore_errors=True)
 
 
 class ValidationSegregationOfDutiesTest(unittest.TestCase):
@@ -91,6 +112,9 @@ class ValidationSegregationOfDutiesTest(unittest.TestCase):
             json={"email": email, "password": "AuthFnd005TestPass!"},
         )
         self.assertEqual(response.status_code, 200, response.text)
+        identity = client.get("/api/auth/me")
+        self.assertEqual(identity.status_code, 200, identity.text)
+        self.assertEqual(identity.json()["user"]["role"], role)
         return client, created["userId"]
 
     def _create_project(self, client: TestClient, name: str) -> str:

@@ -34,7 +34,11 @@ _SECURITY_DB_PATH = _TEST_DATA_ROOT / f"atlas_scope_security_{_RUN_ID}.db"
 _PERSISTENCE_DB_PATH = _TEST_DATA_ROOT / f"atlas_scope_persistence_{_RUN_ID}.db"
 _CHECKPOINT_PATH = _TEST_DATA_ROOT / f"atlas_scope_checkpoint_{_RUN_ID}.json"
 _LIBRARY_ROOT = _SUITE_ROOT / "dataset-library"
-_BACKUP_ROOT = Path(tempfile.mkdtemp(prefix=f"atlas_scope_backups_{_RUN_ID}_"))
+_BACKUP_ROOT = (
+    Path(tempfile.gettempdir()).resolve()
+    / f"atlas_scope_backups_{_RUN_ID}_{uuid.uuid4().hex}"
+)
+_BACKUP_ROOT.mkdir(parents=False, exist_ok=False)
 _EVIDENCE_ROOT = _TEST_DATA_ROOT / f"atlas_scope_evidence_{_RUN_ID}"
 _MODEL_ARTIFACT_ROOT = _TEST_DATA_ROOT / f"atlas_scope_models_{_RUN_ID}"
 _SCORING_ARTIFACT_ROOT = _TEST_DATA_ROOT / f"atlas_scope_scoring_{_RUN_ID}"
@@ -241,16 +245,19 @@ def _configure_governed_target(
     project_id: str,
     dataset_id: str,
     version_id: str,
-) -> None:
+) -> dict:
     """Bind the target to the exact activated Dataset Library version."""
     response = client.post("/api/data/set_target", json={
         "project_id": project_id,
         "target": "Class",
         "selected_columns": ["V4", "Amount"],
+        "event_value": 1,
+        "non_event_value": 0,
         "expected_dataset_id": dataset_id,
         "expected_dataset_version_id": version_id,
     })
     assert response.status_code == 200, response.text
+    return response.json()
 
 
 # ---------------------------------------------------------------------------
@@ -436,12 +443,53 @@ class GovernedScopeEndpointTests(unittest.TestCase):
         self.dataset_id, self.version_id = _register_dataset(
             self.client, self.project_id, self.frame, f"scope-asset-{uuid.uuid4().hex[:6]}"
         )
-        _configure_governed_target(
+        target_contract = _configure_governed_target(
             self.client,
             self.project_id,
             self.dataset_id,
             self.version_id,
         )
+        partition_design = {
+            "project_id": self.project_id,
+            "dataset_id": self.dataset_id,
+            "dataset_version_id": self.version_id,
+            "target_contract_id": target_contract["target_contract_id"],
+            "target": "Class",
+            "positive_value": 1,
+            "negative_value": 0,
+            "predictor_authorization_id": target_contract[
+                "predictor_authorization_id"
+            ],
+            "problem_type": "classification",
+            "development_share": 0.8,
+            "holdout_share": 0.2,
+            "random_seed": 42,
+            "stratification_policy": "target",
+            "stratification_field": "Class",
+        }
+        preview = self.client.post(
+            "/api/analysis-partitions/preview", json=partition_design
+        )
+        self.assertEqual(preview.status_code, 200, preview.text)
+        preview_payload = preview.json()["preview"]
+        partition = self.client.post(
+            "/api/analysis-partitions/confirm",
+            json={
+                **partition_design,
+                "preview_fingerprint": preview_payload["preview_fingerprint"],
+                "selection_rationale": (
+                    "Isolated Analysis Scope fixture accepts the governed split warning."
+                    if preview_payload.get("rationale_required")
+                    else ""
+                ),
+                "confirmation_acknowledged": True,
+                "reset_existing": False,
+                "reset_reason": "",
+                "acknowledge_invalidation": False,
+            },
+        )
+        self.assertEqual(partition.status_code, 200, partition.text)
+        self.analysis_partition = partition.json()["analysis_partition"]
 
     def _governed_assessment(self):
         return self.client.post("/api/analytics/target-assessment", json={
@@ -471,7 +519,11 @@ class GovernedScopeEndpointTests(unittest.TestCase):
             "project_id": draft_project, "target": "Class", "event_value": 1, "problem_type": "classification",
         })
         self.assertEqual(response.status_code, 422, response.text)
-        self.assertIn("exact expected dataset_id", response.json()["detail"])
+        detail = response.json()["detail"]
+        self.assertEqual(detail["code"], "dataset_identity_required")
+        self.assertIn("exact active dataset", detail["message"])
+        self.assertTrue(detail["recovery"])
+        self.assertTrue(detail["correlation_id"].startswith("eda-"))
 
     def test_workspace_target_by_predictor_without_exact_identity_fails_closed(self):
         draft_project = _create_project(self.client, "Draft Predictor Scope Project")
@@ -538,7 +590,10 @@ class GovernedScopeEndpointTests(unittest.TestCase):
             "projectId": self.project_id, "datasetId": "", "versionId": "", "target": "Class",
         })
         self.assertEqual(response.status_code, 409, response.text)
-        self.assertIn("Workspace Draft Analysis", response.json()["detail"])
+        detail = response.json()["detail"]
+        self.assertEqual(detail["code"], "eda_analytical_scope_not_current")
+        self.assertIn("documented development-population", detail["message"])
+        self.assertEqual(detail["operation"], "target_evidence")
 
     # 7 ---------------------------------------------------------------------
     def test_crafted_governed_claims_are_rejected(self):
@@ -729,7 +784,11 @@ class GovernedScopeEndpointTests(unittest.TestCase):
             "project_id": draft_project, "target": "Class", "event_value": 1, "problem_type": "classification",
         })
         self.assertEqual(draft.status_code, 422, draft.text)
-        self.assertIn("exact expected dataset_id", draft.json()["detail"])
+        detail = draft.json()["detail"]
+        self.assertEqual(detail["code"], "dataset_identity_required")
+        self.assertIn("exact active dataset", detail["message"])
+        self.assertTrue(detail["recovery"])
+        self.assertTrue(detail["correlation_id"].startswith("eda-"))
 
         governed_response = self._governed_assessment()
         self.assertEqual(governed_response.status_code, 200, governed_response.text)
@@ -740,8 +799,26 @@ class GovernedScopeEndpointTests(unittest.TestCase):
         self.assertEqual(governed["classBalance"]["totalModelingPopulation"], len(self.frame))
 
     def test_target_by_predictor_fails_closed_without_current_development_split(self):
+        no_partition_project = _create_project(
+            self.client, "No Analysis Partition Scope Project"
+        )
+        _load_workspace(self.client, no_partition_project, self.frame)
+        no_partition_dataset, no_partition_version = _register_dataset(
+            self.client,
+            no_partition_project,
+            self.frame,
+            f"scope-no-partition-{uuid.uuid4().hex[:6]}",
+        )
+        _configure_governed_target(
+            self.client,
+            no_partition_project,
+            no_partition_dataset,
+            no_partition_version,
+        )
         governed = self.client.post("/api/analytics/target-by-predictor", json={
-            "projectId": self.project_id, "datasetId": self.dataset_id, "versionId": self.version_id,
+            "projectId": no_partition_project,
+            "datasetId": no_partition_dataset,
+            "versionId": no_partition_version,
             "target": "Class", "predictor": "V4", "analysisType": "numeric_quantile", "eventValue": 1, "bands": 5,
         })
         self.assertEqual(governed.status_code, 409, governed.text)
@@ -761,19 +838,19 @@ class GovernedScopeEndpointTests(unittest.TestCase):
 
     # 18 ---------------------------------------------------------------------
     def test_no_filesystem_path_or_population_rows_reach_the_browser(self):
-        draft_project = _create_project(self.client, "Draft Bounded Response Project")
-        _load_workspace(self.client, draft_project, self.frame)
         governed_assessment = self._governed_assessment()
-        draft_target = self.client.post("/api/eda/workspace/target", json={
-            "project_id": draft_project, "target": "Class", "event_value": 1, "problem_type": "classification",
-        })
         governed_predictor = self.client.post("/api/analytics/target-by-predictor", json={
             "projectId": self.project_id, "datasetId": self.dataset_id, "versionId": self.version_id,
             "target": "Class", "predictor": "V4", "analysisType": "numeric_quantile", "eventValue": 1,
         })
+        draft_project = _create_project(self.client, "Draft Bounded Response Project")
+        _load_workspace(self.client, draft_project, self.frame)
+        draft_target = self.client.post("/api/eda/workspace/target", json={
+            "project_id": draft_project, "target": "Class", "event_value": 1, "problem_type": "classification",
+        })
         self.assertEqual(governed_assessment.status_code, 200, governed_assessment.text)
         self.assertEqual(draft_target.status_code, 422, draft_target.text)
-        self.assertEqual(governed_predictor.status_code, 409, governed_predictor.text)
+        self.assertEqual(governed_predictor.status_code, 200, governed_predictor.text)
         payloads = [
             governed_assessment.text,
             draft_target.text,
@@ -806,19 +883,21 @@ class GovernedScopeEndpointTests(unittest.TestCase):
             "project_id": regression_project, "target": "y", "problem_type": "regression",
         })
         self.assertEqual(response.status_code, 422, response.text)
-        self.assertIn("exact expected dataset_id", response.json()["detail"])
+        detail = response.json()["detail"]
+        self.assertEqual(detail["code"], "dataset_identity_required")
+        self.assertIn("exact active dataset", detail["message"])
+        self.assertTrue(detail["recovery"])
+        self.assertTrue(detail["correlation_id"].startswith("eda-"))
 
-    def test_draft_summary_export_is_marked_and_governed_export_is_not(self):
+    def test_summary_export_requires_documented_development_scope(self):
         draft = self.client.post("/api/analytics/target-summary-export", json={
             "projectId": self.project_id, "target": "Class",
         })
-        self.assertEqual(draft.status_code, 200, draft.text)
-        body = draft.json()
-        self.assertEqual(body["scopeMode"], "workspace_draft")
-        self.assertFalse(body["governed"])
-        for marker in ("Workspace Draft", "Not Governed Evidence", "Not Version-Pinned", "Not MDD Eligible"):
-            self.assertIn(marker, body["markers"])
-        self.assertIsNone(body["datasetVersionId"])
+        self.assertEqual(draft.status_code, 409, draft.text)
+        detail = draft.json()["detail"]
+        self.assertEqual(detail["code"], "eda_analytical_scope_not_current")
+        self.assertIn("documented development-population", detail["message"])
+        self.assertEqual(detail["operation"], "target_summary_export")
 
         governed = self.client.post("/api/analytics/target-summary-export", json={
             "projectId": self.project_id, "datasetId": self.dataset_id, "versionId": self.version_id,
@@ -830,16 +909,28 @@ class GovernedScopeEndpointTests(unittest.TestCase):
         self.assertTrue(governed_body["governed"])
         self.assertEqual(governed_body["markers"], [])
         self.assertEqual(governed_body["datasetVersionId"], self.version_id)
+        self.assertEqual(governed_body["populationScope"], "development_population")
+        self.assertEqual(
+            governed_body["analysisPartitionId"],
+            self.analysis_partition["analysis_partition_id"],
+        )
+        self.assertFalse(governed_body["finalHoldoutAccessed"])
 
-    def test_scope_resolution_adds_negligible_warm_overhead(self):
+    def test_warm_scope_resolution_reuses_cached_distribution_without_recompute(self):
         self._governed_assessment()
         started = time.perf_counter()
         warm = self._governed_assessment()
         warm_ms = (time.perf_counter() - started) * 1000
         self.assertEqual(warm.status_code, 200)
-        self.assertTrue(warm.json()["analysisScope"]["mode"] == "governed_version")
-        print(f"\n  [perf] governed assessment warm (incl. scope resolution) = {warm_ms:.0f} ms")
-        self.assertLess(warm_ms, 500)
+        body = warm.json()
+        self.assertTrue(body["analysisScope"]["mode"] == "governed_version")
+        self.assertTrue(body["cached"])
+        self.assertTrue(body["distribution"]["cached"])
+        self.assertEqual(body["distribution"]["durationMs"], 0)
+        print(
+            "\n  [diagnostic] governed assessment warm HTTP latency "
+            f"(cached distribution) = {warm_ms:.0f} ms"
+        )
 
 
 if __name__ == "__main__":

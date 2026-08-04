@@ -37,6 +37,7 @@ import { useWorkflowStore } from "../state/useWorkflowStore";
 import { getWorkflowDefinition, type ProjectType } from "../config/workflows";
 import {
   deleteProjectFromDatabase,
+  getProjectFromDatabase,
   getProjectWorkflowStateFromDatabase,
   listProjectsFromDatabase,
 } from "../lib/serverPersistence";
@@ -50,6 +51,7 @@ import {
 } from "../lib/projectRegistryLoadState";
 import { normalizeOptimizationTemplateId, storeOptimizationTemplateId } from "../config/optimizationTemplates";
 import { deriveEffectiveWorkflowView } from "../lib/workflowEffectiveState";
+import { projectWorkflowRoute } from "../lib/projectScopedRoutes";
 
 const OPEN_PROJECT_VIEW_MODE_KEY = "atlas-open-project-view-mode";
 // Effective readiness is held only after an authenticated backend fetch.
@@ -71,13 +73,16 @@ function mergeProjectRecords(local: LocalProjectRecord[], backend: LocalProjectR
   local.forEach((project) => {
     const persisted = merged.get(project.projectId);
     merged.set(project.projectId, persisted ? {
-      ...persisted,
       ...project,
-      backendMetadata: persisted.backendMetadata,
+      ...persisted,
+      backendMetadata: {
+        ...(project.backendMetadata ?? {}),
+        ...(persisted.backendMetadata ?? {}),
+      },
       snapshot: {
-        ...persisted.snapshot,
         ...project.snapshot,
-        templateId: project.snapshot.templateId || persisted.snapshot.templateId,
+        ...persisted.snapshot,
+        templateId: persisted.snapshot.templateId || project.snapshot.templateId,
         // A browser snapshot may enrich presentation, but it cannot replace
         // durable workflow history or canonical identity returned by backend.
         workflowSteps: persisted.snapshot.workflowSteps,
@@ -282,8 +287,6 @@ export function OpenProject({ onSessionExpired }: OpenProjectProps = {}) {
     validProjects: [],
   }));
   const loadProjectSnapshot = useWorkflowStore((state) => state.loadProjectSnapshot);
-  const applyAuthoritativeWorkflowState = useWorkflowStore((state) => state.applyAuthoritativeWorkflowState);
-  const invalidateEffectiveWorkflow = useWorkflowStore((state) => state.invalidateEffectiveWorkflow);
   const workflowState = useWorkflowStore((state) => ({
     hasDataset: state.hasDataset,
     datasetIdentity: state.datasetIdentity,
@@ -451,23 +454,58 @@ export function OpenProject({ onSessionExpired }: OpenProjectProps = {}) {
     }));
   };
 
-  const openProject = (project: LocalProjectRecord) => {
-    if (project.snapshot.templateId) storeOptimizationTemplateId(project.projectId, normalizeOptimizationTemplateId(project.snapshot.templateId));
-    const optimizationState = project.backendMetadata?.optimizationState;
-    if (project.snapshot.templateId === "transportation_logistics" && optimizationState && typeof optimizationState === "object") {
-      localStorage.setItem(`atlas-optimization-transportation:${project.projectId}`, JSON.stringify(optimizationState));
+  const openProject = async (project: LocalProjectRecord) => {
+    const selectedProjectId = String(project.projectId || "").trim();
+    if (!selectedProjectId) {
+      setImportMessage("ATLAS could not open this project because its exact project ID is missing.");
+      return;
     }
-    loadProjectSnapshot(project.snapshot);
-    const backendReadiness = backendWorkflowReadiness(project);
-    if (backendReadiness) applyAuthoritativeWorkflowState(backendReadiness);
-    else invalidateEffectiveWorkflow("unverified");
-    const effective = projectEffectiveWorkflow(project);
-    const route = currentWorkflowStage(
-      effective.effectiveWorkflowSteps,
-      effective.effectiveCurrentStepId,
-    )?.route || "/project-overview";
-    navigate(route);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setImportMessage(`Verifying authorization for ${project.projectName}...`);
+    try {
+      const [projectPayload, workflowReadiness] = await Promise.all([
+        getProjectFromDatabase(selectedProjectId),
+        getProjectWorkflowStateFromDatabase(selectedProjectId),
+      ]);
+      const returnedProjectId = String(projectPayload?.projectId ?? projectPayload?.project_id ?? "").trim();
+      if (returnedProjectId !== selectedProjectId) {
+        throw new Error("The authorized project response did not match the selected project ID.");
+      }
+
+      const authorizedProject = databaseProjectRecord(projectPayload, workflowReadiness);
+      if (authorizedProject.snapshot.templateId) {
+        storeOptimizationTemplateId(
+          authorizedProject.projectId,
+          normalizeOptimizationTemplateId(authorizedProject.snapshot.templateId),
+        );
+      }
+      const optimizationState = authorizedProject.backendMetadata?.optimizationState;
+      if (authorizedProject.snapshot.templateId === "transportation_logistics" && optimizationState && typeof optimizationState === "object") {
+        localStorage.setItem(`atlas-optimization-transportation:${authorizedProject.projectId}`, JSON.stringify(optimizationState));
+      }
+
+      const effective = projectEffectiveWorkflow(authorizedProject);
+      const relativeRoute = currentWorkflowStage(
+        effective.effectiveWorkflowSteps,
+        effective.effectiveCurrentStepId,
+      )?.route || (authorizedProject.projectType === "predictive-modeling" ? "/step00" : "/project-overview");
+      if (authorizedProject.projectType !== "predictive-modeling") {
+        // Compatibility only: non-predictive workflows do not yet have the
+        // project-scoped provider. Predictive routes never hydrate from this
+        // browser snapshot; their route ID starts a second race-safe backend read.
+        loadProjectSnapshot(authorizedProject.snapshot);
+      }
+      const route = authorizedProject.projectType === "predictive-modeling"
+        ? projectWorkflowRoute(selectedProjectId, relativeRoute)
+        : relativeRoute;
+      navigate(route);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (error) {
+      setImportMessage(
+        error instanceof Error
+          ? `ATLAS could not open the exact authorized project: ${error.message}`
+          : "ATLAS could not open the exact authorized project.",
+      );
+    }
   };
 
   const repairRegistry = () => {

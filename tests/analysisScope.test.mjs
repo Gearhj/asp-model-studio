@@ -124,7 +124,7 @@ test("a registration CTA exists and is keyboard-accessible", () => {
   assert.match(banner, /Register or Link a Dataset Version/);
   // EDA routes to the existing Data Acquisition flow rather than building a
   // second registration system.
-  assert.match(workspace, /window\.location\.assign\("\/step01"\)/);
+  assert.match(workspace, /navigate\(projectWorkflowRoute\(projectId, "\/step01"\)\)/);
   assert.doesNotMatch(workspace, /createDataset|registerDataset|uploadDataset/);
 });
 
@@ -187,7 +187,7 @@ test("governed evidence is requested from the server and asserts nothing", async
 
 // --- draft export disclosure ------------------------------------------------
 
-test("a draft bounded export is prominently marked and cannot pass for governed", () => {
+test("the browser-local bounded export is always draft and governed export uses the server", () => {
   assert.deepEqual(lib.DRAFT_EXPORT_MARKERS, [
     "Workspace Draft",
     "Not Governed Evidence",
@@ -213,14 +213,28 @@ test("a draft bounded export is prominently marked and cannot pass for governed"
     scope: GOVERNED_SCOPE, assessment: null, governance: [], predictorAnalysis: null,
     timeField: "", segmentField: "", chartSpecification: {}, userId: "u", capturedAt: "2026-07-25T00:00:00Z",
   });
-  assert.equal(governedPayload.governed, true);
-  assert.deepEqual(governedPayload.markers, []);
-  assert.equal(governedPayload.datasetIdentity.versionId, "v_2026");
-  assert.equal(governedPayload.datasetIdentity.artifactChecksum, "sha-abc");
+  assert.equal(governedPayload.scopeMode, "workspace_draft");
+  assert.equal(governedPayload.governed, false);
+  assert.equal(governedPayload.evidenceEligible, false);
+  assert.equal(governedPayload.mddEligible, false);
+  assert.deepEqual(governedPayload.markers, lib.DRAFT_EXPORT_MARKERS);
+  assert.equal(governedPayload.analysisScope.mode, "workspace_draft");
+  assert.equal(governedPayload.analysisScope.analysisSource, "target_intelligence.local_draft_export");
+  assert.equal(governedPayload.datasetIdentity.datasetId, null);
+  assert.equal(governedPayload.datasetIdentity.versionId, null);
+  assert.equal(governedPayload.datasetIdentity.artifactChecksum, null);
 
   // The downloaded filename itself declares the draft status.
   assert.match(workspace, /WORKSPACE-DRAFT-not-governed-evidence-target-/);
   assert.ok(findingsPanel.includes('"target-draft-export-warning"'));
+
+  const exportHandlerStart = workspace.indexOf("async function handleExportSummary");
+  const exportHandlerEnd = workspace.indexOf("const timeRows", exportHandlerStart);
+  assert.ok(exportHandlerStart >= 0 && exportHandlerEnd > exportHandlerStart, "The export handler must be async and inspectable.");
+  const exportHandler = workspace.slice(exportHandlerStart, exportHandlerEnd);
+  assert.match(exportHandler, /if\s*\([^)]*governed[^)]*\)/, "Governed export must have an explicit server branch.");
+  assert.match(exportHandler, /exportGovernedTargetSummary\s*\(/, "Governed export must call the dedicated server command.");
+  assert.match(String(api.exportGovernedTargetSummary), /\/analytics\/target-summary-export/);
 });
 
 // --- finding labels ---------------------------------------------------------
@@ -336,16 +350,12 @@ test("section tone follows event prevalence, not minority share", () => {
 // --- transition, accessibility, hygiene -------------------------------------
 
 test("no governed state is claimed before the server confirms it", () => {
-  assert.match(workspace, /const governedScope: AnalysisScope \| null = isGovernedScope\(assessment\.result\?\.analysisScope\)/);
+  assert.match(workspace, /const governedScope: AnalysisScope \| null = isGovernedScope\(workspaceScope\)/);
   assert.match(workspace, /scopeResolution: ScopeResolution = governedScope\s*\n?\s*\? "governed"/);
-  // While resolving, the banner is not green and says the figures are still draft.
-  assert.match(banner, /Resolving Governed Dataset Version/);
-  assert.match(banner, /still the workspace draft result and are not governed until this completes/);
-  // Governed figures are only read from the governed response.
-  assert.match(workspace, /const balance = governed\s*\n?\s*\? assessment\.result\?\.classBalance \?\? null/);
-  // A materially different registered result is reconciled, not silently swapped.
-  assert.ok(banner.includes('"analysis-scope-reconciliation"'));
-  assert.match(workspace, /The governed figures shown below come from the registered version|const reconciliation = useMemo/);
+  assert.match(workspace, /const balance = \(developmentAssessment\?\.classBalance/);
+  assert.match(workspace, /analysisScope: effectiveScope/);
+  assert.doesNotMatch(workspace, /assessment\.result\?\.classBalance/);
+  assert.doesNotMatch(workspace, /useTargetAssessment|useTargetDistribution|serverDistribution/);
 });
 
 test("no decorative animation, fake progress, or console noise was added", () => {

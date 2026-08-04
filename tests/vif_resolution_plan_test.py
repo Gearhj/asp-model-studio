@@ -35,6 +35,8 @@ from server.eda.workspace_types import (  # noqa: E402
     EDAWorkspaceRequest,
 )
 from server.evidence import evidence_store  # noqa: E402
+from server.analysis_partition.service import analysis_partition_service  # noqa: E402
+from tests.analysis_partition_fixture import GovernedAnalysisFixture  # noqa: E402
 
 
 PROJECT_ID = "atlas-vif-resolution-test"
@@ -52,12 +54,14 @@ PREDICTORS = [
 def frame(rows: int = 240) -> pd.DataFrame:
     rng = np.random.default_rng(42)
     inquiry = rng.normal(5, 1.2, rows)
-    inquiry_excluding = inquiry + rng.normal(0, 0.05, rows)
+    # Exact synthetic equivalence makes the governed tie requirement
+    # deterministic under any seeded Analysis Partition membership.
+    inquiry_excluding = inquiry.copy()
     balance = rng.normal(50, 12, rows)
     balance_shadow = balance * 0.985 + rng.normal(0, 0.4, rows)
     age = rng.normal(42, 8, rows)
     target = (0.5 * age - 0.35 * balance + rng.normal(0, 8, rows) > 2).astype(int)
-    training_rows = int(rows * 0.75)
+    training_rows = int(rows * 0.8)
     return pd.DataFrame(
         {
             "NumInqLast6M": inquiry,
@@ -115,7 +119,8 @@ class VifResolutionPlanTests(unittest.TestCase):
                 },
             }
         )
-        self.install_exact_split(source, training_rows=180)
+        self.governed_fixture = GovernedAnalysisFixture(project_id=PROJECT_ID)
+        self.install_exact_split(source, training_rows=192)
         evidence_store.EVIDENCE_ROOT = ROOT / "evidence"
         evidence_store.ITEMS_ROOT = evidence_store.EVIDENCE_ROOT / "items"
         evidence_store.REGISTRY_PATH = evidence_store.EVIDENCE_ROOT / "evidence_registry.json"
@@ -130,34 +135,24 @@ class VifResolutionPlanTests(unittest.TestCase):
         self.identity.start()
 
     def install_exact_split(self, source: pd.DataFrame, *, training_rows: int) -> None:
-        train = source.iloc[:training_rows]
-        holdout = source.iloc[training_rows:]
-        DATASTORE.set_splits(
-            train.loc[:, PREDICTORS],
-            holdout.loc[:, PREDICTORS],
-            train["bad_flag"],
-            holdout["bad_flag"],
+        current = self.governed_fixture.persistence.analysis_partitions.get_current(
+            PROJECT_ID
         )
-        DATASTORE.meta.update(
-            {
-                "split_status": "current",
-                "split_record": {
-                    "project_id": PROJECT_ID,
-                    "dataset_id": DATASET_ID,
-                    "dataset_version_id": VERSION_ID,
-                    "split_id": "split-vif-exact-development",
-                    "n_train": training_rows,
-                    "n_test": len(holdout),
-                    "final_holdout_partition_id": "population-final-holdout-vif",
-                    "final_holdout_status": "sealed",
-                    "holdout_isolation_status": "verified",
-                },
-            }
+        self.partition_fixture = self.governed_fixture.install(
+            DATASTORE.current(),
+            dataset_id=DATASET_ID,
+            dataset_version_id=VERSION_ID,
+            target="bad_flag",
+            authorized_predictors=PREDICTORS,
+            target_sources=("RiskPerformance",),
+            development_share=float(training_rows / len(source)),
+            reset_existing=current is not None,
         )
 
     def tearDown(self) -> None:
         self.identity.stop()
         DATASTORE.reset_all()
+        self.governed_fixture.close()
 
     def request(self, **overrides):
         values = {
@@ -192,8 +187,11 @@ class VifResolutionPlanTests(unittest.TestCase):
         self.assertFalse(result["governed_feature_set_changed"])
         self.assertFalse(result["dataset_mutated"])
         self.assertTrue(result["input_frame_unchanged"])
-        self.assertEqual(result["analysis_scope"]["development_rows"], 180)
-        self.assertEqual(result["analysis_scope"]["sealed_final_holdout_rows_excluded"], 60)
+        self.assertEqual(result["analysis_scope"]["development_rows"], 192)
+        self.assertEqual(
+            result["analysis_scope"]["sealed_final_holdout_rows_excluded"],
+            48,
+        )
         self.assertEqual(
             result["analysis_scope"]["target_informed_evidence"],
             "exact_development_partition_only",
@@ -201,7 +199,7 @@ class VifResolutionPlanTests(unittest.TestCase):
         self.assertTrue(result["analysis_scope"]["exact_development_partition_resolved"])
         self.assertEqual(
             result["analysis_scope"]["split_id"],
-            "split-vif-exact-development",
+            DATASTORE.meta["analysis_partition_id"],
         )
         self.assertFalse(result["analysis_scope"]["final_holdout_accessed"])
         pd.testing.assert_frame_equal(DATASTORE.get_base_df(), before)
@@ -243,7 +241,7 @@ class VifResolutionPlanTests(unittest.TestCase):
 
     def test_holdout_values_cannot_influence_plan_selection(self) -> None:
         baseline = eda_workspace_service.vif_resolution_plan(self.request())
-        holdout = DATASTORE.raw_df["atlas_split"].eq("TEST")
+        holdout_index = DATASTORE.y_test.index
         for feature in [
             "NumInqLast6M",
             "NumInqLast6Mexcl7days",
@@ -251,13 +249,13 @@ class VifResolutionPlanTests(unittest.TestCase):
             "BalanceShadow",
             "Age",
         ]:
-            DATASTORE.raw_df.loc[holdout, feature] = np.linspace(
+            DATASTORE.raw_df.loc[holdout_index, feature] = np.linspace(
                 -1_000_000,
                 1_000_000,
-                int(holdout.sum()),
+                len(holdout_index),
             )
-        DATASTORE.raw_df.loc[holdout, "bad_flag"] = 1 - DATASTORE.raw_df.loc[
-            holdout,
+        DATASTORE.raw_df.loc[holdout_index, "bad_flag"] = 1 - DATASTORE.raw_df.loc[
+            holdout_index,
             "bad_flag",
         ]
         # The durable holdout artifacts themselves are also adversarially
@@ -280,7 +278,10 @@ class VifResolutionPlanTests(unittest.TestCase):
             perturbed["per_feature_vif_deltas"],
             baseline["per_feature_vif_deltas"],
         )
-        self.assertEqual(perturbed["analysis_scope"]["sealed_final_holdout_rows_excluded"], 60)
+        self.assertEqual(
+            perturbed["analysis_scope"]["sealed_final_holdout_rows_excluded"],
+            48,
+        )
         self.assertFalse(perturbed["analysis_scope"]["final_holdout_used_for_selection"])
 
     def test_relationships_plan_and_simulator_share_exact_governed_vif_basis(self) -> None:
@@ -362,22 +363,31 @@ class VifResolutionPlanTests(unittest.TestCase):
         )
 
     def test_pre_split_plan_fails_closed_without_full_population_fallback(self) -> None:
-        DATASTORE.reset_splits()
-        DATASTORE.meta.pop("split_record", None)
-        DATASTORE.meta.pop("split_status", None)
+        analysis_partition_service.invalidate(
+            PROJECT_ID,
+            "Isolated missing-partition test.",
+            expected_dataset_id=DATASET_ID,
+            expected_dataset_version_id=VERSION_ID,
+            target="bad_flag",
+            store=DATASTORE.current(),
+        )
 
         with self.assertRaisesRegex(
             ValueError,
-            "current durable development split",
+            "no partition is current",
         ):
             eda_workspace_service.vif_resolution_plan(self.request())
 
     def test_stale_or_unmaterialized_split_fails_closed(self) -> None:
-        DATASTORE.reset_splits()
+        development_index = DATASTORE.y_train.index
+        first = development_index[0]
+        DATASTORE.raw_df.loc[first, "bad_flag"] = (
+            1 - DATASTORE.raw_df.loc[first, "bad_flag"]
+        )
 
         with self.assertRaisesRegex(
             ValueError,
-            "materialized development partition is missing",
+            "checksum validation",
         ):
             eda_workspace_service.vif_resolution_plan(self.request())
 

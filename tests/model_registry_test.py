@@ -34,8 +34,20 @@ _CHECKPOINT_PATH = _TEST_DATA_ROOT / f"atlas_registry_checkpoint_{_RUN_ID}.json"
 _LIBRARY_ROOT = _TEST_DATA_ROOT / f"atlas_registry_library_{_RUN_ID}"
 _SCORING_ARTIFACT_ROOT = _TEST_DATA_ROOT / f"atlas_registry_scoringartifacts_{_RUN_ID}"
 _MODEL_ARTIFACT_ROOT = _TEST_DATA_ROOT / f"atlas_registry_modelartifacts_{_RUN_ID}"
+_FEATURE_MANIFEST_ROOT = _TEST_DATA_ROOT / f"atlas_registry_featuremanifests_{_RUN_ID}"
+_EVIDENCE_ROOT = _TEST_DATA_ROOT / f"atlas_registry_evidence_{_RUN_ID}"
+_EDA_DOCUMENTATION_ROOT = _TEST_DATA_ROOT / f"atlas_registry_eda_documentation_{_RUN_ID}"
+_MODEL_DOCUMENTATION_ROOT = _TEST_DATA_ROOT / f"atlas_registry_model_documentation_{_RUN_ID}"
 _BACKUP_ROOT = Path(tempfile.mkdtemp(prefix=f"atlas_registry_backups_{_RUN_ID}_"))
-for _root in (_LIBRARY_ROOT, _SCORING_ARTIFACT_ROOT, _MODEL_ARTIFACT_ROOT):
+for _root in (
+    _LIBRARY_ROOT,
+    _SCORING_ARTIFACT_ROOT,
+    _MODEL_ARTIFACT_ROOT,
+    _FEATURE_MANIFEST_ROOT,
+    _EVIDENCE_ROOT,
+    _EDA_DOCUMENTATION_ROOT,
+    _MODEL_DOCUMENTATION_ROOT,
+):
     _root.mkdir(parents=True, exist_ok=True)
 os.environ["ATLAS_SECURITY_DB_PATH"] = str(_SECURITY_DB_PATH)
 os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH)
@@ -44,6 +56,8 @@ os.environ["ATLAS_DATASET_LIBRARY_ROOT"] = str(_LIBRARY_ROOT)
 os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"] = str(_BACKUP_ROOT)
 os.environ["ATLAS_SCORING_RUN_ARTIFACT_ROOT"] = str(_SCORING_ARTIFACT_ROOT)
 os.environ["ATLAS_MODEL_REGISTRY_ARTIFACT_ROOT"] = str(_MODEL_ARTIFACT_ROOT)
+os.environ["ATLAS_FEATURE_MANIFEST_ROOT"] = str(_FEATURE_MANIFEST_ROOT)
+os.environ["ATLAS_EVIDENCE_ROOT"] = str(_EVIDENCE_ROOT)
 os.environ.setdefault("ATLAS_AUTH_ENABLED", "true")
 os.environ["ATLAS_ALLOW_PUBLIC_REGISTRATION"] = "true"
 
@@ -52,6 +66,8 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from server.main import app  # noqa: E402
 from server.datasets import dataset_registry  # noqa: E402
+from server.eda.documentation_service import eda_documentation_service  # noqa: E402
+from server.model_documentation import documentation_store  # noqa: E402
 from server.persistence import initialize_persistence  # noqa: E402
 from server.persistence.service import get_persistence_service  # noqa: E402
 from server.security.security_store import init_security_store  # noqa: E402
@@ -76,13 +92,24 @@ def _bind_checkpoint_path() -> None:
     assert checkpoint.CHECKPOINT_PATH.resolve() == expected
 
 
+def _bind_documentation_paths() -> None:
+    """Keep file-backed documentation artifacts below this suite's UUID root."""
+    eda_documentation_service.root = _EDA_DOCUMENTATION_ROOT.resolve()
+    documentation_store.DOCUMENTATION_ROOT = _MODEL_DOCUMENTATION_ROOT.resolve()
+    documentation_store.DOCUMENT_INDEX_PATH = (
+        documentation_store.DOCUMENTATION_ROOT / "document_index.json"
+    )
+
+
 _bind_checkpoint_path()
 _bind_dataset_library_paths()
+_bind_documentation_paths()
 
 
 def setUpModule() -> None:
     _bind_checkpoint_path()
     _bind_dataset_library_paths()
+    _bind_documentation_paths()
 
 
 def _cleanup() -> None:
@@ -100,6 +127,10 @@ def _cleanup() -> None:
     shutil.rmtree(_LIBRARY_ROOT, ignore_errors=True)
     shutil.rmtree(_SCORING_ARTIFACT_ROOT, ignore_errors=True)
     shutil.rmtree(_MODEL_ARTIFACT_ROOT, ignore_errors=True)
+    shutil.rmtree(_FEATURE_MANIFEST_ROOT, ignore_errors=True)
+    shutil.rmtree(_EVIDENCE_ROOT, ignore_errors=True)
+    shutil.rmtree(_EDA_DOCUMENTATION_ROOT, ignore_errors=True)
+    shutil.rmtree(_MODEL_DOCUMENTATION_ROOT, ignore_errors=True)
     shutil.rmtree(_BACKUP_ROOT, ignore_errors=True)
 
 
@@ -183,9 +214,51 @@ def _train_regression_model(
             "expected_dataset_version_id": dataset_version_id,
             "target": "MedHouseVal",
             "selected_columns": ["feature_a", "feature_b"],
+            # The Analysis Partition contract requires an explicit, stable
+            # target mapping even for a regression fixture.  These values are
+            # lineage metadata only; regression training does not stratify or
+            # rank candidates by this event mapping.
+            "event_value": 1,
+            "non_event_value": 0,
         },
     )
     assert response.status_code == 200, response.text
+    target_contract = response.json()
+    response = client.post(
+        "/api/analysis-partitions/confirm",
+        json={
+            **identity,
+            "target_contract_id": target_contract["target_contract_id"],
+            "target": "MedHouseVal",
+            "positive_value": 1,
+            "negative_value": 0,
+            "predictor_authorization_id": target_contract[
+                "predictor_authorization_id"
+            ],
+            "development_share": 0.8,
+            "holdout_share": 0.2,
+            "random_seed": 42,
+            "stratification_policy": "none",
+            "stratification_field": "",
+            "confirmation_acknowledged": True,
+            "reset_existing": False,
+            "reset_reason": "",
+            "acknowledge_invalidation": False,
+        },
+    )
+    assert response.status_code == 200, response.text
+    partition = response.json()
+    assert partition["readiness"] == "current", partition
+    partition_contract = partition["analysis_partition"]
+    assert partition_contract["project_id"] == project_id, partition_contract
+    assert partition_contract["dataset_id"] == dataset_id, partition_contract
+    assert (
+        partition_contract["dataset_version_id"] == dataset_version_id
+    ), partition_contract
+    assert partition_contract["final_holdout_status"] == "sealed", partition_contract
+    assert (
+        partition_contract["holdout_isolation_status"] == "verified"
+    ), partition_contract
     response = client.post(
         "/api/outliers/apply",
         json={
@@ -335,6 +408,37 @@ def _candidate_context(training: dict[str, Any], algorithm: str = "linreg") -> d
     }
     assert all(exact.values()), {"algorithm": algorithm, "exact": exact, "contract": contract}
     return exact
+
+
+def _invalidate_current_analysis_partition(
+    client: TestClient,
+    training: dict[str, Any],
+) -> None:
+    """Explicitly supersede one fixture partition before changing datasets.
+
+    Analysis Partition membership is immutable.  A registry comparison that
+    intentionally creates a second exact dataset in the same project must
+    therefore record the supported invalidation transition; silently replacing
+    or inferring membership would weaken the production contract under test.
+    """
+
+    response = client.post(
+        "/api/analysis-partitions/invalidate",
+        json={
+            "project_id": training["project_id"],
+            "reason": (
+                "Model Registry comparison fixture is creating an independent "
+                "exact dataset, split, and training run."
+            ),
+            "expected_dataset_id": training["dataset_id"],
+            "expected_dataset_version_id": training["dataset_version_id"],
+            "expected_target": training["target"],
+        },
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["ok"] is True, result
+    assert result["code"] == "analysis_partition_invalidated", result
 
 
 def _lock_candidate_decision(
@@ -538,6 +642,7 @@ class ModelRegistryTrainingIntegrationTests(unittest.TestCase):
         # after its final holdout has been exposed.  Build a separately
         # governed dataset/split/run so the comparison exercises two valid,
         # independently isolated model versions.
+        _invalidate_current_analysis_partition(self.client, self.training)
         second_training = _train_regression_model(
             self.client,
             self.project_id,

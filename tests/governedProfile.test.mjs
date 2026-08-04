@@ -315,10 +315,10 @@ test("a rare event rate never renders as 0.00%", () => {
   assert.ok(!lib.formatEventRatePrecise(0.000001).startsWith("0.00%"));
 });
 
-test("the guide consumes the authoritative rate rather than recomputing it", () => {
-  assert.match(step01, /formatEventRatePrecise\(authoritativeEventRate\.rate\)/);
-  assert.match(step01, /const governed = governedProfile\.quality \?\? governedProfile\.profile;/,
-    "the governed profile must be preferred over any preview-derived rate");
+test("Data Acquisition exposes backend-authoritative event evidence rather than preview-derived counts", () => {
+  assert.match(step01, /authoritativeEventCount: governedProfile\.profile\?\.quality\.eventCount \?\? governedProfile\.quality\?\.quality\.eventCount \?\? null/);
+  assert.match(step01, /governedProfile\.quality\?\.quality\.eventRate \?\? governedProfile\.profile\?\.quality\.eventRate/,
+    "the governed profile must be preferred over any preview-derived event rate");
 });
 
 // --- Part J: Target Intelligence correction ---------------------------------
@@ -337,7 +337,7 @@ test("Governed Definitions is removed but Analysis Scope and Target Identity rem
   }
   // Replaced with a compact, keyboard-reachable link (an anchor, not a div).
   assert.match(workspace, /data-testid="target-view-project-context"/);
-  assert.match(workspace, /<a\s+href="\/step00"[\s\S]{0,200}data-testid="target-view-project-context"/);
+  assert.match(workspace, /<Link[\s\S]{0,200}to=\{projectWorkflowRoute\(projectId, "\/step00"\)\}[\s\S]{0,200}data-testid="target-view-project-context"/);
 });
 
 test("the phase registers its test script and adds no console noise", async () => {

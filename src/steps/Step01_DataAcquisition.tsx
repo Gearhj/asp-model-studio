@@ -1,9 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { Check, Loader2, ShieldCheck } from "lucide-react";
 import StepShell from "../components/StepShell";
-import BureauReviewPanel from "../components/BureauReviewPanel";
-import { AtlasStatusStrip, type AtlasStatusItem, type AtlasWorkflowMetric } from "../components/ui/AtlasWorkflow";
+import StepPythonPanel from "../components/StepPythonPanel";
+import BureauReviewPanel, { type BureauReviewPanelStatus } from "../components/BureauReviewPanel";
+import DataAcquisitionSectionNav, {
+  type DataAcquisitionSectionNavItem,
+} from "../components/dataAcquisition/DataAcquisitionSectionNav";
+import { type AtlasWorkflowMetric } from "../components/ui/AtlasWorkflow";
 import { logDecision } from "../lib/decisionJournal";
 import {
   BROWSER_PARSE_EXTENSIONS,
@@ -54,7 +58,6 @@ import {
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { fetchFullFeatureProfile, predictorEligibility, profileFeaturesInBrowser, type FeatureProfileResponse } from "../lib/featureProfiling";
 import {
-  formatEventRatePrecise,
   ivCellText,
   formatIvExact,
   planWeakSignalExclusion,
@@ -76,17 +79,11 @@ import {
 } from "../lib/dataAcquisitionStatus";
 import {
   DATASET_SOURCE_LABELS,
-  EVENT_RATE_SCOPE_LABELS,
   DATASET_LOAD_STAGES,
   IDLE_LOAD_PROGRESS,
-  READINESS_LABELS,
-  READINESS_TONES,
   buildTargetDistribution,
   computeClassDistributionFromRows,
-  computeReadinessStatus,
-  formatEventRate,
   isAlreadyLinked,
-  resolveAuthoritativeEventRate,
   resolveDatasetSourceKind,
   resolvePersistenceMode,
   resolveRegistrationActionLabel,
@@ -94,15 +91,963 @@ import {
   type DatasetLoadProgress,
   type DatasetSourceKind,
   type PersistenceMode,
-  type ReadinessStatus,
 } from "../lib/dataAcquisitionLifecycle";
 import DatasetLoadProgressPanel from "../components/dataAcquisition/DatasetLoadProgressPanel";
 import TargetDistributionPanel from "../components/dataAcquisition/TargetDistributionPanel";
 import { useTargetDistribution } from "../lib/useTargetDistribution";
+import { projectWorkflowRoute } from "../lib/projectScopedRoutes";
+import {
+  REPRODUCIBILITY_CONTEXT_CONFIRMED_EVENT,
+  REPRODUCIBILITY_CONTEXT_PENDING_EVENT,
+  fetchDataAcquisitionReproducibilityContext,
+  markReproducibilityContextPending,
+  notifyReproducibilityContextConfirmed,
+  type DataAcquisitionReproducibilityContext,
+  type ReproducibilityPredictorAuthorization,
+} from "../lib/dataAcquisitionReproducibility";
 
 const BASE =
   (import.meta.env?.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
   "http://127.0.0.1:8001/api";
+
+type AnalysisPartitionPhase =
+  | "idle"
+  | "checking"
+  | "required"
+  | "confirming"
+  | "documenting"
+  | "documentation_pending"
+  | "current"
+  | "error";
+
+type AnalysisPartitionRecord = {
+  analysis_partition_id?: string;
+  project_id?: string;
+  dataset_id?: string;
+  dataset_version_id?: string;
+  target?: string;
+  positive_value?: unknown;
+  negative_value?: unknown;
+  development_partition_id?: string;
+  sealed_holdout_partition_id?: string;
+  development_share?: number;
+  holdout_share?: number;
+  random_seed?: number;
+  stratification_policy?: string;
+  stratification_field?: string;
+  final_holdout_status?: string;
+  holdout_isolation_status?: string;
+  revision?: number;
+  development_rows?: number;
+  development_count?: number;
+  holdout_rows?: number;
+  holdout_count?: number;
+  sealed_holdout_rows?: number;
+  partition_method?: string;
+  created_by?: unknown;
+  created_at?: string;
+  evidence_id?: string;
+  evidence_ref?: string;
+  evidence_status?: string;
+  mdd_status?: string;
+  mdd_ref?: string;
+  [key: string]: unknown;
+};
+
+type AnalysisPartitionReadiness = {
+  phase: AnalysisPartitionPhase;
+  code: string;
+  message: string;
+  recovery: string;
+  partition: AnalysisPartitionRecord | null;
+  reused?: boolean;
+};
+
+type AnalysisPartitionResetImpactState = {
+  phase: "idle" | "loading" | "ready" | "error";
+  message: string;
+  impacts: string[];
+  partition: AnalysisPartitionRecord | null;
+};
+
+type AnalysisPartitionPolicy = {
+  developmentShare: number;
+  holdoutShare: number;
+  randomSeed: number;
+  stratificationPolicy: "target" | "none";
+};
+
+type AnalysisPartitionPreviewPhase = "idle" | "loading" | "ready" | "error";
+
+type AnalysisPartitionPreview = {
+  phase: AnalysisPartitionPreviewPhase;
+  code: string;
+  message: string;
+  totalEligibleRows?: number;
+  developmentRows?: number;
+  holdoutRows?: number;
+  developmentEventCount?: number;
+  developmentNonEventCount?: number;
+  holdoutEventCount?: number;
+  holdoutNonEventCount?: number;
+  developmentEventRate?: number;
+  holdoutEventRate?: number;
+  fullPopulationEventRate?: number;
+  absoluteEventRateDifference?: number;
+  targetMinimum?: number;
+  targetMaximum?: number;
+  targetMean?: number;
+  targetStandardDeviation?: number;
+  targetQuantiles?: Record<string, number>;
+  targetBandCoverage?: unknown;
+  extremeValueCoverage?: unknown;
+  partitionMethod?: string;
+  randomSeed?: number;
+  stratificationField?: string;
+  recommendationStatus?: "recommended" | "acceptable" | "acceptable_with_warning" | "blocked";
+  recommendationRationale?: string;
+  rationaleRequired?: boolean;
+  warnings: string[];
+  blockers: string[];
+  previewFingerprint?: string;
+  sufficiency?: Record<string, unknown>;
+};
+
+type AnalysisPartitionResetResult = {
+  readiness: AnalysisPartitionReadiness;
+  impacts: string[];
+};
+
+type TargetPersistenceContract = {
+  targetContractId: string;
+  predictorAuthorizationId: string;
+};
+
+const EMPTY_ANALYSIS_PARTITION: AnalysisPartitionReadiness = {
+  phase: "idle",
+  code: "analysis_partition_unchecked",
+  message: "Select and activate a dataset version, then confirm the target.",
+  recovery: "Complete the required Data Acquisition decisions above.",
+  partition: null,
+};
+
+const EMPTY_ANALYSIS_PARTITION_RESET_IMPACT: AnalysisPartitionResetImpactState = {
+  phase: "idle",
+  message: "",
+  impacts: [],
+  partition: null,
+};
+
+const PARTITION_DEFAULTS = {
+  developmentShare: 0.8,
+  holdoutShare: 0.2,
+  randomSeed: 42,
+  stratificationPolicy: "target",
+} as const;
+
+const INITIAL_HOLDOUT_OPTIONS = [0.3, 0.2, 0.1] as const;
+
+const EMPTY_ANALYSIS_PARTITION_PREVIEW: AnalysisPartitionPreview = {
+  phase: "idle",
+  code: "analysis_partition_preview_idle",
+  message: "Select a standard split to preview exact governed counts.",
+  warnings: [],
+  blockers: [],
+};
+
+function analysisPartitionOptionGuidance(holdoutShare: number) {
+  if (holdoutShare === 0.3) {
+    return "Provides a larger final evaluation population and a more precise final performance estimate, but leaves fewer observations for model development.";
+  }
+  if (holdoutShare === 0.1) {
+    return "Preserves more observations for model development, but produces a smaller and potentially less precise final evaluation population. It is available only when evaluation counts and target coverage remain adequate.";
+  }
+  return "Recommended general-purpose balance between model-development capacity and independent final evaluation.";
+}
+
+function analysisPartitionOptionLabel(holdoutShare: number) {
+  return `${Math.round((1 - holdoutShare) * 100)}% Development / ${Math.round(holdoutShare * 100)}% Final Holdout${
+    holdoutShare === PARTITION_DEFAULTS.holdoutShare ? " (Recommended)" : ""
+  }`;
+}
+
+function initialAnalysisPartitionPolicy(
+  holdoutShare: number,
+  problemType: "classification" | "regression" = "classification",
+): AnalysisPartitionPolicy {
+  const selectedHoldout = INITIAL_HOLDOUT_OPTIONS.includes(
+    holdoutShare as (typeof INITIAL_HOLDOUT_OPTIONS)[number],
+  )
+    ? holdoutShare
+    : PARTITION_DEFAULTS.holdoutShare;
+  return {
+    developmentShare: Number((1 - selectedHoldout).toFixed(10)),
+    holdoutShare: selectedHoldout,
+    randomSeed: PARTITION_DEFAULTS.randomSeed,
+    stratificationPolicy:
+      problemType === "regression" ? "none" : PARTITION_DEFAULTS.stratificationPolicy,
+  };
+}
+
+function recordOrEmpty(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function governedErrorDetail(
+  payload: unknown,
+  fallbackMessage: string,
+  fallbackCode: string,
+) {
+  const envelope = recordOrEmpty(payload);
+  const rawDetail = envelope.detail;
+  const detail = recordOrEmpty(rawDetail);
+  return {
+    code: String(detail.code ?? envelope.code ?? fallbackCode),
+    message: String(
+      (typeof rawDetail === "string" ? rawDetail : detail.message ?? detail.detail) ??
+        envelope.message ??
+        envelope.error ??
+        fallbackMessage,
+    ),
+    recovery: String(
+      detail.recovery ??
+        envelope.recovery ??
+        "Review the exact governed identity and Analysis Partition, then retry.",
+    ),
+  };
+}
+
+function sameGovernedValue(left: unknown, right: unknown) {
+  return String(left ?? "").trim() === String(right ?? "").trim();
+}
+
+function analysisPartitionMatches(
+  partition: AnalysisPartitionRecord,
+  identity: CanonicalDatasetIdentity,
+  target: string,
+  eventValue: unknown,
+  nonEventValue: unknown,
+  policy: AnalysisPartitionPolicy,
+) {
+  return (
+    analysisPartitionIdentityMatches(
+      partition,
+      identity,
+      target,
+      eventValue,
+      nonEventValue,
+    ) && analysisPartitionPolicyMatches(partition, policy, target)
+  );
+}
+
+function analysisPartitionIdentityMatches(
+  partition: AnalysisPartitionRecord,
+  identity: CanonicalDatasetIdentity,
+  target: string,
+  eventValue: unknown,
+  nonEventValue: unknown,
+) {
+  return (
+    Boolean(partition.analysis_partition_id) &&
+    partition.project_id === identity.project_id &&
+    partition.dataset_id === identity.dataset_id &&
+    partition.dataset_version_id === identity.dataset_version_id &&
+    partition.target === target &&
+    sameGovernedValue(partition.positive_value, eventValue) &&
+    sameGovernedValue(partition.negative_value, nonEventValue) &&
+    Number(partition.revision) > 0 &&
+    partition.final_holdout_status === "sealed" &&
+    partition.holdout_isolation_status === "verified"
+  );
+}
+
+function analysisPartitionPolicyMatches(
+  partition: AnalysisPartitionRecord,
+  policy: AnalysisPartitionPolicy,
+  target: string,
+) {
+  const tolerance = 1e-9;
+  return (
+    Math.abs(Number(partition.development_share) - policy.developmentShare) < tolerance &&
+    Math.abs(Number(partition.holdout_share) - policy.holdoutShare) < tolerance &&
+    Number(partition.random_seed) === policy.randomSeed &&
+    partition.stratification_policy === policy.stratificationPolicy &&
+    String(partition.stratification_field ?? "") ===
+      (policy.stratificationPolicy === "target" ? target : "")
+  );
+}
+
+function predictorIsEligible(
+  column: string,
+  input: { headers: string[]; rows: Record<string, unknown>[]; target: string },
+) {
+  // Backend-managed split/lineage fields are never eligible predictors. Keep an
+  // explicit atlas_split guard in addition to the shared role classifier so a
+  // server-added system field cannot enter a browser selection during restore.
+  if (/^atlas(?:_|$)/i.test(column) || /(^|_)(?:system|split|fold|partition|sample_role)(?:_|$)/i.test(column)) {
+    return false;
+  }
+  return predictorEligibility(column, {
+    headers: input.headers,
+    rows: input.rows,
+    target: input.target,
+    selected_columns: [],
+  }).role === "eligible";
+}
+
+async function readAnalysisPartitionReadiness(
+  identity: CanonicalDatasetIdentity,
+  target: string,
+  eventValue: unknown,
+  nonEventValue: unknown,
+  signal?: AbortSignal,
+): Promise<AnalysisPartitionReadiness> {
+  const query = new URLSearchParams({
+    project_id: identity.project_id,
+    dataset_id: identity.dataset_id,
+    dataset_version_id: identity.dataset_version_id,
+    target,
+  });
+  const response = await fetch(`${BASE}/analysis-partitions/status?${query.toString()}`, {
+    method: "GET",
+    credentials: "include",
+    signal,
+  });
+  const payload = await response.json().catch(() => null);
+  const envelope = recordOrEmpty(payload);
+  if (!response.ok || envelope.ok === false) {
+    const detail = governedErrorDetail(
+      payload,
+      response.status === 409
+        ? "A current Analysis Partition has not been confirmed for this governed target."
+        : "ATLAS could not verify the Analysis Partition.",
+      response.status === 409
+        ? "analysis_partition_required"
+        : "analysis_partition_status_failed",
+    );
+    return {
+      phase: response.status === 409 ? "required" : "error",
+      ...detail,
+      partition: null,
+    };
+  }
+
+  const partition = recordOrEmpty(
+    envelope.analysis_partition,
+  ) as AnalysisPartitionRecord;
+  const readiness = String(envelope.readiness ?? envelope.status ?? "").toLowerCase();
+  if (
+    readiness === "current" &&
+    analysisPartitionIdentityMatches(
+      partition,
+      identity,
+      target,
+      eventValue,
+      nonEventValue,
+    )
+  ) {
+    return {
+      phase: "current",
+      code: String(envelope.code ?? "analysis_partition_current"),
+      message: "The exact governed Analysis Partition is current and will be reused.",
+      recovery: "No action is required unless the dataset, target, or partition policy changes.",
+      partition,
+      reused: Boolean(envelope.reused ?? true),
+    };
+  }
+  if (
+    readiness === "documentation_pending" &&
+    analysisPartitionIdentityMatches(
+      partition,
+      identity,
+      target,
+      eventValue,
+      nonEventValue,
+    )
+  ) {
+    const documentation = recordOrEmpty(envelope.documentation);
+    const pendingStages = [
+      documentation.evidence_ready === true ? "" : "evidence",
+      documentation.mdd_ready === true ? "" : "MDD",
+    ].filter(Boolean);
+    return {
+      phase: "documentation_pending",
+      code: String(envelope.code ?? "analysis_partition_documentation_pending"),
+      message: String(
+        envelope.message ??
+          "The sealed Analysis Partition is durable, but its documentation is pending.",
+      ),
+      recovery: String(
+        envelope.recovery ??
+          `Complete the missing ${pendingStages.join(" and ") || "documentation"} sidecars without changing membership.`,
+      ),
+      partition,
+      reused: true,
+    };
+  }
+
+  return {
+    phase: "required",
+    code:
+      readiness === "current"
+        ? "analysis_partition_contradictory"
+        : String(envelope.code ?? "analysis_partition_required"),
+    message:
+      readiness === "current"
+        ? "The returned Analysis Partition does not match the exact dataset, target, or recommended policy."
+        : "Confirm an Analysis Partition before continuing to EDA.",
+    recovery: "Choose the development and final-holdout ratio below, then confirm it explicitly.",
+    partition: Object.keys(partition).length ? partition : null,
+  };
+}
+
+async function completeAnalysisPartitionDocumentation(
+  identity: CanonicalDatasetIdentity,
+  target: string,
+  eventValue: unknown,
+  nonEventValue: unknown,
+  partition: AnalysisPartitionRecord,
+): Promise<AnalysisPartitionReadiness> {
+  const response = await fetch(`${BASE}/analysis-partitions/complete-documentation`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      project_id: identity.project_id,
+      dataset_id: identity.dataset_id,
+      dataset_version_id: identity.dataset_version_id,
+      target,
+      target_contract_id: String(partition.target_contract_id ?? ""),
+      predictor_authorization_id: String(
+        partition.current_predictor_authorization_id ??
+          partition.predictor_authorization_id ??
+          "",
+      ),
+      analysis_partition_id: String(partition.analysis_partition_id ?? ""),
+      revision: Number(partition.revision),
+    }),
+  });
+  const payload = await response.json().catch(() => null);
+  const envelope = recordOrEmpty(payload);
+  if (!response.ok || envelope.ok === false) {
+    const detail = governedErrorDetail(
+      payload,
+      "ATLAS could not complete the Analysis Partition documentation.",
+      "analysis_partition_documentation_pending",
+    );
+    const rawDetail = recordOrEmpty(envelope.detail);
+    const stage = String(rawDetail.documentation_stage ?? "").trim();
+    return {
+      phase: "documentation_pending",
+      code: detail.code,
+      message: stage ? `${detail.message} Safe failure stage: ${stage}.` : detail.message,
+      recovery: detail.recovery,
+      partition,
+      reused: true,
+    };
+  }
+
+  const completed = recordOrEmpty(
+    envelope.analysis_partition,
+  ) as AnalysisPartitionRecord;
+  const exactIdentityPreserved =
+    analysisPartitionIdentityMatches(
+      completed,
+      identity,
+      target,
+      eventValue,
+      nonEventValue,
+    ) &&
+    completed.analysis_partition_id === partition.analysis_partition_id &&
+    Number(completed.revision) === Number(partition.revision) &&
+    completed.artifact_hash === partition.artifact_hash &&
+    completed.assignment_hash === partition.assignment_hash;
+  if (
+    String(envelope.readiness ?? "").toLowerCase() !== "current" ||
+    !exactIdentityPreserved
+  ) {
+    return {
+      phase: "documentation_pending",
+      code: "analysis_partition_documentation_readback_failed",
+      message: "Documentation returned without proving the exact immutable partition and durable read-back.",
+      recovery: "Do not continue to EDA. Retry documentation against this exact partition.",
+      partition,
+      reused: true,
+    };
+  }
+  return {
+    phase: "current",
+    code: String(envelope.code ?? "analysis_partition_documentation_completed"),
+    message: "Partition evidence and MDD documentation are durably verified. The sealed membership was reused unchanged.",
+    recovery: "No additional partition action is required.",
+    partition: completed,
+    reused: true,
+  };
+}
+
+function stringList(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.map((item) => String(item ?? "").trim()).filter(Boolean)
+    : [];
+}
+
+function optionalFiniteNumber(value: unknown): number | undefined {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function analysisPartitionPreviewHasRequiredEvidence(
+  preview: AnalysisPartitionPreview,
+  problemType: "classification" | "regression",
+): boolean {
+  const finite = (value: unknown): value is number =>
+    typeof value === "number" && Number.isFinite(value);
+  const nonnegative = (value: unknown) => finite(value) && value >= 0;
+  const rate = (value: unknown) => finite(value) && value >= 0 && value <= 1;
+  const developmentRows = preview.developmentRows;
+  const holdoutRows = preview.holdoutRows;
+  const totalRows = preview.totalEligibleRows;
+  const sufficiency = recordOrEmpty(preview.sufficiency);
+  const commonReady =
+    preview.phase === "ready" &&
+    Boolean(preview.previewFingerprint) &&
+    Boolean(preview.recommendationStatus) &&
+    nonnegative(totalRows) &&
+    nonnegative(developmentRows) &&
+    nonnegative(holdoutRows) &&
+    Number(developmentRows) + Number(holdoutRows) === Number(totalRows) &&
+    Boolean(preview.partitionMethod) &&
+    Number.isSafeInteger(preview.randomSeed) &&
+    String(sufficiency.overall_status ?? "").trim().length > 0;
+  if (!commonReady) return false;
+
+  if (problemType === "classification") {
+    return [
+      preview.developmentEventCount,
+      preview.developmentNonEventCount,
+      preview.holdoutEventCount,
+      preview.holdoutNonEventCount,
+    ].every(nonnegative) && [
+      preview.developmentEventRate,
+      preview.holdoutEventRate,
+      preview.fullPopulationEventRate,
+      preview.absoluteEventRateDifference,
+    ].every(rate);
+  }
+
+  const quantiles = Object.values(preview.targetQuantiles ?? {});
+  const bandCoverage = recordOrEmpty(preview.targetBandCoverage);
+  const representedBands = optionalFiniteNumber(bandCoverage.represented_bands);
+  const totalBands = optionalFiniteNumber(bandCoverage.total_bands);
+  const coverageRate = optionalFiniteNumber(bandCoverage.coverage_rate);
+  const extremeCoverage = recordOrEmpty(preview.extremeValueCoverage);
+  return [
+    preview.targetMinimum,
+    preview.targetMaximum,
+    preview.targetMean,
+    preview.targetStandardDeviation,
+  ].every(finite) &&
+    quantiles.length > 0 &&
+    quantiles.every(finite) &&
+    nonnegative(representedBands) &&
+    finite(totalBands) &&
+    totalBands > 0 &&
+    Number(representedBands) <= Number(totalBands) &&
+    rate(coverageRate) &&
+    typeof extremeCoverage.low_extreme_represented === "boolean" &&
+    typeof extremeCoverage.high_extreme_represented === "boolean";
+}
+
+async function readAnalysisPartitionPreview(
+  identity: CanonicalDatasetIdentity,
+  target: string,
+  eventValue: unknown,
+  nonEventValue: unknown,
+  problemType: "classification" | "regression",
+  policy: AnalysisPartitionPolicy,
+  contract?: Partial<TargetPersistenceContract>,
+  signal?: AbortSignal,
+  resetBaseline?: { analysisPartitionId: string; revision: number },
+): Promise<AnalysisPartitionPreview> {
+  const previewEndpoint = resetBaseline
+    ? `${BASE}/analysis-partitions/reset-preview`
+    : `${BASE}/analysis-partitions/preview`;
+  const response = await fetch(
+    previewEndpoint,
+    {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      signal,
+      body: JSON.stringify({
+      project_id: identity.project_id,
+      dataset_id: identity.dataset_id,
+      dataset_version_id: identity.dataset_version_id,
+      target_contract_id: contract?.targetContractId ?? "",
+      target,
+      positive_value: eventValue,
+      negative_value: nonEventValue,
+      predictor_authorization_id: contract?.predictorAuthorizationId ?? "",
+      problem_type: problemType,
+      development_share: policy.developmentShare,
+      holdout_share: policy.holdoutShare,
+      random_seed: policy.randomSeed,
+      stratification_policy: policy.stratificationPolicy,
+      stratification_field:
+        policy.stratificationPolicy === "target" ? target : "",
+      partition_method: "deterministic_random",
+      ...(resetBaseline
+        ? {
+            expected_current_partition_id:
+              resetBaseline.analysisPartitionId,
+            expected_current_revision: resetBaseline.revision,
+          }
+        : {}),
+      }),
+    },
+  );
+  const payload = await response.json().catch(() => null);
+  const envelope = recordOrEmpty(payload);
+  const rawPreview = recordOrEmpty(
+    envelope.preview ?? envelope.partition_preview ?? envelope,
+  );
+  if (!response.ok || envelope.ok === false) {
+    const detail = governedErrorDetail(
+      payload,
+      "ATLAS could not preview the selected Analysis Partition.",
+      "analysis_partition_preview_failed",
+    );
+    return {
+      phase: "error",
+      code: detail.code,
+      message: `${detail.message} ${detail.recovery}`.trim(),
+      warnings: stringList(rawPreview.warnings),
+      blockers: stringList(rawPreview.blockers),
+    };
+  }
+
+  const rawRecommendationStatus = String(
+    rawPreview.recommendation_status ?? rawPreview.status ?? "",
+  ).toLowerCase();
+  const recommendationStatus = [
+    "recommended",
+    "acceptable",
+    "acceptable_with_warning",
+    "blocked",
+  ].includes(rawRecommendationStatus)
+    ? rawRecommendationStatus as AnalysisPartitionPreview["recommendationStatus"]
+    : undefined;
+  return {
+    phase: "ready",
+    code: String(envelope.code ?? "analysis_partition_preview_ready"),
+    message: String(
+      rawPreview.recommendation_rationale ??
+        envelope.message ??
+        "Exact governed preview is ready.",
+    ),
+    totalEligibleRows: optionalFiniteNumber(rawPreview.total_eligible_rows),
+    developmentRows: optionalFiniteNumber(rawPreview.development_rows),
+    holdoutRows: optionalFiniteNumber(rawPreview.holdout_rows),
+    developmentEventCount: optionalFiniteNumber(rawPreview.development_event_count),
+    developmentNonEventCount: optionalFiniteNumber(rawPreview.development_non_event_count),
+    holdoutEventCount: optionalFiniteNumber(rawPreview.holdout_event_count),
+    holdoutNonEventCount: optionalFiniteNumber(rawPreview.holdout_non_event_count),
+    developmentEventRate: optionalFiniteNumber(rawPreview.development_event_rate),
+    holdoutEventRate: optionalFiniteNumber(rawPreview.holdout_event_rate),
+    fullPopulationEventRate: optionalFiniteNumber(rawPreview.full_population_event_rate),
+    absoluteEventRateDifference: optionalFiniteNumber(rawPreview.absolute_event_rate_difference),
+    targetMinimum: optionalFiniteNumber(rawPreview.target_minimum),
+    targetMaximum: optionalFiniteNumber(rawPreview.target_maximum),
+    targetMean: optionalFiniteNumber(rawPreview.target_mean),
+    targetStandardDeviation: optionalFiniteNumber(rawPreview.target_standard_deviation),
+    targetQuantiles: recordOrEmpty(rawPreview.target_quantiles) as Record<string, number>,
+    targetBandCoverage: rawPreview.target_band_coverage,
+    extremeValueCoverage: rawPreview.extreme_value_coverage,
+    partitionMethod: String(rawPreview.partition_method ?? "") || undefined,
+    randomSeed: optionalFiniteNumber(rawPreview.random_seed),
+    stratificationField: String(rawPreview.stratification_field ?? ""),
+    recommendationStatus,
+    recommendationRationale: String(rawPreview.recommendation_rationale ?? ""),
+    rationaleRequired: Boolean(rawPreview.rationale_required),
+    warnings: stringList(rawPreview.warnings),
+    blockers: stringList(rawPreview.blockers),
+    previewFingerprint: String(rawPreview.preview_fingerprint ?? "") || undefined,
+    sufficiency: recordOrEmpty(rawPreview.sufficiency),
+  };
+}
+
+async function readAnalysisPartitionResetImpact(
+  identity: CanonicalDatasetIdentity,
+  signal?: AbortSignal,
+): Promise<AnalysisPartitionResetImpactState> {
+  const query = new URLSearchParams({
+    project_id: identity.project_id,
+    dataset_id: identity.dataset_id,
+    dataset_version_id: identity.dataset_version_id,
+  });
+  const response = await fetch(
+    `${BASE}/analysis-partitions/reset-impact?${query.toString()}`,
+    {
+      method: "GET",
+      credentials: "include",
+      signal,
+    },
+  );
+  const payload = await response.json().catch(() => null);
+  const envelope = recordOrEmpty(payload);
+  if (!response.ok || envelope.ok === false) {
+    const detail = governedErrorDetail(
+      payload,
+      "ATLAS could not load the governed reset impact.",
+      response.status === 409
+        ? "analysis_partition_required"
+        : "analysis_partition_reset_impact_failed",
+    );
+    return {
+      phase: "error",
+      message: `${detail.message} ${detail.recovery}`.trim(),
+      impacts: [],
+      partition: null,
+    };
+  }
+  const partition = recordOrEmpty(
+    envelope.analysis_partition,
+  ) as AnalysisPartitionRecord;
+  const impacts = Array.isArray(envelope.impacts)
+    ? envelope.impacts.map((impact) => String(impact)).filter(Boolean)
+    : [];
+  if (
+    partition.project_id !== identity.project_id ||
+    partition.dataset_id !== identity.dataset_id ||
+    partition.dataset_version_id !== identity.dataset_version_id ||
+    Number(partition.revision) <= 0 ||
+    envelope.requires_explicit_reset !== true ||
+    envelope.requires_invalidation_acknowledgement !== true
+  ) {
+    return {
+      phase: "error",
+      message:
+        "The reset-impact response did not prove the exact current partition and required acknowledgements. No reset was performed.",
+      impacts,
+      partition: Object.keys(partition).length ? partition : null,
+    };
+  }
+  return {
+    phase: "ready",
+    message:
+      "Review every impact and proposed membership setting before explicitly resetting the current Analysis Partition.",
+    impacts,
+    partition,
+  };
+}
+
+async function createOrReuseAnalysisPartition(
+  identity: CanonicalDatasetIdentity,
+  target: string,
+  eventValue: unknown,
+  nonEventValue: unknown,
+  contract: TargetPersistenceContract,
+  policy: AnalysisPartitionPolicy,
+  problemType: "classification" | "regression",
+  previewFingerprint: string,
+  selectionRationale: string,
+): Promise<AnalysisPartitionReadiness> {
+  const response = await fetch(`${BASE}/analysis-partitions/confirm`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      project_id: identity.project_id,
+      dataset_id: identity.dataset_id,
+      dataset_version_id: identity.dataset_version_id,
+      target_contract_id: contract.targetContractId,
+      target,
+      positive_value: eventValue,
+      negative_value: nonEventValue,
+      predictor_authorization_id: contract.predictorAuthorizationId,
+      problem_type: problemType,
+      development_share: policy.developmentShare,
+      holdout_share: policy.holdoutShare,
+      random_seed: policy.randomSeed,
+      stratification_policy: policy.stratificationPolicy,
+      stratification_field:
+        policy.stratificationPolicy === "target" ? target : "",
+      partition_method: "deterministic_random",
+      preview_fingerprint: previewFingerprint,
+      selection_rationale: selectionRationale.trim(),
+      reset_existing: false,
+      reset_reason: "",
+      acknowledge_invalidation: false,
+    }),
+  });
+  const payload = await response.json().catch(() => null);
+  const envelope = recordOrEmpty(payload);
+  if (!response.ok || envelope.ok === false) {
+    const detail = governedErrorDetail(
+      payload,
+      "ATLAS could not confirm the selected Analysis Partition.",
+      response.status === 409
+        ? "analysis_partition_contradictory"
+        : "analysis_partition_confirmation_failed",
+    );
+    return {
+      phase: response.status === 409 ? "required" : "error",
+      ...detail,
+      partition: null,
+    };
+  }
+  const partition = recordOrEmpty(
+    envelope.analysis_partition,
+  ) as AnalysisPartitionRecord;
+  const readiness = String(envelope.readiness ?? envelope.status ?? "").toLowerCase();
+  if (
+    readiness !== "current" ||
+    !analysisPartitionMatches(
+      partition,
+      identity,
+      target,
+      eventValue,
+      nonEventValue,
+      policy,
+    )
+  ) {
+    return {
+      phase: "error",
+      code: "analysis_partition_confirmation_unverified",
+      message: "The confirmation response did not prove an exact, sealed Analysis Partition.",
+      recovery: "Do not continue. Retry confirmation or ask an administrator to review partition integrity.",
+      partition: Object.keys(partition).length ? partition : null,
+    };
+  }
+  return {
+    phase: "current",
+    code: String(envelope.code ?? "analysis_partition_confirmed"),
+    message: Boolean(envelope.reused)
+      ? "The existing exact Analysis Partition remains current; no duplicate was created."
+      : "The Analysis Partition is confirmed and the final holdout is sealed.",
+    recovery: "No action is required unless the dataset, target, or partition policy changes.",
+    partition,
+    reused: Boolean(envelope.reused),
+  };
+}
+
+async function resetAnalysisPartition(
+  identity: CanonicalDatasetIdentity,
+  target: string,
+  eventValue: unknown,
+  nonEventValue: unknown,
+  contract: TargetPersistenceContract,
+  policy: AnalysisPartitionPolicy,
+  problemType: "classification" | "regression",
+  previewFingerprint: string,
+  resetReason: string,
+  previousPartition: AnalysisPartitionRecord,
+): Promise<AnalysisPartitionResetResult> {
+  const response = await fetch(`${BASE}/analysis-partitions/confirm`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      project_id: identity.project_id,
+      dataset_id: identity.dataset_id,
+      dataset_version_id: identity.dataset_version_id,
+      target_contract_id: contract.targetContractId,
+      target,
+      positive_value: eventValue,
+      negative_value: nonEventValue,
+      predictor_authorization_id: contract.predictorAuthorizationId,
+      problem_type: problemType,
+      development_share: policy.developmentShare,
+      holdout_share: policy.holdoutShare,
+      random_seed: policy.randomSeed,
+      stratification_policy: policy.stratificationPolicy,
+      stratification_field:
+        policy.stratificationPolicy === "target" ? target : "",
+      partition_method: "deterministic_random",
+      preview_fingerprint: previewFingerprint,
+      selection_rationale: resetReason.trim(),
+      reset_existing: true,
+      reset_reason: resetReason.trim(),
+      acknowledge_invalidation: true,
+      expected_current_partition_id: previousPartition.analysis_partition_id,
+      expected_current_revision: Number(previousPartition.revision),
+    }),
+  });
+  const payload = await response.json().catch(() => null);
+  const envelope = recordOrEmpty(payload);
+  const resetImpacts = Array.isArray(envelope.reset_impacts)
+    ? envelope.reset_impacts.map((impact) => String(impact)).filter(Boolean)
+    : [];
+  if (!response.ok || envelope.ok === false) {
+    const detail = governedErrorDetail(
+      payload,
+      "ATLAS could not reset the Analysis Partition.",
+      response.status === 409
+        ? "analysis_partition_contradictory"
+        : "analysis_partition_reset_failed",
+    );
+    return {
+      readiness: {
+        phase: response.status === 409 ? "required" : "error",
+        ...detail,
+        partition: null,
+      },
+      impacts: resetImpacts,
+    };
+  }
+
+  const partition = recordOrEmpty(
+    envelope.analysis_partition,
+  ) as AnalysisPartitionRecord;
+  const readiness = String(envelope.readiness ?? envelope.status ?? "").toLowerCase();
+  const previousRevision = Number(previousPartition.revision);
+  const replacementRevision = Number(partition.revision);
+  const verifiedReplacement =
+    readiness === "current" &&
+    envelope.reused !== true &&
+    analysisPartitionIdentityMatches(
+      partition,
+      identity,
+      target,
+      eventValue,
+      nonEventValue,
+    ) &&
+    analysisPartitionPolicyMatches(partition, policy, target) &&
+    replacementRevision > 0 &&
+    replacementRevision > previousRevision &&
+    partition.analysis_partition_id !== previousPartition.analysis_partition_id;
+
+  if (!verifiedReplacement) {
+    return {
+      readiness: {
+        phase: "error",
+        code: "analysis_partition_reset_unverified",
+        message:
+          "The reset response did not prove a new positive revision with current, sealed, isolated membership.",
+        recovery:
+          "Do not continue. Reload the exact reset impact and verify the durable partition state.",
+        partition: Object.keys(partition).length ? partition : null,
+      },
+      impacts: resetImpacts,
+    };
+  }
+
+  return {
+    readiness: {
+      phase: "current",
+      code: String(envelope.code ?? "analysis_partition_confirmed"),
+      message:
+        "A new Analysis Partition revision is current and its final holdout is sealed. Downstream evidence remains stale until explicitly recomputed.",
+      recovery:
+        "Stay in Data Acquisition to review the replacement identity. ATLAS has not continued into EDA or recreated downstream artifacts.",
+      partition,
+      reused: false,
+    },
+    impacts: resetImpacts,
+  };
+}
 
 const sourceCards: { id: DataSourceType; title: string; body: string }[] = [
   { id: "upload", title: "Upload File", body: "CSV and JSON parse locally. Excel, Parquet, Feather, SAS, and ZIP are staged for backend import." },
@@ -207,24 +1152,6 @@ function summarizeColumn(rows: Record<string, unknown>[], column: string, target
     mean,
     min: nums.length ? Math.min(...nums) : null,
     max: nums.length ? Math.max(...nums) : null,
-  };
-}
-
-function numericValues(rows: Record<string, unknown>[], column: string) {
-  return rows.map((row) => Number(row[column])).filter(Number.isFinite);
-}
-
-function targetSummary(rows: Record<string, unknown>[], target: string) {
-  const nums = numericValues(rows, target).sort((a, b) => a - b);
-  if (!nums.length) return null;
-  const mean = nums.reduce((sum, value) => sum + value, 0) / nums.length;
-  const variance = nums.reduce((sum, value) => sum + (value - mean) ** 2, 0) / Math.max(1, nums.length - 1);
-  return {
-    mean,
-    median: nums[Math.floor(nums.length / 2)],
-    std: Math.sqrt(variance),
-    min: nums[0],
-    max: nums[nums.length - 1],
   };
 }
 
@@ -412,6 +1339,10 @@ function applyPreviewSampling(input: {
 }
 
 export default function Step01DataAcquisition() {
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const analysisPartitionResetMode =
+    searchParams.get("analysisPartition") === "reset";
   const [sourceType, setSourceType] = useState<DataSourceType>("upload");
   const [headers, setHeaders] = useState<string[]>([]);
   const [rows, setRows] = useState<Record<string, unknown>[]>([]);
@@ -460,18 +1391,148 @@ export default function Step01DataAcquisition() {
   const [datasetIdentityError, setDatasetIdentityError] = useState("");
   const [reactivationRequired, setReactivationRequired] = useState(false);
   const [activeActivationRevision, setActiveActivationRevision] = useState("");
+  const [analysisPartition, setAnalysisPartition] =
+    useState<AnalysisPartitionReadiness>(EMPTY_ANALYSIS_PARTITION);
+  const [analysisPartitionHoldoutShare, setAnalysisPartitionHoldoutShare] =
+    useState<number>(PARTITION_DEFAULTS.holdoutShare);
+  const [analysisPartitionPreview, setAnalysisPartitionPreview] =
+    useState<AnalysisPartitionPreview>(EMPTY_ANALYSIS_PARTITION_PREVIEW);
+  const [analysisPartitionRationale, setAnalysisPartitionRationale] =
+    useState("");
+  const [confirmedPartitionPredictorKey, setConfirmedPartitionPredictorKey] =
+    useState("");
+  const [analysisPartitionResetImpact, setAnalysisPartitionResetImpact] =
+    useState<AnalysisPartitionResetImpactState>(
+      EMPTY_ANALYSIS_PARTITION_RESET_IMPACT,
+    );
+  const [analysisPartitionResetHoldoutShare, setAnalysisPartitionResetHoldoutShare] =
+    useState("0.2");
+  const [analysisPartitionResetRandomSeed, setAnalysisPartitionResetRandomSeed] =
+    useState("42");
+  const [analysisPartitionResetStratification, setAnalysisPartitionResetStratification] =
+    useState<"target" | "none">("target");
+  const [analysisPartitionResetReason, setAnalysisPartitionResetReason] =
+    useState("");
+  const [analysisPartitionResetInvalidationAcknowledged, setAnalysisPartitionResetInvalidationAcknowledged] =
+    useState(false);
+  const [analysisPartitionResetFeedback, setAnalysisPartitionResetFeedback] =
+    useState("");
+  const [analysisPartitionResetCompleted, setAnalysisPartitionResetCompleted] =
+    useState<{
+      partitionId: string;
+      previousRevision: number;
+      revision: number;
+      impacts: string[];
+    } | null>(null);
   // Governed target-dependent profiling. The analytical identity includes the
   // dataset version AND the event mapping, so changing either invalidates every
   // target-dependent result rather than leaving stale IV on screen.
   const [weakSignalUndo, setWeakSignalUndo] = useState<Record<string, boolean> | null>(null);
   const [weakSignalNotice, setWeakSignalNotice] = useState("");
   const [loadProgress, setLoadProgress] = useState<DatasetLoadProgress>(IDLE_LOAD_PROGRESS);
+  const bureauReviewContextKey = [
+    activeDatasetIdentity?.project_id,
+    activeDatasetIdentity?.dataset_id,
+    activeDatasetIdentity?.dataset_version_id,
+    target,
+    String(eventValue ?? ""),
+  ].join(":");
+  const [bureauReviewStatusState, setBureauReviewStatusState] = useState<{
+    contextKey: string;
+    status: BureauReviewPanelStatus;
+  } | null>(null);
+  const bureauReviewStatus =
+    bureauReviewStatusState?.contextKey === bureauReviewContextKey
+      ? bureauReviewStatusState.status
+      : null;
+  const handleBureauReviewStatus = useCallback(
+    (status: BureauReviewPanelStatus) =>
+      setBureauReviewStatusState({ contextKey: bureauReviewContextKey, status }),
+    [bureauReviewContextKey],
+  );
   const datasetVersions = loadDatasetVersions();
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
   const workflowDatasetIdentity = useWorkflowStore((state) => state.datasetIdentity);
   const setWorkflowDatasetIdentity = useWorkflowStore((state) => state.setDatasetIdentity);
   const applyAuthoritativeWorkflowState = useWorkflowStore((state) => state.applyAuthoritativeWorkflowState);
+  const [reproducibilityContext, setReproducibilityContext] =
+    useState<DataAcquisitionReproducibilityContext | null>(null);
+  const [reproducibilityContextPhase, setReproducibilityContextPhase] =
+    useState<"idle" | "loading" | "pending" | "ready" | "error">("idle");
+  const [reproducibilityContextError, setReproducibilityContextError] =
+    useState("");
+
+  useEffect(() => {
+    let active = true;
+    let requestRevision = 0;
+    const controller = new AbortController();
+
+    const refresh = () => {
+      if (!projectId) {
+        setReproducibilityContext(null);
+        setReproducibilityContextPhase("idle");
+        setReproducibilityContextError("");
+        return;
+      }
+      const revision = ++requestRevision;
+      setReproducibilityContext(null);
+      setReproducibilityContextPhase("loading");
+      setReproducibilityContextError("");
+      void fetchDataAcquisitionReproducibilityContext(
+        projectId,
+        controller.signal,
+      )
+        .then((context) => {
+          if (!active || revision !== requestRevision) return;
+          setReproducibilityContext(context);
+          setReproducibilityContextPhase(
+            context.state === "current" ? "ready" : "pending",
+          );
+        })
+        .catch((error) => {
+          if (!active || controller.signal.aborted || revision !== requestRevision) {
+            return;
+          }
+          setReproducibilityContext(null);
+          setReproducibilityContextPhase("error");
+          setReproducibilityContextError(
+            error instanceof Error
+              ? error.message
+              : "ATLAS could not verify the exact Data Acquisition context.",
+          );
+        });
+    };
+    const markPending = () => {
+      requestRevision += 1;
+      setReproducibilityContext(null);
+      setReproducibilityContextPhase("pending");
+      setReproducibilityContextError("");
+    };
+
+    refresh();
+    window.addEventListener(
+      REPRODUCIBILITY_CONTEXT_PENDING_EVENT,
+      markPending,
+    );
+    window.addEventListener(
+      REPRODUCIBILITY_CONTEXT_CONFIRMED_EVENT,
+      refresh,
+    );
+    return () => {
+      active = false;
+      requestRevision += 1;
+      controller.abort();
+      window.removeEventListener(
+        REPRODUCIBILITY_CONTEXT_PENDING_EVENT,
+        markPending,
+      );
+      window.removeEventListener(
+        REPRODUCIBILITY_CONTEXT_CONFIRMED_EVENT,
+        refresh,
+      );
+    };
+  }, [projectId]);
 
   // Dataset Persistence (dataset lifecycle audit): explicit workspace-only vs
   // register-to-Library choice, defaulting to workspace-only per the ADR.
@@ -725,23 +1786,6 @@ export default function Step01DataAcquisition() {
     return map;
   }, [governedProfile.profile]);
 
-  const authoritativeEventRate = useMemo(
-    () => {
-      // Part I: the governed profile is the source of truth for the event rate.
-      // Only when no authoritative profile exists does the previous resolver run.
-      const governed = governedProfile.quality ?? governedProfile.profile;
-      if (governed && governed.quality.eventRate !== null) {
-        return {
-          rate: governed.quality.eventRate,
-          scope: "full_population" as const,
-          isAuthoritative: governed.analysisScope.mode !== "preview_only",
-        };
-      }
-      return resolveAuthoritativeEventRate({ quality, previewEventRate: targetInfo.eventRate, completeBrowserDataset });
-    },
-    [governedProfile.quality, governedProfile.profile, quality, targetInfo.eventRate, completeBrowserDataset]
-  );
-
   // Target Distribution performance: for a registered Dataset Library version the
   // counts come from a dedicated bounded server aggregate that loads independently
   // of quality profiling. Reading them out of the full quality profile cost ~4s of
@@ -799,16 +1843,301 @@ export default function Step01DataAcquisition() {
     if (qualityLoading || !quality) return "loading" as const;
     return targetDistribution ? ("ready" as const) : ("empty" as const);
   }, [target, targetInfo.kind, targetDistributionRequest, serverDistribution.phase, qualityLoading, quality, targetDistribution]);
-  const continuousTargetSummary = useMemo(() => targetSummary(targetAnalysisRows, target), [targetAnalysisRows, target]);
-  const selectable = headers.filter((header) => header !== target);
+  const selectable = headers.filter((header) =>
+    predictorIsEligible(header, { headers, rows: profilingRows, target }),
+  );
   const selected = selectable.filter((header) => kept[header]);
+  const selectedPredictorKey = selected.join("|");
+
+  useEffect(() => {
+    setAnalysisPartitionHoldoutShare(PARTITION_DEFAULTS.holdoutShare);
+    setAnalysisPartitionPreview(EMPTY_ANALYSIS_PARTITION_PREVIEW);
+    setAnalysisPartitionRationale("");
+    setConfirmedPartitionPredictorKey("");
+    if (!activeDatasetIdentity || !target) {
+      setAnalysisPartition({
+        ...EMPTY_ANALYSIS_PARTITION,
+        phase: "required",
+        code: !activeDatasetIdentity
+          ? "dataset_identity_unavailable"
+          : "target_contract_stale",
+        message: !activeDatasetIdentity
+          ? "Activate the exact registered dataset version before confirming an Analysis Partition."
+          : "Confirm the governed target before confirming an Analysis Partition.",
+      });
+      return;
+    }
+
+    const controller = new AbortController();
+    setAnalysisPartition((current) => ({
+      ...current,
+      phase: "checking",
+      code: "analysis_partition_checking",
+      message: "Checking for an exact current Analysis Partition...",
+    }));
+    void readAnalysisPartitionReadiness(
+      activeDatasetIdentity,
+      target,
+      eventValue,
+      nonEventValue,
+      controller.signal,
+    )
+      .then((next) => {
+        if (!controller.signal.aborted) {
+          setAnalysisPartition(next);
+          setConfirmedPartitionPredictorKey(
+            next.phase === "current" ? selectedPredictorKey : "",
+          );
+        }
+      })
+      .catch((cause) => {
+        if (controller.signal.aborted) return;
+        setAnalysisPartition({
+          phase: "error",
+          code: "analysis_partition_status_failed",
+          message:
+            cause instanceof Error
+              ? cause.message
+              : "ATLAS could not verify the Analysis Partition.",
+          recovery: "Confirm the backend is available, then retry the readiness check.",
+          partition: null,
+        });
+      });
+    return () => controller.abort();
+  }, [
+    activeDatasetIdentity?.project_id,
+    activeDatasetIdentity?.dataset_id,
+    activeDatasetIdentity?.dataset_version_id,
+    target,
+    eventValue,
+    nonEventValue,
+  ]);
+
+  useEffect(() => {
+    const resetPreviewSettled =
+      analysisPartitionResetMode &&
+      (analysisPartition.phase === "confirming" ||
+        Boolean(analysisPartitionResetCompleted));
+    if (resetPreviewSettled) {
+      return undefined;
+    }
+    const resetPreviewReady =
+      analysisPartitionResetMode &&
+      analysisPartitionResetImpact.phase === "ready" &&
+      Boolean(analysisPartitionResetImpact.partition);
+    const initialPreviewReady =
+      !analysisPartitionResetMode && analysisPartition.phase === "required";
+    if (!activeDatasetIdentity || !target || (!resetPreviewReady && !initialPreviewReady)) {
+      return undefined;
+    }
+    const selectedHoldoutShare = analysisPartitionResetMode
+      ? Number(analysisPartitionResetHoldoutShare)
+      : analysisPartitionHoldoutShare;
+    const contractPartition = analysisPartitionResetMode
+      ? analysisPartitionResetImpact.partition
+      : analysisPartition.partition;
+    if (
+      analysisPartitionResetMode &&
+      contractPartition &&
+      Number.isFinite(selectedHoldoutShare) &&
+      Math.abs(
+        selectedHoldoutShare - Number(contractPartition.holdout_share),
+      ) < 1e-9
+    ) {
+      setAnalysisPartitionPreview({
+        ...EMPTY_ANALYSIS_PARTITION_PREVIEW,
+        code: "analysis_partition_reset_change_required",
+        message:
+          "Choose a different governed split ratio to preview a replacement revision. The current sealed partition remains unchanged.",
+      });
+      return undefined;
+    }
+    const policy = initialAnalysisPartitionPolicy(
+      selectedHoldoutShare,
+      targetInfo.kind === "continuous" ? "regression" : "classification",
+    );
+    const controller = new AbortController();
+    setAnalysisPartitionPreview({
+      ...EMPTY_ANALYSIS_PARTITION_PREVIEW,
+      phase: "loading",
+      code: "analysis_partition_preview_loading",
+      message: "Calculating exact governed counts and split sufficiency...",
+    });
+    void readAnalysisPartitionPreview(
+      activeDatasetIdentity,
+      target,
+      eventValue,
+      nonEventValue,
+      targetInfo.kind === "continuous" ? "regression" : "classification",
+      policy,
+      {
+        targetContractId: String(contractPartition?.target_contract_id ?? ""),
+        predictorAuthorizationId: String(
+          contractPartition?.predictor_authorization_id ?? "",
+        ),
+      },
+      controller.signal,
+      analysisPartitionResetMode && contractPartition
+        ? {
+            analysisPartitionId: String(
+              contractPartition.analysis_partition_id ?? "",
+            ),
+            revision: Number(contractPartition.revision),
+          }
+        : undefined,
+    )
+      .then((preview) => {
+        if (!controller.signal.aborted) setAnalysisPartitionPreview(preview);
+      })
+      .catch((cause) => {
+        if (controller.signal.aborted) return;
+        setAnalysisPartitionPreview({
+          ...EMPTY_ANALYSIS_PARTITION_PREVIEW,
+          phase: "error",
+          code: "analysis_partition_preview_failed",
+          message:
+            cause instanceof Error
+              ? cause.message
+              : "ATLAS could not preview the selected Analysis Partition.",
+        });
+      });
+    return () => controller.abort();
+  }, [
+    activeDatasetIdentity?.project_id,
+    activeDatasetIdentity?.dataset_id,
+    activeDatasetIdentity?.dataset_version_id,
+    analysisPartition.phase,
+    analysisPartitionHoldoutShare,
+    analysisPartitionResetMode,
+    analysisPartitionResetHoldoutShare,
+    analysisPartitionResetImpact.phase,
+    analysisPartitionResetImpact.partition,
+    analysisPartitionResetCompleted,
+    eventValue,
+    nonEventValue,
+    target,
+    targetInfo.kind,
+  ]);
+
+  useEffect(() => {
+    if (!analysisPartitionResetMode) {
+      setAnalysisPartitionResetImpact(
+        EMPTY_ANALYSIS_PARTITION_RESET_IMPACT,
+      );
+      setAnalysisPartitionResetReason("");
+      setAnalysisPartitionResetInvalidationAcknowledged(false);
+      setAnalysisPartitionResetFeedback("");
+      setAnalysisPartitionResetCompleted(null);
+      return;
+    }
+    if (!activeDatasetIdentity) {
+      setAnalysisPartitionResetImpact({
+        phase: "loading",
+        message:
+          "Waiting for the exact governed Dataset Library identity before loading reset impacts...",
+        impacts: [],
+        partition: null,
+      });
+      return;
+    }
+
+    const controller = new AbortController();
+    setAnalysisPartitionResetImpact((current) => ({
+      ...current,
+      phase: "loading",
+      message: "Loading the durable reset impact for the exact current partition...",
+    }));
+    setAnalysisPartitionResetFeedback("");
+    setAnalysisPartitionResetCompleted(null);
+    void readAnalysisPartitionResetImpact(
+      activeDatasetIdentity,
+      controller.signal,
+    )
+      .then((impact) => {
+        if (controller.signal.aborted) return;
+        setAnalysisPartitionResetImpact(impact);
+        const partition = impact.partition;
+        if (impact.phase === "ready" && partition) {
+          const holdoutShare = Number(partition.holdout_share);
+          const randomSeed = Number(partition.random_seed);
+          setAnalysisPartitionResetHoldoutShare(
+            Number.isFinite(holdoutShare)
+              ? String(holdoutShare)
+              : String(PARTITION_DEFAULTS.holdoutShare),
+          );
+          setAnalysisPartitionResetRandomSeed(
+            Number.isInteger(randomSeed)
+              ? String(randomSeed)
+              : String(PARTITION_DEFAULTS.randomSeed),
+          );
+          setAnalysisPartitionResetStratification(
+            partition.stratification_policy === "none" ? "none" : "target",
+          );
+          window.setTimeout(() => {
+            document
+              .querySelector('[data-testid="analysis-partition-reset-workspace"]')
+              ?.scrollIntoView({ behavior: "smooth", block: "center" });
+          }, 0);
+        }
+      })
+      .catch((cause) => {
+        if (controller.signal.aborted) return;
+        setAnalysisPartitionResetImpact({
+          phase: "error",
+          message:
+            cause instanceof Error
+              ? cause.message
+              : "ATLAS could not load the governed reset impact.",
+          impacts: [],
+          partition: null,
+        });
+      });
+    return () => controller.abort();
+  }, [
+    analysisPartitionResetMode,
+    activeDatasetIdentity?.project_id,
+    activeDatasetIdentity?.dataset_id,
+    activeDatasetIdentity?.dataset_version_id,
+  ]);
+
+  useEffect(() => {
+    if (
+      analysisPartition.phase !== "current" ||
+      !confirmedPartitionPredictorKey ||
+      confirmedPartitionPredictorKey === selectedPredictorKey
+    ) {
+      return;
+    }
+    setAnalysisPartition({
+      phase: "required",
+      code: "predictor_authorization_required",
+      message: "The approved predictor set changed after the Analysis Partition was verified.",
+      recovery: "Review the predictor selection, then confirm the Analysis Partition against the new authorization contract.",
+      partition: null,
+    });
+    setAnalysisPartitionPreview(EMPTY_ANALYSIS_PARTITION_PREVIEW);
+    setAnalysisPartitionRationale("");
+  }, [
+    analysisPartition.phase,
+    confirmedPartitionPredictorKey,
+    selectedPredictorKey,
+  ]);
+
+  const analysisPartitionIsCurrent = analysisPartition.phase === "current";
+  const analysisPartitionBlockingReason = analysisPartitionIsCurrent
+    ? ""
+    : analysisPartition.phase === "checking" || analysisPartition.phase === "confirming"
+      ? "Wait for ATLAS to verify the Analysis Partition."
+      : analysisPartition.message ||
+        "Confirm the selected Analysis Partition before continuing to EDA.";
+
   // Part D: a single readiness status derived only from findings ATLAS already computes.
 
   // Part B: ONE derivation feeds every Data Acquisition status. Previously the
   // hero used `nextDisabledReason`, the strip used `readiness.status`, and the
   // checkpoint used READINESS_LABELS -- three answers to one question.
   const [dataAcquisitionReviewed, setDataAcquisitionReviewed] = useState(false);
-  const acquisitionStatus = useMemo(
+  const baseAcquisitionStatus = useMemo(
     () =>
       deriveDataAcquisitionStatus({
         hasSelectedVersion: Boolean(activeDatasetIdentity?.dataset_version_id),
@@ -820,7 +2149,9 @@ export default function Step01DataAcquisition() {
         target,
         eventValue,
         nonEventValue,
-        selectedPredictorCount: selected.length,
+        selectedPredictorCount:
+          reproducibilityContext?.predictor_authorization?.funnel
+            .authorized_predictor_count ?? 0,
         profilePhase: governedProfile.phase,
         profileError: governedProfile.error,
         authoritativeEventCount: governedProfile.profile?.quality.eventCount ?? governedProfile.quality?.quality.eventCount ?? null,
@@ -840,23 +2171,118 @@ export default function Step01DataAcquisition() {
     [
       activeDatasetIdentity, projectId, datasetIdentityError,
       headers.length, backendImportSynced, isImporting, importError, target, eventValue, nonEventValue,
-      selected.length, governedProfile.phase, governedProfile.error, governedProfile.profile,
+      reproducibilityContext, governedProfile.phase, governedProfile.error, governedProfile.profile,
       governedProfile.quality, dataAcquisitionReviewed,
     ]
   );
+  const acquisitionStatus = useMemo<DataAcquisitionStatus>(() => {
+    if (analysisPartitionResetMode) {
+      const resetComplete = Boolean(analysisPartitionResetCompleted);
+      return {
+        ...baseAcquisitionStatus,
+        readiness: "blocked",
+        readinessLabel: resetComplete
+          ? "Split changed · downstream stale"
+          : "Governed split-ratio impact review",
+        readinessTone: resetComplete ? "warning" : "danger",
+        canContinue: false,
+        blockingReasons: [
+          resetComplete
+            ? "The replacement partition is current, but downstream artifacts remain stale. Close the change review before making a separate navigation decision."
+            : "Complete or cancel the governed split-ratio impact review before continuing.",
+        ],
+        recommendedAction: resetComplete
+          ? "Review the new partition revision and stale-artifact list, then close change mode without automatic navigation."
+          : "Review every invalidation impact, choose the replacement ratio, and explicitly confirm or cancel the change.",
+        currentActiveMilestone: "Analysis Partition split change",
+        continueLabel: resetComplete
+          ? "Downstream stale · review split result"
+          : "Complete split-ratio impact review",
+      };
+    }
+    if (!baseAcquisitionStatus.canContinue) {
+      return baseAcquisitionStatus;
+    }
+    const specialValueReviewExpected = Boolean(
+      activeDatasetIdentity && headers.length && registeredRowCount && target,
+    );
+    if (
+      specialValueReviewExpected &&
+      (!bureauReviewStatus || bureauReviewStatus.loading || bureauReviewStatus.blocking)
+    ) {
+      const unresolved = bureauReviewStatus?.unresolvedRequirements ?? 0;
+      const loadingReview = !bureauReviewStatus || bureauReviewStatus.loading;
+      return {
+        ...baseAcquisitionStatus,
+        readiness: "blocked",
+        readinessLabel: loadingReview
+          ? "Verifying special-value review"
+          : "Special-value review required",
+        readinessTone: loadingReview ? "info" : "danger",
+        canContinue: false,
+        blockingReasons: [
+          loadingReview
+            ? "Wait for ATLAS to read the exact special-value review status."
+            : unresolved
+              ? `${unresolved} special-value treatment requirement${unresolved === 1 ? "" : "s"} remain unresolved.`
+              : "Confirm the governed Special-Value Treatment Review before continuing.",
+        ],
+        recommendedAction: loadingReview
+          ? "Wait for the exact dataset-version review status."
+          : "Open Special-Value Treatment Review, resolve every required rationale, and confirm the governed treatment contract.",
+        currentActiveMilestone: "Special-Value Treatment Review",
+        continueLabel: "Complete Special-Value Review to Continue",
+      };
+    }
+    if (analysisPartitionIsCurrent) return baseAcquisitionStatus;
+    const documentationPending =
+      analysisPartition.phase === "documentation_pending" ||
+      analysisPartition.phase === "documenting";
+    const checking =
+      analysisPartition.phase === "checking" ||
+      analysisPartition.phase === "confirming" ||
+      analysisPartition.phase === "documenting";
+    return {
+      ...baseAcquisitionStatus,
+      readiness: "blocked",
+      readinessLabel: documentationPending
+        ? analysisPartition.phase === "documenting"
+          ? "Completing partition documentation"
+          : "Partition documentation pending"
+        : checking
+          ? "Verifying Analysis Partition"
+          : "Analysis Partition required",
+      readinessTone: documentationPending ? "warning" : checking ? "info" : "danger",
+      canContinue: false,
+      blockingReasons: [analysisPartitionBlockingReason],
+      recommendedAction: documentationPending
+        ? "Complete the evidence and MDD sidecars for the exact sealed partition."
+        : checking
+          ? "Wait for the governed partition verification to finish."
+          : "Review and confirm the selected Analysis Partition.",
+      currentActiveMilestone: documentationPending
+        ? "Analysis Partition documentation"
+        : "Analysis Partition",
+      continueLabel: documentationPending
+        ? "Complete Partition Documentation"
+        : checking
+          ? "Verifying Analysis Partition..."
+          : "Confirm Analysis Partition to Continue",
+    };
+  }, [
+    analysisPartitionResetCompleted,
+    analysisPartitionResetMode,
+    analysisPartition.phase,
+    analysisPartitionBlockingReason,
+    analysisPartitionIsCurrent,
+    activeDatasetIdentity,
+    baseAcquisitionStatus,
+    bureauReviewStatus,
+    headers.length,
+    registeredRowCount,
+    target,
+  ]);
 
-  const readiness = useMemo(
-    () =>
-      computeReadinessStatus({
-        quality,
-        target,
-        registeredRowCount,
-        selectedPredictorCount: selected.length,
-        profileScopeMode: governedProfile.profile?.analysisScope.mode ?? governedProfile.quality?.analysisScope.mode ?? null,
-        authoritativeEventCount: governedProfile.quality?.quality.eventCount ?? governedProfile.profile?.quality.eventCount ?? null,
-      }),
-    [quality, target, registeredRowCount, selected.length, governedProfile.profile, governedProfile.quality]
-  );
   const sqlWarnings = useMemo(() => validateSql(sql), [sql]);
   const generatedMetadata = useMemo(() => {
     if (!headers.length) return null;
@@ -926,6 +2352,10 @@ export default function Step01DataAcquisition() {
       exclusionReason: row.exclusionReason,
     })),
     [featureProfile]
+  );
+  const predictorVariableSummary = useMemo(
+    () => variableSummary.filter((row) => row.column !== target),
+    [variableSummary, target],
   );
 
   useEffect(() => {
@@ -1048,17 +2478,17 @@ export default function Step01DataAcquisition() {
   }, [headers, target, profilingRows, fullSourceRows, completeBrowserDataset, registeredRowCount, backendImportSynced, eventValue, nonEventValue, selected.join("|"), projectId, loadedLibraryIdentity, activeDatasetIdentity]);
 
   function saveKeptSelection(nextKept: Record<string, boolean>) {
+    markReproducibilityContextPending();
     setKept(nextKept);
     const currentDataset = loadLocalDataset();
     const localView = buildSelectedDatasetView({
       headers,
       rows: profilingRows,
-      selectedColumns: headers.filter((header) => header !== target && predictorEligibility(header, {
-        headers,
-        rows: profilingRows,
-        target,
-        selected_columns: [],
-      }).role === "eligible" && nextKept[header] !== false),
+      selectedColumns: headers.filter(
+        (header) =>
+          predictorIsEligible(header, { headers, rows: profilingRows, target }) &&
+          nextKept[header] !== false,
+      ),
       target: target || null,
     });
     saveLocalDataset({
@@ -1091,7 +2521,7 @@ export default function Step01DataAcquisition() {
         loading: governedProfile.phase === "quality" || governedProfile.phase === "iv",
         error: governedProfile.phase === "failed" || governedProfile.phase === "artifact_missing" ? governedProfile.error : null,
         problemType: targetInfo.kind === "continuous" ? "regression" : "classification",
-        selected: headers.filter((header) => kept[header] !== false && header !== target),
+        selected,
       }),
     [governedProfile.profile, governedProfile.phase, governedProfile.error, targetInfo.kind, headers, kept, target]
   );
@@ -1157,7 +2587,11 @@ export default function Step01DataAcquisition() {
     const guessedTarget = preferredTarget(normalized.headers, normalized.target);
     const keep: Record<string, boolean> = {};
     normalized.headers.forEach((header) => {
-      keep[header] = header !== guessedTarget;
+      keep[header] = predictorIsEligible(header, {
+        headers: normalized.headers,
+        rows: normalized.previewRows,
+        target: guessedTarget,
+      });
     });
     setHeaders(normalized.headers);
     setRows(normalized.previewRows);
@@ -1168,7 +2602,16 @@ export default function Step01DataAcquisition() {
     setBackendRowCount(options.backendSynced ? normalized.rowCount : null);
     setBrowserDataComplete(options.browserComplete ?? (!options.backendSynced && normalized.previewRows.length === normalized.rowCount));
     setPreviewSamplingMethod("top_n");
-    const selectedColumns = normalized.selectedColumns.length ? normalized.selectedColumns : normalized.headers.filter((header) => header !== guessedTarget);
+    const requestedSelectedColumns = normalized.selectedColumns.length
+      ? normalized.selectedColumns
+      : normalized.headers;
+    const selectedColumns = requestedSelectedColumns.filter((header) =>
+      predictorIsEligible(header, {
+        headers: normalized.headers,
+        rows: normalized.previewRows,
+        target: guessedTarget,
+      }),
+    );
     const localView = buildSelectedDatasetView({
       headers: normalized.headers,
       rows: normalized.previewRows.slice(0, 5000),
@@ -1281,6 +2724,7 @@ export default function Step01DataAcquisition() {
   }
 
   async function onFile(file: File) {
+    markReproducibilityContextPending();
     setMessage("");
     setImportError(null);
     setFileName(file.name);
@@ -1352,7 +2796,9 @@ export default function Step01DataAcquisition() {
     setMessage("SQL metadata saved. Real query execution requires a backend connector; upload query output or connect the backend to populate rows.");
   }
 
-  async function persistDataset(identityOverride?: CanonicalDatasetIdentity) {
+  async function persistDataset(
+    identityOverride?: CanonicalDatasetIdentity,
+  ): Promise<TargetPersistenceContract> {
     if (!headers.length) throw new Error("No dataset or query metadata is available.");
     const canonical = requireCanonicalDatasetIdentity(
       identityOverride ?? activeDatasetIdentity,
@@ -1437,6 +2883,8 @@ export default function Step01DataAcquisition() {
     }));
 
     let backendSynced = false;
+    let targetContractId = "";
+    let predictorAuthorizationId = "";
     try {
       const targetPayload = buildTargetPersistencePayload(canonical, {
         target: target || null,
@@ -1458,7 +2906,19 @@ export default function Step01DataAcquisition() {
         throw new Error(backendJson?.detail ?? backendJson?.error ?? "Backend did not accept the modeling dataset.");
       }
       assertExactDatasetActivation(canonical, backendJson);
+      targetContractId = String(backendJson.target_contract_id ?? "").trim();
+      predictorAuthorizationId = String(
+        backendJson.predictor_authorization_id ??
+          backendJson.eda_readiness?.predictor_authorization_id ??
+          "",
+      ).trim();
+      if (!targetContractId || !predictorAuthorizationId) {
+        throw new Error(
+          "Backend target persistence did not return the governed target and predictor-authorization contract IDs.",
+        );
+      }
       backendSynced = true;
+      notifyReproducibilityContextConfirmed();
     } catch (err: any) {
       const detail = err?.message ?? "Unable to send target configuration to the backend.";
       setMessage(`Dataset preview is saved locally. Backend sync did not complete: ${detail}`);
@@ -1479,6 +2939,365 @@ export default function Step01DataAcquisition() {
       systemRecommendation: "Use dataset version, hash, source, query, and sampling metadata in model governance documentation.",
       followStatus: "followed",
     });
+    return { targetContractId, predictorAuthorizationId };
+  }
+
+  async function confirmRecommendedAnalysisPartition() {
+    const previewFingerprint = analysisPartitionPreview.previewFingerprint;
+    if (
+      !previewFingerprint ||
+      !analysisPartitionPreviewHasRequiredEvidence(
+        analysisPartitionPreview,
+        targetInfo.kind === "continuous" ? "regression" : "classification",
+      )
+    ) {
+      setAnalysisPartition((current) => ({
+        ...current,
+        phase: "required",
+        code: "analysis_partition_preview_required",
+        message: "Wait for the complete exact backend preview, including its fingerprint, population evidence, and sufficiency result, before creating the Analysis Partition.",
+      }));
+      return;
+    }
+    if (
+      analysisPartitionPreview.recommendationStatus === "blocked" ||
+      analysisPartitionPreview.blockers.length
+    ) {
+      setAnalysisPartition((current) => ({
+        ...current,
+        phase: "required",
+        code: "analysis_partition_preview_blocked",
+        message: analysisPartitionPreview.blockers[0] ?? "The selected split is blocked by the governed sufficiency policy.",
+      }));
+      return;
+    }
+    if (
+      analysisPartitionPreview.rationaleRequired &&
+      !analysisPartitionRationale.trim()
+    ) {
+      setAnalysisPartition((current) => ({
+        ...current,
+        phase: "required",
+        code: "analysis_partition_rationale_required",
+        message: "Add a short analyst rationale for this acceptable nonrecommended split.",
+      }));
+      return;
+    }
+    const canonical = requireCanonicalDatasetIdentity(
+      activeDatasetIdentity,
+      "Analysis Partition dataset identity",
+    );
+    if (!target) {
+      setAnalysisPartition({
+        phase: "required",
+        code: "target_contract_stale",
+        message: "Confirm the target before creating the Analysis Partition.",
+        recovery: "Select the target and class mapping in Target Setup.",
+        partition: null,
+      });
+      return;
+    }
+
+    setAnalysisPartition((current) => ({
+      ...current,
+      phase: "confirming",
+      code: "analysis_partition_confirming",
+      message: "Persisting the target contract and sealing the final holdout...",
+    }));
+    try {
+      const policy = initialAnalysisPartitionPolicy(
+        analysisPartitionHoldoutShare,
+        targetInfo.kind === "continuous" ? "regression" : "classification",
+      );
+      const contract = await persistDataset(canonical);
+      const confirmed = await createOrReuseAnalysisPartition(
+        canonical,
+        target,
+        eventValue,
+        nonEventValue,
+        contract,
+        policy,
+        targetInfo.kind === "continuous" ? "regression" : "classification",
+        previewFingerprint,
+        analysisPartitionRationale,
+      );
+      setAnalysisPartition(confirmed);
+      if (confirmed.phase === "current") {
+        setConfirmedPartitionPredictorKey(selectedPredictorKey);
+        notifyReproducibilityContextConfirmed();
+        setMessage(confirmed.message);
+        logDecision({
+          workflowStep: "Data Acquisition",
+          actionType: "workflow_setting_changed",
+          subject: "Analysis Partition",
+          previousValue: "required",
+          newValue: confirmed.partition?.analysis_partition_id ?? "current",
+          systemRecommendation:
+            `Use a ${Math.round(policy.developmentShare * 100)}% development population and a sealed ${Math.round(policy.holdoutShare * 100)}% final holdout with random seed ${policy.randomSeed} and target stratification.`,
+          followStatus: "followed",
+        });
+        navigate(projectWorkflowRoute(projectId, "/step02"));
+      } else {
+        setMessage(`${confirmed.message} ${confirmed.recovery}`.trim());
+      }
+    } catch (cause) {
+      const detail =
+        cause instanceof Error
+          ? cause.message
+          : "ATLAS could not confirm the Analysis Partition.";
+      setAnalysisPartition({
+        phase: "error",
+        code: "analysis_partition_confirmation_failed",
+        message: detail,
+        recovery: "Retry after confirming the exact dataset and target are still active.",
+        partition: null,
+      });
+      setMessage(detail);
+    }
+  }
+
+  async function retryAnalysisPartitionDocumentation() {
+    const partition = analysisPartition.partition;
+    if (
+      analysisPartition.phase !== "documentation_pending" ||
+      !partition?.analysis_partition_id ||
+      !activeDatasetIdentity
+    ) {
+      return;
+    }
+    const canonical = requireCanonicalDatasetIdentity(
+      activeDatasetIdentity,
+      "Analysis Partition documentation identity",
+    );
+    setAnalysisPartition((current) => ({
+      ...current,
+      phase: "documenting",
+      code: "analysis_partition_documentation_retrying",
+      message: "Completing exact partition evidence and MDD documentation...",
+      recovery: "Membership remains sealed and unchanged during this retry.",
+    }));
+    try {
+      const completed = await completeAnalysisPartitionDocumentation(
+        canonical,
+        target,
+        eventValue,
+        nonEventValue,
+        partition,
+      );
+      setAnalysisPartition(completed);
+      setMessage(`${completed.message} ${completed.recovery}`.trim());
+      if (completed.phase === "current") {
+        setConfirmedPartitionPredictorKey(selectedPredictorKey);
+        notifyReproducibilityContextConfirmed();
+        navigate(projectWorkflowRoute(projectId, "/step02"));
+      }
+    } catch (cause) {
+      const detail =
+        cause instanceof Error
+          ? cause.message
+          : "ATLAS could not complete partition documentation.";
+      setAnalysisPartition({
+        phase: "documentation_pending",
+        code: "analysis_partition_documentation_pending",
+        message: detail,
+        recovery: "Retry Complete Partition Documentation. The sealed membership remains unchanged.",
+        partition,
+        reused: true,
+      });
+      setMessage(detail);
+    }
+  }
+
+  function leaveAnalysisPartitionResetMode() {
+    const next = new URLSearchParams(searchParams);
+    next.delete("analysisPartition");
+    setSearchParams(next, { replace: true });
+    setMessage(
+      analysisPartitionResetCompleted
+        ? "Split-ratio change review closed. Downstream artifacts remain stale and must be recomputed explicitly."
+        : "Split-ratio change canceled. The current Analysis Partition was not changed.",
+    );
+    if (!analysisPartitionResetCompleted) {
+      notifyReproducibilityContextConfirmed();
+    }
+  }
+
+  async function confirmGovernedAnalysisPartitionReset() {
+    const baseline = analysisPartitionResetImpact.partition;
+    if (analysisPartitionResetImpact.phase !== "ready" || !baseline) {
+      setAnalysisPartitionResetFeedback(
+        "Load and review the exact current partition impact before changing the split ratio.",
+      );
+      return;
+    }
+    if (!analysisPartitionResetReason.trim()) {
+      setAnalysisPartitionResetFeedback(
+        "Enter a governed reason for replacing the current partition membership.",
+      );
+      return;
+    }
+    if (!analysisPartitionResetInvalidationAcknowledged) {
+      setAnalysisPartitionResetFeedback(
+        "Acknowledge that every listed downstream artifact becomes stale before changing membership.",
+      );
+      return;
+    }
+    const resetPreviewFingerprint =
+      analysisPartitionPreview.phase === "ready"
+        ? String(analysisPartitionPreview.previewFingerprint ?? "").trim()
+        : "";
+    if (!resetPreviewFingerprint || analysisPartitionPreview.blockers.length > 0) {
+      setAnalysisPartitionResetFeedback(
+        "Wait for the backend split preview to finish without blockers before creating a new revision.",
+      );
+      return;
+    }
+    const holdoutShare = Number(analysisPartitionResetHoldoutShare);
+    if (
+      !Number.isFinite(holdoutShare) ||
+      !INITIAL_HOLDOUT_OPTIONS.some(
+        (supportedShare) => Math.abs(supportedShare - holdoutShare) < 1e-9,
+      )
+    ) {
+      setAnalysisPartitionResetFeedback(
+        "Select exactly 70/30, 80/20, or 90/10 for the replacement partition.",
+      );
+      return;
+    }
+    const randomSeed = Number(analysisPartitionResetRandomSeed);
+    if (
+      !Number.isInteger(randomSeed) ||
+      randomSeed < 0 ||
+      randomSeed > 2_147_483_647
+    ) {
+      setAnalysisPartitionResetFeedback(
+        "Random seed must be a whole number from 0 through 2,147,483,647.",
+      );
+      return;
+    }
+    const canonical = requireCanonicalDatasetIdentity(
+      activeDatasetIdentity,
+      "Analysis Partition split-change dataset identity",
+    );
+    if (!target) {
+      setAnalysisPartitionResetFeedback(
+        "The exact governed target must be current before changing the Analysis Partition.",
+      );
+      return;
+    }
+
+    setAnalysisPartitionResetFeedback(
+      "Rechecking the exact split-change impact before replacing membership...",
+    );
+    try {
+      const latestImpact = await readAnalysisPartitionResetImpact(canonical);
+      const latest = latestImpact.partition;
+      if (latestImpact.phase !== "ready" || !latest) {
+        setAnalysisPartitionResetImpact(latestImpact);
+        setAnalysisPartitionResetFeedback(latestImpact.message);
+        return;
+      }
+      if (
+        latest.analysis_partition_id !== baseline.analysis_partition_id ||
+        Number(latest.revision) !== Number(baseline.revision)
+      ) {
+        setAnalysisPartitionResetImpact(latestImpact);
+        setAnalysisPartitionResetHoldoutShare(
+          String(latest.holdout_share ?? PARTITION_DEFAULTS.holdoutShare),
+        );
+        setAnalysisPartitionResetRandomSeed(
+          String(latest.random_seed ?? PARTITION_DEFAULTS.randomSeed),
+        );
+        setAnalysisPartitionResetStratification(
+          latest.stratification_policy === "none" ? "none" : "target",
+        );
+        setAnalysisPartitionResetInvalidationAcknowledged(false);
+        setAnalysisPartitionResetFeedback(
+          "The current partition changed while this review was open. ATLAS refreshed the baseline; review the impacts and acknowledge them again.",
+        );
+        return;
+      }
+
+      const policy: AnalysisPartitionPolicy = {
+        developmentShare: Number((1 - holdoutShare).toFixed(10)),
+        holdoutShare,
+        randomSeed,
+        stratificationPolicy:
+          targetInfo.kind === "continuous"
+            ? "none"
+            : analysisPartitionResetStratification,
+      };
+      setAnalysisPartition((current) => ({
+        ...current,
+        phase: "confirming",
+        code: "analysis_partition_reset_confirming",
+        message:
+          "Replacing partition membership and invalidating downstream evidence...",
+      }));
+      const contract = await persistDataset(canonical);
+      const result = await resetAnalysisPartition(
+        canonical,
+        target,
+        eventValue,
+        nonEventValue,
+        contract,
+        policy,
+        targetInfo.kind === "continuous" ? "regression" : "classification",
+        resetPreviewFingerprint,
+        analysisPartitionResetReason,
+        latest,
+      );
+      setAnalysisPartition(result.readiness);
+      if (result.readiness.phase !== "current" || !result.readiness.partition) {
+        setAnalysisPartitionResetFeedback(
+          `${result.readiness.message} ${result.readiness.recovery}`.trim(),
+        );
+        return;
+      }
+
+      const replacement = result.readiness.partition;
+      const impacts = result.impacts.length
+        ? result.impacts
+        : latestImpact.impacts;
+      setConfirmedPartitionPredictorKey(selectedPredictorKey);
+      notifyReproducibilityContextConfirmed();
+      setAnalysisPartitionResetCompleted({
+        partitionId: String(replacement.analysis_partition_id),
+        previousRevision: Number(latest.revision),
+        revision: Number(replacement.revision),
+        impacts,
+      });
+      setAnalysisPartitionResetInvalidationAcknowledged(false);
+      setAnalysisPartitionResetFeedback(
+        "Split-ratio change confirmed. The replacement partition is current and sealed; every listed downstream artifact remains stale. No navigation or recomputation occurred.",
+      );
+      setMessage(result.readiness.message);
+      logDecision({
+        workflowStep: "Data Acquisition",
+        actionType: "workflow_setting_changed",
+        subject: "Analysis Partition split-ratio change",
+        previousValue: latest.analysis_partition_id,
+        newValue: replacement.analysis_partition_id,
+        systemRecommendation:
+          "Change the split only after reviewing the complete invalidation impact; keep the replacement final holdout sealed and recompute downstream evidence explicitly.",
+        followStatus: "followed",
+        userReason: analysisPartitionResetReason.trim(),
+      });
+    } catch (cause) {
+      const detail =
+        cause instanceof Error
+          ? cause.message
+          : "ATLAS could not complete the governed Analysis Partition split change.";
+      setAnalysisPartitionResetFeedback(detail);
+      setAnalysisPartition((current) => ({
+        ...current,
+        phase: "error",
+        code: "analysis_partition_reset_failed",
+        message: detail,
+        recovery:
+          "No automatic continuation occurred. Reload the exact impact and verify the current durable partition before retrying.",
+      }));
+    }
   }
 
   // `dataAcquisitionDisabledReason` no longer gates this page: progression is
@@ -1496,6 +3315,7 @@ export default function Step01DataAcquisition() {
           ? "border-emerald-200 bg-emerald-50 text-emerald-900"
           : "border-amber-200 bg-amber-50 text-amber-900";
   const updateTarget = (next: string) => {
+    markReproducibilityContextPending();
     logDecision({
       workflowStep: "Data Acquisition",
       actionType: "target_variable_selected",
@@ -1509,7 +3329,11 @@ export default function Step01DataAcquisition() {
     const localView = buildSelectedDatasetView({
       headers,
       rows: profilingRows,
-      selectedColumns: headers.filter((header) => header !== next && kept[header] !== false),
+      selectedColumns: headers.filter(
+        (header) =>
+          predictorIsEligible(header, { headers, rows: profilingRows, target: next }) &&
+          kept[header] !== false,
+      ),
       target: next || null,
     });
     saveLocalDataset({
@@ -1695,6 +3519,7 @@ export default function Step01DataAcquisition() {
       loadProgress={loadProgress}
       isLoaded={isAlreadyLinked(loadedLibraryIdentity, { datasetId: selectedLibraryDatasetId, versionId: selectedLibraryVersionId })}
       onDatasetChange={async (datasetId) => {
+        markReproducibilityContextPending();
         setSelectedLibraryDatasetId(datasetId);
         setSelectedLibraryVersionId("");
         setSelectedDatasetVersions([]);
@@ -1716,6 +3541,7 @@ export default function Step01DataAcquisition() {
         setLoadProgress(IDLE_LOAD_PROGRESS);
       }}
       onVersionChange={(versionId) => {
+        markReproducibilityContextPending();
         setSelectedLibraryVersionId(versionId);
         setLoadProgress(IDLE_LOAD_PROGRESS);
       }}
@@ -1845,35 +3671,176 @@ export default function Step01DataAcquisition() {
     />
   );
 
+  const governedIdentity = reproducibilityContext?.identity ?? null;
+  const governedTargetContract =
+    reproducibilityContext?.target_contract ?? null;
+  const governedPredictorAuthorization =
+    reproducibilityContext?.predictor_authorization ?? null;
+  const governedAnalysisPartition =
+    reproducibilityContext?.analysis_partition ?? null;
+  const reproducibilityContextIsCurrent =
+    reproducibilityContextPhase === "ready" &&
+    reproducibilityContext?.state === "current";
+  const developmentPopulationRows = optionalFiniteNumber(
+    governedAnalysisPartition?.development_rows,
+  );
+  const sealedHoldoutPopulationRows = optionalFiniteNumber(
+    governedAnalysisPartition?.sealed_holdout_rows,
+  );
+  const partitionSplitLabel =
+    reproducibilityContextIsCurrent &&
+    optionalFiniteNumber(governedAnalysisPartition?.development_share) != null &&
+    optionalFiniteNumber(governedAnalysisPartition?.holdout_share) != null
+      ? `${Math.round(Number(governedAnalysisPartition?.development_share) * 100)}/${Math.round(Number(governedAnalysisPartition?.holdout_share) * 100)} · sealed`
+      : reproducibilityContextPhase === "loading"
+        ? "Verifying"
+        : "Required";
+  const durablePredictorAuthorizationId = String(
+    governedPredictorAuthorization?.predictor_authorization_id ?? "",
+  ).trim();
+  const sectionNavItems = useMemo<DataAcquisitionSectionNavItem[]>(
+    () => [
+      {
+        id: "source-target",
+        label: "Source & Target",
+        state: activeDatasetIdentity && headers.length && target ? "complete" : "current",
+      },
+      {
+        id: "data-quality-readiness",
+        label: "Quality",
+        state: quality ? "complete" : headers.length ? "current" : "pending",
+      },
+      {
+        id: "credit-bureau-review",
+        label: "Special Values",
+        state: bureauReviewStatus?.blocking
+          ? "attention"
+          : bureauReviewStatus && !bureauReviewStatus.loading
+            ? "complete"
+            : headers.length
+              ? "current"
+              : "pending",
+        unresolvedCount: bureauReviewStatus?.unresolvedRequirements,
+      },
+      {
+        id: "predictor-authorization",
+        label: "Predictors",
+        state: durablePredictorAuthorizationId ? "complete" : target ? "current" : "pending",
+      },
+      {
+        id: "analysis-partition-readiness",
+        label: "Partition",
+        state: reproducibilityContextIsCurrent ? "complete" : activeDatasetIdentity && target ? "current" : "pending",
+      },
+      {
+        id: "code-lineage",
+        label: "Code & Lineage",
+        state: reproducibilityContextIsCurrent ? "complete" : "pending",
+      },
+    ],
+    [
+      activeDatasetIdentity,
+      bureauReviewStatus,
+      durablePredictorAuthorizationId,
+      headers.length,
+      quality,
+      reproducibilityContextIsCurrent,
+      target,
+    ],
+  );
+
   return (
     <StepShell
-      title="Step 1: Data Acquisition"
-      subtitle="Connect to governed sources, register the modeling population, confirm the target, assess data quality, approve predictors, and establish reproducible lineage."
+      title="Data Acquisition"
+      eyebrow="Predictive Modeling · Step 1 of 13 · Data Contract"
+      subtitle="Bind one exact governed dataset version, target contract, predictor authorization, and protected analysis population."
       variant="data"
       heroMetrics={[
-        { label: "Source Type", value: sourceCards.find((card) => card.id === sourceType)?.title ?? "Not selected" },
-        // Part C: registration is a fact about the Library asset, not about
-        // whether an upload filename exists.
-        { label: "Dataset", value: datasetLibraryLink?.datasetName || fileName || "Not selected", tone: "neutral" },
-        { label: "Registration", value: registrationLabel(acquisitionStatus.registrationState), tone: acquisitionStatus.registrationState === "registered" ? "success" : "neutral" },
-        { label: "Project link", value: projectLinkLabel(acquisitionStatus.linkState), tone: acquisitionStatus.linkState === "linked" ? "success" : "neutral" },
-        { label: "Load state", value: acquisitionStatus.loadLabel, tone: acquisitionStatus.loadTone },
-        { label: "Registered Rows", value: registeredRowCount ? registeredRowCount.toLocaleString() : "Not available" },
-        { label: "Columns", value: headers.length ? headers.length.toLocaleString() : "Not available" },
-        { label: "Target", value: target || "Not confirmed", tone: target ? "neutral" : "warning" },
-        // Part B: the same derivation the strip and checkpoint use.
-        { label: "Modeling Readiness", value: acquisitionStatus.readinessLabel, tone: acquisitionStatus.readinessTone },
-        { label: "Quality Review", value: acquisitionStatus.reviewLabel, tone: acquisitionStatus.reviewTone },
+        { label: "Dataset", value: governedIdentity?.dataset_name || "Backend confirmation pending" },
+        { label: "Exact Version", value: governedIdentity?.dataset_version_id || "Backend confirmation pending", tone: governedIdentity ? "success" : "warning" },
+        { label: "Eligible Population", value: governedIdentity?.governed_population_rows != null ? `${governedIdentity.governed_population_rows.toLocaleString()} rows` : "Backend confirmation pending" },
+        { label: "Source Columns", value: governedIdentity?.source_columns != null ? governedIdentity.source_columns.toLocaleString() : "Backend confirmation pending" },
+        { label: "Target", value: governedTargetContract ? `${governedTargetContract.target} · event ${String(governedTargetContract.event_value)}` : "Backend confirmation pending", tone: governedTargetContract ? "success" : "warning" },
+        { label: "Authorized Predictors", value: governedPredictorAuthorization ? `${governedPredictorAuthorization.funnel.authorized_predictor_count.toLocaleString()} current` : "Backend confirmation pending", tone: governedPredictorAuthorization ? "success" : "warning" },
+        { label: "Source Type", value: governedIdentity ? formatGovernedSourceType(governedIdentity.source_type) : "Backend confirmation pending" },
+        { label: "Registration", value: registrationLabel(acquisitionStatus.registrationState), tone: acquisitionStatus.registrationState === "registered" ? "success" : "warning" },
+        { label: "Project Link", value: projectLinkLabel(acquisitionStatus.linkState), tone: acquisitionStatus.linkState === "linked" ? "success" : "warning" },
+        { label: "Analysis Partition", value: partitionSplitLabel, tone: reproducibilityContextIsCurrent ? "success" : "warning" },
       ] satisfies AtlasWorkflowMetric[]}
+      heroAction={(
+        <DataContractStatusChips
+          registered={acquisitionStatus.registrationState === "registered"}
+          linked={acquisitionStatus.linkState === "linked"}
+          loaded={Boolean(governedIdentity)}
+          targetConfirmed={Boolean(governedTargetContract)}
+          predictorAuthorizationCurrent={Boolean(durablePredictorAuthorizationId)}
+          partitionCurrent={reproducibilityContextIsCurrent}
+        />
+      )}
+      showDeveloperTools={false}
       nextDisabled={!acquisitionStatus.canContinue}
       nextDisabledReason={acquisitionStatus.blockingReasons[0] ?? ""}
       nextLabel={acquisitionStatus.continueLabel}
       nextPath="/step02"
       onNext={async () => {
         await persistDataset();
+        const canonical = requireCanonicalDatasetIdentity(
+          activeDatasetIdentity,
+          "Analysis Partition navigation identity",
+        );
+        const refreshed = await readAnalysisPartitionReadiness(
+          canonical,
+          target,
+          eventValue,
+          nonEventValue,
+        );
+        setAnalysisPartition(refreshed);
+        if (refreshed.phase !== "current") {
+          throw new Error(
+            `${refreshed.message} ${refreshed.recovery}`.trim(),
+          );
+        }
+        setConfirmedPartitionPredictorKey(selectedPredictorKey);
       }}
     >
       <div className="space-y-5">
+        <DataAcquisitionSectionNav items={sectionNavItems} />
+
+        <div
+          className="grid gap-px overflow-hidden rounded-xl border border-slate-200 bg-slate-200 sm:grid-cols-2 xl:grid-cols-4"
+          data-testid="data-acquisition-scope-strip"
+          aria-label="Data population scopes"
+        >
+          <ScopeDatum label="Full governed population" value={governedIdentity?.governed_population_rows ?? null} tone="slate" />
+          <ScopeDatum label="Browser preview" value={previewRows.length || null} tone="blue" />
+          <ScopeDatum label="Development population" value={developmentPopulationRows ?? null} tone="indigo" />
+          <ScopeDatum label="Sealed final holdout" value={sealedHoldoutPopulationRows ?? null} tone="violet" />
+        </div>
+
+        {bureauReviewStatus?.blocking &&
+        !bureauReviewStatus.loading &&
+        !bureauReviewStatus.error ? (
+          <section
+            className="flex flex-col gap-3 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-amber-950 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+            role="status"
+            data-testid="special-value-attention-callout"
+          >
+            <div>
+              <div className="text-sm font-semibold">Special-value review requires attention</div>
+              <p className="mt-1 text-xs leading-5">
+                {bureauReviewStatus.totalVariables.toLocaleString()} bureau variable{bureauReviewStatus.totalVariables === 1 ? "" : "s"} detected · {bureauReviewStatus.unresolvedRequirements.toLocaleString()} treatment requirement{bureauReviewStatus.unresolvedRequirements === 1 ? "" : "s"} unresolved.
+              </p>
+            </div>
+            <button
+              type="button"
+              className="atlas-secondary-button shrink-0 border-amber-400 bg-white text-xs text-amber-950"
+              onClick={() => document.getElementById("credit-bureau-review")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            >
+              Go to Special-Value Review
+            </button>
+          </section>
+        ) : null}
+
         {reactivationRequired && workflowDatasetIdentity && (
           <section
             className="rounded-xl border-2 border-amber-400 bg-amber-50 p-4 text-amber-950 shadow-sm"
@@ -1924,52 +3891,13 @@ export default function Step01DataAcquisition() {
           </div>
         )}
 
-        {/* Part H2: every state below is derived from real workflow state. Amber
-            marks a warning the analyst can proceed past; red is reserved for a
-            genuine blocker. Each item carries a text detail so the track is
-            understandable without color. */}
-        <AtlasStatusStrip
-          items={[
-            { label: "Source selected", state: fileName || generatedMetadata ? "complete" : "current", detail: fileName || "Choose or configure a source" },
-            { label: "Import completed", state: headers.length ? "complete" : "pending", detail: headers.length ? `${headers.length.toLocaleString()} columns available` : "Awaiting source import" },
-            {
-              label: "Dataset registered or linked",
-              state: datasetLibraryLink?.datasetId ? "complete" : registeredRowCount && backendImportSynced ? "complete" : registeredRowCount ? "warning" : "pending",
-              detail: datasetLibraryLink?.datasetId
-                ? `Linked to ${datasetLibraryLink.datasetName ?? datasetLibraryLink.datasetId}`
-                : registeredRowCount
-                  ? `${registeredRowCount.toLocaleString()} modeling rows`
-                  : "No registered population",
-            },
-            { label: "Target confirmed", state: target ? "complete" : "pending", detail: target || "Select the governed outcome" },
-            {
-              label: "Quality reviewed",
-              // Review is a user action: "review required" is amber, never the
-              // red "blocked" that previously appeared beside a green "Ready".
-              state:
-                acquisitionStatus.readiness === "blocked"
-                  ? "blocked"
-                  : acquisitionStatus.reviewState === "completed"
-                    ? "complete"
-                    : acquisitionStatus.readiness === "unavailable"
-                      ? "pending"
-                      : "warning",
-              detail:
-                acquisitionStatus.readiness === "blocked"
-                  ? acquisitionStatus.blockingReasons[0] ?? "Blocked"
-                  : `${acquisitionStatus.readinessLabel} - ${acquisitionStatus.reviewLabel}`,
-            },
-            { label: "Predictors approved", state: selected.length ? "complete" : "pending", detail: selected.length ? `${selected.length.toLocaleString()} selected` : "Approve eligible inputs" },
-          ] satisfies AtlasStatusItem[]}
-        />
-
         {/* Part H6: the source-and-load command section carries a strong slate
             identity so the page reads as a sequence of sections rather than a
             uniform white sheet. */}
-        <section className="rounded-xl border-2 border-slate-400 bg-slate-100 p-5 shadow-sm" data-testid="source-command-section">
+        <section id="source-target" className="scroll-mt-24 rounded-xl border-2 border-slate-400 bg-slate-100 p-5 shadow-sm" data-testid="source-command-section">
           <div>
             <div className="text-[11px] font-bold uppercase tracking-wide text-slate-600">Source and load</div>
-            <h2 className="mt-1 text-base font-semibold text-slate-950">Source Selection, File Upload, and Target Setup</h2>
+            <h2 className="mt-1 text-base font-semibold text-slate-950">Source and Target</h2>
             <p className="mt-1 text-sm text-slate-700">Start here: load the source file and confirm the target column before reviewing summaries or downstream settings.</p>
           </div>
           <div className="mt-4 grid gap-3 md:grid-cols-5">
@@ -1998,9 +3926,15 @@ export default function Step01DataAcquisition() {
                 target={target}
                 setTarget={updateTarget}
                 eventValue={eventValue}
-                setEventValue={setEventValue}
+                setEventValue={(value) => {
+                  markReproducibilityContextPending();
+                  setEventValue(value);
+                }}
                 nonEventValue={nonEventValue}
-                setNonEventValue={setNonEventValue}
+                setNonEventValue={(value) => {
+                  markReproducibilityContextPending();
+                  setNonEventValue(value);
+                }}
                 problemType={targetInfo.kind === "continuous" ? "regression" : "classification"}
               />
             </div>
@@ -2101,32 +4035,12 @@ export default function Step01DataAcquisition() {
           </div>
         </section>
 
-        <CurrentDatasetSummary
-          fileName={fileName}
-          sourceType={sourceType}
-          target={target}
-          registeredRowCount={registeredRowCount}
-          previewRowCount={previewRows.length}
-          columnCount={headers.length}
-          selectedCount={selected.length}
-          browserDataComplete={completeBrowserDataset}
-          datasetVersion={activeDatasetIdentity?.dataset_version_id}
-          sourceKindLabel={DATASET_SOURCE_LABELS[datasetSourceKind]}
-        />
-
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)] xl:items-start">
           <DataPreview
             headers={headers}
             rows={previewRows}
-            target={target}
-            targetInfo={targetInfo}
-            targetSummary={continuousTargetSummary}
-            effectiveModelingRowCount={registeredRowCount}
+            governedPopulationRowCount={backendRowCount}
             previewRowCount={previewRows.length}
-            backendImportSynced={backendImportSynced}
-            eventRate={authoritativeEventRate.rate}
-            eventRateScopeLabel={EVENT_RATE_SCOPE_LABELS[authoritativeEventRate.scope]}
-            eventRateIsAuthoritative={authoritativeEventRate.isAuthoritative}
           />
         </section>
 
@@ -2140,25 +4054,17 @@ export default function Step01DataAcquisition() {
         >
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <div className="text-[11px] font-bold uppercase tracking-wide text-teal-700">Readiness checkpoint</div>
-              <h2 className="mt-1 text-base font-semibold text-teal-950">Data Quality & Modeling Readiness</h2>
-              <p className="mt-1 text-sm text-slate-700">Quality findings identify their actual profiling scope and registered row count.</p>
+              <div className="text-[11px] font-bold uppercase tracking-wide text-teal-700">Full-population structural review</div>
+              <h2 className="mt-1 text-base font-semibold text-teal-950">Data Quality</h2>
+              <p className="mt-1 text-sm text-slate-700">Review unique structural findings without repeating the governed dataset identity.</p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <ReadinessBadge status={acquisitionStatus} />
               <ProfileScopeBadge quality={quality} />
             </div>
           </div>
-          <ReadinessSummary
-            quality={quality}
-            readiness={readiness}
-            acquisitionStatus={acquisitionStatus}
-            registeredRowCount={registeredRowCount}
-            eventRateDisplay={formatEventRatePrecise(authoritativeEventRate.rate)}
-            eventRateScopeLabel={EVENT_RATE_SCOPE_LABELS[authoritativeEventRate.scope]}
-          />
           <div className="mt-4 rounded-xl border border-teal-200 bg-white p-4">
-            <DataQualityPanel quality={quality} metadata={generatedMetadata ?? metadata} />
+            <DataQualityPanel quality={quality} />
           </div>
         </section>
 
@@ -2167,14 +4073,16 @@ export default function Step01DataAcquisition() {
           eventValue={eventValue}
           enabled={!!headers.length && !!registeredRowCount}
           datasetIdentity={activeDatasetIdentity}
+          onReviewStatus={handleBureauReviewStatus}
         />
 
         {!!headers.length && (
-          <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <section id="predictor-authorization" className="scroll-mt-24 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between gap-3">
               <div>
-                <h2 className="text-base font-semibold text-slate-950">Variable Summary / Feature Selection</h2>
-                <p className="mt-1 text-sm text-slate-500">Review data types, missingness, distinct counts, and selected model inputs.</p>
+                <div className="text-[11px] font-bold uppercase tracking-wide text-blue-700">Predictor authorization</div>
+                <h2 className="mt-1 text-base font-semibold text-slate-950">Predictor Authorization and Variable Review</h2>
+                <p className="mt-1 text-sm text-slate-500">Reconcile source, exclusion, authorization, and analytical-evaluation scopes before reviewing the detailed variable table.</p>
               </div>
               <div className="flex flex-wrap items-center justify-end gap-2">
                 <label className="flex max-w-md items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950">
@@ -2216,7 +4124,7 @@ export default function Step01DataAcquisition() {
                 <button
                   className="rounded-lg border px-3 py-2 text-sm"
                   onClick={() => {
-                    const nextKept = Object.fromEntries(variableSummary.map((row) => [row.column, row.role === "eligible"]));
+                    const nextKept = Object.fromEntries(predictorVariableSummary.map((row) => [row.column, row.role === "eligible"]));
                     saveKeptSelection(nextKept);
                   }}
                 >
@@ -2233,6 +4141,15 @@ export default function Step01DataAcquisition() {
                 </button>
               </div>
             </div>
+            <PredictorAuthorizationFunnel
+              authorization={governedPredictorAuthorization}
+              contextPhase={reproducibilityContextPhase}
+              contextError={reproducibilityContextError}
+              evaluatedCount={
+                governedProfile.profile ? predictorCounts.evaluated : null
+              }
+              unavailable={predictorCounts.unavailable}
+            />
             {!weakSignalPlan.eligible && weakSignalPlan.blockedReason ? (
               <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-950" data-testid="weak-signal-blocked-reason">
                 {weakSignalPlan.blockedReason}
@@ -2261,9 +4178,7 @@ export default function Step01DataAcquisition() {
                   <span className="font-semibold text-slate-900" data-testid="predictors-evaluated">
                     {predictorCounts.evaluated} predictors evaluated
                   </span>
-                  <div className="text-slate-600" data-testid="target-exclusion-note">
-                    Target excluded from predictor IV{predictorCounts.targetExcluded ? ` (${predictorCounts.targetExcluded})` : ""}
-                  </div>
+                  <div className="text-slate-600">Development-population analytical coverage</div>
                 </div>
                 <div>
                   <span className="font-semibold text-amber-900" data-testid="unusually-strong-count">
@@ -2345,7 +4260,7 @@ export default function Step01DataAcquisition() {
                   </tr>
                 </thead>
                 <tbody>
-                  {variableSummary.map((row) => {
+                  {predictorVariableSummary.map((row) => {
                     const leakageRole = row.role === "eligible" ? "" : row.role;
                     const role = leakageRole || "Candidate Predictor";
                     return (
@@ -2453,16 +4368,896 @@ export default function Step01DataAcquisition() {
           </section>
         )}
 
+        {analysisPartitionResetMode ? (
+          <AnalysisPartitionResetWorkspace
+            impact={analysisPartitionResetImpact}
+            preview={analysisPartitionPreview}
+            readiness={analysisPartition}
+            holdoutShare={analysisPartitionResetHoldoutShare}
+            onHoldoutShare={(value) => {
+              markReproducibilityContextPending();
+              setAnalysisPartitionResetHoldoutShare(value);
+            }}
+            randomSeed={analysisPartitionResetRandomSeed}
+            onRandomSeed={setAnalysisPartitionResetRandomSeed}
+            stratificationPolicy={analysisPartitionResetStratification}
+            onStratificationPolicy={setAnalysisPartitionResetStratification}
+            reason={analysisPartitionResetReason}
+            onReason={setAnalysisPartitionResetReason}
+            invalidationAcknowledged={analysisPartitionResetInvalidationAcknowledged}
+            onInvalidationAcknowledged={setAnalysisPartitionResetInvalidationAcknowledged}
+            feedback={analysisPartitionResetFeedback}
+            completed={analysisPartitionResetCompleted}
+            canReset={Boolean(
+              activeDatasetIdentity &&
+                target &&
+                String(
+                  analysisPartitionResetImpact.partition
+                    ?.predictor_authorization_id ??
+                    analysisPartition.partition?.predictor_authorization_id ??
+                    "",
+                ).trim(),
+            )}
+            target={target}
+            problemType={targetInfo.kind === "continuous" ? "regression" : "classification"}
+            onConfirm={() => void confirmGovernedAnalysisPartitionReset()}
+            onExit={leaveAnalysisPartitionResetMode}
+          />
+        ) : (
+          <AnalysisPartitionWorkspace
+            readiness={analysisPartition}
+            holdoutShare={analysisPartitionHoldoutShare}
+            onHoldoutShare={(value) => {
+              markReproducibilityContextPending();
+              setAnalysisPartitionHoldoutShare(value);
+              setAnalysisPartitionRationale("");
+            }}
+            preview={analysisPartitionPreview}
+            rationale={analysisPartitionRationale}
+            onRationale={setAnalysisPartitionRationale}
+            onConfirm={() => void confirmRecommendedAnalysisPartition()}
+            onCompleteDocumentation={() => void retryAnalysisPartitionDocumentation()}
+            canConfirm={Boolean(
+              activeDatasetIdentity && target && selected.length,
+            )}
+            target={target}
+            problemType={targetInfo.kind === "continuous" ? "regression" : "classification"}
+            projectId={projectId}
+          />
+        )}
+
         {!!headers.length && (
-          <section className="space-y-4">
-            <h2 className="text-base font-semibold text-slate-950">Data Lineage</h2>
-            <div className="mt-4 grid gap-4">
+          <section id="code-lineage" className="scroll-mt-24 space-y-4">
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-wide text-slate-600">Data Lineage and Reproducibility</div>
+              <h2 className="mt-1 text-base font-semibold text-slate-950">Code &amp; Lineage</h2>
+              <p className="mt-1 text-sm text-slate-600">Inspect governed provenance and copy exact backend-confirmed Python, SAS, or metadata context.</p>
+            </div>
+            <div className="grid gap-4">
               <LineagePanel metadata={generatedMetadata ?? metadata} />
+              <StepPythonPanel />
             </div>
           </section>
         )}
       </div>
     </StepShell>
+  );
+}
+
+function AnalysisPartitionResetWorkspace(props: {
+  impact: AnalysisPartitionResetImpactState;
+  preview: AnalysisPartitionPreview;
+  readiness: AnalysisPartitionReadiness;
+  holdoutShare: string;
+  onHoldoutShare: (value: string) => void;
+  randomSeed: string;
+  onRandomSeed: (value: string) => void;
+  stratificationPolicy: "target" | "none";
+  onStratificationPolicy: (value: "target" | "none") => void;
+  reason: string;
+  onReason: (value: string) => void;
+  invalidationAcknowledged: boolean;
+  onInvalidationAcknowledged: (value: boolean) => void;
+  feedback: string;
+  completed: {
+    partitionId: string;
+    previousRevision: number;
+    revision: number;
+    impacts: string[];
+  } | null;
+  canReset: boolean;
+  target: string;
+  problemType: "classification" | "regression";
+  onConfirm: () => void;
+  onExit: () => void;
+}) {
+  const busy =
+    props.impact.phase === "loading" ||
+    props.readiness.phase === "confirming";
+  const baseline = props.impact.partition;
+  const holdoutShare = Number(props.holdoutShare);
+  const developmentShare = Number.isFinite(holdoutShare)
+    ? 1 - holdoutShare
+    : Number.NaN;
+  const canSubmit =
+    props.impact.phase === "ready" &&
+    Boolean(baseline) &&
+    props.preview.phase === "ready" &&
+    props.preview.blockers.length === 0 &&
+    Boolean(props.preview.previewFingerprint) &&
+    props.canReset &&
+    props.reason.trim().length > 0 &&
+    props.invalidationAcknowledged &&
+    !props.completed &&
+    !busy;
+  const displayedImpacts = props.completed?.impacts.length
+    ? props.completed.impacts
+    : props.impact.impacts;
+  const formatPercent = (value: unknown) => {
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? `${(numeric * 100).toFixed(0)}%` : "Unavailable";
+  };
+
+  return (
+    <section
+      id="analysis-partition-readiness"
+      data-testid="analysis-partition-reset-workspace"
+      data-reset-mode="explicit"
+      data-downstream-status={props.completed ? "stale" : "unchanged"}
+      className="overflow-hidden rounded-xl border-2 border-amber-500 bg-white shadow-[0_14px_34px_rgba(180,83,9,0.14)]"
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3 bg-gradient-to-r from-amber-800 to-orange-700 px-5 py-4 text-white">
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-100">
+            Governed split-ratio change
+          </div>
+          <h2 className="mt-1 text-lg font-semibold">Change Split Ratio</h2>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-amber-50">
+            Review the impact before authorizing a new partition revision. The current partition remains sealed and unchanged until explicit confirmation succeeds.
+          </p>
+        </div>
+        <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 text-xs font-bold text-amber-950">
+          {props.completed
+            ? "Ratio changed · downstream stale"
+            : busy
+              ? "Loading governed impact"
+              : "Explicit confirmation required"}
+        </span>
+      </div>
+
+      <div className="space-y-5 p-5">
+        <div
+          className={`rounded-lg border px-4 py-3 text-sm ${
+            props.impact.phase === "error"
+              ? "border-red-300 bg-red-50 text-red-950"
+              : "border-amber-300 bg-amber-50 text-amber-950"
+          }`}
+          role={props.impact.phase === "error" ? "alert" : "status"}
+        >
+          <div className="font-semibold">
+            {props.impact.message || "Loading the split-change impact for the exact current partition..."}
+          </div>
+          {baseline ? (
+            <dl className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div><dt className="text-xs font-semibold uppercase tracking-wide">Current partition</dt><dd className="mt-1 break-all font-mono text-xs">{baseline.analysis_partition_id}</dd></div>
+              <div><dt className="text-xs font-semibold uppercase tracking-wide">Current revision</dt><dd className="mt-1 font-semibold">{baseline.revision}</dd></div>
+              <div><dt className="text-xs font-semibold uppercase tracking-wide">Current holdout</dt><dd className="mt-1 font-semibold">{formatPercent(baseline.holdout_share)}</dd></div>
+              <div><dt className="text-xs font-semibold uppercase tracking-wide">Current policy</dt><dd className="mt-1 font-semibold">Seed {baseline.random_seed ?? "Unavailable"} · {baseline.stratification_policy === "none" ? "Not stratified" : `Stratified by ${baseline.stratification_field ?? props.target}`}</dd></div>
+            </dl>
+          ) : null}
+        </div>
+
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+          <h3 className="text-sm font-semibold text-red-950">Change impact · dependent artifacts become stale</h3>
+          <p className="mt-1 text-xs leading-5 text-red-900">
+            ATLAS does not delete the prior sealed holdout. It preserves that revision for audit and invalidates dependent evidence before any work can be recomputed against the replacement.
+          </p>
+          {displayedImpacts.length ? (
+            <ul className="mt-3 list-disc space-y-1.5 pl-5 text-xs leading-5 text-red-950" data-testid="analysis-partition-reset-impacts">
+              {displayedImpacts.map((impact) => <li key={impact}>{impact}</li>)}
+            </ul>
+          ) : (
+            <p className="mt-3 text-xs font-semibold text-red-900">
+              No change can be submitted until the durable impact list loads.
+            </p>
+          )}
+        </div>
+
+        <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-semibold text-slate-950">Choose the proposed split ratio</h3>
+              <p className="mt-1 text-xs leading-5 text-slate-600">
+                ATLAS offers the same governed standard choices used when a new partition is created. Seed and stratification remain fixed to the current sealed policy.
+              </p>
+            </div>
+            <span className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs font-semibold text-slate-700">
+              Proposed development {Number.isFinite(developmentShare) ? formatPercent(developmentShare) : "Unavailable"}
+            </span>
+          </div>
+          <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(260px,1fr)_minmax(0,2fr)]">
+            <label className="text-xs font-semibold text-slate-700">
+              Development / Final Holdout Split
+              <select
+                data-testid="analysis-partition-reset-holdout-share"
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-950"
+                value={props.holdoutShare}
+                disabled={busy || Boolean(props.completed)}
+                onChange={(event) => props.onHoldoutShare(event.target.value)}
+              >
+                {INITIAL_HOLDOUT_OPTIONS.map((holdoutShare) => (
+                  <option key={holdoutShare} value={holdoutShare}>
+                    {Math.round((1 - holdoutShare) * 100)}% Development / {Math.round(holdoutShare * 100)}% Final Holdout
+                    {holdoutShare === PARTITION_DEFAULTS.holdoutShare ? " (Recommended)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <dl className="grid gap-2 sm:grid-cols-2">
+              <SummaryDatum label="Fixed random seed" value={baseline?.random_seed ?? props.randomSeed} />
+              <SummaryDatum label="Fixed stratification" value={baseline?.stratification_policy === "none" ? "Not stratified" : `Target · ${baseline?.stratification_field ?? props.target}`} />
+              <SummaryDatum label="Current partition ID" value={baseline?.analysis_partition_id ?? "Unavailable"} mono />
+              <SummaryDatum label="Current revision" value={baseline?.revision ?? "Unavailable"} />
+            </dl>
+          </div>
+          <div className="mt-4 rounded-lg border border-indigo-200 bg-white p-4" data-testid="analysis-partition-reset-preview">
+            <div className="flex items-center justify-between gap-3">
+              <div className="text-xs font-bold uppercase tracking-wide text-indigo-700">Backend-authoritative preview</div>
+              <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-semibold text-slate-700">
+                {props.preview.phase === "loading" ? "Calculating" : props.preview.phase}
+              </span>
+            </div>
+            {props.preview.phase === "ready" ? (
+              <>
+                <dl className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                  <SummaryDatum label="Eligible rows" value={props.preview.totalEligibleRows?.toLocaleString() ?? "Unavailable"} />
+                  <SummaryDatum label="Development rows" value={props.preview.developmentRows?.toLocaleString() ?? "Unavailable"} />
+                  <SummaryDatum label="Final holdout rows" value={props.preview.holdoutRows?.toLocaleString() ?? "Unavailable"} />
+                  <SummaryDatum label="Sufficiency" value={props.preview.recommendationStatus ?? "Unavailable"} />
+                </dl>
+                <MessageList title="Warnings" items={props.preview.warnings} tone="amber" />
+                <MessageList title="Blockers" items={props.preview.blockers} tone="red" />
+              </>
+            ) : (
+              <p className="mt-2 text-xs leading-5 text-slate-600">{props.preview.message}</p>
+            )}
+          </div>
+        </div>
+
+        <label className="block text-xs font-semibold text-slate-700">
+          Required analyst rationale
+          <textarea
+            rows={3}
+            data-testid="analysis-partition-reset-reason"
+            className="mt-1 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-950"
+            value={props.reason}
+            disabled={busy || Boolean(props.completed)}
+            onChange={(event) => props.onReason(event.target.value)}
+            placeholder="Explain why new partition membership is required and why invalidating downstream evidence is justified."
+          />
+        </label>
+
+        <label className="flex items-start gap-3 rounded-lg border border-red-300 bg-red-50 p-4 text-sm leading-6 text-red-950">
+          <input
+            className="mt-1"
+            type="checkbox"
+            data-testid="analysis-partition-reset-invalidation-acknowledgement"
+            checked={props.invalidationAcknowledged}
+            disabled={busy || Boolean(props.completed) || props.impact.phase !== "ready"}
+            onChange={(event) => props.onInvalidationAcknowledged(event.target.checked)}
+          />
+          <span>
+            I reviewed every impact above and authorize ATLAS to mark EDA, preprocessing, feature, validation, training, evaluation, interpretation, and promotion artifacts stale when the replacement partition is created.
+          </span>
+        </label>
+
+        {props.feedback ? (
+          <div
+            className={`rounded-lg border px-4 py-3 text-sm ${
+              props.completed
+                ? "border-emerald-300 bg-emerald-50 text-emerald-950"
+                : "border-amber-300 bg-amber-50 text-amber-950"
+            }`}
+            role={props.completed ? "status" : "alert"}
+          >
+            {props.feedback}
+          </div>
+        ) : null}
+
+        {props.completed ? (
+          <div
+            className="rounded-xl border-2 border-emerald-400 bg-emerald-50 p-4 text-emerald-950"
+            data-testid="analysis-partition-reset-result"
+            data-readiness="current"
+            data-final-holdout="sealed"
+            data-holdout-isolation="verified"
+            data-downstream-status="stale"
+          >
+            <div className="flex items-center gap-2 text-sm font-semibold"><ShieldCheck size={17} /> Durable replacement verified</div>
+            <dl className="mt-3 grid gap-3 sm:grid-cols-3">
+              <div><dt className="text-xs font-semibold uppercase tracking-wide">Previous revision</dt><dd className="mt-1 font-semibold">{props.completed.previousRevision}</dd></div>
+              <div><dt className="text-xs font-semibold uppercase tracking-wide">New positive revision</dt><dd className="mt-1 font-semibold">{props.completed.revision}</dd></div>
+              <div><dt className="text-xs font-semibold uppercase tracking-wide">New partition</dt><dd className="mt-1 break-all font-mono text-xs">{props.completed.partitionId}</dd></div>
+            </dl>
+            <p className="mt-3 text-xs leading-5" data-testid="analysis-partition-downstream-stale">
+              The replacement is current, the final holdout is sealed, and isolation is verified. Downstream artifacts remain stale; ATLAS did not continue, rebuild, or navigate automatically.
+            </p>
+          </div>
+        ) : null}
+
+        <div className="flex flex-wrap justify-end gap-3 border-t border-slate-200 pt-4">
+          <button
+            type="button"
+            className="atlas-secondary-button"
+            onClick={props.onExit}
+            disabled={busy}
+          >
+            {props.completed ? "Close change review · stay on Data Acquisition" : "Cancel change · keep current partition"}
+          </button>
+          {!props.completed ? (
+            <button
+              type="button"
+              data-testid="confirm-analysis-partition-reset"
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-red-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-55"
+              disabled={!canSubmit}
+              onClick={props.onConfirm}
+            >
+              {props.readiness.phase === "confirming" ? <Loader2 size={16} className="animate-spin" /> : <ShieldCheck size={16} />}
+              Create New Split Revision
+            </button>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function AnalysisPartitionWorkspace(props: {
+  readiness: AnalysisPartitionReadiness;
+  holdoutShare: number;
+  onHoldoutShare: (value: number) => void;
+  preview: AnalysisPartitionPreview;
+  rationale: string;
+  onRationale: (value: string) => void;
+  onConfirm: () => void;
+  onCompleteDocumentation: () => void;
+  canConfirm: boolean;
+  target: string;
+  problemType: "classification" | "regression";
+  projectId: string;
+}) {
+  const current = props.readiness.phase === "current";
+  const documentationPending =
+    props.readiness.phase === "documentation_pending" ||
+    props.readiness.phase === "documenting";
+  const partitionPresent = current || documentationPending;
+  const busy =
+    props.readiness.phase === "checking" ||
+    props.readiness.phase === "confirming" ||
+    props.readiness.phase === "documenting";
+  const partition = props.readiness.partition;
+  const proposedPolicy = initialAnalysisPartitionPolicy(
+    props.holdoutShare,
+    props.problemType,
+  );
+  const statusClass = current
+    ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+    : props.readiness.phase === "error"
+      ? "border-red-300 bg-red-50 text-red-900"
+      : "border-amber-300 bg-amber-50 text-amber-950";
+  const previewBlocked = props.preview.recommendationStatus === "blocked" || props.preview.blockers.length > 0;
+  const previewEvidenceComplete = analysisPartitionPreviewHasRequiredEvidence(
+    props.preview,
+    props.problemType,
+  );
+  const canCreate = props.canConfirm && !busy && previewEvidenceComplete && !previewBlocked && (!props.preview.rationaleRequired || Boolean(props.rationale.trim()));
+  const createdBy = recordOrEmpty(partition?.created_by);
+  const createdByLabel = String(createdBy.display_name ?? createdBy.user_id ?? partition?.created_by ?? partition?.actor_user_id ?? "Unavailable");
+  const developmentRows = optionalFiniteNumber(partition?.development_rows ?? partition?.development_count);
+  const holdoutRows = optionalFiniteNumber(partition?.sealed_holdout_rows ?? partition?.holdout_rows ?? partition?.holdout_count);
+  const evidenceId = String(partition?.evidence_id ?? partition?.evidence_ref ?? partition?.partition_evidence_id ?? "");
+  const previewStatusLabel = String(props.preview.recommendationStatus ?? "pending").replace(/_/g, " ");
+  const targetQuantiles = Object.entries(props.preview.targetQuantiles ?? {});
+  const targetBandCoverage = recordOrEmpty(props.preview.targetBandCoverage);
+  const extremeValueCoverage = recordOrEmpty(props.preview.extremeValueCoverage);
+  const targetBandCoverageLabel =
+    optionalFiniteNumber(targetBandCoverage.represented_bands) != null &&
+    optionalFiniteNumber(targetBandCoverage.total_bands) != null
+      ? `${Number(targetBandCoverage.represented_bands).toLocaleString()} of ${Number(targetBandCoverage.total_bands).toLocaleString()} bands (${formatPercent(targetBandCoverage.coverage_rate)})`
+      : "Unavailable";
+  const extremeCoverageAvailable =
+    typeof extremeValueCoverage.low_extreme_represented === "boolean" &&
+    typeof extremeValueCoverage.high_extreme_represented === "boolean";
+  const extremeCoverageLabel = extremeCoverageAvailable
+    ? [
+        `Low extreme ${extremeValueCoverage.low_extreme_represented === true ? "represented" : "not represented"}`,
+        `High extreme ${extremeValueCoverage.high_extreme_represented === true ? "represented" : "not represented"}`,
+      ].join(" · ")
+    : "Unavailable";
+  const splitRatioLabel =
+    optionalFiniteNumber(partition?.development_share) != null &&
+    optionalFiniteNumber(partition?.holdout_share) != null
+      ? `${Math.round(Number(partition?.development_share) * 100)}% development / ${Math.round(Number(partition?.holdout_share) * 100)}% final holdout`
+      : "Split ratio unavailable";
+
+  return (
+    <section
+      className="overflow-hidden rounded-xl border-2 border-indigo-400 bg-white shadow-[0_14px_34px_rgba(79,70,229,0.12)]"
+      data-testid="analysis-partition-readiness"
+      data-partition-phase={props.readiness.phase}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3 bg-gradient-to-r from-indigo-800 to-blue-700 px-5 py-4 text-white">
+        <div>
+          <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-indigo-100">
+            Required before EDA
+          </div>
+          <h2 className="mt-1 text-lg font-semibold">Reserve Development and Final Evaluation Populations</h2>
+          <p className="mt-1 max-w-3xl text-xs leading-5 text-indigo-100">
+            Assign every eligible observation to a modeling role before target-aware EDA can influence predictor selection, feature engineering, binning, transformations, tuning, candidate ranking, or threshold selection.
+          </p>
+        </div>
+        <span className={`rounded-full border px-3 py-1 text-xs font-bold ${statusClass}`}>
+          {current
+            ? "Current · holdout sealed"
+            : documentationPending
+              ? props.readiness.phase === "documenting"
+                ? "Completing documentation"
+                : "Documentation pending"
+              : busy
+                ? "Checking"
+                : "Confirmation required"}
+        </span>
+      </div>
+
+      <div className="space-y-4 p-5">
+        <div className="grid gap-3 lg:grid-cols-2">
+          <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-xs leading-5 text-blue-950">
+            <div className="font-bold uppercase tracking-wide text-blue-700">Development population</div>
+            <p className="mt-1">Used for EDA, preparation and feature decisions, cross-validation, tuning, and candidate ranking.</p>
+          </div>
+          <div className="rounded-lg border border-violet-200 bg-violet-50 p-4 text-xs leading-5 text-violet-950">
+            <div className="font-bold uppercase tracking-wide text-violet-700">Sealed final holdout</div>
+            <p className="mt-1">Opened only after the candidate is locked, to estimate unseen-observation performance using ROC-AUC, PR-AUC, KS, calibration, lift, gain, confusion-matrix and threshold-specific metrics, and business impact.</p>
+          </div>
+        </div>
+        <p className="text-xs leading-5 text-slate-600">This partition does not change the eligible modeling population. It creates one durable role assignment for every eligible observation and prevents the final holdout from influencing development decisions.</p>
+
+        <div className={`rounded-lg border px-4 py-3 text-sm ${statusClass}`} role={props.readiness.phase === "error" ? "alert" : "status"}>
+          <div className="flex items-start gap-2">
+            {current ? <ShieldCheck size={18} className="mt-0.5 shrink-0" aria-hidden="true" /> : <AlertTriangleIcon />}
+            <div>
+              <div className="font-semibold">{props.readiness.message}</div>
+              {!current ? <p className="mt-1 text-xs leading-5">{props.readiness.recovery}</p> : null}
+              {partition?.analysis_partition_id ? (
+                <dl className="mt-2 grid gap-x-5 gap-y-1 text-xs sm:grid-cols-2 xl:grid-cols-4">
+                  <div><dt className="font-semibold">Partition ID</dt><dd className="break-all font-mono">{partition.analysis_partition_id}</dd></div>
+                   <div><dt className="font-semibold">Development partition</dt><dd className="break-all font-mono">{partition.development_partition_id ?? "Unavailable"}</dd></div>
+                   <div><dt className="font-semibold">Final holdout partition</dt><dd className="break-all font-mono">{partition.sealed_holdout_partition_id ?? "Unavailable"}</dd></div>
+                   <div><dt className="font-semibold">Revision</dt><dd>{partition.revision ?? "Unavailable"}</dd></div>
+                </dl>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4 rounded-lg border border-indigo-200 bg-indigo-50 p-4">
+          {partitionPresent ? (
+            <div
+              className="space-y-3"
+              data-testid={current ? "current-analysis-partition-summary" : "sealed-analysis-partition-summary"}
+              data-documentation-readiness={current ? "current" : "documentation_pending"}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className={`text-[10px] font-bold uppercase tracking-wide ${current ? "text-emerald-700" : "text-amber-700"}`}>
+                    {current ? "Analysis Partition Current" : "Sealed Partition · Documentation Pending"}
+                  </div>
+                  <div className="mt-1 text-sm font-semibold text-emerald-950">
+                    {splitRatioLabel}
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {documentationPending ? (
+                    <button
+                      type="button"
+                      data-testid="complete-analysis-partition-documentation"
+                      className="inline-flex items-center justify-center gap-2 rounded-lg bg-amber-700 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-55"
+                      disabled={busy}
+                      onClick={props.onCompleteDocumentation}
+                    >
+                      {props.readiness.phase === "documenting" ? (
+                        <Loader2 size={15} className="animate-spin" aria-hidden="true" />
+                      ) : (
+                        <ShieldCheck size={15} aria-hidden="true" />
+                      )}
+                      Complete Partition Documentation
+                    </button>
+                  ) : null}
+                  {evidenceId ? (
+                    <Link to={`/model-evidence-center?evidenceId=${encodeURIComponent(evidenceId)}`} className="atlas-secondary-button text-xs">View Partition Evidence</Link>
+                  ) : (
+                    <span className="rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-500" aria-disabled="true">Partition evidence unavailable</span>
+                  )}
+                  <Link to={`${projectWorkflowRoute(props.projectId, "/step01")}?analysisPartition=reset`} className="atlas-secondary-button text-xs" data-testid="open-analysis-partition-reset">Change Split Ratio</Link>
+                </div>
+              </div>
+              <dl className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                <SummaryDatum label="Partition ID" value={partition?.analysis_partition_id ?? "Unavailable"} mono />
+                <SummaryDatum label="Revision" value={partition?.revision ?? "Unavailable"} />
+                <SummaryDatum label="Development rows" value={developmentRows == null ? "Unavailable" : developmentRows.toLocaleString()} />
+                <SummaryDatum label="Final holdout rows" value={holdoutRows == null ? "Unavailable" : holdoutRows.toLocaleString()} />
+                <SummaryDatum label="Partition method" value={partition?.partition_method ?? "Unavailable"} />
+                <SummaryDatum label="Random seed" value={partition?.random_seed ?? "Unavailable"} />
+                <SummaryDatum label="Stratification" value={partition?.stratification_policy === "target" ? `Target · ${partition?.stratification_field ?? "field unavailable"}` : partition?.stratification_policy ?? "Unavailable"} />
+                <SummaryDatum label="Seal status" value={partition?.final_holdout_status ?? "Unavailable"} />
+                <SummaryDatum label="Created by" value={createdByLabel} />
+                <SummaryDatum label="Created at" value={partition?.created_at ?? "Unavailable"} />
+                <SummaryDatum label="Evidence" value={evidenceId || partition?.evidence_status || "Unavailable"} mono={Boolean(evidenceId)} />
+                <SummaryDatum label="MDD status" value={partition?.mdd_status ?? "Unavailable"} />
+              </dl>
+              {documentationPending ? (
+                <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-950" data-testid="analysis-partition-documentation-pending-note">
+                  Evidence and MDD read-back must complete before EDA. This retry reuses the exact partition ID, revision, assignment hash, and artifact hash; it never redraws membership or opens the final holdout.
+                </div>
+              ) : null}
+              <p className={`text-xs leading-5 ${current ? "text-emerald-800" : "text-amber-900"}`}>A split-ratio change requires impact review, rationale, optimistic concurrency validation, and a new durable revision.</p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+            <label className="block text-xs font-semibold text-indigo-950">
+              Development / Final Holdout Split
+              <select
+                data-testid="analysis-partition-holdout-ratio"
+                className="mt-1 w-full rounded-lg border border-indigo-300 bg-white px-3 py-2.5 text-sm font-semibold text-slate-950"
+                value={proposedPolicy.holdoutShare}
+                disabled={busy || !props.canConfirm}
+                onChange={(event) => props.onHoldoutShare(Number(event.target.value))}
+              >
+                {INITIAL_HOLDOUT_OPTIONS.map((holdoutShare) => (
+                  <option key={holdoutShare} value={holdoutShare}>
+                    {analysisPartitionOptionLabel(holdoutShare)}
+                  </option>
+                ))}
+              </select>
+            </label>
+              <div className="grid gap-2 md:grid-cols-3" aria-label="Split option guidance">
+                {INITIAL_HOLDOUT_OPTIONS.map((holdoutShare) => (
+                  <div key={holdoutShare} className={`rounded-lg border p-3 text-left text-xs leading-5 ${holdoutShare === proposedPolicy.holdoutShare ? "border-indigo-500 bg-white ring-2 ring-indigo-200" : "border-indigo-200 bg-indigo-50/60"}`} aria-current={holdoutShare === proposedPolicy.holdoutShare ? "true" : undefined}>
+                    <span className="block font-semibold text-indigo-950">{analysisPartitionOptionLabel(holdoutShare)}</span>
+                    <span className="mt-1 block text-indigo-800">{analysisPartitionOptionGuidance(holdoutShare)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {!partitionPresent ? (
+            <div className="rounded-lg border border-indigo-200 bg-white p-4" data-testid="analysis-partition-preview">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-xs font-bold uppercase tracking-wide text-indigo-700">Backend preview</div>
+                <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold ${previewBlocked ? "bg-red-100 text-red-800" : props.preview.phase === "ready" ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-700"}`}>
+                  {props.preview.phase === "loading" ? "Calculating" : previewStatusLabel}
+                </span>
+              </div>
+              {props.preview.phase === "ready" ? (
+                <>
+                  <dl className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                    <SummaryDatum label="Eligible rows" value={props.preview.totalEligibleRows?.toLocaleString() ?? "Unavailable"} />
+                    <SummaryDatum label="Development rows" value={props.preview.developmentRows?.toLocaleString() ?? "Unavailable"} />
+                    <SummaryDatum label="Final holdout rows" value={props.preview.holdoutRows?.toLocaleString() ?? "Unavailable"} />
+                    <SummaryDatum label="Method" value={props.preview.partitionMethod || "Unavailable"} />
+                    <SummaryDatum label="Random seed" value={props.preview.randomSeed ?? "Unavailable"} />
+                    <SummaryDatum label="Stratification" value={props.problemType === "regression" ? "Not stratified" : props.preview.stratificationField || "Unavailable"} />
+                    <SummaryDatum label="Sufficiency" value={props.preview.sufficiency?.overall_status ?? "Unavailable"} />
+                    <SummaryDatum label="Policy" value={[props.preview.sufficiency?.policy_id, props.preview.sufficiency?.policy_version].filter(Boolean).join(" ") || "Unavailable"} />
+                  </dl>
+                  {props.problemType === "classification" ? (
+                    <dl className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                      <SummaryDatum label="Development events" value={props.preview.developmentEventCount?.toLocaleString() ?? "Unavailable"} />
+                      <SummaryDatum label="Development non-events" value={props.preview.developmentNonEventCount?.toLocaleString() ?? "Unavailable"} />
+                      <SummaryDatum label="Holdout events" value={props.preview.holdoutEventCount?.toLocaleString() ?? "Unavailable"} />
+                      <SummaryDatum label="Holdout non-events" value={props.preview.holdoutNonEventCount?.toLocaleString() ?? "Unavailable"} />
+                      <SummaryDatum label="Development event rate" value={formatPercent(props.preview.developmentEventRate)} />
+                      <SummaryDatum label="Holdout event rate" value={formatPercent(props.preview.holdoutEventRate)} />
+                      <SummaryDatum label="Full-population event rate" value={formatPercent(props.preview.fullPopulationEventRate)} />
+                      <SummaryDatum label="Absolute event-rate difference" value={formatPercent(props.preview.absoluteEventRateDifference)} />
+                    </dl>
+                  ) : (
+                    <>
+                      <dl className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                        <SummaryDatum label="Target minimum" value={props.preview.targetMinimum ?? "Unavailable"} />
+                        <SummaryDatum label="Target maximum" value={props.preview.targetMaximum ?? "Unavailable"} />
+                        <SummaryDatum label="Target mean" value={props.preview.targetMean ?? "Unavailable"} />
+                        <SummaryDatum label="Target standard deviation" value={props.preview.targetStandardDeviation ?? "Unavailable"} />
+                        <SummaryDatum label="Target-band coverage" value={targetBandCoverageLabel} />
+                        <SummaryDatum label="Extreme-value coverage" value={extremeCoverageLabel} />
+                        {targetQuantiles.map(([quantile, value]) => (
+                          <SummaryDatum key={quantile} label={`Target quantile ${quantile}`} value={value} />
+                        ))}
+                      </dl>
+                    </>
+                  )}
+                  {props.preview.recommendationRationale ? <p className="mt-3 text-xs leading-5 text-slate-700">{props.preview.recommendationRationale}</p> : null}
+                  <MessageList title="Warnings" items={props.preview.warnings} tone="amber" />
+                  <MessageList title="Blockers" items={props.preview.blockers} tone="red" />
+                </>
+              ) : <p className="mt-2 text-xs leading-5 text-slate-600">{props.preview.message || "Select a ratio to calculate the governed preview."}</p>}
+              {props.preview.rationaleRequired ? (
+                <label className="mt-3 block text-xs font-semibold text-indigo-950">
+                  Selection rationale required by policy
+                  <textarea className="mt-1 min-h-24 w-full rounded-lg border border-indigo-300 bg-white px-3 py-2 text-sm font-normal text-slate-950" data-testid="analysis-partition-selection-rationale" value={props.rationale} onChange={(event) => props.onRationale(event.target.value)} placeholder="Explain why this ratio is appropriate for the governed modeling objective." />
+                </label>
+              ) : null}
+            </div>
+          ) : null}
+          {!partitionPresent ? (
+          <button
+            type="button"
+            data-testid="create-analysis-partition"
+            className="inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-indigo-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-800 disabled:cursor-not-allowed disabled:opacity-55"
+            disabled={!canCreate}
+            onClick={props.onConfirm}
+          >
+            {props.readiness.phase === "confirming" ? (
+              <Loader2 size={16} className="animate-spin" aria-hidden="true" />
+            ) : (
+              <ShieldCheck size={16} aria-hidden="true" />
+            )}
+            Create &amp; Seal Analysis Partition
+          </button>
+          ) : null}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SummaryDatum(props: { label: string; value: unknown; mono?: boolean }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-white px-3 py-2 text-xs">
+      <dt className="font-semibold text-slate-500">{props.label}</dt>
+      <dd className={`mt-1 break-all font-semibold text-slate-900 ${props.mono ? "font-mono" : ""}`}>{String(props.value ?? "Unavailable")}</dd>
+    </div>
+  );
+}
+
+function MessageList(props: { title: string; items: string[]; tone: "amber" | "red" }) {
+  if (!props.items.length) return null;
+  const toneClass = props.tone === "red" ? "border-red-200 bg-red-50 text-red-900" : "border-amber-200 bg-amber-50 text-amber-900";
+  return (
+    <div className={`mt-3 rounded-md border px-3 py-2 text-xs ${toneClass}`}>
+      <div className="font-semibold">{props.title}</div>
+      <ul className="mt-1 list-disc space-y-1 pl-4">{props.items.map((item) => <li key={item}>{item}</li>)}</ul>
+    </div>
+  );
+}
+
+function AlertTriangleIcon() {
+  return (
+    <span className="mt-0.5 inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full border border-current text-[11px] font-bold" aria-hidden="true">
+      !
+    </span>
+  );
+}
+
+function DataContractStatusChips(props: {
+  registered: boolean;
+  linked: boolean;
+  loaded: boolean;
+  targetConfirmed: boolean;
+  predictorAuthorizationCurrent: boolean;
+  partitionCurrent: boolean;
+}) {
+  const items = [
+    ["Registered", props.registered],
+    ["Linked", props.linked],
+    ["Version loaded", props.loaded],
+    ["Target confirmed", props.targetConfirmed],
+    ["Predictor authorization", props.predictorAuthorizationCurrent],
+    ["Partition current", props.partitionCurrent],
+  ] as const;
+  return (
+    <div className="grid min-w-[190px] gap-1.5" aria-label="Data Contract status" data-testid="data-contract-status-chips">
+      {items.map(([label, complete]) => (
+        <span
+          key={label}
+          className={`inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[10px] font-semibold ${
+            complete
+              ? "border-emerald-300/60 bg-emerald-300/15 text-emerald-50"
+              : "border-amber-300/60 bg-amber-300/15 text-amber-50"
+          }`}
+          data-contract-status={complete ? "current" : "pending"}
+        >
+          {complete ? <Check size={12} aria-hidden="true" /> : <span className="h-2 w-2 rounded-full bg-current" aria-hidden="true" />}
+          {label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function ScopeDatum({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number | null;
+  tone: "slate" | "blue" | "indigo" | "violet";
+}) {
+  const toneClass = {
+    slate: "text-slate-950",
+    blue: "text-blue-950",
+    indigo: "text-indigo-950",
+    violet: "text-violet-950",
+  } as const;
+  return (
+    <div className="bg-white px-4 py-3">
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
+      <div className={`mt-1 text-sm font-bold tabular-nums ${toneClass[tone]}`}>
+        {value == null ? "Pending" : `${value.toLocaleString()} rows`}
+      </div>
+    </div>
+  );
+}
+
+function formatGovernedSourceType(value: string) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "Registered dataset";
+  return normalized
+    .replaceAll("_", " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function PredictorAuthorizationFunnel({
+  authorization,
+  contextPhase,
+  contextError,
+  evaluatedCount,
+  unavailable,
+}: {
+  authorization: ReproducibilityPredictorAuthorization | null;
+  contextPhase: "idle" | "loading" | "pending" | "ready" | "error";
+  contextError: string;
+  evaluatedCount: number | null;
+  unavailable: Array<{ predictor: string; reason: string }>;
+}) {
+  if (!authorization) {
+    const message =
+      contextPhase === "error"
+        ? contextError || "ATLAS could not verify the predictor authorization."
+        : contextPhase === "loading"
+          ? "Verifying the exact backend predictor authorization..."
+          : "Confirm the exact dataset version, target mapping, and predictor selection to publish this funnel.";
+    return (
+      <div
+        className={`mt-4 rounded-xl border px-4 py-3 text-sm ${
+          contextPhase === "error"
+            ? "border-rose-300 bg-rose-50 text-rose-950"
+            : "border-amber-300 bg-amber-50 text-amber-950"
+        }`}
+        data-testid="predictor-authorization-funnel-pending"
+        role={contextPhase === "error" ? "alert" : "status"}
+      >
+        <div className="font-semibold">Backend-authoritative funnel pending</div>
+        <p className="mt-1 text-xs leading-5">{message}</p>
+      </div>
+    );
+  }
+
+  const { funnel } = authorization;
+  const stages = [
+    {
+      label: "Source columns",
+      value: funnel.source_column_count.toLocaleString(),
+      note: "Exact registered schema",
+      testId: "funnel-source-columns",
+    },
+    {
+      label: "Candidate predictors",
+      value: funnel.candidate_predictor_count.toLocaleString(),
+      note: "After target exclusion",
+      testId: "funnel-candidate-predictors",
+    },
+    {
+      label: "Analyst-selected",
+      value: funnel.selected_predictor_count.toLocaleString(),
+      note: "Submitted to authorization",
+      testId: "funnel-selected-predictors",
+    },
+    {
+      label: "Authorized predictors",
+      value: funnel.authorized_predictor_count.toLocaleString(),
+      note: "Current governed contract",
+      testId: "funnel-authorized-predictors",
+    },
+    {
+      label: "Analytically evaluated",
+      value: evaluatedCount == null ? "Pending" : evaluatedCount.toLocaleString(),
+      note: "Development-population evidence",
+      testId: "funnel-evaluated-predictors",
+    },
+    {
+      label: "Model-ready predictors",
+      value: "Not established here",
+      note: "Established by training preflight",
+      testId: "funnel-model-ready-predictors",
+    },
+  ];
+  const deterministic = authorization.deterministic_source_exclusions;
+  const additional = Object.entries(funnel.additional_exclusions);
+
+  return (
+    <div
+      className="mt-4 rounded-xl border border-blue-200 bg-blue-50/60 p-4"
+      data-testid="predictor-authorization-funnel"
+      data-predictor-authorization-id={authorization.predictor_authorization_id}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="text-xs font-bold uppercase tracking-wide text-blue-800">
+            Backend-authoritative Predictor Authorization Funnel
+          </div>
+          <p className="mt-1 text-xs leading-5 text-slate-600">
+            Every count has a named scope. Browser selections cannot replace this exact governed contract.
+          </p>
+        </div>
+        <span className="rounded-full border border-blue-300 bg-white px-2.5 py-1 font-mono text-[10px] text-blue-950">
+          {authorization.predictor_authorization_id}
+        </span>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+        {stages.map((stage, index) => (
+          <div key={stage.label} className="relative rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+            {index > 0 ? (
+              <span className="absolute -left-2 top-1/2 hidden -translate-y-1/2 text-slate-400 xl:block" aria-hidden="true">
+                →
+              </span>
+            ) : null}
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{stage.label}</div>
+            <div className="mt-1 text-base font-bold text-slate-950" data-testid={stage.testId}>{stage.value}</div>
+            <div className="mt-0.5 text-[10px] leading-4 text-slate-600">{stage.note}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-3 grid gap-2 lg:grid-cols-3">
+        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5" data-testid="funnel-target-exclusions">
+          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Target exclusion</div>
+          {funnel.target_exclusions.length ? funnel.target_exclusions.map((item) => (
+            <div key={item.field} className="mt-1 text-xs text-slate-800">
+              <span className="font-mono font-semibold">{item.field}</span>: {item.reason}
+            </div>
+          )) : <div className="mt-1 text-xs text-amber-800">Exact target exclusion pending.</div>}
+        </div>
+        <div className="rounded-lg border border-violet-200 bg-white px-3 py-2.5" data-testid="funnel-deterministic-exclusions">
+          <div className="text-[10px] font-bold uppercase tracking-wide text-violet-700">Deterministic-source exclusions</div>
+          {deterministic.length ? deterministic.map((field) => (
+            <div key={field} className="mt-1 text-xs text-slate-800">
+              <span className="font-mono font-semibold">{field}</span>: {authorization.excluded_fields[field] || "Deterministic source of the modeling target"}
+            </div>
+          )) : (
+            <div className="mt-1 text-xs text-slate-600">
+              None in the current contract · scope {authorization.target_source_detection_scope || "not reported"}
+            </div>
+          )}
+        </div>
+        <div className="rounded-lg border border-slate-200 bg-white px-3 py-2.5">
+          <div className="text-[10px] font-bold uppercase tracking-wide text-slate-500">Remaining differences</div>
+          <div className="mt-1 text-xs text-slate-700">
+            {additional.length.toLocaleString()} additional authorization exclusion{additional.length === 1 ? "" : "s"} · {unavailable.length.toLocaleString()} analytically unavailable
+          </div>
+          {additional.length || unavailable.length ? (
+            <details className="mt-1 text-xs text-slate-700">
+              <summary className="cursor-pointer font-semibold text-blue-800">View exact fields and reasons</summary>
+              <ul className="mt-1 list-disc space-y-1 pl-4">
+                {additional.map(([field, reason]) => <li key={`excluded-${field}`}><span className="font-mono">{field}</span>: {reason}</li>)}
+                {unavailable.map((item) => <li key={`unavailable-${item.predictor}`}><span className="font-mono">{item.predictor}</span>: {item.reason}</li>)}
+              </ul>
+            </details>
+          ) : <div className="mt-1 text-xs text-emerald-700">No unexplained difference remains.</div>}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -2479,47 +5274,6 @@ function UploadPanel({ fileName, onFile }: { fileName: string; onFile: (file: Fi
         <span className="text-sm text-slate-600">{fileName || "No file selected"}</span>
       </div>
     </div>
-  );
-}
-
-function CurrentDatasetSummary(props: {
-  fileName: string;
-  sourceType: DataSourceType;
-  target: string;
-  registeredRowCount: number;
-  previewRowCount: number;
-  columnCount: number;
-  selectedCount: number;
-  browserDataComplete: boolean;
-  datasetVersion?: string;
-  sourceKindLabel: string;
-}) {
-  return (
-    <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-base font-semibold text-slate-950">Current Dataset Summary</h2>
-      <p className="mt-1 text-sm text-slate-500">Registered modeling data and governed selection state.</p>
-      {/* Part E: modeling rows, browser preview rows, and source type are named
-          explicitly so the preview limit is never mistaken for the modeling
-          population. */}
-      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <Stat label="Dataset" value={props.fileName || "Source metadata only"} />
-        <Stat label="Source Type" value={props.sourceKindLabel} />
-        <Stat label="Modeling Rows" value={props.registeredRowCount} />
-        <Stat label="Browser Preview Rows" value={props.previewRowCount} />
-        <Stat label="Dataset Columns" value={props.columnCount} />
-        <Stat label="Target" value={props.target || "Not selected"} />
-        <Stat label="Selected Predictors" value={props.selectedCount} />
-        {/* Part C: an absent version id means none is SELECTED. It never means
-            the Library asset is unregistered. */}
-        <Stat label="Dataset Version" value={props.datasetVersion || "Not selected"} />
-      </div>
-      <p className="mt-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-900" data-testid="modeling-vs-preview-note">
-        {props.registeredRowCount.toLocaleString()} rows are available for backend modeling.{" "}
-        {props.browserDataComplete
-          ? "The browser holds the complete dataset."
-          : `Only ${props.previewRowCount.toLocaleString()} rows are loaded for the browser preview; the preview limit does not reduce the modeling population.`}
-      </p>
-    </section>
   );
 }
 
@@ -2555,45 +5309,40 @@ function DatasetPersistenceCard(props: {
   // does not exist, and invited the analyst to re-register their own source.
   if (props.persistenceMode === "registered-status") {
     return (
-      <section className="mt-5 rounded-xl border-2 border-emerald-300 bg-emerald-50 p-5 shadow-sm" data-testid="dataset-persistence-card" data-persistence-mode="registered-status">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <div className="text-[11px] font-bold uppercase tracking-wide text-emerald-700">Dataset persistence</div>
-            <h2 className="mt-1 flex items-center gap-2 text-base font-semibold text-emerald-950">
-              <ShieldCheck size={16} aria-hidden="true" />
-              Registered Dataset Library Asset
-            </h2>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-700">
-              This project is linked to {props.libraryLink?.datasetName ?? "this dataset"}, version{" "}
-              <span className="font-mono">{props.libraryLink?.versionId ?? "unknown"}</span>. The source asset remains in the
-              Dataset Library if this project is deleted.
-            </p>
-          </div>
-          <span className="rounded-full border border-emerald-300 bg-white px-3 py-1 text-xs font-semibold text-emerald-800" data-testid="already-linked-badge">
-            Already linked
+      <details
+        className="mt-5 rounded-xl border border-emerald-300 bg-emerald-50/70"
+        data-testid="dataset-persistence-card"
+        data-persistence-mode="registered-status"
+      >
+        <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600">
+          <span className="flex min-w-0 items-center gap-2 text-sm font-semibold text-emerald-950">
+            <ShieldCheck size={16} aria-hidden="true" />
+            Registered and linked to this project
           </span>
+          <span className="text-xs font-semibold text-emerald-800">View dataset provenance</span>
+        </summary>
+        <div className="border-t border-emerald-200 bg-white p-4">
+          <dl className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <SummaryDatum label="Dataset ID" value={props.libraryLink?.datasetId ?? "Unavailable"} mono />
+            <SummaryDatum label="Version ID" value={props.libraryLink?.versionId ?? "Unavailable"} mono />
+            <SummaryDatum label="Owner" value={props.assetOwner || "Unavailable"} />
+            <SummaryDatum label="Source type" value={props.sourceKindLabel} />
+            <SummaryDatum label="Registration" value="Dataset Library" />
+            <SummaryDatum label="Project link" value="Current" />
+          </dl>
+          <p className="mt-3 text-xs leading-5 text-slate-600">
+            The immutable source version remains in Dataset Library if this project is deleted. ATLAS does not offer duplicate registration for an already governed asset.
+          </p>
+          {props.libraryLink?.datasetId ? (
+            <Link
+              className="mt-3 inline-flex rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-semibold text-emerald-900"
+              to={`/datasets/${props.libraryLink.datasetId}`}
+            >
+              Open in Dataset Library
+            </Link>
+          ) : null}
         </div>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          <Stat label="Dataset ID" value={props.libraryLink?.datasetId ?? "-"} />
-          <Stat label="Version ID" value={props.libraryLink?.versionId ?? "-"} />
-          <Stat label="Owner" value={props.assetOwner || "-"} />
-          <Stat label="Linked project status" value="Linked to this project" />
-          <Stat label="Source type" value={props.sourceKindLabel} />
-          <Stat label="Registration status" value="Registered in Dataset Library" />
-        </div>
-        <p className="mt-3 text-xs leading-5 text-slate-600">
-          Registration is not offered for a source asset that is already registered, so the same asset cannot be duplicated
-          or its immutable version overwritten from this page.
-        </p>
-        {props.libraryLink?.datasetId && (
-          <Link
-            className="mt-3 inline-block rounded-lg border border-emerald-300 bg-white px-3 py-2 text-xs font-semibold text-emerald-900"
-            to={`/datasets/${props.libraryLink.datasetId}`}
-          >
-            Open in Dataset Library
-          </Link>
-        )}
-      </section>
+      </details>
     );
   }
 
@@ -3028,14 +5777,6 @@ function ExistingDatasetPanel({
         <DatasetLoadProgressPanel progress={loadProgress} />
       </div>
 
-      {selectedDataset && (
-        <div className="mt-4 grid gap-3 md:grid-cols-4">
-          <Stat label="Library Dataset" value={selectedDataset.name} />
-          <Stat label="Rows" value={selectedDataset.latestVersion?.rowCount ?? "-"} />
-          <Stat label="Columns" value={selectedDataset.latestVersion?.columnCount ?? "-"} />
-          <Stat label="Owner" value={selectedDataset.ownerDisplayName || selectedDataset.ownerUserId || "-"} />
-        </div>
-      )}
       {!libraryDatasets.length && (
         <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
           No reusable datasets are registered yet. Open Dataset Library to upload or register governed datasets.
@@ -3077,75 +5818,20 @@ function PythonPanel({ pythonCode, setPythonCode }: { pythonCode: string; setPyt
 function DataPreview(props: {
   headers: string[];
   rows: Record<string, unknown>[];
-  target: string;
-  targetInfo: { kind: "none" | "binary" | "continuous"; eventRate: number | null };
-  targetSummary: { mean: number; median: number; std: number; min: number; max: number } | null;
-  effectiveModelingRowCount: number;
+  governedPopulationRowCount: number | null;
   previewRowCount: number;
-  backendImportSynced: boolean;
-  /** Part F: authoritative event rate plus the population it describes. */
-  eventRate: number | null;
-  eventRateScopeLabel: string;
-  eventRateIsAuthoritative: boolean;
 }) {
+  const hasGovernedPopulation =
+    Number.isFinite(props.governedPopulationRowCount) &&
+    Number(props.governedPopulationRowCount) >= 0;
   return (
-    <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <div>
-        <div>
-          <h2 className="text-base font-semibold text-slate-950">Data Preview</h2>
-          <p className="mt-1 text-sm text-slate-500">Configured browser preview rows. Preview settings do not alter the registered modeling population.</p>
-        </div>
-      </div>
-      {!!props.headers.length && (
-        <div className={`mt-5 rounded-xl border px-4 py-4 text-sm shadow-sm ${props.target ? "border-blue-200 bg-blue-50 text-blue-900" : "border-amber-200 bg-amber-50 text-amber-900"}`}>
-          <div className="text-sm font-semibold">Target profile</div>
-          <p className="mt-2 text-xs leading-5">
-            {props.target
-              ? `Selected ${props.target}. Detected target type: ${props.targetInfo.kind}.`
-              : "Select the dependent variable in Target Setup before continuing to EDA and model training."}
-          </p>
-          {props.targetInfo.kind === "binary" && props.eventRate !== null && props.eventRate > 0 && props.eventRate < 0.01 && (
-            <div className="mt-3 rounded-lg border border-amber-300 bg-amber-100 px-3 py-2 text-xs leading-5 text-amber-950">
-              <span className="font-semibold">Rare-event target detected:</span> event rate is {formatEventRate(props.eventRate)}.
-              Use PR-AUC, recall, lift, KS, and calibration in addition to ROC-AUC; accuracy will be misleading.
-            </div>
-          )}
-          {props.targetInfo.kind === "binary" && !props.eventRateIsAuthoritative && (
-            <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950" data-testid="preview-only-event-rate-warning">
-              The event rate below is derived from the browser preview only and can under-report rare events. Full-population
-              profiling supplies the authoritative rate once the backend profile is available.
-            </p>
-          )}
-        </div>
-      )}
-      <div className="mt-5 grid gap-3 md:grid-cols-4">
-        <Stat label="Modeling Rows" value={props.effectiveModelingRowCount} />
-        <Stat label="Browser Preview Rows" value={props.previewRowCount} />
-        <Stat label="Columns" value={props.headers.length} />
-        <Stat label="Target Type" value={props.targetInfo.kind} />
-        {props.targetInfo.kind === "continuous" ? (
-          <>
-            <Stat label="Target Mean" value={formatNumber(props.targetSummary?.mean)} />
-            <Stat label="Target Median" value={formatNumber(props.targetSummary?.median)} />
-            <Stat label="Target Std Dev" value={formatNumber(props.targetSummary?.std)} />
-            <Stat label="Target Min / Max" value={`${formatNumber(props.targetSummary?.min)} / ${formatNumber(props.targetSummary?.max)}`} />
-          </>
-        ) : (
-          // Part F: the authoritative full-population rate, explicitly scoped. The
-          // previous implementation computed this from the ~100-row browser preview,
-          // which reported 0.00% for a genuinely 0.21% rare-event target.
-          <Stat
-            label={`Event Rate (${props.eventRateScopeLabel})`}
-            value={formatEventRate(props.eventRate)}
-            testId="target-profile-event-rate"
-          />
-        )}
-      </div>
-      {props.backendImportSynced && (
-        <div className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs leading-5 text-emerald-900">
-          Backend import is active. ATLAS cached {props.previewRowCount.toLocaleString()} rows for the browser preview while preserving {props.effectiveModelingRowCount.toLocaleString()} rows for backend modeling.
-        </div>
-      )}
+    <section className="min-w-0 rounded-xl border border-slate-200 bg-white p-5 shadow-sm" data-testid="data-preview">
+      <h2 className="text-base font-semibold text-slate-950">Data Preview</h2>
+      <p className="mt-1 text-sm text-slate-600" data-testid="browser-preview-scope-note">
+        {hasGovernedPopulation
+          ? `Showing ${props.previewRowCount.toLocaleString()} browser preview rows from a governed population of ${Number(props.governedPopulationRowCount).toLocaleString()}. Preview limits do not change backend modeling scope.`
+          : `Showing ${props.previewRowCount.toLocaleString()} browser preview rows from the current unregistered workspace. Backend modeling scope is not governed until registration and exact-version activation succeed.`}
+      </p>
       <div className="mt-4 max-h-[360px] overflow-auto rounded-lg border border-slate-200">
         <table className="min-w-full text-xs">
           <thead className="sticky top-0 bg-slate-50 text-slate-500">
@@ -3159,7 +5845,7 @@ function DataPreview(props: {
   );
 }
 
-function DataQualityPanel({ quality, metadata }: { quality: DataQualitySummary | null; metadata: DataAccessMetadata | null }) {
+function DataQualityPanel({ quality }: { quality: DataQualitySummary | null }) {
   if (!quality) return <div className="atlas-empty-state text-sm text-slate-600">Quality profiling has not been generated.</div>;
   const actualOr = (values: string[], empty = "None detected") => values.length ? values.join(", ") : empty;
   return (
@@ -3170,17 +5856,6 @@ function DataQualityPanel({ quality, metadata }: { quality: DataQualitySummary |
           <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">{quality.warnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
         </div>
       )}
-      <div>
-        <h3 className="atlas-section-title">Dataset identity and scope</h3>
-        <div className="mt-3 grid gap-3 md:grid-cols-4">
-          <Stat label="Registered rows" value={quality.registeredRowCount ?? quality.rowCount} />
-          <Stat label="Profiled rows" value={quality.profiledRowCount ?? quality.rowCount} />
-          <Stat label="Columns" value={quality.columnCount} />
-          <Stat label="Memory estimate" value={`${quality.memoryEstimateMb.toFixed(2)} MB`} />
-          {metadata?.accessMetadataId && <Stat label="Access snapshot" value={metadata.accessMetadataId} />}
-          {(quality.datasetHash || metadata?.hash) && <Stat label="Dataset hash" value={quality.datasetHash ?? metadata?.hash ?? ""} />}
-        </div>
-      </div>
       {/* Part D: the five findings groups are visually separated and semantically
           toned -- green when a check is clean, amber when it needs attention. Grey
           is reserved for genuinely neutral information. */}
@@ -3200,12 +5875,9 @@ function DataQualityPanel({ quality, metadata }: { quality: DataQualitySummary |
           <QualityLine label="Outlier prevalence" value={quality.outlierPrevalence.length ? quality.outlierPrevalence.slice(0, 5).map((row) => `${row.column} ${formatPercent(row.percent)}`).join(", ") : "None detected"} />
           <QualityLine label="Legitimate date ranges" value={quality.dateRanges.length ? quality.dateRanges.map((row) => `${row.column}: ${row.min} to ${row.max}`).join(", ") : "None detected"} />
         </QualityGroup>
-        <QualityGroup title="Leakage and target health" tone={quality.potentialLeakageColumns.length ? "warning" : "success"}>
+        <QualityGroup title="Leakage screening" tone={quality.potentialLeakageColumns.length ? "warning" : "success"}>
           <QualityLine label="Potential leakage candidates" value={actualOr(quality.potentialLeakageColumns)} />
-          {/* Rare-event-safe precision: formatEventRate keeps two significant digits
-              below 1%, so a genuine 0.21% rate never renders as 0.00%. */}
-          <QualityLine label="Event rate" value={formatEventRate(quality.classBalance?.eventRate)} />
-          <QualityLine label="Majority class" value={formatEventRate(quality.classBalance?.majorityClassPercent)} />
+          <QualityLine label="Special-value handling" value="Reviewed separately in the governed Special-Value Treatment workspace" />
         </QualityGroup>
       </div>
     </div>
@@ -3237,13 +5909,6 @@ function QualityGroup({
   );
 }
 
-const readinessBadgeClass: Record<ReadinessStatus, string> = {
-  ready: "border-emerald-300 bg-emerald-100 text-emerald-900",
-  ready_with_warnings: "border-amber-300 bg-amber-100 text-amber-900",
-  review_required: "border-amber-400 bg-amber-100 text-amber-950",
-  blocked: "border-red-300 bg-red-100 text-red-900",
-};
-
 /**
  * Lifecycle badge for the readiness checkpoint.
  *
@@ -3273,74 +5938,6 @@ function ReadinessBadge({ status }: { status: DataAcquisitionStatus }) {
   );
 }
 
-/**
- * Part H4: concise readiness reveal shown above the detailed findings. Every
- * value is read straight from the current authoritative profiling result -- there
- * are no placeholder or animated-from-zero numbers, so the summary is correct
- * the first time it paints and stays readable with motion disabled.
- */
-function ReadinessSummary({
-  quality,
-  readiness,
-  acquisitionStatus,
-  registeredRowCount,
-  eventRateDisplay,
-  eventRateScopeLabel,
-}: {
-  quality: DataQualitySummary | null;
-  /** FINDINGS ONLY. Its `.status` is never rendered as a lifecycle state. */
-  readiness: { status: ReadinessStatus; reasons: string[] };
-  acquisitionStatus: DataAcquisitionStatus;
-  registeredRowCount: number;
-  eventRateDisplay: string;
-  eventRateScopeLabel: string;
-}) {
-  if (!quality) {
-    return (
-      <p className="mt-4 rounded-lg border border-teal-200 bg-white px-3 py-2 text-sm text-slate-600" data-testid="readiness-summary">
-        Load a dataset and confirm a target to generate the readiness profile.
-      </p>
-    );
-  }
-  const columnsWithMissing = quality.missing.filter((row) => row.percent > 0).length;
-  const facts: { label: string; value: string; tone: "info" | "warning" | "success" }[] = [
-    { label: "Modeling rows", value: registeredRowCount.toLocaleString(), tone: "info" },
-    { label: "Columns", value: quality.columnCount.toLocaleString(), tone: "info" },
-    { label: "Duplicate rows", value: quality.duplicateRows.toLocaleString(), tone: quality.duplicateRows ? "warning" : "success" },
-    { label: "Columns with missing values", value: columnsWithMissing.toLocaleString(), tone: columnsWithMissing ? "warning" : "success" },
-    { label: "Leakage candidates", value: quality.potentialLeakageColumns.length.toLocaleString(), tone: quality.potentialLeakageColumns.length ? "warning" : "success" },
-    { label: `Event rate (${eventRateScopeLabel})`, value: eventRateDisplay, tone: "info" },
-  ];
-  const toneClass = {
-    info: "border-blue-200 text-blue-900",
-    warning: "border-amber-300 text-amber-900",
-    success: "border-emerald-200 text-emerald-900",
-  } as const;
-
-  return (
-    <div className="mt-4" data-testid="readiness-summary">
-      {/* Part A closure: the lifecycle sentence comes from the shared model.
-          `readiness` below contributes FINDINGS ONLY. */}
-      <div className="text-sm font-semibold text-teal-950" data-testid="readiness-summary-status">
-        Analytical readiness: {acquisitionStatus.readinessLabel} - User review: {acquisitionStatus.reviewLabel}
-      </div>
-      <div className="mt-2 grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
-        {facts.map((fact) => (
-          <div key={fact.label} className={`rounded-lg border bg-white px-3 py-2 ${toneClass[fact.tone]}`}>
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{fact.label}</div>
-            <div className="mt-0.5 text-sm font-semibold">{fact.value}</div>
-          </div>
-        ))}
-      </div>
-      {readiness.reasons.length > 0 && (
-        <ul className="mt-3 list-disc space-y-1 pl-5 text-xs leading-5 text-slate-700" data-testid="readiness-reasons">
-          {readiness.reasons.map((reason) => <li key={reason}>{reason}</li>)}
-        </ul>
-      )}
-    </div>
-  );
-}
-
 function ProfileScopeBadge({ quality }: { quality: DataQualitySummary | null }) {
   const label = !quality
     ? "Not Generated"
@@ -3357,7 +5954,7 @@ function ProfileScopeBadge({ quality }: { quality: DataQualitySummary | null }) 
 function LineagePanel({ metadata }: { metadata: DataAccessMetadata | null }) {
   return (
     <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
-      <h2 className="text-base font-semibold text-slate-950">Data Lineage</h2>
+      <h3 className="text-sm font-semibold text-slate-950">Governed lineage</h3>
       <div className="mt-4 flex flex-wrap items-center gap-2 text-sm">
         {(metadata?.lineage ?? ["Source not captured"]).map((item, index, arr) => (
           <span key={`${item}-${index}`} className="flex items-center gap-2">

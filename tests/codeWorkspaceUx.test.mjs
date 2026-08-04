@@ -13,10 +13,10 @@ assert.equal(packageJson.scripts["test:code-workspace"], "node tests/codeWorkspa
 // --- CODE-DATAACQ-001: honest capability -----------------------------------
 
 assert.doesNotMatch(panel, /supportBadge: "Executable"/, "Python must not be hard-coded as Executable.");
-assert.match(panel, /supportBadge: pythonBadge/, "The Python badge must come from backend capability.");
+assert.match(panel, /: pythonBadge,/, "Non-Data-Acquisition Python capability must still come from the backend.");
 assert.match(panel, /fetchPythonCapability\(\)/, "Capability must be fetched from the backend.");
 assert.match(codeExecution, /\/python\/capability/, "A dedicated capability endpoint must be called.");
-assert.match(panel, /canRun: pythonRunnable && Boolean\(pythonDraft\.trim\(\)\)/, "Run Python must be disabled when the runtime is unavailable.");
+assert.match(panel, /workflowRoute !== "\/step01" && pythonRunnable && Boolean\(pythonDraft\.trim\(\)\)/, "Data Acquisition metadata code must not execute, and other pages must still require runtime availability.");
 assert.match(panel, /const pythonRunnable = pythonCapability\?\.available === true/, "Runnability must require explicit backend availability.");
 // Every state the brief requires must be representable.
 for (const state of ["Runtime not configured", "Runtime misconfigured", "Runtime disabled", "Checking runtime"]) {
@@ -36,12 +36,13 @@ const pythonGenerator = panel.slice(
 assert.doesNotMatch(pythonGenerator, /path\/to\//, "Generated executable Python must contain no placeholder path.");
 assert.doesNotMatch(pythonGenerator, /dataset-library-export/, "The unresolvable export placeholder must be gone.");
 assert.doesNotMatch(pythonGenerator, /Path\(/, "Generated Python must not construct a dataset path at all.");
-assert.match(panel, /ATLAS provides df from the authorized project dataset and version/, "Generated code must document the governed runtime contract.");
-assert.match(panel, /Runtime objects: df, TARGET, SELECTED_FEATURES, ATLAS_DATASET_PATH/, "The runtime contract must be stated in generated code.");
-// The governed identity is sent with every run so the server resolves the artifact.
-assert.match(panel, /datasetId: activeDatasetIdentity\?\.dataset_id \?\? ""/, "datasetId must travel with the execution request.");
-assert.match(panel, /versionId: activeDatasetIdentity\?\.dataset_version_id \?\? ""/, "versionId must travel with the execution request.");
-assert.match(panel, /selectedFeatures: activeDataset\?\.selected_columns \?\? \[\]/, "Selected features must travel with the request.");
+assert.match(panel, /buildDataAcquisitionPythonContext/, "Data Acquisition Python must use the exact backend-confirmed generator.");
+assert.match(panel, /fetchDataAcquisitionReproducibilityContext/, "Data Acquisition must fetch one exact backend context.");
+assert.match(panel, /Generated code is withheld until the backend confirms/, "Unconfirmed changes must withhold stale code.");
+// The exact backend identity is used for the Data Acquisition request context.
+assert.match(panel, /datasetId: currentReproducibilityContext\.identity\.dataset_id/, "Exact datasetId must travel with any supported request.");
+assert.match(panel, /versionId: currentReproducibilityContext\.identity\.dataset_version_id/, "Exact versionId must travel with any supported request.");
+assert.match(panel, /\.authorized_predictors/, "Backend-authorized predictors must drive the exact context.");
 
 // --- Runtime contract shown above the editor -------------------------------
 
@@ -54,11 +55,15 @@ assert.match(panel, /SELECTED_FEATURES \(approved predictor list\)/, "SELECTED_F
 assert.doesNotMatch(panel, /reg_train/, "The frontend must never reference a regression-era default table.");
 assert.match(panel, /function sasDatasetName\(\)/, "A single SAS table identity helper must exist.");
 assert.match(panel, /CODE-DATAACQ-003/, "The SAS identity rule should be documented at its source.");
+assert.match(panel, /function sasColumnReference\(value: string\)/, "SAS column references need one injection-safe formatter.");
+assert.match(panel, /normalized\.replace\(\/'\/g, "''"\)/, "SAS name literals must double embedded quotes.");
+assert.match(panel, /numericCandidates\.map\(sasColumnReference\)/, "Every generated SAS predictor reference must be safely formatted.");
+assert.doesNotMatch(panel, /tables \$\{target\}|var \$\{numericCandidates\.join/, "Raw governed column names must never be interpolated into SAS statements.");
 
 // --- Part H: generated SAS must not be guaranteed to fail ------------------
 
 assert.match(panel, /function generatedSasCompatibleProgram/, "SAS-compatible mode needs its own supported-subset generator.");
-assert.match(panel, /sasMode === "compatible" \? generatedSasCompatibleProgram/, "Compatible mode must use the supported-subset program.");
+assert.match(panel, /sasMode === "compatible"[\s\S]{0,100}\? generatedSasCompatibleProgram/, "Compatible mode must use the supported-subset program outside Data Acquisition.");
 const compatibleGenerator = panel.slice(
   panel.indexOf("function generatedSasCompatibleProgram"),
   panel.indexOf("function generatedSasForRoute")

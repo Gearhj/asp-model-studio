@@ -4,10 +4,11 @@ import json
 import logging
 import os
 import sqlite3
+import time
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterator
+from typing import Any, Dict, Iterable, Iterator
 
 
 LOGGER = logging.getLogger("atlas.persistence")
@@ -19,6 +20,76 @@ MIGRATIONS_PATH = PERSISTENCE_ROOT / "migrations"
 
 class PersistenceUnavailableError(RuntimeError):
     pass
+
+
+_TRANSACTION_BREAKING_SQL = {
+    "ATTACH",
+    "BEGIN",
+    "COMMIT",
+    "DETACH",
+    "END",
+    "PRAGMA",
+    "RELEASE",
+    "ROLLBACK",
+    "SAVEPOINT",
+    "VACUUM",
+}
+
+
+def _sql_statements(script: str) -> Iterator[str]:
+    """Yield complete SQLite statements without using ``executescript``.
+
+    ``sqlite3.Connection.executescript`` commits a pending transaction before it
+    runs the supplied script.  That behavior makes it unsuitable for migrations:
+    a later failing statement can leave earlier schema and data changes durable.
+    ``sqlite3.complete_statement`` understands trigger bodies, quoted semicolons,
+    and comments, so each yielded statement remains safe to execute inside the
+    transaction owned by the migration runner.
+    """
+
+    buffer: list[str] = []
+    for character in script.lstrip("\ufeff"):
+        buffer.append(character)
+        if character == ";" and sqlite3.complete_statement("".join(buffer)):
+            statement = "".join(buffer).strip()
+            if statement:
+                yield statement
+            buffer.clear()
+    trailing = "".join(buffer).strip()
+    if trailing:
+        # Let SQLite report an incomplete or malformed trailing statement while
+        # the migration transaction is still active and therefore rollbackable.
+        yield trailing
+
+
+def _leading_sql_keyword(statement: str) -> str:
+    """Return the first executable SQL keyword, ignoring leading comments."""
+
+    remaining = statement.lstrip("\ufeff \t\r\n")
+    while remaining:
+        if remaining.startswith("--"):
+            newline = remaining.find("\n")
+            if newline < 0:
+                return ""
+            remaining = remaining[newline + 1 :].lstrip()
+            continue
+        if remaining.startswith("/*"):
+            end = remaining.find("*/", 2)
+            if end < 0:
+                return ""
+            remaining = remaining[end + 2 :].lstrip()
+            continue
+        break
+    return remaining.split(None, 1)[0].rstrip(";").upper() if remaining else ""
+
+
+def _validate_transactional_statement(statement: str, *, source: str) -> None:
+    keyword = _leading_sql_keyword(statement)
+    if keyword in _TRANSACTION_BREAKING_SQL:
+        raise PersistenceUnavailableError(
+            f"{source} contains transaction-breaking top-level SQL ({keyword}); "
+            "transaction control belongs to the ATLAS migration runner"
+        )
 
 
 def now_iso() -> str:
@@ -75,15 +146,31 @@ class Database:
         self.path = Path(configured).expanduser().resolve()
 
     def connect(self) -> sqlite3.Connection:
+        connection: sqlite3.Connection | None = None
         try:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             connection = sqlite3.connect(self.path, timeout=10.0)
             connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA foreign_keys = ON")
             connection.execute("PRAGMA busy_timeout = 10000")
-            connection.execute("PRAGMA journal_mode = WAL")
+            deadline = time.monotonic() + 10.0
+            while True:
+                try:
+                    current_mode = connection.execute("PRAGMA journal_mode").fetchone()[0]
+                    if str(current_mode).lower() != "wal":
+                        connection.execute("PRAGMA journal_mode = WAL").fetchone()
+                    break
+                except sqlite3.OperationalError as exc:
+                    if "locked" not in str(exc).lower() or time.monotonic() >= deadline:
+                        raise
+                    # journal_mode changes do not consistently honor SQLite's
+                    # busy timeout.  Retry only this connection bootstrap race;
+                    # migration writes remain serialized by BEGIN IMMEDIATE.
+                    time.sleep(0.025)
             return connection
         except (OSError, sqlite3.Error) as exc:
+            if connection is not None:
+                connection.close()
             raise PersistenceUnavailableError(f"ATLAS persistence database is unavailable: {exc}") from exc
 
     @contextmanager
@@ -106,22 +193,80 @@ class Database:
         finally:
             connection.close()
 
+    def _execute_script_atomically(self, script: str, *, source: str) -> None:
+        connection = self.connect()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            for statement in _sql_statements(script):
+                _validate_transactional_statement(statement, source=source)
+                connection.execute(statement)
+            connection.commit()
+        except BaseException:
+            if connection.in_transaction:
+                connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def _apply_migration(self, migration: Path, script: str) -> bool:
+        """Apply one migration and its history row in one serialized transaction."""
+
+        connection = self.connect()
+        try:
+            # BEGIN IMMEDIATE serializes writers.  The migration history is
+            # deliberately rechecked only after this lock is acquired so two
+            # concurrent startup processes cannot both apply the same file.
+            connection.execute("BEGIN IMMEDIATE")
+            already_applied = connection.execute(
+                "SELECT 1 FROM schema_migrations WHERE version = ?",
+                (migration.name,),
+            ).fetchone()
+            if already_applied is not None:
+                connection.commit()
+                return False
+            for statement in _sql_statements(script):
+                _validate_transactional_statement(statement, source=migration.name)
+                connection.execute(statement)
+            connection.execute(
+                "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
+                (migration.name, now_iso()),
+            )
+            connection.commit()
+            return True
+        except BaseException:
+            if connection.in_transaction:
+                connection.rollback()
+            raise
+        finally:
+            connection.close()
+
+    def apply_migrations(self, migrations: Iterable[str | Path] | None = None) -> list[str]:
+        """Apply migration files independently and return newly applied versions."""
+
+        migration_paths = (
+            sorted(MIGRATIONS_PATH.glob("*.sql"))
+            if migrations is None
+            else sorted((Path(migration) for migration in migrations), key=lambda path: path.name)
+        )
+        applied: list[str] = []
+        for migration in migration_paths:
+            try:
+                script = migration.read_text(encoding="utf-8")
+                if self._apply_migration(migration, script):
+                    applied.append(migration.name)
+            except (OSError, sqlite3.Error, PersistenceUnavailableError) as exc:
+                raise PersistenceUnavailableError(
+                    f"ATLAS migration {migration.name} failed atomically: {exc}"
+                ) from exc
+        return applied
+
     def initialize(self) -> Dict[str, Any]:
         try:
-            with self.transaction() as connection:
-                connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
-                applied = {
-                    row["version"]
-                    for row in connection.execute("SELECT version FROM schema_migrations ORDER BY version").fetchall()
-                }
-                for migration in sorted(MIGRATIONS_PATH.glob("*.sql")):
-                    if migration.name in applied:
-                        continue
-                    connection.executescript(migration.read_text(encoding="utf-8"))
-                    connection.execute(
-                        "INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)",
-                        (migration.name, now_iso()),
-                    )
+            self._execute_script_atomically(
+                SCHEMA_PATH.read_text(encoding="utf-8"),
+                source=SCHEMA_PATH.name,
+            )
+            self.apply_migrations()
             if os.getenv("ATLAS_ENV", "development").lower() in {"development", "dev", "local"}:
                 LOGGER.info("ATLAS SQLite persistence initialized at %s", self.path)
             return self.health()

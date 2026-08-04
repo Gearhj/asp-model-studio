@@ -8,11 +8,12 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
+from ..preprocessing.development_scope import DevelopmentAnalysisScope
+from .governed_scope import canonical_scope_fields
 from .scorecard_engine import (
     build_ks_table,
     build_lift_table,
     build_score_distribution,
-    load_dataset_frame,
     raw_design_matrix,
     safe_auc,
     safe_log_loss,
@@ -60,11 +61,18 @@ def save_ml_model(model: Dict[str, Any]) -> Dict[str, Any]:
         "modelId": model_id,
         "projectId": model.get("projectId"),
         "datasetId": model.get("datasetId"),
+        "datasetVersionId": model.get("datasetVersionId"),
         "modelType": model.get("modelType"),
         "auc": (model.get("metrics") or {}).get("auc"),
         "ks": (model.get("metrics") or {}).get("ks"),
         "gini": (model.get("metrics") or {}).get("gini"),
         "updatedAt": model.get("updatedAt"),
+        "analysis_scope": model.get("analysis_scope"),
+        "analysis_partition_id": model.get("analysis_partition_id"),
+        "analysis_partition_revision": model.get("analysis_partition_revision"),
+        "development_partition_id": model.get("development_partition_id"),
+        "source_checksum": model.get("source_checksum"),
+        "holdout_excluded": model.get("holdout_excluded"),
     })
     _save_registry(registry[:100])
     return model
@@ -82,39 +90,72 @@ def get_ml_model(model_id: str) -> Optional[Dict[str, Any]]:
 
 
 def get_project_ml_model(project_id: str) -> Optional[Dict[str, Any]]:
-    match = next((row for row in _load_registry() if row.get("projectId") == project_id), None)
-    return get_ml_model(str(match.get("modelId"))) if match else None
+    raise HTTPException(
+        status_code=409,
+        detail="Project-latest AI/ML lookup is disabled. Resolve the exact active dataset version and Analysis Partition.",
+    )
 
 
-def train_ml_model(payload: Dict[str, Any]) -> Dict[str, Any]:
+def get_project_ml_model_exact(
+    project_id: str,
+    dataset_id: str,
+    dataset_version_id: str,
+    analysis_partition_id: str,
+    analysis_partition_revision: int,
+) -> Optional[Dict[str, Any]]:
+    matches = [
+            row
+            for row in _load_registry()
+            if row.get("projectId") == project_id
+            and row.get("datasetId") == dataset_id
+            and row.get("datasetVersionId") == dataset_version_id
+            and row.get("analysis_partition_id") == analysis_partition_id
+            and int(row.get("analysis_partition_revision") or 0)
+            == int(analysis_partition_revision)
+            and row.get("analysis_scope") == "development_population"
+            and row.get("holdout_excluded") is True
+    ]
+    if len(matches) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail="Multiple current AI/ML models exist. Select one by exact modelId; first/latest fallback is prohibited.",
+        )
+    return get_ml_model(str(matches[0].get("modelId"))) if matches else None
+
+
+def train_ml_model(
+    payload: Dict[str, Any],
+    scope: DevelopmentAnalysisScope,
+) -> Dict[str, Any]:
     try:
         import numpy as np
         from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
         from sklearn.linear_model import LogisticRegression
         from sklearn.metrics import average_precision_score, log_loss, roc_auc_score
-        from sklearn.model_selection import train_test_split
+        from sklearn.model_selection import StratifiedKFold
     except Exception as exc:
         raise HTTPException(status_code=501, detail=f"AI/ML underwriting training requires sklearn in the local backend environment. {exc}")
 
-    dataset, resolved_version, df = load_dataset_frame(str(payload.get("datasetId")), payload.get("datasetVersionId"))
-    target = str(payload.get("targetColumn") or "")
-    if target not in df.columns:
-        raise HTTPException(status_code=400, detail=f"Target column {target!r} was not found in the dataset.")
-    event_value = payload.get("eventValue")
-    y = df[target].astype(str).str.strip().eq(str(event_value)).astype(int)
+    dataset = scope.identity.get("dataset") or {}
+    resolved_version = str(scope.identity.get("dataset_version_id") or "")
+    df = scope.development_features.copy()
+    target = scope.target
+    event_value = scope.event_value
+    y = scope.development_target.astype(str).str.strip().eq(str(event_value)).astype(int)
     if y.nunique() < 2:
         raise HTTPException(status_code=400, detail="Target has one class only. AI/ML underwriting training requires both good and bad outcomes.")
 
     requested_selected = [str(item) for item in payload.get("selectedVariables") or []]
-    selected = validate_predictors(
-        requested_selected,
-        target=target,
-        dataset_meta=dataset,
-        columns=df.columns,
-        explicit=bool(requested_selected),
-    )
-    if not selected:
-        selected = default_predictors(target=target, dataset_meta=dataset, columns=df.columns, limit=25)
+    unauthorized = [name for name in requested_selected if name not in scope.authorized_predictors]
+    if unauthorized:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "AI/ML variables contradict the exact current predictor "
+                f"authorization: {', '.join(unauthorized[:10])}."
+            ),
+        )
+    selected = requested_selected or list(scope.authorized_predictors[:25])
     X = raw_design_matrix(df, selected)
     if X.empty:
         raise HTTPException(status_code=400, detail="No usable AI/ML underwriting variables were selected.")
@@ -130,47 +171,46 @@ def train_ml_model(payload: Dict[str, Any]) -> Dict[str, Any]:
     else:
         estimator = RandomForestClassifier(n_estimators=160, min_samples_leaf=20, random_state=42, class_weight="balanced_subsample" if payload.get("classWeight") == "balanced" else None)
 
-    split_column = next((column for column in df.columns if str(column).lower() == "atlas_split"), None)
-    split_source = "random"
-    if split_column is not None:
-        split_values = df[split_column].astype(str).str.strip().str.lower()
-        train_mask = split_values.isin({"train", "training", "development", "dev"})
-        val_mask = split_values.isin({"test", "validation", "val"})
-        if train_mask.any() and val_mask.any():
-            X_train, X_val, y_train, y_val = X.loc[train_mask], X.loc[val_mask], y.loc[train_mask], y.loc[val_mask]
-            split_source = "atlas_split"
-        else:
-            split_column = None
-    if split_column is None:
-        split = max(0.5, min(float(payload.get("trainValidationSplit") or 0.7), 0.9))
-        try:
-            X_train, X_val, y_train, y_val = train_test_split(X, y, train_size=split, random_state=42, stratify=y)
-        except Exception:
-            X_train, X_val, y_train, y_val = train_test_split(X, y, train_size=split, random_state=42)
+    folds = min(5, int(y.value_counts().min()))
+    if folds < 2:
+        raise HTTPException(
+            status_code=409,
+            detail="The governed development population cannot support stratified validation.",
+        )
+    train_positions, validation_positions = next(
+        StratifiedKFold(n_splits=folds, shuffle=False).split(X, y)
+    )
+    X_train = X.iloc[train_positions].reset_index(drop=True)
+    X_val = X.iloc[validation_positions].reset_index(drop=True)
+    y_train = y.iloc[train_positions].reset_index(drop=True)
+    y_val = y.iloc[validation_positions].reset_index(drop=True)
+    split_source = "governed_development_stratified_fold"
     estimator.fit(X_train, y_train)
     if hasattr(estimator, "predict_proba"):
         val_pd = estimator.predict_proba(X_val)[:, 1]
-        all_pd = estimator.predict_proba(X)[:, 1]
     else:
         val_pd = estimator.decision_function(X_val)
-        all_pd = estimator.decision_function(X)
-    score = 1000 - (all_pd * 1000)
+    score = 1000 - (val_pd * 1000)
     auc = safe_auc(y_val, val_pd, roc_auc_score)
-    ks_table = build_ks_table(score, y, all_pd)
-    lift_table = build_lift_table(score, y, all_pd)
+    ks_table = build_ks_table(score, y_val, val_pd)
+    lift_table = build_lift_table(score, y_val, val_pd)
     feature_importance = _feature_importance(estimator, list(X.columns), np)
+    scope_fields = canonical_scope_fields(scope)
     model_id = "ml-credit-" + hashlib.sha256(json.dumps({
-        "projectId": payload.get("projectId"),
-        "datasetId": dataset.get("datasetId"),
+        "projectId": scope.identity.get("project_id"),
+        "datasetId": scope.identity.get("dataset_id"),
         "version": resolved_version,
         "target": target,
         "variables": selected,
         "modelType": model_type,
+        "partitionId": scope_fields["partition_id"],
+        "partitionRevision": scope_fields["partition_revision"],
+        "sourceChecksum": scope_fields["source_checksum"],
     }, sort_keys=True).encode("utf-8")).hexdigest()[:14]
     model = {
         "modelId": model_id,
-        "projectId": payload.get("projectId"),
-        "datasetId": dataset.get("datasetId"),
+        "projectId": scope.identity.get("project_id"),
+        "datasetId": scope.identity.get("dataset_id"),
         "datasetName": dataset.get("name"),
         "datasetVersionId": resolved_version,
         "targetColumn": target,
@@ -188,10 +228,11 @@ def train_ml_model(payload: Dict[str, Any]) -> Dict[str, Any]:
             "prAuc": _safe_pr_auc(y_val, val_pd, average_precision_score),
         },
         "featureImportance": feature_importance,
-        "scoreDistribution": build_score_distribution(score, y, all_pd),
+        "scoreDistribution": build_score_distribution(score, y_val, val_pd),
         "decileLift": lift_table,
         "calibrationTable": lift_table,
         "warnings": _ml_warnings(model_type, payload),
+        **scope_fields,
     }
     return save_ml_model(model)
 
@@ -249,6 +290,24 @@ def create_ml_evidence(model_id: str, technique: str = "ml_underwriting", label:
         "technique": technique,
         "tags": ["credit_risk", "ml_underwriting", technique, "champion_challenger"],
         "metrics": metrics,
+        "scopeMetadata": {
+            key: model.get(key)
+            for key in (
+                "project_id",
+                "dataset_id",
+                "dataset_version_id",
+                "analysis_scope",
+                "analysis_partition_id",
+                "analysis_partition_revision",
+                "development_partition_id",
+                "population_id",
+                "population_count",
+                "holdout_excluded",
+                "source_checksum",
+                "actor",
+                "timestamp",
+            )
+        },
         "createdAt": _utc_now(),
     }
     return upsert_evidence(evidence)
@@ -285,6 +344,7 @@ def run_champion_comparison(payload: Dict[str, Any]) -> Dict[str, Any]:
         "recommendedChampion": recommended,
         "reason": "ATLAS weighs performance with explainability, calibration, adverse-action readiness, stability, and governance complexity. AI/ML is not automatically championed solely because of higher AUC.",
         "generatedAt": _utc_now(),
+        **(payload.get("scopeMetadata") or {}),
     }
 
 

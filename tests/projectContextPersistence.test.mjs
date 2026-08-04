@@ -30,7 +30,7 @@ async function compile(relativePath, outputName) {
 }
 
 await rm(TMP_DIR, { recursive: true, force: true });
-await compile("src/lib/projectContext.ts", "projectContext.js");
+const projectContextPath = await compile("src/lib/projectContext.ts", "projectContext.js");
 const persistencePath = await compile("src/lib/projectContextPersistence.ts", "projectContextPersistence.js");
 
 // Minimal localStorage shim for the convenience-cache functions.
@@ -42,6 +42,7 @@ globalThis.localStorage = {
 };
 
 const lib = await import(pathToFileURL(persistencePath).href);
+const projectContextLib = await import(pathToFileURL(projectContextPath).href);
 
 const NARRATIVE = {
   businessObjective: "Reduce authorization fraud losses.",
@@ -69,6 +70,13 @@ function fullContext() {
     acceptedAiDrafts: [{ field: "businessObjective", action: "Improve clarity", text: "x", acceptedAt: "2026-01-01T00:00:00Z" }],
     fraudDetails: { ...GOVERNANCE, deploymentMode: "Development" },
   };
+}
+
+function jsonResponse(body, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
 }
 
 // --- Migration / hydration safety -----------------------------------------
@@ -118,21 +126,261 @@ test("an empty form is detectable so it can never overwrite stored content", () 
 
 // --- Project scoping -------------------------------------------------------
 
-test("the local draft cache is scoped per project, not one global key", () => {
-  const a = lib.draftCacheKey("project-a");
-  const b = lib.draftCacheKey("project-b");
+test("the local draft cache is scoped per project and authenticated user", () => {
+  const a = lib.draftCacheKey("project-a", "user-a");
+  const b = lib.draftCacheKey("project-b", "user-a");
   assert.notEqual(a, b, "two projects must not share one cache key");
   assert.match(a, /project-a/);
   // The old unscoped key must not be reused.
   assert.notEqual(a, "modeling-tool-project-context");
 });
 
-test("a cached draft for one project is not readable as another project's draft", () => {
-  lib.writeDraftCache("project-a", lib.migrateStoredContext(fullContext()));
-  assert.ok(lib.readDraftCache("project-a"), "project-a draft should exist");
-  assert.equal(lib.readDraftCache("project-b"), null, "project-b must not see project-a's draft");
-  lib.clearDraftCache("project-a");
-  assert.equal(lib.readDraftCache("project-a"), null);
+test("a cached draft is isolated by both project and authenticated user", () => {
+  lib.writeDraftCache("project-a", "user-a", lib.migrateStoredContext(fullContext()));
+  assert.ok(lib.readDraftCache("project-a", "user-a"), "the exact user/project draft should exist");
+  assert.equal(lib.readDraftCache("project-b", "user-a"), null, "another project must not see the draft");
+  assert.equal(lib.readDraftCache("project-a", "user-b"), null, "another user must not see the draft");
+  lib.clearDraftCache("project-a", "user-a");
+  assert.equal(lib.readDraftCache("project-a", "user-a"), null);
+});
+
+test("the acknowledged Project Context compatibility copy is scoped for MDD consumers", () => {
+  const context = lib.migrateStoredContext(fullContext());
+  projectContextLib.saveProjectContext(context, "project-a", "user-a");
+  assert.equal(
+    projectContextLib.loadProjectContext("project-a", "user-a").businessObjective,
+    context.businessObjective,
+  );
+  assert.equal(
+    projectContextLib.loadProjectContext("project-a", "user-b").businessObjective,
+    projectContextLib.defaultProjectContext.businessObjective,
+  );
+  assert.equal(
+    projectContextLib.loadProjectContext("project-b", "user-a").businessObjective,
+    projectContextLib.defaultProjectContext.businessObjective,
+  );
+});
+
+test("hydration rejects a project response from a different route scope", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async () => jsonResponse({
+    ok: true,
+    project: { projectId: "project-b", metadata: {} },
+  });
+  try {
+    await assert.rejects(
+      () => lib.hydrateProjectContext("project-a"),
+      /does not match the requested project/i,
+    );
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("a concurrent first revision conflicts even when this tab expected no revision", async () => {
+  const previousFetch = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = async () => {
+    requests += 1;
+    return jsonResponse({
+      ok: true,
+      project: {
+        projectId: "project-a",
+        metadata: {
+          projectContextRevision: "1785186305905-other-tab",
+          projectContext: {
+            ...fullContext(),
+            businessObjective: "A different tab saved a genuinely divergent objective.",
+          },
+        },
+      },
+    });
+  };
+  try {
+    const result = await lib.saveProjectContextToBackend({
+      projectId: "project-a",
+      context: lib.migrateStoredContext(fullContext()),
+      expectedRevision: "",
+      validationStatus: "ready",
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "conflict");
+    assert.equal(requests, 1, "a conflicting precheck must prevent the PUT");
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("an exact newer durable revision is adopted without issuing a duplicate PUT", async () => {
+  const previousFetch = globalThis.fetch;
+  const context = lib.migrateStoredContext(fullContext());
+  let requests = 0;
+  globalThis.fetch = async () => {
+    requests += 1;
+    return jsonResponse({
+      ok: true,
+      project: {
+        projectId: "project-a",
+        metadata: {
+          projectContextRevision: "1785186305905-already-durable",
+          projectContextSavedAt: "2026-08-02T21:49:01.812Z",
+          projectContext: context,
+        },
+      },
+    });
+  };
+  try {
+    const result = await lib.saveProjectContextToBackend({
+      projectId: "project-a",
+      context,
+      expectedRevision: "1785186305905-stale-client",
+      validationStatus: "complete",
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.revision, "1785186305905-already-durable");
+    assert.equal(result.source, "background_verification");
+    assert.equal(requests, 1, "exact convergence must not issue another PUT");
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("an ambiguous acknowledgement recovers the exact committed revision", async () => {
+  const previousFetch = globalThis.fetch;
+  const context = lib.migrateStoredContext(fullContext());
+  let durableProject = null;
+  let requests = 0;
+  globalThis.fetch = async (_url, init = {}) => {
+    requests += 1;
+    if (!init.method || init.method === "GET") {
+      return jsonResponse({
+        ok: true,
+        project: durableProject ?? {
+          projectId: "project-a",
+          metadata: {
+            projectContextRevision: "1785186305905-current",
+            projectContext: context,
+          },
+        },
+      });
+    }
+    const submitted = JSON.parse(init.body);
+    durableProject = {
+      projectId: "project-a",
+      projectName: submitted.projectName,
+      metadata: submitted.metadata,
+    };
+    return jsonResponse({
+      ok: true,
+      project: {
+        ...durableProject,
+        metadata: { ...submitted.metadata, modelId: "ambiguous-response-model" },
+      },
+    });
+  };
+  try {
+    const result = await lib.saveProjectContextToBackend({
+      projectId: "project-a",
+      context,
+      expectedRevision: "1785186305905-current",
+      validationStatus: "complete",
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.source, "user_save");
+    assert.equal(result.revision, durableProject.metadata.projectContextRevision);
+    assert.equal(requests, 3, "precheck, PUT, and exact verification GET are required");
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("a 200 save acknowledgement with mismatched metadata fails closed", async () => {
+  const previousFetch = globalThis.fetch;
+  const context = lib.migrateStoredContext(fullContext());
+  globalThis.fetch = async (_url, init = {}) => {
+    if (!init.method || init.method === "GET") {
+      return jsonResponse({
+        ok: true,
+        project: {
+          projectId: "project-a",
+          metadata: {
+            projectContextRevision: "1785186305905-current",
+            projectContext: context,
+          },
+        },
+      });
+    }
+    const submitted = JSON.parse(init.body);
+    return jsonResponse({
+      ok: true,
+      project: {
+        projectId: "project-a",
+        projectName: submitted.projectName,
+        metadata: {
+          ...submitted.metadata,
+          modelId: "different-model",
+        },
+      },
+    });
+  };
+  try {
+    const result = await lib.saveProjectContextToBackend({
+      projectId: "project-a",
+      context,
+      expectedRevision: "1785186305905-current",
+      validationStatus: "ready",
+    });
+    assert.equal(result.ok, false);
+    assert.equal(result.reason, "error");
+    assert.match(result.message, /exact saved Project Context revision/i);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test("a Project Context metadata save preserves governed workflow identity", async () => {
+  const previousFetch = globalThis.fetch;
+  const context = lib.migrateStoredContext(fullContext());
+  let submitted;
+  globalThis.fetch = async (_url, init = {}) => {
+    if (!init.method || init.method === "GET") {
+      return jsonResponse({
+        ok: true,
+        project: {
+          projectId: "project-a",
+          metadata: {
+            projectContextRevision: "1785186305905-current",
+            projectContext: context,
+          },
+        },
+      });
+    }
+    submitted = JSON.parse(init.body);
+    return jsonResponse({
+      ok: true,
+      project: {
+        projectId: "project-a",
+        projectName: submitted.projectName,
+        projectType: "predictive-modeling",
+        workflowType: "credit-risk-studio",
+        metadata: submitted.metadata,
+      },
+    });
+  };
+  try {
+    const result = await lib.saveProjectContextToBackend({
+      projectId: "project-a",
+      context,
+      expectedRevision: "1785186305905-current",
+      validationStatus: "ready",
+    });
+    assert.equal(result.ok, true);
+    assert.equal(result.source, "user_save");
+    assert.equal(Object.hasOwn(submitted, "projectType"), false);
+    assert.equal(Object.hasOwn(submitted, "workflowType"), false);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
 });
 
 // --- Change detection ------------------------------------------------------
@@ -144,6 +392,35 @@ test("unchanged content produces a stable fingerprint so it is not re-saved", ()
   assert.equal(
     lib.contextFingerprint({ ...context, updatedAt: "2026-01-01" }),
     lib.contextFingerprint({ ...context, updatedAt: "2030-12-31" })
+  );
+});
+
+test("backend JSON key sorting cannot turn an accepted AI draft into a conflict", () => {
+  const context = lib.migrateStoredContext({
+    ...fullContext(),
+    acceptedAiDrafts: [{
+      field: "modelingMissionSummary",
+      action: "Draft from current project context",
+      text: "Governed summary",
+      acceptedAt: "2026-08-02T22:16:49.838Z",
+      acceptedBy: "project-context-test-user",
+    }],
+  });
+  const backendOrdered = {
+    ...context,
+    fraudDetails: Object.fromEntries(Object.entries(context.fraudDetails).reverse()),
+    acceptedAiDrafts: [{
+      acceptedAt: "2026-08-02T22:16:49.838Z",
+      acceptedBy: "project-context-test-user",
+      action: "Draft from current project context",
+      field: "modelingMissionSummary",
+      text: "Governed summary",
+    }],
+  };
+  assert.equal(
+    lib.contextFingerprint(context),
+    lib.contextFingerprint(backendOrdered),
+    "object key order is storage formatting, not a semantic Project Context change",
   );
 });
 
@@ -159,12 +436,13 @@ test("any edited narrative or governance field changes the fingerprint", () => {
 
 // --- Source contract -------------------------------------------------------
 
-test("the page wires autosave, hydration, and a navigation flush", () => {
+test("the page wires hydration and one acknowledged explicit-save path", () => {
   const page = fs.readFileSync("src/steps/Step00_ProjectContext.tsx", "utf8");
   assert.match(page, /useProjectContextAutosave/, "the page must use the autosave lifecycle");
   assert.match(page, /onHydrated: \(hydrated\) => setContext\(hydrated\)/, "hydrated backend content must populate the form");
-  assert.match(page, /const flushed = await autosave\.flush\(\)/, "Continue must flush before navigating");
-  assert.match(page, /if \(!flushed\)/, "a failed required save must not be treated as success");
+  assert.match(page, /const persisted = await autosave\.saveNow\(saved\)/, "completion must use the acknowledged autosave client");
+  assert.match(page, /if \(!persisted\)/, "a failed required save must not be treated as success");
+  assert.doesNotMatch(page, /savePredictiveProjectContextToDatabase/, "Continue must not issue a duplicate legacy project PUT");
   assert.match(page, /data-testid="project-context-save-status"/, "a truthful save status must be rendered");
   assert.match(page, /data-save-status=\{status\}/, "the save status must be inspectable");
   assert.match(page, /data-testid="retry-project-context-save"/, "a failed save must offer Retry Save");
@@ -178,12 +456,24 @@ test("autosave is debounced, flushes on demand, and rejects superseded saves", (
   assert.match(hook, /setTimeout\(\(\) => \{\s*void performSave/, "typing must schedule a debounced save, not save per keystroke");
   assert.match(hook, /if \(fingerprint === savedFingerprintRef\.current\) return true/, "unchanged values must not be re-saved");
   assert.match(hook, /sequenceRef/, "saves must be sequenced");
-  assert.match(hook, /if \(sequence < appliedSequenceRef\.current\) return/, "a superseded save must not report over a newer one");
+  assert.match(hook, /scopeGeneration !== scopeGenerationRef\.current/, "a prior project/user scope must not publish after unmount");
+  assert.match(hook, /scopeActiveRef\.current = false/, "unmount must close the save scope before a late callback can start work");
+  assert.match(hook, /!scopeActiveRef\.current\) return false/, "explicit saves must refuse an inactive route/user scope");
+  assert.match(hook, /sequence !== sequenceRef\.current/, "a superseded save must not report over a newer one");
   assert.match(hook, /inFlightRef\.current\?\.abort\(\)/, "an in-flight save must be abortable");
   assert.match(hook, /const flush = useCallback/, "an explicit flush must exist for navigation");
   assert.match(hook, /pagehide/, "a best-effort unload path should exist");
   // Hydration must gate editing so an empty form cannot be autosaved over stored content.
-  assert.match(hook, /if \(!enabled \|\| !projectId \|\| !hydratedRef\.current\) return undefined/, "autosave must wait for hydration");
+  assert.match(hook, /!authenticatedUserId \|\| !hydratedRef\.current \|\| !scopeActiveRef\.current/, "autosave must wait for an active, authenticated hydration scope");
+  assert.match(hook, /writeDraftCache\(projectId, authenticatedUserId, context\)/, "an edit must be cached before the debounce expires");
+  assert.match(hook, /Recovered a newer unsaved local draft/, "a newer user/project draft must survive authoritative rehydration");
+});
+
+test("authoritative provider publication refreshes the scoped MDD compatibility copy without making it identity authority", () => {
+  const provider = fs.readFileSync("src/components/PredictiveIdentityProvider.tsx", "utf8");
+  assert.match(provider, /updateScopedProjectContextCompatibilityCopy/, "provider hydration must synchronize scoped Project Context content for MDD readers");
+  assert.match(provider, /saveProjectContext\(/, "the compatibility copy must use the scoped Project Context writer");
+  assert.match(provider, /provider never reads it as identity authority/i, "the compatibility copy must be documented as non-authoritative");
 });
 
 test("the backend record is the authoritative store and carries a revision", () => {
@@ -192,6 +482,7 @@ test("the backend record is the authoritative store and carries a revision", () 
   assert.match(persistence, /reason: "conflict"/, "a stale write must be reported as a conflict");
   assert.match(persistence, /current\.revision !== expectedRevision/, "the stored revision must be compared before writing");
   assert.match(persistence, /PROJECT_CONTEXT_SCHEMA_VERSION/, "a schema version must be recorded");
+  assert.match(persistence, /returnedRevision !== revision/, "success requires the exact backend-acknowledged revision");
   assert.match(persistence, /credentials: "include"/, "authorization cookies must be sent");
   assert.match(persistence, /Never authoritative/, "the local cache must be documented as non-authoritative");
 });

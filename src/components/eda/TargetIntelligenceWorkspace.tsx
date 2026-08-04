@@ -7,15 +7,15 @@
 // ordered sections.
 //
 // Data sourcing, stated once:
-//   * Class counts, event rate, imbalance tier, and the Wilson interval come
-//     from POST /api/analytics/target-assessment, which reuses the cached exact
-//     DuckDB aggregate over the governed artifact.
-//   * Identity, quality, leakage, governed time fields, time and segment tables
-//     come from the Full Governed Population EDA workspace target section.
+//   * Class counts, event rate, imbalance tier, the Wilson interval, identity,
+//     quality, leakage, governed time fields, and conditional tables all come
+//     from the exact documented Development Population returned by
+//     POST /api/eda/workspace/target.
 //   * Governance narrative comes from the durable backend Project Context.
 //   * Target by predictor is on-demand only.
 // Nothing on this page is computed from a browser preview.
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import type { EChartsOption } from "echarts";
 import { AlertTriangle, ArrowRight, CheckCircle2, Clock, Database, Info, Layers, ShieldAlert, Target as TargetIcon } from "lucide-react";
 import EChartsPanel, { type EChartsPanelState } from "../../visual-intelligence/EChartsPanel";
@@ -32,7 +32,6 @@ import {
 } from "./TargetVisualInsights";
 import { AtlasWorkflowSection } from "../ui/AtlasWorkflow";
 import { buildTargetDistribution, formatEventRate, type TargetDistribution } from "../../lib/dataAcquisitionLifecycle";
-import { useTargetDistribution } from "../../lib/useTargetDistribution";
 import {
   buildTargetEvidencePayload,
   buildTargetGovernanceFields,
@@ -50,14 +49,15 @@ import {
   type ImbalanceAssessment,
   type TargetClassBalance,
   type TargetFinding,
+  type TargetAssessmentResult,
 } from "../../lib/targetIntelligence";
 import {
-  useTargetAssessment,
   useTargetByPredictor,
   useTargetFindings,
 } from "../../lib/useTargetIntelligence";
 import {
   createTargetFinding,
+  exportGovernedTargetSummary,
   promoteTargetFinding,
   saveGovernedTargetEvidence,
   updateTargetFinding,
@@ -66,6 +66,7 @@ import { hydrateProjectContext } from "../../lib/projectContextPersistence";
 import type { ProjectContext } from "../../lib/projectContext";
 import { getCachedUserId } from "../../lib/authSession";
 import { safeArray, safeObject } from "../../lib/workflowSafety";
+import { projectWorkflowRoute } from "../../lib/projectScopedRoutes";
 
 export type TargetWorkspaceData = Record<string, any>;
 
@@ -111,6 +112,7 @@ export default function TargetIntelligenceWorkspace({
   onRunConditional: () => void;
 }) {
   const reducedMotion = prefersReducedMotion();
+  const navigate = useNavigate();
   const identity = safeObject<Record<string, any>>(data.identity);
   const profile = safeObject<Record<string, any>>(data.profile);
   const quality = safeObject<Record<string, any>>(data.target_quality);
@@ -146,135 +148,76 @@ export default function TargetIntelligenceWorkspace({
   const governanceFields = useMemo(() => buildTargetGovernanceFields(context), [context]);
   const governanceGaps = useMemo(() => unresolvedGovernanceGaps(governanceFields), [governanceFields]);
 
-  // --- Exact class balance, imbalance tier, confidence interval -------------
-  const assessmentRequest = useMemo(
-    () =>
-      datasetIdentity && target && isClassification
-        ? {
-            projectId,
-            datasetId: datasetIdentity.datasetId,
-            versionId: datasetIdentity.versionId,
-            target,
-            eventValue,
-            nonEventValue,
-            confidenceLevel: 0.95,
-          }
-        : null,
-    [datasetIdentity, eventValue, nonEventValue, projectId, target, isClassification]
-  );
-  const assessment = useTargetAssessment(assessmentRequest);
-
-  const distributionRequest = useMemo(
-    () =>
-      datasetIdentity && target && isClassification
-        ? {
-            projectId,
-            datasetId: datasetIdentity.datasetId,
-            versionId: datasetIdentity.versionId,
-            target,
-            eventValue,
-            nonEventValue,
-          }
-        : null,
-    [datasetIdentity, eventValue, nonEventValue, projectId, target, isClassification]
-  );
-  const serverDistribution = useTargetDistribution(distributionRequest);
-
-  // The chart reads the same exact aggregate. When no registered version exists,
-  // it falls back to the Full Governed Population EDA class table -- never to a preview.
+  // --- Development class balance, imbalance tier, confidence interval -------
+  // The Target workspace is already bound to the exact documented Analysis
+  // Partition. Do not issue the general registered-artifact assessment or
+  // distribution requests here: those are intentionally full-population for
+  // Data Acquisition and would include the sealed final holdout.
   const distribution: TargetDistribution | null = useMemo(() => {
-    const rows = serverDistribution.result?.classDistribution;
-    if (rows?.length) {
-      return buildTargetDistribution({ target, classDistribution: rows, eventValue, nonEventValue });
-    }
-    const fallback = safeArray<any>(profile.class_distribution).map((row) => ({
+    const rows = safeArray<any>(profile.class_distribution).map((row) => ({
       value: row.value,
       count: Number(row.count) || 0,
       percent: Number(row.rate) || 0,
     }));
-    return fallback.length ? buildTargetDistribution({ target, classDistribution: fallback, eventValue, nonEventValue }) : null;
-  }, [serverDistribution.result, profile.class_distribution, target, eventValue, nonEventValue]);
+    return rows.length ? buildTargetDistribution({ target, classDistribution: rows, eventValue, nonEventValue }) : null;
+  }, [profile.class_distribution, target, eventValue, nonEventValue]);
 
-  // The registered-version aggregate is preferred because it is keyed to an
-  // immutable (dataset, version). When the project has no Dataset Library
-  // version, the EDA workspace section carries the same figures over the full
-  // backend population -- computed by the same shared server functions, so the
-  // two paths cannot disagree. Neither path is a browser preview.
-  const workspaceAssessment = data.full_population_assessment
+  // The compatibility field name predates the sealed Analysis Partition. Its
+  // backend source and scope now explicitly identify Development Population.
+  const developmentAssessment = data.full_population_assessment
     ? safeObject<Record<string, any>>(data.full_population_assessment)
     : null;
 
   // --- Analysis Scope (Parts A / B / E) ------------------------------------
   //
-  // The scope shown is always the SERVER's. A governed state is only claimed
-  // once the registered-version response has actually succeeded -- while it is
-  // in flight the banner stays amber and says so, so the page never shows a
-  // green governed state over a result produced by the draft path.
-  const governedScope: AnalysisScope | null = isGovernedScope(assessment.result?.analysisScope)
-    ? (assessment.result?.analysisScope as AnalysisScope)
-    : null;
-  const draftScope: AnalysisScope | null = data.analysis_scope
+  // The scope shown is always the server-authored EDA analytical scope. It is
+  // green only when the exact documented Development Population contract is
+  // current and evidence-eligible.
+  const workspaceScope: AnalysisScope | null = data.analysis_scope
     ? (safeObject<Record<string, any>>(data.analysis_scope) as unknown as AnalysisScope)
     : null;
+  const governedScope: AnalysisScope | null = isGovernedScope(workspaceScope)
+    ? workspaceScope
+    : null;
+  const draftScope = governedScope ? null : workspaceScope;
 
-  const scopeResolution: ScopeResolution = governedScope
-    ? "governed"
-    : assessmentRequest && (assessment.phase === "queued" || assessment.phase === "running")
-      ? "resolving"
-      : assessmentRequest && assessment.phase === "failed"
-        ? "failed"
-        : "draft";
+  const scopeResolution: ScopeResolution = governedScope ? "governed" : "draft";
   const effectiveScope = governedScope ?? draftScope;
   const governed = scopeResolution === "governed";
 
-  // Governed figures come only from the governed response. The draft figures
-  // are still shown while resolving (the banner says they are draft), but they
-  // are never relabelled as governed.
-  const balance = governed
-    ? assessment.result?.classBalance ?? null
-    : (workspaceAssessment?.classBalance as TargetClassBalance | undefined) ?? null;
-  const imbalance = governed
-    ? assessment.result?.imbalance ?? null
-    : (workspaceAssessment?.imbalance as ImbalanceAssessment | undefined) ?? null;
-  const interval = governed
-    ? assessment.result?.confidenceInterval ?? null
-    : (workspaceAssessment?.confidenceInterval as ConfidenceInterval | undefined) ?? null;
-  const assessmentPhase = governed ? assessment.phase : workspaceAssessment ? "ready" : assessment.phase;
+  const balance = (developmentAssessment?.classBalance as TargetClassBalance | undefined) ?? null;
+  const imbalance = (developmentAssessment?.imbalance as ImbalanceAssessment | undefined) ?? null;
+  const interval = (developmentAssessment?.confidenceInterval as ConfidenceInterval | undefined) ?? null;
+  const assessmentPhase = developmentAssessment ? "ready" : "failed";
 
-  // Reconciliation: when the registered version disagrees materially with the
-  // draft it replaced, say so rather than silently swapping the numbers.
-  const reconciliation = useMemo(() => {
-    const draft = workspaceAssessment?.classBalance as TargetClassBalance | undefined;
-    const registered = assessment.result?.classBalance;
-    if (!governed || !draft || !registered) return null;
-    const differences: string[] = [];
-    if (draft.totalModelingPopulation !== registered.totalModelingPopulation) {
-      differences.push(
-        `Population rows: draft ${formatCount(draft.totalModelingPopulation)}, registered version ${formatCount(registered.totalModelingPopulation)}.`
-      );
-    }
-    if (draft.eventCount !== registered.eventCount || draft.nonEventCount !== registered.nonEventCount) {
-      differences.push(
-        `Class counts: draft ${formatCount(draft.eventCount)} / ${formatCount(draft.nonEventCount)}, registered version ${formatCount(registered.eventCount)} / ${formatCount(registered.nonEventCount)}.`
-      );
-    }
-    const draftRate = draft.eventRate ?? 0;
-    const registeredRate = registered.eventRate ?? 0;
-    if (Math.abs(draftRate - registeredRate) > 1e-9) {
-      differences.push(`Event rate: draft ${formatEventRate(draftRate)}, registered version ${formatEventRate(registeredRate)}.`);
-    }
-    if (String(draft.eventValue ?? "") !== String(registered.eventValue ?? "")) {
-      differences.push(
-        `Positive value mapping: draft "${draft.eventValue ?? "none"}", registered version "${registered.eventValue ?? "none"}".`
-      );
-    }
-    return differences.length ? differences : null;
-  }, [governed, workspaceAssessment, assessment.result]);
+  const developmentAssessmentResult = useMemo<TargetAssessmentResult | null>(
+    () =>
+      developmentAssessment
+        ? {
+            ok: true,
+            supported: Boolean(balance),
+            datasetId: governedScope?.datasetId ?? undefined,
+            versionId: governedScope?.datasetVersionId ?? undefined,
+            target,
+            analysisScope: effectiveScope,
+            classBalance: balance,
+            imbalance,
+            confidenceInterval: interval,
+            distribution: {
+              classDistribution: safeArray<any>(profile.class_distribution),
+              resolution: "exact",
+              durationMs: 0,
+              cached: true,
+            },
+          }
+        : null,
+    [balance, developmentAssessment, effectiveScope, governedScope, imbalance, interval, profile.class_distribution, target]
+  );
 
   function goToRegistration() {
     // The existing Data Acquisition flow owns registration and version linking.
     // EDA never implements a second registration system.
-    window.location.assign("/step01");
+    navigate(projectWorkflowRoute(projectId, "/step01"));
   }
 
   // --- On-demand target by predictor ---------------------------------------
@@ -424,7 +367,7 @@ export default function TargetIntelligenceWorkspace({
       datasetName: effectiveScope?.datasetName ?? datasetIdentity?.datasetName ?? "",
       target,
       scope: effectiveScope,
-      assessment: assessment.result,
+      assessment: developmentAssessmentResult,
       governance: governanceFields,
       predictorAnalysis: predictorAnalysis.result,
       timeField,
@@ -446,7 +389,7 @@ export default function TargetIntelligenceWorkspace({
   async function handleSaveEvidence() {
     if (!governed || !governedScope?.datasetId || !governedScope?.datasetVersionId) {
       setMessage(
-        evidenceDisabledReason(effectiveScope, scopeResolution === "resolving") ??
+        evidenceDisabledReason(effectiveScope, false) ??
           "This analysis is not eligible for governed evidence."
       );
       return;
@@ -497,23 +440,54 @@ export default function TargetIntelligenceWorkspace({
     }
   }
 
-  /** Part H: a draft summary may be downloaded, but the file and its filename
-   *  make its status unmistakable -- it must never look like an approved artifact. */
-  function handleExportSummary() {
-    const blob = new Blob([JSON.stringify(evidencePayload(), null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = governed
-      ? `governed-target-intelligence-${target || "target"}-${governedScope?.datasetVersionId ?? "version"}.json`
-      : `WORKSPACE-DRAFT-not-governed-evidence-target-${target || "target"}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-    setMessage(
-      governed
-        ? "Governed bounded summary exported."
-        : "Workspace Draft summary exported. It is marked Not Governed Evidence, Not Version-Pinned, and Not MDD Eligible."
-    );
+  /** Part H: governed exports are recomputed and authorized by the backend.
+   *  Workspace exports remain local and unmistakably draft-marked. */
+  async function handleExportSummary() {
+    if (!governed) {
+      const blob = new Blob([JSON.stringify(evidencePayload(), null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `WORKSPACE-DRAFT-not-governed-evidence-target-${target || "target"}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setMessage(
+        "Workspace Draft summary exported. It is marked Not Governed Evidence, Not Version-Pinned, and Not MDD Eligible."
+      );
+      return;
+    }
+
+    if (!governedScope?.datasetId || !governedScope.datasetVersionId) {
+      setMessage("The governed target summary could not be exported because its exact dataset identity is unavailable.");
+      return;
+    }
+
+    setSaving(true);
+    setMessage("Preparing the governed target summary from the exact Development Population...");
+    try {
+      const summary = await exportGovernedTargetSummary({
+        projectId,
+        datasetId: governedScope.datasetId,
+        versionId: governedScope.datasetVersionId,
+        target,
+        eventValue,
+        nonEventValue,
+      });
+      const blob = new Blob([JSON.stringify(summary, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `governed-target-intelligence-${target || "target"}-${summary.datasetVersionId}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setMessage(
+        `Governed bounded summary exported from Development Population ${summary.analysisPopulationId}.`
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "The governed target summary could not be exported.");
+    } finally {
+      setSaving(false);
+    }
   }
 
   const timeRows = safeArray<any>(data.event_rate_by_time);
@@ -531,15 +505,16 @@ export default function TargetIntelligenceWorkspace({
       <AnalysisScopeBanner
         resolution={scopeResolution}
         scope={effectiveScope}
-        error={assessment.error}
+        error={null}
         onRegister={goToRegistration}
-        onRetry={assessment.retry}
-        reconciliation={reconciliation}
+        onRetry={onRunConditional}
+        reconciliation={null}
       />
 
       {/* 1 -------------------------------------------------------------- */}
       <TargetIdentitySection
         identity={identity}
+        projectId={projectId}
         target={target}
         problemType={problemType}
         targetSourceExcluded={safeArray<string>(data.target_source_excluded)}
@@ -558,7 +533,7 @@ export default function TargetIntelligenceWorkspace({
       <AtlasWorkflowSection
         eyebrow="Section 2"
         title="Class Balance and Prevalence"
-        description="Exact class counts and prevalence from the Full Governed Population. Preview row limits and browser sampling do not affect these structural figures."
+        description="Exact class counts and prevalence from the Development Population. The sealed final holdout is excluded from these target-derived figures."
         tone="info"
       >
         <div data-testid="target-class-balance">
@@ -573,28 +548,8 @@ export default function TargetIntelligenceWorkspace({
                 <TargetDistributionPanel
                   distribution={distribution}
                   showMetricCards={false}
-                  state={
-                    serverDistribution.phase === "queued" || serverDistribution.phase === "running"
-                      ? "loading"
-                      : serverDistribution.phase === "failed"
-                        ? "error"
-                        : distribution
-                          ? "ready"
-                          : "empty"
-                  }
-                  scopeLabel={
-                    balance?.resolution === "sampled"
-                      ? "stratified sample of the registered dataset"
-                      : "full registered population"
-                  }
-                  query={{
-                    phase: serverDistribution.phase,
-                    elapsedMs: serverDistribution.elapsedMs,
-                    error: serverDistribution.error,
-                    sampling: serverDistribution.result?.sampling,
-                    retry: serverDistribution.retry,
-                    calculateExact: serverDistribution.calculateExact,
-                  }}
+                  state={distribution ? "ready" : "empty"}
+                  scopeLabel="exact Development Population (sealed final holdout excluded)"
                 />
               </div>
             </>
@@ -709,7 +664,7 @@ export default function TargetIntelligenceWorkspace({
           evidenceDisabledReason={
             !projectId
               ? "No active project is selected."
-              : evidenceDisabledReason(effectiveScope, scopeResolution === "resolving") ?? undefined
+              : evidenceDisabledReason(effectiveScope, false) ?? undefined
           }
           onCreate={handleCreateFinding}
           onUpdate={handleUpdateFinding}
@@ -780,6 +735,7 @@ function TargetPrevalenceRing({
 
 function TargetIdentitySection({
   identity,
+  projectId,
   target,
   problemType,
   targetSourceExcluded,
@@ -790,6 +746,7 @@ function TargetIdentitySection({
   contextState,
 }: {
   identity: Record<string, any>;
+  projectId: string;
   target: string;
   problemType: string;
   targetSourceExcluded: string[];
@@ -898,13 +855,13 @@ function TargetIdentitySection({
               ? "Project Context could not be loaded."
               : `Business target, population, observation, and performance definitions are recorded in Project Context (${recordedDefinitions} field(s) recorded).`}
         </span>
-        <a
-          href="/step00"
+        <Link
+          to={projectWorkflowRoute(projectId, "/step00")}
           className="atlas-secondary-button text-xs"
           data-testid="target-view-project-context"
         >
           View Project Context
-        </a>
+        </Link>
       </div>
     </section>
   );

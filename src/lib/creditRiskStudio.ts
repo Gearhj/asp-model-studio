@@ -148,16 +148,44 @@ export type CreditRiskSpecialValueProfile = {
   recommendedTreatment: string;
 };
 
-export type CreditRiskTargetSummary = {
+export type DevelopmentScopeMetadata = {
+  analytical_scope?: "development_population";
+  analysis_scope?: "development_population";
+  target_directed_scope?: "development_population";
+  population_id?: string;
+  population_count?: number;
+  partition_id?: string;
+  partition_revision?: number;
+  analysis_partition_id?: string;
+  analysis_partition_revision?: number;
+  development_partition_id?: string;
+  sealed_holdout_partition_id?: string;
+  holdout_excluded?: boolean;
+  source_checksum?: string;
+  actor?: string;
+  timestamp?: string;
+};
+
+export type ExactCreditRiskIdentity = {
+  projectId: string;
   datasetId: string;
+  datasetVersionId: string;
+  targetColumn?: string;
+};
+
+export type CreditRiskTargetSummary = DevelopmentScopeMetadata & {
+  projectId: string;
+  datasetId: string;
+  datasetVersionId: string;
   datasetName?: string;
   targetColumn: string;
   eventValue: string;
   nonEventValue?: string;
-  scope: "full" | "preview";
+  scope: "development_population";
   rowCount: number;
   profiledRows: number;
   totalRows: number;
+  structuralRowCount?: number;
   goodCount: number;
   badCount: number;
   badRate: number;
@@ -171,7 +199,7 @@ export type CreditRiskTargetSummary = {
 export type CreditRiskMlTrainRequest = {
   projectId: string;
   datasetId: string;
-  datasetVersionId?: string;
+  datasetVersionId: string;
   targetColumn: string;
   eventValue: string | number | boolean;
   selectedVariables: string[];
@@ -183,11 +211,11 @@ export type CreditRiskMlTrainRequest = {
   evaluationMetric?: string;
 };
 
-export type CreditRiskMlModel = {
+export type CreditRiskMlModel = DevelopmentScopeMetadata & {
   modelId: string;
   projectId: string;
   datasetId: string;
-  datasetVersionId?: string;
+  datasetVersionId: string;
   targetColumn: string;
   eventValue: string | number | boolean;
   modelType: string;
@@ -245,11 +273,11 @@ export type WoeIvVariableSummary = {
   bins: WoeIvBin[];
 };
 
-export type WoeIvAnalysis = {
+export type WoeIvAnalysis = DevelopmentScopeMetadata & {
   analysisId: string;
   projectId: string;
   datasetId: string;
-  datasetVersionId?: string;
+  datasetVersionId: string;
   datasetName?: string;
   targetColumn: string;
   eventValue: string | number | boolean;
@@ -269,7 +297,7 @@ export type WoeIvAnalysis = {
 export type WoeIvRunRequest = {
   projectId: string;
   datasetId: string;
-  datasetVersionId?: string;
+  datasetVersionId: string;
   targetColumn: string;
   eventValue: string | number | boolean;
   predictorColumns: string[];
@@ -294,7 +322,7 @@ export type WoeIvManualBin = {
 export type ScorecardTrainRequest = {
   projectId: string;
   datasetId: string;
-  datasetVersionId?: string;
+  datasetVersionId: string;
   targetColumn: string;
   eventValue: string | number | boolean;
   woeAnalysisId?: string;
@@ -319,11 +347,11 @@ export type ScorecardTrainRequest = {
   maximumBadRate?: number;
 };
 
-export type ScorecardModel = {
+export type ScorecardModel = DevelopmentScopeMetadata & {
   modelId: string;
   projectId: string;
   datasetId: string;
-  datasetVersionId?: string;
+  datasetVersionId: string;
   targetColumn: string;
   eventValue: string | number | boolean;
   modelType: string;
@@ -364,6 +392,79 @@ export type ScorecardModel = {
   createdAt?: string;
   updatedAt?: string;
 };
+
+function scopeValue(record: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = record[key];
+    if (value !== undefined && value !== null && String(value).trim() !== "") return value;
+  }
+  return undefined;
+}
+
+/**
+ * Target-directed Credit Risk evidence is accepted only when the backend binds
+ * it to the exact project + registered dataset version and proves an exact
+ * development-population materialization. Browser rows and project-only
+ * "latest" artifacts are never accepted as substitutes.
+ */
+export function assertExactDevelopmentScope<T>(
+  artifact: T,
+  expected: ExactCreditRiskIdentity,
+  label = "Credit Risk artifact",
+): T {
+  if (!artifact || typeof artifact !== "object") {
+    throw new Error(`${label} is missing.`);
+  }
+  const record = artifact as Record<string, unknown>;
+  const actualProjectId = String(scopeValue(record, "projectId", "project_id") ?? "");
+  const actualDatasetId = String(scopeValue(record, "datasetId", "dataset_id") ?? "");
+  const actualDatasetVersionId = String(scopeValue(record, "datasetVersionId", "dataset_version_id") ?? "");
+  const actualTarget = String(scopeValue(record, "targetColumn", "target_column", "target") ?? "");
+  const analyticalScope = String(
+    scopeValue(record, "analytical_scope", "analysis_scope", "target_directed_scope", "scope") ?? "",
+  );
+  const partitionId = String(
+    scopeValue(record, "partition_id", "analysis_partition_id", "analysisPartitionId") ?? "",
+  );
+  const partitionRevision = Number(
+    scopeValue(record, "partition_revision", "analysis_partition_revision", "analysisPartitionRevision"),
+  );
+  const populationId = String(
+    scopeValue(record, "population_id", "development_population_id", "developmentPopulationId") ?? "",
+  );
+  const populationCount = Number(scopeValue(record, "population_count", "development_row_count", "rowCount"));
+  const holdoutExcluded = scopeValue(record, "holdout_excluded", "holdoutExcluded");
+  const sourceChecksum = String(scopeValue(record, "source_checksum", "sourceChecksum") ?? "");
+  const actor = String(scopeValue(record, "actor") ?? "");
+  const timestamp = String(scopeValue(record, "timestamp") ?? "");
+
+  if (
+    actualProjectId !== expected.projectId ||
+    actualDatasetId !== expected.datasetId ||
+    actualDatasetVersionId !== expected.datasetVersionId
+  ) {
+    throw new Error(`${label} does not match the exact project and registered dataset version.`);
+  }
+  if (expected.targetColumn && actualTarget !== expected.targetColumn) {
+    throw new Error(`${label} does not match the exact target contract.`);
+  }
+  if (analyticalScope !== "development_population") {
+    throw new Error(`${label} is not verified development-population evidence.`);
+  }
+  if (!partitionId || !Number.isInteger(partitionRevision) || partitionRevision <= 0) {
+    throw new Error(`${label} is missing a current Analysis Partition identity and revision.`);
+  }
+  if (!populationId || !Number.isInteger(populationCount) || populationCount <= 0) {
+    throw new Error(`${label} is missing verified development membership.`);
+  }
+  if (holdoutExcluded !== true) {
+    throw new Error(`${label} does not prove that the sealed final holdout was excluded.`);
+  }
+  if (!sourceChecksum || !actor || !timestamp) {
+    throw new Error(`${label} is missing required scope lineage metadata.`);
+  }
+  return artifact;
+}
 
 async function jsonFetch<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${DATASET_API_BASE}${path}`, {
@@ -433,13 +534,14 @@ export async function runWoeIvAnalysis(request: WoeIvRunRequest) {
     method: "POST",
     body: JSON.stringify(request),
   });
-  return payload.analysis;
+  return assertExactDevelopmentScope(payload.analysis, request, "WOE / IV analysis");
 }
 
 export async function getCreditRiskDatasetSummary(input: {
+  projectId: string;
   datasetId: string;
-  datasetVersionId?: string;
-  targetColumn?: string;
+  datasetVersionId: string;
+  targetColumn: string;
   eventValue?: string;
   nonEventValue?: string;
 }) {
@@ -447,7 +549,7 @@ export async function getCreditRiskDatasetSummary(input: {
     method: "POST",
     body: JSON.stringify(input),
   });
-  return payload.summary;
+  return assertExactDevelopmentScope(payload.summary, input, "Credit Risk target summary");
 }
 
 export async function getWoeIvAnalysis(analysisId: string) {
@@ -455,9 +557,14 @@ export async function getWoeIvAnalysis(analysisId: string) {
   return payload.analysis;
 }
 
-export async function getLatestWoeIvAnalysisForProject(projectId: string) {
+export async function getLatestWoeIvAnalysisForProject(projectId: string, expected?: ExactCreditRiskIdentity) {
+  if (!expected || expected.projectId !== projectId) {
+    throw new Error("WOE / IV recovery requires the exact project and registered dataset version.");
+  }
   const payload = await jsonFetch<{ ok: true; analysis: WoeIvAnalysis | null }>(`/credit-risk/woe-iv/project/${encodeURIComponent(projectId)}`);
-  return payload.analysis;
+  return payload.analysis
+    ? assertExactDevelopmentScope(payload.analysis, expected, "Recovered WOE / IV analysis")
+    : null;
 }
 
 export async function saveWoeIvAnalysis(analysis: WoeIvAnalysis) {
@@ -508,12 +615,17 @@ export async function trainScorecardModel(request: ScorecardTrainRequest) {
     method: "POST",
     body: JSON.stringify(request),
   });
-  return payload.model;
+  return assertExactDevelopmentScope(payload.model, request, "Scorecard model");
 }
 
-export async function getLatestScorecardForProject(projectId: string) {
+export async function getLatestScorecardForProject(projectId: string, expected?: ExactCreditRiskIdentity) {
+  if (!expected || expected.projectId !== projectId) {
+    throw new Error("Scorecard recovery requires the exact project and registered dataset version.");
+  }
   const payload = await jsonFetch<{ ok: true; model: ScorecardModel | null }>(`/credit-risk/scorecard/project/${encodeURIComponent(projectId)}`);
-  return payload.model;
+  return payload.model
+    ? assertExactDevelopmentScope(payload.model, expected, "Recovered scorecard model")
+    : null;
 }
 
 export async function saveScorecardEvidence(modelId: string, technique = "scorecard_modeling", label = "Scorecard Model Evidence") {
@@ -556,7 +668,7 @@ export async function trainCreditRiskMlModel(request: CreditRiskMlTrainRequest) 
     method: "POST",
     body: JSON.stringify(request),
   });
-  return payload.model;
+  return assertExactDevelopmentScope(payload.model, request, "Credit Risk ML model");
 }
 
 export async function getCreditRiskMlModel(modelId: string) {
@@ -564,9 +676,14 @@ export async function getCreditRiskMlModel(modelId: string) {
   return payload.model;
 }
 
-export async function getLatestCreditRiskMlModelForProject(projectId: string) {
+export async function getLatestCreditRiskMlModelForProject(projectId: string, expected?: ExactCreditRiskIdentity) {
+  if (!expected || expected.projectId !== projectId) {
+    throw new Error("Credit Risk ML recovery requires the exact project and registered dataset version.");
+  }
   const payload = await jsonFetch<{ ok: true; model: CreditRiskMlModel | null }>(`/credit-risk/ml/project/${encodeURIComponent(projectId)}`);
-  return payload.model;
+  return payload.model
+    ? assertExactDevelopmentScope(payload.model, expected, "Recovered Credit Risk ML model")
+    : null;
 }
 
 export async function saveCreditRiskMlEvidence(modelId: string, technique = "ml_underwriting", label = "AI/ML Underwriting Evidence") {

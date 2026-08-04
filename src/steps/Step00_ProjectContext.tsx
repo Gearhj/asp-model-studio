@@ -1,5 +1,5 @@
 import type React from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   CheckCircle2,
@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 import LLMWritingAssist, { type WritingAssistAction } from "../components/LLMWritingAssist";
 import StepShell from "../components/StepShell";
+import { useAuthoritativeProjectContext } from "../components/PredictiveIdentityProvider";
 import AtlasStatusBadge from "../components/ui/AtlasStatusBadge";
 import {
   type AtlasWorkflowMetric,
@@ -18,13 +19,12 @@ import { createEvidence } from "../lib/evidenceGraph";
 import { logDecision } from "../lib/decisionJournal";
 import {
   canonicalModelType,
-  loadProjectContext,
+  defaultProjectContext,
   predictiveModelTypeOptions,
-  saveProjectContext,
   type ProjectContext,
   type PredictiveModelTypeSelection,
 } from "../lib/projectContext";
-import { savePredictiveProjectContextToDatabase } from "../lib/serverPersistence";
+import type { ProjectMetadataUpdateSource } from "../lib/projectContextMetadata";
 import { useProjectContextAutosave } from "../lib/useProjectContextAutosave";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 
@@ -98,26 +98,81 @@ function stateLabel(state: AssessmentState) {
 }
 
 export default function Step00ProjectContext() {
+  const {
+    readiness: authoritativeContext,
+    metadataRefreshStatus,
+    setMetadataRefreshStatus,
+    publishSavedProjectMetadata,
+    authenticatedUserId,
+  } = useAuthoritativeProjectContext();
   const projectId = useWorkflowStore((state) => state.projectId);
   const activeModelId = useWorkflowStore((state) => state.modelId);
   const activeProjectName = useWorkflowStore((state) => state.projectName);
-  const setModelId = useWorkflowStore((state) => state.setModelId);
-  const setProjectName = useWorkflowStore((state) => state.setProjectName);
   const markWorkflowStepComplete = useWorkflowStore((state) => state.markWorkflowStepComplete);
-  const [context, setContext] = useState<ProjectContext>(() => loadProjectContext());
+  const [context, setContext] = useState<ProjectContext>(() => {
+    if (authoritativeContext.status === "ready") {
+      const stored = authoritativeContext.project.projectContext;
+      return stored ? {
+        ...defaultProjectContext,
+        ...stored,
+        fraudDetails: {
+          ...defaultProjectContext.fraudDetails,
+          ...(stored.fraudDetails ?? {}),
+        },
+        modelId: authoritativeContext.project.modelId,
+        projectName: authoritativeContext.project.projectName,
+      } : {
+        ...defaultProjectContext,
+        fraudDetails: { ...defaultProjectContext.fraudDetails },
+        modelId: authoritativeContext.project.modelId,
+        projectName: authoritativeContext.project.projectName,
+      };
+    }
+    return { ...defaultProjectContext, fraudDetails: { ...defaultProjectContext.fraudDetails } };
+  });
   const [validated, setValidated] = useState(false);
   const [saveState, setSaveState] = useState("Draft not saved in this session.");
+  const [summaryDraft, setSummaryDraft] = useState("");
+  const [currentUserId, setCurrentUserId] = useState("");
+  const observedMetadataRevisionRef = useRef(
+    authoritativeContext.status === "ready"
+      ? authoritativeContext.project.metadataRevision
+      : "",
+  );
+  const handleSavedProjectContext = useCallback((notification: {
+    projectId: string;
+    projectRevision: string;
+    requestId: string;
+    projectName: string;
+    modelId: string;
+    changedFields: string[];
+    source: ProjectMetadataUpdateSource;
+    savedAt: string;
+    requestSequence: number;
+    projectContext: ProjectContext;
+  }) => {
+    const disposition = publishSavedProjectMetadata({
+      ...notification,
+      actorUserId: authenticatedUserId,
+    });
+    if (disposition === "applied" || disposition === "duplicate") {
+      setSaveState("Saved to ATLAS database");
+    } else {
+      setMetadataRefreshStatus("error");
+      setSaveState("Saved to ATLAS database, but the in-page metadata refresh was rejected.");
+    }
+  }, [authenticatedUserId, publishSavedProjectMetadata, setMetadataRefreshStatus]);
   // Durable autosave: the backend project record is authoritative. Hydration
   // runs before the form is editable so an empty form can never overwrite
   // stored content.
   const autosave = useProjectContextAutosave({
     projectId,
+    authenticatedUserId,
     context,
     validationStatus: getMissing(context).length ? "incomplete" : context.completionStatus === "complete" ? "complete" : "ready",
     onHydrated: (hydrated) => setContext(hydrated),
+    onSaved: handleSavedProjectContext,
   });
-  const [summaryDraft, setSummaryDraft] = useState("");
-  const [currentUserId, setCurrentUserId] = useState("");
 
   const reviews = useMemo(() => reviewItems(context), [context]);
   const missing = useMemo(() => getMissing(context), [context]);
@@ -125,8 +180,45 @@ export default function Step00ProjectContext() {
   const pageCompleted = isComplete && context.completionStatus === "complete" && Boolean(context.completedAt);
 
   useEffect(() => {
-    window.dispatchEvent(new CustomEvent("atlas-project-context-updated", { detail: { projectContext: context } }));
-  }, [context]);
+    if (autosave.hydrating) setMetadataRefreshStatus("refreshing");
+    else if (autosave.status === "saving") setMetadataRefreshStatus("saving");
+    else if (autosave.status === "saved") setMetadataRefreshStatus("saved");
+    else if (["failed", "offline", "conflict"].includes(autosave.status)) {
+      setMetadataRefreshStatus("error");
+    } else setMetadataRefreshStatus("idle");
+  }, [
+    autosave.hydrating,
+    autosave.status,
+    setMetadataRefreshStatus,
+  ]);
+
+  useEffect(() => {
+    if (authoritativeContext.status !== "ready") return;
+    const revision = authoritativeContext.project.metadataRevision;
+    const stored = authoritativeContext.project.projectContext;
+    if (!revision || revision === observedMetadataRevisionRef.current || !stored) return;
+    // Never overwrite an edit that has not received a backend acknowledgement.
+    if (autosave.dirty) return;
+    observedMetadataRevisionRef.current = revision;
+    autosave.adoptAuthoritativeContext({
+      revision,
+      savedAt: authoritativeContext.project.metadataSavedAt,
+      context: {
+        ...defaultProjectContext,
+        ...stored,
+        fraudDetails: {
+          ...defaultProjectContext.fraudDetails,
+          ...(stored.fraudDetails ?? {}),
+        },
+        modelId: authoritativeContext.project.modelId,
+        projectName: authoritativeContext.project.projectName,
+      },
+    });
+  }, [
+    authoritativeContext,
+    autosave.adoptAuthoritativeContext,
+    autosave.dirty,
+  ]);
 
   useEffect(() => {
     setContext((current) => {
@@ -202,29 +294,23 @@ export default function Step00ProjectContext() {
     setValidated(false);
   };
 
-  const withCurrentUser = async (draft: ProjectContext) => {
-    try {
-      const response = await me();
-      setCurrentUserId(response.user.userId);
-      return { ...draft, updatedBy: response.user.userId };
-    } catch {
-      return draft;
-    }
-  };
-
   const persistDraft = async (draft: ProjectContext, message: string) => {
     setSaveState("Saving Project Context...");
-    const identified = await withCurrentUser(draft);
-    const saved = saveProjectContext(identified);
+    // The provider's authenticated principal is already bound to this exact
+    // route scope. Avoid a second asynchronous /auth/me lookup here: a late
+    // response after navigation could otherwise start a stale-project save.
+    const identifiedDraft = authenticatedUserId
+      ? { ...draft, updatedBy: authenticatedUserId }
+      : draft;
+    const saved = identifiedDraft.completionStatus === "complete"
+      ? { ...identifiedDraft, completedBy: identifiedDraft.updatedBy }
+      : identifiedDraft;
     setContext(saved);
-    setModelId(saved.modelId);
-    setProjectName(saved.projectName || "Untitled ATLAS Project");
-    await savePredictiveProjectContextToDatabase(projectId, {
-      projectName: saved.projectName,
-      modelId: saved.modelId,
-      projectContext: saved as unknown as Record<string, unknown>,
-      validationStatus: getMissing(saved).length ? "incomplete" : saved.completionStatus === "complete" ? "complete" : "ready",
-    });
+    const persisted = await autosave.saveNow(saved);
+    if (!persisted) {
+      setSaveState("Project Context could not be saved. Your draft is kept locally.");
+      return null;
+    }
     setSaveState(message);
     return saved;
   };
@@ -237,15 +323,15 @@ export default function Step00ProjectContext() {
       return false;
     }
     const completedAt = new Date().toISOString();
-    const completed = await withCurrentUser({
+    const completed = {
       ...context,
       completionStatus: "complete",
       completedAt,
       completedBy: context.updatedBy,
       fraudDetails: { ...context.fraudDetails, completedAt },
-    });
-    completed.completedBy = completed.updatedBy;
+    } as ProjectContext;
     const saved = await persistDraft(completed, "Project Context marked complete. Continue to Data Acquisition when ready.");
+    if (!saved) return false;
     markWorkflowStepComplete("step00");
     logDecision({ workflowStep: "Project Context", actionType: "project_context_updated", subject: saved.projectName || "Project Context", newValue: { completion: "passed", mddSections: ["1", "3"] }, followStatus: "followed" });
     await createEvidence({
@@ -277,21 +363,13 @@ export default function Step00ProjectContext() {
   };
 
   const continueToDataAcquisition = async () => {
-    // Flush before navigating away, and do not pretend success if the required
-    // save failed -- the draft stays local and the user is told.
-    const flushed = await autosave.flush();
-    if (!flushed) {
-      setSaveState("Project Context could not be saved. Your draft is kept locally. Retry before continuing.");
-      return false;
-    }
     if (!isComplete) {
       setValidated(true);
       setSaveState(`Complete or clarify ${missing.length} required item${missing.length === 1 ? "" : "s"} before continuing.`);
       return false;
     }
     if (pageCompleted) {
-      await persistDraft(context, "Project Context saved. Opening Data Acquisition.");
-      return true;
+      return Boolean(await persistDraft(context, "Project Context saved. Opening Data Acquisition."));
     }
     return completePage();
   };
@@ -367,6 +445,11 @@ export default function Step00ProjectContext() {
       nextStatusLine="Continue saves Project Context and opens Data Acquisition."
       onNext={continueToDataAcquisition}
     >
+      <fieldset
+        className="contents"
+        disabled={autosave.hydrating || !autosave.hydrated}
+        data-metadata-refresh-status={metadataRefreshStatus}
+      >
       <div className="space-y-5" id="project-context-top">
         <div className="grid gap-5 xl:grid-cols-[468px_minmax(0,1fr)]">
           <section id="model-identity" data-testid="model-identity-card" className="rounded-xl border-2 border-blue-400 bg-blue-100 p-5 shadow-sm">
@@ -488,6 +571,7 @@ export default function Step00ProjectContext() {
 
         <ProjectContextSaveStatus autosave={autosave} fallbackMessage={saveState} />
       </div>
+      </fieldset>
     </StepShell>
   );
 }
@@ -511,7 +595,7 @@ function ProjectContextSaveStatus({
     status === "saving"
       ? "Saving..."
       : status === "saved"
-        ? `Saved${lastSavedAt ? ` at ${new Date(lastSavedAt).toLocaleTimeString()}` : ""}`
+        ? `Saved to ATLAS database${lastSavedAt ? ` at ${new Date(lastSavedAt).toLocaleTimeString()}` : ""}`
         : status === "unsaved"
           ? "Unsaved changes"
           : status === "failed"

@@ -101,10 +101,11 @@ test("Feature Engineering follows builder, inventory, optional-tools composition
 
 test("Balance and Split uses the reference validation-design sequence", () => {
   for (const label of [
-    "1. Choose Validation Approach",
-    "Traditional TRAIN / TEST / OOT",
+    "1. Review Inherited Analysis Partition",
+    "Data Acquisition Analysis Partition",
+    "Inherited Development / Final Holdout",
     "Cross-Validation Inside Training",
-    "2. Configure Split",
+    "2. Configure Cross-Validation",
     "3. Preview of resulting split",
     "4. Class Preservation Summary",
     "Advanced Balancing Settings",
@@ -121,7 +122,7 @@ test("Balance and Split uses the reference validation-design sequence", () => {
   );
   assert.match(
     pages.split,
-    /<AtlasWorkflowSection[\s\S]{0,140}title="1\. Choose Validation Approach"/,
+    /<AtlasWorkflowSection[\s\S]{0,140}title="1\. Review Inherited Analysis Partition"/,
   );
   assert.match(pages.split, /prep-split-preview__bar/);
   for (const testId of [

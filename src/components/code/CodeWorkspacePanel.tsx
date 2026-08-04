@@ -1,9 +1,12 @@
-import { AlertTriangle, Copy, Play, Save } from "lucide-react";
+import { AlertTriangle, Copy, Download, Play, Save } from "lucide-react";
 import { useState } from "react";
 import type { CodeLanguage, CodeRunResult, PythonDiagnostics } from "../../lib/codeExecution";
 import type { CodeContextMismatchDetail } from "../../lib/codeContextSafety";
 import { CodeExecutionResult } from "./CodeExecutionResult";
-import { CodeLanguageTabs } from "./CodeLanguageTabs";
+import {
+  CodeLanguageTabs,
+  type CodeWorkspaceLanguage,
+} from "./CodeLanguageTabs";
 
 export type CodeWorkspaceContextSafety = {
   warning: string;
@@ -18,7 +21,7 @@ export type CodeWorkspaceContextSafety = {
 };
 
 export type CodeWorkspaceLanguageConfig = {
-  language: CodeLanguage;
+  language: CodeWorkspaceLanguage;
   label: string;
   supportBadge: string;
   generatedCode: string;
@@ -32,10 +35,13 @@ export type CodeWorkspaceLanguageConfig = {
   diagnostics?: PythonDiagnostics | null;
   onRun?: () => void;
   onCopy?: () => void;
+  onDownload?: () => void;
+  downloadLabel?: string;
   onSave?: () => void;
   canSave?: boolean;
   saveLabel?: string;
   contextSafety?: CodeWorkspaceContextSafety;
+  readOnlyGenerated?: boolean;
 };
 
 export function CodeWorkspacePanel({
@@ -46,20 +52,20 @@ export function CodeWorkspacePanel({
   cleanStderr,
 }: {
   languages: CodeWorkspaceLanguageConfig[];
-  defaultLanguage?: CodeLanguage;
-  activeLanguage?: CodeLanguage;
+  defaultLanguage?: CodeWorkspaceLanguage;
+  activeLanguage?: CodeWorkspaceLanguage;
   onActiveLanguageChange?: (language: CodeLanguage) => void;
   cleanStderr?: (value: string) => string;
 }) {
-  const [internalActive, setInternalActive] = useState<CodeLanguage>(defaultLanguage);
-  const [diffByLanguage, setDiffByLanguage] = useState<Partial<Record<CodeLanguage, boolean>>>({});
+  const [internalActive, setInternalActive] = useState<CodeWorkspaceLanguage>(defaultLanguage);
+  const [diffByLanguage, setDiffByLanguage] = useState<Partial<Record<CodeWorkspaceLanguage, boolean>>>({});
   const active = activeLanguage ?? internalActive;
-  const setActive = (language: CodeLanguage) => {
+  const setActive = (language: CodeWorkspaceLanguage) => {
     setInternalActive(language);
-    onActiveLanguageChange?.(language);
+    if (language !== "metadata") onActiveLanguageChange?.(language);
   };
   const current = languages.find((item) => item.language === active) ?? languages[0];
-  const badges = languages.reduce((record, item) => ({ ...record, [item.language]: item.supportBadge }), {} as Partial<Record<CodeLanguage, string>>);
+  const badges = languages.reduce((record, item) => ({ ...record, [item.language]: item.supportBadge }), {} as Partial<Record<CodeWorkspaceLanguage, string>>);
 
   return (
     <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -173,20 +179,31 @@ export function CodeWorkspacePanel({
       ) : null}
 
       <div className="mt-4 flex flex-wrap gap-2">
-        <button type="button" onClick={current.onRun} disabled={!current.canRun || current.running} className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white disabled:bg-slate-400">
-          <Play size={15} /> {current.running ? "Running..." : current.runLabel}
-        </button>
+        {!current.readOnlyGenerated ? (
+          <button type="button" onClick={current.onRun} disabled={!current.canRun || current.running} className="inline-flex items-center gap-2 rounded-lg bg-slate-950 px-3 py-2 text-sm font-semibold text-white disabled:bg-slate-400">
+            <Play size={15} /> {current.running ? "Running..." : current.runLabel}
+          </button>
+        ) : null}
         <button type="button" onClick={current.onCopy} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
-          <Copy size={15} /> Copy Code
+          <Copy size={15} /> {current.readOnlyGenerated ? "Copy Metadata" : "Copy Code"}
         </button>
-        <button type="button" onClick={current.onSave} disabled={current.canSave === false} className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-800 disabled:border-slate-200 disabled:text-slate-400">
-          <Save size={15} /> {current.saveLabel ?? `Save ${current.label} as Insight`}
-        </button>
+        {current.onDownload ? (
+          <button type="button" onClick={current.onDownload} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700">
+            <Download size={15} /> {current.downloadLabel ?? "Download"}
+          </button>
+        ) : null}
+        {!current.readOnlyGenerated ? (
+          <button type="button" onClick={current.onSave} disabled={current.canSave === false} className="inline-flex items-center gap-2 rounded-lg border border-emerald-200 bg-white px-3 py-2 text-sm font-semibold text-emerald-800 disabled:border-slate-200 disabled:text-slate-400">
+            <Save size={15} /> {current.saveLabel ?? `Save ${current.label} as Insight`}
+          </button>
+        ) : null}
       </div>
 
-      <div className="mt-4 grid gap-4 xl:grid-cols-2">
+      <div className={`mt-4 grid gap-4 ${current.readOnlyGenerated ? "" : "xl:grid-cols-2"}`}>
         <CodeBox title={`Generated ${current.label}`} value={current.generatedCode} readOnly />
-        <CodeBox title={`User-Edited ${current.label}`} value={current.userCode} onChange={current.setUserCode} />
+        {!current.readOnlyGenerated ? (
+          <CodeBox title={`User-Edited ${current.label}`} value={current.userCode} onChange={current.setUserCode} />
+        ) : null}
       </div>
       <CodeExecutionResult result={current.result ?? null} diagnostics={current.diagnostics ?? null} cleanStderr={cleanStderr} />
     </div>

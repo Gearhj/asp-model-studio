@@ -81,7 +81,7 @@ test("all Phase 2A evidence surfaces use the canonical evidence envelope", async
     const source = await readFile(new URL(page, ROOT), "utf8");
     assert.match(
       source,
-      /createEvidence\(\{\s*\.\.\.buildCanonicalEvidenceEnvelope\(datasetIdentity,/,
+      /createEvidence\(\{[\s\S]{0,1200}?\.\.\.buildCanonicalEvidenceEnvelope\(datasetIdentity,/,
       `${page} must bind evidence to the exact active dataset identity.`,
     );
   }

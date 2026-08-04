@@ -188,8 +188,8 @@ test("16. a successful load uses success semantics", () => {
 
 test("every visible status reads from the one shared model", () => {
   assert.match(step01, /deriveDataAcquisitionStatus\(/, "the shared derivation must be used");
-  assert.match(step01, /value: acquisitionStatus\.readinessLabel/, "the hero must read the shared state");
-  assert.match(step01, /acquisitionStatus\.reviewState === "completed"/, "the strip must read the shared state");
+  assert.match(step01, /registrationLabel\(acquisitionStatus\.registrationState\)/, "the canonical contract must read the shared lifecycle state");
+  assert.match(step01, /<ReadinessBadge status=\{acquisitionStatus\} \/>/, "the quality checkpoint must read the shared state");
   assert.match(step01, /nextDisabled=\{!acquisitionStatus\.canContinue\}/, "progression must read the shared state");
   // The old independent derivation no longer gates progression.
   assert.doesNotMatch(step01, /nextDisabled=\{!!nextDisabledReason\}/);
@@ -318,10 +318,11 @@ test("invariant: the readiness checkpoint renders the shared lifecycle state", (
     "the checkpoint badge must take the shared status object");
   assert.doesNotMatch(step01, /<ReadinessBadge status=\{readiness\.status\}/,
     "the checkpoint badge must not take the legacy status");
-  assert.match(step01, /data-testid="readiness-summary-status"/);
-  assert.match(step01, /Analytical readiness: \{acquisitionStatus\.readinessLabel\}/,
-    "the checkpoint sentence must come from the shared model");
-  assert.match(step01, /User review: \{acquisitionStatus\.reviewLabel\}/);
+  assert.match(step01, /data-testid="data-quality-readiness"/);
+  assert.match(step01, /<DataQualityPanel quality=\{quality\} \/>/,
+    "unique quality findings must remain visible beside the shared readiness badge");
+  assert.doesNotMatch(step01, /readiness-summary-status/,
+    "the duplicate readiness-summary card must remain removed");
 });
 
 test("invariant: no visible component renders a legacy lifecycle label", () => {
@@ -330,8 +331,8 @@ test("invariant: no visible component renders a legacy lifecycle label", () => {
   assert.doesNotMatch(step01, /READINESS_LABELS\[readiness\.status\]/,
     "the legacy label lookup must be gone");
   assert.doesNotMatch(step01, /READINESS_LABELS\[status\]/);
-  // `readiness` survives only as findings text.
-  assert.match(step01, /readiness\.reasons\.map/, "findings text may still come from the legacy helper");
+  assert.doesNotMatch(step01, /const readiness\s*=\s*useMemo/, "the duplicate memoized lifecycle derivation must remain removed");
+  assert.doesNotMatch(step01, /function CurrentDatasetSummary/, "the duplicate dataset summary must remain removed");
 });
 
 test("invariant: progression uses only acquisitionStatus", () => {

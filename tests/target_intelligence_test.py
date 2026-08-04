@@ -629,10 +629,56 @@ class FullPopulationTargetByPredictorTests(unittest.TestCase):
             "project_id": self.project_id,
             "target": "target",
             "selected_columns": ["score", "segment"],
+            "event_value": "event",
+            "non_event_value": "non_event",
             "expected_dataset_id": self.dataset_id,
             "expected_dataset_version_id": self.dataset_version_id,
         })
         self.assertEqual(target.status_code, 200, target.text)
+        target_contract = target.json()
+
+        partition_design = {
+            "project_id": self.project_id,
+            "dataset_id": self.dataset_id,
+            "dataset_version_id": self.dataset_version_id,
+            "target_contract_id": target_contract["target_contract_id"],
+            "target": "target",
+            "positive_value": "event",
+            "negative_value": "non_event",
+            "predictor_authorization_id": target_contract[
+                "predictor_authorization_id"
+            ],
+            "problem_type": "classification",
+            "development_share": 0.8,
+            "holdout_share": 0.2,
+            "random_seed": 42,
+            "stratification_policy": "target",
+            "stratification_field": "target",
+        }
+        preview = self.client.post(
+            "/api/analysis-partitions/preview", json=partition_design
+        )
+        self.assertEqual(preview.status_code, 200, preview.text)
+        preview_payload = preview.json()["preview"]
+        analysis_partition = self.client.post(
+            "/api/analysis-partitions/confirm",
+            json={
+                **partition_design,
+                "preview_fingerprint": preview_payload["preview_fingerprint"],
+                "selection_rationale": (
+                    "Isolated Target Intelligence fixture accepts the split warning."
+                    if preview_payload.get("rationale_required")
+                    else ""
+                ),
+                "confirmation_acknowledged": True,
+                "reset_existing": False,
+                "reset_reason": "",
+                "acknowledge_invalidation": False,
+            },
+        )
+        self.assertEqual(
+            analysis_partition.status_code, 200, analysis_partition.text
+        )
 
         me = self.client.get("/api/auth/me")
         self.assertEqual(me.status_code, 200, me.text)

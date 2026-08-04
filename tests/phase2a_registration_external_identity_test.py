@@ -70,6 +70,7 @@ from server.persistence import service as persistence_service  # noqa: E402
 from server.scoring_runs import scoring_run_artifacts  # noqa: E402
 from server.security import security_store  # noqa: E402
 from server.splitting import split_router  # noqa: E402
+from tests.analysis_partition_fixture import GovernedAnalysisFixture  # noqa: E402
 
 
 _CHECKED_IN_MUTABLE_ROOTS = tuple(
@@ -223,6 +224,12 @@ class Phase2ARegistrationAndExternalIdentityTests(unittest.TestCase):
 
     def setUp(self) -> None:
         _rebind_isolated_runtime()
+        # Exercise the normal persistence bootstrap so every repository used
+        # by the split contract, including Analysis Partition authority, is
+        # present in this suite-owned database.  Hand-creating only the legacy
+        # tables would bypass the governed migration path being tested.
+        persistence_db.get_database().initialize()
+        persistence_service._service = None
         shutil.rmtree(_LIBRARY_ROOT, ignore_errors=True)
         dataset_registry.ensure_store()
         dataset_registry.save_registry({"datasets": []})
@@ -716,11 +723,29 @@ class Phase2ARegistrationAndExternalIdentityTests(unittest.TestCase):
     ) -> None:
         self._seed_external_registry()
         store = self._configured_store()
-        with self._patched_split(store):
-            response = split_router.balancing_split_config(
-                self._split_payload(),
-                user=OWNER,
+        # The external-validation contract is downstream of the exact,
+        # documented Analysis Partition.  Install that authority through the
+        # same preview/confirm/evidence/MDD path used by production instead of
+        # bypassing the pre-EDA gate with a legacy split-only fixture.
+        partition = GovernedAnalysisFixture(
+            project_id=PROJECT_ID,
+            owner=OWNER["userId"],
+        )
+        try:
+            partition.install(
+                store,
+                dataset_id=DEVELOPMENT_DATASET_ID,
+                dataset_version_id=DEVELOPMENT_VERSION_ID,
+                target="bad_flag",
+                authorized_predictors=["predictor_a"],
             )
+            with self._patched_split(store):
+                response = split_router.balancing_split_config(
+                    self._split_payload(),
+                    user=OWNER,
+                )
+        finally:
+            partition.close()
 
         self.assertTrue(response["ready"])
         record = store.meta["split_record"]

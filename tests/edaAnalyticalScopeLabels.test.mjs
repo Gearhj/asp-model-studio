@@ -24,6 +24,20 @@ function includesAll(source, markers) {
 }
 
 test("target-directed preview and drilldown identify the Development Population", () => {
+  includesAll(step, [
+    "Governed mixed-scope EDA for",
+    "target-directed metrics use the Development Population",
+    "structural diagnostics cover",
+    "Development Population class prevalence",
+    'scope="Development Population"',
+  ]);
+  assert.doesNotMatch(step, /Full Governed Population EDA/);
+  assert.doesNotMatch(step, /Full Governed Population class prevalence/);
+  includesAll(targetVisual, [
+    'data-scope="development-population"',
+    "across the Development Population",
+    "sealed final holdout excluded",
+  ]);
   includesAll(targetVisual, [
     "Top five server-authorized predictors by IV from the Development Population",
     "Development Population · {formatCount(preview?.population_rows)} rows",

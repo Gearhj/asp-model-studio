@@ -5,6 +5,7 @@ from typing import Any, Dict
 from .db import Database, get_database, now_iso
 from .repositories import (
     AccessRepository,
+    AnalysisPartitionRepository,
     AuditRepository,
     CollaborationRepository,
     DatasetRepository,
@@ -28,6 +29,8 @@ from .repositories import (
     UserRepository,
     ValidationRepository,
     AnalyticsRepository,
+    PredictorAuthorizationRepository,
+    SpecialValueReviewRepository,
 )
 
 
@@ -35,6 +38,7 @@ class PersistenceService:
     def __init__(self, database: Database) -> None:
         self.database = database
         self.projects = ProjectRepository(database)
+        self.analysis_partitions = AnalysisPartitionRepository(database)
         self.datasets = DatasetRepository(database)
         self.evidence = EvidenceRepository(database)
         self.experimental_design = ExperimentalDesignRepository(database)
@@ -58,6 +62,8 @@ class PersistenceService:
         self.feedback = DemoFeedbackRepository(database)
         self.validation = ValidationRepository(database)
         self.analytics = AnalyticsRepository(database)
+        self.predictor_authorizations = PredictorAuthorizationRepository(database)
+        self.special_value_reviews = SpecialValueReviewRepository(database)
 
     def sync_user(self, user: Dict[str, Any] | None) -> Dict[str, Any] | None:
         if not user or not user.get("userId"):

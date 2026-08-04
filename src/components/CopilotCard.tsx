@@ -26,11 +26,20 @@ import { deriveSuggestedFactors, treatmentCellCount } from "../lib/experimentalD
 import { loadLocalDataset } from "../lib/localDataset";
 import { deriveTaskContext } from "../lib/taskContext";
 import { loadModelingMode, type ModelingMode } from "../lib/modelingMode";
-import { hasGovernanceRegulation, loadProjectContext, type ProjectContext } from "../lib/projectContext";
+import {
+  defaultProjectContext,
+  hasGovernanceRegulation,
+  loadProjectContext,
+  type ProjectContext,
+} from "../lib/projectContext";
 import { deriveOptimizationEvidenceSummary, loadTransportationOptimizationSnapshot } from "../lib/transportationOptimizationEvidence";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { requestScopedTrainingHistory } from "../lib/scopedTrainingHistory";
-import { usePredictiveIdentity } from "./PredictiveIdentityProvider";
+import { normalizeWorkflowRoute, scopedProjectIdForPathname } from "../lib/projectScopedRoutes";
+import {
+  useAuthoritativeProjectContext,
+  usePredictiveIdentity,
+} from "./PredictiveIdentityProvider";
 
 const OUTLIER_CONFIG_KEY = "modeling-tool-outlier-methods";
 const CHALLENGE_MODE_KEY = "modeling-tool-challenge-mode";
@@ -62,7 +71,6 @@ type CopilotContext = {
   problemType: "classification" | "regression" | null;
   rowCount: number;
   target: string | null;
-  eventRate: number | null;
   selectedColumnCount: number;
   hasStandardizedVariables: boolean;
   hasPcaLikeNames: boolean;
@@ -105,23 +113,6 @@ function readOutlierConfig() {
   } catch {
     return {};
   }
-}
-
-function eventRateForTarget(rows: Record<string, unknown>[], target: string | null) {
-  if (!target || !rows.length) return null;
-  const values = rows.map((row) => row[target]).filter((value) => value !== null && value !== undefined && String(value).trim() !== "");
-  if (!values.length) return null;
-  const numeric = values.map((value) => Number(value));
-  const numericCount = numeric.filter(Number.isFinite).length;
-  if (numericCount / values.length >= 0.8) {
-    const positives = numeric.filter((value) => value === 1).length;
-    const zeros = numeric.filter((value) => value === 0).length;
-    if (positives + zeros >= values.length * 0.8) return positives / Math.max(1, positives + zeros);
-  }
-  const counts = new Map<string, number>();
-  values.forEach((value) => counts.set(String(value), (counts.get(String(value)) ?? 0) + 1));
-  const sorted = Array.from(counts.values()).sort((a, b) => a - b);
-  return sorted.length > 1 ? sorted[0] / values.length : null;
 }
 
 function numericStats(values: unknown[]) {
@@ -184,15 +175,28 @@ function routeLabel(pathname: string) {
   return labels[pathname] ?? "Workflow";
 }
 
-function buildContext(route: string, completedSteps: number, trainingSummary: TrainingSummary | null, projectContextOverride?: ProjectContext | null): CopilotContext {
+function buildContext(
+  route: string,
+  completedSteps: number,
+  trainingSummary: TrainingSummary | null,
+  suppliedProjectContext: ProjectContext,
+): CopilotContext {
   const dataset = loadLocalDataset();
   const datasetTarget = dataset?.target ?? null;
   const rows = dataset?.rows ?? [];
   const headers = dataset?.headers ?? [];
   const outlierConfig = readOutlierConfig();
   const amountFeature = Object.keys(outlierConfig).find((feature) => /amount|balance|income|payment|loan/i.test(feature));
-  const projectContext = projectContextOverride ?? loadProjectContext();
   const workflowState = useWorkflowStore.getState();
+  const authoritativeProjectName = workflowState.projectName.trim();
+  const projectContext = {
+    ...suppliedProjectContext,
+    modelId: workflowState.modelId.trim() || suppliedProjectContext.modelId,
+    projectName:
+      authoritativeProjectName && authoritativeProjectName !== "Untitled ATLAS Project"
+        ? authoritativeProjectName
+        : suppliedProjectContext.projectName,
+  };
   const workflow = getWorkflowDefinition(workflowState.workflowId);
   const activeStep = workflowState.workflowSteps.find((step) => step.route === route) ?? workflowState.workflowSteps.find((step) => route.includes(step.id));
   const workflowNodeState = readWorkflowNodeState(workflowState.projectId, activeStep?.id);
@@ -218,7 +222,6 @@ function buildContext(route: string, completedSteps: number, trainingSummary: Tr
     problemType: isOptimization ? null : resolvedTask?.problemType ?? null,
     rowCount: rows.length,
     target,
-    eventRate: eventRateForTarget(rows, target),
     selectedColumnCount: dataset?.selected_columns?.length ?? 0,
     hasStandardizedVariables: detectStandardizedVariables(rows, headers, target),
     hasPcaLikeNames: detectPcaLikeNames(headers, target),
@@ -256,23 +259,6 @@ function buildChallengeItems(context: CopilotContext): ChallengeItem[] {
   const challenges: ChallengeItem[] = [];
   const experiments = loadExperiments();
   const primaryMetric = context.projectContext.primarySuccessMetric;
-
-  if (
-    context.problemType === "classification" &&
-    context.eventRate !== null &&
-    context.eventRate < 0.01 &&
-    /accuracy/i.test(primaryMetric)
-  ) {
-    challenges.push({
-      id: "rare-event-accuracy",
-      subject: "Primary success metric",
-      title: "Challenge: Accuracy is likely misleading",
-      body: `The event rate is approximately ${(context.eventRate * 100).toFixed(2)}%, but Accuracy is selected as the primary metric.`,
-      recommendation: "Use PR-AUC, recall, lift, capture rate, calibration, and threshold analysis as primary rare-event evidence.",
-      why: "A model can achieve very high accuracy by predicting the majority class while missing the event cases.",
-      confidence: 0.97,
-    });
-  }
 
   const champion = experiments.find((experiment) => experiment.champion);
   const randomForest = experiments.find((experiment) => /random forest/i.test(experiment.modelType));
@@ -520,16 +506,13 @@ export function buildCopilotRecommendations(context: CopilotContext): CopilotIte
 
   if (
     context.problemType === "classification" &&
-    ((context.eventRate !== null && context.eventRate < 0.01) || ["fraud", "AML/KYC"].includes(context.projectContext.modelType))
+    ["fraud", "AML/KYC"].includes(context.projectContext.modelType)
   ) {
     items.push({
       kind: "observation",
-      title: "Rare-event classification problem",
-      body:
-        context.eventRate !== null
-          ? `The target event rate is approximately ${(context.eventRate * 100).toFixed(2)}%.`
-          : `${context.projectContext.modelType} projects often behave like rare-event classification problems.`,
-      why: "At this prevalence, a model can look accurate while failing to find the event cases the business cares about.",
+      title: "Rare-event evidence should be reviewed",
+      body: `${context.projectContext.modelType} projects often behave like rare-event classification problems; ATLAS will not infer prevalence from browser rows.`,
+      why: "The exact event rate and any metric recommendation must come from the verified development population, never the browser dataset cache.",
       confidence: 0.96,
     });
     items.push({
@@ -1264,15 +1247,17 @@ function buildFactorGuideSummary(rawFactors: string): ExperimentalGuideHealth["d
 
 export default function CopilotCard() {
   const location = useLocation();
+  const normalizedPathname = normalizeWorkflowRoute(location.pathname);
+  const scopedProjectId = scopedProjectIdForPathname(location.pathname);
   const steps = useWorkflowStore((state) => state.steps);
   const projectId = useWorkflowStore((state) => state.projectId);
   const { readiness: identityReadiness } = usePredictiveIdentity();
+  const { readiness: projectReadiness } = useAuthoritativeProjectContext();
   const [trainingSummary, setTrainingSummary] = useState<TrainingSummary | null>(null);
   const [challengeMode, setChallengeMode] = useState(() => localStorage.getItem(CHALLENGE_MODE_KEY) === "true");
   const [overrideReasons, setOverrideReasons] = useState<Record<string, string>>({});
   const [savedChallenges, setSavedChallenges] = useState<Record<string, string>>({});
   const [workflowNodeVersion, setWorkflowNodeVersion] = useState(0);
-  const [projectContextOverride, setProjectContextOverride] = useState<ProjectContext | null>(null);
   const [projectContextGuideCollapsed, setProjectContextGuideCollapsed] = useState(() => localStorage.getItem(PROJECT_CONTEXT_GUIDE_COLLAPSED_KEY) === "true");
 
   useEffect(() => {
@@ -1305,25 +1290,60 @@ export default function CopilotCard() {
     return () => window.removeEventListener("atlas-workflow-node-updated", refresh);
   }, []);
 
-  useEffect(() => {
-    const refreshProjectContext = (event: Event) => {
-      const detail = (event as CustomEvent<{ projectContext?: ProjectContext }>).detail;
-      if (detail?.projectContext) setProjectContextOverride(detail.projectContext);
-    };
-    window.addEventListener("atlas-project-context-updated", refreshProjectContext);
-    return () => window.removeEventListener("atlas-project-context-updated", refreshProjectContext);
-  }, []);
-
-  useEffect(() => {
-    if (location.pathname !== "/step00") setProjectContextOverride(null);
-  }, [location.pathname]);
-
   const completedSteps = Object.entries(steps).filter(([key, status]) => key !== "dashboard" && status === "completed").length;
-  const context = buildContext(location.pathname, completedSteps + workflowNodeVersion * 0, trainingSummary, projectContextOverride);
+  const authoritativeProjectContext = useMemo<ProjectContext | null>(() => {
+    if (
+      !scopedProjectId
+      || projectReadiness.status !== "ready"
+      || projectReadiness.routeProjectId !== scopedProjectId
+    ) {
+      return scopedProjectId ? defaultProjectContext : null;
+    }
+
+    const stored = projectReadiness.project.projectContext ?? {};
+    const storedFraudDetails: Partial<ProjectContext["fraudDetails"]> = stored.fraudDetails ?? {};
+    return {
+      ...defaultProjectContext,
+      ...stored,
+      projectName: projectReadiness.project.projectName,
+      modelId: projectReadiness.project.modelId,
+      regulatoryEnvironment: Array.isArray(stored.regulatoryEnvironment)
+        ? stored.regulatoryEnvironment
+        : defaultProjectContext.regulatoryEnvironment,
+      monitoringMetrics: Array.isArray(stored.monitoringMetrics)
+        ? stored.monitoringMetrics
+        : defaultProjectContext.monitoringMetrics,
+      acceptedAiDrafts: Array.isArray(stored.acceptedAiDrafts)
+        ? stored.acceptedAiDrafts
+        : defaultProjectContext.acceptedAiDrafts,
+      fraudDetails: {
+        ...defaultProjectContext.fraudDetails,
+        ...storedFraudDetails,
+        stakeholders: storedFraudDetails.stakeholders ?? {},
+        reviewRequirements: storedFraudDetails.reviewRequirements ?? {},
+        risks: Array.isArray(storedFraudDetails.risks) ? storedFraudDetails.risks : [],
+        successCriteria: Array.isArray(storedFraudDetails.successCriteria)
+          ? storedFraudDetails.successCriteria
+          : [],
+        validationFindings: Array.isArray(storedFraudDetails.validationFindings)
+          ? storedFraudDetails.validationFindings
+          : [],
+      },
+    };
+  }, [projectReadiness, scopedProjectId]);
+  const guideProjectContext = scopedProjectId
+    ? authoritativeProjectContext ?? defaultProjectContext
+    : loadProjectContext();
+  const context = buildContext(
+    normalizedPathname,
+    completedSteps + workflowNodeVersion * 0,
+    trainingSummary,
+    guideProjectContext,
+  );
   const challenges = challengeMode ? buildChallengeItems(context) : [];
-  const isProjectContextGuide = location.pathname === "/step00";
-  const isCompactPrimaryGuide = location.pathname === "/step00" || location.pathname === "/step01";
-  const adaptiveItems = (isCompactPrimaryGuide ? [] : getAdaptiveRecommendations(location.pathname)).map((recommendation): CopilotItem => ({
+  const isProjectContextGuide = normalizedPathname === "/step00";
+  const isCompactPrimaryGuide = normalizedPathname === "/step00" || normalizedPathname === "/step01";
+  const adaptiveItems = (isCompactPrimaryGuide ? [] : getAdaptiveRecommendations(normalizedPathname)).map((recommendation): CopilotItem => ({
     kind: recommendation.kind === "warning" ? "warning" : recommendation.kind === "default" ? "default" : "recommendation",
     title: recommendation.headline,
     body: `${recommendation.explanation} ${recommendation.suggestedAction}`,
@@ -1331,7 +1351,7 @@ export default function CopilotCard() {
     confidence: recommendation.confidence,
   }));
   const builtItems = buildCopilotRecommendations(context);
-  const items = location.pathname === "/step01"
+  const items = normalizedPathname === "/step01"
     ? builtItems.filter((item) => item.title === "Confirm source, target, and lineage").slice(0, 1)
     : [...adaptiveItems, ...builtItems].slice(0, isCompactPrimaryGuide ? 1 : 9);
   const basisLabel = guideBasisLabel(items);
@@ -1390,6 +1410,25 @@ export default function CopilotCard() {
   const hideRecommendedNextSteps =
     context.projectType === "experimental-design" &&
     (context.workflowStepLabel === "Blocking" || context.route.toLowerCase().includes("blocking"));
+
+  if (scopedProjectId && projectReadiness.status !== "ready") {
+    return (
+      <aside
+        className="self-start rounded-lg border border-blue-200 bg-blue-50 p-4 text-blue-950 shadow-sm"
+        data-testid="atlas-guide-project-context-loading"
+        data-project-context-status={projectReadiness.status}
+      >
+        <div className="text-sm font-semibold">
+          {projectReadiness.status === "resolving" ? "Loading project context..." : "Project context unavailable"}
+        </div>
+        <p className="mt-2 text-xs leading-5">
+          {projectReadiness.status === "resolving"
+            ? `Resolving the exact authorized project ${scopedProjectId}.`
+            : projectReadiness.message}
+        </p>
+      </aside>
+    );
+  }
 
   return (
     <aside className="self-start overflow-x-hidden overflow-y-auto rounded-lg border border-slate-200/80 bg-white/90 p-3 shadow-sm xl:sticky xl:top-28 xl:max-h-[calc(100vh-8rem)]">
@@ -1673,7 +1712,10 @@ function ChallengeSection({
 
 function MiniContext({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+    <div
+      className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2"
+      data-testid={label === "Project" ? "atlas-guide-project-context" : undefined}
+    >
       <div className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{label}</div>
       <div className="mt-0.5 truncate text-xs font-semibold text-slate-800" title={value}>
         {value}

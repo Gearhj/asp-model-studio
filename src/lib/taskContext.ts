@@ -17,8 +17,8 @@
 //   1. Backend training truth (/train/last's own problem_type) -- authoritative once a
 //      training run exists for this project, regardless of what the current browser tab
 //      has cached.
-//   2. Local dataset cache (inferLocalProblemType(loadLocalDataset())) -- the only signal
-//      available before any model has been trained (e.g. during Data Acquisition/EDA).
+//   2. Explicit target-contract metadata cached from the exact backend sample
+//      scope. Browser row values are never inspected.
 //   3. null -- honestly unknown, not defaulted to either problem type.
 import { inferLocalProblemType, loadLocalDataset } from "./localDataset";
 import type { CanonicalDatasetIdentity } from "./datasetIdentity";
@@ -31,7 +31,7 @@ export type TaskContext = {
   target: string | null;
   /** Where problemType/target came from -- surfaced so callers/tests can distinguish an
    *  authoritative backend answer from a best-effort local guess. */
-  source: "backend-training" | "local-cache" | "unknown";
+  source: "backend-training" | "target-contract-metadata" | "unknown";
 };
 
 const UNKNOWN_CONTEXT: TaskContext = { problemType: null, target: null, source: "unknown" };
@@ -45,7 +45,7 @@ function localFallback(): TaskContext {
   const dataset = loadLocalDataset();
   const problemType = inferLocalProblemType(dataset);
   if (!problemType) return UNKNOWN_CONTEXT;
-  return { problemType, target: dataset?.target ?? null, source: "local-cache" };
+  return { problemType, target: dataset?.target ?? null, source: "target-contract-metadata" };
 }
 
 /** Pure priority logic, reusable by any caller that already holds a fetched training
@@ -63,7 +63,7 @@ export function deriveTaskContext(
   }
   const problemType = inferLocalProblemType(dataset);
   if (!problemType) return UNKNOWN_CONTEXT;
-  return { problemType, target: dataset?.target ?? null, source: "local-cache" };
+  return { problemType, target: dataset?.target ?? null, source: "target-contract-metadata" };
 }
 
 async function fetchBackendTaskContext(
@@ -86,7 +86,15 @@ export function resolveTaskContext(
   signal?: AbortSignal,
 ): Promise<TaskContext> {
   if (!identity) return Promise.resolve(localFallback());
-  const cacheKey = `${identity.project_id}:${identity.dataset_id}:${identity.dataset_version_id}`;
+  const local = loadLocalDataset();
+  const cacheKey = [
+    identity.project_id,
+    identity.dataset_id,
+    identity.dataset_version_id,
+    local?.target_contract_id ?? "target-contract-pending",
+    local?.analysis_partition_id ?? "partition-pending",
+    local?.analysis_partition_revision ?? 0,
+  ].join(":");
   const cached = cache.get(cacheKey);
   if (cached) return cached;
   const promise = fetchBackendTaskContext(identity, signal);

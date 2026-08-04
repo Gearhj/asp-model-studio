@@ -492,7 +492,32 @@ export type TargetEvidenceInput = {
  */
 export function buildTargetEvidencePayload(input: TargetEvidenceInput): Record<string, unknown> {
   const balance = input.assessment?.classBalance ?? null;
-  const governed = isGovernedScope(input.scope);
+  const draftDisclosure =
+    "Workspace Draft. Not governed evidence, not version-pinned, not MDD eligible.";
+  const draftScope = input.scope
+    ? {
+        contractVersion: input.scope.contractVersion,
+        mode: WORKSPACE_DRAFT,
+        label: "Workspace Draft Analysis",
+        projectId: input.projectId,
+        datasetId: null,
+        datasetVersionId: null,
+        workspaceDatasetId: input.scope.workspaceDatasetId ?? null,
+        datasetName: input.datasetName,
+        datasetFingerprint: input.scope.datasetFingerprint ?? null,
+        artifactChecksum: null,
+        target: input.target,
+        populationRows: input.scope.populationRows,
+        exact: input.scope.exact,
+        sampled: input.scope.sampled,
+        immutableVersion: false,
+        analysisSource: "target_intelligence.local_draft_export",
+        evidenceEligible: false,
+        mddEligible: false,
+        disclosure: draftDisclosure,
+        resolvedAt: input.capturedAt,
+      }
+    : null;
   const rows = (input.predictorAnalysis?.rows ?? []).slice(0, EVIDENCE_MAX_ROWS).map((row) => ({
     group: row.category ?? row.label ?? "",
     population: row.population,
@@ -502,20 +527,18 @@ export function buildTargetEvidencePayload(input: TargetEvidenceInput): Record<s
   }));
   return {
     // Scope first, so the very top of a downloaded file states what it is.
-    analysisScope: input.scope,
-    scopeMode: input.scope?.mode ?? WORKSPACE_DRAFT,
-    governed,
-    evidenceEligible: input.scope?.evidenceEligible ?? false,
-    mddEligible: input.scope?.mddEligible ?? false,
-    markers: governed ? [] : DRAFT_EXPORT_MARKERS,
-    disclosure:
-      input.scope?.disclosure ??
-      "Workspace Draft. Not governed evidence, not version-pinned, not MDD eligible.",
+    analysisScope: draftScope,
+    scopeMode: WORKSPACE_DRAFT,
+    governed: false,
+    evidenceEligible: false,
+    mddEligible: false,
+    markers: DRAFT_EXPORT_MARKERS,
+    disclosure: draftDisclosure,
     datasetIdentity: {
-      datasetId: governed ? input.datasetId || null : null,
-      versionId: governed ? input.versionId || null : null,
-      workspaceFingerprint: governed ? null : input.scope?.datasetFingerprint ?? null,
-      artifactChecksum: governed ? input.scope?.artifactChecksum ?? null : null,
+      datasetId: null,
+      versionId: null,
+      workspaceFingerprint: input.scope?.datasetFingerprint ?? null,
+      artifactChecksum: null,
       datasetName: input.datasetName,
     },
     generatedAt: input.capturedAt,

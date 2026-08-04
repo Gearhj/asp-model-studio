@@ -1,13 +1,16 @@
 import type { CodeLanguage } from "../../lib/codeExecution";
 
-const LABELS: Record<CodeLanguage, string> = {
+export type CodeWorkspaceLanguage = CodeLanguage | "metadata";
+
+const LABELS: Record<CodeWorkspaceLanguage, string> = {
   python: "Python",
   sql: "SQL",
   r: "R",
   sas: "SAS",
+  metadata: "Metadata",
 };
 
-export function CodeLanguageTabs({ active, onChange, badges, languages }: { active: CodeLanguage; onChange: (language: CodeLanguage) => void; badges: Partial<Record<CodeLanguage, string>>; languages: CodeLanguage[] }) {
+export function CodeLanguageTabs({ active, onChange, badges, languages }: { active: CodeWorkspaceLanguage; onChange: (language: CodeWorkspaceLanguage) => void; badges: Partial<Record<CodeWorkspaceLanguage, string>>; languages: CodeWorkspaceLanguage[] }) {
   return (
     <div className="flex flex-wrap gap-2">
       {languages.map((language) => (

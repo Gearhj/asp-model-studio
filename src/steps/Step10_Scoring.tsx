@@ -13,6 +13,7 @@ import { archiveScoringRun, listScoringRuns, type ScoringRunSummary } from "../s
 import { getCachedUserId } from "../lib/authSession";
 import RunComparePanel from "../visual-intelligence/production/RunComparePanel";
 import RegisterScoredDatasetButton from "../visual-intelligence/production/RegisterScoredDatasetButton";
+import { projectWorkflowRoute } from "../lib/projectScopedRoutes";
 
 const QUERY_API_BASE =
   typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("apiBase")?.replace(/\/$/, "") : undefined;
@@ -208,7 +209,7 @@ function ScoringHistoryPanel({ projectId }: { projectId: string }) {
                 <span className="flex flex-wrap items-center gap-2">
                   {run.status === "completed" ? (
                     <>
-                      <Link className="text-xs font-semibold text-blue-700 hover:underline" to={`/step08?scoringRunId=${encodeURIComponent(run.scoringRunId)}`}>
+                      <Link className="text-xs font-semibold text-blue-700 hover:underline" to={projectWorkflowRoute(projectId, `/step08?scoringRunId=${encodeURIComponent(run.scoringRunId)}`)}>
                         Open Analysis
                       </Link>
                       <Link className="text-xs font-semibold text-blue-700 hover:underline" to={`/visual-intelligence-lab?scoringRunId=${encodeURIComponent(run.scoringRunId)}`}>
@@ -526,7 +527,7 @@ export default function Step10Scoring() {
     return (
       <StepShell title="Step 10: Final Model Scoring" subtitle="Score TRAIN, External Validation, and Out-of-Time populations only after Interpretation saves the verified final artifact." variant="modeling" heroMetrics={heroMetrics} nextLabel="Confirm Scoring and Continue to Documentation" nextDisabled nextDisabledReason="Run RFE and save the final model in Interpretation before scoring.">
         <AtlasAttentionPanel title="A verified final model is required" tone="warning">
-          {finalModelError || "Scoring is intentionally blocked because no saved RFE final-model artifact is available for this project."} <Link className="font-semibold underline" to="/step09">Return to Interpretation</Link>.
+          {finalModelError || "Scoring is intentionally blocked because no saved RFE final-model artifact is available for this project."} <Link className="font-semibold underline" to={projectWorkflowRoute(projectId, "/step09")}>Return to Interpretation</Link>.
         </AtlasAttentionPanel>
       </StepShell>
     );

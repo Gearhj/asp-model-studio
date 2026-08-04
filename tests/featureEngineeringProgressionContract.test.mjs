@@ -256,7 +256,7 @@ test("navigation waits for safe completion and backend hash gates remain authori
   assert.match(featurePage, /workflowStepId="step05"/);
   assert.match(
     stepShell,
-    /const currentStep = workflowStepId \?\? location\.pathname\.replace\("\/", ""\)/,
+    /const currentStep = workflowStepId[\s\S]*?\?\? workflowStepIdFromPathname\(location\.pathname\)[\s\S]*?\?\? location\.pathname\.replace\(\/\^\\\/\+\//,
   );
   assert.match(
     featureClient,

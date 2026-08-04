@@ -21,10 +21,12 @@ import { getWorkflowDefinition } from "../config/workflows";
 import { saveActiveProjectBeforeNavigation } from "../lib/localProjects";
 import { buildEscalationQueue, loadProductionModels } from "../lib/modelMonitoring";
 import { selectEffectiveWorkflowSteps, useWorkflowStore } from "../state/useWorkflowStore";
+import { projectWorkflowRoute } from "../lib/projectScopedRoutes";
 
 export default function Dashboard() {
   const workflowSteps = useWorkflowStore(selectEffectiveWorkflowSteps);
   const workflowId = useWorkflowStore((state) => state.workflowId);
+  const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
   const hasDataset = useWorkflowStore((state) => state.hasDataset);
   const reset = useWorkflowStore((state) => state.reset);
@@ -38,6 +40,8 @@ export default function Dashboard() {
   const completed = workflowSteps.filter((step) => step.status === "complete").length;
   const currentStep =
     workflowSteps.find((step) => step.status !== "complete" && step.status !== "skipped") ?? workflowSteps[workflowSteps.length - 1];
+  const workflowPath = (targetPath: string) =>
+    projectId ? projectWorkflowRoute(projectId, targetPath) : "/projects/open";
   const currentIndex = Math.max(0, workflowSteps.findIndex((step) => step.id === currentStep?.id));
   const lastCompleted = [...workflowSteps].reverse().find((step) => step.status === "complete");
   const upcoming = workflowSteps.slice(currentIndex + 1, currentIndex + 3);
@@ -81,7 +85,7 @@ export default function Dashboard() {
         subtitle="Use ATLAS to acquire data, analyze evidence, develop models and decision strategies, document results, and prepare governed implementation."
         actions={
           <>
-            <Link to={currentStep.route} className="atlas-primary-button">Continue {currentStep.shortLabel ?? currentStep.label}</Link>
+            <Link to={workflowPath(currentStep.route)} className="atlas-primary-button">Continue {currentStep.shortLabel ?? currentStep.label}</Link>
             <Link to="/projects/new" className="atlas-secondary-button">Start New Project</Link>
             <Link to="/projects/open" onClick={saveBeforeOpenProject} className="atlas-tertiary-button bg-white/10 text-white hover:bg-white/15">Open Existing Project</Link>
           </>
@@ -116,7 +120,7 @@ export default function Dashboard() {
               <div className="atlas-eyebrow text-blue-700">Next required action</div>
               <div className="mt-2 text-lg font-semibold text-blue-950">{currentStep.label}</div>
               <p className="mt-2 text-sm leading-6 text-blue-900">{currentStep.description}</p>
-              <Link to={currentStep.route} className="atlas-primary-button mt-4 w-full">Continue workflow</Link>
+              <Link to={workflowPath(currentStep.route)} className="atlas-primary-button mt-4 w-full">Continue workflow</Link>
             </div>
           </div>
         </AtlasCard>
@@ -141,7 +145,7 @@ export default function Dashboard() {
               </div>
             )}
           </div>
-          <Link to="/step13" className="atlas-secondary-button mt-4">Open Monitoring</Link>
+          <Link to={workflowPath("/step13")} className="atlas-secondary-button mt-4">Open Monitoring</Link>
         </AtlasCard>
       </section>
 
@@ -179,16 +183,16 @@ export default function Dashboard() {
           }
         >
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <WorkflowSnapshotItem label="Recently completed" step={lastCompleted} fallback="No completed steps yet" />
-            <WorkflowSnapshotItem label="Current step" step={currentStep} emphasized />
+            <WorkflowSnapshotItem label="Recently completed" step={lastCompleted} projectId={projectId} fallback="No completed steps yet" />
+            <WorkflowSnapshotItem label="Current step" step={currentStep} projectId={projectId} emphasized />
             {upcoming.map((step, index) => (
-              <WorkflowSnapshotItem key={step.id} label={index === 0 ? "Next step" : "Following step"} step={step} />
+              <WorkflowSnapshotItem key={step.id} label={index === 0 ? "Next step" : "Following step"} step={step} projectId={projectId} />
             ))}
           </div>
           <AtlasProgressBar className="mt-5" value={progress} label="Overall workflow progress" />
           <div className="mt-4 flex flex-wrap gap-2">
             <Link to="/project-overview" className="atlas-secondary-button">View Project Overview</Link>
-            <Link to={currentStep.route} className="atlas-primary-button">
+            <Link to={workflowPath(currentStep.route)} className="atlas-primary-button">
               <BarChart3 size={15} />
               Continue workflow
             </Link>
@@ -253,7 +257,7 @@ function HeroProgress({
   );
 }
 
-function WorkflowSnapshotItem({ label, step, fallback, emphasized = false }: { label: string; step?: { label: string; route: string; description?: string }; fallback?: string; emphasized?: boolean }) {
+function WorkflowSnapshotItem({ label, step, projectId, fallback, emphasized = false }: { label: string; step?: { label: string; route: string; description?: string }; projectId: string; fallback?: string; emphasized?: boolean }) {
   if (!step) {
     return (
       <div className="atlas-inset-section">
@@ -263,7 +267,7 @@ function WorkflowSnapshotItem({ label, step, fallback, emphasized = false }: { l
     );
   }
   return (
-    <Link to={step.route} className={`rounded-2xl border p-4 transition hover:border-blue-300 ${emphasized ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-slate-50"}`}>
+    <Link to={projectWorkflowRoute(projectId, step.route)} className={`rounded-2xl border p-4 transition hover:border-blue-300 ${emphasized ? "border-blue-200 bg-blue-50" : "border-slate-200 bg-slate-50"}`}>
       <div className={`text-xs font-semibold uppercase tracking-wide ${emphasized ? "text-blue-700" : "text-slate-500"}`}>{label}</div>
       <div className="mt-2 text-sm font-semibold text-slate-950">{step.label}</div>
       {step.description && <div className="mt-1 line-clamp-2 text-xs leading-5 text-slate-500">{step.description}</div>}

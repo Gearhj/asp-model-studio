@@ -12,10 +12,11 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 from fastapi import HTTPException
 
-from ..datasets.dataset_registry import latest_version_id, require_dataset, version_dir
 from ..evidence.evidence_store import upsert_evidence
+from ..preprocessing.development_scope import DevelopmentAnalysisScope
+from .governed_scope import canonical_scope_fields, require_artifact_scope
 from .leakage_guard import validate_predictors
-from .woe_iv_engine import get_analysis, get_project_analysis
+from .woe_iv_engine import get_analysis, get_project_analysis_exact
 
 
 SCORECARD_ROOT = Path(__file__).resolve().parents[1] / "artifacts" / "credit_risk" / "scorecards"
@@ -81,6 +82,12 @@ def compact_model(model: Dict[str, Any]) -> Dict[str, Any]:
         "status": "Complete" if model.get("metrics", {}).get("auc") is not None else "Needs Review",
         "createdAt": model.get("createdAt"),
         "updatedAt": model.get("updatedAt"),
+        "analysis_scope": model.get("analysis_scope"),
+        "analysis_partition_id": model.get("analysis_partition_id"),
+        "analysis_partition_revision": model.get("analysis_partition_revision"),
+        "development_partition_id": model.get("development_partition_id"),
+        "source_checksum": model.get("source_checksum"),
+        "holdout_excluded": model.get("holdout_excluded"),
     }
 
 
@@ -102,51 +109,89 @@ def get_scorecard_model(model_id: str) -> Optional[Dict[str, Any]]:
 
 
 def get_project_scorecard(project_id: str) -> Optional[Dict[str, Any]]:
-    match = next((row for row in load_registry() if row.get("projectId") == project_id), None)
-    return get_scorecard_model(str(match.get("modelId"))) if match else None
+    raise HTTPException(
+        status_code=409,
+        detail="Project-latest scorecard lookup is disabled. Resolve the exact active dataset version and Analysis Partition.",
+    )
 
 
-def load_dataset_frame(dataset_id: str, version_id: Optional[str]) -> tuple[Dict[str, Any], str, pd.DataFrame]:
-    dataset = require_dataset(dataset_id)
-    resolved_version = version_id or latest_version_id(dataset)
-    if not resolved_version:
-        raise HTTPException(status_code=400, detail="Dataset has no version available for scorecard training.")
-    full_path = version_dir(dataset_id, resolved_version) / "data_full.csv"
-    if not full_path.exists():
-        raise HTTPException(status_code=409, detail="Full dataset artifact is required for governed scorecard training. Re-register the dataset so ATLAS can materialize data_full.csv; sample artifacts are not valid for reporting.")
-    df = pd.read_csv(full_path)
-    if df.empty:
-        raise HTTPException(status_code=400, detail="Dataset full artifact has no rows.")
-    return dataset, resolved_version, df
+def get_project_scorecard_exact(
+    project_id: str,
+    dataset_id: str,
+    dataset_version_id: str,
+    analysis_partition_id: str,
+    analysis_partition_revision: int,
+) -> Optional[Dict[str, Any]]:
+    matches = [
+            row
+            for row in load_registry()
+            if row.get("projectId") == project_id
+            and row.get("datasetId") == dataset_id
+            and row.get("datasetVersionId") == dataset_version_id
+            and row.get("analysis_partition_id") == analysis_partition_id
+            and int(row.get("analysis_partition_revision") or 0)
+            == int(analysis_partition_revision)
+            and row.get("analysis_scope") == "development_population"
+            and row.get("holdout_excluded") is True
+    ]
+    if len(matches) > 1:
+        raise HTTPException(
+            status_code=409,
+            detail="Multiple current scorecards exist. Select one by exact modelId; first/latest fallback is prohibited.",
+        )
+    return get_scorecard_model(str(matches[0].get("modelId"))) if matches else None
 
 
-def train_scorecard(payload: Dict[str, Any]) -> Dict[str, Any]:
+def train_scorecard(
+    payload: Dict[str, Any],
+    scope: DevelopmentAnalysisScope,
+) -> Dict[str, Any]:
     try:
         import numpy as np
         from sklearn.linear_model import LogisticRegression
         from sklearn.metrics import log_loss, roc_auc_score
-        from sklearn.model_selection import train_test_split
+        from sklearn.model_selection import StratifiedKFold
     except Exception as exc:
         raise HTTPException(status_code=501, detail=f"Logistic scorecard training requires sklearn in the local backend environment. {exc}")
 
-    dataset, resolved_version, df = load_dataset_frame(str(payload.get("datasetId")), payload.get("datasetVersionId"))
-    target = str(payload.get("targetColumn") or "")
-    if target not in df.columns:
-        raise HTTPException(status_code=400, detail=f"Target column {target!r} was not found in the dataset.")
-    event_value = payload.get("eventValue")
-    y = df[target].astype(str).str.strip().eq(str(event_value)).astype(int)
+    dataset = scope.identity.get("dataset") or {}
+    resolved_version = str(scope.identity.get("dataset_version_id") or "")
+    df = scope.development_features.copy()
+    target = scope.target
+    event_value = scope.event_value
+    y = scope.development_target.astype(str).str.strip().eq(str(event_value)).astype(int)
     if y.nunique() < 2:
         raise HTTPException(status_code=400, detail="Target has one class only. Scorecard training requires both good and bad outcomes.")
 
-    woe_analysis = get_analysis(str(payload.get("woeAnalysisId"))) if payload.get("woeAnalysisId") else get_project_analysis(str(payload.get("projectId")))
-    requested_selected = [str(item) for item in payload.get("selectedVariables") or []]
-    selected = validate_predictors(
-        requested_selected,
-        target=target,
-        dataset_meta=dataset,
-        columns=df.columns,
-        explicit=bool(requested_selected),
+    scope_fields = canonical_scope_fields(scope)
+    woe_analysis = (
+        get_analysis(str(payload.get("woeAnalysisId")))
+        if payload.get("woeAnalysisId")
+        else get_project_analysis_exact(
+            str(scope.identity.get("project_id") or ""),
+            str(scope.identity.get("dataset_id") or ""),
+            resolved_version,
+            str(scope_fields["partition_id"]),
+            int(scope_fields["partition_revision"]),
+        )
     )
+    if woe_analysis:
+        require_artifact_scope(
+            woe_analysis,
+            scope,
+            artifact_label="WOE / IV analysis",
+        )
+    requested_selected = [str(item) for item in payload.get("selectedVariables") or []]
+    unauthorized = [name for name in requested_selected if name not in scope.authorized_predictors]
+    if unauthorized:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Scorecard variables contradict the exact current predictor "
+                f"authorization: {', '.join(unauthorized[:10])}."
+            ),
+        )
+    selected = list(requested_selected)
     train_raw = bool(payload.get("trainRawBaseline"))
     warnings: List[str] = []
     if not selected and woe_analysis:
@@ -155,7 +200,7 @@ def train_scorecard(payload: Dict[str, Any]) -> Dict[str, Any]:
             for row in woe_analysis.get("variableSummaries") or []
             if 0.02 <= float(row.get("iv") or 0) < 0.50 and row.get("status") != "error"
         ][:20]
-    selected = validate_predictors(selected, target=target, dataset_meta=dataset, columns=df.columns, explicit=False)
+    selected = [name for name in selected if name in scope.authorized_predictors]
     if not selected:
         raise HTTPException(status_code=400, detail="No usable scorecard variables were selected.")
 
@@ -179,23 +224,21 @@ def train_scorecard(payload: Dict[str, Any]) -> Dict[str, Any]:
     else:
         raise HTTPException(status_code=400, detail="Run WOE / IV analysis first or enable raw logistic baseline.")
 
-    split_column = next((column for column in df.columns if str(column).lower() == "atlas_split"), None)
-    split_source = "random"
-    if split_column is not None:
-        split_values = df[split_column].astype(str).str.strip().str.lower()
-        train_mask = split_values.isin({"train", "training", "development", "dev"})
-        val_mask = split_values.isin({"test", "validation", "val"})
-        if train_mask.any() and val_mask.any():
-            X_train, X_val, y_train, y_val = X.loc[train_mask], X.loc[val_mask], y.loc[train_mask], y.loc[val_mask]
-            split_source = "atlas_split"
-        else:
-            split_column = None
-    if split_column is None:
-        split = max(0.5, min(float(payload.get("trainValidationSplit") or 0.7), 0.9))
-        try:
-            X_train, X_val, y_train, y_val = train_test_split(X, y, train_size=split, random_state=42, stratify=y)
-        except Exception:
-            X_train, X_val, y_train, y_val = train_test_split(X, y, train_size=split, random_state=42)
+    folds = max(2, min(int(payload.get("crossValidationFolds") or 5), 10))
+    folds = min(folds, int(y.value_counts().min()))
+    if folds < 2:
+        raise HTTPException(
+            status_code=409,
+            detail="The governed development population cannot support stratified validation.",
+        )
+    train_positions, validation_positions = next(
+        StratifiedKFold(n_splits=folds, shuffle=False).split(X, y)
+    )
+    X_train = X.iloc[train_positions].reset_index(drop=True)
+    X_val = X.iloc[validation_positions].reset_index(drop=True)
+    y_train = y.iloc[train_positions].reset_index(drop=True)
+    y_val = y.iloc[validation_positions].reset_index(drop=True)
+    split_source = "governed_development_stratified_fold"
     penalty = "l2" if str(payload.get("modelType") or "").lower().startswith("regularized") or payload.get("regularization") else None
     kwargs = {
         "max_iter": 1000,
@@ -208,14 +251,13 @@ def train_scorecard(payload: Dict[str, Any]) -> Dict[str, Any]:
     model = LogisticRegression(**kwargs)
     model.fit(X_train, y_train)
     val_pd = model.predict_proba(X_val)[:, 1]
-    all_pd = model.predict_proba(X)[:, 1]
     coefficients = [{"variable": col, "coefficient": round(float(coef), 8)} for col, coef in zip(X.columns, model.coef_[0])]
     pdo = float(payload.get("pdo") or 20)
     base_score = float(payload.get("baseScore") or 600)
     base_odds = parse_base_odds(payload.get("baseOdds") or "50:1")
     factor = pdo / math.log(2)
     offset = base_score - factor * math.log(max(base_odds, 1e-12))
-    log_odds = model.intercept_[0] + (X.to_numpy() @ model.coef_[0])
+    log_odds = model.intercept_[0] + (X_val.to_numpy() @ model.coef_[0])
     score = offset + factor * log_odds
     min_score = payload.get("minScore")
     max_score = payload.get("maxScore")
@@ -224,8 +266,8 @@ def train_scorecard(payload: Dict[str, Any]) -> Dict[str, Any]:
     if max_score is not None:
         score = np.minimum(score, float(max_score))
     auc = safe_auc(y_val, val_pd, roc_auc_score)
-    ks_table = build_ks_table(score, y, all_pd)
-    lift_table = build_lift_table(score, y, all_pd)
+    ks_table = build_ks_table(score, y_val, val_pd)
+    lift_table = build_lift_table(score, y_val, val_pd)
     metrics = {
         "auc": auc,
         "ks": max((row["ks"] for row in ks_table), default=0),
@@ -236,14 +278,14 @@ def train_scorecard(payload: Dict[str, Any]) -> Dict[str, Any]:
         "trainRows": int(len(X_train)),
     }
     scorecard_points = build_scorecard_points(woe_analysis, selected, coefficients, factor, model.intercept_[0])
-    score_distribution = build_score_distribution(score, y, all_pd)
-    cutoff_table = build_cutoff_table(score, y, payload)
+    score_distribution = build_score_distribution(score, y_val, val_pd)
+    cutoff_table = build_cutoff_table(score, y_val, payload)
     selected_cutoff = cutoff_table[0]["scoreCutoff"] if cutoff_table else None
-    model_id = scorecard_model_id(payload, resolved_version, selected)
+    model_id = scorecard_model_id({**payload, **scope_fields}, resolved_version, selected)
     result = {
         "modelId": model_id,
-        "projectId": payload.get("projectId"),
-        "datasetId": dataset.get("datasetId"),
+        "projectId": scope.identity.get("project_id"),
+        "datasetId": scope.identity.get("dataset_id"),
         "datasetName": dataset.get("name"),
         "datasetVersionId": resolved_version,
         "targetColumn": target,
@@ -272,8 +314,9 @@ def train_scorecard(payload: Dict[str, Any]) -> Dict[str, Any]:
         "ksTable": ks_table,
         "cutoffTable": cutoff_table,
         "selectedCutoff": selected_cutoff,
-        "generatedCode": generate_scorecard_code({**payload, "selectedVariables": selected}),
+        "generatedCode": generate_scorecard_code({**payload, **scope_fields, "targetColumn": target, "eventValue": event_value, "selectedVariables": selected}),
         "warnings": warnings,
+        **scope_fields,
     }
     return save_scorecard_model(result)
 
@@ -471,7 +514,29 @@ def create_scorecard_evidence(model_id: str, technique: str = "scorecard_modelin
             "topVariables": top_vars,
             "selectedCutoff": model.get("selectedCutoff"),
         },
-        "payload": {"metrics": metrics, "topVariables": top_vars, "selectedCutoff": model.get("selectedCutoff")},
+        "payload": {
+            "metrics": metrics,
+            "topVariables": top_vars,
+            "selectedCutoff": model.get("selectedCutoff"),
+            "scopeMetadata": {
+                key: model.get(key)
+                for key in (
+                    "project_id",
+                    "dataset_id",
+                    "dataset_version_id",
+                    "analysis_scope",
+                    "analysis_partition_id",
+                    "analysis_partition_revision",
+                    "development_partition_id",
+                    "population_id",
+                    "population_count",
+                    "holdout_excluded",
+                    "source_checksum",
+                    "actor",
+                    "timestamp",
+                )
+            },
+        },
         "status": "ready",
         "importance": "high",
     }
@@ -541,16 +606,19 @@ def generate_scorecard_code(settings: Dict[str, Any]) -> Dict[str, str]:
     pdo = settings.get("pdo") or 20
     base_score = settings.get("baseScore") or 600
     base_odds = settings.get("baseOdds") or "50:1"
+    partition_id = settings.get("analysis_partition_id") or settings.get("partition_id") or settings.get("analysisPartitionId")
+    revision = settings.get("analysis_partition_revision") or settings.get("partition_revision") or settings.get("analysisPartitionRevision")
+    scope_header = f"Analysis Partition: {partition_id}; revision: {revision}; development population only; final holdout excluded."
     return {
-        "python": f"""import numpy as np\nfrom sklearn.linear_model import LogisticRegression\nfrom sklearn.metrics import roc_auc_score\n\nX = woe_train[{variables!r}]\ny = (woe_train[{target!r}].astype(str) == {str(event)!r}).astype(int)\nmodel = LogisticRegression(max_iter=1000, solver='liblinear')\nmodel.fit(X, y)\npd = model.predict_proba(X)[:, 1]\nauc = roc_auc_score(y, pd)\nfactor = {pdo} / np.log(2)\nbase_odds = {parse_base_odds(base_odds)!r}\noffset = {base_score} - factor * np.log(base_odds)\nscore = offset + factor * (model.intercept_[0] + X.to_numpy() @ model.coef_[0])\nprint('AUC', auc)\n""",
+        "python": f"""import numpy as np\nfrom sklearn.linear_model import LogisticRegression\nfrom sklearn.metrics import roc_auc_score\n\n# {scope_header}\nif not DEVELOPMENT_POSITIONS:\n    raise RuntimeError('Exact development positions are required; no full-frame fallback is permitted.')\ndevelopment = woe_frame.iloc[list(DEVELOPMENT_POSITIONS)].copy()\nX = development[{variables!r}]\ny = (development[{target!r}].astype(str) == {str(event)!r}).astype(int)\nmodel = LogisticRegression(max_iter=1000, solver='liblinear')\nmodel.fit(X, y)\npd = model.predict_proba(X)[:, 1]\nauc = roc_auc_score(y, pd)\nfactor = {pdo} / np.log(2)\nbase_odds = {parse_base_odds(base_odds)!r}\noffset = {base_score} - factor * np.log(base_odds)\nscore = offset + factor * (model.intercept_[0] + X.to_numpy() @ model.coef_[0])\nprint('AUC', auc)\n""",
         "sql": f"""-- ATLAS scorecard scoring skeleton\nselect *,\n       1.0 / (1.0 + exp(-(intercept + beta1 * woe_var1))) as predicted_pd,\n       offset + factor * (intercept + beta1 * woe_var1) as score\nfrom woe_scored_input;\n""",
-        "r": f"""model <- glm(I(as.character({target}) == '{event}') ~ { ' + '.join(variables) }, data=woe_train, family=binomial())\nwoe_train$predicted_pd <- predict(model, type='response')\nfactor <- {pdo} / log(2)\nbase_odds <- {parse_base_odds(base_odds)}\noffset <- {base_score} - factor * log(base_odds)\nwoe_train$score <- offset + factor * predict(model, type='link')\n""",
-        "sas": f"""proc logistic data=work.woe_train descending;\n  model {target} = {' '.join(variables)};\n  output out=work.scored p=predicted_pd xbeta=log_odds;\nrun;\n\ndata work.scored;\n  set work.scored;\n  factor = {pdo} / log(2);\n  base_odds = {parse_base_odds(base_odds)};\n  offset = {base_score} - factor * log(base_odds);\n  score = offset + factor * log_odds;\nrun;\n""",
+        "r": f"""# {scope_header}\nstopifnot(exists('governed_development_woe'))\nmodel <- glm(I(as.character({target}) == '{event}') ~ { ' + '.join(variables) }, data=governed_development_woe, family=binomial())\ngoverned_development_woe$predicted_pd <- predict(model, type='response')\nfactor <- {pdo} / log(2)\nbase_odds <- {parse_base_odds(base_odds)}\noffset <- {base_score} - factor * log(base_odds)\ngoverned_development_woe$score <- offset + factor * predict(model, type='link')\n""",
+        "sas": f"""/* {scope_header} */\n/* WORK.GOVERNED_DEVELOPMENT_WOE must be the exact verified development population. */\nproc logistic data=work.governed_development_woe descending;\n  model {target} = {' '.join(variables)};\n  output out=work.scored p=predicted_pd xbeta=log_odds;\nrun;\n\ndata work.scored;\n  set work.scored;\n  factor = {pdo} / log(2);\n  base_odds = {parse_base_odds(base_odds)};\n  offset = {base_score} - factor * log(base_odds);\n  score = offset + factor * log_odds;\nrun;\n""",
     }
 
 
 def scorecard_model_id(payload: Dict[str, Any], version_id: str, variables: List[str]) -> str:
-    basis = json.dumps({"projectId": payload.get("projectId"), "datasetId": payload.get("datasetId"), "version": version_id, "target": payload.get("targetColumn"), "variables": variables, "modelType": payload.get("modelType")}, sort_keys=True, default=str)
+    basis = json.dumps({"projectId": payload.get("projectId"), "datasetId": payload.get("datasetId"), "version": version_id, "target": payload.get("targetColumn"), "variables": variables, "modelType": payload.get("modelType"), "partitionId": payload.get("analysis_partition_id") or payload.get("partition_id") or payload.get("analysisPartitionId"), "partitionRevision": payload.get("analysis_partition_revision") or payload.get("partition_revision") or payload.get("analysisPartitionRevision"), "sourceChecksum": payload.get("source_checksum") or payload.get("sourceChecksum")}, sort_keys=True, default=str)
     return "scorecard-" + hashlib.sha256(basis.encode("utf-8")).hexdigest()[:14]
 
 

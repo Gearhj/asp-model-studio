@@ -26,6 +26,7 @@
 
 from __future__ import annotations
 from typing import Dict, Any, List, Optional, Tuple
+from copy import deepcopy
 from datetime import datetime, timezone
 import hashlib
 import inspect
@@ -168,6 +169,7 @@ if (
             subsample: float = 0.9,
             colsample_bytree: float = 0.8,
             eval_metric: str = "logloss",
+            scale_pos_weight: float = 1.0,
             n_jobs: int = 1,
             random_state: int = 42,
         ):
@@ -177,6 +179,7 @@ if (
             self.subsample = subsample
             self.colsample_bytree = colsample_bytree
             self.eval_metric = eval_metric
+            self.scale_pos_weight = scale_pos_weight
             self.n_jobs = n_jobs
             self.random_state = random_state
 
@@ -188,6 +191,7 @@ if (
                 subsample=self.subsample,
                 colsample_bytree=self.colsample_bytree,
                 eval_metric=self.eval_metric,
+                scale_pos_weight=self.scale_pos_weight,
                 n_jobs=self.n_jobs,
                 random_state=self.random_state,
             )
@@ -1037,6 +1041,394 @@ def _make_preprocessor(X: pd.DataFrame):
     return ColumnTransformer(transformers=transformers, remainder="drop")
 
 
+VALID_FOLD_LOCAL_PREPROCESSING_POLICIES = {
+    "fit_transform_per_fold",
+    "model_native_per_fold",
+}
+VALID_FOLD_LOCAL_BALANCING_METHODS = {
+    "none",
+    "undersample",
+    "oversample",
+    "smote",
+}
+VALID_CLASS_WEIGHT_POLICIES = {"none", "balanced"}
+
+
+def normalize_validation_execution_policy(
+    policy: Optional[Dict[str, Any]],
+    *,
+    problem_type: str,
+) -> Dict[str, Any]:
+    """Validate the exact execution choices owned by Validation Design.
+
+    Training callers must pass a snapshot taken from the approved design.  The
+    defaults preserve compatibility for direct unit callers, but production
+    job creation persists and passes an explicit snapshot.
+    """
+    source = dict(policy or {})
+    preprocessing = str(
+        source.get("fold_local_preprocessing") or "fit_transform_per_fold"
+    )
+    balancing = str(source.get("balancing_method") or "none")
+    class_weights = str(source.get("class_weight_policy") or "none")
+    try:
+        minority_share = float(source.get("minority_share", 0.5))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "Validation Design minority_share must be a number between 0.05 and 0.5."
+        ) from exc
+    try:
+        random_seed = int(source.get("random_seed", 42))
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Validation Design random_seed must be an integer.") from exc
+
+    if preprocessing not in VALID_FOLD_LOCAL_PREPROCESSING_POLICIES:
+        raise ValueError(
+            "Validation Design fold-local preprocessing policy is not executable."
+        )
+    if balancing not in VALID_FOLD_LOCAL_BALANCING_METHODS:
+        raise ValueError("Validation Design balancing method is not executable.")
+    if class_weights not in VALID_CLASS_WEIGHT_POLICIES:
+        raise ValueError(
+            "Custom class weights require explicit governed weights and are not executable by this Validation Design contract."
+        )
+    if not 0.05 <= minority_share <= 0.5:
+        raise ValueError(
+            "Validation Design minority_share must be between 0.05 and 0.5."
+        )
+    if problem_type != "classification" and (
+        balancing != "none" or class_weights != "none"
+    ):
+        raise ValueError(
+            "Balancing and class weights are available only for classification Validation Designs."
+        )
+    return {
+        "source": str(source.get("source") or "approved_validation_design"),
+        "fold_local_preprocessing": preprocessing,
+        "balancing_method": balancing,
+        "minority_share": minority_share,
+        "class_weight_policy": class_weights,
+        "random_seed": random_seed,
+        "fit_scope": "development_fold_training_rows_only",
+        "validation_rows_resampled": False,
+        "final_holdout_access": "none",
+    }
+
+
+def _take_rows(values: Any, positions: np.ndarray) -> Any:
+    if isinstance(values, pd.DataFrame):
+        return values.iloc[positions].copy()
+    return np.asarray(values)[positions]
+
+
+def _concatenate_rows(left: Any, right: Any) -> Any:
+    if isinstance(left, pd.DataFrame):
+        right_frame = (
+            right
+            if isinstance(right, pd.DataFrame)
+            else pd.DataFrame(right, columns=left.columns)
+        )
+        return pd.concat([left, right_frame], ignore_index=True)
+    return np.concatenate([np.asarray(left), np.asarray(right)], axis=0)
+
+
+def _class_counts(y: np.ndarray) -> Dict[str, int]:
+    labels, counts = np.unique(np.asarray(y), return_counts=True)
+    return {str(label): int(count) for label, count in zip(labels, counts)}
+
+
+def _resample_fold_training_rows(
+    X: Any,
+    y: np.ndarray,
+    *,
+    method: str,
+    minority_share: float,
+    random_seed: int,
+) -> tuple[Any, np.ndarray, Dict[str, Any]]:
+    """Apply a deterministic policy to training rows after a fold is isolated."""
+    y_array = np.asarray(y)
+    before = _class_counts(y_array)
+    audit = {
+        "method": method,
+        "input_rows": int(len(y_array)),
+        "output_rows": int(len(y_array)),
+        "synthetic_rows_added": 0,
+        "rows_removed": 0,
+        "class_counts_before": before,
+        "class_counts_after": before,
+        "fit_scope": "development_fold_training_rows_only",
+        "validation_rows_resampled": False,
+        "final_holdout_access": "none",
+    }
+    if method == "none":
+        return X, y_array, audit
+
+    labels, counts = np.unique(y_array, return_counts=True)
+    if len(labels) != 2:
+        raise ValueError("Fold-local resampling requires exactly two training classes.")
+    minority_label = labels[int(np.argmin(counts))]
+    majority_label = labels[int(np.argmax(counts))]
+    minority_positions = np.flatnonzero(y_array == minority_label)
+    majority_positions = np.flatnonzero(y_array == majority_label)
+    if not len(minority_positions) or not len(majority_positions):
+        raise ValueError("Fold-local resampling requires both target classes.")
+
+    rng = np.random.default_rng(random_seed)
+    current_share = len(minority_positions) / len(y_array)
+    if method == "undersample":
+        desired_majority = int(
+            np.floor(len(minority_positions) * (1 - minority_share) / minority_share)
+        )
+        desired_majority = max(1, min(len(majority_positions), desired_majority))
+        if desired_majority >= len(majority_positions) or current_share >= minority_share:
+            return X, y_array, audit
+        kept_majority = rng.choice(
+            majority_positions, size=desired_majority, replace=False
+        )
+        kept = np.concatenate([minority_positions, kept_majority])
+        rng.shuffle(kept)
+        result_X = _take_rows(X, kept)
+        result_y = y_array[kept]
+    else:
+        desired_minority = int(
+            np.ceil(len(majority_positions) * minority_share / (1 - minority_share))
+        )
+        rows_to_add = max(0, desired_minority - len(minority_positions))
+        if rows_to_add == 0 or current_share >= minority_share:
+            return X, y_array, audit
+        if method == "oversample":
+            sampled = rng.choice(minority_positions, size=rows_to_add, replace=True)
+            added_X = _take_rows(X, sampled)
+        elif method == "smote":
+            if len(minority_positions) < 2:
+                raise ValueError(
+                    "Fold-local SMOTE requires at least two minority-class training rows."
+                )
+            try:
+                numeric_X = np.asarray(X, dtype=float)
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    "Model-native fold-local SMOTE requires numeric predictors."
+                ) from exc
+            if not np.isfinite(numeric_X).all():
+                raise ValueError(
+                    "Fold-local SMOTE requires finite predictors after fold-local preprocessing."
+                )
+            base_positions = rng.choice(
+                minority_positions, size=rows_to_add, replace=True
+            )
+            neighbor_positions = np.empty(rows_to_add, dtype=int)
+            for index, base_position in enumerate(base_positions):
+                choices = minority_positions[minority_positions != base_position]
+                neighbor_positions[index] = int(rng.choice(choices))
+            interpolation = rng.random((rows_to_add, 1))
+            added_X = numeric_X[base_positions] + interpolation * (
+                numeric_X[neighbor_positions] - numeric_X[base_positions]
+            )
+        else:  # validated by normalize_validation_execution_policy
+            raise ValueError(f"Unsupported fold-local balancing method: {method}")
+        added_y = np.full(rows_to_add, minority_label, dtype=y_array.dtype)
+        result_X = _concatenate_rows(X, added_X)
+        result_y = np.concatenate([y_array, added_y])
+
+    audit.update(
+        {
+            "output_rows": int(len(result_y)),
+            "synthetic_rows_added": max(0, int(len(result_y) - len(y_array))),
+            "rows_removed": max(0, int(len(y_array) - len(result_y))),
+            "class_counts_after": _class_counts(result_y),
+        }
+    )
+    return result_X, result_y, audit
+
+
+def _configure_class_weight_execution(
+    estimator: Any,
+    y: np.ndarray,
+    policy: str,
+) -> tuple[Any, Dict[str, Any], Dict[str, Any]]:
+    """Configure an estimator-level or fit-time balanced weighting policy."""
+    if policy == "none":
+        try:
+            params = estimator.get_params(deep=True)
+            if "class_weight" in params:
+                estimator.set_params(class_weight=None)
+            elif "estimator__class_weight" in params:
+                estimator.set_params(estimator__class_weight=None)
+        except Exception:
+            pass
+        return estimator, {}, {
+            "policy": "none",
+            "execution": "not_applied",
+            "fit_scope": "development_fold_training_rows_only",
+        }
+
+    counts = np.bincount(np.asarray(y, dtype=int), minlength=2)
+    if np.any(counts <= 0):
+        raise ValueError("Balanced class weights require both training classes.")
+    try:
+        params = estimator.get_params(deep=True)
+    except Exception:
+        params = {}
+    if "class_weight" in params:
+        estimator.set_params(class_weight="balanced")
+        execution = "estimator_class_weight"
+        fit_kwargs: Dict[str, Any] = {}
+    elif "estimator__class_weight" in params:
+        estimator.set_params(estimator__class_weight="balanced")
+        execution = "nested_estimator_class_weight"
+        fit_kwargs = {}
+    elif "scale_pos_weight" in params:
+        ratio = float(counts[0] / counts[1])
+        estimator.set_params(scale_pos_weight=ratio)
+        execution = "estimator_scale_pos_weight"
+        fit_kwargs = {}
+    elif "class_weights" in params:
+        total = float(np.sum(counts))
+        weights = [total / (2.0 * float(count)) for count in counts]
+        estimator.set_params(class_weights=weights)
+        execution = "estimator_class_weights"
+        fit_kwargs = {}
+    else:
+        signature = inspect.signature(estimator.fit)
+        accepts_kwargs = any(
+            value.kind == inspect.Parameter.VAR_KEYWORD
+            for value in signature.parameters.values()
+        )
+        if "sample_weight" not in signature.parameters and not accepts_kwargs:
+            raise ValueError(
+                f"{type(estimator).__name__} cannot honor the governed balanced class-weight policy."
+            )
+        total = float(np.sum(counts))
+        per_class = {
+            index: total / (2.0 * float(count))
+            for index, count in enumerate(counts)
+        }
+        fit_kwargs = {
+            "sample_weight": np.asarray(
+                [per_class[int(value)] for value in np.asarray(y, dtype=int)],
+                dtype=float,
+            )
+        }
+        execution = "fit_sample_weight"
+    return estimator, fit_kwargs, {
+        "policy": "balanced",
+        "execution": execution,
+        "fit_scope": "development_fold_training_rows_only",
+    }
+
+
+_FoldPolicyClassifierBase = (
+    type(
+        "_FoldPolicyClassifierBase",
+        (ClassifierMixin, BaseEstimator),
+        {},
+    )
+    if ClassifierMixin is not None and BaseEstimator is not None
+    else object
+)
+
+
+class _FoldLocalPolicyClassifier(_FoldPolicyClassifierBase):
+    """Sklearn-compatible estimator that owns fold-local policy execution."""
+
+    def __init__(
+        self,
+        model: Any,
+        preprocessing_policy: str = "fit_transform_per_fold",
+        balancing_method: str = "none",
+        minority_share: float = 0.5,
+        random_seed: int = 42,
+        class_weight_policy: str = "none",
+    ) -> None:
+        self.model = model
+        self.preprocessing_policy = preprocessing_policy
+        self.balancing_method = balancing_method
+        self.minority_share = minority_share
+        self.random_seed = random_seed
+        self.class_weight_policy = class_weight_policy
+
+    def __getattribute__(self, name: str) -> Any:
+        # sklearn chooses the first response method that appears to exist.
+        # Hide optional methods when the governed inner estimator does not
+        # implement them so ROC scorers correctly fall through to the other
+        # supported response method.
+        if name in {"predict_proba", "decision_function"}:
+            state = object.__getattribute__(self, "__dict__")
+            inner = state.get("model_", state.get("model"))
+            if inner is not None and not hasattr(inner, name):
+                raise AttributeError(
+                    f"{type(inner).__name__} does not implement {name}."
+                )
+        return super().__getattribute__(name)
+
+    def fit(self, X: Any, y: Any):
+        frame = X.copy() if isinstance(X, pd.DataFrame) else pd.DataFrame(X)
+        if self.preprocessing_policy == "fit_transform_per_fold":
+            self.preprocess_ = _make_preprocessor(frame)
+            prepared = self.preprocess_.fit_transform(frame)
+            preprocessing_execution = "fit_transform_on_training_rows"
+        elif self.preprocessing_policy == "model_native_per_fold":
+            self.preprocess_ = None
+            prepared = frame
+            preprocessing_execution = "model_native_training_rows"
+        else:
+            raise ValueError("Unsupported fold-local preprocessing policy.")
+
+        prepared, fit_y, resampling_audit = _resample_fold_training_rows(
+            prepared,
+            np.asarray(y),
+            method=self.balancing_method,
+            minority_share=float(self.minority_share),
+            random_seed=int(self.random_seed),
+        )
+        self.model_ = clone(self.model)
+        self.model_, fit_kwargs, weight_audit = _configure_class_weight_execution(
+            self.model_, fit_y, self.class_weight_policy
+        )
+        self.model_.fit(prepared, fit_y, **fit_kwargs)
+        self.classes_ = np.asarray(getattr(self.model_, "classes_", np.unique(fit_y)))
+        self.n_features_in_ = int(frame.shape[1])
+        self.policy_execution_ = {
+            "fold_local_preprocessing": self.preprocessing_policy,
+            "preprocessing_execution": preprocessing_execution,
+            "resampling": resampling_audit,
+            "class_weights": weight_audit,
+            "final_holdout_access": "none",
+        }
+        return self
+
+    @property
+    def named_steps(self) -> Dict[str, Any]:
+        return {
+            "preprocess": getattr(self, "preprocess_", None),
+            "model": getattr(self, "model_", self.model),
+        }
+
+    def _prepare(self, X: Any) -> Any:
+        frame = X.copy() if isinstance(X, pd.DataFrame) else pd.DataFrame(X)
+        if getattr(self, "preprocess_", None) is not None:
+            return self.preprocess_.transform(frame)
+        return frame
+
+    def predict(self, X: Any) -> np.ndarray:
+        return np.asarray(self.model_.predict(self._prepare(X)))
+
+    def predict_proba(self, X: Any) -> np.ndarray:
+        return np.asarray(self.model_.predict_proba(self._prepare(X)))
+
+    def decision_function(self, X: Any) -> np.ndarray:
+        return np.asarray(self.model_.decision_function(self._prepare(X)))
+
+    @property
+    def feature_importances_(self):
+        return self.model_.feature_importances_
+
+    @property
+    def coef_(self):
+        return self.model_.coef_
+
+
 def _coerce_feature_frame(X: pd.DataFrame) -> pd.DataFrame:
     """
     Normalize browser-uploaded feature frames before sklearn preprocessing.
@@ -1360,6 +1752,7 @@ def _train_classification_model(
     selection_partition_id: str = "",
     fold_definition_id: str = "",
     selection_created_at: str = "",
+    validation_policy: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     factory = spec.get("factory")
     if factory is None:
@@ -1377,22 +1770,6 @@ def _train_classification_model(
             requested_neighbors = 0
         if requested_neighbors > 0 and hasattr(model, "set_params"):
             model.set_params(n_neighbors=max(1, min(51, requested_neighbors)))
-    requested_class_weight = model_params.get("class_weight")
-    if requested_class_weight in {"balanced", None} and "class_weight" in model_params:
-        try:
-            available_params = model.get_params(deep=True)
-            if "class_weight" in available_params:
-                model.set_params(class_weight=requested_class_weight)
-            elif "estimator__class_weight" in available_params:
-                model.set_params(
-                    estimator__class_weight=requested_class_weight
-                )
-        except Exception:
-            # Compatibility is model-specific. Unsupported estimators retain
-            # their governed defaults and expose that fact in the training
-            # contract rather than receiving an invalid parameter.
-            pass
-
     if Pipeline is None or clone is None:
         return None
 
@@ -1402,19 +1779,29 @@ def _train_classification_model(
     )
     governed_splits = _validated_cv_splits(cv_splits, len(X_train))
     metric_name = normalize_selection_metric(primary_metric, "classification")
+    execution_policy = normalize_validation_execution_policy(
+        validation_policy,
+        problem_type="classification",
+    )
 
-    estimator_template = Pipeline(
-        steps=[
-            ("preprocess", _make_preprocessor(X_train)),
-            ("model", model),
-        ]
+    estimator_template = _FoldLocalPolicyClassifier(
+        model=model,
+        preprocessing_policy=execution_policy["fold_local_preprocessing"],
+        balancing_method=execution_policy["balancing_method"],
+        minority_share=execution_policy["minority_share"],
+        random_seed=execution_policy["random_seed"],
+        class_weight_policy=execution_policy["class_weight_policy"],
     )
 
     best_params = None
     best_score = None
     search_runtime_ms = 0
     applied_param_grid: Dict[str, Any] = {}
-    param_grid = spec.get("param_grid") or {}
+    param_grid = {
+        name: values
+        for name, values in (spec.get("param_grid") or {}).items()
+        if name not in {"model__class_weight", "model__estimator__class_weight"}
+    }
     if runtime_profile:
         # Keep an explicit, bounded regularization comparison when tuning is
         # requested.  Do not multiply small-data neural fits across larger
@@ -1511,8 +1898,12 @@ def _train_classification_model(
     score_sums = np.zeros(len(X_train), dtype=float)
     score_counts = np.zeros(len(X_train), dtype=int)
     fold_metrics: List[Dict[str, Any]] = []
+    fold_policy_execution: List[Dict[str, Any]] = []
     calibration_sources: set[str] = set()
-    for train_positions, validation_positions in governed_splits:
+    for fold_number, (train_positions, validation_positions) in enumerate(
+        governed_splits,
+        start=1,
+    ):
         fold_estimator, fold_calibration_source = fitted_for_partition(
             X_train.iloc[train_positions],
             y_train_arr[train_positions],
@@ -1530,6 +1921,24 @@ def _train_classification_model(
             )
         )
         calibration_sources.add(fold_calibration_source)
+        policy_audit = deepcopy(
+            getattr(fold_estimator, "policy_execution_", {})
+        )
+        if not policy_audit and calibration_requested:
+            policy_audit = {
+                **execution_policy,
+                "execution": "inside_fold_local_calibration",
+            }
+        fold_policy_execution.append(
+            {
+                "fold": fold_number,
+                "training_rows_before_policy": int(len(train_positions)),
+                "validation_rows": int(len(validation_positions)),
+                "validation_rows_resampled": False,
+                "final_holdout_access": "none",
+                **policy_audit,
+            }
+        )
 
     covered = score_counts > 0
     if not np.any(covered):
@@ -1584,6 +1993,19 @@ def _train_classification_model(
         "calibration_applied": calibration_applied,
         "calibration_method": calibration_method,
         "runtime_profile": runtime_profile,
+        "validation_policy_execution": {
+            **execution_policy,
+            "folds": fold_policy_execution,
+            "final_development_fit": deepcopy(
+                getattr(final_estimator, "policy_execution_", {})
+            )
+            or {
+                **execution_policy,
+                "execution": "inside_development_only_calibration",
+            },
+            "governed_fold_count": len(governed_splits),
+            "final_holdout_access": "none",
+        },
         "model": final_estimator,
     }
 
@@ -1599,6 +2021,7 @@ def _train_anomaly_model(
     selection_partition_id: str = "",
     fold_definition_id: str = "",
     selection_created_at: str = "",
+    validation_policy: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     factory = spec.get("factory")
     if factory is None:
@@ -1614,16 +2037,27 @@ def _train_anomaly_model(
     )
     governed_splits = _validated_cv_splits(cv_splits, len(X_train))
     metric_name = normalize_selection_metric(primary_metric, "classification")
-    estimator_template = Pipeline(
-        steps=[
-            ("preprocess", _make_preprocessor(X_train)),
-            ("model", model),
-        ]
+    execution_policy = normalize_validation_execution_policy(
+        validation_policy,
+        problem_type="classification",
     )
+    if execution_policy["fold_local_preprocessing"] == "fit_transform_per_fold":
+        estimator_template = Pipeline(
+            steps=[
+                ("preprocess", _make_preprocessor(X_train)),
+                ("model", model),
+            ]
+        )
+    else:
+        estimator_template = model
 
     def anomaly_scores(estimator: Any, X: pd.DataFrame) -> np.ndarray:
-        fitted_model = estimator.named_steps["model"]
-        prepared = estimator.named_steps["preprocess"].transform(X)
+        if hasattr(estimator, "named_steps"):
+            fitted_model = estimator.named_steps["model"]
+            prepared = estimator.named_steps["preprocess"].transform(X)
+        else:
+            fitted_model = estimator
+            prepared = X
         if hasattr(fitted_model, "decision_function"):
             raw = -np.asarray(fitted_model.decision_function(prepared), dtype=float)
         elif hasattr(fitted_model, "score_samples"):
@@ -1636,7 +2070,11 @@ def _train_anomaly_model(
     score_sums = np.zeros(len(X_train), dtype=float)
     score_counts = np.zeros(len(X_train), dtype=int)
     fold_metrics: List[Dict[str, Any]] = []
-    for train_positions, validation_positions in governed_splits:
+    fold_policy_execution: List[Dict[str, Any]] = []
+    for fold_number, (train_positions, validation_positions) in enumerate(
+        governed_splits,
+        start=1,
+    ):
         fold_estimator = clone(estimator_template)
         fold_frame = X_train.iloc[train_positions]
         if len(fold_frame) > 10_000:
@@ -1653,6 +2091,26 @@ def _train_anomaly_model(
                 y_train_arr[validation_positions],
                 fold_scores,
             )
+        )
+        fold_policy_execution.append(
+            {
+                "fold": fold_number,
+                "fold_local_preprocessing": execution_policy[
+                    "fold_local_preprocessing"
+                ],
+                "preprocessing_execution": (
+                    "fit_transform_on_training_rows"
+                    if execution_policy["fold_local_preprocessing"]
+                    == "fit_transform_per_fold"
+                    else "model_native_training_rows"
+                ),
+                "balancing_execution": "not_applicable_target_independent_model",
+                "class_weight_execution": "not_applicable_target_independent_model",
+                "training_rows": int(len(train_positions)),
+                "validation_rows": int(len(validation_positions)),
+                "validation_rows_resampled": False,
+                "final_holdout_access": "none",
+            }
         )
 
     covered = score_counts > 0
@@ -1699,6 +2157,14 @@ def _train_anomaly_model(
         "selection_integrity_status": "verified",
         "holdout_isolation_status": "verified",
         "class_encoding": class_encoding,
+        "validation_policy_execution": {
+            **execution_policy,
+            "folds": fold_policy_execution,
+            "governed_fold_count": len(governed_splits),
+            "balancing_execution": "not_applicable_target_independent_model",
+            "class_weight_execution": "not_applicable_target_independent_model",
+            "final_holdout_access": "none",
+        },
         "model": final_estimator,
     }
 
@@ -1716,6 +2182,7 @@ def _train_regression_model(
     selection_partition_id: str = "",
     fold_definition_id: str = "",
     selection_created_at: str = "",
+    validation_policy: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     factory = spec.get("factory")
     if factory is None:
@@ -1731,19 +2198,31 @@ def _train_regression_model(
     y_train_arr = np.asarray(y_train, dtype=float)
     governed_splits = _validated_cv_splits(cv_splits, len(X_train))
     metric_name = normalize_selection_metric(primary_metric, "regression")
-
-    estimator_template = Pipeline(
-        steps=[
-            ("preprocess", _make_preprocessor(X_train)),
-            ("model", model),
-        ]
+    execution_policy = normalize_validation_execution_policy(
+        validation_policy,
+        problem_type="regression",
     )
+
+    if execution_policy["fold_local_preprocessing"] == "fit_transform_per_fold":
+        estimator_template = Pipeline(
+            steps=[
+                ("preprocess", _make_preprocessor(X_train)),
+                ("model", model),
+            ]
+        )
+    else:
+        estimator_template = model
 
     best_params = None
     best_score = None
     search_runtime_ms = 0
     applied_param_grid: Dict[str, Any] = {}
     param_grid = spec.get("param_grid") or {}
+    if execution_policy["fold_local_preprocessing"] == "model_native_per_fold":
+        param_grid = {
+            str(name).removeprefix("model__"): values
+            for name, values in param_grid.items()
+        }
     can_search = bool(grid_search and param_grid and GridSearchCV is not None)
     if can_search:
         grid_limit = {"quick": 4, "balanced": 8, "thorough": 12}.get(
@@ -1779,7 +2258,11 @@ def _train_regression_model(
     prediction_sums = np.zeros(len(X_train), dtype=float)
     prediction_counts = np.zeros(len(X_train), dtype=int)
     fold_metrics: List[Dict[str, Any]] = []
-    for train_positions, validation_positions in governed_splits:
+    fold_policy_execution: List[Dict[str, Any]] = []
+    for fold_number, (train_positions, validation_positions) in enumerate(
+        governed_splits,
+        start=1,
+    ):
         fold_estimator = clone(estimator_template)
         fold_estimator.fit(
             X_train.iloc[train_positions],
@@ -1797,6 +2280,24 @@ def _train_regression_model(
                 fold_predictions,
                 n_features=len(X_train.columns),
             )
+        )
+        fold_policy_execution.append(
+            {
+                "fold": fold_number,
+                "fold_local_preprocessing": execution_policy[
+                    "fold_local_preprocessing"
+                ],
+                "preprocessing_execution": (
+                    "fit_transform_on_training_rows"
+                    if execution_policy["fold_local_preprocessing"]
+                    == "fit_transform_per_fold"
+                    else "model_native_training_rows"
+                ),
+                "training_rows": int(len(train_positions)),
+                "validation_rows": int(len(validation_positions)),
+                "validation_rows_resampled": False,
+                "final_holdout_access": "none",
+            }
         )
     covered = prediction_counts > 0
     if not np.any(covered):
@@ -1842,6 +2343,24 @@ def _train_regression_model(
         "search_runtime_ms": search_runtime_ms,
         "calibration_applied": False,
         "calibration_method": None,
+        "validation_policy_execution": {
+            **execution_policy,
+            "folds": fold_policy_execution,
+            "final_development_fit": {
+                "fold_local_preprocessing": execution_policy[
+                    "fold_local_preprocessing"
+                ],
+                "preprocessing_execution": (
+                    "fit_transform_on_development_rows"
+                    if execution_policy["fold_local_preprocessing"]
+                    == "fit_transform_per_fold"
+                    else "model_native_development_rows"
+                ),
+                "final_holdout_access": "none",
+            },
+            "governed_fold_count": len(governed_splits),
+            "final_holdout_access": "none",
+        },
         "model": final_estimator,
     }
 
@@ -1865,6 +2384,7 @@ def train_models(
     fold_definition_id: str = "",
     selection_created_at: str = "",
     balancing_status: str = "not_applied",
+    validation_policy: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """
     Train requested models and return a structure suitable for:
@@ -1876,6 +2396,10 @@ def train_models(
     # Infer problem type
     problem_type = infer_problem_type(y_train)
     metric_name = normalize_selection_metric(primary_metric, problem_type)
+    execution_policy = normalize_validation_execution_policy(
+        validation_policy,
+        problem_type=problem_type,
+    )
     governed_splits = _validated_cv_splits(cv_splits, len(X_train))
     if not str(selection_partition_id or "").strip():
         raise ValueError("A governed selection_partition_id is required for candidate training.")
@@ -1923,6 +2447,7 @@ def train_models(
                     selection_partition_id=selection_partition_id,
                     fold_definition_id=fold_definition_id,
                     selection_created_at=selection_created_at,
+                    validation_policy=execution_policy,
                 )
             elif spec["task"] == "classification":
                 details = _train_classification_model(
@@ -1941,6 +2466,7 @@ def train_models(
                     selection_partition_id=selection_partition_id,
                     fold_definition_id=fold_definition_id,
                     selection_created_at=selection_created_at,
+                    validation_policy=execution_policy,
                 )
             else:
                 details = _train_regression_model(
@@ -1956,6 +2482,7 @@ def train_models(
                     selection_partition_id=selection_partition_id,
                     fold_definition_id=fold_definition_id,
                     selection_created_at=selection_created_at,
+                    validation_policy=execution_policy,
                 )
         except Exception as exc:
             failed_rows.append(
@@ -2015,6 +2542,9 @@ def train_models(
                 "holdout_isolation_status": details.get("holdout_isolation_status"),
                 "selection_balancing_status": str(balancing_status or "not_applied"),
                 "class_encoding": details.get("class_encoding"),
+                "validation_policy_execution": details.get(
+                    "validation_policy_execution"
+                ),
                 "mae": m.get("mae"),
                 "mse": m.get("mse"),
                 "rmse": m.get("rmse"),
@@ -2054,6 +2584,11 @@ def train_models(
         "selection_integrity_status": "verified",
         "holdout_isolation_status": "verified",
         "selection_balancing_status": str(balancing_status or "not_applied"),
+        "validation_policy_execution": {
+            **execution_policy,
+            "model_count": len(ranked_rows),
+            "final_holdout_access": "none",
+        },
         "ranked": ranked_rows,
         "raw": trained_rows,
         "failed": failed_rows,

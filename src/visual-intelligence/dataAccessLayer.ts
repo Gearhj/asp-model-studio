@@ -41,20 +41,73 @@ export async function fetchWorkspaceRows(
 ): Promise<VisualDataResult<Record<string, unknown>>> {
   const start = performance.now();
   const maxRows = options.maxRows ?? 5000;
-  const payload = await getJson<{ ok: boolean; headers: string[]; rows: Record<string, unknown>[]; target: string | null }>(
-    `/data/get_sample?project_id=${encodeURIComponent(reference.projectId)}&max_rows=${maxRows}`
+  if (!reference.datasetId || !reference.versionId) {
+    throw new Error("Visual Intelligence workspace rows require an exact registered dataset version.");
+  }
+  const query = new URLSearchParams({
+    project_id: reference.projectId,
+    expected_dataset_id: reference.datasetId,
+    expected_dataset_version_id: reference.versionId,
+    max_rows: String(Math.min(Math.max(Math.trunc(maxRows), 1), 5000)),
+  });
+  const payload = await getJson<{
+    ok: boolean;
+    project_id: string;
+    dataset_id: string;
+    dataset_version_id: string;
+    headers: string[];
+    rows: Record<string, unknown>[];
+    target: string | null;
+    registered_row_count?: number;
+    target_values_included: boolean;
+    source_checksum?: string;
+    scope?: Record<string, unknown>;
+  }>(
+    `/data/get_sample?${query.toString()}`
   );
+  const target = payload.target ?? reference.target;
+  const scope = payload.scope ?? {};
+  const exact = payload.project_id === reference.projectId
+    && payload.dataset_id === reference.datasetId
+    && payload.dataset_version_id === reference.versionId;
+  const rows = payload.rows.map((row) => {
+    const safe = { ...row };
+    if (target) delete safe[target];
+    return safe;
+  });
+  if (!exact || payload.target_values_included !== false || scope.target_values_included !== false) {
+    throw new Error("Visual Intelligence refused a workspace sample without exact target-free scope metadata.");
+  }
+  if (target && payload.rows.some((row) => Object.prototype.hasOwnProperty.call(row, target))) {
+    throw new Error("Visual Intelligence refused a workspace sample containing target values.");
+  }
+  const totalSourceRows = Number(payload.registered_row_count ?? scope.population_count ?? rows.length);
   const meta: VisualDataSourceMeta = {
     source: "workspace",
-    rowsAvailable: payload.rows.length,
-    totalSourceRows: payload.rows.length, // backend does not currently report the true unsampled total for this endpoint
-    sampled: payload.rows.length >= maxRows, // conservative: if we hit the cap, treat it as a sample, not a confirmed full population
+    rowsAvailable: rows.length,
+    totalSourceRows: Number.isFinite(totalSourceRows) ? totalSourceRows : rows.length,
+    sampled: Number.isFinite(totalSourceRows)
+      ? rows.length < totalSourceRows
+      : rows.length >= maxRows,
     freshAsOf: new Date().toISOString(),
     ephemeral: true, // workspace data is DATASTORE-resident, not a registered durable asset
     aggregationMethod: "none",
     queryDurationMs: performance.now() - start,
+    analyticalScope:
+      scope.analytical_scope === "development_population_predictors_only"
+      || scope.analytical_scope === "full_governed_population_predictors_only"
+        ? scope.analytical_scope
+        : undefined,
+    populationId: typeof scope.population_id === "string" ? scope.population_id : undefined,
+    partitionId: typeof scope.partition_id === "string" ? scope.partition_id : undefined,
+    partitionRevision: Number.isSafeInteger(Number(scope.partition_revision))
+      ? Number(scope.partition_revision)
+      : undefined,
+    holdoutExcluded: typeof scope.holdout_excluded === "boolean" ? scope.holdout_excluded : undefined,
+    targetValuesIncluded: false,
+    sourceChecksum: typeof payload.source_checksum === "string" ? payload.source_checksum : undefined,
   };
-  return { reference: { ...reference, sourceType: "workspace", target: payload.target ?? reference.target }, meta, rows: payload.rows };
+  return { reference: { ...reference, sourceType: "workspace", target }, meta, rows };
 }
 
 /**
@@ -181,6 +234,7 @@ async function tryServerSegmentAggregate(
   range: { min?: number; max?: number },
   positiveValue?: unknown
 ): Promise<SegmentAggregateResult | null> {
+  void positiveValue;
   try {
     const filters = [];
     if (range.min !== undefined) filters.push({ column: field, op: "gte", value: range.min });
@@ -190,7 +244,10 @@ async function tryServerSegmentAggregate(
       operation: "column_profile",
       selectedColumns: [field],
       filters,
-      aggregations: positiveValue !== undefined ? { targetColumn: reference.target, positiveValue } : {},
+      // This prototype route has no verified Analysis Partition membership.
+      // Request structural aggregates only; target-rate evidence must come
+      // from a dedicated development-scoped backend artifact.
+      aggregations: {},
     });
     if (response.status !== "completed" || !response.result) return null;
     const result = response.result as { totalCount?: number; mean?: number; median?: number; std?: number; minimum?: number; maximum?: number };
@@ -230,6 +287,7 @@ export async function computeSegmentAggregate(
   range: { min?: number; max?: number },
   positiveValue?: unknown
 ): Promise<SegmentAggregateResult> {
+  void positiveValue;
   const serverResult = await tryServerSegmentAggregate(reference, field, range, positiveValue);
   if (serverResult) return serverResult;
 
@@ -252,20 +310,14 @@ export async function computeSegmentAggregate(
     const { streamingMeanStd, streamingMedian, safeMinMax } = await import("./largeDataPolicy");
     const { mean, std } = streamingMeanStd(values);
     const minMax = safeMinMax(values);
-    const targetRate = positiveValue !== undefined && filtered.length
-      ? filtered.filter((row) => row[reference.target ?? ""] === positiveValue).length / filtered.length
-      : null;
     return {
       rowCount: filtered.length, mean: values.length ? mean : null, median: streamingMedian(values), std: values.length ? std : null,
-      min: minMax?.min ?? null, max: minMax?.max ?? null, targetRate, aggregationMethod: "client-sample", queryDurationMs: performance.now() - start,
+      min: minMax?.min ?? null, max: minMax?.max ?? null, targetRate: null, aggregationMethod: "client-sample", queryDurationMs: performance.now() - start,
     };
   }
 
   const table = await registerTable(reference.projectId, "distribution_source", rows);
-  const targetExpr = positiveValue !== undefined && reference.target
-    ? `, AVG(CASE WHEN "${reference.target}" = ${JSON.stringify(positiveValue)} THEN 1.0 ELSE 0.0 END) AS target_rate`
-    : ", NULL AS target_rate";
-  const sql = `SELECT COUNT(*) AS row_count, AVG("${field}") AS mean, STDDEV_SAMP("${field}") AS std, MIN("${field}") AS min_value, MAX("${field}") AS max_value, MEDIAN("${field}") AS median${targetExpr} FROM ${table} ${whereClause}`;
+  const sql = `SELECT COUNT(*) AS row_count, AVG("${field}") AS mean, STDDEV_SAMP("${field}") AS std, MIN("${field}") AS min_value, MAX("${field}") AS max_value, MEDIAN("${field}") AS median, NULL AS target_rate FROM ${table} ${whereClause}`;
   const result = await runQuery(sql);
   const row = result.rows[0] ?? {};
   return {

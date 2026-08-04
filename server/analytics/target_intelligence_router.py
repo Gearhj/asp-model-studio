@@ -33,7 +33,6 @@ from ..persistence.db import PersistenceUnavailableError, now_iso
 from ..persistence.service import get_persistence_service
 from ..security.security_store import audit_event, require_user, user_can_access_project
 from .analysis_scope import (
-    DRAFT_EXPORT_MARKERS,
     GOVERNED_VERSION,
     WORKSPACE_DRAFT,
     is_governed,
@@ -46,7 +45,6 @@ from .target_intelligence_service import (
     DEFAULT_TOP_CATEGORIES,
     ENGINE_VERSION,
     compute_target_assessment,
-    compute_target_by_predictor,
 )
 
 
@@ -56,6 +54,189 @@ router = APIRouter(dependencies=[Depends(require_user)])
 # are enforced server-side so a client cannot widen them.
 MAX_EVIDENCE_ROWS = 60
 MAX_EVIDENCE_BYTES = 96 * 1024
+
+
+def _eda_authority_unavailable(exc: Exception, *, operation: str) -> HTTPException:
+    """Translate a missing/stale EDA authority into one stable fail-closed API shape."""
+
+    return HTTPException(
+        status_code=409,
+        detail={
+            "ok": False,
+            "code": getattr(exc, "code", "eda_analytical_scope_not_current"),
+            "message": str(exc),
+            "recovery": getattr(
+                exc,
+                "recovery",
+                (
+                    "Return to Data Acquisition, confirm and document the exact "
+                    "Analysis Partition, then reopen EDA."
+                ),
+            ),
+            "stale_artifacts": getattr(exc, "stale_artifacts", []),
+            "operation": operation,
+        },
+    )
+
+
+def _development_target_assessment(
+    *,
+    project_id: str,
+    dataset_id: str,
+    version_id: str,
+    target: str,
+    event_value: Any,
+    artifact: Dict[str, Any],
+    operation: str,
+) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    """Read the canonical documented EDA Target response, never the full artifact.
+
+    Target evidence and export are EDA outputs.  They therefore reuse the exact
+    Target workspace response whose target-directed fields are materialized from
+    development membership only.  The legacy analytics assessment remains
+    available exclusively to Data Acquisition's full-population endpoint.
+    """
+
+    from ..eda.analytical_contract import EDAAnalyticalContractError
+    from ..eda.workspace_service import eda_workspace_service
+    from ..eda.workspace_types import EDAWorkspaceRequest
+
+    try:
+        workspace = eda_workspace_service.section(
+            "target",
+            EDAWorkspaceRequest(
+                project_id=project_id,
+                expected_dataset_id=dataset_id,
+                expected_dataset_version_id=version_id,
+                dataset_version=version_id,
+                target=target,
+                event_value=event_value,
+            ),
+        )
+    except (EDAAnalyticalContractError, RuntimeError, ValueError) as exc:
+        raise _eda_authority_unavailable(exc, operation=operation) from exc
+
+    scope = dict(workspace.get("analysis_scope") or {})
+    assessment = dict(workspace.get("full_population_assessment") or {})
+    contract = dict(workspace.get("governed_analytical_contract") or {})
+    balance = dict(assessment.get("classBalance") or {})
+    expected_rows = int(contract.get("rows_used") or 0)
+    actual_rows = int(balance.get("totalModelingPopulation") or 0)
+    missing_target_rows = int(balance.get("missingTargetCount") or 0)
+    exact_identity = (
+        scope.get("mode") == GOVERNED_VERSION
+        and str(scope.get("projectId") or "") == project_id
+        and str(scope.get("datasetId") or "") == dataset_id
+        and str(scope.get("datasetVersionId") or "") == version_id
+        and str(scope.get("target") or "") == target
+        and bool(scope.get("exact"))
+        and not bool(scope.get("sampled"))
+        and str(scope.get("label") or "") == "Development Population"
+        and str(contract.get("analysis_scope") or "")
+        == "development_population"
+        and expected_rows > 0
+        and actual_rows > 0
+        and actual_rows + missing_target_rows == expected_rows
+        and bool(contract.get("analysis_population_id"))
+        and bool(contract.get("split_id"))
+        and not bool(scope.get("finalHoldoutAccessed"))
+        and not bool(contract.get("final_holdout_accessed"))
+    )
+    if not exact_identity:
+        exc = RuntimeError(
+            "The exact documented development-population EDA target authority "
+            "could not be verified."
+        )
+        raise _eda_authority_unavailable(exc, operation=operation)
+
+    # The immutable Dataset Library checksum and the sealed partition identity
+    # are complementary.  Preserve both in every evidence/export response.
+    scope.update(
+        {
+            "artifactChecksum": artifact.get("checksum"),
+            "immutableVersion": True,
+            "evidenceEligible": True,
+            "mddEligible": True,
+            "analysisPopulationId": contract["analysis_population_id"],
+            "splitId": contract["split_id"],
+            "analysisPartitionId": contract.get("analysis_partition_id")
+            or contract.get("split_id"),
+            "analysisPartitionRevision": contract.get("analysis_partition_revision")
+            or contract.get("revision"),
+            "populationRows": expected_rows,
+            "fullGovernedPopulationRows": contract.get("population_rows"),
+            "analysisSource": "eda.governed_analytical_contract.target",
+            "finalHoldoutAccessed": False,
+            "finalHoldoutUsedForSelection": False,
+            "disclosure": (
+                "Governed development population. Target-directed statistics "
+                "exclude the sealed final holdout."
+            ),
+        }
+    )
+    assessment["analysisScope"] = scope
+    return assessment, workspace
+
+
+def _development_target_by_predictor(
+    *,
+    project_id: str,
+    dataset_id: str,
+    version_id: str,
+    target: str,
+    predictor: str,
+    analysis_type: str,
+    event_value: Any,
+    bands: int,
+    top_categories: int,
+    include_missing: bool,
+    expected_scope: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Run the canonical development-only predictor path and bind its scope."""
+
+    from ..eda.analytical_contract import EDAAnalyticalContractError
+    from ..eda.workspace_service import eda_workspace_service
+    from ..eda.workspace_types import TargetByPredictorRequest as EDATargetByPredictorRequest
+
+    try:
+        result = eda_workspace_service.target_by_predictor(
+            EDATargetByPredictorRequest(
+                project_id=project_id,
+                expected_dataset_id=dataset_id,
+                expected_dataset_version_id=version_id,
+                dataset_version=version_id,
+                target=target,
+                predictor=predictor,
+                analysis_type=analysis_type,
+                event_value=event_value,
+                bands=bands,
+                top_categories=top_categories,
+                include_missing=include_missing,
+            )
+        )
+    except EDAAnalyticalContractError as exc:
+        raise _eda_authority_unavailable(
+            exc, operation="target_evidence_predictor_analysis"
+        ) from exc
+
+    scope = result.get("analysisScope") or {}
+    if (
+        str(scope.get("analysisPopulationId") or "")
+        != str(expected_scope.get("analysisPopulationId") or "")
+        or str(scope.get("splitId") or "")
+        != str(expected_scope.get("splitId") or "")
+        or int(scope.get("populationRows") or 0)
+        != int(expected_scope.get("populationRows") or 0)
+        or bool(result.get("finalHoldoutAccessed"))
+    ):
+        exc = RuntimeError(
+            "The selected predictor analysis is not bound to the same exact "
+            "development population as the Target workspace."
+        )
+        raise _eda_authority_unavailable(
+            exc, operation="target_evidence_predictor_analysis"
+        )
+    return result
 
 
 def _check_project_access(user: Dict[str, Any], project_id: str) -> None:
@@ -311,13 +492,11 @@ def save_target_evidence(payload: TargetEvidenceRequest, user: Dict[str, Any] = 
     """
     _check_project_access(user, payload.projectId)
     if not payload.datasetId or not payload.versionId:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Governed evidence requires a registered dataset version. This analysis is a Workspace Draft "
-                "Analysis; register or link an immutable Dataset Library version and rerun the analysis first."
-            ),
+        exc = RuntimeError(
+            "Governed Target evidence requires the exact documented "
+            "development-population Analysis Partition."
         )
+        raise _eda_authority_unavailable(exc, operation="target_evidence")
 
     dataset = require_dataset(payload.datasetId)
     active = _require_active_version(
@@ -335,21 +514,31 @@ def save_target_evidence(payload: TargetEvidenceRequest, user: Dict[str, Any] = 
             detail="The requested dataset version could not be resolved exactly; governed evidence was not created.",
         )
 
-    assessment = compute_target_assessment(
-        user_scope=_user_scope(user), project_id=payload.projectId, dataset_id=dataset_id,
-        version_id=version_id, target=payload.target,
-        event_value=payload.eventValue, non_event_value=payload.nonEventValue,
+    assessment, _target_workspace = _development_target_assessment(
+        project_id=payload.projectId,
+        dataset_id=dataset_id,
+        version_id=version_id,
+        target=payload.target,
+        event_value=payload.eventValue,
+        artifact=artifact,
+        operation="target_evidence",
     )
     scope = require_evidence_eligible(assessment.get("analysisScope"))
 
     predictor_analysis = None
     if payload.predictor:
-        predictor_analysis = compute_target_by_predictor(
-            user_scope=_user_scope(user), project_id=payload.projectId, dataset_id=dataset_id,
-            version_id=version_id, target=payload.target, predictor=payload.predictor,
+        predictor_analysis = _development_target_by_predictor(
+            project_id=payload.projectId,
+            dataset_id=dataset_id,
+            version_id=version_id,
+            target=payload.target,
+            predictor=payload.predictor,
             analysis_type=payload.predictorAnalysisType or "numeric_quantile",
-            event_value=payload.eventValue, bands=payload.predictorBands,
-            top_categories=payload.predictorTopCategories, include_missing=payload.predictorIncludeMissing,
+            event_value=payload.eventValue,
+            bands=payload.predictorBands,
+            top_categories=payload.predictorTopCategories,
+            include_missing=payload.predictorIncludeMissing,
+            expected_scope=scope,
         )
 
     balance = assessment.get("classBalance") or {}
@@ -391,6 +580,12 @@ def save_target_evidence(payload: TargetEvidenceRequest, user: Dict[str, Any] = 
                 "artifactChecksum": artifact.get("checksum"),
                 "immutableVersion": True,
                 "populationRows": balance.get("totalModelingPopulation"),
+                "developmentPopulationRows": scope.get("populationRows"),
+                "analysisPopulationId": scope.get("analysisPopulationId"),
+                "analysisPartitionId": scope.get("analysisPartitionId"),
+                "analysisPartitionRevision": scope.get("analysisPartitionRevision"),
+                "splitId": scope.get("splitId"),
+                "finalHoldoutAccessed": False,
             },
             "targetDefinition": {
                 "target": payload.target,
@@ -427,6 +622,12 @@ def save_target_evidence(payload: TargetEvidenceRequest, user: Dict[str, Any] = 
                 "scopeContractVersion": scope.get("contractVersion"),
                 "sourceOperation": "POST /api/analytics/target-evidence",
                 "analysisSource": scope.get("analysisSource"),
+                "analysisPopulationId": scope.get("analysisPopulationId"),
+                "analysisPartitionId": scope.get("analysisPartitionId"),
+                "analysisPartitionRevision": scope.get("analysisPartitionRevision"),
+                "splitId": scope.get("splitId"),
+                "populationScope": "development_population",
+                "finalHoldoutAccessed": False,
             },
             "boundedResultDisclosure": (
                 f"Aggregate rows only, capped at {MAX_EVIDENCE_ROWS} rows and "
@@ -487,6 +688,12 @@ def save_target_evidence(payload: TargetEvidenceRequest, user: Dict[str, Any] = 
             "datasetVersionId": version_id,
             "artifactChecksum": artifact.get("checksum"),
             "target": payload.target,
+            "analysisPopulationId": scope.get("analysisPopulationId"),
+            "analysisPartitionId": scope.get("analysisPartitionId"),
+            "analysisPartitionRevision": scope.get("analysisPartitionRevision"),
+            "splitId": scope.get("splitId"),
+            "populationScope": "development_population",
+            "finalHoldoutAccessed": False,
             "scopeMode": scope.get("mode"),
             "immutableVersion": True,
             "exact": scope.get("exact"),
@@ -537,12 +744,7 @@ class TargetSummaryExportRequest(BaseModel):
 
 @router.post("/analytics/target-summary-export")
 def target_summary_export(payload: TargetSummaryExportRequest, user: Dict[str, Any] = Depends(require_user)) -> Dict[str, Any]:
-    """Bounded analytical summary for download.
-
-    A draft summary may be exported -- but it is stamped, at the top of the
-    document, with markers that make it impossible to mistake for an approved
-    governed artifact.
-    """
+    """Bounded documented-development Target summary for download."""
     _check_project_access(user, payload.projectId)
     if bool(payload.datasetId) != bool(payload.versionId):
         raise HTTPException(
@@ -551,35 +753,32 @@ def target_summary_export(payload: TargetSummaryExportRequest, user: Dict[str, A
         )
     governed = bool(payload.datasetId and payload.versionId)
     if not governed:
-        return {
-            "ok": True,
-            "scopeMode": WORKSPACE_DRAFT,
-            "markers": DRAFT_EXPORT_MARKERS,
-            "governed": False,
-            "datasetId": None,
-            "datasetVersionId": None,
-            "target": payload.target,
-            "evidenceEligible": False,
-            "mddEligible": False,
-            "generatedAt": now_iso(),
-            "disclosure": (
-                "Workspace Draft. This summary is not governed evidence, is not pinned to an immutable dataset "
-                "version, and is not Model Development Document eligible."
-            ),
-        }
+        exc = RuntimeError(
+            "A Target Intelligence export requires the exact documented "
+            "development-population Analysis Partition."
+        )
+        raise _eda_authority_unavailable(exc, operation="target_summary_export")
 
+    require_dataset(str(payload.datasetId))
     active = _require_active_version(
         user,
         payload.projectId,
         str(payload.datasetId),
         payload.versionId,
     )
-    assessment = compute_target_assessment(
-        user_scope=_user_scope(user), project_id=payload.projectId, dataset_id=active["dataset_id"],
-        version_id=active["dataset_version_id"], target=payload.target,
-        event_value=payload.eventValue, non_event_value=payload.nonEventValue,
+    artifact = _assert_target_exists_in_version(
+        active["dataset_id"], active["dataset_version_id"], payload.target
     )
-    scope = assessment.get("analysisScope") or {}
+    assessment, _target_workspace = _development_target_assessment(
+        project_id=payload.projectId,
+        dataset_id=active["dataset_id"],
+        version_id=active["dataset_version_id"],
+        target=payload.target,
+        event_value=payload.eventValue,
+        artifact=artifact,
+        operation="target_summary_export",
+    )
+    scope = require_evidence_eligible(assessment.get("analysisScope"))
     return {
         "ok": True,
         "scopeMode": scope.get("mode"),
@@ -593,6 +792,15 @@ def target_summary_export(payload: TargetSummaryExportRequest, user: Dict[str, A
         "sampled": scope.get("sampled"),
         "evidenceEligible": scope.get("evidenceEligible"),
         "mddEligible": scope.get("mddEligible"),
+        "analysisPopulationId": scope.get("analysisPopulationId"),
+        "analysisPartitionId": scope.get("analysisPartitionId"),
+        "analysisPartitionRevision": scope.get("analysisPartitionRevision"),
+        "splitId": scope.get("splitId"),
+        "populationScope": "development_population",
+        "populationRows": scope.get("populationRows"),
+        "fullGovernedPopulationRows": scope.get("fullGovernedPopulationRows"),
+        "finalHoldoutAccessed": False,
+        "finalHoldoutUsedForSelection": False,
         "generatedAt": now_iso(),
         "classBalance": assessment.get("classBalance"),
         "imbalance": assessment.get("imbalance"),

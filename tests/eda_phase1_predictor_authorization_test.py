@@ -42,6 +42,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from server.core.dataset_store import DATASTORE  # noqa: E402
 from server.eda import eda_router  # noqa: E402
 from server.eda.workspace_service import (  # noqa: E402
+    EDAWorkspaceService,
     RelationshipSampleValidationError,
     eda_workspace_service,
 )
@@ -51,6 +52,7 @@ from server.eda.workspace_types import (  # noqa: E402
     EDAVifSimulationRequest,
     EDARelationshipSampleRequest,
 )
+from tests.analysis_partition_fixture import GovernedAnalysisFixture  # noqa: E402
 
 
 PROJECT_ID = "eda-phase1-authorization-project"
@@ -199,33 +201,27 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
                 for feature in sorted(TARGET_SOURCES)
             ],
         }
-        development = frame.iloc[:192]
-        holdout = frame.iloc[192:]
         selected = sorted(SAFE_PREDICTORS)
-        DATASTORE.set_splits(
-            development.loc[:, selected],
-            holdout.loc[:, selected],
-            development[TARGET],
-            holdout[TARGET],
+        self.governed_fixture = GovernedAnalysisFixture(project_id=PROJECT_ID)
+        self.partition_fixture = self.governed_fixture.install(
+            DATASTORE.current(),
+            dataset_id="ds-eda-phase1-synthetic",
+            dataset_version_id="eda-phase1-synthetic-v1",
+            target=TARGET,
+            authorized_predictors=selected,
+            target_sources=TARGET_SOURCES,
+            development_share=0.8,
         )
-        DATASTORE.meta.update(
-            {
-                "split_status": "current",
-                "split_record": {
-                    "project_id": PROJECT_ID,
-                    "dataset_id": "ds-eda-phase1-synthetic",
-                    "dataset_version_id": "eda-phase1-synthetic-v1",
-                    "split_id": "split-eda-phase1-synthetic-v1",
-                    "target": TARGET,
-                    "feature_manifest_version": "fm-eda-phase1-synthetic-v1",
-                    "selection_partition_id": "population-eda-phase1-development",
-                    "n_train": 192,
-                    "n_test": 48,
-                    "final_holdout_status": "sealed",
-                    "holdout_isolation_status": "verified",
-                },
-            }
-        )
+        # Retain the deliberately unsafe browser/checkpoint projection. The
+        # durable Data Acquisition manifest above remains the only authority.
+        DATASTORE.meta["selected_columns"] = [
+            "RiskPerformance",
+            "outcome_code",
+            "age",
+            "balance",
+            "balance_shadow",
+            "segment",
+        ]
         self.identity_patch = patch(
             "server.eda.workspace_service.assert_expected_active_identity",
             return_value={
@@ -246,6 +242,7 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
         eda_workspace_service._cache.clear()
         eda_workspace_service._contract_cache.clear()
         DATASTORE.reset_all()
+        self.governed_fixture.close()
 
     def _request(
         self,
@@ -385,7 +382,9 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
             event_value=1,
             problem_type="classification",
             dataset_version="eda-phase1-synthetic-v1",
-            predictor_manifest_id="fm-eda-phase1-synthetic-v1",
+            predictor_manifest_id=DATASTORE.meta[
+                "predictor_authorization_id"
+            ],
             x_feature="age",
             y_feature="balance",
             z_feature="balance_shadow",
@@ -517,10 +516,14 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
 
     def test_request_target_is_never_used_as_server_authority(self) -> None:
         DATASTORE.set_target(None)
-        with self.assertRaisesRegex(ValueError, "server-governed modeling target"):
-            eda_workspace_service.section("overview", self._request())
+        restored = eda_workspace_service.section("overview", self._request())
+        self.assertEqual(restored["target"], TARGET)
+        self.assertEqual(DATASTORE.target, TARGET)
+        self.assertEqual(
+            DATASTORE.meta["target_contract_id"],
+            self.partition_fixture["authorization"]["target_contract_id"],
+        )
 
-        DATASTORE.set_target(TARGET)
         with self.assertRaisesRegex(ValueError, "does not match"):
             eda_workspace_service.section(
                 "overview",
@@ -549,14 +552,15 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
         DATASTORE.set_target(TARGET)
         DATASTORE.meta.update(metadata)
 
-        with self.assertRaisesRegex(
-            EDAAnalyticalContractError,
-            "development partition",
-        ):
-            eda_workspace_service.section(
-                "distribution",
-                self._request(feature="balance"),
-            )
+        second = eda_workspace_service.section(
+            "distribution",
+            self._request(feature="balance"),
+        )
+        self.assertAlmostEqual(
+            second["statistics"]["mean"],
+            first["statistics"]["mean"] + 1_000.0,
+            places=10,
+        )
 
     def test_vif_simulation_is_bounded_authorized_and_non_mutating(self) -> None:
         before = DATASTORE.get_base_df().copy(deep=True)
@@ -629,6 +633,125 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
                         str(raised.exception.detail).lower(),
                     )
 
+    def test_legacy_sample_and_d3_histogram_are_development_only(self) -> None:
+        with patch.object(
+            eda_router,
+            "authorize_modeling_scope",
+            return_value=PROJECT_ID,
+        ):
+            sample = eda_router.sample(
+                project_id=PROJECT_ID,
+                max_rows=10_000,
+                user={"userId": "eda-phase1-test-owner"},
+            )
+            histogram = eda_router.d3_histogram(
+                {
+                    "project_id": PROJECT_ID,
+                    "feature": "balance",
+                    "bins": 12,
+                    "sample_pct": 100,
+                },
+                user={"userId": "eda-phase1-test-owner"},
+            )
+
+        development_rows = int(
+            self.partition_fixture["record"]["development_count"]
+        )
+        self.assertEqual(len(sample["rows"]), development_rows)
+        self.assertNotIn(TARGET, sample["headers"])
+        self.assertEqual(sample["scope"], "development_population")
+        self.assertTrue(sample["target_excluded"])
+        self.assertFalse(sample["final_holdout_accessed"])
+        self.assertEqual(
+            sample["analysis_partition_id"],
+            self.partition_fixture["record"]["analysis_partition_id"],
+        )
+
+        development_positions = self.partition_fixture["record"][
+            "row_assignments_json"
+        ]["development_positions"]
+        expected_numeric = int(
+            pd.to_numeric(
+                _frame().iloc[development_positions]["balance"],
+                errors="coerce",
+            )
+            .notna()
+            .sum()
+        )
+        self.assertEqual(int(sum(histogram["overall"])), expected_numeric)
+        self.assertEqual(histogram["scope"], "development_population")
+        self.assertFalse(histogram["final_holdout_accessed"])
+        self.assertFalse(histogram["final_holdout_used_for_selection"])
+        self.assertEqual(
+            histogram["analysis_partition_id"],
+            self.partition_fixture["record"]["analysis_partition_id"],
+        )
+
+    def test_empty_durable_predictor_inventory_never_expands_to_active_schema(self) -> None:
+        current = dict(self.partition_fixture["authorization"])
+        empty_base = {
+            key: current[key]
+            for key in (
+                "project_id",
+                "dataset_id",
+                "dataset_version_id",
+                "target",
+                "positive_value",
+                "negative_value",
+                "target_contract_id",
+                "excluded_predictors",
+                "target_source_excluded",
+                "target_source_detection_scope",
+                "source",
+            )
+        }
+        empty_base.update(
+            {
+                "authorized_predictors": [],
+                "selected_predictors": [],
+            }
+        )
+        empty_id = (
+            "predictor-auth-"
+            + self.governed_fixture._hash(empty_base)[:20]
+        )
+        empty = {
+            **current,
+            **empty_base,
+            "predictor_authorization_id": empty_id,
+            "manifest_version": empty_id,
+            "artifact_hash": empty_id.removeprefix("predictor-auth-"),
+        }
+        self.governed_fixture.persistence.predictor_authorizations.set_current(
+            empty
+        )
+        DATASTORE.meta.update(
+            {
+                "predictor_authorization_id": empty_id,
+                "predictor_authorization": empty,
+                "predictor_authorization_manifest": empty,
+            }
+        )
+
+        service = EDAWorkspaceService()
+        frame, target, _y, _problem, _event, authorization = (
+            service.authorized_dataset(self._request())
+        )
+        self.assertEqual(target, TARGET)
+        self.assertEqual(list(frame.columns), [TARGET])
+        self.assertEqual(authorization["authorized_predictors"], [])
+        self.assertEqual(
+            authorization["source"],
+            "data_acquisition_predictor_authorization",
+        )
+        with self.assertRaises(EDAAnalyticalContractError) as raised:
+            service.section("predictors", self._request())
+        self.assertEqual(
+            raised.exception.code,
+            "predictor_authorization_required",
+        )
+        self.assertIn("no model-eligible predictors", str(raised.exception))
+
     def test_distribution_range_is_full_population_and_authorized(self) -> None:
         """Brush-range aggregation must not fall back to the rendered sample."""
 
@@ -652,7 +775,7 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
         numeric = pd.to_numeric(population["balance"], errors="coerce")
         mask = numeric.between(20.0, 40.0, inclusive="both")
         selected_values = numeric[mask]
-        development = population.iloc[:192]
+        development = population.loc[DATASTORE.y_train.index]
         development_numeric = pd.to_numeric(
             development["balance"], errors="coerce"
         )

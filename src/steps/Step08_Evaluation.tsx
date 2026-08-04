@@ -44,6 +44,7 @@ import {
   type SelectionMetricEvidence,
 } from "../lib/selectionProvenance";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import { projectWorkflowRoute } from "../lib/projectScopedRoutes";
 
 const QUERY_API_BASE =
   typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("apiBase")?.replace(/\/$/, "") : undefined;
@@ -684,7 +685,7 @@ export default function Step08Evaluation() {
     const existing = candidates.some((row) => row.candidate_id === candidate.candidate_id);
     const next = existing ? candidates : [...candidates, candidate].slice(-4);
     setComparisonState(next);
-    navigate(`/step09?candidate_id=${encodeURIComponent(candidate.candidate_id)}&training_run_id=${encodeURIComponent(candidate.training_run_id)}&candidate_decision_id=${encodeURIComponent(selectionDecision.decision_id)}&evaluation_package_id=${encodeURIComponent(exactEvaluationPackageId)}&compare=${encodeURIComponent(next.map((row) => row.candidate_id).join(","))}`);
+    navigate(projectWorkflowRoute(projectId, `/step09?candidate_id=${encodeURIComponent(candidate.candidate_id)}&training_run_id=${encodeURIComponent(candidate.training_run_id)}&candidate_decision_id=${encodeURIComponent(selectionDecision.decision_id)}&evaluation_package_id=${encodeURIComponent(exactEvaluationPackageId)}&compare=${encodeURIComponent(next.map((row) => row.candidate_id).join(","))}`));
   }
 
   function openComparison() {

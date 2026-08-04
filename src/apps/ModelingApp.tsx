@@ -18,9 +18,18 @@ import { getUnreadNotificationCount } from "../lib/adminSharing";
 import { PanelRightClose, PanelRightOpen, Sparkles } from "lucide-react";
 import ErrorBoundary from "../components/ErrorBoundary";
 import {
+  ProjectContextGate,
   PredictiveIdentityGate,
   PredictiveIdentityProvider,
+  useAuthoritativeProjectContext,
 } from "../components/PredictiveIdentityProvider";
+import {
+  hasExactLegacyProjectCandidate,
+  normalizeWorkflowRoute,
+  projectWorkflowRoute,
+  scopedProjectIdForPathname,
+} from "../lib/projectScopedRoutes";
+import { loginPathForReturnTo } from "../lib/authReturnPath";
 
 const ExperimentalDesignWorkflowPage = lazy(() => import("../features/experimental-design/pages/ExperimentalDesignWorkflowPage"));
 const Dashboard = lazy(() => import("../steps/Dashboard"));
@@ -75,11 +84,12 @@ const WorkflowTemplates = lazy(() => import("../steps/WorkflowTemplates"));
 export default function ModelingApp() {
   const location = useLocation();
   const navigate = useNavigate();
+  const normalizedPathname = normalizeWorkflowRoute(location.pathname);
   const [authChecked, setAuthChecked] = useState(false);
   const [authUser, setAuthUser] = useState<AtlasUser | null>(null);
   const [guideMode, setGuideMode] = useState<"full" | "compact" | "hidden">(() => (localStorage.getItem("atlas-guide-mode") as "full" | "compact" | "hidden") || "full");
   const [edaPowerGuideCollapsed, setEdaPowerGuideCollapsed] = useState(
-    () => location.pathname === "/step02" && loadModelingMode() === "advanced",
+    () => normalizedPathname === "/step02" && loadModelingMode() === "advanced",
   );
   const workflowSteps = useWorkflowStore(selectEffectiveWorkflowSteps);
   const workflowId = useWorkflowStore((state) => state.workflowId);
@@ -89,14 +99,7 @@ export default function ModelingApp() {
   const restoreWarnings = useWorkflowStore((state) => state.restoreWarnings);
   const completed = workflowSteps.filter((step) => step.status === "complete").length;
   const progress = Math.round((completed / Math.max(1, workflowSteps.length)) * 100);
-  const currentStep = workflowSteps.find((step) => step.status !== "complete" && step.status !== "skipped") ?? workflowSteps[workflowSteps.length - 1];
-  // Breadcrumbs follow the route the user is on. `currentStep` above remains the
-  // workflow's next-incomplete step and is used for progress, NOT for location.
-  const breadcrumbs = buildBreadcrumbs({
-    pathname: location.pathname,
-    projectName,
-    workflowLabel: workflowId.replace(/-/g, " ").split(" ").map((word) => (word ? word[0].toUpperCase() + word.slice(1) : word)).join(" "),
-  });
+  const workflowLabel = workflowId.replace(/-/g, " ").split(" ").map((word) => (word ? word[0].toUpperCase() + word.slice(1) : word)).join(" ");
   const isFullWidthStudioRoute = ["/sql-data-studio", "/notebook-studio", "/model-evidence-center", "/evidence-graph", "/credit-risk-studio", "/management-dashboard", "/registry", "/validation", "/monitoring", "/admin", "/sharing", "/notifications"].includes(location.pathname)
     || location.pathname.startsWith("/registry/")
     || location.pathname.startsWith("/validation/")
@@ -130,7 +133,7 @@ export default function ModelingApp() {
   useEffect(() => {
     const synchronizeEdaPowerLayout = () => {
       setEdaPowerGuideCollapsed(
-        location.pathname === "/step02" && loadModelingMode() === "advanced",
+        normalizeWorkflowRoute(location.pathname) === "/step02" && loadModelingMode() === "advanced",
       );
     };
     synchronizeEdaPowerLayout();
@@ -161,19 +164,27 @@ export default function ModelingApp() {
   }
 
   if (!authUser) {
+    const loginPath = loginPathForReturnTo(
+      location.pathname,
+      location.search,
+      location.hash,
+    );
     return (
       <div className="min-h-screen bg-[#f5f5f7] px-4 py-8 text-slate-950">
         <Routes>
         <Route path="/login" element={<LoginPage onAuthenticated={setAuthUser} />} />
         <Route path="/register" element={<RegisterPage onAuthenticated={setAuthUser} />} />
-          <Route path="*" element={<Navigate to="/login" replace />} />
+          <Route path="*" element={<Navigate to={loginPath} replace />} />
         </Routes>
       </div>
     );
   }
 
   return (
-    <PredictiveIdentityProvider>
+    <PredictiveIdentityProvider
+      key={authUser.userId}
+      authenticatedUserId={authUser.userId}
+    >
     <div className="atlas-app-bg min-h-screen">
       <div className="flex min-h-screen">
         <Sidebar />
@@ -182,57 +193,29 @@ export default function ModelingApp() {
           <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/85 shadow-[0_1px_0_rgba(15,23,42,0.04)] backdrop-blur-xl">
             <div className="flex min-h-[68px] flex-col gap-3 px-4 py-3 sm:px-5 lg:px-6 xl:px-8 2xl:flex-row 2xl:items-center 2xl:justify-between">
               <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3">
-                <div className="min-w-0">
-                  {/* Derived from the ACTIVE ROUTE, never from workflow completion
-                      state -- see src/lib/breadcrumbs.ts for the defect this
-                      replaced (a completed Data Acquisition made every page
-                      display ".../ EDA"). */}
-                  <nav
-                    aria-label="Breadcrumb"
-                    data-testid="atlas-breadcrumb"
-                    data-breadcrumb={breadcrumbText(breadcrumbs)}
-                  >
-                    <ol className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-                      {breadcrumbs.map((crumb, index) => (
-                        <li key={`${crumb.label}-${index}`} className="flex min-w-0 items-center gap-2">
-                          {index > 0 ? <span aria-hidden="true" className="text-slate-300">/</span> : null}
-                          {crumb.current ? (
-                            <span
-                              aria-current="page"
-                              data-testid="atlas-breadcrumb-current"
-                              className="truncate font-semibold text-slate-950"
-                            >
-                              {crumb.label}
-                            </span>
-                          ) : crumb.href ? (
-                            <Link to={crumb.href} className="truncate text-slate-600 hover:text-slate-900">
-                              {crumb.label}
-                            </Link>
-                          ) : (
-                            <span className="truncate text-slate-600">{crumb.label}</span>
-                          )}
-                        </li>
-                      ))}
-                    </ol>
-                  </nav>
-                </div>
+                <AuthoritativeBreadcrumb
+                  pathname={location.pathname}
+                  fallbackProjectName={projectName}
+                  workflowLabel={workflowLabel}
+                />
                 <ProjectSaveStatus />
               </div>
               <div className="flex w-full min-w-0 flex-wrap items-center gap-3 2xl:w-auto 2xl:flex-nowrap">
                 <div className="min-w-0 flex-[1_1_560px] overflow-hidden rounded-xl border border-slate-200 bg-white/75 p-1 2xl:flex-none">
                   <ModeSwitcher />
                 </div>
-                <div className="w-56 shrink-0 rounded-xl border border-slate-200 bg-white/80 px-3 py-2 shadow-sm">
-                  <div className="mb-1 flex items-center justify-between gap-3 text-[11px] font-semibold text-slate-600">
-                    <span>{completed} of {workflowSteps.length} steps</span>
-                    <span>{progress}%</span>
-                  </div>
-                  <AtlasProgressBar value={progress} />
-                </div>
+                <AuthoritativeWorkflowProgress
+                  pathname={location.pathname}
+                  completed={completed}
+                  total={workflowSteps.length}
+                  progress={progress}
+                />
                 <HeaderUserMenu
                   user={authUser}
                   onLogout={async () => {
                     await logout();
+                    useWorkflowStore.getState().reset();
+                    setCachedUserId(null);
                     setAuthUser(null);
                     navigate("/login");
                   }}
@@ -263,7 +246,7 @@ export default function ModelingApp() {
                   </div>
                 )}
                 {restoreWarnings.length > 0 && (
-                  location.pathname === "/step02" ? (
+                  normalizedPathname === "/step02" ? (
                     <details
                       className="mb-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950"
                       data-testid="eda-compact-restoration-details"
@@ -331,6 +314,7 @@ export default function ModelingApp() {
                     element={(
                       <OpenProject
                         onSessionExpired={() => {
+                          useWorkflowStore.getState().reset();
                           setCachedUserId(null);
                           setAuthUser(null);
                           navigate("/login", { replace: true });
@@ -365,21 +349,36 @@ export default function ModelingApp() {
                   <Route path="/audit" element={<AuditPage />} />
                   <Route path="/system/diagnostics" element={<SystemDiagnostics />} />
                   <Route path="/dashboard" element={<Dashboard />} />
-                  <Route path="/step00" element={<Step00ProjectContext />} />
-                  <Route path="/step01" element={<Step01DataAcquisition />} />
-                  <Route path="/step01b" element={<Navigate to="/step01?section=credit-bureau-review" replace />} />
-                  <Route path="/step02" element={<PredictiveRoute><Step02EDA /></PredictiveRoute>} />
-                  <Route path="/step03" element={<PredictiveRoute><Step03Outliers /></PredictiveRoute>} />
-                  <Route path="/step04" element={<PredictiveRoute><Step04MissingValues /></PredictiveRoute>} />
-                  <Route path="/step05" element={<PredictiveRoute><Step05EncodingScaling /></PredictiveRoute>} />
-                  <Route path="/step06" element={<PredictiveRoute><Step06BalancingSplit /></PredictiveRoute>} />
-                  <Route path="/step07" element={<PredictiveRoute><Step07Train /></PredictiveRoute>} />
-                  <Route path="/step08" element={<PredictiveRoute><Step08Evaluation /></PredictiveRoute>} />
-                  <Route path="/step09" element={<PredictiveRoute><Step09Interpretation /></PredictiveRoute>} />
-                  <Route path="/step10" element={<PredictiveRoute><Step10Scoring /></PredictiveRoute>} />
-                  <Route path="/step11" element={<PredictiveRoute><Step11ModelDevelopmentDocument /></PredictiveRoute>} />
-                  <Route path="/step12" element={<PredictiveRoute><Step12ModelImplementation /></PredictiveRoute>} />
-                  <Route path="/step13" element={<PredictiveRoute><Step13ModelMonitoring /></PredictiveRoute>} />
+                  <Route path="/step00" element={<LegacyPredictiveRouteRedirect targetPath="/step00" />} />
+                  <Route path="/step01" element={<LegacyPredictiveRouteRedirect targetPath="/step01" />} />
+                  <Route path="/step01b" element={<LegacyPredictiveRouteRedirect targetPath="/step01?section=credit-bureau-review" />} />
+                  <Route path="/step02" element={<LegacyPredictiveRouteRedirect targetPath="/step02" />} />
+                  <Route path="/step03" element={<LegacyPredictiveRouteRedirect targetPath="/step03" />} />
+                  <Route path="/step04" element={<LegacyPredictiveRouteRedirect targetPath="/step04" />} />
+                  <Route path="/step05" element={<LegacyPredictiveRouteRedirect targetPath="/step05" />} />
+                  <Route path="/step06" element={<LegacyPredictiveRouteRedirect targetPath="/step06" />} />
+                  <Route path="/step07" element={<LegacyPredictiveRouteRedirect targetPath="/step07" />} />
+                  <Route path="/step08" element={<LegacyPredictiveRouteRedirect targetPath="/step08" />} />
+                  <Route path="/step09" element={<LegacyPredictiveRouteRedirect targetPath="/step09" />} />
+                  <Route path="/step10" element={<LegacyPredictiveRouteRedirect targetPath="/step10" />} />
+                  <Route path="/step11" element={<LegacyPredictiveRouteRedirect targetPath="/step11" />} />
+                  <Route path="/step12" element={<LegacyPredictiveRouteRedirect targetPath="/step12" />} />
+                  <Route path="/step13" element={<LegacyPredictiveRouteRedirect targetPath="/step13" />} />
+                  <Route path="/projects/:projectId/step00" element={<ProjectContextGate><Step00ProjectContext /></ProjectContextGate>} />
+                  <Route path="/projects/:projectId/step01" element={<ProjectContextGate><Step01DataAcquisition /></ProjectContextGate>} />
+                  <Route path="/projects/:projectId/step01b" element={<ScopedStep01BRedirect />} />
+                  <Route path="/projects/:projectId/step02" element={<ProjectContextGate><PredictiveRoute><Step02EDA /></PredictiveRoute></ProjectContextGate>} />
+                  <Route path="/projects/:projectId/step03" element={<ProjectContextGate><PredictiveRoute><Step03Outliers /></PredictiveRoute></ProjectContextGate>} />
+                  <Route path="/projects/:projectId/step04" element={<ProjectContextGate><PredictiveRoute><Step04MissingValues /></PredictiveRoute></ProjectContextGate>} />
+                  <Route path="/projects/:projectId/step05" element={<ProjectContextGate><PredictiveRoute><Step05EncodingScaling /></PredictiveRoute></ProjectContextGate>} />
+                  <Route path="/projects/:projectId/step06" element={<ProjectContextGate><PredictiveRoute><Step06BalancingSplit /></PredictiveRoute></ProjectContextGate>} />
+                  <Route path="/projects/:projectId/step07" element={<ProjectContextGate><PredictiveRoute><Step07Train /></PredictiveRoute></ProjectContextGate>} />
+                  <Route path="/projects/:projectId/step08" element={<ProjectContextGate><PredictiveRoute><Step08Evaluation /></PredictiveRoute></ProjectContextGate>} />
+                  <Route path="/projects/:projectId/step09" element={<ProjectContextGate><PredictiveRoute><Step09Interpretation /></PredictiveRoute></ProjectContextGate>} />
+                  <Route path="/projects/:projectId/step10" element={<ProjectContextGate><PredictiveRoute><Step10Scoring /></PredictiveRoute></ProjectContextGate>} />
+                  <Route path="/projects/:projectId/step11" element={<ProjectContextGate><PredictiveRoute><Step11ModelDevelopmentDocument /></PredictiveRoute></ProjectContextGate>} />
+                  <Route path="/projects/:projectId/step12" element={<ProjectContextGate><PredictiveRoute><Step12ModelImplementation /></PredictiveRoute></ProjectContextGate>} />
+                  <Route path="/projects/:projectId/step13" element={<ProjectContextGate><PredictiveRoute><Step13ModelMonitoring /></PredictiveRoute></ProjectContextGate>} />
                   <Route
                     path="/workflow/:workflowId/:stepNumber"
                     element={
@@ -403,7 +402,7 @@ export default function ModelingApp() {
                 effectiveGuideMode === "full" ? (
                   <aside className="relative min-w-0">
                     <button type="button" onClick={cycleGuideMode} title="Compact ATLAS Guide" className="absolute right-2 top-2 z-10 rounded-lg border border-slate-200 bg-white p-1.5 text-slate-600 shadow-sm hover:bg-slate-50"><PanelRightClose size={15} /></button>
-                    <CopilotCard />
+                    <AuthoritativeProjectGuide pathname={location.pathname} />
                   </aside>
                 ) : (
                   <aside className="flex min-h-[120px] flex-col items-center gap-3 rounded-xl border border-slate-200 bg-white py-3 shadow-sm">
@@ -418,6 +417,153 @@ export default function ModelingApp() {
       </div>
     </div>
     </PredictiveIdentityProvider>
+  );
+}
+
+function AuthoritativeBreadcrumb({
+  pathname,
+  fallbackProjectName,
+  workflowLabel,
+}: {
+  pathname: string;
+  fallbackProjectName: string;
+  workflowLabel: string;
+}) {
+  const routeProjectId = scopedProjectIdForPathname(pathname);
+  const { readiness } = useAuthoritativeProjectContext();
+  const readyProject = routeProjectId
+    && readiness.status === "ready"
+    && readiness.routeProjectId === routeProjectId
+      ? readiness.project
+      : null;
+  const projectName = routeProjectId
+    ? readyProject?.projectName || "Loading project context..."
+    : fallbackProjectName;
+  const breadcrumbs = buildBreadcrumbs({ pathname, projectName, workflowLabel });
+
+  return (
+    <div className="min-w-0">
+      <nav
+        aria-label="Breadcrumb"
+        data-testid="atlas-breadcrumb"
+        data-breadcrumb={breadcrumbText(breadcrumbs)}
+        data-project-context-status={routeProjectId ? readiness.status : "not-scoped"}
+      >
+        <ol className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+          {breadcrumbs.map((crumb, index) => (
+            <li key={`${crumb.label}-${index}`} className="flex min-w-0 items-center gap-2">
+              {index > 0 ? <span aria-hidden="true" className="text-slate-300">/</span> : null}
+              {crumb.current ? (
+                <span
+                  aria-current="page"
+                  data-testid="atlas-breadcrumb-current"
+                  className="truncate font-semibold text-slate-950"
+                >
+                  {crumb.label}
+                </span>
+              ) : crumb.href ? (
+                <Link to={crumb.href} className="truncate text-slate-600 hover:text-slate-900">
+                  {crumb.label}
+                </Link>
+              ) : (
+                <span className="truncate text-slate-600">{crumb.label}</span>
+              )}
+            </li>
+          ))}
+        </ol>
+      </nav>
+    </div>
+  );
+}
+
+function AuthoritativeWorkflowProgress({
+  pathname,
+  completed,
+  total,
+  progress,
+}: {
+  pathname: string;
+  completed: number;
+  total: number;
+  progress: number;
+}) {
+  const routeProjectId = scopedProjectIdForPathname(pathname);
+  const { readiness } = useAuthoritativeProjectContext();
+  const ready = !routeProjectId
+    || (readiness.status === "ready" && readiness.routeProjectId === routeProjectId);
+
+  return (
+    <div
+      className="w-56 shrink-0 rounded-xl border border-slate-200 bg-white/80 px-3 py-2 shadow-sm"
+      data-testid="authoritative-workflow-progress"
+      data-project-context-status={routeProjectId ? readiness.status : "not-scoped"}
+    >
+      {ready ? (
+        <>
+          <div className="mb-1 flex items-center justify-between gap-3 text-[11px] font-semibold text-slate-600">
+            <span>{completed} of {total} steps</span>
+            <span>{progress}%</span>
+          </div>
+          <AtlasProgressBar value={progress} />
+        </>
+      ) : (
+        <div className="text-[11px] font-semibold text-slate-600">
+          {readiness.status === "resolving" || readiness.status === "idle"
+            ? "Loading project context..."
+            : "Project context unavailable"}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AuthoritativeProjectGuide({ pathname }: { pathname: string }) {
+  const routeProjectId = scopedProjectIdForPathname(pathname);
+  const { readiness } = useAuthoritativeProjectContext();
+  const ready = !routeProjectId
+    || (readiness.status === "ready" && readiness.routeProjectId === routeProjectId);
+  if (ready) return <CopilotCard />;
+  return (
+    <section
+      className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950 shadow-sm"
+      data-testid="atlas-guide-project-context-loading"
+    >
+      <div className="font-semibold">Loading project context...</div>
+      <p className="mt-1 text-xs leading-5">
+        ATLAS Guide will open after the exact authorized project is ready.
+      </p>
+    </section>
+  );
+}
+
+function LegacyPredictiveRouteRedirect({ targetPath }: { targetPath: string }) {
+  const location = useLocation();
+  const projectId = useWorkflowStore((state) => state.projectId);
+  const projectName = useWorkflowStore((state) => state.projectName);
+  const projectType = useWorkflowStore((state) => state.projectType);
+  const candidate = hasExactLegacyProjectCandidate({ projectId, projectName, projectType });
+  const targetWithSuffix = targetPath.includes("?")
+    ? `${targetPath}${location.hash}`
+    : `${targetPath}${location.search}${location.hash}`;
+  return (
+    <Navigate
+      replace
+      to={candidate ? projectWorkflowRoute(projectId, targetWithSuffix) : "/projects/open"}
+    />
+  );
+}
+
+function ScopedStep01BRedirect() {
+  const location = useLocation();
+  const routeProjectId = scopedProjectIdForPathname(location.pathname);
+  if (!routeProjectId) return <Navigate to="/projects/open" replace />;
+  const search = new URLSearchParams(location.search);
+  if (!search.has("section")) search.set("section", "credit-bureau-review");
+  return (
+    <Navigate
+      replace
+      to={projectWorkflowRoute(routeProjectId, `/step01?${search.toString()}${location.hash}`)}
+    />
   );
 }
 

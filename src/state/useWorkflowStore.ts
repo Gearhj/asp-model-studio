@@ -17,6 +17,7 @@ import {
   deriveEffectiveWorkflowView,
   type EffectiveWorkflowStep,
 } from "../lib/workflowEffectiveState";
+import type { AuthoritativeProjectReadyContext } from "../lib/authoritativeProjectContext";
 
 type StepId =
   | "dashboard"
@@ -93,6 +94,18 @@ export type WorkflowState = {
   setProjectType: (projectType: ProjectType) => void;
   startProjectFromWorkflow: (params: { modelId?: string; projectName?: string; projectType: ProjectType; workflowId?: string; workflowSteps?: WorkflowStep[] }) => void;
   loadProjectSnapshot: (snapshot: WorkflowProjectSnapshot) => void;
+  /**
+   * Apply one already-verified backend project/workflow/dataset context in a
+   * single store update. Unlike browser snapshot loading, this never restores
+   * local artifacts and never queues a browser-to-backend mirror.
+   */
+  applyAuthoritativeProjectContext: (context: AuthoritativeProjectReadyContext) => void;
+  /** Update presentation metadata without touching verified workflow or dataset identity. */
+  applyAuthoritativeProjectMetadata: (metadata: {
+    projectId: string;
+    projectName: string;
+    modelId: string;
+  }) => void;
   setCurrentStepId: (id: string) => void;
   setWorkflowStepStatus: (id: string, status: WorkflowStep["status"]) => void;
   applyAuthoritativeWorkflowState: (backendState: unknown) => void;
@@ -431,6 +444,83 @@ export const useWorkflowStore = create<WorkflowState>()(
           });
           persistActiveProject(get());
         },
+
+      applyAuthoritativeProjectContext: (context) => {
+        const project = context.project;
+        const backendState = context.workflowState;
+        const workflow = getWorkflowDefinition(project.workflowId);
+        const workflowStatus = backendState?.workflowStatus ?? backendState?.workflow_status ?? {};
+        const backendSteps = workflowStatus?.steps ?? {};
+        const historicalCompleted = new Set<string>(
+          Array.isArray(backendState?.historicalCompletedSteps)
+            ? backendState.historicalCompletedSteps.map(String)
+            : Array.isArray(backendState?.completedSteps)
+              ? backendState.completedSteps.map(String)
+              : [],
+        );
+        const workflowSteps: WorkflowStep[] = workflow.steps.map((step) => ({
+          ...step,
+          status: backendSteps[step.id] === "complete" || historicalCompleted.has(step.id)
+            ? "complete"
+            : backendSteps[step.id] === "skipped"
+              ? "skipped"
+              : backendSteps[step.id] === "in_progress"
+                ? "in_progress"
+                : "pending",
+        }));
+        const datasetIdentity = context.activeDatasetIdentity
+          ? normalizedDatasetIdentity(context.activeDatasetIdentity, project.projectId)
+          : null;
+        const currentStepId = normalizeLegacyStepId(
+          String(
+            backendState?.effectiveCurrentStepId
+            ?? backendState?.currentStepId
+            ?? workflowSteps.find((step) => step.status !== "complete" && step.status !== "skipped")?.id
+            ?? workflowSteps[0]?.id
+            ?? "step00",
+          ),
+          workflowSteps,
+        );
+        const legacySteps = { ...initialSteps };
+        workflowSteps.forEach((step) => {
+          if (step.id in legacySteps) {
+            legacySteps[step.id as StepId] = step.status === "complete" || step.status === "skipped"
+              ? "completed"
+              : step.status === "in_progress"
+                ? "in_progress"
+                : "pending";
+          }
+        });
+        const view = effectiveView(
+          workflowSteps,
+          project.projectType,
+          datasetIdentity,
+          backendState,
+        );
+        set({
+          hasDataset: Boolean(datasetIdentity),
+          datasetIdentity,
+          projectId: project.projectId,
+          modelId: project.modelId,
+          projectName: project.projectName,
+          projectType: project.projectType,
+          workflowId: project.workflowId,
+          workflowSteps,
+          currentStepId,
+          projectTools: { ...defaultProjectTools, ...project.projectTools },
+          restoreWarnings: [],
+          steps: legacySteps,
+          ...effectiveStateFields(view),
+        });
+      },
+
+      applyAuthoritativeProjectMetadata: (metadata) => {
+        if (get().projectId !== metadata.projectId) return;
+        set((state) => ({
+          projectName: metadata.projectName || state.projectName,
+          modelId: metadata.modelId || state.modelId,
+        }));
+      },
 
       applyAuthoritativeWorkflowState: (backendState) => {
         set((state) => effectiveStateFields(effectiveView(

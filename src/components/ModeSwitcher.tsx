@@ -1,8 +1,13 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { BrainCircuit, Route, TerminalSquare } from "lucide-react";
 import { logDecision } from "../lib/decisionJournal";
 import { loadModelingMode, modeDescription, saveModelingMode, type ModelingMode } from "../lib/modelingMode";
+import { useWorkflowStore } from "../state/useWorkflowStore";
+import {
+  projectWorkflowNavigationPath,
+  scopedProjectIdForPathname,
+} from "../lib/projectScopedRoutes";
 
 const guidedLinks = [
   { to: "/dashboard", label: "Atlas Home" },
@@ -20,6 +25,11 @@ const advancedLinks = [
 
 export default function ModeSwitcher() {
   const [mode, setMode] = useState<ModelingMode>(() => loadModelingMode());
+  const location = useLocation();
+  const projectId = useWorkflowStore((state) => state.projectId);
+  const projectName = useWorkflowStore((state) => state.projectName);
+  const projectType = useWorkflowStore((state) => state.projectType);
+  const routeProjectId = scopedProjectIdForPathname(location.pathname);
 
   useEffect(() => {
     const refresh = () => setMode(loadModelingMode());
@@ -85,7 +95,13 @@ export default function ModeSwitcher() {
         {links.map((link) => (
           <Link
             key={link.to}
-            to={link.to}
+            to={projectWorkflowNavigationPath({
+              targetPath: link.to,
+              routeProjectId,
+              projectId,
+              projectName,
+              projectType,
+            })}
             className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] font-semibold text-slate-600 hover:border-slate-300 hover:text-slate-950"
           >
             {link.label}

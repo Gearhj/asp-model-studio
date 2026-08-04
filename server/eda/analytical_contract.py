@@ -3,8 +3,8 @@
 This module is intentionally independent of the EDA presentation layer.  It
 resolves the exact materialized development partition, classifies values once,
 and produces the predictor and relationship artifacts consumed by every EDA
-workspace.  It never reads the final-holdout frames; the only holdout datum it
-uses is the row count recorded in the durable split contract.
+workspace. It never reads final-holdout values; the only holdout datum it uses
+is the row count recorded in the durable Analysis Partition contract.
 """
 
 from __future__ import annotations
@@ -42,6 +42,23 @@ MINIMUM_BAND_POPULATION = 20
 class EDAAnalyticalContractError(ValueError):
     """Fail-closed analytical-scope error safe to expose as a 409 response."""
 
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "analysis_partition_stale",
+        recovery: str | None = None,
+        stale_artifacts: Iterable[str] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.code = code
+        self.recovery = recovery or (
+            "Return to Data Acquisition and confirm the governed Analysis Partition."
+        )
+        self.stale_artifacts = sorted(
+            {str(value) for value in (stale_artifacts or []) if str(value)}
+        )
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -55,10 +72,125 @@ def _finite(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def _json_scalar(value: Any) -> Any:
+    """Normalize governed category values before they enter artifact lineage.
+
+    Pandas returns NumPy scalar objects from ``unique`` and ``value_counts``.
+    Those objects compare like their Python equivalents, which made the
+    analytical tests pass, but FastAPI cannot serialize them.  Event identity
+    is part of the durable analytical contract, so normalize it at this
+    authoritative boundary rather than relying only on presentation code.
+    """
+
+    if value is None or value is pd.NA:
+        return None
+    if isinstance(value, np.generic):
+        return _json_scalar(value.item())
+    if isinstance(value, (pd.Timestamp, datetime)):
+        return value.isoformat()
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    return value
+
+
 def _stable_hash(payload: Any) -> str:
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, default=str, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
+
+
+def _same_target_scalar(left: Any, right: Any) -> bool:
+    """Compare category labels without letting a client redefine their type.
+
+    Browser controls historically serialize numeric class labels as strings,
+    so ``1`` and ``"1"`` remain compatible assertions.  Missing and present
+    values are never equivalent, and every value returned to analytical code
+    still comes from the durable partition rather than from this comparison.
+    """
+
+    normalized_left = _json_scalar(left)
+    normalized_right = _json_scalar(right)
+    if normalized_left is None or normalized_right is None:
+        return normalized_left is None and normalized_right is None
+    return str(normalized_left) == str(normalized_right)
+
+
+def resolve_partition_target_authority(
+    partition: dict[str, Any],
+    *,
+    target: str,
+    requested_problem_type: str | None = None,
+    requested_event_value: Any = None,
+) -> dict[str, Any]:
+    """Resolve target semantics only from an integrity-verified partition.
+
+    Request values are compare-only assertions.  They may be omitted, but a
+    supplied value that contradicts the documented Analysis Partition fails
+    closed before any target-directed calculation or cache lookup.
+    """
+
+    try:
+        from ..analysis_partition.types import AnalysisPartitionError
+        from ..analysis_partition.service import analysis_partition_service
+
+        authority = analysis_partition_service.target_authority_compatibility(
+            partition
+        )
+    except ImportError as exc:
+        raise EDAAnalyticalContractError(
+            "Analysis Partition target authority is unavailable.",
+            code="analysis_partition_required",
+        ) from exc
+    except AnalysisPartitionError as exc:
+        raise EDAAnalyticalContractError(
+            str(exc),
+            code=exc.code,
+            recovery=exc.recovery,
+            stale_artifacts=exc.stale_artifacts,
+        ) from exc
+
+    governed_target = str(authority.get("target") or "").strip()
+    if not governed_target or governed_target != str(target or "").strip():
+        raise EDAAnalyticalContractError(
+            "The requested target does not match the documented Analysis Partition target authority.",
+            code="target_contract_stale",
+            stale_artifacts=["target_eda", "predictor_eda", "relationship_eda"],
+        )
+
+    problem_type = str(authority.get("problem_type") or "").strip().lower()
+    if problem_type not in {"classification", "regression"}:
+        raise EDAAnalyticalContractError(
+            "The documented Analysis Partition has no verified problem type.",
+            code="analysis_partition_target_authority_unverified",
+            stale_artifacts=["target_eda", "predictor_eda", "relationship_eda"],
+        )
+    requested_problem = str(requested_problem_type or "").strip().lower()
+    if requested_problem and requested_problem != problem_type:
+        raise EDAAnalyticalContractError(
+            "The requested problem type contradicts the documented Analysis Partition target authority.",
+            code="target_contract_stale",
+            stale_artifacts=["target_eda", "predictor_eda", "relationship_eda"],
+        )
+
+    positive_value = _json_scalar(authority.get("event_value"))
+    negative_value = _json_scalar(authority.get("non_event_value"))
+    if requested_event_value is not None and (
+        problem_type != "classification"
+        or not _same_target_scalar(requested_event_value, positive_value)
+    ):
+        raise EDAAnalyticalContractError(
+            "The requested event value contradicts the documented Analysis Partition target authority.",
+            code="target_contract_stale",
+            stale_artifacts=["target_eda", "predictor_eda", "relationship_eda"],
+        )
+
+    return {
+        **dict(authority),
+        "target": governed_target,
+        "problem_type": problem_type,
+        "positive_value": positive_value if problem_type == "classification" else None,
+        "negative_value": negative_value if problem_type == "classification" else None,
+    }
 
 
 def _frame_hash(frame: pd.DataFrame, target: pd.Series) -> str:
@@ -1089,43 +1221,92 @@ def resolve_development_partition(
     authorized_predictors: Iterable[str],
     predictor_manifest_id: str,
 ) -> tuple[pd.DataFrame, pd.Series, dict[str, Any]]:
-    """Resolve X_train/y_train only; never read or return final-holdout data."""
+    """Resolve the durable development membership only.
 
-    split_record = store.meta.get("split_record") if isinstance(store.meta.get("split_record"), dict) else None
-    if split_record is None or str(store.meta.get("split_status") or "").casefold() != "current":
+    This boundary materializes only development membership and never calls a
+    combined development/final-holdout accessor. The final Feature Engineering
+    manifest is not an input: EDA is authorized by the Data Acquisition
+    predictor manifest and the immutable pre-EDA Analysis Partition.
+    """
+
+    if not str(predictor_manifest_id or "").strip():
         raise EDAAnalyticalContractError(
-            "Target-directed EDA requires a current durable development split; no full-population fallback is permitted."
+            "Data Acquisition predictor authorization is required before target-directed EDA.",
+            code="predictor_authorization_required",
+            recovery=(
+                "Return to Data Acquisition, confirm the target and predictor "
+                "selection, then reserve the Analysis Partition."
+            ),
+            stale_artifacts=["predictor_eda", "relationship_eda"],
         )
-    for key in ("project_id", "dataset_id", "dataset_version_id"):
-        if str(split_record.get(key) or "") != str(identity.get(key) or ""):
-            raise EDAAnalyticalContractError(
-                f"Target-directed EDA split identity mismatch for {key}; regenerate the governed split."
-            )
-    if split_record.get("target") and str(split_record.get("target")) != target:
-        raise EDAAnalyticalContractError("Target-directed EDA split target is stale.")
-    split_manifest = str(split_record.get("feature_manifest_version") or split_record.get("feature_manifest_hash") or "")
-    if split_manifest and split_manifest != predictor_manifest_id:
-        raise EDAAnalyticalContractError("Target-directed EDA split feature manifest is stale.")
-    if str(split_record.get("final_holdout_status") or "").casefold() not in {"sealed", "not_applicable"}:
-        raise EDAAnalyticalContractError("The final-holdout contract is not sealed.")
-    if str(split_record.get("holdout_isolation_status") or "").casefold() != "verified":
-        raise EDAAnalyticalContractError("Final-holdout isolation has not been verified.")
+    predictors = [
+        str(feature).strip()
+        for feature in authorized_predictors
+        if str(feature).strip()
+    ]
+    if not predictors:
+        raise EDAAnalyticalContractError(
+            "The durable Data Acquisition authorization contains no model-eligible predictors.",
+            code="predictor_authorization_required",
+            recovery=(
+                "Return to Data Acquisition and explicitly authorize at least "
+                "one eligible predictor before running target-directed EDA."
+            ),
+            stale_artifacts=["predictor_eda", "relationship_eda"],
+        )
+    try:
+        from ..analysis_partition.types import AnalysisPartitionError
+        from ..analysis_partition.service import analysis_partition_service
 
-    # Deliberately access only the development attributes. The combined split
-    # accessor is forbidden here because it also returns holdout objects.
-    development_features = store.X_train
-    development_target = store.y_train
-    expected_rows = int(split_record.get("n_train") or 0)
-    predictors = [str(feature) for feature in authorized_predictors]
+        partition = analysis_partition_service.current(
+            str(identity.get("project_id") or ""),
+            str(identity.get("dataset_id") or ""),
+            str(identity.get("dataset_version_id") or ""),
+            target=target,
+            target_contract_id=str(store.meta.get("target_contract_id") or "")
+            or None,
+            require_documentation_ready=True,
+        )
+        target_authority = resolve_partition_target_authority(
+            partition,
+            target=target,
+        )
+        development_features, development_target = (
+            analysis_partition_service.materialize_development(
+                store,
+                partition,
+                authorized_predictors=predictors,
+            )
+        )
+    except ImportError as exc:
+        raise EDAAnalyticalContractError(
+            "Analysis partition authority is unavailable.",
+            code="analysis_partition_required",
+        ) from exc
+    except AnalysisPartitionError as exc:
+        raise EDAAnalyticalContractError(
+            str(exc),
+            code=exc.code,
+            recovery=exc.recovery,
+            stale_artifacts=exc.stale_artifacts,
+        ) from exc
+
+    expected_rows = int(partition.get("development_count") or 0)
     if (
         not isinstance(development_features, pd.DataFrame)
         or not isinstance(development_target, pd.Series)
         or development_features.empty
         or len(development_features) != len(development_target)
     ):
-        raise EDAAnalyticalContractError("The materialized development partition is missing or does not match its split record.")
+        raise EDAAnalyticalContractError(
+            "The materialized development partition is missing or failed integrity validation.",
+            code="analysis_partition_stale",
+        )
     if expected_rows and len(development_features) != expected_rows:
-        raise EDAAnalyticalContractError("The materialized development row count does not match its split record.")
+        raise EDAAnalyticalContractError(
+            "The materialized development row count does not match its durable Analysis Partition.",
+            code="analysis_partition_stale",
+        )
     if not development_features.index.equals(development_target.index):
         raise EDAAnalyticalContractError("Development predictors and target are not index-aligned.")
     missing = [feature for feature in predictors if feature not in development_features.columns]
@@ -1133,30 +1314,56 @@ def resolve_development_partition(
         raise EDAAnalyticalContractError(
             "The development partition is missing authorized predictors: " + ", ".join(missing[:5])
         )
-    split_id = str(split_record.get("split_id") or "")
+    split_id = str(partition.get("analysis_partition_id") or "")
     population_id = str(
-        split_record.get("selection_partition_id")
-        or split_record.get("training_population_id")
+        partition.get("development_partition_id")
         or f"development:{split_id}"
     )
     scope = {
         "split_id": split_id,
+        "analysis_partition_id": split_id,
+        "analysis_partition_revision": int(partition.get("revision") or 0),
+        "target_contract_id": target_authority["target_contract_id"],
+        "target": target_authority["target"],
+        "problem_type": target_authority["problem_type"],
+        "positive_value": target_authority["positive_value"],
+        "negative_value": target_authority["negative_value"],
+        "target_authority_source": target_authority["source"],
+        "target_authority_compatibility_status": target_authority[
+            "compatibility_status"
+        ],
         "analysis_population_id": population_id,
         "analysis_scope": "development_population",
         "population_rows": expected_rows,
         "rows_used": expected_rows,
-        "rows_excluded": int(split_record.get("n_test") or 0),
+        "rows_excluded": int(partition.get("holdout_count") or 0),
         "exclusion_reasons": ["sealed_final_holdout_excluded"],
-        "final_holdout_status": str(split_record.get("final_holdout_status") or ""),
-        "holdout_isolation_status": str(split_record.get("holdout_isolation_status") or ""),
+        "final_holdout_partition_id": str(
+            partition.get("sealed_holdout_partition_id") or ""
+        ),
+        "final_holdout_status": str(
+            partition.get("holdout_status") or "sealed"
+        ),
+        "holdout_isolation_status": str(
+            partition.get("holdout_isolation_status") or "verified"
+        ),
         "final_holdout_accessed": False,
         "final_holdout_used_for_selection": False,
     }
-    return (
-        development_features.loc[:, predictors].copy(deep=True),
-        development_target.copy(deep=True),
-        scope,
+    # Partition membership is positional and the durable contract carries its
+    # identity. Do not propagate arbitrary source labels into downstream EDA:
+    # duplicate labels make pandas align by label in later joins/assignments
+    # and can multiply rows shared by development and sealed holdout. A dense
+    # positional index keeps every subsequent operation inside the materialized
+    # development population.
+    safe_features = (
+        development_features.loc[:, predictors]
+        .copy(deep=True)
+        .reset_index(drop=True)
     )
+    safe_target = development_target.copy(deep=True).reset_index(drop=True)
+    safe_target.name = target
+    return safe_features, safe_target, scope
 
 
 def build_governed_eda_contract(
@@ -1178,8 +1385,24 @@ def build_governed_eda_contract(
         "dataset_version_id": str(store.meta.get("dataset_version_id") or ""),
     }
     if not all(identity.values()):
-        raise EDAAnalyticalContractError("A complete canonical dataset identity is required for governed EDA.")
+        raise EDAAnalyticalContractError(
+            "A complete canonical dataset identity is required for governed EDA.",
+            code="dataset_identity_unavailable",
+            recovery="Return to Data Acquisition and activate the exact registered Dataset Library version.",
+        )
     predictor_manifest_id = str(authorization.get("manifest_version") or "")
+    if str(authorization.get("source") or "") != (
+        "data_acquisition_predictor_authorization"
+    ):
+        raise EDAAnalyticalContractError(
+            "The durable Data Acquisition predictor authorization is required before target-directed EDA.",
+            code="predictor_authorization_required",
+            recovery=(
+                "Return to Data Acquisition and save the governed target and "
+                "predictor selection before confirming the Analysis Partition."
+            ),
+            stale_artifacts=["predictor_eda", "relationship_eda"],
+        )
     predictors = [str(feature) for feature in authorization.get("authorized_predictors") or []]
     development, development_target, scope = resolve_development_partition(
         store=store,
@@ -1188,17 +1411,18 @@ def build_governed_eda_contract(
         authorized_predictors=predictors,
         predictor_manifest_id=predictor_manifest_id,
     )
-    target_values = list(pd.unique(development_target.dropna()))
-    positive_value = event_value
-    negative_value = next((value for value in target_values if str(value) != str(positive_value)), None)
-    problem_type = (
-        "classification"
-        if positive_value is not None and 1 < len(target_values) <= 20
-        else "regression"
-    )
-    if problem_type == "regression":
-        positive_value = None
-        negative_value = None
+    problem_type = str(scope["problem_type"])
+    positive_value = _json_scalar(scope.get("positive_value"))
+    negative_value = _json_scalar(scope.get("negative_value"))
+    if event_value is not None and (
+        problem_type != "classification"
+        or not _same_target_scalar(event_value, positive_value)
+    ):
+        raise EDAAnalyticalContractError(
+            "The requested event value contradicts the documented Analysis Partition target authority.",
+            code="target_contract_stale",
+            stale_artifacts=["target_eda", "predictor_eda", "relationship_eda"],
+        )
     policy_payload = {
         "bureau_registry": sorted((str(key), value) for key, value in BUREAU_SPECIAL_VALUES.items()),
         "classes": ["true_null", "bureau_special_value", "ordinary_valid_value", "ordinary_numeric_outlier", "parse_failure"],
@@ -1229,6 +1453,10 @@ def build_governed_eda_contract(
         "negative_value": negative_value,
         "predictor_manifest_id": predictor_manifest_id,
         "split_id": scope["split_id"],
+        "analysis_partition_id": scope["analysis_partition_id"],
+        "analysis_partition_revision": scope["analysis_partition_revision"],
+        "development_partition_id": scope["analysis_population_id"],
+        "sealed_holdout_partition_id": scope["final_holdout_partition_id"],
         "analysis_scope": "development_population",
         "analysis_population_id": scope["analysis_population_id"],
         "population_rows": int(len(full_frame)),
@@ -1288,6 +1516,8 @@ def build_governed_eda_contract(
         "negative_value": negative_value,
         "predictor_manifest_id": predictor_manifest_id,
         "split_id": scope["split_id"],
+        "analysis_partition_id": scope["analysis_partition_id"],
+        "analysis_partition_revision": scope["analysis_partition_revision"],
         "development_hash": _frame_hash(development, development_target),
         "special_value_policy_id": special_value_policy_id,
         "missing_value_policy": "true_null_and_parse_failure_separate",
@@ -1310,6 +1540,10 @@ def build_governed_eda_contract(
         "negative_value": negative_value,
         "predictor_manifest_id": predictor_manifest_id,
         "split_id": scope["split_id"],
+        "analysis_partition_id": scope["analysis_partition_id"],
+        "analysis_partition_revision": scope["analysis_partition_revision"],
+        "development_partition_id": scope["analysis_population_id"],
+        "sealed_holdout_partition_id": scope["final_holdout_partition_id"],
         "analysis_scope": "development_population",
         "analysis_population_id": scope["analysis_population_id"],
         "population_rows": int(len(full_frame)),

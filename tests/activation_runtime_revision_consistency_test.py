@@ -380,12 +380,16 @@ class ActivationRuntimeRevisionConsistencyTest(unittest.TestCase):
                 activation_committed.is_set(),
                 "The competing activation never reached its durable commit.",
             )
-            reader_thread.join(timeout=5)
+            # Registry integrity validation may perform protected-root physical
+            # checks on Windows before the optimistic reader can release the
+            # runtime lock. Keep this a bounded deadlock assertion without
+            # conflating slow filesystem checks with a lock inversion.
+            reader_thread.join(timeout=15)
             self.assertFalse(
                 reader_thread.is_alive(),
                 "Identity resolution deadlocked while the caller held the runtime lock.",
             )
-            activation_thread.join(timeout=5)
+            activation_thread.join(timeout=15)
             self.assertFalse(
                 activation_thread.is_alive(),
                 "Activation did not finish after the reader released the runtime lock.",

@@ -130,6 +130,53 @@ def configure(frame: pd.DataFrame, include_target_source_in_selection: bool = Fa
     )
 
 
+def _test_authorization() -> dict[str, object]:
+    predictors = list(DATASTORE.get_selected_columns())
+    return {
+        "authorized_predictors": predictors,
+        "excluded_predictors": {"bad_flag": "Modeling target"},
+        "target_source_excluded": [],
+    }
+
+
+class TestDevelopmentScope:
+    target = "bad_flag"
+    event_value = 1
+    non_event_value = 0
+    problem_type = "classification"
+    partition = {
+        "analysis_partition_id": "analysis-partition-premium",
+        "revision": 1,
+    }
+
+    @property
+    def predictor_authorization(self):
+        return _test_authorization()
+
+    @property
+    def development_features(self):
+        return DATASTORE.get_raw_active_df(include_target=False)
+
+    @property
+    def development_target(self):
+        return DATASTORE.raw_df["bad_flag"].copy()
+
+    def materialize_aligned_features(self, frame):
+        return frame.loc[:, self.predictor_authorization["authorized_predictors"]].copy()
+
+    def metadata(self):
+        return {
+            "scope": "development_population",
+            "analysis_scope": "development_population",
+            "target_directed_scope": "development_population",
+            "structural_scope": "full_governed_population_predictors_only",
+            "analysis_partition_id": self.partition["analysis_partition_id"],
+            "analysis_partition_revision": 1,
+            "final_holdout_accessed": False,
+            "final_holdout_used_for_selection": False,
+        }
+
+
 class PredictorAuthorizationTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
@@ -220,7 +267,14 @@ class OutlierSpecialValueTests(unittest.TestCase):
         summary = outlier_service.summary(
             DATASTORE.get_raw_active_df(),
             target="bad_flag",
+            event_value=1,
+            problem_type="classification",
             selected_columns=DATASTORE.get_selected_columns(),
+            predictor_authorization=_test_authorization(),
+            target_analysis_features=DATASTORE.get_raw_active_df(
+                include_target=False
+            ),
+            target_analysis_target=DATASTORE.raw_df["bad_flag"],
         )
         external = next(
             row
@@ -239,7 +293,14 @@ class OutlierSpecialValueTests(unittest.TestCase):
         summary = outlier_service.summary(
             DATASTORE.get_raw_active_df(),
             target="bad_flag",
+            event_value=1,
+            problem_type="classification",
             selected_columns=DATASTORE.get_selected_columns(),
+            predictor_authorization=_test_authorization(),
+            target_analysis_features=DATASTORE.get_raw_active_df(
+                include_target=False
+            ),
+            target_analysis_target=DATASTORE.raw_df["bad_flag"],
         )
         external = next(
             row
@@ -263,6 +324,7 @@ class OutlierSpecialValueTests(unittest.TestCase):
             global_method="IQR_1_5",
             target="bad_flag",
             selected_columns=DATASTORE.get_selected_columns(),
+            predictor_authorization=_test_authorization(),
         )
         self.assertEqual(
             treated.loc[[3, 7, 11], "ExternalRiskEstimate"].tolist(),
@@ -284,6 +346,7 @@ class OutlierSpecialValueTests(unittest.TestCase):
             global_method="PCT_05_95",
             target="bad_flag",
             selected_columns=DATASTORE.get_selected_columns(),
+            predictor_authorization=_test_authorization(),
         )
         external = next(
             row
@@ -302,12 +365,16 @@ class MissingValidationTests(unittest.TestCase):
         cls.original_missing_identity = (
             missing_router_module.assert_expected_active_identity
         )
+        cls.original_development_scope = missing_router_module._development_scope
         missing_router_module.authorize_modeling_scope = (
             lambda user, project_id, permission: project_id
         )
         missing_router_module.save_checkpoint = lambda: True
         missing_router_module.assert_expected_active_identity = (
             resolve_test_identity
+        )
+        missing_router_module._development_scope = (
+            lambda *args, **kwargs: TestDevelopmentScope()
         )
 
     @classmethod
@@ -317,6 +384,7 @@ class MissingValidationTests(unittest.TestCase):
         missing_router_module.assert_expected_active_identity = (
             cls.original_missing_identity
         )
+        missing_router_module._development_scope = cls.original_development_scope
 
     def tearDown(self):
         DATASTORE.reset_all()

@@ -116,11 +116,54 @@ def complete_training_contract(
     """
 
     contract = deepcopy(dict(base_contract))
+    target_semantics_authority = deepcopy(
+        contract.get("target_semantics_authority")
+        if isinstance(contract.get("target_semantics_authority"), Mapping)
+        else {}
+    )
+    if target_semantics_authority:
+        authority_payload = deepcopy(target_semantics_authority)
+        recorded_authority_hash = str(
+            authority_payload.pop("target_authority_hash", "") or ""
+        )
+        if (
+            not recorded_authority_hash
+            or recorded_authority_hash
+            != canonical_contract_hash(authority_payload)
+        ):
+            raise CandidateContractError(
+                "The governed training target authority is missing or has been modified."
+            )
     target_definition = {
         "target_name": str(contract.get("target") or ""),
         "problem_type": str(contract.get("problem_type") or ""),
         "positive_class": contract.get("event_value"),
         "negative_class": contract.get("non_event_value"),
+        "source_target_contract_id": str(
+            contract.get("source_target_contract_id")
+            or target_semantics_authority.get("source_target_contract_id")
+            or ""
+        ),
+        "target_authority_hash": str(
+            contract.get("target_authority_hash")
+            or target_semantics_authority.get("target_authority_hash")
+            or ""
+        ),
+        "authority_source": str(
+            target_semantics_authority.get("authority_source") or ""
+        ),
+        "analysis_partition_id": str(
+            contract.get("analysis_partition_id")
+            or target_semantics_authority.get("analysis_partition_id")
+            or ""
+        ),
+        "analysis_partition_revision": (
+            contract.get("analysis_partition_revision")
+            if contract.get("analysis_partition_revision") is not None
+            else target_semantics_authority.get(
+                "analysis_partition_revision"
+            )
+        ),
     }
     target_contract_id, _ = _manifest_identity("target", target_definition)
 
@@ -312,6 +355,11 @@ def build_candidate_contract(
             "target_definition",
             "target_contract_id",
             "positive_class",
+            "source_target_contract_id",
+            "target_authority_hash",
+            "target_semantics_authority",
+            "analysis_partition_id",
+            "analysis_partition_revision",
             "predictor_manifest_id",
             "predictor_manifest_hash",
             "treatment_manifest_id",
@@ -331,6 +379,7 @@ def build_candidate_contract(
             "final_holdout_status",
             "holdout_isolation_status",
             "selection_resampling_status",
+            "validation_execution_policy",
             "training_job_id",
             "training_run_id",
             "ranking_metric",
@@ -358,6 +407,9 @@ def build_candidate_contract(
             ),
             "class_encoding": deepcopy(
                 candidate_metrics.get("class_encoding") or {}
+            ),
+            "validation_policy_execution": deepcopy(
+                candidate_metrics.get("validation_policy_execution") or {}
             ),
             "threshold_configuration": threshold_configuration,
             "candidate_state": "complete",

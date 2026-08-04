@@ -69,6 +69,52 @@ async function installAuthMock(page: Page) {
   }));
 }
 
+function authoritativeProject() {
+  return {
+    projectId: PROJECT_ID,
+    projectName: "Synthetic Identity Readiness Project",
+    projectType: "predictive-modeling",
+    workflowType: "predictive-modeling",
+    ownerUserId: "synthetic-identity-user",
+    metadata: {
+      modelId: "synthetic-model",
+      projectContextRevision: "1000-synthetic",
+      projectContextSavedAt: "2026-08-02T12:00:00.000Z",
+      projectContext: {
+        projectName: "Synthetic Identity Readiness Project",
+        modelId: "synthetic-model",
+      },
+    },
+    createdAt: "2026-08-02T12:00:00.000Z",
+    updatedAt: "2026-08-02T12:00:00.000Z",
+  };
+}
+
+function authoritativeWorkflowState() {
+  return {
+    projectId: PROJECT_ID,
+    currentStepId: "step07",
+    updatedAt: "2026-08-02T12:00:00.000Z",
+    workflowStatus: {
+      workflowId: "predictive-modeling",
+      projectType: "predictive-modeling",
+      steps: { step07: "in_progress" },
+    },
+  };
+}
+
+async function fulfillProjectAuthority(route: Route, pathname: string) {
+  if (pathname === `/api/projects/${PROJECT_ID}`) {
+    await fulfillJson(route, 200, { ok: true, project: authoritativeProject() });
+    return true;
+  }
+  if (pathname === `/api/projects/${PROJECT_ID}/workflow-state`) {
+    await fulfillJson(route, 200, { ok: true, workflowState: authoritativeWorkflowState() });
+    return true;
+  }
+  return false;
+}
+
 test.describe("Predictive route canonical identity readiness", () => {
   test("keeps the shell visible while exact identity is delayed, then renders Model Training", async ({ page }) => {
     await seedPredictiveProject(page, true);
@@ -86,6 +132,7 @@ test.describe("Predictive route canonical identity readiness", () => {
 
     await page.route("**/api/**", async (route) => {
       const url = new URL(route.request().url());
+      if (await fulfillProjectAuthority(route, url.pathname)) return;
       if (url.pathname === "/api/data/active-identity") {
         markIdentityRequested();
         await identityRelease;
@@ -113,13 +160,13 @@ test.describe("Predictive route canonical identity readiness", () => {
     });
     await installAuthMock(page);
 
-    await page.goto("/step07?identity-test=delayed");
+    await page.goto(`/projects/${PROJECT_ID}/step07?identity-test=delayed`);
     await identityRequested;
-    await expect(page.getByTestId("predictive-identity-gate")).toHaveAttribute(
-      "data-identity-status",
-      "loading",
+    await expect(page.getByTestId("project-context-gate")).toHaveAttribute(
+      "data-project-context-status",
+      "resolving",
     );
-    await expect(page.locator("body")).toContainText("Verifying governed dataset identity");
+    await expect(page.locator("body")).toContainText("Loading project context");
     await expect(page.getByRole("button", { name: /Code & Reproducibility/i })).toHaveCount(0);
     await expect(page.locator("#root")).not.toBeEmpty();
 
@@ -142,6 +189,7 @@ test.describe("Predictive route canonical identity readiness", () => {
 
     await page.route("**/api/**", async (route) => {
       const url = new URL(route.request().url());
+      if (await fulfillProjectAuthority(route, url.pathname)) return;
       if (url.pathname === "/api/data/active-identity") {
         await fulfillJson(route, 409, {
           ok: false,
@@ -153,11 +201,14 @@ test.describe("Predictive route canonical identity readiness", () => {
     });
     await installAuthMock(page);
 
-    await page.goto("/step07?identity-test=legacy");
+    await page.goto(`/projects/${PROJECT_ID}/step07?identity-test=legacy`);
     const gate = page.getByTestId("predictive-identity-gate");
-    await expect(gate).toHaveAttribute("data-identity-status", "legacy_unresolved");
-    await expect(gate).toContainText("Canonical dataset recovery required");
-    await expect(page.getByTestId("identity-recovery-data-acquisition")).toHaveAttribute("href", "/step01");
+    await expect(gate).toHaveAttribute("data-identity-status", "missing");
+    await expect(gate).toContainText("Dataset selection required");
+    await expect(page.getByTestId("identity-recovery-data-acquisition")).toHaveAttribute(
+      "href",
+      `/projects/${PROJECT_ID}/step01`,
+    );
     await expect(page.locator("#root")).not.toBeEmpty();
     expect(pageErrors).toEqual([]);
   });
@@ -169,6 +220,7 @@ test.describe("Predictive route canonical identity readiness", () => {
 
     await page.route("**/api/**", async (route) => {
       const url = new URL(route.request().url());
+      if (await fulfillProjectAuthority(route, url.pathname)) return;
       if (url.pathname === "/api/data/active-identity") {
         await fulfillJson(route, 200, {
           ok: true,
@@ -192,7 +244,7 @@ test.describe("Predictive route canonical identity readiness", () => {
     });
     await installAuthMock(page);
 
-    await page.goto("/step07?identity-test=panel-boundary");
+    await page.goto(`/projects/${PROJECT_ID}/step07?identity-test=panel-boundary`);
     await expect(page.getByTestId("predictive-identity-gate")).toHaveCount(0);
     const codePanel = page.getByRole("button", { name: /Code & Reproducibility/i });
     await expect(codePanel).toBeVisible();

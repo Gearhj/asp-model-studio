@@ -12,6 +12,7 @@ import {
 import { validateProjectImport } from "./projectImportValidation";
 import { queueProjectDatabaseSave } from "./serverPersistence";
 import { clearProjectDatasetEverywhere } from "./localDataset";
+import { normalizeWorkflowRoute } from "./projectScopedRoutes";
 
 export const LOCAL_PROJECTS_KEY = "atlas-local-projects";
 export const PROJECT_SNAPSHOT_KEY_PREFIX = "atlas-project-snapshot:";
@@ -603,7 +604,7 @@ function normalizePath(value?: string) {
 function resolveCurrentBrowserStepId(state: CurrentWorkflowState, fallbackSteps: WorkflowStep[]) {
   const steps = state.workflowSteps?.length ? state.workflowSteps : fallbackSteps;
   if (typeof window === "undefined") return state.currentStepId || steps[0]?.id || "step00";
-  const pathname = normalizePath(window.location?.pathname);
+  const pathname = normalizePath(normalizeWorkflowRoute(window.location?.pathname));
   if (!pathname || pathname === "/projects/open") return state.currentStepId || steps[0]?.id || "step00";
   const routeMatch = steps.find((step) => normalizePath(step.route) === pathname);
   if (routeMatch) return routeMatch.id;

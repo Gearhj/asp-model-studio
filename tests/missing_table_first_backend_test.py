@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pandas as pd
@@ -69,6 +70,37 @@ class MissingTableFirstBackendTest(unittest.TestCase):
             **identity,
             "dataset_version": identity["dataset_version_id"],
         }
+        authorization = {
+            "authorized_predictors": ["score", "segment"],
+            "excluded_predictors": {"bad_flag": "Modeling target"},
+            "target_source_excluded": [],
+        }
+        scope = SimpleNamespace(
+            target="bad_flag",
+            event_value=1,
+            non_event_value=0,
+            problem_type="classification",
+            predictor_authorization=authorization,
+            development_features=frame[["score", "segment"]].copy(),
+            development_target=frame["bad_flag"].copy(),
+            partition={
+                "analysis_partition_id": "analysis-partition-table-first",
+                "revision": 1,
+            },
+            materialize_aligned_features=lambda work: work.loc[
+                :, ["score", "segment"]
+            ].copy(),
+            metadata=lambda: {
+                "scope": "development_population",
+                "analysis_scope": "development_population",
+                "target_directed_scope": "development_population",
+                "structural_scope": "full_governed_population_predictors_only",
+                "analysis_partition_id": "analysis-partition-table-first",
+                "analysis_partition_revision": 1,
+                "final_holdout_accessed": False,
+                "final_holdout_used_for_selection": False,
+            },
+        )
         try:
             with (
                 patch.object(
@@ -100,9 +132,15 @@ class MissingTableFirstBackendTest(unittest.TestCase):
                     "assert_expected_active_identity",
                     return_value=identity,
                 ),
+                patch.object(
+                    missing_router,
+                    "_development_scope",
+                    return_value=scope,
+                ),
             ):
                 payload = missing_router.missing_summary(
                     project_id="project-test",
+                    target=None,
                     event_value=1,
                     problem_type="classification",
                     expected_dataset_id=identity["dataset_id"],
@@ -112,6 +150,8 @@ class MissingTableFirstBackendTest(unittest.TestCase):
                     dataset_id=None,
                     dataset_version_id=None,
                     dataset_version=None,
+                    analysis_partition_id=None,
+                    analysis_partition_revision=None,
                     user={"id": "user-test"},
                 )
         finally:
@@ -119,7 +159,7 @@ class MissingTableFirstBackendTest(unittest.TestCase):
             DATASTORE.meta = previous_meta
 
         score = payload["stats"]["score"]
-        self.assertEqual(payload["scope"], "full_dataset")
+        self.assertEqual(payload["scope"], "development_population")
         self.assertEqual(score["missing"], 1)
         self.assertEqual(score["special_value_count"], 1)
         self.assertEqual(score["observed_count"], 4)

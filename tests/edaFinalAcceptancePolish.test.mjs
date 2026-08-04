@@ -397,7 +397,7 @@ test("4. Target balance visual.", () => {
     'data-testid="target-event-count"',
     'data-testid="target-non-event-count"',
     'data-testid="target-imbalance-ratio"',
-    'data-scope="full-governed-population"',
+    'data-scope="development-population"',
   ]) {
     assert.match(sources.targetVisuals, new RegExp(marker));
   }

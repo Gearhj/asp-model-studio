@@ -33,17 +33,21 @@ _TEST_DATA_ROOT.mkdir(parents=True, exist_ok=False)
 _SECURITY_DB_PATH = _TEST_DATA_ROOT / "security.db"
 _PERSISTENCE_DB_PATH = _TEST_DATA_ROOT / "persistence.db"
 _CHECKPOINT_PATH = _TEST_DATA_ROOT / "workflow_checkpoint.json"
+_FEATURE_MANIFEST_ROOT = _TEST_DATA_ROOT / "feature_manifests"
 _LIBRARY_ROOT = _TEST_DATA_ROOT / "dataset_library"
 _LIBRARY_ROOT.mkdir(parents=True, exist_ok=True)
-_BACKUP_ROOT = Path(
-    tempfile.mkdtemp(prefix=f"atlas_canonical_identity_backups_{uuid.uuid4().hex}_")
+_BACKUP_ROOT = (
+    Path(tempfile.gettempdir()).resolve()
+    / f"atlas_canonical_identity_backups_{uuid.uuid4().hex}"
 )
+_BACKUP_ROOT.mkdir(parents=False, exist_ok=False)
 
 _ENVIRONMENT_OVERRIDES = {
     "ATLAS_SECURITY_ROOT": str(_SECURITY_DB_PATH.parent),
     "ATLAS_SECURITY_DB_PATH": str(_SECURITY_DB_PATH),
     "ATLAS_SQLITE_PATH": str(_PERSISTENCE_DB_PATH),
     "ATLAS_CHECKPOINT_PATH": str(_CHECKPOINT_PATH),
+    "ATLAS_FEATURE_MANIFEST_ROOT": str(_FEATURE_MANIFEST_ROOT),
     "ATLAS_DATASET_LIBRARY_ROOT": str(_LIBRARY_ROOT),
     "ATLAS_DATASET_LIBRARY_BACKUP_ROOT": str(_BACKUP_ROOT),
     "ATLAS_AUTH_ENABLED": "true",
@@ -261,6 +265,74 @@ def _configure_target(
     )
     assert response.status_code == 200, response.text
     return response.json()
+
+
+def _confirm_analysis_partition(
+    client: TestClient,
+    project_id: str,
+    dataset_id: str,
+    dataset_version_id: str,
+    *,
+    target_contract_id: str,
+    predictor_authorization_id: str,
+) -> Dict[str, Any]:
+    """Install the explicit pre-EDA partition required by Step 6."""
+
+    design = {
+        "project_id": project_id,
+        "dataset_id": dataset_id,
+        "dataset_version_id": dataset_version_id,
+        "target_contract_id": target_contract_id,
+        "target": "bad_flag",
+        "positive_value": 1,
+        "negative_value": 0,
+        "predictor_authorization_id": predictor_authorization_id,
+        "problem_type": "classification",
+        "development_share": 0.8,
+        "holdout_share": 0.2,
+        "random_seed": 42,
+        "stratification_policy": "target",
+        "stratification_field": "bad_flag",
+    }
+    preview_response = client.post(
+        "/api/analysis-partitions/preview",
+        json=design,
+    )
+    assert preview_response.status_code == 200, preview_response.text
+    preview = preview_response.json()["preview"]
+
+    response = client.post(
+        "/api/analysis-partitions/confirm",
+        json={
+            **design,
+            "preview_fingerprint": preview["preview_fingerprint"],
+            "selection_rationale": (
+                "Isolated canonical-identity fixture accepts the governed "
+                "split warning."
+                if preview.get("rationale_required")
+                else ""
+            ),
+            "confirmation_acknowledged": True,
+            "reset_existing": False,
+            "reset_reason": "",
+            "acknowledge_invalidation": False,
+        },
+    )
+    assert response.status_code == 200, response.text
+    result = response.json()
+    assert result["readiness"] == "current"
+    partition = result["analysis_partition"]
+    assert partition["project_id"] == project_id
+    assert partition["dataset_id"] == dataset_id
+    assert partition["dataset_version_id"] == dataset_version_id
+    assert partition["development_share"] == 0.8
+    assert partition["holdout_share"] == 0.2
+    assert partition["random_seed"] == 42
+    assert partition["stratification_policy"] == "target"
+    assert partition["stratification_field"] == "bad_flag"
+    assert partition["final_holdout_status"] == "sealed"
+    assert partition["holdout_isolation_status"] == "verified"
+    return result
 
 
 class CanonicalDatasetIdentityTests(unittest.TestCase):
@@ -537,7 +609,24 @@ class CanonicalDatasetIdentityTests(unittest.TestCase):
         client, user_id = _register_client("pretraining")
         project_id = _create_project(client, "Canonical Pretraining Project")
         dataset_id, version_id = _register_link_activate(client, project_id)
-        _configure_target(client, project_id, dataset_id, version_id)
+        target_contract = _configure_target(
+            client,
+            project_id,
+            dataset_id,
+            version_id,
+            event_value=1,
+            non_event_value=0,
+        )
+        _confirm_analysis_partition(
+            client,
+            project_id,
+            dataset_id,
+            version_id,
+            target_contract_id=target_contract["target_contract_id"],
+            predictor_authorization_id=target_contract[
+                "predictor_authorization_id"
+            ],
+        )
         expected = {
             "expected_dataset_id": dataset_id,
             "expected_dataset_version_id": version_id,

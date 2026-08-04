@@ -1,0 +1,119 @@
+{
+  "ok": false,
+  "project_id": "atlas-mrzpau4t",
+  "dataset_id": "ds_heloc_train_6bdb184b_05905",
+  "dataset_version_id": "v_1785186305905_6bdb184b",
+  "target": "bad_flag",
+  "positive_value": "1",
+  "negative_value": "0",
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/notifications/unread-count",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/data/active-identity",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/notifications/unread-count",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/atlas-mrzfzlub/workflow-state",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/atlas-mrzpau4t/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/atlas-ms3n3psc/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/atlas-ms6okr5d/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/atlas-ms6n9z5c/workflow-state",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/notifications/unread-count",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/data/active-identity",
+      "status": 404
+    },
+    {
+      "method": "GET",
+      "path": "/api/data/active-identity",
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/notifications/unread-count",
+      "status": 200
+    }
+  ],
+  "screenshots": [
+    "C:\\Users\\james\\ds-workflow-starter\\audit-output\\analysis-partition-p0-acceptance-2026-08-01\\acceptance-failure.png"
+  ],
+  "training_performed": false,
+  "evaluation_opened": false,
+  "interpretation_opened": false,
+  "promotion_performed": false,
+  "scoring_performed": false,
+  "active_identity": {
+    "project_id": "atlas-mrzpau4t",
+    "dataset_id": "ds_heloc_train_6bdb184b_05905",
+    "dataset_version_id": "v_1785186305905_6bdb184b",
+    "activation_revision": 1,
+    "link_status": "active",
+    "activation_status": "active"
+  },
+  "error": "Data Acquisition does not show target bad_flag.",
+  "final_url": "http://127.0.0.1:5174/step01"
+}

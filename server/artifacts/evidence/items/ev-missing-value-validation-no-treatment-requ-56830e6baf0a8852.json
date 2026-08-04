@@ -15,7 +15,7 @@
     "datasetId": "ds_heloc_train_6bdb184b_05905",
     "datasetVersion": "v_1785186305905_6bdb184b"
   },
-  "projectName": "Credit Card Transaction Fraud Model - TEST",
+  "projectName": "HELOC Credit Risk - CLASSIFICATION TEST",
   "evidenceType": "missing_values",
   "title": "Missing-Value Validation \u2014 No Treatment Required",
   "summary": "No null imputation is required for the current modeling population. Bureau special values remain governed values and are handled separately.",
@@ -38,7 +38,7 @@
   "status": "ready",
   "importance": "high",
   "payload": {
-    "validated_at": "2026-08-01T17:06:38.114411+00:00",
+    "validated_at": "2026-08-03T21:45:12.795355+00:00",
     "project_id": "atlas-mrzpau4t",
     "dataset_id": "ds_heloc_train_6bdb184b_05905",
     "dataset_version_id": "v_1785186305905_6bdb184b",
@@ -62,7 +62,7 @@
   "creditRiskContext": {},
   "createdAt": "2026-07-31T21:58:04.858138+00:00",
   "capturedAt": "2026-07-31T21:58:04.858138+00:00",
-  "updatedAt": "2026-08-01T17:08:04.450510+00:00",
+  "updatedAt": "2026-08-03T21:45:15.314353+00:00",
   "createdBy": "ATLAS",
   "qualityScore": 86
 }

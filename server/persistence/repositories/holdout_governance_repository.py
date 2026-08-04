@@ -249,13 +249,55 @@ def _utc_instant(value: Any, field: str) -> datetime:
 class HoldoutGovernanceRepository(BaseRepository):
     """Durable, fail-closed selection and final-holdout governance records."""
 
+    @staticmethod
+    def _is_partition_derivative_invalidated(
+        connection: sqlite3.Connection,
+        *,
+        artifact_type: str,
+        artifact_id: str,
+    ) -> bool:
+        """Resolve the append-only Analysis Partition invalidation overlay.
+
+        Candidate decisions and Evaluation packages are immutable governance
+        history.  A partition reset therefore cannot rewrite them; it makes
+        them operationally unavailable through this exact durable overlay.
+        """
+
+        return (
+            connection.execute(
+                """
+                SELECT 1
+                FROM analysis_partition_derivative_invalidations
+                WHERE artifact_type = ? AND artifact_id = ?
+                  AND invalidation_status = 'invalidated'
+                LIMIT 1
+                """,
+                (artifact_type, artifact_id),
+            ).fetchone()
+            is not None
+        )
+
+    def _is_invalidated(self, *, artifact_type: str, artifact_id: str) -> bool:
+        with self.database.connection() as connection:
+            return self._is_partition_derivative_invalidated(
+                connection,
+                artifact_type=artifact_type,
+                artifact_id=artifact_id,
+            )
+
     def get_selection_decision(self, candidate_decision_id: str) -> Dict[str, Any] | None:
-        return _normalize_row(
+        record = _normalize_row(
             self._one(
                 "SELECT * FROM candidate_selection_decisions WHERE candidate_decision_id = ?",
                 (candidate_decision_id,),
             )
         )
+        if record is None or self._is_invalidated(
+            artifact_type="candidate_decision",
+            artifact_id=candidate_decision_id,
+        ):
+            return None
+        return record
 
     def get_selection_decision_exact(
         self,
@@ -270,7 +312,7 @@ class HoldoutGovernanceRepository(BaseRepository):
         training_run_id: str,
         candidate_id: str,
     ) -> Dict[str, Any] | None:
-        return _normalize_row(
+        record = _normalize_row(
             self._one(
                 """
                 SELECT * FROM candidate_selection_decisions
@@ -297,6 +339,12 @@ class HoldoutGovernanceRepository(BaseRepository):
                 ),
             )
         )
+        if record is None or self._is_invalidated(
+            artifact_type="candidate_decision",
+            artifact_id=candidate_decision_id,
+        ):
+            return None
+        return record
 
     def insert_selection_decision_if_absent(self, record: Mapping[str, Any]) -> Dict[str, Any]:
         _require(
@@ -455,6 +503,14 @@ class HoldoutGovernanceRepository(BaseRepository):
                 ).fetchone()
             )
             if existing is not None:
+                if self._is_partition_derivative_invalidated(
+                    connection,
+                    artifact_type="candidate_decision",
+                    artifact_id=candidate_decision_id,
+                ):
+                    raise HoldoutGovernanceConflictError(
+                        "Candidate selection decision was invalidated by an Analysis Partition reset."
+                    )
                 normalized = _normalize_row(existing) or {}
                 if (
                     normalized.get("decision_contract_hash")
@@ -1055,12 +1111,18 @@ class HoldoutGovernanceRepository(BaseRepository):
         return self.get_holdout_exposure(holdout_exposure_id) or {}
 
     def get_evaluation_package(self, evaluation_package_id: str) -> Dict[str, Any] | None:
-        return _normalize_row(
+        record = _normalize_row(
             self._one(
                 "SELECT * FROM evaluation_packages WHERE evaluation_package_id = ?",
                 (evaluation_package_id,),
             )
         )
+        if record is None or self._is_invalidated(
+            artifact_type="evaluation_package",
+            artifact_id=evaluation_package_id,
+        ):
+            return None
+        return record
 
     def get_evaluation_package_exact(
         self,
@@ -1100,6 +1162,11 @@ class HoldoutGovernanceRepository(BaseRepository):
             )
         )
         if package is None:
+            return None
+        if self._is_invalidated(
+            artifact_type="evaluation_package",
+            artifact_id=evaluation_package_id,
+        ):
             return None
         exposure = self.get_holdout_exposure(str(holdout_exposure_id))
         if (
@@ -1369,6 +1436,14 @@ class HoldoutGovernanceRepository(BaseRepository):
                         ).fetchone()
                     )
                 )
+                if existing and self._is_partition_derivative_invalidated(
+                    _connection,
+                    artifact_type="evaluation_package",
+                    artifact_id=str(record["evaluation_package_id"]),
+                ):
+                    raise HoldoutGovernanceConflictError(
+                        "Evaluation package was invalidated by an Analysis Partition reset."
+                    ) from exc
                 if (
                     existing
                     and existing.get("evaluation_package_contract_hash")

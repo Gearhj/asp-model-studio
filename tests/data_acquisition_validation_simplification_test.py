@@ -190,6 +190,18 @@ class SpecialValueContractTests(unittest.TestCase):
 
 
 class ValidationDefaultContractTests(unittest.TestCase):
+    @classmethod
+    def tearDownClass(cls) -> None:
+        shutil.rmtree(_TEST_ROOT, ignore_errors=True)
+
+    def setUp(self) -> None:
+        # This class runs after SpecialValueContractTests, whose class-level
+        # cleanup removes the suite-owned temporary root. Rebind and initialize
+        # a fresh isolated database before querying Analysis Partition status;
+        # never fall through to the repository's live persistence authority.
+        _rebind_isolated_runtime()
+        persistence_db.get_database().initialize()
+
     def tearDown(self):
         DATASTORE.reset_all()
 
@@ -235,15 +247,63 @@ class ValidationDefaultContractTests(unittest.TestCase):
                 "dataset_id": dataset_id,
                 "dataset_version_id": dataset_version_id,
             },
+        ), patch.object(
+            split_router,
+            "_current_analysis_partition",
+            return_value={
+                "analysis_partition_id": "analysis-partition-test-current",
+                "project_id": project_id,
+                "dataset_id": dataset_id,
+                "dataset_version_id": dataset_version_id,
+                "target": "bad_flag",
+                "target_column": "bad_flag",
+                "target_contract_id": "target-contract-validation-default",
+                "problem_type": "classification",
+                "positive_value_json": 1,
+                "negative_value_json": 0,
+                "preview_fingerprint": "preview-validation-default-v2",
+                "development_partition_id": "development-test-current",
+                "sealed_holdout_partition_id": "holdout-test-current",
+                "row_assignments_json": {
+                    "development_positions": list(range(8)),
+                    "holdout_positions": [8, 9],
+                },
+                "development_count": 8,
+                "holdout_count": 2,
+                "development_share": 0.8,
+                "holdout_share": 0.2,
+                "random_seed": 42,
+                "stratification_policy": "target",
+                "status": "current",
+                "revision": 1,
+                "final_holdout_status": "sealed",
+                "holdout_isolation_status": "verified",
+            },
+        ), patch.object(
+            split_router.analysis_partition_service,
+            "materialize_development",
+            return_value=(
+                pd.DataFrame(index=frame.index[:8]),
+                frame.loc[frame.index[:8], "bad_flag"],
+            ),
         ):
             status = _current_status(project_id)
         self.assertEqual(status["status"], "not_created")
         self.assertFalse(status["has_split"])
-        distribution = status["distributions"]["full_dataset"]
-        self.assertEqual(distribution["rows"], 10)
-        self.assertEqual(distribution["events"], 5)
-        self.assertEqual(distribution["non_events"], 5)
+        self.assertNotIn("full_dataset", status["distributions"])
+        distribution = status["distributions"]["development_population"]
+        self.assertEqual(distribution["rows"], 8)
+        self.assertEqual(distribution["events"], 4)
+        self.assertEqual(distribution["non_events"], 4)
         self.assertAlmostEqual(distribution["event_rate"], 0.5)
+        self.assertEqual(
+            status["distributions"]["holdout_untouched"],
+            {
+                "rows": 2,
+                "status": "sealed",
+                "target_statistics_withheld": True,
+            },
+        )
 
     def test_standard_hybrid_design_keeps_cv_inside_untouched_holdout_split(self):
         rows = 200

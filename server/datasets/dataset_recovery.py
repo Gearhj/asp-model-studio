@@ -2410,16 +2410,14 @@ class DatasetRecoveryService:
             "0022_dataset_library_maintenance.sql",
             "0023_dataset_library_maintenance_append_only.sql",
         )
-        migration_payloads: list[tuple[str, str]] = []
+        migration_paths: list[Path] = []
         for migration_name in migration_names:
             migration_path = migration_root / migration_name
             if not migration_path.is_file():
                 raise DatasetRecoveryApplyError(
                     f"Dataset Library maintenance migration {migration_name} is unavailable."
                 )
-            migration_payloads.append(
-                (migration_name, migration_path.read_text(encoding="utf-8"))
-            )
+            migration_paths.append(migration_path)
         with closing(sqlite3.connect(self.persistence_database)) as connection:
             connection.row_factory = sqlite3.Row
             has_migration_table = connection.execute(
@@ -2438,32 +2436,19 @@ class DatasetRecoveryService:
                     "SELECT version FROM schema_migrations"
                 ).fetchall()
             }
-            pending = [
-                (name, payload)
-                for name, payload in migration_payloads
-                if name not in applied
-            ]
+            pending = [path for path in migration_paths if path.name not in applied]
             if not pending:
                 raise DatasetRecoveryApplyError(
                     "The maintenance migration records exist but their schema is incomplete."
                 )
-            script = "BEGIN IMMEDIATE;\n"
-            for migration_name, migration_sql in pending:
-                escaped_name = migration_name.replace("'", "''")
-                script += migration_sql.rstrip() + "\n"
-                script += (
-                    "INSERT INTO schema_migrations (version, applied_at) "
-                    f"VALUES ('{escaped_name}', "
-                    "strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));\n"
-                )
-            script += "COMMIT;\n"
-            try:
-                connection.executescript(script)
-            except sqlite3.Error as exc:
-                connection.rollback()
-                raise DatasetRecoveryApplyError(
-                    "Dataset Library maintenance migrations failed."
-                ) from exc
+        try:
+            from ..persistence.db import Database, PersistenceUnavailableError
+
+            Database(self.persistence_database).apply_migrations(pending)
+        except (OSError, sqlite3.Error, PersistenceUnavailableError) as exc:
+            raise DatasetRecoveryApplyError(
+                "Dataset Library maintenance migrations failed."
+            ) from exc
         if not self._maintenance_schema_available():
             raise DatasetRecoveryApplyError(
                 "Dataset Library maintenance migrations did not persist."

@@ -4,14 +4,23 @@ import sys
 import unittest
 from pathlib import Path
 from threading import Event
-from types import SimpleNamespace
 from unittest.mock import patch
+
+import pandas as pd
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from server.training.training_job_service import TrainingJobService  # noqa: E402
+from server.core.dataset_store import DatasetStore  # noqa: E402
+from server.training.training_job_service import (  # noqa: E402
+    TrainingJobService,
+    _governed_validation_execution_policy,
+)
 from server.training.candidate_contract import complete_training_contract  # noqa: E402
+from server.training.training_preflight_service import (  # noqa: E402
+    _governed_training_target_semantics,
+)
+from tests.analysis_partition_fixture import GovernedAnalysisFixture  # noqa: E402
 
 
 class TrainingJobScopeIdentityTests(unittest.TestCase):
@@ -21,34 +30,125 @@ class TrainingJobScopeIdentityTests(unittest.TestCase):
             "dataset_id": "dataset-1",
             "dataset_version_id": "version-1",
         }
-        self.store = SimpleNamespace(
-            data_revision=7,
-            meta={
+        self.store = DatasetStore()
+        self.store.set_raw(
+            pd.DataFrame(
+                {
+                    "feature_a": [float(index % 7) for index in range(40)],
+                    "bad_flag": [index % 2 for index in range(40)],
+                }
+            )
+        )
+        self.store.set_target("bad_flag")
+        self.governed_fixture = GovernedAnalysisFixture(
+            project_id=self.identity["project_id"],
+            owner="user-1",
+        )
+        installed = self.governed_fixture.install(
+            self.store,
+            dataset_id=self.identity["dataset_id"],
+            dataset_version_id=self.identity["dataset_version_id"],
+            target="bad_flag",
+            authorized_predictors=["feature_a"],
+        )
+        partition = installed["record"]
+        validation_design = {
+            **self.identity,
+            "validation_design_id": "design-1",
+            "design_version": "design-version-1",
+            "status": "approved",
+            "analysis_partition_id": partition["analysis_partition_id"],
+            "analysis_partition_revision": partition["revision"],
+            "target_contract_id": partition["target_contract_id"],
+            "target": "bad_flag",
+            "problem_type": "classification",
+            "event_value": 1,
+            "non_event_value": 0,
+            "fold_local_preprocessing": "fit_transform_per_fold",
+            "target_definition": {
+                "target": "bad_flag",
+                "problem_type": "classification",
+                "positive_value": 1,
+                "negative_value": 0,
+                "target_contract_id": partition["target_contract_id"],
+                "authority_source": "sealed_analysis_partition",
+            },
+        }
+        split_record = {
+            **self.identity,
+            "split_id": "split-1",
+            "analysis_partition_id": partition["analysis_partition_id"],
+            "analysis_partition_revision": partition["revision"],
+            "target_contract_id": partition["target_contract_id"],
+            "target": "bad_flag",
+            "problem_type": "classification",
+            "event_value": 1,
+            "non_event_value": 0,
+            "validation_design": validation_design,
+            "fold_definition_id": "fold-definition-1",
+            "cv_design": {"random_seed": 42},
+            "balancing_policy": {
+                "method": "none",
+                "class_weight_policy": "none",
+                "selection_resampling_status": "not_applied",
+            },
+        }
+        self.store.meta.update(
+            {
                 "split_status": "current",
+                "analysis_partition": partition,
                 "feature_manifest": {
                     **self.identity,
                     "manifest_hash": "manifest-1",
                 },
-                "split_record": {
-                    **self.identity,
-                    "split_id": "split-1",
-                    "validation_design": {
-                        **self.identity,
-                        "validation_design_id": "design-1",
-                        "design_version": "design-version-1",
-                    },
-                },
+                "split_record": split_record,
+            }
+        )
+        self.target_authority = _governed_training_target_semantics(
+            split_record=split_record,
+            active_target=self.store.target or "",
+            analysis_partition=partition,
+            active_identity=self.identity,
+        )
+        self.validation_execution_policy = _governed_validation_execution_policy(
+            {
+                "validation_design": validation_design,
+                "validation_design_id": validation_design[
+                    "validation_design_id"
+                ],
+                "validation_design_version": validation_design[
+                    "design_version"
+                ],
+                "fold_definition_id": split_record["fold_definition_id"],
+                "cv_design": split_record["cv_design"],
+                "balancing_configuration": split_record[
+                    "balancing_policy"
+                ],
             }
         )
         self.job = {
             **self.identity,
             "job_id": "job-1",
             "owner_user_id": "user-1",
-            "data_revision": 7,
+            "data_revision": self.store.data_revision,
             "feature_manifest_version": "manifest-1",
             "split_id": "split-1",
             "validation_design_id": "design-1",
             "validation_design_version": "design-version-1",
+            "target_semantics_authority": self.target_authority,
+            "target_authority_hash": self.target_authority[
+                "target_authority_hash"
+            ],
+            "source_target_contract_id": self.target_authority[
+                "source_target_contract_id"
+            ],
+            "analysis_partition_id": self.target_authority[
+                "analysis_partition_id"
+            ],
+            "analysis_partition_revision": self.target_authority[
+                "analysis_partition_revision"
+            ],
+            "validation_execution_policy": self.validation_execution_policy,
             "_dataset_store": self.store,
             "overall_status": "running",
             "completed_at": None,
@@ -63,11 +163,24 @@ class TrainingJobScopeIdentityTests(unittest.TestCase):
         self.job["contract"] = complete_training_contract(
             {
                 **self.identity,
-                "data_revision": 7,
+                "data_revision": self.store.data_revision,
                 "target": "bad_flag",
                 "problem_type": "classification",
                 "event_value": 1,
                 "non_event_value": 0,
+                "target_semantics_authority": self.target_authority,
+                "target_authority_hash": self.target_authority[
+                    "target_authority_hash"
+                ],
+                "source_target_contract_id": self.target_authority[
+                    "source_target_contract_id"
+                ],
+                "analysis_partition_id": self.target_authority[
+                    "analysis_partition_id"
+                ],
+                "analysis_partition_revision": self.target_authority[
+                    "analysis_partition_revision"
+                ],
                 "feature_manifest_version": "manifest-1",
                 "selected_original_features": ["feature_a"],
                 "selected_engineered_features": [],
@@ -95,6 +208,9 @@ class TrainingJobScopeIdentityTests(unittest.TestCase):
             created_at="2026-07-31T12:00:00+00:00",
             primary_metric="roc_auc",
         )
+
+    def tearDown(self) -> None:
+        self.governed_fixture.close()
 
     def checkpoint_result(self, *_args, **_kwargs):
         return True, "", dict(self.identity)

@@ -215,10 +215,46 @@ export type EdaDocumentationUpdateDetail = {
 };
 
 type EdaDocumentationErrorPayload = {
-  detail?: string | { message?: string; detail?: string };
+  detail?: string | {
+    code?: string;
+    message?: string;
+    detail?: string;
+    recovery?: string;
+    retryable?: boolean;
+    request_id?: string;
+  };
+  code?: string;
+  recovery?: string;
+  retryable?: boolean;
+  request_id?: string;
   error?: string;
   message?: string;
 };
+
+export class EdaDocumentationRequestError extends Error {
+  readonly status: number;
+  readonly code: string;
+  readonly recovery: string;
+  readonly retryable: boolean;
+  readonly requestId?: string;
+
+  constructor(input: {
+    status: number;
+    code: string;
+    message: string;
+    recovery?: string;
+    retryable?: boolean;
+    requestId?: string;
+  }) {
+    super(input.message);
+    this.name = "EdaDocumentationRequestError";
+    this.status = input.status;
+    this.code = input.code;
+    this.recovery = input.recovery ?? "";
+    this.retryable = input.retryable ?? input.status >= 500;
+    this.requestId = input.requestId;
+  }
+}
 
 async function edaDocumentationFetch<T>(
   path: string,
@@ -237,26 +273,60 @@ async function edaDocumentationFetch<T>(
     | T
     | null;
   if (!response.ok) {
-    if (response.status === 401) {
-      throw new Error(
-        "Your session is not authenticated. Sign in again to view governed EDA documentation."
-      );
-    }
     const errorPayload = isRecord(payload)
       ? (payload as EdaDocumentationErrorPayload)
       : null;
-    const detail = errorPayload?.detail;
-    const message =
-      typeof detail === "string"
-        ? detail
-        : detail?.message ??
-          detail?.detail ??
-          errorPayload?.error ??
-          errorPayload?.message;
-    throw new Error(
-      message ||
-        `ATLAS EDA documentation request failed with HTTP ${response.status}.`
+    const rawDetail = errorPayload?.detail;
+    const structuredDetail = isRecord(rawDetail)
+      ? rawDetail
+      : null;
+    const code = String(
+      structuredDetail?.code ??
+        errorPayload?.code ??
+        (response.status === 409
+          ? "eda_documentation_prerequisite_not_current"
+          : response.status === 401 || response.status === 403
+            ? "eda_documentation_unauthorized"
+            : "eda_documentation_request_failed"),
     );
+    const structuredMessage = String(
+      structuredDetail?.message ?? structuredDetail?.detail ?? "",
+    ).trim();
+    const message =
+      typeof rawDetail === "string"
+        ? rawDetail
+        : structuredMessage ||
+          errorPayload?.error ||
+          errorPayload?.message ||
+          (response.status === 409
+            ? "EDA documentation is waiting for the current governed analysis prerequisites."
+            : response.status === 401 || response.status === 403
+              ? "Your session is not authorized to view governed EDA documentation."
+              : `ATLAS EDA documentation request failed with HTTP ${response.status}.`);
+    const recovery = String(
+      structuredDetail?.recovery ??
+        errorPayload?.recovery ??
+        (response.status === 409
+          ? "Confirm the current Analysis Partition and refresh EDA before loading documentation."
+          : response.status === 401 || response.status === 403
+            ? "Sign in again or ask a project administrator to confirm access."
+            : "Retry the documentation request; the last verified snapshot remains unchanged."),
+    );
+    throw new EdaDocumentationRequestError({
+      status: response.status,
+      code,
+      message,
+      recovery,
+      retryable:
+        typeof structuredDetail?.retryable === "boolean"
+          ? structuredDetail.retryable
+          : typeof errorPayload?.retryable === "boolean"
+            ? errorPayload.retryable
+            : response.status >= 500,
+      requestId: String(
+        structuredDetail?.request_id ?? errorPayload?.request_id ?? "",
+      ) || undefined,
+    });
   }
   if (!payload) {
     throw new Error("ATLAS returned an empty EDA documentation response.");

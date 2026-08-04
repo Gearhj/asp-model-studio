@@ -38,6 +38,12 @@ import BrandLogo from "./BrandLogo";
 import { selectEffectiveWorkflowSteps, useWorkflowStore } from "../state/useWorkflowStore";
 import { saveActiveProjectBeforeNavigation } from "../lib/localProjects";
 import { loadTransportationOptimizationSnapshot, optimizationWorkflowStepStatus, type OptimizationWorkflowStatus } from "../lib/transportationOptimizationEvidence";
+import {
+  normalizeWorkflowRoute,
+  projectWorkflowNavigationPath,
+  scopedProjectIdForPathname,
+} from "../lib/projectScopedRoutes";
+import { useAuthoritativeProjectContext } from "./PredictiveIdentityProvider";
 
 function linkClass(isActive: boolean, nested = false) {
   return [
@@ -73,6 +79,20 @@ export default function Sidebar() {
   const projectName = useWorkflowStore((state) => state.projectName);
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectType = useWorkflowStore((state) => state.projectType);
+  const normalizedPathname = normalizeWorkflowRoute(location.pathname);
+  const routeProjectId = scopedProjectIdForPathname(location.pathname);
+  const { readiness: projectReadiness } = useAuthoritativeProjectContext();
+  const readyRouteProject = routeProjectId
+    && projectReadiness.status === "ready"
+    && projectReadiness.routeProjectId === routeProjectId
+      ? projectReadiness.project
+      : null;
+  const displayedProjectName = routeProjectId
+    ? readyRouteProject?.projectName || "Loading project context..."
+    : projectName;
+  const projectContextReady = !routeProjectId || Boolean(readyRouteProject);
+  const displayedProjectId = readyRouteProject?.projectId || projectId;
+  const displayedProjectType = readyRouteProject?.projectType || projectType;
   const optimizationState = useMemo(() => projectType === "optimization" ? loadTransportationOptimizationSnapshot(projectId) : null, [optimizationVersion, projectId, projectType]);
 
   useEffect(() => {
@@ -201,11 +221,18 @@ export default function Sidebar() {
           </NavLink>
         </NavGroup>
 
-        <NavGroup label="Current Project" detail={projectName}>
-          <NavLink to="/project-overview" className={({ isActive }) => linkClass(isActive)}>
-            <Gauge size={17} className="shrink-0" />
-            <span className="min-w-0 flex-1 truncate">Overview</span>
-          </NavLink>
+        <NavGroup label="Current Project" detail={displayedProjectName}>
+          {projectContextReady ? (
+            <NavLink to="/project-overview" className={({ isActive }) => linkClass(isActive)}>
+              <Gauge size={17} className="shrink-0" />
+              <span className="min-w-0 flex-1 truncate">Overview</span>
+            </NavLink>
+          ) : (
+            <div className="flex min-h-9 items-center gap-3 rounded-xl px-3 py-2 text-sm font-medium text-slate-400" aria-disabled="true">
+              <Gauge size={17} className="shrink-0" />
+              <span className="min-w-0 flex-1 truncate">Loading project context...</span>
+            </div>
+          )}
 
           <button
             type="button"
@@ -217,14 +244,23 @@ export default function Sidebar() {
             <span className="min-w-0 flex-1 truncate">Workflow</span>
           </button>
 
-          {workflowOpen && (
+          {workflowOpen && projectContextReady && (
             <div className="grid gap-1">
               {workflowSteps.map((step, index) => {
-                const active = location.pathname === step.route;
+                const active = normalizedPathname === normalizeWorkflowRoute(step.route);
+                const targetPath = displayedProjectType === "predictive-modeling"
+                  ? projectWorkflowNavigationPath({
+                      targetPath: step.route,
+                      routeProjectId,
+                      projectId: displayedProjectId,
+                      projectName: displayedProjectName,
+                      projectType: displayedProjectType,
+                    })
+                  : step.route;
                 const optimizationStatus = projectType === "optimization"
                   ? optimizationWorkflowStepStatus(optimizationState, index + 1, { current: active, storeComplete: step.status === "complete" })
                   : null;
-                return <NavLink key={step.id} to={step.route} className={({ isActive }) => linkClass(isActive, true)}>
+                return <NavLink key={step.id} to={targetPath} className={() => linkClass(active, true)}>
                   <span className={`h-2 w-2 shrink-0 rounded-full ${optimizationStatus === "Evidence" ? "bg-emerald-400 ring-2 ring-emerald-400/20" : optimizationStatus === "Complete" ? "bg-teal-400 ring-2 ring-teal-400/20" : optimizationStatus === "Current" ? "bg-blue-400 ring-2 ring-blue-400/20" : optimizationStatus === "Blocked" ? "bg-amber-400 ring-2 ring-amber-400/20" : statusClass(step.status)}`} />
                   <span className="min-w-0 flex-1 truncate" title={step.label}>{step.label}</span>
                   {optimizationStatus && <span className={`shrink-0 rounded px-1.5 py-0.5 text-[8px] font-semibold uppercase ${optimizationStatusClass(optimizationStatus)}`}>{optimizationStatus}</span>}
@@ -286,7 +322,14 @@ function NavGroup({ label, detail, children }: { label: string; detail?: string;
   return (
     <section className="grid gap-1.5">
       <div className="px-3 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</div>
-      {detail && <div className="px-3 text-[11px] font-medium leading-4 text-slate-500">{detail}</div>}
+      {detail && (
+        <div
+          className="px-3 text-[11px] font-medium leading-4 text-slate-500"
+          data-testid={label === "Current Project" ? "sidebar-current-project" : undefined}
+        >
+          {detail}
+        </div>
+      )}
       {children}
     </section>
   );

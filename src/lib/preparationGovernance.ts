@@ -25,12 +25,11 @@ export const TRAINING_CONFIG_STORAGE_PREFIX =
   "modeling-tool-training-config";
 
 export type CanonicalValidationDesignDraft = {
-  holdoutSize?: number;
-  randomSeed?: number;
   foldMethod?: string;
   foldCount?: number;
   foldRepeats?: number;
   innerFoldCount?: number;
+  foldLocalPreprocessing?: string;
   groupField?: string;
   timeField?: string;
   shuffleFolds?: boolean;
@@ -44,8 +43,6 @@ export type CanonicalValidationDesignDraft = {
   ootDatasetId?: string;
   ootDatasetVersion?: string;
   ootTargetField?: string;
-  designDirty?: boolean;
-  savedAt?: string;
 };
 
 export type CanonicalPreparationBrowserState = {
@@ -56,7 +53,7 @@ export type CanonicalPreparationBrowserState = {
   missingPolicy: Record<string, unknown>;
   validationDraft: CanonicalValidationDesignDraft | null;
   trainingConfig: Record<string, unknown>;
-  splitStrategy: "hybrid" | "Not documented";
+  splitStrategy: "Requires exact Analysis Partition";
   balanceMethod: string;
   balanceRatio: string;
   kFolds: string;
@@ -104,21 +101,46 @@ function validationDesignDraft(
 ): CanonicalValidationDesignDraft | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const draft = value as Record<string, unknown>;
-  if (
-    typeof draft.holdoutSize !== "number" ||
-    !Number.isFinite(draft.holdoutSize) ||
-    typeof draft.randomSeed !== "number" ||
-    !Number.isFinite(draft.randomSeed) ||
-    typeof draft.foldMethod !== "string" ||
-    !draft.foldMethod.trim() ||
-    typeof draft.balanceMethod !== "string" ||
-    !draft.balanceMethod.trim() ||
-    typeof draft.minorityShare !== "number" ||
-    !Number.isFinite(draft.minorityShare)
-  ) {
-    return null;
+  const sanitized: CanonicalValidationDesignDraft = {};
+  const copyText = (key: keyof CanonicalValidationDesignDraft) => {
+    const candidate = draft[key];
+    if (typeof candidate === "string" && candidate.trim()) {
+      sanitized[key] = candidate.trim() as never;
+    }
+  };
+  const copyNumber = (key: keyof CanonicalValidationDesignDraft) => {
+    const candidate = draft[key];
+    if (typeof candidate === "number" && Number.isFinite(candidate)) {
+      sanitized[key] = candidate as never;
+    }
+  };
+
+  // Browser drafts may preserve non-partition preferences only. Row membership,
+  // holdout size, seeds, and split authority come exclusively from the durable
+  // Analysis Partition contract and are intentionally absent from this allowlist.
+  [
+    "foldMethod",
+    "foldLocalPreprocessing",
+    "groupField",
+    "timeField",
+    "balanceMethod",
+    "classWeightPolicy",
+    "externalValidationMode",
+    "testDatasetId",
+    "testDatasetVersion",
+    "testTargetField",
+    "ootDatasetId",
+    "ootDatasetVersion",
+    "ootTargetField",
+  ].forEach((key) => copyText(key as keyof CanonicalValidationDesignDraft));
+  ["foldCount", "foldRepeats", "innerFoldCount", "minorityShare"].forEach(
+    (key) => copyNumber(key as keyof CanonicalValidationDesignDraft),
+  );
+  if (typeof draft.shuffleFolds === "boolean") {
+    sanitized.shuffleFolds = draft.shuffleFolds;
   }
-  return draft as CanonicalValidationDesignDraft;
+
+  return Object.keys(sanitized).length ? sanitized : null;
 }
 
 /**
@@ -203,7 +225,7 @@ export function loadCanonicalPreparationBrowserState(
     missingPolicy,
     validationDraft,
     trainingConfig,
-    splitStrategy: validationDraft ? "hybrid" : "Not documented",
+    splitStrategy: "Requires exact Analysis Partition",
     balanceMethod,
     balanceRatio,
     kFolds,

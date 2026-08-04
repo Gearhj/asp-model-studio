@@ -363,10 +363,10 @@ export async function getPersistenceHealth() {
   }
 }
 
-export async function getProjectFromDatabase(projectId: string) {
+export async function getProjectFromDatabase(projectId: string, signal?: AbortSignal) {
   const payload = await persistenceRequest<{ ok: boolean; project: PersistedRecord }>(
     `/projects/${encodeURIComponent(projectId)}`,
-    { method: "GET" },
+    { method: "GET", signal },
   );
   return payload.project;
 }
@@ -392,6 +392,18 @@ export async function getProjectWorkflowStateFromDatabase(projectId: string, sig
     if (error instanceof PersistenceHttpError && error.status === 404) return null;
     throw error;
   }
+}
+
+/**
+ * Read the exact durable project-scoped Dataset Library activation. This is a
+ * GET-only authority lookup; callers must never turn a missing response into a
+ * first/latest-version selection or an implicit activation.
+ */
+export async function getActiveDatasetIdentityFromDatabase(projectId: string, signal?: AbortSignal) {
+  return persistenceRequest<PersistedRecord>(
+    `/data/active-identity?project_id=${encodeURIComponent(projectId)}`,
+    { method: "GET", signal },
+  );
 }
 
 export async function deleteProjectFromDatabase(projectId: string) {

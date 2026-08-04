@@ -1,0 +1,3240 @@
+{
+  "evidenceId": "eda-evidence-atlas-mrzpau4t-eda-b8c03464",
+  "project_id": "atlas-mrzpau4t",
+  "dataset_id": "ds_heloc_train_6bdb184b_05905",
+  "dataset_version_id": "v_1785186305905_6bdb184b",
+  "lineage_contract": "canonical_dataset_version",
+  "lineage": {
+    "target": "bad_flag",
+    "predictorManifestId": "predictor-auth-491392549aa93a6ad258",
+    "problemType": "classification",
+    "eventValue": 1,
+    "rowCount": 6275,
+    "scope": "development_population",
+    "project_id": "atlas-mrzpau4t",
+    "dataset_id": "ds_heloc_train_6bdb184b_05905",
+    "dataset_version_id": "v_1785186305905_6bdb184b",
+    "lineage_contract": "canonical_dataset_version",
+    "projectId": "atlas-mrzpau4t",
+    "datasetId": "ds_heloc_train_6bdb184b_05905",
+    "datasetVersion": "v_1785186305905_6bdb184b"
+  },
+  "projectName": "HELOC Credit Risk - CLASSIFICATION TEST",
+  "evidenceType": "eda",
+  "title": "Governed Exploratory Data Analysis",
+  "summary": "Full Governed Population EDA for bad_flag across 6,275 registered rows.",
+  "sourcePage": "Exploratory Data Analysis",
+  "sourceRoute": "/step02",
+  "modelIds": [],
+  "documentIds": [],
+  "notebookIds": [],
+  "supportsSections": [
+    "Exploratory Data Analysis",
+    "Data Quality",
+    "Feature Engineering"
+  ],
+  "tags": [
+    "predictive_modeling",
+    "eda",
+    "full_dataset"
+  ],
+  "status": "needs_review",
+  "importance": "high",
+  "artifactType": "governed_eda_analysis",
+  "artifactId": "eda-b8c03464",
+  "sourceRunReference": "eda-b8c03464",
+  "payload": {
+    "headline": {
+      "rows": 6275,
+      "predictors": 23,
+      "numeric_predictors": 23,
+      "categorical_predictors": 0,
+      "missing_cells": 0,
+      "missing_cell_rate": 0,
+      "duplicate_rows": 351
+    },
+    "findings": [
+      {
+        "parent_id": "eda-parent-exact-duplicate-rows",
+        "family": "exact_duplicate_rows",
+        "title": "Exact duplicate rows",
+        "category": "Data quality",
+        "severity": "high",
+        "requirement": "blocker",
+        "child_ids": [
+          "eda-finding-c6i235"
+        ],
+        "child_evidence": [
+          {
+            "title": "Exact duplicate rows require a governed treatment decision",
+            "category": "Data quality",
+            "severity": "high",
+            "affectedVariables": [],
+            "analyticalBasis": "The development population contains rows that are exact duplicates across the governed analysis frame.",
+            "metricLabel": "Duplicate rows",
+            "metricValue": "279",
+            "recommendedAction": "Confirm whether these are ingestion duplicates or valid repeated observations; record exclusion or retention without mutating data from EDA.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "No transformation",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "findings.findings.exact_duplicate_rows"
+            ],
+            "documentationImpact": "The reviewer decision and rationale enter the EDA decision history and downstream queue.",
+            "id": "eda-finding-c6i235",
+            "status": "open",
+            "importance": 399
+          }
+        ],
+        "affected_variables": [],
+        "evidence_references": [
+          "findings.findings.exact_duplicate_rows"
+        ],
+        "allowed_dispositions": [
+          "unresolved",
+          "accepted",
+          "rejected",
+          "deferred",
+          "documented",
+          "no_action_required"
+        ],
+        "reviewer_disposition": "unresolved",
+        "reviewer_rationale": "",
+        "downstream_destination": "Feature Engineering",
+        "suggested_transformation": "No transformation",
+        "eligible_for_completion": false,
+        "rationale_required": false,
+        "decision_origin": "unresolved",
+        "mutation_applied": false
+      },
+      {
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "title": "Bureau special-value policy",
+        "category": "Predictors",
+        "severity": "moderate",
+        "requirement": "required",
+        "child_ids": [
+          "eda-finding-124er7n",
+          "eda-finding-12hzeb",
+          "eda-finding-146beuz",
+          "eda-finding-170i557",
+          "eda-finding-17lwsgb",
+          "eda-finding-1dhmw93",
+          "eda-finding-1g7kzgz",
+          "eda-finding-1hs9sib",
+          "eda-finding-1jvqcs3",
+          "eda-finding-1l9bnst",
+          "eda-finding-1lsswln",
+          "eda-finding-1n0kgyv",
+          "eda-finding-1n6rq0b",
+          "eda-finding-1rbw847",
+          "eda-finding-1w2f471",
+          "eda-finding-8djt1n",
+          "eda-finding-8e4n29",
+          "eda-finding-9w7kab",
+          "eda-finding-bnqouz",
+          "eda-finding-drp7pf",
+          "eda-finding-eezvhn",
+          "eda-finding-jo2q67",
+          "eda-finding-ks6yzn"
+        ],
+        "child_evidence": [
+          {
+            "title": "MSinceMostRecentDelq has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "MSinceMostRecentDelq"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "52.1%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.MSinceMostRecentDelq.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-eezvhn",
+            "status": "open",
+            "importance": 230
+          },
+          {
+            "title": "NetFractionInstallBurden has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NetFractionInstallBurden"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "41.4%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.NetFractionInstallBurden.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-jo2q67",
+            "status": "open",
+            "importance": 230
+          },
+          {
+            "title": "MSinceMostRecentInqexcl7days has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "MSinceMostRecentInqexcl7days"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "28.2%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.MSinceMostRecentInqexcl7days.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-bnqouz",
+            "status": "open",
+            "importance": 228
+          },
+          {
+            "title": "PercentTradesNeverDelq has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "PercentTradesNeverDelq"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "14.5%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.PercentTradesNeverDelq.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-12hzeb",
+            "status": "open",
+            "importance": 215
+          },
+          {
+            "title": "NumInstallTradesWBalance has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NumInstallTradesWBalance"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "14.1%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.NumInstallTradesWBalance.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-8djt1n",
+            "status": "open",
+            "importance": 214
+          },
+          {
+            "title": "NumBank2NatlTradesWHighUtilization has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NumBank2NatlTradesWHighUtilization"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "10.8%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.NumBank2NatlTradesWHighUtilization.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-1dhmw93",
+            "status": "open",
+            "importance": 211
+          },
+          {
+            "title": "AverageMInFile has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "AverageMInFile"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "9.2%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.AverageMInFile.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-drp7pf",
+            "status": "open",
+            "importance": 209
+          },
+          {
+            "title": "MSinceOldestTradeOpen has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "MSinceOldestTradeOpen"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "8.6%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.MSinceOldestTradeOpen.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-1w2f471",
+            "status": "open",
+            "importance": 209
+          },
+          {
+            "title": "NetFractionRevolvingBurden has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NetFractionRevolvingBurden"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "8.4%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.NetFractionRevolvingBurden.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-146beuz",
+            "status": "open",
+            "importance": 208
+          },
+          {
+            "title": "NumRevolvingTradesWBalance has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NumRevolvingTradesWBalance"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "6.9%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.NumRevolvingTradesWBalance.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-1lsswln",
+            "status": "open",
+            "importance": 207
+          },
+          {
+            "title": "ExternalRiskEstimate has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "ExternalRiskEstimate"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "5.7%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.ExternalRiskEstimate.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-1n0kgyv",
+            "status": "open",
+            "importance": 206
+          },
+          {
+            "title": "MaxDelq2PublicRecLast12M has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "MaxDelq2PublicRecLast12M"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "5.6%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.MaxDelq2PublicRecLast12M.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-1rbw847",
+            "status": "open",
+            "importance": 206
+          },
+          {
+            "title": "MaxDelqEver has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "MaxDelqEver"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "5.6%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.MaxDelqEver.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-1l9bnst",
+            "status": "open",
+            "importance": 206
+          },
+          {
+            "title": "MSinceMostRecentTradeOpen has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "MSinceMostRecentTradeOpen"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "5.6%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.MSinceMostRecentTradeOpen.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-124er7n",
+            "status": "open",
+            "importance": 206
+          },
+          {
+            "title": "NumInqLast6M has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NumInqLast6M"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "5.6%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.NumInqLast6M.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-170i557",
+            "status": "open",
+            "importance": 206
+          },
+          {
+            "title": "NumInqLast6Mexcl7days has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NumInqLast6Mexcl7days"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "5.6%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.NumInqLast6Mexcl7days.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-9w7kab",
+            "status": "open",
+            "importance": 206
+          },
+          {
+            "title": "NumSatisfactoryTrades has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NumSatisfactoryTrades"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "5.6%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.NumSatisfactoryTrades.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-ks6yzn",
+            "status": "open",
+            "importance": 206
+          },
+          {
+            "title": "NumTotalTrades has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NumTotalTrades"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "5.6%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.NumTotalTrades.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-1jvqcs3",
+            "status": "open",
+            "importance": 206
+          },
+          {
+            "title": "NumTrades60Ever2DerogPubRec has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NumTrades60Ever2DerogPubRec"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "5.6%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.NumTrades60Ever2DerogPubRec.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-1g7kzgz",
+            "status": "open",
+            "importance": 206
+          },
+          {
+            "title": "NumTrades90Ever2DerogPubRec has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NumTrades90Ever2DerogPubRec"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "5.6%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.NumTrades90Ever2DerogPubRec.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-8e4n29",
+            "status": "open",
+            "importance": 206
+          },
+          {
+            "title": "NumTradesOpeninLast12M has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NumTradesOpeninLast12M"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "5.6%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.NumTradesOpeninLast12M.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-1hs9sib",
+            "status": "open",
+            "importance": 206
+          },
+          {
+            "title": "PercentInstallTrades has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "PercentInstallTrades"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "5.6%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.PercentInstallTrades.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-1n6rq0b",
+            "status": "open",
+            "importance": 206
+          },
+          {
+            "title": "PercentTradesWBalance has material bureau special-value prevalence",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "PercentTradesWBalance"
+            ],
+            "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+            "metricLabel": "Special-value prevalence",
+            "metricValue": "5.8%",
+            "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Special-value separation",
+              "Categorical conversion",
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.PercentTradesWBalance.special_values.groups"
+            ],
+            "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+            "id": "eda-finding-17lwsgb",
+            "status": "open",
+            "importance": 206
+          }
+        ],
+        "affected_variables": [
+          "AverageMInFile",
+          "ExternalRiskEstimate",
+          "MSinceMostRecentDelq",
+          "MSinceMostRecentInqexcl7days",
+          "MSinceMostRecentTradeOpen",
+          "MSinceOldestTradeOpen",
+          "MaxDelq2PublicRecLast12M",
+          "MaxDelqEver",
+          "NetFractionInstallBurden",
+          "NetFractionRevolvingBurden",
+          "NumBank2NatlTradesWHighUtilization",
+          "NumInqLast6M",
+          "NumInqLast6Mexcl7days",
+          "NumInstallTradesWBalance",
+          "NumRevolvingTradesWBalance",
+          "NumSatisfactoryTrades",
+          "NumTotalTrades",
+          "NumTrades60Ever2DerogPubRec",
+          "NumTrades90Ever2DerogPubRec",
+          "NumTradesOpeninLast12M",
+          "PercentInstallTrades",
+          "PercentTradesNeverDelq",
+          "PercentTradesWBalance"
+        ],
+        "evidence_references": [
+          "predictors.governed_predictor_artifacts.AverageMInFile.special_values.groups",
+          "predictors.governed_predictor_artifacts.ExternalRiskEstimate.special_values.groups",
+          "predictors.governed_predictor_artifacts.MSinceMostRecentDelq.special_values.groups",
+          "predictors.governed_predictor_artifacts.MSinceMostRecentInqexcl7days.special_values.groups",
+          "predictors.governed_predictor_artifacts.MSinceMostRecentTradeOpen.special_values.groups",
+          "predictors.governed_predictor_artifacts.MSinceOldestTradeOpen.special_values.groups",
+          "predictors.governed_predictor_artifacts.MaxDelq2PublicRecLast12M.special_values.groups",
+          "predictors.governed_predictor_artifacts.MaxDelqEver.special_values.groups",
+          "predictors.governed_predictor_artifacts.NetFractionInstallBurden.special_values.groups",
+          "predictors.governed_predictor_artifacts.NetFractionRevolvingBurden.special_values.groups",
+          "predictors.governed_predictor_artifacts.NumBank2NatlTradesWHighUtilization.special_values.groups",
+          "predictors.governed_predictor_artifacts.NumInqLast6M.special_values.groups",
+          "predictors.governed_predictor_artifacts.NumInqLast6Mexcl7days.special_values.groups",
+          "predictors.governed_predictor_artifacts.NumInstallTradesWBalance.special_values.groups",
+          "predictors.governed_predictor_artifacts.NumRevolvingTradesWBalance.special_values.groups",
+          "predictors.governed_predictor_artifacts.NumSatisfactoryTrades.special_values.groups",
+          "predictors.governed_predictor_artifacts.NumTotalTrades.special_values.groups",
+          "predictors.governed_predictor_artifacts.NumTrades60Ever2DerogPubRec.special_values.groups",
+          "predictors.governed_predictor_artifacts.NumTrades90Ever2DerogPubRec.special_values.groups",
+          "predictors.governed_predictor_artifacts.NumTradesOpeninLast12M.special_values.groups",
+          "predictors.governed_predictor_artifacts.PercentInstallTrades.special_values.groups",
+          "predictors.governed_predictor_artifacts.PercentTradesNeverDelq.special_values.groups",
+          "predictors.governed_predictor_artifacts.PercentTradesWBalance.special_values.groups"
+        ],
+        "allowed_dispositions": [
+          "unresolved",
+          "accepted",
+          "rejected",
+          "deferred",
+          "documented",
+          "no_action_required"
+        ],
+        "reviewer_disposition": "unresolved",
+        "reviewer_rationale": "",
+        "downstream_destination": "Missing Values",
+        "suggested_transformation": "No transformation",
+        "eligible_for_completion": false,
+        "rationale_required": false,
+        "decision_origin": "reviewer",
+        "mutation_applied": false
+      },
+      {
+        "parent_id": "eda-parent-derogatory-public-record-multicollinearity-cluster",
+        "family": "derogatory_public_record_multicollinearity_cluster",
+        "title": "Derogatory-public-record multicollinearity cluster",
+        "category": "Relationships",
+        "severity": "high",
+        "requirement": "required",
+        "child_ids": [
+          "eda-finding-1501lb4",
+          "eda-finding-173lsnd"
+        ],
+        "child_evidence": [
+          {
+            "title": "NumTrades60Ever2DerogPubRec and NumTrades90Ever2DerogPubRec are strongly correlated",
+            "category": "Relationships",
+            "severity": "high",
+            "affectedVariables": [
+              "NumTrades60Ever2DerogPubRec",
+              "NumTrades90Ever2DerogPubRec"
+            ],
+            "analyticalBasis": "Pairwise Pearson correlation is calculated over governed development-population numeric predictors with pairwise non-missing support.",
+            "metricLabel": "Correlation",
+            "metricValue": "0.9",
+            "recommendedAction": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "No transformation",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "relationships.governed_relationship_artifact.correlation.NumTrades60Ever2DerogPubRec.NumTrades90Ever2DerogPubRec"
+            ],
+            "documentationImpact": "The reviewer rationale records any retain, drop, or combine recommendation; no action is automatic.",
+            "id": "eda-finding-1501lb4",
+            "status": "open",
+            "importance": 323
+          },
+          {
+            "title": "NumTrades60Ever2DerogPubRec requires multicollinearity review",
+            "category": "Relationships",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NumTrades60Ever2DerogPubRec"
+            ],
+            "analyticalBasis": "VIF is computed on the governed development-population complete-case predictor cohort; it is a relationship diagnostic, not an exclusion rule.",
+            "metricLabel": "VIF",
+            "metricValue": "5.43",
+            "recommendedAction": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "No transformation",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "relationships.governed_relationship_artifact.vif.NumTrades60Ever2DerogPubRec"
+            ],
+            "documentationImpact": "The accepted relationship decision and rationale enter the MDD relationship narrative.",
+            "id": "eda-finding-173lsnd",
+            "status": "open",
+            "importance": 205
+          }
+        ],
+        "affected_variables": [
+          "NumTrades60Ever2DerogPubRec",
+          "NumTrades90Ever2DerogPubRec"
+        ],
+        "evidence_references": [
+          "relationships.governed_relationship_artifact.correlation.NumTrades60Ever2DerogPubRec.NumTrades90Ever2DerogPubRec",
+          "relationships.governed_relationship_artifact.vif.NumTrades60Ever2DerogPubRec"
+        ],
+        "allowed_dispositions": [
+          "unresolved",
+          "accepted",
+          "rejected",
+          "deferred",
+          "documented",
+          "no_action_required"
+        ],
+        "reviewer_disposition": "unresolved",
+        "reviewer_rationale": "",
+        "downstream_destination": "Feature Engineering",
+        "suggested_transformation": "No transformation",
+        "eligible_for_completion": false,
+        "rationale_required": false,
+        "decision_origin": "reviewer",
+        "mutation_applied": false
+      },
+      {
+        "parent_id": "eda-parent-high-iv-strong-signal-review",
+        "family": "high_iv_strong_signal_review",
+        "title": "High-IV and strong-signal review",
+        "category": "Predictors",
+        "severity": "high",
+        "requirement": "required",
+        "child_ids": [
+          "eda-finding-12jqw3q",
+          "eda-finding-ij0buy"
+        ],
+        "child_evidence": [
+          {
+            "title": "ExternalRiskEstimate has unusually high information value",
+            "category": "Predictors",
+            "severity": "high",
+            "affectedVariables": [
+              "ExternalRiskEstimate"
+            ],
+            "analyticalBasis": "IV is calculated from governed development-population target-event aggregates. A high value is a review signal only and is not proof of leakage.",
+            "metricLabel": "Information value",
+            "metricValue": "0.96",
+            "recommendedAction": "Review lineage, availability at decision time, event-rate shape, and target-source status before retaining the predictor.",
+            "downstreamDestination": "Validation",
+            "suggestedTransformations": [
+              "No transformation",
+              "Binning",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.ExternalRiskEstimate.iv"
+            ],
+            "documentationImpact": "The reviewer disposition, rationale, event-rate shape, and leakage evidence enter predictor findings.",
+            "iv": 0.9599223419191865,
+            "eventRateShape": "10 governed groups; 14.3%\u201383.3% event rate",
+            "monotonicity": "Decreasing",
+            "targetSourceStatus": "not_target_source",
+            "leakageEvidence": "No deterministic target-source match. High IV alone does not establish leakage.",
+            "id": "eda-finding-12jqw3q",
+            "status": "open",
+            "importance": 319
+          },
+          {
+            "title": "NetFractionRevolvingBurden has unusually high information value",
+            "category": "Predictors",
+            "severity": "high",
+            "affectedVariables": [
+              "NetFractionRevolvingBurden"
+            ],
+            "analyticalBasis": "IV is calculated from governed development-population target-event aggregates. A high value is a review signal only and is not proof of leakage.",
+            "metricLabel": "Information value",
+            "metricValue": "0.558",
+            "recommendedAction": "Review lineage, availability at decision time, event-rate shape, and target-source status before retaining the predictor.",
+            "downstreamDestination": "Validation",
+            "suggestedTransformations": [
+              "No transformation",
+              "Binning",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.NetFractionRevolvingBurden.iv"
+            ],
+            "documentationImpact": "The reviewer disposition, rationale, event-rate shape, and leakage evidence enter predictor findings.",
+            "iv": 0.5583906004199974,
+            "eventRateShape": "10 governed groups; 27.1%\u201382.9% event rate",
+            "monotonicity": "Non-monotonic",
+            "targetSourceStatus": "not_target_source",
+            "leakageEvidence": "No deterministic target-source match. High IV alone does not establish leakage.",
+            "id": "eda-finding-ij0buy",
+            "status": "open",
+            "importance": 311
+          }
+        ],
+        "affected_variables": [
+          "ExternalRiskEstimate",
+          "NetFractionRevolvingBurden"
+        ],
+        "evidence_references": [
+          "predictors.governed_predictor_artifacts.ExternalRiskEstimate.iv",
+          "predictors.governed_predictor_artifacts.NetFractionRevolvingBurden.iv"
+        ],
+        "allowed_dispositions": [
+          "unresolved",
+          "accepted",
+          "rejected",
+          "deferred",
+          "documented",
+          "no_action_required"
+        ],
+        "reviewer_disposition": "unresolved",
+        "reviewer_rationale": "",
+        "downstream_destination": "Validation",
+        "suggested_transformation": "No transformation",
+        "eligible_for_completion": false,
+        "rationale_required": false,
+        "decision_origin": "reviewer",
+        "mutation_applied": false
+      },
+      {
+        "parent_id": "eda-parent-inquiry-multicollinearity-cluster",
+        "family": "inquiry_multicollinearity_cluster",
+        "title": "Inquiry-variable multicollinearity cluster",
+        "category": "Relationships",
+        "severity": "high",
+        "requirement": "required",
+        "child_ids": [
+          "eda-finding-1plnnl5",
+          "eda-finding-kj5290",
+          "eda-finding-xg51d3"
+        ],
+        "child_evidence": [
+          {
+            "title": "NumInqLast6M requires multicollinearity review",
+            "category": "Relationships",
+            "severity": "high",
+            "affectedVariables": [
+              "NumInqLast6M"
+            ],
+            "analyticalBasis": "VIF is computed on the governed development-population complete-case predictor cohort; it is a relationship diagnostic, not an exclusion rule.",
+            "metricLabel": "VIF",
+            "metricValue": "62.41",
+            "recommendedAction": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "No transformation",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "relationships.governed_relationship_artifact.vif.NumInqLast6M"
+            ],
+            "documentationImpact": "The accepted relationship decision and rationale enter the MDD relationship narrative.",
+            "id": "eda-finding-xg51d3",
+            "status": "open",
+            "importance": 350
+          },
+          {
+            "title": "NumInqLast6Mexcl7days requires multicollinearity review",
+            "category": "Relationships",
+            "severity": "high",
+            "affectedVariables": [
+              "NumInqLast6Mexcl7days"
+            ],
+            "analyticalBasis": "VIF is computed on the governed development-population complete-case predictor cohort; it is a relationship diagnostic, not an exclusion rule.",
+            "metricLabel": "VIF",
+            "metricValue": "62.62",
+            "recommendedAction": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "No transformation",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "relationships.governed_relationship_artifact.vif.NumInqLast6Mexcl7days"
+            ],
+            "documentationImpact": "The accepted relationship decision and rationale enter the MDD relationship narrative.",
+            "id": "eda-finding-1plnnl5",
+            "status": "open",
+            "importance": 350
+          },
+          {
+            "title": "NumInqLast6M and NumInqLast6Mexcl7days are strongly correlated",
+            "category": "Relationships",
+            "severity": "high",
+            "affectedVariables": [
+              "NumInqLast6M",
+              "NumInqLast6Mexcl7days"
+            ],
+            "analyticalBasis": "Pairwise Pearson correlation is calculated over governed development-population numeric predictors with pairwise non-missing support.",
+            "metricLabel": "Correlation",
+            "metricValue": "0.992",
+            "recommendedAction": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "No transformation",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "relationships.governed_relationship_artifact.correlation.NumInqLast6M.NumInqLast6Mexcl7days"
+            ],
+            "documentationImpact": "The reviewer rationale records any retain, drop, or combine recommendation; no action is automatic.",
+            "id": "eda-finding-kj5290",
+            "status": "open",
+            "importance": 325
+          }
+        ],
+        "affected_variables": [
+          "NumInqLast6M",
+          "NumInqLast6Mexcl7days"
+        ],
+        "evidence_references": [
+          "relationships.governed_relationship_artifact.correlation.NumInqLast6M.NumInqLast6Mexcl7days",
+          "relationships.governed_relationship_artifact.vif.NumInqLast6M",
+          "relationships.governed_relationship_artifact.vif.NumInqLast6Mexcl7days"
+        ],
+        "allowed_dispositions": [
+          "unresolved",
+          "accepted",
+          "rejected",
+          "deferred",
+          "documented",
+          "no_action_required"
+        ],
+        "reviewer_disposition": "unresolved",
+        "reviewer_rationale": "",
+        "downstream_destination": "Feature Engineering",
+        "suggested_transformation": "No transformation",
+        "eligible_for_completion": false,
+        "rationale_required": false,
+        "decision_origin": "reviewer",
+        "mutation_applied": false
+      },
+      {
+        "parent_id": "eda-parent-other-correlated-feature-groups",
+        "family": "other_correlated_feature_groups",
+        "title": "Other correlated feature groups",
+        "category": "Relationships",
+        "severity": "moderate",
+        "requirement": "required",
+        "child_ids": [
+          "eda-finding-1r9hded",
+          "eda-finding-yl10wo"
+        ],
+        "child_evidence": [
+          {
+            "title": "NumTotalTrades and NumSatisfactoryTrades are strongly correlated",
+            "category": "Relationships",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NumTotalTrades",
+              "NumSatisfactoryTrades"
+            ],
+            "analyticalBasis": "Pairwise Pearson correlation is calculated over governed development-population numeric predictors with pairwise non-missing support.",
+            "metricLabel": "Correlation",
+            "metricValue": "0.844",
+            "recommendedAction": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "No transformation",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "relationships.governed_relationship_artifact.correlation.NumTotalTrades.NumSatisfactoryTrades"
+            ],
+            "documentationImpact": "The reviewer rationale records any retain, drop, or combine recommendation; no action is automatic.",
+            "id": "eda-finding-yl10wo",
+            "status": "open",
+            "importance": 221
+          },
+          {
+            "title": "NumSatisfactoryTrades requires multicollinearity review",
+            "category": "Relationships",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NumSatisfactoryTrades"
+            ],
+            "analyticalBasis": "VIF is computed on the governed development-population complete-case predictor cohort; it is a relationship diagnostic, not an exclusion rule.",
+            "metricLabel": "VIF",
+            "metricValue": "6.44",
+            "recommendedAction": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "No transformation",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "relationships.governed_relationship_artifact.vif.NumSatisfactoryTrades"
+            ],
+            "documentationImpact": "The accepted relationship decision and rationale enter the MDD relationship narrative.",
+            "id": "eda-finding-1r9hded",
+            "status": "open",
+            "importance": 206
+          }
+        ],
+        "affected_variables": [
+          "NumSatisfactoryTrades",
+          "NumTotalTrades"
+        ],
+        "evidence_references": [
+          "relationships.governed_relationship_artifact.correlation.NumTotalTrades.NumSatisfactoryTrades",
+          "relationships.governed_relationship_artifact.vif.NumSatisfactoryTrades"
+        ],
+        "allowed_dispositions": [
+          "unresolved",
+          "accepted",
+          "rejected",
+          "deferred",
+          "documented",
+          "no_action_required"
+        ],
+        "reviewer_disposition": "unresolved",
+        "reviewer_rationale": "",
+        "downstream_destination": "Feature Engineering",
+        "suggested_transformation": "No transformation",
+        "eligible_for_completion": false,
+        "rationale_required": false,
+        "decision_origin": "reviewer",
+        "mutation_applied": false
+      },
+      {
+        "parent_id": "eda-parent-valid-value-monotonicity-review",
+        "family": "valid_value_monotonicity_review",
+        "title": "Valid-value monotonicity review",
+        "category": "Predictors",
+        "severity": "moderate",
+        "requirement": "required",
+        "child_ids": [
+          "eda-finding-159l90t",
+          "eda-finding-1g8s4b3",
+          "eda-finding-1kyf1vj",
+          "eda-finding-1nnkyen",
+          "eda-finding-1rkv8ov",
+          "eda-finding-1ytdpdn",
+          "eda-finding-81b05n",
+          "eda-finding-chslxr",
+          "eda-finding-de2d83",
+          "eda-finding-fud5sv",
+          "eda-finding-ovu27z",
+          "eda-finding-t074qz",
+          "eda-finding-ynd2k7"
+        ],
+        "child_evidence": [
+          {
+            "title": "MSinceMostRecentDelq has a non-monotonic target shape",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "MSinceMostRecentDelq"
+            ],
+            "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+            "metricLabel": "Monotonicity",
+            "metricValue": "Non-monotonic",
+            "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Binning",
+              "No transformation",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.MSinceMostRecentDelq.monotonicity.valid_value_shape"
+            ],
+            "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+            "eventRateShape": "10 governed groups; 46.8%\u201374.9% event rate",
+            "monotonicity": "Non-monotonic",
+            "id": "eda-finding-chslxr",
+            "status": "open",
+            "importance": 200
+          },
+          {
+            "title": "MSinceMostRecentInqexcl7days has a non-monotonic target shape",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "MSinceMostRecentInqexcl7days"
+            ],
+            "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+            "metricLabel": "Monotonicity",
+            "metricValue": "Non-monotonic",
+            "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Binning",
+              "No transformation",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.MSinceMostRecentInqexcl7days.monotonicity.valid_value_shape"
+            ],
+            "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+            "eventRateShape": "4 governed groups; 27.7%\u201358.3% event rate",
+            "monotonicity": "Non-monotonic",
+            "id": "eda-finding-fud5sv",
+            "status": "open",
+            "importance": 200
+          },
+          {
+            "title": "MSinceMostRecentTradeOpen has a non-monotonic target shape",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "MSinceMostRecentTradeOpen"
+            ],
+            "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+            "metricLabel": "Monotonicity",
+            "metricValue": "Non-monotonic",
+            "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Binning",
+              "No transformation",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.MSinceMostRecentTradeOpen.monotonicity.valid_value_shape"
+            ],
+            "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+            "eventRateShape": "9 governed groups; 42%\u201357.6% event rate",
+            "monotonicity": "Non-monotonic",
+            "id": "eda-finding-1rkv8ov",
+            "status": "open",
+            "importance": 200
+          },
+          {
+            "title": "MSinceOldestTradeOpen has a non-monotonic target shape",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "MSinceOldestTradeOpen"
+            ],
+            "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+            "metricLabel": "Monotonicity",
+            "metricValue": "Non-monotonic",
+            "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Binning",
+              "No transformation",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.MSinceOldestTradeOpen.monotonicity.valid_value_shape"
+            ],
+            "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+            "eventRateShape": "10 governed groups; 33.3%\u201377.2% event rate",
+            "monotonicity": "Non-monotonic",
+            "id": "eda-finding-159l90t",
+            "status": "open",
+            "importance": 200
+          },
+          {
+            "title": "NetFractionInstallBurden has a non-monotonic target shape",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NetFractionInstallBurden"
+            ],
+            "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+            "metricLabel": "Monotonicity",
+            "metricValue": "Non-monotonic",
+            "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Binning",
+              "No transformation",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.NetFractionInstallBurden.monotonicity.valid_value_shape"
+            ],
+            "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+            "eventRateShape": "10 governed groups; 46.6%\u201365.7% event rate",
+            "monotonicity": "Non-monotonic",
+            "id": "eda-finding-1ytdpdn",
+            "status": "open",
+            "importance": 200
+          },
+          {
+            "title": "NetFractionRevolvingBurden has a non-monotonic target shape",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NetFractionRevolvingBurden"
+            ],
+            "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+            "metricLabel": "Monotonicity",
+            "metricValue": "Non-monotonic",
+            "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Binning",
+              "No transformation",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.NetFractionRevolvingBurden.monotonicity.valid_value_shape"
+            ],
+            "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+            "eventRateShape": "10 governed groups; 27.1%\u201382.9% event rate",
+            "monotonicity": "Non-monotonic",
+            "id": "eda-finding-t074qz",
+            "status": "open",
+            "importance": 200
+          },
+          {
+            "title": "NumInstallTradesWBalance has a non-monotonic target shape",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NumInstallTradesWBalance"
+            ],
+            "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+            "metricLabel": "Monotonicity",
+            "metricValue": "Non-monotonic",
+            "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Binning",
+              "No transformation",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.NumInstallTradesWBalance.monotonicity.valid_value_shape"
+            ],
+            "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+            "eventRateShape": "4 governed groups; 50.1%\u201358.2% event rate",
+            "monotonicity": "Non-monotonic",
+            "id": "eda-finding-de2d83",
+            "status": "open",
+            "importance": 200
+          },
+          {
+            "title": "NumRevolvingTradesWBalance has a non-monotonic target shape",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NumRevolvingTradesWBalance"
+            ],
+            "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+            "metricLabel": "Monotonicity",
+            "metricValue": "Non-monotonic",
+            "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Binning",
+              "No transformation",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.NumRevolvingTradesWBalance.monotonicity.valid_value_shape"
+            ],
+            "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+            "eventRateShape": "8 governed groups; 45.1%\u201363.6% event rate",
+            "monotonicity": "Non-monotonic",
+            "id": "eda-finding-1g8s4b3",
+            "status": "open",
+            "importance": 200
+          },
+          {
+            "title": "NumSatisfactoryTrades has a non-monotonic target shape",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NumSatisfactoryTrades"
+            ],
+            "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+            "metricLabel": "Monotonicity",
+            "metricValue": "Non-monotonic",
+            "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Binning",
+              "No transformation",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.NumSatisfactoryTrades.monotonicity.valid_value_shape"
+            ],
+            "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+            "eventRateShape": "10 governed groups; 43.9%\u201370.6% event rate",
+            "monotonicity": "Non-monotonic",
+            "id": "eda-finding-ynd2k7",
+            "status": "open",
+            "importance": 200
+          },
+          {
+            "title": "NumTotalTrades has a non-monotonic target shape",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NumTotalTrades"
+            ],
+            "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+            "metricLabel": "Monotonicity",
+            "metricValue": "Non-monotonic",
+            "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Binning",
+              "No transformation",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.NumTotalTrades.monotonicity.valid_value_shape"
+            ],
+            "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+            "eventRateShape": "10 governed groups; 44.8%\u201365.1% event rate",
+            "monotonicity": "Non-monotonic",
+            "id": "eda-finding-1nnkyen",
+            "status": "open",
+            "importance": 200
+          },
+          {
+            "title": "NumTrades60Ever2DerogPubRec has a non-monotonic target shape",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "NumTrades60Ever2DerogPubRec"
+            ],
+            "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+            "metricLabel": "Monotonicity",
+            "metricValue": "Non-monotonic",
+            "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Binning",
+              "No transformation",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.NumTrades60Ever2DerogPubRec.monotonicity.valid_value_shape"
+            ],
+            "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+            "eventRateShape": "3 governed groups; 48.8%\u201373.6% event rate",
+            "monotonicity": "Non-monotonic",
+            "id": "eda-finding-1kyf1vj",
+            "status": "open",
+            "importance": 200
+          },
+          {
+            "title": "PercentInstallTrades has a non-monotonic target shape",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "PercentInstallTrades"
+            ],
+            "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+            "metricLabel": "Monotonicity",
+            "metricValue": "Non-monotonic",
+            "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Binning",
+              "No transformation",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.PercentInstallTrades.monotonicity.valid_value_shape"
+            ],
+            "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+            "eventRateShape": "10 governed groups; 44.1%\u201370.4% event rate",
+            "monotonicity": "Non-monotonic",
+            "id": "eda-finding-81b05n",
+            "status": "open",
+            "importance": 200
+          },
+          {
+            "title": "PercentTradesWBalance has a non-monotonic target shape",
+            "category": "Predictors",
+            "severity": "moderate",
+            "affectedVariables": [
+              "PercentTradesWBalance"
+            ],
+            "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+            "metricLabel": "Monotonicity",
+            "metricValue": "Non-monotonic",
+            "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+            "downstreamDestination": "Feature Engineering",
+            "suggestedTransformations": [
+              "Binning",
+              "No transformation",
+              "Investigate further"
+            ],
+            "evidenceReferences": [
+              "predictors.governed_predictor_artifacts.PercentTradesWBalance.monotonicity.valid_value_shape"
+            ],
+            "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+            "eventRateShape": "9 governed groups; 30%\u201372.9% event rate",
+            "monotonicity": "Non-monotonic",
+            "id": "eda-finding-ovu27z",
+            "status": "open",
+            "importance": 200
+          }
+        ],
+        "affected_variables": [
+          "MSinceMostRecentDelq",
+          "MSinceMostRecentInqexcl7days",
+          "MSinceMostRecentTradeOpen",
+          "MSinceOldestTradeOpen",
+          "NetFractionInstallBurden",
+          "NetFractionRevolvingBurden",
+          "NumInstallTradesWBalance",
+          "NumRevolvingTradesWBalance",
+          "NumSatisfactoryTrades",
+          "NumTotalTrades",
+          "NumTrades60Ever2DerogPubRec",
+          "PercentInstallTrades",
+          "PercentTradesWBalance"
+        ],
+        "evidence_references": [
+          "predictors.governed_predictor_artifacts.MSinceMostRecentDelq.monotonicity.valid_value_shape",
+          "predictors.governed_predictor_artifacts.MSinceMostRecentInqexcl7days.monotonicity.valid_value_shape",
+          "predictors.governed_predictor_artifacts.MSinceMostRecentTradeOpen.monotonicity.valid_value_shape",
+          "predictors.governed_predictor_artifacts.MSinceOldestTradeOpen.monotonicity.valid_value_shape",
+          "predictors.governed_predictor_artifacts.NetFractionInstallBurden.monotonicity.valid_value_shape",
+          "predictors.governed_predictor_artifacts.NetFractionRevolvingBurden.monotonicity.valid_value_shape",
+          "predictors.governed_predictor_artifacts.NumInstallTradesWBalance.monotonicity.valid_value_shape",
+          "predictors.governed_predictor_artifacts.NumRevolvingTradesWBalance.monotonicity.valid_value_shape",
+          "predictors.governed_predictor_artifacts.NumSatisfactoryTrades.monotonicity.valid_value_shape",
+          "predictors.governed_predictor_artifacts.NumTotalTrades.monotonicity.valid_value_shape",
+          "predictors.governed_predictor_artifacts.NumTrades60Ever2DerogPubRec.monotonicity.valid_value_shape",
+          "predictors.governed_predictor_artifacts.PercentInstallTrades.monotonicity.valid_value_shape",
+          "predictors.governed_predictor_artifacts.PercentTradesWBalance.monotonicity.valid_value_shape"
+        ],
+        "allowed_dispositions": [
+          "unresolved",
+          "accepted",
+          "rejected",
+          "deferred",
+          "documented",
+          "no_action_required"
+        ],
+        "reviewer_disposition": "unresolved",
+        "reviewer_rationale": "",
+        "downstream_destination": "Feature Engineering",
+        "suggested_transformation": "No transformation",
+        "eligible_for_completion": false,
+        "rationale_required": false,
+        "decision_origin": "reviewer",
+        "mutation_applied": false
+      },
+      {
+        "parent_id": "eda-parent-balanced-target",
+        "family": "balanced_target",
+        "title": "Balanced target",
+        "category": "Target",
+        "severity": "info",
+        "requirement": "informational",
+        "child_ids": [
+          "eda-finding-y2e337"
+        ],
+        "child_evidence": [
+          {
+            "title": "bad_flag class balance is measurable",
+            "category": "Target",
+            "severity": "info",
+            "affectedVariables": [
+              "bad_flag"
+            ],
+            "analyticalBasis": "Event prevalence is computed only over non-missing target-bearing rows in the governed development population.",
+            "metricLabel": "Event rate",
+            "metricValue": "52.2% (2,620 events / 5,020 target-bearing rows)",
+            "recommendedAction": "Carry the observed prevalence into split design and model evaluation.",
+            "downstreamDestination": "Balance and Split",
+            "suggestedTransformations": [
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "target.governed_target_artifact.event_rate"
+            ],
+            "documentationImpact": "Development class balance and the selected evaluation implications enter the target narrative.",
+            "id": "eda-finding-y2e337",
+            "status": "open",
+            "importance": 100
+          }
+        ],
+        "affected_variables": [
+          "bad_flag"
+        ],
+        "evidence_references": [
+          "target.governed_target_artifact.event_rate"
+        ],
+        "allowed_dispositions": [
+          "unresolved",
+          "accepted",
+          "rejected",
+          "deferred",
+          "documented",
+          "no_action_required",
+          "not_applicable"
+        ],
+        "reviewer_disposition": "no_action_required",
+        "reviewer_rationale": "The observed class balance is documented for downstream validation design; no EDA treatment is required.",
+        "downstream_destination": "Balance and Split",
+        "suggested_transformation": "No transformation",
+        "eligible_for_completion": true,
+        "rationale_required": false,
+        "decision_origin": "reviewer",
+        "mutation_applied": false
+      },
+      {
+        "parent_id": "eda-parent-stability-segments-unavailable",
+        "family": "stability_segments_unavailable",
+        "title": "Stability and Segments unavailable",
+        "category": "Stability",
+        "severity": "info",
+        "requirement": "informational",
+        "child_ids": [
+          "eda-finding-192ltkz"
+        ],
+        "child_evidence": [
+          {
+            "title": "Stability and segment analysis is unavailable for this dataset",
+            "category": "Stability",
+            "severity": "info",
+            "affectedVariables": [],
+            "analyticalBasis": "No governed observation-date or reusable business-segment field was selected or returned. ATLAS did not invent time or segment results.",
+            "metricLabel": "Available governed analyses",
+            "metricValue": "0 time / 0 segment",
+            "recommendedAction": "Register an observation date or designate approved cohort, product, channel, or region metadata in a future dataset version.",
+            "downstreamDestination": "Documentation",
+            "suggestedTransformations": [
+              "No transformation"
+            ],
+            "evidenceReferences": [
+              "stability.time_profile",
+              "stability.segment_profile"
+            ],
+            "documentationImpact": "The approved EDA record states that stability evidence is unavailable and does not block confirmation.",
+            "id": "eda-finding-192ltkz",
+            "status": "open",
+            "importance": 100
+          }
+        ],
+        "affected_variables": [],
+        "evidence_references": [
+          "stability.segment_profile",
+          "stability.time_profile"
+        ],
+        "allowed_dispositions": [
+          "unresolved",
+          "accepted",
+          "rejected",
+          "deferred",
+          "documented",
+          "no_action_required",
+          "not_applicable"
+        ],
+        "reviewer_disposition": "not_applicable",
+        "reviewer_rationale": "No governed time or segment field and no approved comparison population are available. Time stability, segment comparison, drift, and PSI are not assessed.",
+        "downstream_destination": "Documentation",
+        "suggested_transformation": "No transformation",
+        "eligible_for_completion": true,
+        "rationale_required": false,
+        "decision_origin": "system_informational_default",
+        "mutation_applied": false
+      }
+    ],
+    "childEvidence": [
+      {
+        "title": "Exact duplicate rows require a governed treatment decision",
+        "category": "Data quality",
+        "severity": "high",
+        "affectedVariables": [],
+        "analyticalBasis": "The development population contains rows that are exact duplicates across the governed analysis frame.",
+        "metricLabel": "Duplicate rows",
+        "metricValue": "279",
+        "recommendedAction": "Confirm whether these are ingestion duplicates or valid repeated observations; record exclusion or retention without mutating data from EDA.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "No transformation",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "findings.findings.exact_duplicate_rows"
+        ],
+        "documentationImpact": "The reviewer decision and rationale enter the EDA decision history and downstream queue.",
+        "id": "eda-finding-c6i235",
+        "status": "open",
+        "importance": 399,
+        "parent_id": "eda-parent-exact-duplicate-rows",
+        "family": "exact_duplicate_rows",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "MSinceMostRecentDelq has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "MSinceMostRecentDelq"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "52.1%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.MSinceMostRecentDelq.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-eezvhn",
+        "status": "open",
+        "importance": 230,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NetFractionInstallBurden has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NetFractionInstallBurden"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "41.4%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.NetFractionInstallBurden.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-jo2q67",
+        "status": "open",
+        "importance": 230,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "MSinceMostRecentInqexcl7days has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "MSinceMostRecentInqexcl7days"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "28.2%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.MSinceMostRecentInqexcl7days.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-bnqouz",
+        "status": "open",
+        "importance": 228,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "PercentTradesNeverDelq has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "PercentTradesNeverDelq"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "14.5%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.PercentTradesNeverDelq.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-12hzeb",
+        "status": "open",
+        "importance": 215,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumInstallTradesWBalance has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NumInstallTradesWBalance"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "14.1%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.NumInstallTradesWBalance.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-8djt1n",
+        "status": "open",
+        "importance": 214,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumBank2NatlTradesWHighUtilization has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NumBank2NatlTradesWHighUtilization"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "10.8%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.NumBank2NatlTradesWHighUtilization.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-1dhmw93",
+        "status": "open",
+        "importance": 211,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "AverageMInFile has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "AverageMInFile"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "9.2%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.AverageMInFile.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-drp7pf",
+        "status": "open",
+        "importance": 209,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "MSinceOldestTradeOpen has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "MSinceOldestTradeOpen"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "8.6%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.MSinceOldestTradeOpen.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-1w2f471",
+        "status": "open",
+        "importance": 209,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NetFractionRevolvingBurden has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NetFractionRevolvingBurden"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "8.4%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.NetFractionRevolvingBurden.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-146beuz",
+        "status": "open",
+        "importance": 208,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumRevolvingTradesWBalance has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NumRevolvingTradesWBalance"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "6.9%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.NumRevolvingTradesWBalance.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-1lsswln",
+        "status": "open",
+        "importance": 207,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "ExternalRiskEstimate has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "ExternalRiskEstimate"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "5.7%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.ExternalRiskEstimate.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-1n0kgyv",
+        "status": "open",
+        "importance": 206,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "MaxDelq2PublicRecLast12M has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "MaxDelq2PublicRecLast12M"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "5.6%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.MaxDelq2PublicRecLast12M.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-1rbw847",
+        "status": "open",
+        "importance": 206,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "MaxDelqEver has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "MaxDelqEver"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "5.6%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.MaxDelqEver.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-1l9bnst",
+        "status": "open",
+        "importance": 206,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "MSinceMostRecentTradeOpen has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "MSinceMostRecentTradeOpen"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "5.6%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.MSinceMostRecentTradeOpen.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-124er7n",
+        "status": "open",
+        "importance": 206,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumInqLast6M has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NumInqLast6M"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "5.6%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.NumInqLast6M.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-170i557",
+        "status": "open",
+        "importance": 206,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumInqLast6Mexcl7days has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NumInqLast6Mexcl7days"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "5.6%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.NumInqLast6Mexcl7days.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-9w7kab",
+        "status": "open",
+        "importance": 206,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumSatisfactoryTrades has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NumSatisfactoryTrades"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "5.6%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.NumSatisfactoryTrades.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-ks6yzn",
+        "status": "open",
+        "importance": 206,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumTotalTrades has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NumTotalTrades"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "5.6%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.NumTotalTrades.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-1jvqcs3",
+        "status": "open",
+        "importance": 206,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumTrades60Ever2DerogPubRec has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NumTrades60Ever2DerogPubRec"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "5.6%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.NumTrades60Ever2DerogPubRec.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-1g7kzgz",
+        "status": "open",
+        "importance": 206,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumTrades90Ever2DerogPubRec has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NumTrades90Ever2DerogPubRec"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "5.6%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.NumTrades90Ever2DerogPubRec.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-8e4n29",
+        "status": "open",
+        "importance": 206,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumTradesOpeninLast12M has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NumTradesOpeninLast12M"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "5.6%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.NumTradesOpeninLast12M.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-1hs9sib",
+        "status": "open",
+        "importance": 206,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "PercentInstallTrades has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "PercentInstallTrades"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "5.6%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.PercentInstallTrades.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-1n6rq0b",
+        "status": "open",
+        "importance": 206,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "PercentTradesWBalance has material bureau special-value prevalence",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "PercentTradesWBalance"
+        ],
+        "analyticalBasis": "Recognized bureau special values are counted separately from nulls and ordinary numeric values in the governed development population.",
+        "metricLabel": "Special-value prevalence",
+        "metricValue": "5.8%",
+        "recommendedAction": "Preserve special values as labeled meaning-bearing categories unless governed evidence supports another treatment.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Special-value separation",
+          "Categorical conversion",
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.PercentTradesWBalance.special_values.groups"
+        ],
+        "documentationImpact": "The accepted semantic treatment enters feature engineering and predictor documentation.",
+        "id": "eda-finding-17lwsgb",
+        "status": "open",
+        "importance": 206,
+        "parent_id": "eda-parent-bureau-special-value-policy",
+        "family": "bureau_special_value_policy",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumTrades60Ever2DerogPubRec and NumTrades90Ever2DerogPubRec are strongly correlated",
+        "category": "Relationships",
+        "severity": "high",
+        "affectedVariables": [
+          "NumTrades60Ever2DerogPubRec",
+          "NumTrades90Ever2DerogPubRec"
+        ],
+        "analyticalBasis": "Pairwise Pearson correlation is calculated over governed development-population numeric predictors with pairwise non-missing support.",
+        "metricLabel": "Correlation",
+        "metricValue": "0.9",
+        "recommendedAction": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "No transformation",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "relationships.governed_relationship_artifact.correlation.NumTrades60Ever2DerogPubRec.NumTrades90Ever2DerogPubRec"
+        ],
+        "documentationImpact": "The reviewer rationale records any retain, drop, or combine recommendation; no action is automatic.",
+        "id": "eda-finding-1501lb4",
+        "status": "open",
+        "importance": 323,
+        "parent_id": "eda-parent-derogatory-public-record-multicollinearity-cluster",
+        "family": "derogatory_public_record_multicollinearity_cluster",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumTrades60Ever2DerogPubRec requires multicollinearity review",
+        "category": "Relationships",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NumTrades60Ever2DerogPubRec"
+        ],
+        "analyticalBasis": "VIF is computed on the governed development-population complete-case predictor cohort; it is a relationship diagnostic, not an exclusion rule.",
+        "metricLabel": "VIF",
+        "metricValue": "5.43",
+        "recommendedAction": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "No transformation",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "relationships.governed_relationship_artifact.vif.NumTrades60Ever2DerogPubRec"
+        ],
+        "documentationImpact": "The accepted relationship decision and rationale enter the MDD relationship narrative.",
+        "id": "eda-finding-173lsnd",
+        "status": "open",
+        "importance": 205,
+        "parent_id": "eda-parent-derogatory-public-record-multicollinearity-cluster",
+        "family": "derogatory_public_record_multicollinearity_cluster",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "ExternalRiskEstimate has unusually high information value",
+        "category": "Predictors",
+        "severity": "high",
+        "affectedVariables": [
+          "ExternalRiskEstimate"
+        ],
+        "analyticalBasis": "IV is calculated from governed development-population target-event aggregates. A high value is a review signal only and is not proof of leakage.",
+        "metricLabel": "Information value",
+        "metricValue": "0.96",
+        "recommendedAction": "Review lineage, availability at decision time, event-rate shape, and target-source status before retaining the predictor.",
+        "downstreamDestination": "Validation",
+        "suggestedTransformations": [
+          "No transformation",
+          "Binning",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.ExternalRiskEstimate.iv"
+        ],
+        "documentationImpact": "The reviewer disposition, rationale, event-rate shape, and leakage evidence enter predictor findings.",
+        "iv": 0.9599223419191865,
+        "eventRateShape": "10 governed groups; 14.3%\u201383.3% event rate",
+        "monotonicity": "Decreasing",
+        "targetSourceStatus": "not_target_source",
+        "leakageEvidence": "No deterministic target-source match. High IV alone does not establish leakage.",
+        "id": "eda-finding-12jqw3q",
+        "status": "open",
+        "importance": 319,
+        "parent_id": "eda-parent-high-iv-strong-signal-review",
+        "family": "high_iv_strong_signal_review",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NetFractionRevolvingBurden has unusually high information value",
+        "category": "Predictors",
+        "severity": "high",
+        "affectedVariables": [
+          "NetFractionRevolvingBurden"
+        ],
+        "analyticalBasis": "IV is calculated from governed development-population target-event aggregates. A high value is a review signal only and is not proof of leakage.",
+        "metricLabel": "Information value",
+        "metricValue": "0.558",
+        "recommendedAction": "Review lineage, availability at decision time, event-rate shape, and target-source status before retaining the predictor.",
+        "downstreamDestination": "Validation",
+        "suggestedTransformations": [
+          "No transformation",
+          "Binning",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.NetFractionRevolvingBurden.iv"
+        ],
+        "documentationImpact": "The reviewer disposition, rationale, event-rate shape, and leakage evidence enter predictor findings.",
+        "iv": 0.5583906004199974,
+        "eventRateShape": "10 governed groups; 27.1%\u201382.9% event rate",
+        "monotonicity": "Non-monotonic",
+        "targetSourceStatus": "not_target_source",
+        "leakageEvidence": "No deterministic target-source match. High IV alone does not establish leakage.",
+        "id": "eda-finding-ij0buy",
+        "status": "open",
+        "importance": 311,
+        "parent_id": "eda-parent-high-iv-strong-signal-review",
+        "family": "high_iv_strong_signal_review",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumInqLast6M requires multicollinearity review",
+        "category": "Relationships",
+        "severity": "high",
+        "affectedVariables": [
+          "NumInqLast6M"
+        ],
+        "analyticalBasis": "VIF is computed on the governed development-population complete-case predictor cohort; it is a relationship diagnostic, not an exclusion rule.",
+        "metricLabel": "VIF",
+        "metricValue": "62.41",
+        "recommendedAction": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "No transformation",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "relationships.governed_relationship_artifact.vif.NumInqLast6M"
+        ],
+        "documentationImpact": "The accepted relationship decision and rationale enter the MDD relationship narrative.",
+        "id": "eda-finding-xg51d3",
+        "status": "open",
+        "importance": 350,
+        "parent_id": "eda-parent-inquiry-multicollinearity-cluster",
+        "family": "inquiry_multicollinearity_cluster",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumInqLast6Mexcl7days requires multicollinearity review",
+        "category": "Relationships",
+        "severity": "high",
+        "affectedVariables": [
+          "NumInqLast6Mexcl7days"
+        ],
+        "analyticalBasis": "VIF is computed on the governed development-population complete-case predictor cohort; it is a relationship diagnostic, not an exclusion rule.",
+        "metricLabel": "VIF",
+        "metricValue": "62.62",
+        "recommendedAction": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "No transformation",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "relationships.governed_relationship_artifact.vif.NumInqLast6Mexcl7days"
+        ],
+        "documentationImpact": "The accepted relationship decision and rationale enter the MDD relationship narrative.",
+        "id": "eda-finding-1plnnl5",
+        "status": "open",
+        "importance": 350,
+        "parent_id": "eda-parent-inquiry-multicollinearity-cluster",
+        "family": "inquiry_multicollinearity_cluster",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumInqLast6M and NumInqLast6Mexcl7days are strongly correlated",
+        "category": "Relationships",
+        "severity": "high",
+        "affectedVariables": [
+          "NumInqLast6M",
+          "NumInqLast6Mexcl7days"
+        ],
+        "analyticalBasis": "Pairwise Pearson correlation is calculated over governed development-population numeric predictors with pairwise non-missing support.",
+        "metricLabel": "Correlation",
+        "metricValue": "0.992",
+        "recommendedAction": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "No transformation",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "relationships.governed_relationship_artifact.correlation.NumInqLast6M.NumInqLast6Mexcl7days"
+        ],
+        "documentationImpact": "The reviewer rationale records any retain, drop, or combine recommendation; no action is automatic.",
+        "id": "eda-finding-kj5290",
+        "status": "open",
+        "importance": 325,
+        "parent_id": "eda-parent-inquiry-multicollinearity-cluster",
+        "family": "inquiry_multicollinearity_cluster",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumTotalTrades and NumSatisfactoryTrades are strongly correlated",
+        "category": "Relationships",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NumTotalTrades",
+          "NumSatisfactoryTrades"
+        ],
+        "analyticalBasis": "Pairwise Pearson correlation is calculated over governed development-population numeric predictors with pairwise non-missing support.",
+        "metricLabel": "Correlation",
+        "metricValue": "0.844",
+        "recommendedAction": "Inspect overlap, business meaning, and VIF before deciding to retain, drop, or combine either predictor.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "No transformation",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "relationships.governed_relationship_artifact.correlation.NumTotalTrades.NumSatisfactoryTrades"
+        ],
+        "documentationImpact": "The reviewer rationale records any retain, drop, or combine recommendation; no action is automatic.",
+        "id": "eda-finding-yl10wo",
+        "status": "open",
+        "importance": 221,
+        "parent_id": "eda-parent-other-correlated-feature-groups",
+        "family": "other_correlated_feature_groups",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumSatisfactoryTrades requires multicollinearity review",
+        "category": "Relationships",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NumSatisfactoryTrades"
+        ],
+        "analyticalBasis": "VIF is computed on the governed development-population complete-case predictor cohort; it is a relationship diagnostic, not an exclusion rule.",
+        "metricLabel": "VIF",
+        "metricValue": "6.44",
+        "recommendedAction": "Review correlated partners and run a non-mutating exclusion scenario before recording a downstream recommendation.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "No transformation",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "relationships.governed_relationship_artifact.vif.NumSatisfactoryTrades"
+        ],
+        "documentationImpact": "The accepted relationship decision and rationale enter the MDD relationship narrative.",
+        "id": "eda-finding-1r9hded",
+        "status": "open",
+        "importance": 206,
+        "parent_id": "eda-parent-other-correlated-feature-groups",
+        "family": "other_correlated_feature_groups",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "MSinceMostRecentDelq has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "MSinceMostRecentDelq"
+        ],
+        "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+        "metricLabel": "Monotonicity",
+        "metricValue": "Non-monotonic",
+        "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Binning",
+          "No transformation",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.MSinceMostRecentDelq.monotonicity.valid_value_shape"
+        ],
+        "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "eventRateShape": "10 governed groups; 46.8%\u201374.9% event rate",
+        "monotonicity": "Non-monotonic",
+        "id": "eda-finding-chslxr",
+        "status": "open",
+        "importance": 200,
+        "parent_id": "eda-parent-valid-value-monotonicity-review",
+        "family": "valid_value_monotonicity_review",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "MSinceMostRecentInqexcl7days has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "MSinceMostRecentInqexcl7days"
+        ],
+        "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+        "metricLabel": "Monotonicity",
+        "metricValue": "Non-monotonic",
+        "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Binning",
+          "No transformation",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.MSinceMostRecentInqexcl7days.monotonicity.valid_value_shape"
+        ],
+        "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "eventRateShape": "4 governed groups; 27.7%\u201358.3% event rate",
+        "monotonicity": "Non-monotonic",
+        "id": "eda-finding-fud5sv",
+        "status": "open",
+        "importance": 200,
+        "parent_id": "eda-parent-valid-value-monotonicity-review",
+        "family": "valid_value_monotonicity_review",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "MSinceMostRecentTradeOpen has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "MSinceMostRecentTradeOpen"
+        ],
+        "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+        "metricLabel": "Monotonicity",
+        "metricValue": "Non-monotonic",
+        "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Binning",
+          "No transformation",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.MSinceMostRecentTradeOpen.monotonicity.valid_value_shape"
+        ],
+        "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "eventRateShape": "9 governed groups; 42%\u201357.6% event rate",
+        "monotonicity": "Non-monotonic",
+        "id": "eda-finding-1rkv8ov",
+        "status": "open",
+        "importance": 200,
+        "parent_id": "eda-parent-valid-value-monotonicity-review",
+        "family": "valid_value_monotonicity_review",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "MSinceOldestTradeOpen has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "MSinceOldestTradeOpen"
+        ],
+        "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+        "metricLabel": "Monotonicity",
+        "metricValue": "Non-monotonic",
+        "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Binning",
+          "No transformation",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.MSinceOldestTradeOpen.monotonicity.valid_value_shape"
+        ],
+        "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "eventRateShape": "10 governed groups; 33.3%\u201377.2% event rate",
+        "monotonicity": "Non-monotonic",
+        "id": "eda-finding-159l90t",
+        "status": "open",
+        "importance": 200,
+        "parent_id": "eda-parent-valid-value-monotonicity-review",
+        "family": "valid_value_monotonicity_review",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NetFractionInstallBurden has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NetFractionInstallBurden"
+        ],
+        "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+        "metricLabel": "Monotonicity",
+        "metricValue": "Non-monotonic",
+        "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Binning",
+          "No transformation",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.NetFractionInstallBurden.monotonicity.valid_value_shape"
+        ],
+        "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "eventRateShape": "10 governed groups; 46.6%\u201365.7% event rate",
+        "monotonicity": "Non-monotonic",
+        "id": "eda-finding-1ytdpdn",
+        "status": "open",
+        "importance": 200,
+        "parent_id": "eda-parent-valid-value-monotonicity-review",
+        "family": "valid_value_monotonicity_review",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NetFractionRevolvingBurden has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NetFractionRevolvingBurden"
+        ],
+        "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+        "metricLabel": "Monotonicity",
+        "metricValue": "Non-monotonic",
+        "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Binning",
+          "No transformation",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.NetFractionRevolvingBurden.monotonicity.valid_value_shape"
+        ],
+        "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "eventRateShape": "10 governed groups; 27.1%\u201382.9% event rate",
+        "monotonicity": "Non-monotonic",
+        "id": "eda-finding-t074qz",
+        "status": "open",
+        "importance": 200,
+        "parent_id": "eda-parent-valid-value-monotonicity-review",
+        "family": "valid_value_monotonicity_review",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumInstallTradesWBalance has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NumInstallTradesWBalance"
+        ],
+        "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+        "metricLabel": "Monotonicity",
+        "metricValue": "Non-monotonic",
+        "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Binning",
+          "No transformation",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.NumInstallTradesWBalance.monotonicity.valid_value_shape"
+        ],
+        "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "eventRateShape": "4 governed groups; 50.1%\u201358.2% event rate",
+        "monotonicity": "Non-monotonic",
+        "id": "eda-finding-de2d83",
+        "status": "open",
+        "importance": 200,
+        "parent_id": "eda-parent-valid-value-monotonicity-review",
+        "family": "valid_value_monotonicity_review",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumRevolvingTradesWBalance has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NumRevolvingTradesWBalance"
+        ],
+        "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+        "metricLabel": "Monotonicity",
+        "metricValue": "Non-monotonic",
+        "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Binning",
+          "No transformation",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.NumRevolvingTradesWBalance.monotonicity.valid_value_shape"
+        ],
+        "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "eventRateShape": "8 governed groups; 45.1%\u201363.6% event rate",
+        "monotonicity": "Non-monotonic",
+        "id": "eda-finding-1g8s4b3",
+        "status": "open",
+        "importance": 200,
+        "parent_id": "eda-parent-valid-value-monotonicity-review",
+        "family": "valid_value_monotonicity_review",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumSatisfactoryTrades has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NumSatisfactoryTrades"
+        ],
+        "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+        "metricLabel": "Monotonicity",
+        "metricValue": "Non-monotonic",
+        "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Binning",
+          "No transformation",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.NumSatisfactoryTrades.monotonicity.valid_value_shape"
+        ],
+        "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "eventRateShape": "10 governed groups; 43.9%\u201370.6% event rate",
+        "monotonicity": "Non-monotonic",
+        "id": "eda-finding-ynd2k7",
+        "status": "open",
+        "importance": 200,
+        "parent_id": "eda-parent-valid-value-monotonicity-review",
+        "family": "valid_value_monotonicity_review",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumTotalTrades has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NumTotalTrades"
+        ],
+        "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+        "metricLabel": "Monotonicity",
+        "metricValue": "Non-monotonic",
+        "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Binning",
+          "No transformation",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.NumTotalTrades.monotonicity.valid_value_shape"
+        ],
+        "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "eventRateShape": "10 governed groups; 44.8%\u201365.1% event rate",
+        "monotonicity": "Non-monotonic",
+        "id": "eda-finding-1nnkyen",
+        "status": "open",
+        "importance": 200,
+        "parent_id": "eda-parent-valid-value-monotonicity-review",
+        "family": "valid_value_monotonicity_review",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "NumTrades60Ever2DerogPubRec has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "NumTrades60Ever2DerogPubRec"
+        ],
+        "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+        "metricLabel": "Monotonicity",
+        "metricValue": "Non-monotonic",
+        "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Binning",
+          "No transformation",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.NumTrades60Ever2DerogPubRec.monotonicity.valid_value_shape"
+        ],
+        "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "eventRateShape": "3 governed groups; 48.8%\u201373.6% event rate",
+        "monotonicity": "Non-monotonic",
+        "id": "eda-finding-1kyf1vj",
+        "status": "open",
+        "importance": 200,
+        "parent_id": "eda-parent-valid-value-monotonicity-review",
+        "family": "valid_value_monotonicity_review",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "PercentInstallTrades has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "PercentInstallTrades"
+        ],
+        "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+        "metricLabel": "Monotonicity",
+        "metricValue": "Non-monotonic",
+        "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Binning",
+          "No transformation",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.PercentInstallTrades.monotonicity.valid_value_shape"
+        ],
+        "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "eventRateShape": "10 governed groups; 44.1%\u201370.4% event rate",
+        "monotonicity": "Non-monotonic",
+        "id": "eda-finding-81b05n",
+        "status": "open",
+        "importance": 200,
+        "parent_id": "eda-parent-valid-value-monotonicity-review",
+        "family": "valid_value_monotonicity_review",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "PercentTradesWBalance has a non-monotonic target shape",
+        "category": "Predictors",
+        "severity": "moderate",
+        "affectedVariables": [
+          "PercentTradesWBalance"
+        ],
+        "analyticalBasis": "Governed development-population quantile or level aggregates change direction across the observed event-rate shape.",
+        "metricLabel": "Monotonicity",
+        "metricValue": "Non-monotonic",
+        "recommendedAction": "Review whether governed binning improves interpretability without hiding meaningful non-linearity.",
+        "downstreamDestination": "Feature Engineering",
+        "suggestedTransformations": [
+          "Binning",
+          "No transformation",
+          "Investigate further"
+        ],
+        "evidenceReferences": [
+          "predictors.governed_predictor_artifacts.PercentTradesWBalance.monotonicity.valid_value_shape"
+        ],
+        "documentationImpact": "An accepted recommendation enters the feature-engineering queue as a draft, never an automatic mutation.",
+        "eventRateShape": "9 governed groups; 30%\u201372.9% event rate",
+        "monotonicity": "Non-monotonic",
+        "id": "eda-finding-ovu27z",
+        "status": "open",
+        "importance": 200,
+        "parent_id": "eda-parent-valid-value-monotonicity-review",
+        "family": "valid_value_monotonicity_review",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "bad_flag class balance is measurable",
+        "category": "Target",
+        "severity": "info",
+        "affectedVariables": [
+          "bad_flag"
+        ],
+        "analyticalBasis": "Event prevalence is computed only over non-missing target-bearing rows in the governed development population.",
+        "metricLabel": "Event rate",
+        "metricValue": "52.2% (2,620 events / 5,020 target-bearing rows)",
+        "recommendedAction": "Carry the observed prevalence into split design and model evaluation.",
+        "downstreamDestination": "Balance and Split",
+        "suggestedTransformations": [
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "target.governed_target_artifact.event_rate"
+        ],
+        "documentationImpact": "Development class balance and the selected evaluation implications enter the target narrative.",
+        "id": "eda-finding-y2e337",
+        "status": "open",
+        "importance": 100,
+        "parent_id": "eda-parent-balanced-target",
+        "family": "balanced_target",
+        "immutable": true,
+        "mutation_applied": false
+      },
+      {
+        "title": "Stability and segment analysis is unavailable for this dataset",
+        "category": "Stability",
+        "severity": "info",
+        "affectedVariables": [],
+        "analyticalBasis": "No governed observation-date or reusable business-segment field was selected or returned. ATLAS did not invent time or segment results.",
+        "metricLabel": "Available governed analyses",
+        "metricValue": "0 time / 0 segment",
+        "recommendedAction": "Register an observation date or designate approved cohort, product, channel, or region metadata in a future dataset version.",
+        "downstreamDestination": "Documentation",
+        "suggestedTransformations": [
+          "No transformation"
+        ],
+        "evidenceReferences": [
+          "stability.time_profile",
+          "stability.segment_profile"
+        ],
+        "documentationImpact": "The approved EDA record states that stability evidence is unavailable and does not block confirmation.",
+        "id": "eda-finding-192ltkz",
+        "status": "open",
+        "importance": 100,
+        "parent_id": "eda-parent-stability-segments-unavailable",
+        "family": "stability_segments_unavailable",
+        "immutable": true,
+        "mutation_applied": false
+      }
+    ],
+    "sourceFindings": [
+      {
+        "category": "Data integrity",
+        "severity": "warning",
+        "finding": "279 duplicate rows were detected.",
+        "recommended_action": "Confirm whether duplicate records represent repeated observations or ingestion duplication."
+      }
+    ],
+    "findingGroups": [
+      {
+        "family": "exact_duplicate_rows",
+        "title": "Exact duplicate rows",
+        "parent_ids": [
+          "eda-parent-exact-duplicate-rows"
+        ],
+        "child_count": 1,
+        "requirement": "blocker"
+      },
+      {
+        "family": "bureau_special_value_policy",
+        "title": "Bureau special-value policy",
+        "parent_ids": [
+          "eda-parent-bureau-special-value-policy"
+        ],
+        "child_count": 23,
+        "requirement": "required"
+      },
+      {
+        "family": "derogatory_public_record_multicollinearity_cluster",
+        "title": "Derogatory-public-record multicollinearity cluster",
+        "parent_ids": [
+          "eda-parent-derogatory-public-record-multicollinearity-cluster"
+        ],
+        "child_count": 2,
+        "requirement": "required"
+      },
+      {
+        "family": "high_iv_strong_signal_review",
+        "title": "High-IV and strong-signal review",
+        "parent_ids": [
+          "eda-parent-high-iv-strong-signal-review"
+        ],
+        "child_count": 2,
+        "requirement": "required"
+      },
+      {
+        "family": "inquiry_multicollinearity_cluster",
+        "title": "Inquiry-variable multicollinearity cluster",
+        "parent_ids": [
+          "eda-parent-inquiry-multicollinearity-cluster"
+        ],
+        "child_count": 3,
+        "requirement": "required"
+      },
+      {
+        "family": "other_correlated_feature_groups",
+        "title": "Other correlated feature groups",
+        "parent_ids": [
+          "eda-parent-other-correlated-feature-groups"
+        ],
+        "child_count": 2,
+        "requirement": "required"
+      },
+      {
+        "family": "valid_value_monotonicity_review",
+        "title": "Valid-value monotonicity review",
+        "parent_ids": [
+          "eda-parent-valid-value-monotonicity-review"
+        ],
+        "child_count": 13,
+        "requirement": "required"
+      },
+      {
+        "family": "balanced_target",
+        "title": "Balanced target",
+        "parent_ids": [
+          "eda-parent-balanced-target"
+        ],
+        "child_count": 1,
+        "requirement": "informational"
+      },
+      {
+        "family": "stability_segments_unavailable",
+        "title": "Stability and Segments unavailable",
+        "parent_ids": [
+          "eda-parent-stability-segments-unavailable"
+        ],
+        "child_count": 1,
+        "requirement": "informational"
+      }
+    ],
+    "carryForward": [],
+    "automaticTransformationsApplied": false,
+    "userCommentary": "Generated from governed EDA evidence for reviewer editing. This draft does not approve EDA or change any disposition. Stability and Segments unavailable is documented as not applicable.",
+    "overallConclusion": "48 immutable analytical records were consolidated into 9 decision-oriented parent findings. 7 required parent findings remain unresolved.",
+    "findingStatus": "draft",
+    "duplicateTreatment": "exclude",
+    "duplicateDecisionSavedAt": "2026-08-03T15:39:05.154Z"
+  },
+  "projectId": "atlas-mrzpau4t",
+  "datasetIds": [
+    "ds_heloc_train_6bdb184b_05905"
+  ],
+  "governance": {},
+  "regulatoryRelevance": {},
+  "creditRiskContext": {},
+  "createdAt": "2026-08-03T16:26:58.933313+00:00",
+  "updatedAt": "2026-08-03T16:26:58.933313+00:00",
+  "createdBy": "ATLAS",
+  "qualityScore": 86
+}

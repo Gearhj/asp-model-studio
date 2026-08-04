@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   Activity,
   AlertTriangle,
@@ -24,6 +25,7 @@ import {
   AtlasAttentionPanel,
   AtlasDataScopeBadge,
   AtlasWorkflowSection,
+  type AtlasDataScope,
 } from "../components/ui/AtlasWorkflow";
 import { createEvidence } from "../lib/evidenceGraph";
 import { logDecision } from "../lib/decisionJournal";
@@ -58,6 +60,7 @@ import { recordEdaPerformance } from "../visual-intelligence/performance";
 import { writeEdaCodeContextSeed } from "../lib/codeContextSafety";
 import {
   confirmEdaDocumentation,
+  EdaDocumentationRequestError,
   getEdaDocumentationState,
   saveEdaDocumentationDraft,
   type EdaDocumentationEvidenceReference,
@@ -86,6 +89,8 @@ import {
   type EdaCompletionBlocker,
   type EdaWorkspaceTab,
 } from "../lib/edaWorkspaceNavigation";
+import { readBlockedEdaWorkspaceReadiness } from "../lib/edaWorkspaceReadiness";
+import { projectWorkflowRoute } from "../lib/projectScopedRoutes";
 import {
   normalizeVifResolutionPlan,
   type VifResolutionDecisionRequest,
@@ -113,7 +118,7 @@ const DOCUMENTATION_SECTIONS: EDATab[] = [
 ];
 
 type EDATab = EdaWorkspaceTab;
-type Scope = "full_dataset" | "complete_browser_dataset" | "preview_profile" | "rendered_sample" | "training_pipeline" | "unavailable";
+type Scope = AtlasDataScope;
 
 type WorkspaceResponse = {
   ok: boolean;
@@ -142,7 +147,148 @@ type EDAErrorState = {
   code?: string;
   recovery?: string;
   technical?: string;
+  domain:
+    | "analysis_partition"
+    | "identity"
+    | "authorization"
+    | "route"
+    | "server"
+    | "transport";
+  retryable?: boolean;
 };
+
+const EDA_READINESS_GUIDANCE: Record<
+  string,
+  { title: string; message: string; recovery: string; domain: EDAErrorState["domain"] }
+> = {
+  analysis_partition_required: {
+    title: "Analysis Partition confirmation required",
+    message: "The registered dataset is active, but its governed development and final-holdout partition has not been confirmed.",
+    recovery: "Return to Data Acquisition, choose the governed development/final-holdout ratio, and confirm it explicitly.",
+    domain: "analysis_partition",
+  },
+  analysis_partition_stale: {
+    title: "Analysis Partition is stale",
+    message: "The governed dataset, target contract, or predictor authorization changed after this Analysis Partition was sealed.",
+    recovery: "Return to Data Acquisition and confirm a current Analysis Partition for the exact active identity.",
+    domain: "analysis_partition",
+  },
+  analysis_partition_contradictory: {
+    title: "Analysis Partition identity conflict",
+    message: "The stored Analysis Partition does not match the exact active dataset and target contract.",
+    recovery: "Return to Data Acquisition and resolve the displayed Analysis Partition identity conflict.",
+    domain: "analysis_partition",
+  },
+  predictor_authorization_required: {
+    title: "Predictor authorization required",
+    message: "EDA cannot begin until the governed predictor set is authorized for the development population.",
+    recovery: "Return to Data Acquisition, approve eligible predictors, and confirm the Analysis Partition.",
+    domain: "analysis_partition",
+  },
+  target_contract_stale: {
+    title: "Target contract is not current",
+    message: "The target or event mapping no longer matches the sealed Analysis Partition.",
+    recovery: "Return to Data Acquisition, confirm the target mapping, and then confirm the Analysis Partition.",
+    domain: "analysis_partition",
+  },
+  dataset_identity_unavailable: {
+    title: "Governed dataset identity unavailable",
+    message: "EDA could not verify the exact active Dataset Library version for this project.",
+    recovery: "Return to Data Acquisition and explicitly activate the exact linked dataset version.",
+    domain: "identity",
+  },
+  analysis_partition_integrity_failed: {
+    title: "Analysis Partition integrity check failed",
+    message: "The sealed row assignment or holdout-isolation checksum could not be verified.",
+    recovery: "Stop analysis and ask an administrator to review the governed partition artifact.",
+    domain: "analysis_partition",
+  },
+};
+
+function normalizeEdaRequestError(input: {
+  endpoint: string;
+  status: number;
+  payload: unknown;
+  section: EDATab;
+}): EDAErrorState {
+  const envelope = safeObject(input.payload);
+  const rawDetail = envelope.detail;
+  const detail = safeObject(rawDetail);
+  const code = String(
+    detail.code ??
+      envelope.code ??
+      (input.status === 404 ? "eda_route_unavailable" : "eda_request_failed"),
+  );
+  const guidance = EDA_READINESS_GUIDANCE[code];
+  const rawMessage =
+    (typeof rawDetail === "string" ? rawDetail : detail.message ?? detail.detail) ??
+    envelope.message ??
+    envelope.error;
+
+  if (guidance) {
+    return {
+      endpoint: input.endpoint,
+      status: input.status,
+      code,
+      domain: guidance.domain,
+      message: String(rawMessage ?? guidance.message),
+      recovery: String(detail.recovery ?? envelope.recovery ?? guidance.recovery),
+      retryable: code !== "analysis_partition_integrity_failed",
+      technical: JSON.stringify(input.payload ?? { status: input.status }, null, 2),
+    };
+  }
+  if (input.status === 401 || input.status === 403) {
+    return {
+      endpoint: input.endpoint,
+      status: input.status,
+      code,
+      domain: "authorization",
+      message: String(rawMessage ?? "Your session is not authorized to load governed EDA."),
+      recovery: "Sign in again or ask a project administrator to confirm access.",
+      retryable: true,
+    };
+  }
+  if (input.status === 404) {
+    return {
+      endpoint: input.endpoint,
+      status: input.status,
+      code,
+      domain: "route",
+      message: String(rawMessage ?? "The EDA backend route is unavailable."),
+      recovery: "Confirm the running FastAPI backend includes the EDA router, then retry.",
+      retryable: true,
+    };
+  }
+  if (input.status === 409) {
+    return {
+      endpoint: input.endpoint,
+      status: input.status,
+      code,
+      domain: "analysis_partition",
+      message: String(rawMessage ?? "The governed EDA analytical prerequisites are not current."),
+      recovery: String(
+        detail.recovery ??
+          envelope.recovery ??
+          "Return to Data Acquisition and confirm the current Analysis Partition.",
+      ),
+      retryable: true,
+      technical: JSON.stringify(input.payload ?? { status: input.status }, null, 2),
+    };
+  }
+  return {
+    endpoint: input.endpoint,
+    status: input.status,
+    code,
+    domain: input.status >= 500 ? "server" : "transport",
+    message: String(rawMessage ?? `EDA ${input.section} analysis failed.`),
+    recovery:
+      input.status >= 500
+        ? "The governed identity remains selected. Retry the analysis; if the error persists, review the safe server log."
+        : "Review the request and retry.",
+    retryable: true,
+    technical: JSON.stringify(input.payload ?? { status: input.status }, null, 2),
+  };
+}
 
 type EdaQuickSummaryItem = {
   label: string;
@@ -418,6 +564,7 @@ export default function Step02EDA() {
       setError({
         endpoint: `${API_BASE}/eda/workspace/${section}`,
         code: "missing_canonical_identity",
+        domain: "identity",
         message: datasetIdentityResolution.error,
         recovery:
           "Return to Data Acquisition and activate the exact registered Dataset Library version.",
@@ -441,20 +588,14 @@ export default function Step02EDA() {
       const payload = await response.json().catch(() => null);
       if (requestSequence.current[section] !== sequence) return null;
       if (!response.ok || !payload?.ok) {
-        const detail = safeObject(payload?.detail);
-        setError({
-          endpoint,
-          status: response.status,
-          code: String(detail.code ?? payload?.code ?? (response.status === 404 ? "eda_route_unavailable" : "eda_request_failed")),
-          message: String(
-            detail.message ??
-              payload?.message ??
-              payload?.error ??
-              (response.status === 404 ? "EDA service route is unavailable. Confirm the FastAPI backend includes the EDA router." : `EDA ${section} analysis failed.`),
-          ),
-          recovery: String(detail.recovery ?? "Return to Data Acquisition and re-register the dataset, or retry after confirming the backend is running."),
-          technical: JSON.stringify(payload ?? { status: response.status }, null, 2),
-        });
+        setError(
+          normalizeEdaRequestError({
+            endpoint,
+            status: response.status,
+            payload,
+            section,
+          }),
+        );
         return null;
       }
       assertExactDatasetIdentity(
@@ -462,6 +603,43 @@ export default function Step02EDA() {
         payload,
         `EDA ${section} workspace response`,
       );
+      const blockedReadiness = readBlockedEdaWorkspaceReadiness(payload);
+      if (blockedReadiness) {
+        const guidance = EDA_READINESS_GUIDANCE[blockedReadiness.code];
+        // HTTP 200 structural-only readiness is not an analytical Overview.
+        // Clear any previously loaded analysis and documentation so neither can
+        // render or restart while the Analysis Partition is blocked.
+        setSections({});
+        setDocumentationState(null);
+        setDocumentationEvidence([]);
+        setDocumentationMessage("");
+        setDocumentationHydrated(true);
+        lastDraftVersion.current = "";
+        setError({
+          endpoint,
+          status: response.status,
+          code: blockedReadiness.code,
+          domain: guidance?.domain ?? "analysis_partition",
+          message: blockedReadiness.message,
+          recovery: blockedReadiness.recovery,
+          retryable:
+            blockedReadiness.code !== "analysis_partition_integrity_failed",
+          technical: JSON.stringify(
+            {
+              response_mode: "partial_readiness",
+              code: blockedReadiness.code,
+              target_directed_available: false,
+              structural_overview_available:
+                blockedReadiness.structuralOverviewAvailable,
+              final_holdout_accessed: blockedReadiness.finalHoldoutAccessed,
+              stale_artifacts: blockedReadiness.staleArtifacts,
+            },
+            null,
+            2,
+          ),
+        });
+        return null;
+      }
       writeEdaCodeContextSeed(projectId, {
         datasetId: datasetIdentity.dataset_id,
         datasetVersion: datasetIdentity.dataset_version_id,
@@ -494,8 +672,10 @@ export default function Step02EDA() {
       setError({
         endpoint,
         code: "eda_backend_unavailable",
+        domain: "transport",
         message: cause instanceof Error ? cause.message : "ATLAS could not load this EDA section.",
-        recovery: "Confirm the FastAPI backend is running, then retry. If the backend restarted, return to Data Acquisition and re-register the dataset.",
+        recovery: "Confirm the FastAPI backend is running, then retry the exact governed request.",
+        retryable: true,
       });
       return null;
     } finally {
@@ -557,6 +737,7 @@ export default function Step02EDA() {
       setError({
         endpoint: `${API_BASE}/eda/workspace/overview`,
         code: "missing_canonical_identity",
+        domain: "identity",
         message: datasetIdentityResolution.error,
         recovery:
           "Return to Data Acquisition and activate the exact registered Dataset Library version.",
@@ -573,7 +754,7 @@ export default function Step02EDA() {
   ]);
 
   useEffect(() => {
-    if (activeTab !== "overview" && datasetIdentity) {
+    if (activeTab !== "overview" && datasetIdentity && overview) {
       void loadSection(activeTab, true);
     }
     // Configuration-specific refreshes are handled by explicit actions below.
@@ -583,6 +764,7 @@ export default function Step02EDA() {
     datasetIdentity?.project_id,
     datasetIdentity?.dataset_id,
     datasetIdentity?.dataset_version_id,
+    overview,
   ]);
 
   useEffect(() => {
@@ -627,6 +809,14 @@ export default function Step02EDA() {
       setDocumentationHydrated(true);
       return () => controller.abort();
     }
+    // Documentation is downstream of the governed analytical contract. Do not
+    // launch a parallel documentation request while the overview is blocked;
+    // doing so previously let a secondary 500 obscure the actionable partition
+    // 409 that the analyst needed to resolve first.
+    if (!overview) {
+      setDocumentationHydrated(true);
+      return () => controller.abort();
+    }
     getEdaDocumentationState(projectId, datasetIdentity, controller.signal)
       .then((state) => {
         if (cancelled) return;
@@ -644,7 +834,9 @@ export default function Step02EDA() {
       .catch((cause) => {
         if (cancelled || controller.signal.aborted) return;
         setDocumentationMessage(
-          cause instanceof Error
+          cause instanceof EdaDocumentationRequestError && cause.status === 409
+            ? `${cause.message} ${cause.recovery || "Complete the current Analysis Partition and refresh EDA."}`.trim()
+            : cause instanceof Error
             ? cause.message
             : "ATLAS could not load the governed EDA documentation state.",
         );
@@ -656,7 +848,14 @@ export default function Step02EDA() {
       cancelled = true;
       controller.abort();
     };
-  }, [datasetIdentity, datasetIdentityResolution.error, projectId]);
+  }, [
+    datasetIdentity,
+    datasetIdentityResolution.error,
+    overview?.dataset_id,
+    overview?.dataset_version_id,
+    overview?.target,
+    projectId,
+  ]);
 
   const buildDocumentation = useCallback(
     (
@@ -829,14 +1028,20 @@ export default function Step02EDA() {
         projectName,
         evidenceType: "eda",
         title: "Governed Exploratory Data Analysis",
-        summary: `Full Governed Population EDA for ${resolvedOverview.target} across ${resolvedOverview.row_count.toLocaleString()} registered rows.`,
+        summary: `Governed mixed-scope EDA for ${resolvedOverview.target}: target-directed metrics use the Development Population; structural diagnostics cover ${resolvedOverview.row_count.toLocaleString()} registered rows.`,
         sourcePage: "Exploratory Data Analysis",
         sourceRoute: "/step02",
         modelIds: [],
         documentIds: [],
         notebookIds: [],
         supportsSections: ["Exploratory Data Analysis", "Data Quality", "Feature Engineering"],
-        tags: ["predictive_modeling", "eda", "full_dataset"],
+        tags: [
+          "predictive_modeling",
+          "eda",
+          "development_target",
+          "full_population_structure",
+          "mixed_scope",
+        ],
         status: isEdaOverallStatusEligible(findings.status)
           ? "ready"
           : "needs_review",
@@ -1206,8 +1411,10 @@ export default function Step02EDA() {
     : undefined;
   const documentationImpact = documentationImpactByTab[activeTab];
   const predictorAuthorization = safeObject(overview?.predictor_authorization);
+  const rawAuthorizedPredictors =
+    predictorAuthorization.authorized_predictors;
   const authorizedPredictors = safeArray<string>(
-    predictorAuthorization.authorized_predictors,
+    rawAuthorizedPredictors,
   );
   const targetSourceExclusions = safeArray<string>(
     overview?.target_source_excluded ??
@@ -1224,16 +1431,27 @@ export default function Step02EDA() {
       datasetIdentity?.dataset_version_id ??
       "Version pending",
   );
-  const predictorManifestLabel = String(
-    predictorAuthorization.manifest_version ?? "Manifest pending",
-  );
-  const predictorCount = Math.max(
-    0,
-    Number(
-      overview?.headline?.predictors ??
-        authorizedPredictors.length,
-    ),
-  );
+  const predictorManifestState: "loading" | "verified" | "unverified" =
+    !overview && loading === "overview"
+      ? "loading"
+      : overview &&
+          Array.isArray(rawAuthorizedPredictors) &&
+          Boolean(String(predictorAuthorization.manifest_version ?? "").trim())
+        ? "verified"
+        : "unverified";
+  const predictorManifestLabel =
+    predictorManifestState === "loading"
+      ? "Checking manifest..."
+      : predictorManifestState === "verified"
+        ? String(predictorAuthorization.manifest_version)
+        : "Manifest not verified";
+  const headlinePredictorCount = Number(overview?.headline?.predictors);
+  const predictorCount =
+    predictorManifestState === "verified"
+      ? Number.isFinite(headlinePredictorCount)
+        ? Math.max(0, headlinePredictorCount)
+        : authorizedPredictors.length
+      : null;
   const activeTabLabel =
     tabs.find((tab) => tab.id === activeTab)?.label ?? titleCase(activeTab);
   const activateEdaTab = useCallback(
@@ -1285,20 +1503,22 @@ export default function Step02EDA() {
       : documentationMessageIsBlocking
         ? documentationMessage
         : "";
-  const activeBlockerMessage = documentationBlockerMessage
-    ? documentationBlockerMessage
-    : error
-      ? `The ${activeTabLabel} analysis is unavailable: ${error.message}`
+  const activeBlockerMessage = error
+    ? `The ${activeTabLabel} analysis is unavailable: ${error.message}`
+    : documentationBlockerMessage
+      ? documentationBlockerMessage
       : !loading && nextDisabled && nextDisabledReason
         ? nextDisabledReason
         : "";
-  const activeBlockerSource = documentationBlockerMessage
-    ? "documentation"
-    : error
-      ? "analysis"
+  const activeBlockerSource = error
+    ? "analysis"
+    : documentationBlockerMessage
+      ? "documentation"
       : activeBlockerMessage
         ? "workflow"
         : "none";
+  const analysisPartitionBlocker =
+    error?.domain === "analysis_partition" ? error : null;
 
   const quickSummaryItems = useMemo<EdaQuickSummaryItem[]>(() => {
     const overviewHeadline = safeObject(overview?.headline);
@@ -1688,9 +1908,21 @@ export default function Step02EDA() {
       nextAlwaysVisible
       nextFooterTestId="eda-completion-bar"
       nextStatusTestId="eda-completion-summary"
-      nextStatusLine={completionSummary.text}
+      nextStatusLine={
+        analysisPartitionBlocker
+          ? "Analysis Partition required. Return to Data Acquisition to confirm the governed development and sealed holdout assignment."
+          : completionSummary.text
+      }
       nextExtraActions={
-        completionSummary.destination ? (
+        analysisPartitionBlocker ? (
+          <Link
+            className="atlas-secondary-button"
+            to={projectWorkflowRoute(projectId, "/step01#analysis-partition-readiness")}
+            data-testid="eda-analysis-partition-footer-action"
+          >
+            Return to Data Acquisition
+          </Link>
+        ) : completionSummary.destination ? (
           <button
             type="button"
             className="atlas-secondary-button"
@@ -1702,6 +1934,13 @@ export default function Step02EDA() {
         ) : undefined
       }
     >
+      {analysisPartitionBlocker ? (
+        <AnalysisPartitionRequiredShell
+          error={analysisPartitionBlocker}
+          projectId={projectId}
+          onRetry={() => void loadSection("overview", true)}
+        />
+      ) : (
       <div className="eda-premium-page">
         <div
           ref={compactPreambleRef}
@@ -1795,10 +2034,16 @@ export default function Step02EDA() {
                 <Layers3 size={14} aria-hidden="true" />
                 <span>
                   <small>Predictor manifest</small>
+                  {predictorCount === null ? (
+                    <strong data-manifest-state={predictorManifestState}>
+                      {predictorManifestLabel}
+                    </strong>
+                  ) : (
                   <strong>
                     {predictorCount.toLocaleString()} ·{" "}
                     {predictorManifestLabel}
                   </strong>
+                  )}
                 </span>
               </div>
               <div
@@ -1890,18 +2135,24 @@ export default function Step02EDA() {
                     <div className="eda-detail-label">
                       Server-authorized predictor manifest
                     </div>
-                    <p>
-                      {authorizedPredictors.length.toLocaleString()}{" "}
-                      eligible predictors under{" "}
-                      {predictorManifestLabel}. The modeling target
-                      {targetSourceExclusions.length
-                        ? ` and deterministic target source ${targetSourceExclusions.join(
-                            ", ",
-                          )}`
-                        : ""}{" "}
-                      are excluded from every governed visual.
-                    </p>
-                    {authorizedPredictors.length ? (
+                    {predictorManifestState === "verified" ? (
+                      <p>
+                        {authorizedPredictors.length.toLocaleString()} eligible predictors under{" "}
+                        {predictorManifestLabel}. The modeling target
+                        {targetSourceExclusions.length
+                          ? ` and deterministic target source ${targetSourceExclusions.join(
+                              ", ",
+                            )}`
+                          : ""}{" "}
+                        are excluded from every governed visual.
+                      </p>
+                    ) : (
+                      <p>
+                        {predictorManifestLabel}. ATLAS will not present an absent
+                        or failed server manifest as zero authorized predictors.
+                      </p>
+                    )}
+                    {predictorManifestState === "verified" && authorizedPredictors.length ? (
                       <p>
                         <strong>Authorized fields:</strong>{" "}
                         {authorizedPredictors.join(", ")}
@@ -2033,7 +2284,7 @@ export default function Step02EDA() {
                 <strong>Active blocker:</strong>{" "}
                 <span
                   data-testid={
-                    documentationBlockerMessage
+                    activeBlockerSource === "documentation"
                       ? "eda-documentation-message"
                       : undefined
                   }
@@ -2072,7 +2323,11 @@ export default function Step02EDA() {
         >
           <div key={activeTab} className="eda-tab-stage space-y-4">
           {error ? (
-            <EDAUnavailablePanel error={error} onRetry={() => void refreshActiveSection()} />
+            <EDAUnavailablePanel
+              error={error}
+              projectId={projectId}
+              onRetry={() => void refreshActiveSection()}
+            />
           ) : null}
 
           {loading === activeTab && !activeData ? <LoadingPanel label={`Running ${tabs.find((tab) => tab.id === activeTab)?.label} analysis`} /> : null}
@@ -2168,20 +2423,174 @@ export default function Step02EDA() {
         </div>
       </div>
       </div>
+      )}
     </StepShell>
   );
 }
 
-function EDAUnavailablePanel({ error, onRetry }: { error: EDAErrorState; onRetry: () => void }) {
-  const routeMissing = error.status === 404 || error.code === "eda_route_unavailable";
+function AnalysisPartitionRequiredShell({
+  error,
+  projectId,
+  onRetry,
+}: {
+  error: EDAErrorState;
+  projectId: string;
+  onRetry: () => void;
+}) {
+  const guidedTitle = error.code
+    ? EDA_READINESS_GUIDANCE[error.code]?.title
+    : undefined;
   return (
-    <AtlasAttentionPanel title={routeMissing ? "EDA service route is unavailable" : "Full EDA profile is unavailable"} tone="danger">
-      <div className="space-y-3">
-        <p>
-          {routeMissing
-            ? "Confirm the FastAPI backend includes the EDA router."
-            : "ATLAS could not find the registered backend dataset for this project. Return to Data Acquisition and re-register the dataset, or retry after confirming the backend is running."}
+    <section
+      className="mx-auto max-w-5xl space-y-5 py-6"
+      aria-labelledby="eda-analysis-partition-required-title"
+      data-testid="eda-analysis-partition-required-shell"
+      data-readiness-code={error.code ?? "analysis_partition_required"}
+    >
+      <div className="rounded-2xl border border-amber-300 bg-amber-50 p-6 shadow-sm">
+        <div className="flex items-start gap-4">
+          <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl bg-amber-100 text-amber-800">
+            <ShieldCheck size={22} aria-hidden="true" />
+          </span>
+          <div className="min-w-0 space-y-2">
+            <div className="text-xs font-bold uppercase tracking-[0.16em] text-amber-800">
+              Governed EDA entry check
+            </div>
+            <h1
+              id="eda-analysis-partition-required-title"
+              className="text-xl font-bold text-slate-950"
+            >
+              {guidedTitle ?? "Analysis Partition required"}
+            </h1>
+            <p className="text-sm leading-6 text-slate-700">
+              {error.message} ATLAS has not started the ordinary EDA Overview or
+              documentation workflow. Target-directed analysis remains sealed
+              until the development population is confirmed.
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <h2 className="font-semibold text-slate-950">Required next action</h2>
+        <p className="mt-2 text-sm leading-6 text-slate-700">
+          {error.recovery ??
+            "Return to Data Acquisition and confirm the current Analysis Partition."}
         </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link
+            className="atlas-primary-button"
+            to={projectWorkflowRoute(projectId, "/step01#analysis-partition-readiness")}
+            data-testid="eda-analysis-partition-data-acquisition-action"
+          >
+            Return to Data Acquisition
+            <ArrowRight size={15} aria-hidden="true" />
+          </Link>
+          {error.retryable !== false ? (
+            <button
+              type="button"
+              className="atlas-secondary-button"
+              onClick={onRetry}
+              data-testid="eda-analysis-partition-retry"
+            >
+              <RefreshCw size={15} aria-hidden="true" />
+              Recheck readiness
+            </button>
+          ) : null}
+        </div>
+      </div>
+
+      <dl className="grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-5 text-sm sm:grid-cols-3">
+        <div>
+          <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Backend response
+          </dt>
+          <dd className="mt-1 font-semibold text-slate-900">
+            HTTP {error.status ?? "unavailable"} · partial readiness
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            EDA analysis
+          </dt>
+          <dd className="mt-1 font-semibold text-amber-800">Not started</dd>
+        </div>
+        <div>
+          <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+            Final holdout
+          </dt>
+          <dd className="mt-1 font-semibold text-slate-900">
+            Not admitted to the EDA UI
+          </dd>
+        </div>
+      </dl>
+    </section>
+  );
+}
+
+function EDAUnavailablePanel({
+  error,
+  projectId,
+  onRetry,
+}: {
+  error: EDAErrorState;
+  projectId: string;
+  onRetry: () => void;
+}) {
+  const guidedTitle = error.code
+    ? EDA_READINESS_GUIDANCE[error.code]?.title
+    : undefined;
+  const presentation =
+    error.domain === "analysis_partition"
+      ? {
+          title: guidedTitle ?? "Analysis Partition is not ready",
+          summary:
+            "The exact dataset remains selected, but governed EDA is paused until its development population and sealed final holdout are current.",
+          action: "Review Analysis Partition",
+          targetPath: "/step01#analysis-partition-readiness",
+        }
+      : error.domain === "identity"
+        ? {
+            title: guidedTitle ?? "Governed dataset identity needs attention",
+            summary:
+              "ATLAS could not verify the exact project, dataset, and Dataset Library version required for governed analysis.",
+            action: "Review Data Acquisition",
+            targetPath: "/step01",
+          }
+        : error.domain === "authorization"
+          ? {
+              title: "EDA access is not authorized",
+              summary:
+                "The governed request was rejected before analytical data was returned.",
+              action: "Return to Data Acquisition",
+              targetPath: "/step01",
+            }
+          : error.domain === "route"
+            ? {
+                title: "EDA service route is unavailable",
+                summary: "The current FastAPI process does not expose the requested EDA workspace route.",
+                action: "Return to Data Acquisition",
+                targetPath: "/step01",
+              }
+            : error.domain === "server"
+              ? {
+                  title: "EDA service could not complete the request",
+                  summary:
+                    "The governed identity remains selected. This is a server execution failure, not evidence that the dataset is missing.",
+                  action: "Return to Data Acquisition",
+                  targetPath: "/step01",
+                }
+              : {
+                  title: "EDA backend is unreachable",
+                  summary:
+                    "ATLAS could not receive a response for the exact governed request.",
+                  action: "Return to Data Acquisition",
+                  targetPath: "/step01",
+                };
+  return (
+    <AtlasAttentionPanel title={presentation.title} tone="danger">
+      <div className="space-y-3">
+        <p>{presentation.summary}</p>
         <div className="rounded-lg border border-red-200 bg-white p-3 text-sm text-red-950">
           <div><strong>What failed:</strong> {error.message}</div>
           <div><strong>Endpoint:</strong> {error.endpoint}</div>
@@ -2189,10 +2598,17 @@ function EDAUnavailablePanel({ error, onRetry }: { error: EDAErrorState; onRetry
           <div><strong>Recovery:</strong> {error.recovery}</div>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" className="atlas-primary-button" onClick={onRetry}>
-            <RefreshCw size={15} /> Retry
-          </button>
-          <a className="atlas-secondary-button" href="/step01">Go to Data Acquisition</a>
+          {error.retryable !== false ? (
+            <button type="button" className="atlas-primary-button" onClick={onRetry}>
+              <RefreshCw size={15} /> Retry exact request
+            </button>
+          ) : null}
+          <Link
+            className="atlas-secondary-button"
+            to={projectWorkflowRoute(projectId, presentation.targetPath)}
+          >
+            {presentation.action}
+          </Link>
         </div>
         {error.technical ? (
           <details className="rounded-lg border border-red-200 bg-white p-3">
@@ -2530,13 +2946,14 @@ function OverviewPanel({ data }: { data: WorkspaceResponse }) {
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <div className="text-[11px] font-bold uppercase tracking-[0.12em] text-blue-700">
-                Population composition
+                Development population
               </div>
               <h3 id="eda-population-balance-title" className="mt-1 text-lg font-bold text-slate-950">
                 Target balance
               </h3>
               <p className="mt-1 text-sm text-slate-600">
-                Full Governed Population class prevalence for the configured event.
+                Development Population class prevalence for the configured event;
+                the sealed final holdout is excluded.
               </p>
             </div>
             <span className="w-fit rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
@@ -2595,7 +3012,7 @@ function OverviewPanel({ data }: { data: WorkspaceResponse }) {
               <HistogramChart
                 bins={chartBins(target)}
                 source={target}
-                scope="Full Governed Population"
+                scope="Development Population"
               />
             </div>
           )}

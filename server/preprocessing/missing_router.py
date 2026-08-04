@@ -12,6 +12,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
+from ..analysis_partition.types import AnalysisPartitionError
 from ..core.dataset_store import DATASTORE
 from ..core.json_safety import json_safe
 from ..core.modeling_scope import authorize_modeling_scope
@@ -22,12 +23,16 @@ from ..datasets.dataset_identity import (
     coalesce_identity_expectations,
 )
 from ..security.security_store import require_user
+from .development_scope import (
+    DevelopmentAnalysisScope,
+    resolve_development_analysis_scope,
+    scope_http_exception,
+)
 from .outlier_service import outlier_service
 from .feature_profile_service import information_value
 from .predictor_authorization import (
     bureau_special_mask,
     bureau_special_summary,
-    governed_predictor_authorization,
 )
 
 
@@ -60,6 +65,8 @@ class MissingApplyRequest(BaseModel):
     dataset_id: str | None = None
     dataset_version_id: str | None = None
     dataset_version: str | None = None
+    analysis_partition_id: str | None = None
+    analysis_partition_revision: int | None = None
 
 
 class MissingValidateRequest(BaseModel):
@@ -71,6 +78,8 @@ class MissingValidateRequest(BaseModel):
     dataset_id: str | None = None
     dataset_version_id: str | None = None
     dataset_version: str | None = None
+    analysis_partition_id: str | None = None
+    analysis_partition_revision: int | None = None
 
 
 def _active_request_identity(
@@ -121,6 +130,46 @@ def _record_matches_identity(
     )
 
 
+def _development_scope(
+    identity: Dict[str, Any],
+    scoped_store: Any,
+    *,
+    requested_target: Any = None,
+    requested_event_value: Any = None,
+    requested_problem_type: Any = None,
+    analysis_partition_id: Any = None,
+    analysis_partition_revision: Any = None,
+    actor: Any = None,
+) -> DevelopmentAnalysisScope:
+    try:
+        return resolve_development_analysis_scope(
+            scoped_store,
+            identity,
+            requested_target=requested_target,
+            requested_event_value=requested_event_value,
+            requested_problem_type=requested_problem_type,
+            expected_analysis_partition_id=analysis_partition_id,
+            expected_analysis_partition_revision=analysis_partition_revision,
+            actor=actor,
+        )
+    except AnalysisPartitionError as exc:
+        raise scope_http_exception(exc) from exc
+
+
+def _record_matches_scope(
+    record: Any,
+    identity: Dict[str, Any],
+    scope: DevelopmentAnalysisScope,
+) -> bool:
+    return bool(
+        _record_matches_identity(record, identity)
+        and record.get("analysis_partition_id")
+        == scope.partition.get("analysis_partition_id")
+        and int(record.get("analysis_partition_revision") or 0)
+        == int(scope.partition.get("revision") or 0)
+    )
+
+
 def _source_stage(identity: Dict[str, Any]) -> str:
     return (
         "outlier_treated"
@@ -141,43 +190,25 @@ def _normalize_missing(df: pd.DataFrame) -> pd.DataFrame:
     return work
 
 
-def _feature_columns(df: pd.DataFrame) -> List[str]:
-    return list(
-        governed_predictor_authorization(
-            df,
-            target=DATASTORE.target,
-            selected_columns=DATASTORE.get_selected_columns(),
-        )["authorized_predictors"]
-    )
+def _feature_columns(
+    df: pd.DataFrame,
+    authorization: dict[str, Any],
+) -> List[str]:
+    return [
+        str(value)
+        for value in authorization.get("authorized_predictors", [])
+        if str(value) in df.columns
+    ]
 
 
 def _authorization_with_full_source_exclusions(
     frame: pd.DataFrame,
+    authorization: dict[str, Any],
 ) -> dict[str, Any]:
-    authorization = governed_predictor_authorization(
-        frame,
-        target=DATASTORE.target,
-        selected_columns=DATASTORE.get_selected_columns(),
-    )
-    raw = DATASTORE.raw_df
-    if raw is None or raw.empty:
-        return authorization
-    full = governed_predictor_authorization(
-        raw,
-        target=DATASTORE.target,
-        selected_columns=DATASTORE.get_selected_columns(),
-    )
-    return {
-        **authorization,
-        "target_source_excluded": sorted(
-            set(authorization.get("target_source_excluded", []))
-            | set(full.get("target_source_excluded", []))
-        ),
-        "excluded_predictors": {
-            **full.get("excluded_predictors", {}),
-            **authorization.get("excluded_predictors", {}),
-        },
-    }
+    # The exact durable Data Acquisition manifest is the only authorization
+    # source. Re-running deterministic target-source detection on the full
+    # population here would inspect the sealed holdout target.
+    return dict(authorization)
 
 
 def _is_numeric_like(series: pd.Series) -> bool:
@@ -191,12 +222,6 @@ def _display_dtype(series: pd.Series) -> str:
     return "float64" if _is_numeric_like(series) else str(series.dtype)
 
 
-def _event_value(target: pd.Series, requested: Any) -> Any:
-    if requested is not None and str(requested) != "":
-        return requested
-    return next((value for value in target.dropna().unique() if str(value) == "1"), None)
-
-
 def _config_payload(config: Dict[str, MissingRule]) -> dict[str, dict[str, Any]]:
     return {key: value.dict() for key, value in sorted(config.items())}
 
@@ -206,7 +231,12 @@ def _config_signature(payload: dict[str, Any]) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()[:16]
 
 
-def _pre_missing_df(identity: Dict[str, Any]) -> pd.DataFrame:
+def _pre_missing_df(
+    identity: Dict[str, Any],
+    *,
+    authorization: dict[str, Any],
+    target: str,
+) -> pd.DataFrame:
     prior = DATASTORE.meta.get("outlier_application")
     if DATASTORE.meta.get("processed_stage") == "outliers" and DATASTORE.processed_df is not None:
         if not _record_matches_identity(prior, identity):
@@ -238,8 +268,9 @@ def _pre_missing_df(identity: Dict[str, Any]) -> pd.DataFrame:
                 source,
                 config=prior["config"],
                 global_method=str(prior.get("global_method") or "IQR_1_5"),
-                target=DATASTORE.target,
+                target=target,
                 selected_columns=DATASTORE.get_selected_columns(),
+                predictor_authorization=authorization,
             )
         except ValueError as exc:
             raise HTTPException(status_code=409, detail=f"The saved outlier treatment could not be reconstructed: {exc}") from exc
@@ -388,6 +419,7 @@ def _distribution_profile(values: pd.Series) -> dict[str, Any]:
 @_state_locked_read
 def missing_summary(
     project_id: str = Query(...),
+    target: str | None = Query(default=None),
     event_value: Any = Query(default=None),
     problem_type: str | None = Query(default=None),
     expected_dataset_id: str | None = Query(default=None),
@@ -395,6 +427,8 @@ def missing_summary(
     dataset_id: str | None = Query(default=None),
     dataset_version_id: str | None = Query(default=None),
     dataset_version: str | None = Query(default=None),
+    analysis_partition_id: str | None = Query(default=None),
+    analysis_partition_revision: int | None = Query(default=None),
     user: Dict[str, Any] = Depends(require_user),
 ) -> Dict[str, Any]:
     authorize_modeling_scope(user, project_id, "view")
@@ -415,25 +449,54 @@ def missing_summary(
         require_expected=True,
         user=user,
     )
-    work = _normalize_missing(_pre_missing_df(identity))
-    target = DATASTORE.target if DATASTORE.target in work.columns else None
-    y = work[target] if target else None
-    resolved_problem = problem_type if problem_type in {"classification", "regression"} else "classification"
-    resolved_event = _event_value(y, event_value) if y is not None and resolved_problem == "classification" else None
+    scoped_store = DATASTORE.current()
+    scope = _development_scope(
+        identity,
+        scoped_store,
+        requested_target=target,
+        requested_event_value=event_value,
+        requested_problem_type=problem_type,
+        analysis_partition_id=analysis_partition_id,
+        analysis_partition_revision=analysis_partition_revision,
+        actor=user.get("userId"),
+    )
+    authorization = dict(scope.predictor_authorization)
+    work = _normalize_missing(
+        _pre_missing_df(
+            identity,
+            authorization=authorization,
+            target=scope.target,
+        ).drop(columns=[scope.target], errors="ignore")
+    )
+    development = _normalize_missing(
+        scope.materialize_aligned_features(work)
+    ).reset_index(drop=True)
+    y = scope.development_target.reset_index(drop=True)
+    resolved_problem = scope.problem_type
+    resolved_event = scope.event_value
     event_rate = None
-    if y is not None and resolved_event is not None:
+    if resolved_event is not None:
         valid = y.notna()
         event_rate = float((y[valid].astype(str) == str(resolved_event)).mean()) if int(valid.sum()) else None
 
     stats: Dict[str, Any] = {}
     columns: List[Dict[str, Any]] = []
     total = int(len(work))
-    feature_columns = _feature_columns(work)
-    authorization = _authorization_with_full_source_exclusions(work)
+    feature_columns = _feature_columns(work, authorization)
+    authorization = _authorization_with_full_source_exclusions(
+        work,
+        authorization,
+    )
     for col in feature_columns:
         feature = work[col]
+        development_feature = development[col]
         missing = int(feature.isna().sum())
-        relationship = _informative_missingness(feature, y, resolved_problem, resolved_event)
+        relationship = _informative_missingness(
+            development_feature,
+            y,
+            resolved_problem,
+            resolved_event,
+        )
         special_mask = bureau_special_mask(feature)
         numeric = pd.to_numeric(feature.mask(special_mask), errors="coerce")
         ordinary_numeric = numeric.dropna().astype(float)
@@ -447,27 +510,30 @@ def missing_summary(
         )
         signal_metric = None
         association_status = "not_applicable"
-        if y is not None:
-            if resolved_problem == "classification":
-                try:
-                    signal_metric, resolved_event = information_value(
-                        feature, y, resolved_event
-                    )
+        if resolved_problem == "classification":
+            try:
+                signal_metric, resolved_event = information_value(
+                    development_feature,
+                    y,
+                    resolved_event,
+                )
+                association_status = "evaluated"
+            except ValueError:
+                association_status = "target_definition_required"
+        else:
+            pairs = pd.DataFrame(
+                {
+                    "feature": pd.to_numeric(
+                        development_feature, errors="coerce"
+                    ),
+                    "target": pd.to_numeric(y, errors="coerce"),
+                }
+            ).dropna()
+            if len(pairs) >= 3:
+                correlation = pairs["feature"].corr(pairs["target"])
+                if pd.notna(correlation):
+                    signal_metric = float(correlation)
                     association_status = "evaluated"
-                except ValueError:
-                    association_status = "target_definition_required"
-            elif len(ordinary_numeric) >= 3:
-                pairs = pd.DataFrame(
-                    {
-                        "feature": numeric,
-                        "target": pd.to_numeric(y, errors="coerce"),
-                    }
-                ).dropna()
-                if len(pairs) >= 3:
-                    correlation = pairs["feature"].corr(pairs["target"])
-                    if pd.notna(correlation):
-                        signal_metric = float(correlation)
-                        association_status = "evaluated"
         special_summary = bureau_special_summary(feature)
         stats[col] = {
             "missing": missing,
@@ -508,12 +574,13 @@ def missing_summary(
     validation = DATASTORE.meta.get("missing_validation")
     return json_safe({
         "ok": True,
-        "scope": "full_dataset",
         **_identity_fields(identity),
+        **scope.metadata(),
         "rows": total,
+        "development_rows": int(len(y)),
         "columns": columns,
         "stats": stats,
-        "target": target,
+        "target": scope.target,
         "problem_type": resolved_problem,
         "event_value": resolved_event,
         "event_rate": event_rate,
@@ -521,12 +588,12 @@ def missing_summary(
         "source_stage": _source_stage(identity),
         "application": (
             application
-            if _record_matches_identity(application, identity)
+            if _record_matches_scope(application, identity, scope)
             else None
         ),
         "validation": (
             validation
-            if _record_matches_identity(validation, identity)
+            if _record_matches_scope(validation, identity, scope)
             else None
         ),
         "predictor_authorization": authorization,
@@ -544,9 +611,24 @@ def validate_missing_values(
     scoped_store = DATASTORE.current()
     with scoped_store.state_lock:
         identity = _active_request_identity(request, user)
+        scope = _development_scope(
+            identity,
+            scoped_store,
+            requested_event_value=request.event_value,
+            requested_problem_type=request.problem_type,
+            analysis_partition_id=request.analysis_partition_id,
+            analysis_partition_revision=request.analysis_partition_revision,
+            actor=user.get("userId"),
+        )
         input_revision = int(scoped_store.data_revision)
-        work = _normalize_missing(_pre_missing_df(identity)).copy()
-        features = _feature_columns(work)
+        work = _normalize_missing(
+            _pre_missing_df(
+                identity,
+                authorization=scope.predictor_authorization,
+                target=scope.target,
+            ).drop(columns=[scope.target], errors="ignore")
+        ).copy()
+        features = _feature_columns(work, scope.predictor_authorization)
         source_stage = _source_stage(identity)
         prior_validation = deepcopy(
             scoped_store.meta.get("missing_validation")
@@ -558,7 +640,7 @@ def validate_missing_values(
             detail="Null values are present. Select and apply a governed treatment or explicitly preserve them.",
         )
     if (
-        _record_matches_identity(prior_validation, identity)
+        _record_matches_scope(prior_validation, identity, scope)
         and prior_validation.get("source_stage") == source_stage
         and int(prior_validation.get("row_count") or -1) == int(len(work))
         and int(prior_validation.get("predictor_count") or -1) == len(features)
@@ -576,14 +658,15 @@ def validate_missing_values(
                 )
         return json_safe({
             "ok": True,
-            "scope": "full_dataset",
             **_identity_fields(identity),
+            **scope.metadata(),
             "validation": prior_validation,
             "idempotent": True,
         })
     validation = {
         "validated_at": datetime.now(timezone.utc).isoformat(),
         **_identity_fields(identity),
+        **scope.metadata(),
         "source_stage": source_stage,
         "row_count": int(len(work)),
         "predictor_count": len(features),
@@ -625,8 +708,8 @@ def validate_missing_values(
         )
     return json_safe({
         "ok": True,
-        "scope": "full_dataset",
         **_identity_fields(identity),
+        **scope.metadata(),
         "validation": validation,
     })
 
@@ -637,14 +720,30 @@ def apply_missing_values(request: MissingApplyRequest, user: Dict[str, Any] = De
     scoped_store = DATASTORE.current()
     with scoped_store.state_lock:
         identity = _active_request_identity(request, user)
+        scope = _development_scope(
+            identity,
+            scoped_store,
+            requested_event_value=request.event_value,
+            requested_problem_type=request.problem_type,
+            analysis_partition_id=request.analysis_partition_id,
+            analysis_partition_revision=request.analysis_partition_revision,
+            actor=user.get("userId"),
+        )
         input_revision = int(scoped_store.data_revision)
-        source = _pre_missing_df(identity).copy()
+        source_with_target = _pre_missing_df(
+            identity,
+            authorization=scope.predictor_authorization,
+            target=scope.target,
+        ).copy()
+        source = source_with_target.drop(
+            columns=[scope.target], errors="ignore"
+        )
         source_stage = _source_stage(identity)
         prior_application = deepcopy(
             scoped_store.meta.get("missing_application")
         )
     work = _normalize_missing(source)
-    features = set(_feature_columns(work))
+    features = set(_feature_columns(work, scope.predictor_authorization))
     before = int(work[list(features)].isna().sum().sum()) if features else 0
     if before == 0:
         raise HTTPException(
@@ -654,7 +753,7 @@ def apply_missing_values(request: MissingApplyRequest, user: Dict[str, Any] = De
     payload = _config_payload(request.config)
     config_signature = _config_signature(payload)
     if (
-        _record_matches_identity(prior_application, identity)
+        _record_matches_scope(prior_application, identity, scope)
         and prior_application.get("config_signature") == config_signature
         and prior_application.get("source_stage") == source_stage
         and DATASTORE.meta.get("processed_stage") == "missing_values"
@@ -672,8 +771,8 @@ def apply_missing_values(request: MissingApplyRequest, user: Dict[str, Any] = De
                 )
         return json_safe({
             "ok": True,
-            "scope": "full_dataset",
             **_identity_fields(identity),
+            **scope.metadata(),
             "application": prior_application,
             "idempotent": True,
         })
@@ -690,12 +789,14 @@ def apply_missing_values(request: MissingApplyRequest, user: Dict[str, Any] = De
         if missing_before == 0:
             continue
         if strategy == "drop row":
-            row_count = int(len(work))
-            work = work.loc[~work[col].isna()].copy()
-            removed = row_count - int(len(work))
-            dropped_rows += removed
-            applied.append({"feature": col, "strategy": rule.strategy, "filled": 0, "dropped_rows": removed})
-            continue
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Row deletion is incompatible with the sealed Analysis Partition. "
+                    "Choose an imputation or preservation policy, or explicitly reset "
+                    "the Analysis Partition in Data Acquisition."
+                ),
+            )
 
         series = work[col]
         numeric = _is_numeric_like(series)
@@ -721,9 +822,17 @@ def apply_missing_values(request: MissingApplyRequest, user: Dict[str, Any] = De
         work[col] = series.fillna(fill_value)
         applied.append({"feature": col, "strategy": rule.strategy, "filled": missing_before, "value": str(fill_value)})
 
+    materialized = source_with_target.copy()
+    for column in work.columns:
+        # Preserve exact row order and duplicate indexes while returning the
+        # governed target unchanged. Only predictor columns were normalized or
+        # imputed above.
+        materialized[column] = work[column].to_numpy(copy=True)
+
     application = {
         "applied_at": datetime.now(timezone.utc).isoformat(),
         **_identity_fields(identity),
+        **scope.metadata(),
         "config": payload,
         "config_signature": config_signature,
         "source_stage": source_stage,
@@ -751,7 +860,7 @@ def apply_missing_values(request: MissingApplyRequest, user: Dict[str, Any] = De
                     "and apply the plan again."
                 ),
             )
-        scoped_store.set_processed(work)
+        scoped_store.set_processed(materialized)
         scoped_store.meta["processed_stage"] = "missing_values"
         scoped_store.meta["missing_config"] = payload
         scoped_store.meta["missing_application"] = application
@@ -765,7 +874,7 @@ def apply_missing_values(request: MissingApplyRequest, user: Dict[str, Any] = De
         raise HTTPException(status_code=500, detail="Missing-value treatments were applied, but ATLAS could not persist the workflow checkpoint.")
     return json_safe({
         "ok": True,
-        "scope": "full_dataset",
         **_identity_fields(identity),
+        **scope.metadata(),
         "application": application,
     })

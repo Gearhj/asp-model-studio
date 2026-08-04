@@ -58,7 +58,10 @@ from fastapi.testclient import TestClient  # noqa: E402
 
 from server.main import app  # noqa: E402
 from server.persistence import initialize_persistence  # noqa: E402
+from server.persistence import db as persistence_db_module  # noqa: E402
+from server.persistence import service as persistence_service_module  # noqa: E402
 from server.security.security_store import init_security_store  # noqa: E402
+from server.security import security_store as security_store_module  # noqa: E402
 
 import server.core.dataset_store as dataset_store_module  # noqa: E402
 import server.core.session_checkpoint as checkpoint  # noqa: E402
@@ -101,6 +104,19 @@ _bind_checkpoint_path()
 def setUpModule() -> None:
     _bind_dataset_library_paths()
     _bind_checkpoint_path()
+    # Multi-file pytest collection may import a later suite that rebinds the
+    # process-global persistence singleton.  Restore this suite's exact owned
+    # database before any lifecycle test can create durable activation rows.
+    os.environ["ATLAS_SQLITE_PATH"] = str(_PERSISTENCE_DB_PATH.resolve())
+    persistence_db_module._database = persistence_db_module.Database(
+        _PERSISTENCE_DB_PATH.resolve()
+    )
+    persistence_service_module._service = None
+    os.environ["ATLAS_SECURITY_DB_PATH"] = str(_SECURITY_DB_PATH.resolve())
+    security_store_module.SECURITY_ROOT = _TEST_DATA_ROOT.resolve()
+    security_store_module.DB_PATH = _SECURITY_DB_PATH.resolve()
+    security_store_module.ATLAS_AUTH_ENABLED = True
+    security_store_module.ATLAS_ALLOW_PUBLIC_REGISTRATION = True
 
 
 def _cleanup_db_files() -> None:
@@ -150,19 +166,40 @@ def _build_frame(rows: int = 40, target: str = "MedHouseVal") -> pd.DataFrame:
 
 
 def _upload_and_select_target(client: TestClient, project_id: str, df: pd.DataFrame, target: str) -> None:
-    """Real upload_csv + set_target, mirroring the browser's Data Acquisition flow,
-    so DATASTORE holds real workspace state for register-workspace to read."""
+    """Use the governed upload/activation contract before selecting a target.
+
+    ``upload_csv`` now registers and activates one exact immutable Dataset
+    Library version.  The browser carries that returned identity into
+    ``set_target``; this fixture must do the same instead of relying on the
+    retired identity-free workspace path.
+    """
     import io
     files = {"file": ("dataset.csv", io.BytesIO(df.to_csv(index=False).encode("utf-8")), "text/csv")}
     response = client.post("/api/data/upload_csv", data={"project_id": project_id}, files=files)
     assert response.status_code == 200, response.text
-    response = client.post("/api/data/set_target", json={"project_id": project_id, "target": target, "selected_columns": [c for c in df.columns if c != target]})
+    upload = response.json()
+    dataset_id = str(upload.get("dataset_id") or upload.get("datasetId") or "")
+    dataset_version_id = str(
+        upload.get("dataset_version_id") or upload.get("versionId") or ""
+    )
+    assert dataset_id and dataset_version_id, upload
+    response = client.post(
+        "/api/data/set_target",
+        json={
+            "project_id": project_id,
+            "target": target,
+            "selected_columns": [c for c in df.columns if c != target],
+            "expected_dataset_id": dataset_id,
+            "expected_dataset_version_id": dataset_version_id,
+        },
+    )
     assert response.status_code == 200, response.text
 
 
 class DatasetLifecycleTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
+        setUpModule()
         _cleanup_db_files()
         init_security_store()
         initialize_persistence()
@@ -233,8 +270,14 @@ class DatasetLifecycleTests(unittest.TestCase):
         # Project is linked.
         links = client.get(f"/api/projects/{project_id}/datasets")
         self.assertEqual(links.status_code, 200, links.text)
-        self.assertEqual(len(links.json()["links"]), 1)
-        self.assertEqual(links.json()["links"][0]["datasetId"], dataset["datasetId"])
+        linked_dataset_ids = {
+            link["datasetId"] for link in links.json()["links"]
+        }
+        # Data Acquisition now registers and links its exact canonical upload
+        # before this explicit workspace-registration action creates a second
+        # governed asset.  The contract under test is the exact new link, not
+        # an obsolete assumption that the project has only one asset.
+        self.assertIn(dataset["datasetId"], linked_dataset_ids)
 
     def test_registration_requires_uploaded_data(self) -> None:
         client, user_id = _register("empty")
@@ -364,8 +407,16 @@ class DatasetLifecycleTests(unittest.TestCase):
         # Stranger cannot unlink (write-authorization fix).
         response = stranger.delete(f"/api/projects/{project_id}/datasets/{asset['datasetId']}")
         self.assertEqual(response.status_code, 403, response.text)
-        # Link is still intact for the real owner.
-        self.assertEqual(len(owner.get(f"/api/projects/{project_id}/datasets").json()["links"]), 1)
+        # The exact protected link is still intact for the real owner.  The
+        # canonical upload may also be linked, so total link count is not an
+        # authorization invariant.
+        owner_links = owner.get(
+            f"/api/projects/{project_id}/datasets"
+        ).json()["links"]
+        self.assertIn(
+            asset["datasetId"],
+            {link["datasetId"] for link in owner_links},
+        )
 
     def test_unauthorized_user_cannot_view_another_users_project_links(self) -> None:
         owner, owner_id = _register("view-owner")

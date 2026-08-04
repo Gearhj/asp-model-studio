@@ -28,7 +28,11 @@ from .candidate_contract import (
 from .trainer import MODEL_CATALOG, selection_sort_key, train_models
 from .trainer_service import TRAINER
 from .training_job_types import TrainingJobRequest, TrainingPortfolioRequest
-from .training_preflight_service import training_preflight
+from .training_preflight_service import (
+    TrainingTargetSemanticsError,
+    _governed_training_target_semantics,
+    training_preflight,
+)
 
 
 TERMINAL_STATES = {"complete", "failed", "cancelled", "interrupted"}
@@ -66,6 +70,135 @@ CANCELLED_MESSAGE = "Training stopped by user. Completed model results were pres
 # (owner_user_id, project_id) and checks it against the job record's own
 # fields -- authorization is never inferred from job_id possession alone.
 ScopeKey = Tuple[str, str]
+
+
+def _governed_validation_execution_policy(
+    preflight: dict[str, Any],
+) -> dict[str, Any]:
+    """Resolve an immutable execution snapshot from the approved design.
+
+    Browser request fields are intentionally excluded.  Validation Design is
+    the sole authority for fold-local preprocessing, resampling, and class
+    weights once it is approved.
+    """
+    design = (
+        preflight.get("validation_design")
+        if isinstance(preflight.get("validation_design"), dict)
+        else {}
+    )
+    cv_design = (
+        preflight.get("cv_design")
+        if isinstance(preflight.get("cv_design"), dict)
+        else {}
+    )
+    balancing = (
+        preflight.get("balancing_configuration")
+        if isinstance(preflight.get("balancing_configuration"), dict)
+        else {}
+    )
+    split_configuration = (
+        preflight.get("split_configuration")
+        if isinstance(preflight.get("split_configuration"), dict)
+        else {}
+    )
+    fold_architecture = (
+        preflight.get("fold_architecture")
+        if isinstance(preflight.get("fold_architecture"), dict)
+        else {}
+    )
+
+    preprocessing_values = {
+        str(value)
+        for value in (
+            design.get("fold_local_preprocessing"),
+            cv_design.get("fold_local_preprocessing"),
+            balancing.get("fold_local_preprocessing"),
+        )
+        if str(value or "").strip()
+    }
+    if len(preprocessing_values) > 1:
+        raise ValueError(
+            "Approved Validation Design contains contradictory fold-local preprocessing policies."
+        )
+    preprocessing = next(
+        iter(preprocessing_values), "fit_transform_per_fold"
+    )
+    if preprocessing not in {
+        "fit_transform_per_fold",
+        "model_native_per_fold",
+    }:
+        raise ValueError(
+            "Approved Validation Design contains an unsupported fold-local preprocessing policy."
+        )
+
+    balancing_method = str(
+        balancing.get("method")
+        or split_configuration.get("balance_method")
+        or "none"
+    )
+    if balancing_method not in {"none", "undersample", "oversample", "smote"}:
+        raise ValueError(
+            "Approved Validation Design contains an unsupported balancing method."
+        )
+    fold_local_resampling_status = str(
+        balancing.get("fold_local_resampling_status")
+        or ("not_requested" if balancing_method == "none" else "")
+    )
+    if (
+        balancing_method != "none"
+        and fold_local_resampling_status != "planned_fold_local_training_only"
+    ):
+        raise ValueError(
+            "Approved Validation Design balancing is not bound to fold-local training rows."
+        )
+    if str(balancing.get("selection_resampling_status") or "not_applied") != "not_applied":
+        raise ValueError(
+            "Approved Validation Design contains prohibited population-level selection resampling."
+        )
+
+    class_weight_policy = str(
+        balancing.get("class_weight_policy") or "none"
+    )
+    if class_weight_policy not in {"none", "balanced"}:
+        raise ValueError(
+            "Approved Validation Design custom class weights are incomplete or unsupported."
+        )
+    try:
+        minority_share = float(balancing.get("minority_share", 0.5))
+    except (TypeError, ValueError) as exc:
+        raise ValueError(
+            "Approved Validation Design minority share is invalid."
+        ) from exc
+    if not 0.05 <= minority_share <= 0.5:
+        raise ValueError(
+            "Approved Validation Design minority share must be between 0.05 and 0.5."
+        )
+    random_seed = int(
+        cv_design.get("random_seed")
+        or fold_architecture.get("random_seed")
+        or split_configuration.get("random_seed")
+        or 42
+    )
+    return {
+        "source": "approved_validation_design",
+        "validation_design_id": str(
+            preflight.get("validation_design_id") or ""
+        ),
+        "validation_design_version": str(
+            preflight.get("validation_design_version") or ""
+        ),
+        "fold_definition_id": str(preflight.get("fold_definition_id") or ""),
+        "fold_local_preprocessing": preprocessing,
+        "balancing_method": balancing_method,
+        "minority_share": minority_share,
+        "class_weight_policy": class_weight_policy,
+        "random_seed": random_seed,
+        "fold_local_resampling_status": fold_local_resampling_status,
+        "selection_resampling_status": "not_applied",
+        "fit_scope": "development_fold_training_rows_only",
+        "validation_rows_resampled": False,
+        "final_holdout_access": "none",
+    }
 
 
 def _now() -> str:
@@ -168,6 +301,7 @@ class TrainingJobService:
     def _portfolio_state_payload(
         request: TrainingPortfolioRequest,
         identity: dict[str, Any],
+        target_semantics_authority: dict[str, Any],
     ) -> dict[str, Any]:
         algorithms = list(
             dict.fromkeys(str(key) for key in request.selected_algorithm_ids)
@@ -184,7 +318,15 @@ class TrainingJobService:
             "dataset_version_id": str(identity["dataset_version_id"]),
             "selected_algorithm_ids": algorithms,
             "candidate_strategy": str(request.candidate_strategy),
-            "problem_type": str(request.problem_type),
+            "problem_type": str(
+                target_semantics_authority["problem_type"]
+            ),
+            "target_semantics_authority": deepcopy(
+                target_semantics_authority
+            ),
+            "target_authority_hash": target_semantics_authority[
+                "target_authority_hash"
+            ],
             "max_parallel": int(request.max_parallel),
             "calibrate": bool(request.calibrate),
             "grid_search": bool(request.grid_search),
@@ -271,7 +413,61 @@ class TrainingJobService:
         persisted_by: str,
     ) -> dict[str, Any]:
         """Persist after the caller has locked and revalidated the scope."""
-        state_payload = self._portfolio_state_payload(request, identity)
+        split_record = (
+            scoped_store.meta.get("split_record")
+            if isinstance(scoped_store.meta.get("split_record"), dict)
+            else {}
+        )
+        target_semantics_authority = _governed_training_target_semantics(
+            split_record=split_record,
+            active_target=str(scoped_store.target or ""),
+            analysis_partition=(
+                scoped_store.meta.get("analysis_partition")
+                if isinstance(
+                    scoped_store.meta.get("analysis_partition"), dict
+                )
+                else {}
+            ),
+            active_identity=identity,
+        )
+        if (
+            "problem_type" in request.model_fields_set
+            and request.problem_type
+            and request.problem_type
+            != target_semantics_authority["problem_type"]
+        ):
+            raise TrainingTargetSemanticsError(
+                "training_target_semantics_contradictory",
+                (
+                    "The model portfolio problem type conflicts with the "
+                    "exact governed target authority."
+                ),
+                identifiers={
+                    "analysis_partition_id": target_semantics_authority[
+                        "analysis_partition_id"
+                    ],
+                    "validation_design_id": target_semantics_authority[
+                        "validation_design_id"
+                    ],
+                    "target_contract_id": target_semantics_authority[
+                        "source_target_contract_id"
+                    ],
+                },
+                mismatches={
+                    "problem_type": {
+                        "requested": request.problem_type,
+                        "authoritative": target_semantics_authority[
+                            "problem_type"
+                        ],
+                    }
+                },
+                authority=target_semantics_authority,
+            )
+        state_payload = self._portfolio_state_payload(
+            request,
+            identity,
+            target_semantics_authority,
+        )
         state_hash = canonical_contract_hash(state_payload)
         current = (
             scoped_store.meta.get("training_model_portfolio")
@@ -407,6 +603,18 @@ class TrainingJobService:
             preflight_data_revision = int(scoped_store.data_revision)
         preflight = self.preflight(request)
         if not preflight["ready"]:
+            target_authority_errors = preflight.get("blocking_details") or []
+            if target_authority_errors:
+                detail = target_authority_errors[0]
+                raise TrainingTargetSemanticsError(
+                    str(detail.get("code") or "training_target_authority_unavailable"),
+                    str(
+                        detail.get("message")
+                        or "The governed training target authority is unavailable."
+                    ),
+                    identifiers=detail.get("identifiers") or {},
+                    mismatches=detail.get("mismatches") or {},
+                )
             raise ValueError("Training preflight blocked job creation: " + " | ".join(preflight["blocking_errors"]))
         if (
             request.expected_preflight_id
@@ -431,6 +639,20 @@ class TrainingJobService:
                 "effective_folds"
             )
             or request.k_folds
+        )
+        validation_execution_policy = _governed_validation_execution_policy(
+            preflight
+        )
+        target_semantics_authority = deepcopy(
+            preflight.get("target_semantics_authority") or {}
+        )
+        if not target_semantics_authority:
+            raise TrainingTargetSemanticsError(
+                "training_target_authority_unavailable",
+                "The governed training target authority is unavailable.",
+            )
+        preflight["validation_execution_policy"] = deepcopy(
+            validation_execution_policy
         )
         estimated_fits = int(preflight.get("estimated_fits") or 0)
         if (
@@ -462,7 +684,7 @@ class TrainingJobService:
                 "preflight_state_hash": preflight.get("state_hash"),
                 "selected_algorithm_ids": models,
                 "model_params": request.model_params,
-                "random_seed": request.random_seed,
+                "random_seed": validation_execution_policy["random_seed"],
                 "grid_search": request.grid_search,
                 "grid_search_level": request.grid_search_level,
                 "calibrate": request.calibrate,
@@ -470,6 +692,8 @@ class TrainingJobService:
                 "candidate_strategy": request.candidate_strategy,
                 "primary_metric": request.primary_metric,
                 "retry_parent_job_id": request.retry_parent_job_id,
+                "validation_execution_policy": validation_execution_policy,
+                "target_semantics_authority": target_semantics_authority,
             }
         )
         explicit_idempotency = bool(request.idempotency_key.strip())
@@ -607,6 +831,24 @@ class TrainingJobService:
             "selection_resampling_status": preflight[
                 "selection_resampling_status"
             ],
+            "validation_execution_policy": deepcopy(
+                validation_execution_policy
+            ),
+            "target_semantics_authority": deepcopy(
+                target_semantics_authority
+            ),
+            "target_authority_hash": target_semantics_authority[
+                "target_authority_hash"
+            ],
+            "source_target_contract_id": target_semantics_authority[
+                "source_target_contract_id"
+            ],
+            "analysis_partition_id": target_semantics_authority[
+                "analysis_partition_id"
+            ],
+            "analysis_partition_revision": target_semantics_authority[
+                "analysis_partition_revision"
+            ],
             "validation_design_id": preflight.get("validation_design_id"),
             "validation_design_version": preflight.get(
                 "validation_design_version"
@@ -630,6 +872,21 @@ class TrainingJobService:
                 "problem_type": preflight["problem_type"],
                 "event_value": preflight["event_value"],
                 "non_event_value": preflight["non_event_value"],
+                "target_semantics_authority": deepcopy(
+                    target_semantics_authority
+                ),
+                "target_authority_hash": target_semantics_authority[
+                    "target_authority_hash"
+                ],
+                "source_target_contract_id": target_semantics_authority[
+                    "source_target_contract_id"
+                ],
+                "analysis_partition_id": target_semantics_authority[
+                    "analysis_partition_id"
+                ],
+                "analysis_partition_revision": target_semantics_authority[
+                    "analysis_partition_revision"
+                ],
                 "feature_manifest_version": preflight["feature_manifest_version"],
                 "selected_original_features": preflight["selected_original_features"],
                 "selected_engineered_features": preflight["engineered_features"],
@@ -674,7 +931,10 @@ class TrainingJobService:
                 "oot_reference": preflight.get("oot_reference"),
                 "split_configuration": split_record.get("config") or {},
                 "balancing_policy": split_record.get("balancing_policy") or {},
-                "random_seed": request.random_seed,
+                "validation_execution_policy": deepcopy(
+                    validation_execution_policy
+                ),
+                "random_seed": validation_execution_policy["random_seed"],
                 "model_list": models,
                 "candidate_strategy": request.candidate_strategy,
                 "retry_parent_job_id": request.retry_parent_job_id or None,
@@ -704,6 +964,12 @@ class TrainingJobService:
             "_excluded_target_features": excluded,
             "_futures": {},
             "_cv_execution_splits": governed_cv_splits,
+            "_validation_execution_policy": deepcopy(
+                validation_execution_policy
+            ),
+            "_target_semantics_authority": deepcopy(
+                target_semantics_authority
+            ),
         }
         job["contract"] = complete_training_contract(
             job["contract"],
@@ -882,6 +1148,63 @@ class TrainingJobService:
             job.get("validation_design_version") or ""
         ):
             return False, "The active validation design version changed."
+        try:
+            current_target_authority = _governed_training_target_semantics(
+                split_record=split_record,
+                active_target=str(store.target or ""),
+                analysis_partition=(
+                    store.meta.get("analysis_partition")
+                    if isinstance(store.meta.get("analysis_partition"), dict)
+                    else {}
+                ),
+                active_identity={
+                    field: job.get(field)
+                    for field in (
+                        "project_id",
+                        "dataset_id",
+                        "dataset_version_id",
+                    )
+                },
+            )
+        except TrainingTargetSemanticsError as exc:
+            return False, str(exc)
+        if canonical_contract_hash(
+            current_target_authority
+        ) != canonical_contract_hash(
+            job.get("target_semantics_authority") or {}
+        ):
+            return False, "The governed training target authority changed."
+        try:
+            current_execution_policy = _governed_validation_execution_policy(
+                {
+                    "validation_design": design,
+                    "validation_design_id": design.get(
+                        "validation_design_id"
+                    ),
+                    "validation_design_version": design.get(
+                        "design_version"
+                    ),
+                    "fold_definition_id": split_record.get(
+                        "fold_definition_id"
+                    ),
+                    "cv_design": split_record.get("cv_design") or {},
+                    "balancing_configuration": split_record.get(
+                        "balancing_policy"
+                    )
+                    or {},
+                    "split_configuration": split_record.get("config") or {},
+                    "fold_architecture": split_record.get(
+                        "fold_architecture"
+                    )
+                    or {},
+                }
+            )
+        except ValueError as exc:
+            return False, str(exc)
+        if canonical_contract_hash(current_execution_policy) != canonical_contract_hash(
+            job.get("validation_execution_policy") or {}
+        ):
+            return False, "The approved Validation Design execution policy changed."
         if str(store.meta.get("split_status") or "") != "current":
             return False, "The active split is stale."
         return True, ""
@@ -1277,7 +1600,7 @@ class TrainingJobService:
             cv_folds=int(self._jobs[job_id]["preflight"]["cross_validation_compatibility"]["effective_folds"]),
             cv_splits=self._jobs[job_id].get("_cv_execution_splits") or None,
             primary_metric=request.primary_metric,
-            positive_class=request.event_value,
+            positive_class=self._jobs[job_id]["event_value"],
             selection_partition_id=str(
                 self._jobs[job_id].get("selection_partition_id") or ""
             ),
@@ -1287,6 +1610,9 @@ class TrainingJobService:
             balancing_status=str(
                 self._jobs[job_id].get("selection_resampling_status")
                 or "not_applied"
+            ),
+            validation_policy=deepcopy(
+                self._jobs[job_id].get("_validation_execution_policy") or {}
             ),
         )
         result["runtime_ms"] = int((time.perf_counter() - started) * 1000)
@@ -1373,6 +1699,11 @@ class TrainingJobService:
                     "training_dataset_id",
                     "training_dataset_version_id",
                     "target_contract_id",
+                    "source_target_contract_id",
+                    "target_authority_hash",
+                    "target_semantics_authority",
+                    "analysis_partition_id",
+                    "analysis_partition_revision",
                     "predictor_manifest_id",
                     "predictor_manifest_hash",
                     "treatment_manifest_id",
@@ -1477,6 +1808,10 @@ class TrainingJobService:
                     "training_dataset_id",
                     "training_dataset_version_id",
                     "target_contract_id",
+                    "source_target_contract_id",
+                    "target_authority_hash",
+                    "analysis_partition_id",
+                    "analysis_partition_revision",
                     "predictor_manifest_hash",
                     "treatment_manifest_hash",
                     "feature_manifest_hash",
@@ -1499,7 +1834,9 @@ class TrainingJobService:
                 raise CandidateContractError(
                     "A completed result no longer matches the frozen training contract."
                 )
-        problem_type = str(ranked[0].get("task") if ranked else request.problem_type or "")
+        problem_type = str(
+            ranked[0].get("task") if ranked else job.get("problem_type") or ""
+        )
         ranked.sort(
             key=lambda row: selection_sort_key(
                 row,
@@ -1528,6 +1865,17 @@ class TrainingJobService:
             "target": job["target"],
             "event_value": job["event_value"],
             "non_event_value": job["non_event_value"],
+            "target_semantics_authority": deepcopy(
+                job["target_semantics_authority"]
+            ),
+            "target_authority_hash": job["target_authority_hash"],
+            "source_target_contract_id": job[
+                "source_target_contract_id"
+            ],
+            "analysis_partition_id": job["analysis_partition_id"],
+            "analysis_partition_revision": job[
+                "analysis_partition_revision"
+            ],
             "training_job_id": job["job_id"],
             "training_run_id": job["training_run_id"],
             "requested_models": job["requested_models"],
@@ -1571,6 +1919,9 @@ class TrainingJobService:
             "selection_resampling_status": job[
                 "selection_resampling_status"
             ],
+            "validation_execution_policy": deepcopy(
+                job.get("validation_execution_policy") or {}
+            ),
             "primary_metric": job["contract"].get("ranking_metric"),
             "validation_design_id": job.get("validation_design_id"),
             "validation_design_version": job.get(

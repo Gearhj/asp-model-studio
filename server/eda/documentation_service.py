@@ -41,6 +41,7 @@ from ..security.security_store import audit_event
 from .documentation_types import EDACompletionRequest, EDADocumentationPayload
 from .workspace_service import eda_workspace_service
 from .workspace_types import EDAWorkspaceRequest
+from .analytical_contract import resolve_development_partition
 
 
 EDA_DOCUMENTATION_ROOT = (
@@ -897,8 +898,21 @@ class EDADocumentationService:
             authorization=authorization,
         )
         scoped_store = DATASTORE.current()
-        development_features = scoped_store.X_train
-        development_target = scoped_store.y_train
+        development_features, development_target, _scope = (
+            resolve_development_partition(
+                store=scoped_store,
+                identity={
+                    "project_id": project_id,
+                    "dataset_id": dataset_id,
+                    "dataset_version_id": dataset_version_id,
+                },
+                target=str(target),
+                authorized_predictors=authorization.get(
+                    "authorized_predictors", []
+                ),
+                predictor_manifest_id=manifest_id,
+            )
+        )
         duplicate_rows = 0
         if development_features is not None and development_target is not None:
             development_frame = development_features.copy()
@@ -2217,6 +2231,44 @@ class EDADocumentationService:
         return {
             **result,
             "request_idempotency_key": request.idempotency_key,
+        }
+
+    @_dataset_state_locked
+    def preflight_invalidation(
+        self,
+        project_id: str,
+        *,
+        expected_dataset_id: Optional[str] = None,
+        expected_dataset_version_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Verify the exact identity and durable document path without mutation."""
+
+        context = self._context_provider(project_id)
+        self._assert_expected_identity(
+            context,
+            expected_dataset_id=expected_dataset_id,
+            expected_dataset_version_id=expected_dataset_version_id,
+        )
+        with self._lock:
+            record = self._read(project_id)
+            path = self._path(project_id)
+            if self.root.exists() and not self.root.is_dir():
+                raise RuntimeError(
+                    "The governed EDA documentation root is not a writable directory."
+                )
+            if path.exists() and not path.is_file():
+                raise RuntimeError(
+                    "The governed EDA documentation record path is not a file."
+                )
+        return {
+            "ok": True,
+            "project_id": project_id,
+            "dataset_id": str(context.get("dataset_id") or ""),
+            "dataset_version_id": str(
+                context.get("dataset_version_id") or ""
+            ),
+            "record_exists": path.exists(),
+            "current_confirmation_id": record.get("current_confirmation_id"),
         }
 
     @_dataset_state_locked

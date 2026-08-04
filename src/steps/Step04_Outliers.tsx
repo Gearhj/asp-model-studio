@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -52,6 +53,7 @@ import {
 } from "../lib/preparationGovernance";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { safeArray, safeObject } from "../lib/workflowSafety";
+import { projectWorkflowRoute } from "../lib/projectScopedRoutes";
 
 type MethodKey =
   | "NONE"
@@ -1033,12 +1035,12 @@ export default function Step04Outliers() {
                   >
                     Retry analysis
                   </button>
-                  <a className="atlas-secondary-button" href="/step01">
+                  <Link className="atlas-secondary-button" to={projectWorkflowRoute(projectId, "/step01")}>
                     Go to Data Acquisition
-                  </a>
-                  <a className="atlas-secondary-button" href="/step02">
+                  </Link>
+                  <Link className="atlas-secondary-button" to={projectWorkflowRoute(projectId, "/step02")}>
                     Go to EDA
-                  </a>
+                  </Link>
                 </div>
               ) : null}
             </div>
