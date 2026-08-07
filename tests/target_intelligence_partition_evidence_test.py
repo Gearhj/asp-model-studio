@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from fastapi import HTTPException
+from pydantic import ValidationError
 
 from server.analytics import target_intelligence_router as router
 from server.analytics import target_intelligence_service as legacy_service
@@ -21,6 +22,43 @@ DATASET_ID = "dataset-target-evidence-development"
 VERSION_ID = "version-target-evidence-development"
 TARGET = "bad_flag"
 PREDICTORS = ["risk", "inquiries"]
+
+
+def _canonical_lineage_with_bureau_semantics(**updates):
+    lineage = {
+        "project_id": PROJECT_ID,
+        "dataset_id": DATASET_ID,
+        "dataset_version_id": VERSION_ID,
+        "activation_revision": 1,
+        "target_contract_id": "target-contract-exact",
+        "target": TARGET,
+        "positive_value": 1,
+        "negative_value": 0,
+        "event_value": 1,
+        "non_event_value": 0,
+        "predictor_authorization_id": "predictor-auth-exact",
+        "analysis_partition_id": "analysis-partition-exact",
+        "analysis_partition_revision": 2,
+        "special_value_review_id": "special-review-exact",
+        "special_value_review_revision": 3,
+        "expected_dataset_id": DATASET_ID,
+        "expected_dataset_version_id": VERSION_ID,
+        "dataset_version": VERSION_ID,
+        "bureau_semantic_annotation_state": "available",
+        "bureau_semantic_annotation_set_id": "bureau-annotations-exact",
+        "bureau_semantic_annotation_set_checksum": "annotations-checksum",
+        "bureau_metadata_schema_checksum": "schema-checksum",
+        "bureau_metadata_binding_id": "binding-exact",
+        "bureau_metadata_binding_revision": 4,
+        "bureau_metadata_binding_revision_checksum": "binding-checksum",
+        "bureau_metadata_crosswalk_id": "crosswalk-exact",
+        "bureau_metadata_crosswalk_revision": 5,
+        "bureau_metadata_crosswalk_revision_checksum": "crosswalk-checksum",
+        "bureau_metadata_catalog_version_id": "catalog-version-exact",
+        "bureau_metadata_catalog_checksum": "catalog-checksum",
+    }
+    lineage.update(updates)
+    return lineage
 
 
 class _StoreProxy:
@@ -84,6 +122,11 @@ def governed_target():
                 "project_id": PROJECT_ID,
                 "dataset_id": DATASET_ID,
                 "dataset_version_id": VERSION_ID,
+                # The EDA authority now requires the durable activation
+                # revision before it resolves Special-Value Review lineage.
+                # GovernedAnalysisFixture installs revision 1 for this exact
+                # synthetic dataset version.
+                "activation_revision": 1,
             },
         ),
     ):
@@ -276,3 +319,142 @@ def test_evidence_and_export_never_call_legacy_full_artifact_compute(
     assert sum(row["population"] for row in predictor["rows"]) <= installed[
         "record"
     ]["development_count"]
+
+
+def test_public_target_by_predictor_accepts_and_propagates_exact_bureau_lineage():
+    captured = []
+    active = {
+        "project_id": PROJECT_ID,
+        "dataset_id": DATASET_ID,
+        "dataset_version_id": VERSION_ID,
+    }
+
+    def _target_by_predictor(request):
+        captured.append(request)
+        return {
+            "ok": True,
+            "scope": "development_population",
+            "finalHoldoutAccessed": False,
+        }
+
+    lineage = _canonical_lineage_with_bureau_semantics()
+    payload = router.TargetByPredictorRequest(
+        projectId=PROJECT_ID,
+        datasetId=DATASET_ID,
+        versionId=VERSION_ID,
+        target=TARGET,
+        predictor="risk",
+        analysisType="numeric_quantile",
+        eventValue=1,
+        canonicalLineage=lineage,
+    )
+    user = {"userId": "target-evidence-test"}
+    with (
+        patch.object(router, "_check_project_access") as access,
+        patch.object(
+            router,
+            "_require_active_version",
+            return_value=active,
+        ) as active_version,
+        patch.object(
+            eda_workspace_service,
+            "target_by_predictor",
+            side_effect=_target_by_predictor,
+        ),
+        patch.object(
+            legacy_service,
+            "compute_target_by_predictor",
+            side_effect=AssertionError("legacy predictor fallback was called"),
+        ) as legacy,
+    ):
+        result = router.target_by_predictor(payload, user)
+
+    access.assert_called_once_with(user, PROJECT_ID)
+    active_version.assert_called_once_with(
+        user,
+        PROJECT_ID,
+        DATASET_ID,
+        VERSION_ID,
+    )
+    legacy.assert_not_called()
+    assert result["scope"] == "development_population"
+    assert result["finalHoldoutAccessed"] is False
+    assert len(captured) == 1
+    forwarded = captured[0]
+    for field in (
+        "bureau_semantic_annotation_state",
+        "bureau_semantic_annotation_set_id",
+        "bureau_semantic_annotation_set_checksum",
+        "bureau_metadata_schema_checksum",
+        "bureau_metadata_binding_id",
+        "bureau_metadata_binding_revision",
+        "bureau_metadata_binding_revision_checksum",
+        "bureau_metadata_crosswalk_id",
+        "bureau_metadata_crosswalk_revision",
+        "bureau_metadata_crosswalk_revision_checksum",
+        "bureau_metadata_catalog_version_id",
+        "bureau_metadata_catalog_checksum",
+    ):
+        assert getattr(forwarded, field) == lineage[field]
+    assert not any("holdout" in field.casefold() for field in forwarded.model_fields)
+
+
+@pytest.mark.parametrize(
+    "updates",
+    [
+        {"bureau_metadata_catalog_checksum": None},
+        {"bureau_semantic_annotation_state": "unavailable"},
+        {"bureau_metadata_crosswalk_revision": 0},
+    ],
+)
+def test_public_target_by_predictor_rejects_malformed_bureau_lineage(updates):
+    with pytest.raises(ValidationError):
+        router.TargetByPredictorRequest(
+            projectId=PROJECT_ID,
+            datasetId=DATASET_ID,
+            versionId=VERSION_ID,
+            target=TARGET,
+            predictor="risk",
+            canonicalLineage=_canonical_lineage_with_bureau_semantics(**updates),
+        )
+
+
+@pytest.mark.parametrize(
+    ("lineage_updates", "expected_code"),
+    [
+        ({"project_id": "cross-project"}, "eda_project_scope_mismatch"),
+        ({"target": "other_target"}, "target_contract_stale"),
+    ],
+)
+def test_public_target_by_predictor_rejects_contradictory_lineage_before_analysis(
+    lineage_updates,
+    expected_code,
+):
+    payload = router.TargetByPredictorRequest(
+        projectId=PROJECT_ID,
+        datasetId=DATASET_ID,
+        versionId=VERSION_ID,
+        target=TARGET,
+        predictor="risk",
+        canonicalLineage=_canonical_lineage_with_bureau_semantics(
+            **lineage_updates
+        ),
+    )
+    with (
+        patch.object(router, "_check_project_access"),
+        patch.object(
+            router,
+            "_require_active_version",
+            return_value={
+                "project_id": PROJECT_ID,
+                "dataset_id": DATASET_ID,
+                "dataset_version_id": VERSION_ID,
+            },
+        ),
+        patch.object(eda_workspace_service, "target_by_predictor") as analysis,
+        pytest.raises(HTTPException) as captured,
+    ):
+        router.target_by_predictor(payload, {"userId": "target-evidence-test"})
+    assert captured.value.status_code == 409
+    assert captured.value.detail["code"] == expected_code
+    analysis.assert_not_called()

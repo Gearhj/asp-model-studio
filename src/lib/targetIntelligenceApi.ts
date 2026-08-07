@@ -32,21 +32,58 @@ export type TargetAssessmentRequest = {
 
 export type TargetByPredictorRequest = {
   projectId: string;
-  /** Empty when the project has no registered Dataset Library version; the
-   *  request then goes to the full-population EDA workspace path instead of the
-   *  immutable-artifact path. Both are exact, bounded, and server-side. */
+  /** Target-directed EDA requires an exact registered Dataset Library version. */
   datasetId: string;
   versionId: string;
   target: string;
   predictor: string;
   analysisType: TargetPredictorAnalysisType;
-  eventValue?: unknown;
+  eventValue: unknown;
   bands?: number;
   topCategories?: number;
   includeMissing?: boolean;
-  /** Draft path only: the workspace dataset this analysis belongs to. */
+  /** Retained only as a cache discriminator for non-analytical legacy callers. */
   workspaceFingerprint?: string | null;
+  /** Exact backend-authoritative Data Acquisition -> EDA lineage. Target-directed
+   *  analysis is refused when this envelope is absent or incomplete. */
+  canonicalRequest: Record<string, unknown>;
+  /** Runs before a response enters the shared immutable-result cache. */
+  validateResponse: (payload: unknown) => void;
 };
+
+const REQUIRED_EDA_LINEAGE_FIELDS = [
+  "project_id",
+  "dataset_id",
+  "dataset_version_id",
+  "activation_revision",
+  "target_contract_id",
+  "target",
+  "positive_value",
+  "negative_value",
+  "predictor_authorization_id",
+  "analysis_partition_id",
+  "analysis_partition_revision",
+  "special_value_review_id",
+  "special_value_review_revision",
+] as const;
+
+function hasExactEdaLineage(request: TargetByPredictorRequest): boolean {
+  const lineage = request.canonicalRequest;
+  const complete = REQUIRED_EDA_LINEAGE_FIELDS.every((field) => {
+    const value = lineage?.[field];
+    if (field === "positive_value" || field === "negative_value") {
+      return value !== undefined && value !== null;
+    }
+    if (field.endsWith("_revision")) return Number(value) > 0;
+    return String(value ?? "").trim().length > 0;
+  });
+  return complete &&
+    String(lineage.project_id) === request.projectId &&
+    String(lineage.dataset_id) === request.datasetId &&
+    String(lineage.dataset_version_id) === request.versionId &&
+    String(lineage.target) === request.target &&
+    String(lineage.positive_value) === String(request.eventValue);
+}
 
 /** The scope a request is issued FOR. Included in every identity so a draft
  *  response can never satisfy a governed request, or vice versa. */
@@ -68,6 +105,7 @@ export function buildTargetAssessmentKey(request: TargetAssessmentRequest): stri
 }
 
 export function buildTargetByPredictorKey(request: TargetByPredictorRequest): string {
+  const lineage = request.canonicalRequest ?? {};
   return [
     requestedScopeMode(request),
     request.projectId,
@@ -76,6 +114,7 @@ export function buildTargetByPredictorKey(request: TargetByPredictorRequest): st
     // A draft request is only interchangeable with another draft request over
     // the SAME workspace dataset, so the fingerprint is part of its identity.
     request.workspaceFingerprint ?? "",
+    ...REQUIRED_EDA_LINEAGE_FIELDS.map((field) => String(lineage[field] ?? "")),
     request.target,
     request.predictor,
     request.analysisType,
@@ -126,8 +165,17 @@ async function postJson<T>(path: string, body: unknown, signal?: AbortSignal): P
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok || !payload?.ok) {
+    const detail = payload?.detail;
+    const detailMessage =
+      detail && typeof detail === "object"
+        ? (detail as Record<string, unknown>).message
+        : null;
     throw new Error(
-      typeof payload?.detail === "string" ? payload.detail : "The target analysis could not be completed."
+      typeof detail === "string"
+        ? detail
+        : typeof detailMessage === "string"
+          ? detailMessage
+          : "The target analysis could not be completed."
     );
   }
   return payload as T;
@@ -208,46 +256,42 @@ export function fetchTargetByPredictor(
   options: { signal?: AbortSignal } = {}
 ): Promise<TargetByPredictorResult> {
   const key = buildTargetByPredictorKey(request);
-  // A registered version is scanned as an immutable artifact; an unregistered
-  // project is aggregated over the full in-memory backend population. Neither
-  // path returns rows -- only bounded grouped counts.
+  // The exact registered version is resolved server-side to the documented
+  // Development Population. No workspace-draft or full-population fallback is
+  // permitted for this target-directed EDA path.
   const registered = Boolean(request.datasetId && request.versionId);
-  return dedup(predictorStore, key, "predictorRequests", () =>
-    registered
-      ? postJson<TargetByPredictorResult>(
-          "/analytics/target-by-predictor",
-          {
-            projectId: request.projectId,
-            datasetId: request.datasetId,
-            versionId: request.versionId,
-            target: request.target,
-            predictor: request.predictor,
-            analysisType: request.analysisType,
-            eventValue: request.eventValue ?? null,
-            bands: request.bands ?? 10,
-            topCategories: request.topCategories ?? 12,
-            includeMissing: request.includeMissing !== false,
-          },
-          options.signal
-        )
-      : postJson<TargetByPredictorResult>(
-          "/eda/target-by-predictor",
-          {
-            project_id: request.projectId,
-            // Deliberately no dataset/version: the draft endpoint derives
-            // workspace_draft scope from server state and must not be offered a
-            // governance claim to echo back.
-            target: request.target,
-            event_value: request.eventValue ?? null,
-            predictor: request.predictor,
-            analysis_type: request.analysisType,
-            bands: request.bands ?? 10,
-            top_categories: request.topCategories ?? 12,
-            include_missing: request.includeMissing !== false,
-          },
-          options.signal
-        )
-  );
+  if (
+    !registered ||
+    !hasExactEdaLineage(request) ||
+    typeof request.validateResponse !== "function"
+  ) {
+    return Promise.reject(
+      new Error(
+        "Target-by-predictor analysis requires the exact current Data Acquisition identity, target contract, predictor authorization, Analysis Partition, and Special-Value Review.",
+      ),
+    );
+  }
+  return dedup(predictorStore, key, "predictorRequests", async () => {
+    const payload = await postJson<TargetByPredictorResult>(
+      "/analytics/target-by-predictor",
+      {
+        projectId: request.projectId,
+        datasetId: request.datasetId,
+        versionId: request.versionId,
+        target: request.target,
+        predictor: request.predictor,
+        analysisType: request.analysisType,
+        eventValue: request.eventValue ?? null,
+        bands: request.bands ?? 10,
+        topCategories: request.topCategories ?? 12,
+        includeMissing: request.includeMissing !== false,
+        canonicalLineage: request.canonicalRequest,
+      },
+      options.signal,
+    );
+    request.validateResponse(payload);
+    return payload;
+  });
 }
 
 // ---------------------------------------------------------------------------

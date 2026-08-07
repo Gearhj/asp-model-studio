@@ -22,7 +22,10 @@ import {
 import StatisticalBoxPlot, {
   type BoxPlotSeries,
 } from "./StatisticalBoxPlot";
-import { assertExactDatasetIdentity } from "../../../lib/datasetIdentity";
+import {
+  assertExactEdaResponseLineage,
+  type CanonicalDataAcquisitionEdaHandoff,
+} from "../../../lib/dataAcquisitionEdaHandoff";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
@@ -165,6 +168,8 @@ type Props = {
   predictors: NumericPredictor[];
   histogramBins: number;
   onHistogramBins: (value: number) => void;
+  canonicalRequest: Record<string, unknown>;
+  canonicalHandoff: CanonicalDataAcquisitionEdaHandoff;
 };
 
 type CacheEntry = {
@@ -183,6 +188,7 @@ function requestKey(body: Record<string, unknown>) {
 function fetchDistribution(
   body: Record<string, unknown>,
   datasetVersion: string,
+  canonicalHandoff: CanonicalDataAcquisitionEdaHandoff,
   force = false,
 ): Promise<DistributionResponse> {
   const now = Date.now();
@@ -211,6 +217,11 @@ function fetchDistribution(
           : detail?.message ?? payload?.message ?? payload?.error;
       throw new Error(String(message || "Distribution aggregation failed."));
     }
+    // Validate the complete DA authority before this promise can enter the
+    // shared response cache. A matching dataset triple is insufficient when
+    // any activation, target, authorization, partition, or review revision is
+    // stale.
+    assertExactEdaResponseLineage(canonicalHandoff, payload);
     return payload as DistributionResponse;
   });
   distributionRequests.set(key, { createdAt: now, promise });
@@ -381,6 +392,8 @@ export default function PredictorDistributionExplorer({
   predictors,
   histogramBins,
   onHistogramBins,
+  canonicalRequest,
+  canonicalHandoff,
 }: Props) {
   const reducedMotion = useReducedMotion();
   const selectedVariable = useEdaVisualSelection((state) => state.selectedVariable);
@@ -450,6 +463,7 @@ export default function PredictorDistributionExplorer({
     requestSequence.current = sequence;
     const startedAt = performance.now();
     const body: Record<string, unknown> = {
+      ...canonicalRequest,
       project_id: projectId,
       expected_dataset_id: datasetId,
       expected_dataset_version_id: datasetVersionId,
@@ -468,18 +482,9 @@ export default function PredictorDistributionExplorer({
     setError("");
     const force = reload > consumedReload.current;
     if (force) consumedReload.current = reload;
-    fetchDistribution(body, datasetVersion, force)
+    fetchDistribution(body, datasetVersion, canonicalHandoff, force)
       .then((payload) => {
         if (requestSequence.current !== sequence) return;
-        assertExactDatasetIdentity(
-          {
-            project_id: projectId,
-            dataset_id: datasetId,
-            dataset_version_id: datasetVersionId,
-          },
-          payload,
-          "EDA predictor distribution response",
-        );
         if (
           payload.feature !== variable ||
           payload.dataset_version !== datasetVersion ||
@@ -524,6 +529,7 @@ export default function PredictorDistributionExplorer({
     activeRange?.max,
     activeRange?.min,
     available,
+    canonicalRequest,
     eventValue,
     datasetId,
     datasetVersionId,

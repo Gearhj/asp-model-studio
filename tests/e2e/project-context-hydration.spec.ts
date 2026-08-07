@@ -13,6 +13,7 @@ type ProjectFixture = {
   projectId: string;
   projectName: string;
   workflowType?: string;
+  target?: string | null;
   projectStatus?: number;
   waitForProject?: Promise<void>;
   waitForProjectPut?: (input: {
@@ -228,7 +229,7 @@ function workflowState(projectId: string, workflowId = "predictive-modeling") {
   };
 }
 
-function activeIdentity(projectId: string) {
+function activeIdentity(projectId: string, target: string | null = "bad_flag") {
   return {
     ok: true,
     project_id: projectId,
@@ -237,7 +238,7 @@ function activeIdentity(projectId: string) {
     activation_revision: 1,
     dataset_version_label: "Project-context fixture version",
     dataset_source_type: "dataset-library",
-    target: "bad_flag",
+    target,
   };
 }
 
@@ -510,25 +511,47 @@ async function installProjectAuthorityMocks(
     if (pathname === "/api/data/active-identity") {
       const projectId = url.searchParams.get("project_id") ?? "";
       stats.identityGets[projectId] = (stats.identityGets[projectId] ?? 0) + 1;
-      await fulfillJson(route, 200, activeIdentity(projectId));
+      const fixture = fixtureById.get(projectId);
+      await fulfillJson(
+        route,
+        200,
+        activeIdentity(projectId, fixture?.target === undefined ? "bad_flag" : fixture.target),
+      );
       return;
     }
 
     if (pathname === "/api/data/get_sample") {
       const projectId = url.searchParams.get("project_id") ?? "";
       stats.sampleGets[projectId] = (stats.sampleGets[projectId] ?? 0) + 1;
+      const fixture = fixtureById.get(projectId);
+      const fixtureTarget = fixture?.target === undefined ? "bad_flag" : fixture.target;
       await fulfillJson(route, 200, {
         ok: true,
+        project_id: projectId,
         headers: ["predictor_a", "bad_flag"],
-        rows: [
-          { predictor_a: 1, bad_flag: 0 },
-          { predictor_a: 2, bad_flag: 1 },
-        ],
-        target: "bad_flag",
-        selected_columns: ["predictor_a"],
+        rows: fixtureTarget
+          ? [{ predictor_a: 1 }, { predictor_a: 2 }]
+          : [
+              { predictor_a: 1, bad_flag: 0 },
+              { predictor_a: 2, bad_flag: 1 },
+            ],
+        target: fixtureTarget,
+        selected_columns: fixtureTarget
+          ? ["predictor_a"]
+          : ["predictor_a", "bad_flag"],
         registered_row_count: 2,
         dataset_id: DATASET_ID,
         dataset_version_id: VERSION_ID,
+        activation_revision: 1,
+        target_values_included: false,
+        problem_type: "classification",
+        scope: {
+          analytical_scope: "full_governed_population_predictors_only",
+          population_id: `population-${projectId}`,
+          population_count: 2,
+          target_values_included: false,
+          holdout_excluded: true,
+        },
       });
       return;
     }
@@ -1351,6 +1374,51 @@ test.describe("Project-scoped authoritative frontend hydration", () => {
     expect(stats.workflowGets["project-a"]).toBeGreaterThan(workflowGetsBeforeReload);
     expect(activationMutations(stats)).toEqual([]);
     expect(partitionMutations(stats)).toEqual([]);
+  });
+
+  test("choosing a draft target preserves the exact loaded dataset and mounted page", async ({ page }) => {
+    const projectId = "project-target-stability";
+    const projectName = "Target Stability Fixture";
+    const stats = await installProjectAuthorityMocks(page, [{
+      projectId,
+      projectName,
+      target: null,
+    }]);
+
+    await page.goto(`/projects/${projectId}/step01?source=library#target-setup`);
+    await expectReadyProject(page, projectId, projectName);
+    const targetRegion = page.getByTestId("data-acquisition-target-setup");
+    const targetSelect = page.getByTestId("target-column-select");
+    await expect(targetRegion).toBeVisible();
+    await expect(targetSelect).toHaveValue("");
+    await expect(targetSelect).toContainText("Select a target column");
+    await targetRegion.evaluate((element) => {
+      element.setAttribute("data-stability-sentinel", "preserved");
+    });
+
+    const urlBefore = page.url();
+    const authorityReadsBefore = {
+      project: stats.projectGets[projectId],
+      workflow: stats.workflowGets[projectId],
+      identity: stats.identityGets[projectId],
+      sample: stats.sampleGets[projectId],
+    };
+
+    await targetSelect.selectOption("bad_flag");
+    await expect(targetSelect).toHaveValue("bad_flag");
+    await expect(targetRegion).toHaveAttribute("data-stability-sentinel", "preserved");
+    await expect(page.getByTestId("project-context-gate")).toHaveCount(0);
+    await expect(page.getByTestId("target-column-priority-control")).toBeVisible();
+    await expect(targetRegion.getByRole("status")).toContainText("Target confirmed: bad_flag");
+    expect(page.url()).toBe(urlBefore);
+    expect(stats.projectGets[projectId]).toBe(authorityReadsBefore.project);
+    expect(stats.workflowGets[projectId]).toBe(authorityReadsBefore.workflow);
+    expect(stats.identityGets[projectId]).toBe(authorityReadsBefore.identity);
+    expect(stats.sampleGets[projectId]).toBe(authorityReadsBefore.sample);
+    expect(activationMutations(stats)).toEqual([]);
+    expect(
+      stats.nonGetRequests.filter(({ pathname }) => pathname === "/api/data/set_target"),
+    ).toEqual([]);
   });
 
   test("an unauthorized scoped URL fails closed with a precise 403 state", async ({ page }) => {

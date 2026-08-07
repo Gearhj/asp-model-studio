@@ -63,6 +63,7 @@ from server.persistence.db import Database, now_iso
 from server.persistence.repositories.special_value_review_repository import (
     SpecialValueReviewConflictError,
     SpecialValueReviewRepository,
+    SpecialValueReviewStateError,
 )
 from server.preprocessing.bureau_detection_types import (
     SpecialValueVariableDecisionInput,
@@ -86,6 +87,7 @@ def detection(*, second_variable: bool = True) -> dict:
         {
             "variable": "ExternalRiskEstimate",
             "likely_bureau": True,
+            "datatype": "float64",
             "special_value_count": 4,
             "special_values": [
                 {"value": -9, "count": 3, "definition": "No score"},
@@ -112,6 +114,22 @@ def detection(*, second_variable: bool = True) -> dict:
         "activation_revision": 3,
         "predictor_authorization_id": "predictor-auth-special",
         "target_contract_id": "target-contract-special",
+        "analysis_partition_id": "analysis-partition-special-r1",
+        "analysis_partition_revision": 1,
+        "development_partition_id": "development-special-r1",
+        "analysis_partition_assignment_hash": "assignment-special-r1",
+        "analysis_partition_artifact_hash": "artifact-special-r1",
+        "development_target_checksum": "development-target-special-r1",
+        "source_checksum": "source-special-v1",
+        "structural_scope": "full_governed_population_predictors_only",
+        "target_analysis_scope": "development_population",
+        "full_governed_population_rows": 100,
+        "development_rows": 80,
+        "target_evidence": {
+            "available": True,
+            "status": "available",
+            "scope": "development_population",
+        },
         "target": "bad_flag",
         "detected": True,
         "manual_declaration": "auto",
@@ -192,6 +210,25 @@ def test_detection_fingerprint_ignores_transport_metadata_and_counts_exact_items
     first = detection()
     second = {**first, "reviewed_at": "later", "correlation_id": "other"}
     assert detection_fingerprint(first) == detection_fingerprint(second)
+    assert detection_fingerprint(first) == detection_fingerprint(
+        {**first, "activation_revision": 4}
+    )
+    assert detection_fingerprint(first) != detection_fingerprint(
+        {
+            **first,
+            "variables": [
+                {**first["variables"][0], "datatype": "object"},
+                first["variables"][1],
+            ],
+        }
+    )
+    assert detection_fingerprint(first) != detection_fingerprint(
+        {
+            **first,
+            "analysis_partition_revision": 2,
+            "development_target_checksum": "development-target-special-r2",
+        }
+    )
     state = initial_review_state(first)
     assert state == {
         "status": "not_started",
@@ -201,6 +238,65 @@ def test_detection_fingerprint_ignores_transport_metadata_and_counts_exact_items
         "blocks_confirmation": True,
         "blocks_continuation": True,
     }
+
+
+def test_exact_version_reactivation_preserves_confirmed_decisions(repository):
+    value = detection()
+    row = repository.sync_detection(sync_payload(value))
+    confirmed_state = evaluate_review(value, decisions(), intent="confirm")
+    confirmed = repository.save_review(
+        {
+            "project_id": PROJECT_ID,
+            "dataset_id": DATASET_ID,
+            "dataset_version_id": VERSION_ID,
+            "detection_fingerprint": row["detection_fingerprint"],
+            "actor_user_id": "review-owner",
+            **confirmed_state,
+        },
+        expected_revision=1,
+    )
+    reactivated = {**value, "activation_revision": 4}
+    payload = {**sync_payload(reactivated), "activation_revision": 4}
+    refreshed = repository.sync_detection(payload)
+    assert refreshed["revision"] == confirmed["revision"] + 1
+    assert refreshed["activation_revision"] == 4
+    assert refreshed["status"] == "confirmed"
+    assert refreshed["decisions_json"] == confirmed["decisions_json"]
+
+
+def test_repository_rejects_type_invalid_and_special_code_replacements(repository):
+    value = detection(second_variable=False)
+    row = repository.sync_detection(sync_payload(value))
+    for replacement in (True, "not-a-number", -9):
+        with pytest.raises(
+            SpecialValueReviewStateError,
+            match="valid governed replacement",
+        ):
+            repository.save_review(
+                {
+                    "project_id": PROJECT_ID,
+                    "dataset_id": DATASET_ID,
+                    "dataset_version_id": VERSION_ID,
+                    "detection_fingerprint": row["detection_fingerprint"],
+                    "actor_user_id": "review-owner",
+                    "status": "confirmed",
+                    "detected_count": 1,
+                    "reviewed_count": 1,
+                    "open_count": 0,
+                    "blocks_confirmation": False,
+                    "blocks_continuation": False,
+                    "decisions": [
+                        {
+                            "variable": "ExternalRiskEstimate",
+                            "policy": "documented_domain_mapping",
+                            "replacement_value": replacement,
+                            "rationale": "Use a governed valid value.",
+                            "overrides": [],
+                        }
+                    ],
+                },
+                expected_revision=1,
+            )
 
 
 def test_review_policy_validation_is_backend_detection_bound_and_fail_closed():
@@ -235,6 +331,49 @@ def test_review_policy_validation_is_backend_detection_bound_and_fail_closed():
             intent="draft",
         )
     assert rationale.value.code == "special_value_rationale_required"
+
+    with pytest.raises(SpecialValueReviewValidationError) as replacement:
+        evaluate_review(
+            value,
+            [
+                SpecialValueVariableDecisionInput(
+                    variable="ExternalRiskEstimate",
+                    policy="documented_domain_mapping",
+                    rationale="Use an observed, valid score value.",
+                )
+            ],
+            intent="draft",
+        )
+    assert replacement.value.code == "governed_replacement_value_required"
+
+    with pytest.raises(SpecialValueReviewValidationError) as special_code:
+        evaluate_review(
+            value,
+            [
+                SpecialValueVariableDecisionInput(
+                    variable="ExternalRiskEstimate",
+                    policy="documented_domain_mapping",
+                    replacement_value=-9,
+                    rationale="Attempt an invalid governed value.",
+                )
+            ],
+            intent="draft",
+        )
+    assert special_code.value.code == "governed_replacement_value_invalid"
+
+    mapped = evaluate_review(
+        value,
+        [
+            SpecialValueVariableDecisionInput(
+                variable="ExternalRiskEstimate",
+                policy="documented_domain_mapping",
+                replacement_value="72",
+                rationale="Use an observed, valid score value.",
+            )
+        ],
+        intent="draft",
+    )
+    assert mapped["decisions"][0]["replacement_value"] == 72.0
 
 
 def test_no_backend_detected_special_values_do_not_manufacture_a_blocker():

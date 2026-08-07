@@ -55,10 +55,19 @@ test("backend preview renders classification rates and regression coverage, not 
   assert.doesNotMatch(acquisition, /rawPreview\.recommendation_status \?\? rawPreview\.status \?\? ["']acceptable["']/);
 });
 
-test("partition creation waits for an exact durable current response before routing", () => {
+test("partition creation waits for an exact durable current response without bypassing final DA handoff", () => {
   assert.match(acquisition, /createOrReuseAnalysisPartition[\s\S]*previewFingerprint[\s\S]*selectionRationale/);
   assert.match(acquisition, /confirmed\.phase\s*===\s*["']current["']/);
-  assert.match(acquisition, /analysisPartitionIdentityMatches\([\s\S]*navigate\(projectWorkflowRoute\(projectId,\s*["']\/step02["']\)\)/);
+  const createStart = acquisition.indexOf("async function confirmRecommendedAnalysisPartition()");
+  const createEnd = acquisition.indexOf("async function retryAnalysisPartitionDocumentation()", createStart);
+  assert.ok(createStart >= 0 && createEnd > createStart);
+  assert.doesNotMatch(
+    acquisition.slice(createStart, createEnd),
+    /navigate\(|projectWorkflowRoute\(projectId,\s*["']\/step02["']\)/,
+    "sealing a partition must not bypass Special-Value Review and the final DA read-back",
+  );
+  assert.match(acquisition, /nextPath="\/step02"/);
+  assert.match(acquisition, /fetchCanonicalDataAcquisitionEdaHandoff\([\s\S]*exactTargetMapping[\s\S]*exactPersistedContracts[\s\S]*exactPartition/);
 });
 
 test("pending partition documentation is read-only and has one explicit retry action", () => {
@@ -79,7 +88,7 @@ test("pending partition documentation is read-only and has one explicit retry ac
   assert.doesNotMatch(acquisition, /window\.location\.(?:reload|assign)|location\.reload/);
 });
 
-test("documentation retry is exact, project scoped, and advances only after durable current readback", () => {
+test("documentation retry is exact, project scoped, and leaves navigation to the final DA action", () => {
   assert.match(acquisition, /\/analysis-partitions\/complete-documentation/);
   for (const field of [
     "project_id: identity.project_id",
@@ -94,7 +103,11 @@ test("documentation retry is exact, project scoped, and advances only after dura
   assert.match(acquisition, /Number\(completed\.revision\) === Number\(partition\.revision\)/);
   assert.match(acquisition, /completed\.artifact_hash === partition\.artifact_hash/);
   assert.match(acquisition, /completed\.assignment_hash === partition\.assignment_hash/);
-  assert.match(acquisition, /if \(completed\.phase === "current"\) \{[\s\S]*navigate\(projectWorkflowRoute\(projectId, "\/step02"\)\)/);
+  const retryStart = acquisition.indexOf("async function retryAnalysisPartitionDocumentation()");
+  const retryEnd = acquisition.indexOf("function leaveAnalysisPartitionResetMode()", retryStart);
+  assert.ok(retryStart >= 0 && retryEnd > retryStart);
+  assert.match(acquisition.slice(retryStart, retryEnd), /if \(completed\.phase === "current"\)/);
+  assert.doesNotMatch(acquisition.slice(retryStart, retryEnd), /navigate\(/);
   assert.match(acquisition, /Safe failure stage:/);
 });
 

@@ -280,9 +280,21 @@ test("exact code context is colocated under Code and Lineage and stale context i
     reproducibility,
     /window\.dispatchEvent\(new CustomEvent\(REPRODUCIBILITY_CONTEXT_CONFIRMED_EVENT\)\)/,
   );
-  assert.match(acquisition, /const markPending = \(\) => \{[\s\S]*setReproducibilityContext\(null\)[\s\S]*setReproducibilityContextPhase\("pending"\)/);
+  const pendingHandler = sourceBetween(
+    acquisition,
+    "    const markPending = () => {",
+    "    const refreshConfirmed = () => {",
+    "reproducibility pending handler",
+  );
+  assert.match(pendingHandler, /localDraftPending = true/);
+  assert.match(pendingHandler, /setReproducibilityContextPhase\("pending"\)/);
+  assert.doesNotMatch(
+    pendingHandler,
+    /setReproducibilityContext\(null\)|requestRevision\s*\+=|controller\.abort/,
+    "A local predictor draft must not discard or cancel an in-flight exact governed baseline.",
+  );
   assert.match(acquisition, /window\.addEventListener\([\s\S]*REPRODUCIBILITY_CONTEXT_PENDING_EVENT,[\s\S]*markPending/);
-  assert.match(acquisition, /window\.addEventListener\([\s\S]*REPRODUCIBILITY_CONTEXT_CONFIRMED_EVENT,[\s\S]*refresh/);
+  assert.match(acquisition, /window\.addEventListener\([\s\S]*REPRODUCIBILITY_CONTEXT_CONFIRMED_EVENT,[\s\S]*refreshConfirmed/);
   assert.match(codePanel, /REPRODUCIBILITY_CONTEXT_PENDING_EVENT[\s\S]*markPending/);
   assert.match(codePanel, /REPRODUCIBILITY_CONTEXT_CONFIRMED_EVENT[\s\S]*refreshConfirmed/);
 
@@ -303,10 +315,9 @@ test("exact code context is colocated under Code and Lineage and stale context i
 });
 
 test("split-ratio changes use an explicit governed backend preview", () => {
-  assert.match(acquisition, />Change Split Ratio<\/h2>/);
   assert.match(
     acquisition,
-    /data-testid="open-analysis-partition-reset">Change Split Ratio<\/Link>/,
+    /data-testid="open-analysis-partition-reset"[\s\S]*Change Split Ratio [^\r\n<]* Creates New Revision[\s\S]*<\/Link>/,
   );
   const resetWorkspace = sourceBetween(
     acquisition,
@@ -339,10 +350,13 @@ test("split-ratio changes use an explicit governed backend preview", () => {
 test("special-value review is visually prominent, discoverable, and blocking when unresolved", () => {
   assert.match(specialValues, /<section id="credit-bureau-review"/);
   assert.match(specialValues, /data-testid="special-value-decision-workspace"/);
-  assert.match(specialValues, /open=\{!!\(result\?\.detected \|\| state\.declaration !== "auto"\)\}/);
   assert.match(specialValues, /from-slate-950 via-indigo-950 to-indigo-900/);
   assert.match(specialValues, /Special-Value Treatment Review/);
-  assert.match(specialValues, /sticky top-24 self-start/);
+  assert.match(specialValues, /data-testid="special-value-feature-table"/);
+  assert.match(specialValues, /data-testid="special-value-feature-row"/);
+  assert.match(specialValues, /aria-label=\{`Selected treatment for \$\{variable\.variable\}`\}/);
+  assert.match(specialValues, /Apply selected default to unresolved attributes/);
+  assert.match(specialValues, /data-testid="confirmed-special-value-summary"/);
   assert.match(specialValues, /Confirm Special-Value Treatment/);
   assert.match(
     specialValues,

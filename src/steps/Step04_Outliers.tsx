@@ -54,6 +54,7 @@ import {
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { safeArray, safeObject } from "../lib/workflowSafety";
 import { projectWorkflowRoute } from "../lib/projectScopedRoutes";
+import BureauSemanticContextPanel from "../components/BureauSemanticContextPanel";
 
 type MethodKey =
   | "NONE"
@@ -1009,6 +1010,14 @@ export default function Step04Outliers() {
             },
           ]}
         />
+
+        {datasetIdentity ? (
+          <BureauSemanticContextPanel
+            datasetIdentity={datasetIdentity}
+            datasetFields={allRows.map((row) => row.feature)}
+            pageName="Outliers"
+          />
+        ) : null}
 
         {loading ? (
           <div className="atlas-workflow-section flex min-h-52 items-center justify-center">

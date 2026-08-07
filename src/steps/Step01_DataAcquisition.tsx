@@ -1,9 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
 import { Check, Loader2, ShieldCheck } from "lucide-react";
 import StepShell from "../components/StepShell";
 import StepPythonPanel from "../components/StepPythonPanel";
-import BureauReviewPanel, { type BureauReviewPanelStatus } from "../components/BureauReviewPanel";
+import BureauReviewPanel, {
+  FOCUS_FIRST_SPECIAL_VALUE_REVIEW_EVENT,
+  type BureauReviewPanelStatus,
+  type BureauReviewPanelResult,
+} from "../components/BureauReviewPanel";
+import BureauMetadataBindingPanel from "../components/BureauMetadataBindingPanel";
 import DataAcquisitionSectionNav, {
   type DataAcquisitionSectionNavItem,
 } from "../components/dataAcquisition/DataAcquisitionSectionNav";
@@ -105,6 +110,14 @@ import {
   type DataAcquisitionReproducibilityContext,
   type ReproducibilityPredictorAuthorization,
 } from "../lib/dataAcquisitionReproducibility";
+import { fetchCanonicalDataAcquisitionEdaHandoff } from "../lib/dataAcquisitionEdaHandoff";
+import {
+  analysisPartitionMembershipPreserved,
+  canonicalPredictorSelectionKey,
+  derivePredictorAuthorizationDraftState,
+  predictorAuthorizationLineageMatches,
+  shouldHydratePredictorSelectionFromGovernedBaseline,
+} from "../lib/predictorAuthorizationReconciliation";
 
 const BASE =
   (import.meta.env?.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
@@ -143,6 +156,7 @@ type AnalysisPartitionRecord = {
   holdout_rows?: number;
   holdout_count?: number;
   sealed_holdout_rows?: number;
+  population_count?: number;
   partition_method?: string;
   created_by?: unknown;
   created_at?: string;
@@ -245,6 +259,8 @@ const PARTITION_DEFAULTS = {
   stratificationPolicy: "target",
 } as const;
 
+const MIN_ANALYSIS_PARTITION_RATIONALE_LENGTH = 10;
+
 const INITIAL_HOLDOUT_OPTIONS = [0.3, 0.2, 0.1] as const;
 
 const EMPTY_ANALYSIS_PARTITION_PREVIEW: AnalysisPartitionPreview = {
@@ -323,6 +339,12 @@ function sameGovernedValue(left: unknown, right: unknown) {
   return String(left ?? "").trim() === String(right ?? "").trim();
 }
 
+function currentDurablePredictorAuthorizationId(
+  partition: AnalysisPartitionRecord | null | undefined,
+) {
+  return String(partition?.current_predictor_authorization_id ?? "").trim();
+}
+
 function analysisPartitionMatches(
   partition: AnalysisPartitionRecord,
   identity: CanonicalDatasetIdentity,
@@ -360,6 +382,40 @@ function analysisPartitionIdentityMatches(
     Number(partition.revision) > 0 &&
     partition.final_holdout_status === "sealed" &&
     partition.holdout_isolation_status === "verified"
+  );
+}
+
+function reproducibilityBaselineMatchesPartition(
+  context: DataAcquisitionReproducibilityContext | null,
+  identity: CanonicalDatasetIdentity | null,
+  partition: AnalysisPartitionRecord | null,
+  target: string,
+  eventValue: unknown,
+  nonEventValue: unknown,
+) {
+  if (
+    !context ||
+    context.state !== "current" ||
+    !identity ||
+    !partition ||
+    !context.identity ||
+    !context.target_contract ||
+    !context.predictor_authorization ||
+    !context.analysis_partition
+  ) {
+    return false;
+  }
+  return (
+    context.project_id === identity.project_id &&
+    context.identity.project_id === identity.project_id &&
+    context.identity.dataset_id === identity.dataset_id &&
+    context.identity.dataset_version_id === identity.dataset_version_id &&
+    context.target_contract.target === target &&
+    sameGovernedValue(context.target_contract.event_value, eventValue) &&
+    sameGovernedValue(context.target_contract.non_event_value, nonEventValue) &&
+    context.analysis_partition.analysis_partition_id ===
+      partition.analysis_partition_id &&
+    Number(context.analysis_partition.revision) === Number(partition.revision)
   );
 }
 
@@ -822,6 +878,8 @@ async function readAnalysisPartitionResetImpact(
     partition.project_id !== identity.project_id ||
     partition.dataset_id !== identity.dataset_id ||
     partition.dataset_version_id !== identity.dataset_version_id ||
+    !String(partition.target_contract_id ?? "").trim() ||
+    !currentDurablePredictorAuthorizationId(partition) ||
     Number(partition.revision) <= 0 ||
     envelope.requires_explicit_reset !== true ||
     envelope.requires_invalidation_acknowledgement !== true
@@ -1339,7 +1397,6 @@ function applyPreviewSampling(input: {
 }
 
 export default function Step01DataAcquisition() {
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const analysisPartitionResetMode =
     searchParams.get("analysisPartition") === "reset";
@@ -1374,6 +1431,8 @@ export default function Step01DataAcquisition() {
   const [quality, setQuality] = useState<DataQualitySummary | null>(null);
   const [qualityLoading, setQualityLoading] = useState(false);
   const [featureProfile, setFeatureProfile] = useState<FeatureProfileResponse | null>(null);
+  const [featureProfileError, setFeatureProfileError] = useState("");
+  const [featureProfileRetryRevision, setFeatureProfileRetryRevision] = useState(0);
   const [isImporting, setIsImporting] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
   const [backendImportSynced, setBackendImportSynced] = useState(false);
@@ -1434,6 +1493,7 @@ export default function Step01DataAcquisition() {
     activeDatasetIdentity?.project_id,
     activeDatasetIdentity?.dataset_id,
     activeDatasetIdentity?.dataset_version_id,
+    activeDatasetIdentity?.activation_revision,
     target,
     String(eventValue ?? ""),
   ].join(":");
@@ -1450,6 +1510,21 @@ export default function Step01DataAcquisition() {
       setBureauReviewStatusState({ contextKey: bureauReviewContextKey, status }),
     [bureauReviewContextKey],
   );
+  const [bureauReviewResultState, setBureauReviewResultState] = useState<{
+    contextKey: string;
+    result: BureauReviewPanelResult;
+  } | null>(null);
+  const bureauReviewResult =
+    bureauReviewResultState?.contextKey === bureauReviewContextKey
+      ? bureauReviewResultState.result
+      : null;
+  const handleBureauReviewResult = useCallback(
+    (result: BureauReviewPanelResult | null) =>
+      setBureauReviewResultState(
+        result ? { contextKey: bureauReviewContextKey, result } : null,
+      ),
+    [bureauReviewContextKey],
+  );
   const datasetVersions = loadDatasetVersions();
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
@@ -1462,10 +1537,19 @@ export default function Step01DataAcquisition() {
     useState<"idle" | "loading" | "pending" | "ready" | "error">("idle");
   const [reproducibilityContextError, setReproducibilityContextError] =
     useState("");
+  const [predictorAuthorizationSaving, setPredictorAuthorizationSaving] =
+    useState(false);
+  const [predictorAuthorizationFeedback, setPredictorAuthorizationFeedback] =
+    useState("");
+  const [predictorAuthorizationVerificationError, setPredictorAuthorizationVerificationError] =
+    useState("");
+  const predictorAuthorizationOperationRevision = useRef(0);
+  const predictorSelectionTouched = useRef(false);
 
   useEffect(() => {
     let active = true;
     let requestRevision = 0;
+    let localDraftPending = false;
     const controller = new AbortController();
 
     const refresh = () => {
@@ -1487,7 +1571,11 @@ export default function Step01DataAcquisition() {
           if (!active || revision !== requestRevision) return;
           setReproducibilityContext(context);
           setReproducibilityContextPhase(
-            context.state === "current" ? "ready" : "pending",
+            localDraftPending
+              ? "pending"
+              : context.state === "current"
+                ? "ready"
+                : "pending",
           );
         })
         .catch((error) => {
@@ -1504,10 +1592,13 @@ export default function Step01DataAcquisition() {
         });
     };
     const markPending = () => {
-      requestRevision += 1;
-      setReproducibilityContext(null);
+      localDraftPending = true;
       setReproducibilityContextPhase("pending");
       setReproducibilityContextError("");
+    };
+    const refreshConfirmed = () => {
+      localDraftPending = false;
+      refresh();
     };
 
     refresh();
@@ -1517,7 +1608,7 @@ export default function Step01DataAcquisition() {
     );
     window.addEventListener(
       REPRODUCIBILITY_CONTEXT_CONFIRMED_EVENT,
-      refresh,
+      refreshConfirmed,
     );
     return () => {
       active = false;
@@ -1529,10 +1620,25 @@ export default function Step01DataAcquisition() {
       );
       window.removeEventListener(
         REPRODUCIBILITY_CONTEXT_CONFIRMED_EVENT,
-        refresh,
+        refreshConfirmed,
       );
     };
   }, [projectId]);
+
+  useEffect(() => {
+    predictorAuthorizationOperationRevision.current += 1;
+    predictorSelectionTouched.current = false;
+    setPredictorAuthorizationSaving(false);
+    setPredictorAuthorizationFeedback("");
+    setPredictorAuthorizationVerificationError("");
+  }, [
+    projectId,
+    activeDatasetIdentity?.dataset_id,
+    activeDatasetIdentity?.dataset_version_id,
+    target,
+    eventValue,
+    nonEventValue,
+  ]);
 
   // Dataset Persistence (dataset lifecycle audit): explicit workspace-only vs
   // register-to-Library choice, defaulting to workspace-only per the ADR.
@@ -1662,6 +1768,10 @@ export default function Step01DataAcquisition() {
         });
         setSelectedLibraryDatasetId(resolved.dataset_id);
         setSelectedLibraryVersionId(resolved.dataset_version_id);
+        // An exact restored Dataset Library identity must reopen the registered
+        // source, including after a defensive remount. Draft target edits do not
+        // change this source binding.
+        setSourceType("existing");
         void getDataset(resolved.dataset_id).then((dataset) => {
           if (alive) setSelectedDatasetVersions(dataset.versions);
         }).catch(() => undefined);
@@ -1767,8 +1877,8 @@ export default function Step01DataAcquisition() {
       target
         ? {
             projectId,
-            datasetId: loadedLibraryIdentity?.datasetId ?? null,
-            versionId: loadedLibraryIdentity?.versionId ?? null,
+            datasetId: activeDatasetIdentity?.dataset_id ?? null,
+            versionId: activeDatasetIdentity?.dataset_version_id ?? null,
             target,
             eventValue,
             nonEventValue,
@@ -1777,7 +1887,7 @@ export default function Step01DataAcquisition() {
               | "classification",
           }
         : null,
-    [projectId, loadedLibraryIdentity, target, eventValue, nonEventValue, targetInfo.kind]
+    [projectId, activeDatasetIdentity, target, eventValue, nonEventValue, targetInfo.kind]
   );
   const governedProfile = useTargetProfile(governedProfileRequest);
   const governedPredictors = useMemo(() => {
@@ -1847,7 +1957,18 @@ export default function Step01DataAcquisition() {
     predictorIsEligible(header, { headers, rows: profilingRows, target }),
   );
   const selected = selectable.filter((header) => kept[header]);
-  const selectedPredictorKey = selected.join("|");
+  const selectedPredictorKey = canonicalPredictorSelectionKey(selected);
+  const governedPredictorKey = canonicalPredictorSelectionKey(
+    reproducibilityContext?.predictor_authorization?.selected_predictors ?? [],
+  );
+  const reproducibilityBaselineExact = reproducibilityBaselineMatchesPartition(
+    reproducibilityContext,
+    activeDatasetIdentity,
+    analysisPartition.partition,
+    target,
+    eventValue,
+    nonEventValue,
+  );
 
   useEffect(() => {
     setAnalysisPartitionHoldoutShare(PARTITION_DEFAULTS.holdoutShare);
@@ -1885,9 +2006,6 @@ export default function Step01DataAcquisition() {
       .then((next) => {
         if (!controller.signal.aborted) {
           setAnalysisPartition(next);
-          setConfirmedPartitionPredictorKey(
-            next.phase === "current" ? selectedPredictorKey : "",
-          );
         }
       })
       .catch((cause) => {
@@ -1972,9 +2090,9 @@ export default function Step01DataAcquisition() {
       policy,
       {
         targetContractId: String(contractPartition?.target_contract_id ?? ""),
-        predictorAuthorizationId: String(
-          contractPartition?.predictor_authorization_id ?? "",
-        ),
+        predictorAuthorizationId: analysisPartitionResetMode
+          ? currentDurablePredictorAuthorizationId(contractPartition)
+          : String(contractPartition?.predictor_authorization_id ?? ""),
       },
       controller.signal,
       analysisPartitionResetMode && contractPartition
@@ -2098,30 +2216,75 @@ export default function Step01DataAcquisition() {
     activeDatasetIdentity?.project_id,
     activeDatasetIdentity?.dataset_id,
     activeDatasetIdentity?.dataset_version_id,
+    activeDatasetIdentity?.activation_revision,
+    target,
+    eventValue,
+    nonEventValue,
   ]);
 
   useEffect(() => {
     if (
-      analysisPartition.phase !== "current" ||
-      !confirmedPartitionPredictorKey ||
-      confirmedPartitionPredictorKey === selectedPredictorKey
+      shouldHydratePredictorSelectionFromGovernedBaseline({
+        partitionCurrent: analysisPartition.phase === "current",
+        baselineExact: reproducibilityBaselineExact,
+        selectionTouched: predictorSelectionTouched.current,
+        governedPredictors:
+          reproducibilityContext?.predictor_authorization?.selected_predictors ??
+          [],
+        localPredictors: selected,
+      })
     ) {
-      return;
+      const governedSelection = new Set(
+        reproducibilityContext?.predictor_authorization?.selected_predictors ??
+          [],
+      );
+      setKept(
+        Object.fromEntries(
+          headers.map((header) => [header, governedSelection.has(header)]),
+        ),
+      );
     }
-    setAnalysisPartition({
-      phase: "required",
-      code: "predictor_authorization_required",
-      message: "The approved predictor set changed after the Analysis Partition was verified.",
-      recovery: "Review the predictor selection, then confirm the Analysis Partition against the new authorization contract.",
-      partition: null,
-    });
-    setAnalysisPartitionPreview(EMPTY_ANALYSIS_PARTITION_PREVIEW);
-    setAnalysisPartitionRationale("");
   }, [
     analysisPartition.phase,
-    confirmedPartitionPredictorKey,
-    selectedPredictorKey,
+    headers,
+    reproducibilityBaselineExact,
+    reproducibilityContext?.predictor_authorization?.selected_predictors,
+    selected,
   ]);
+
+  useEffect(() => {
+    if (
+      analysisPartition.phase === "current" &&
+      (reproducibilityContextPhase === "ready" ||
+        reproducibilityContextPhase === "pending") &&
+      reproducibilityBaselineExact &&
+      governedPredictorKey &&
+      !predictorAuthorizationSaving &&
+      !predictorAuthorizationVerificationError
+    ) {
+      setConfirmedPartitionPredictorKey(governedPredictorKey);
+    }
+  }, [
+    analysisPartition.phase,
+    analysisPartition.partition?.analysis_partition_id,
+    governedPredictorKey,
+    predictorAuthorizationSaving,
+    predictorAuthorizationVerificationError,
+    reproducibilityBaselineExact,
+    reproducibilityContextPhase,
+  ]);
+
+  const predictorAuthorizationDraft = derivePredictorAuthorizationDraftState({
+    partitionCurrent: analysisPartition.phase === "current",
+    confirmedSelectionKey: confirmedPartitionPredictorKey,
+    selectedPredictors: selected,
+    saving: predictorAuthorizationSaving,
+    baselinePhase: reproducibilityContextPhase,
+  });
+  const predictorAuthorizationActionLabel =
+    predictorAuthorizationVerificationError
+      ? "Retry Predictor Authorization"
+      : predictorAuthorizationDraft.actionLabel;
 
   const analysisPartitionIsCurrent = analysisPartition.phase === "current";
   const analysisPartitionBlockingReason = analysisPartitionIsCurrent
@@ -2198,6 +2361,43 @@ export default function Step01DataAcquisition() {
         continueLabel: resetComplete
           ? "Downstream stale · review split result"
           : "Complete split-ratio impact review",
+      };
+    }
+    if (predictorAuthorizationVerificationError) {
+      const reason = `Predictor authorization update is not verified: ${predictorAuthorizationVerificationError}`;
+      return {
+        ...baseAcquisitionStatus,
+        readiness: "blocked",
+        readinessLabel: "Predictor authorization verification failed",
+        readinessTone: "danger",
+        canContinue: false,
+        blockingReasons: [reason],
+        recommendedAction: "Retry the predictor authorization update and exact partition read-back.",
+        currentActiveMilestone: "Predictor Authorization",
+        continueLabel: "Retry Predictor Authorization to Continue",
+      };
+    }
+    if (predictorAuthorizationDraft.dirty) {
+      return {
+        ...baseAcquisitionStatus,
+        readiness: "blocked",
+        readinessLabel: predictorAuthorizationSaving
+          ? "Updating predictor authorization"
+          : "Predictor authorization update required",
+        readinessTone: predictorAuthorizationSaving ? "info" : "warning",
+        canContinue: false,
+        blockingReasons: [predictorAuthorizationDraft.reason],
+        recommendedAction: predictorAuthorizationDraft.reason,
+        currentActiveMilestone: "Predictor Authorization",
+        continueLabel: predictorAuthorizationSaving
+          ? "Updating Predictor Authorization..."
+          : predictorAuthorizationDraft.canUpdate
+            ? "Update Predictor Authorization to Continue"
+            : predictorAuthorizationDraft.canRetryBaseline
+              ? "Retry Predictor Authorization Context"
+              : predictorAuthorizationDraft.needsBaseline
+                ? "Verifying Predictor Authorization..."
+                : "Review Predictor Selection to Continue",
       };
     }
     if (!baseAcquisitionStatus.canContinue) {
@@ -2279,7 +2479,11 @@ export default function Step01DataAcquisition() {
     baseAcquisitionStatus,
     bureauReviewStatus,
     headers.length,
+    predictorAuthorizationDraft,
+    predictorAuthorizationSaving,
+    predictorAuthorizationVerificationError,
     registeredRowCount,
+    selected.length,
     target,
   ]);
 
@@ -2334,25 +2538,109 @@ export default function Step01DataAcquisition() {
     [governedProfile.profile, target]
   );
 
-  const variableSummary = useMemo(
-    () => (featureProfile?.features ?? []).map((row) => ({
-      column: row.predictor,
-      type: row.datatype,
-      missingPct: row.missingPercent,
-      distinct: row.distinctCount,
-      mean: row.mean,
-      min: row.minimum,
-      max: row.maximum,
-      // Root causes 1-3: IV now comes from the authoritative server profile and
-      // carries an explicit status. `null` stays `null` -- it is never coerced
-      // to a number, and therefore never rendered as a misleading 0.0000.
-      iv: row.iv,
-      corr: row.correlationWithTarget,
-      role: row.role,
-      exclusionReason: row.exclusionReason,
-    })),
-    [featureProfile]
-  );
+  const bureauSpecialValueProfiles = useMemo(() => {
+    const profiles = new Map<
+      string,
+      {
+        count: number;
+        rate: number;
+        codes: number[];
+        datatype: string;
+        reviewStatus: "Review required" | "Reviewed draft" | "Confirmed" | "Detected";
+      }
+    >();
+    if (!bureauReviewResult) return profiles;
+    const openItems = new Set(bureauReviewResult.review.open_items);
+    const reviewedVariables = new Set(
+      bureauReviewResult.review.variable_decisions.map(
+        (decision) => decision.variable,
+      ),
+    );
+    for (const variable of bureauReviewResult.detection.variables) {
+      if (variable.special_value_count <= 0) continue;
+      const reviewStatus = openItems.has(variable.variable)
+        ? "Review required"
+        : bureauReviewResult.review.status === "confirmed"
+          ? "Confirmed"
+          : reviewedVariables.has(variable.variable)
+            ? "Reviewed draft"
+            : "Detected";
+      profiles.set(variable.variable, {
+        count: variable.special_value_count,
+        rate: variable.special_value_frequency,
+        codes: variable.special_values.map((profile) => profile.value),
+        datatype: variable.datatype,
+        reviewStatus,
+      });
+    }
+    return profiles;
+  }, [bureauReviewResult]);
+
+  const variableSummary = useMemo(() => {
+    const withSpecialValues = (column: string) => {
+      const specialValues = bureauSpecialValueProfiles.get(column);
+      return {
+        specialValueCount: specialValues?.count ?? 0,
+        specialValueRate: specialValues?.rate ?? 0,
+        specialValueCodes: specialValues?.codes ?? [],
+        specialValueReviewStatus: specialValues?.reviewStatus ?? "Not detected",
+      };
+    };
+    if (featureProfile) {
+      return featureProfile.features.map((row) => {
+        return {
+          column: row.predictor,
+          type: row.datatype,
+          missingPct: row.missingPercent,
+          distinct: row.distinctCount,
+          mean: row.mean,
+          min: row.minimum,
+          max: row.maximum,
+          ...withSpecialValues(row.predictor),
+          // Root causes 1-3: IV now comes from the authoritative server profile and
+          // carries an explicit status. `null` stays `null` -- it is never coerced
+          // to a number, and therefore never rendered as a misleading 0.0000.
+          iv: row.iv,
+          corr: row.correlationWithTarget,
+          role: row.role,
+          exclusionReason: row.exclusionReason,
+        };
+      });
+    }
+
+    // Exact headers and exact-lineage detection remain visible when the richer
+    // feature profile is temporarily unavailable. Target-directed metrics stay
+    // null: this fallback never calculates or invents IV/correlation evidence.
+    const fallbackDataset: LocalDataset = {
+      headers,
+      rows: [],
+      target,
+      selected_columns: selected,
+    };
+    const fallbackColumns = Array.from(
+      new Set([...headers, ...bureauSpecialValueProfiles.keys()]),
+    );
+    return fallbackColumns.map((column) => {
+      const eligibility = predictorEligibility(column, fallbackDataset);
+      const specialValues = bureauSpecialValueProfiles.get(column);
+      return {
+        column,
+        type: specialValues?.datatype ?? "Unavailable",
+        missingPct: undefined,
+        distinct: undefined,
+        mean: undefined,
+        min: undefined,
+        max: undefined,
+        ...withSpecialValues(column),
+        iv: null,
+        corr: null,
+        role: eligibility.role,
+        exclusionReason:
+          eligibility.reason ||
+          "Variable statistics are pending the authoritative feature profile.",
+      };
+    });
+  }, [bureauSpecialValueProfiles, featureProfile, headers, selected, target]);
   const predictorVariableSummary = useMemo(
     () => variableSummary.filter((row) => row.column !== target),
     [variableSummary, target],
@@ -2361,6 +2649,7 @@ export default function Step01DataAcquisition() {
   useEffect(() => {
     if (!headers.length || !target || !profilingRows.length) {
       setFeatureProfile(null);
+      setFeatureProfileError("");
       return;
     }
     let alive = true;
@@ -2384,24 +2673,46 @@ export default function Step01DataAcquisition() {
       completeBrowserDataset ? "complete_browser_dataset" : "preview_profile",
     );
     if (backendImportSynced) {
+      if (!activeDatasetIdentity) {
+        setFeatureProfile(null);
+        setFeatureProfileError(
+          "The exact active Dataset Library identity is required before predictor statistics can be loaded.",
+        );
+        return;
+      }
       // Root cause 2: this used to `.catch(() => setFeatureProfile(browserProfile()))`,
       // silently replacing a failed governed profile with a 100-row preview
       // computation that still reported itself as full_dataset. A failure is now
       // a failure: the authoritative profile hook surfaces it, and the browser
       // profile is never substituted for target-dependent statistics.
+      setFeatureProfile(null);
+      setFeatureProfileError("");
       fetchFullFeatureProfile(profileDataset, projectId)
-        .then((payload) => alive && setFeatureProfile(payload))
-        .catch(() => alive && setFeatureProfile(null));
+        .then((payload) => {
+          if (!alive) return;
+          setFeatureProfile(payload);
+          setFeatureProfileError("");
+        })
+        .catch((cause: unknown) => {
+          if (!alive) return;
+          setFeatureProfile(null);
+          setFeatureProfileError(
+            cause instanceof Error && cause.message.trim()
+              ? cause.message
+              : "The authoritative predictor statistics could not be loaded.",
+          );
+        });
     } else {
       // No backend population at all: the browser profile is retained ONLY for
       // its non-target-dependent inspection columns. Its scope says preview, and
       // IV comes from the authoritative profile (or reports why it cannot).
       setFeatureProfile(browserProfile());
+      setFeatureProfileError("");
     }
     return () => {
       alive = false;
     };
-  }, [headers, target, profilingRows, fullSourceRows, selected.join("|"), targetInfo.kind, registeredRowCount, completeBrowserDataset, backendImportSynced, eventValue, nonEventValue, activeDatasetIdentity]);
+  }, [headers, target, profilingRows, fullSourceRows, selected.join("|"), targetInfo.kind, registeredRowCount, completeBrowserDataset, backendImportSynced, eventValue, nonEventValue, activeDatasetIdentity, featureProfileRetryRevision, projectId]);
 
   useEffect(() => {
     if (!headers.length || !profilingRows.length) {
@@ -2478,8 +2789,14 @@ export default function Step01DataAcquisition() {
   }, [headers, target, profilingRows, fullSourceRows, completeBrowserDataset, registeredRowCount, backendImportSynced, eventValue, nonEventValue, selected.join("|"), projectId, loadedLibraryIdentity, activeDatasetIdentity]);
 
   function saveKeptSelection(nextKept: Record<string, boolean>) {
-    markReproducibilityContextPending();
-    setKept(nextKept);
+    predictorSelectionTouched.current = true;
+    if (predictorAuthorizationSaving) {
+      predictorAuthorizationOperationRevision.current += 1;
+      setPredictorAuthorizationSaving(false);
+      setPredictorAuthorizationVerificationError(
+        "The predictor selection changed before the prior authorization update completed. Retry with the current selection.",
+      );
+    }
     const currentDataset = loadLocalDataset();
     const localView = buildSelectedDatasetView({
       headers,
@@ -2491,6 +2808,20 @@ export default function Step01DataAcquisition() {
       ),
       target: target || null,
     });
+    const nextSelectionKey = canonicalPredictorSelectionKey(
+      localView.selectedColumns,
+    );
+    if (
+      analysisPartition.phase === "current" &&
+      confirmedPartitionPredictorKey &&
+      nextSelectionKey === confirmedPartitionPredictorKey
+    ) {
+      markReproducibilityContextPending();
+    } else {
+      markReproducibilityContextPending();
+    }
+    setPredictorAuthorizationFeedback("");
+    setKept(nextKept);
     saveLocalDataset({
       ...(currentDataset ?? {}),
       headers: localView.headers,
@@ -2942,6 +3273,189 @@ export default function Step01DataAcquisition() {
     return { targetContractId, predictorAuthorizationId };
   }
 
+  async function updatePredictorAuthorization() {
+    const baseline = analysisPartition.partition;
+    const retryingVerification = Boolean(predictorAuthorizationVerificationError);
+    if (
+      analysisPartition.phase !== "current" ||
+      !baseline ||
+      (!predictorAuthorizationDraft.dirty && !retryingVerification) ||
+      !selected.length
+    ) {
+      setPredictorAuthorizationFeedback(
+        selected.length
+          ? "A current sealed Analysis Partition and a changed predictor selection are required."
+          : "Approve at least one eligible predictor before updating the governed authorization.",
+      );
+      return;
+    }
+    const operationRevision =
+      predictorAuthorizationOperationRevision.current + 1;
+    predictorAuthorizationOperationRevision.current = operationRevision;
+    const submittedPredictorKey = selectedPredictorKey;
+    setPredictorAuthorizationSaving(true);
+    setPredictorAuthorizationVerificationError("");
+    setPredictorAuthorizationFeedback(
+      "Saving the predictor selection and verifying preserved partition membership...",
+    );
+    try {
+      const canonical = requireCanonicalDatasetIdentity(
+        activeDatasetIdentity,
+        "Predictor Authorization dataset identity",
+      );
+      const contract = await persistDataset(canonical);
+      if (operationRevision !== predictorAuthorizationOperationRevision.current) {
+        return;
+      }
+      const refreshed = await readAnalysisPartitionReadiness(
+        canonical,
+        target,
+        eventValue,
+        nonEventValue,
+      );
+      if (operationRevision !== predictorAuthorizationOperationRevision.current) {
+        return;
+      }
+      const current = refreshed.partition;
+      if (
+        refreshed.phase !== "current" ||
+        !current ||
+        !analysisPartitionMembershipPreserved(baseline, current) ||
+        !predictorAuthorizationLineageMatches(
+          current,
+          contract.predictorAuthorizationId,
+        )
+      ) {
+        throw new Error(
+          "The backend did not prove that the exact sealed Analysis Partition membership was preserved with the updated predictor authorization.",
+        );
+      }
+      setAnalysisPartition(refreshed);
+      setConfirmedPartitionPredictorKey(submittedPredictorKey);
+      setPredictorAuthorizationFeedback(
+        "Predictor authorization updated. The existing Analysis Partition ID, revision, assignment, artifact, and sealed holdout membership were preserved.",
+      );
+      notifyReproducibilityContextConfirmed();
+      logDecision({
+        workflowStep: "Data Acquisition",
+        actionType: "feature_inclusion_changed",
+        subject: "Predictor Authorization",
+        previousValue: String(
+          baseline.current_predictor_authorization_id ??
+            baseline.predictor_authorization_id ??
+            "",
+        ),
+        newValue: contract.predictorAuthorizationId,
+        systemRecommendation:
+          "Publish the changed predictor authorization without redrawing sealed Analysis Partition membership.",
+        followStatus: "followed",
+      });
+    } catch (cause) {
+      if (operationRevision !== predictorAuthorizationOperationRevision.current) {
+        return;
+      }
+      const detail =
+        cause instanceof Error
+          ? cause.message
+          : "ATLAS could not update the predictor authorization.";
+      setPredictorAuthorizationVerificationError(detail);
+      setPredictorAuthorizationFeedback(detail);
+      setMessage(detail);
+    } finally {
+      if (operationRevision === predictorAuthorizationOperationRevision.current) {
+        setPredictorAuthorizationSaving(false);
+      }
+    }
+  }
+
+  function retryPredictorAuthorizationContext() {
+    setPredictorAuthorizationFeedback(
+      "Retrying the exact governed predictor-authorization context check...",
+    );
+    notifyReproducibilityContextConfirmed();
+  }
+
+  function focusDataAcquisitionBlocker() {
+    const predictorBlocker = Boolean(
+      predictorAuthorizationVerificationError ||
+      predictorAuthorizationDraft.dirty ||
+      !reproducibilityContext?.predictor_authorization?.funnel
+        .authorized_predictor_count,
+    );
+    const specialValueBlocker = Boolean(
+      bureauReviewStatus &&
+        (bureauReviewStatus.loading || bureauReviewStatus.blocking),
+    );
+    if (specialValueBlocker) {
+      window.dispatchEvent(
+        new Event(FOCUS_FIRST_SPECIAL_VALUE_REVIEW_EVENT),
+      );
+      return;
+    }
+    const sectionId = predictorBlocker
+      ? "predictor-authorization"
+      : analysisPartition.phase !== "current"
+          ? "analysis-partition-readiness"
+          : "source-target";
+    const section = document.getElementById(sectionId);
+    const firstUnresolvedVariable = String(
+      (
+        bureauReviewStatus as
+          | (BureauReviewPanelStatus & { firstUnresolvedVariable?: string })
+          | null
+      )?.firstUnresolvedVariable ?? "",
+    ).trim();
+    const firstUnresolvedRow =
+      firstUnresolvedVariable && section
+        ? Array.from(
+            section.querySelectorAll<HTMLElement>(
+              "[data-special-value-variable]",
+            ),
+          ).find(
+            (candidate) =>
+              candidate.dataset.specialValueVariable === firstUnresolvedVariable,
+          ) ?? null
+        : null;
+    const blockerTarget = firstUnresolvedRow ?? section;
+    blockerTarget?.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.setTimeout(() => {
+      const preferredSelector = predictorBlocker
+        ? predictorAuthorizationDraft.canUpdate ||
+          predictorAuthorizationDraft.canRetryBaseline ||
+          Boolean(predictorAuthorizationVerificationError)
+          ? '[data-testid="update-predictor-authorization"]:not([disabled])'
+          : '[data-testid="predictor-select-all"]:not([disabled])'
+        : specialValueBlocker
+          ? "summary, button:not([disabled]), input:not([disabled]), select:not([disabled])"
+          : analysisPartition.phase !== "current"
+            ? '[data-testid="create-analysis-partition"]:not([disabled]), [data-testid="analysis-partition-holdout-ratio"]:not([disabled])'
+            : 'button:not([disabled]), input:not([disabled]), select:not([disabled])';
+      const focusTarget =
+        blockerTarget?.querySelector<HTMLElement>(preferredSelector) ??
+        (blockerTarget?.matches(
+          "button:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex='-1'])",
+        )
+          ? blockerTarget
+          : null);
+      focusTarget?.focus();
+    }, 0);
+  }
+
+  function resolveDataAcquisitionBlocker() {
+    if (predictorAuthorizationDraft.canRetryBaseline) {
+      retryPredictorAuthorizationContext();
+      return;
+    }
+    if (
+      predictorAuthorizationVerificationError ||
+      predictorAuthorizationDraft.canUpdate
+    ) {
+      void updatePredictorAuthorization();
+      return;
+    }
+    focusDataAcquisitionBlocker();
+  }
+
   async function confirmRecommendedAnalysisPartition() {
     const previewFingerprint = analysisPartitionPreview.previewFingerprint;
     if (
@@ -2973,13 +3487,14 @@ export default function Step01DataAcquisition() {
     }
     if (
       analysisPartitionPreview.rationaleRequired &&
-      !analysisPartitionRationale.trim()
+      analysisPartitionRationale.trim().length <
+        MIN_ANALYSIS_PARTITION_RATIONALE_LENGTH
     ) {
       setAnalysisPartition((current) => ({
         ...current,
         phase: "required",
         code: "analysis_partition_rationale_required",
-        message: "Add a short analyst rationale for this acceptable nonrecommended split.",
+        message: `Add an analyst rationale of at least ${MIN_ANALYSIS_PARTITION_RATIONALE_LENGTH} characters for this acceptable nonrecommended split.`,
       }));
       return;
     }
@@ -3036,7 +3551,6 @@ export default function Step01DataAcquisition() {
             `Use a ${Math.round(policy.developmentShare * 100)}% development population and a sealed ${Math.round(policy.holdoutShare * 100)}% final holdout with random seed ${policy.randomSeed} and target stratification.`,
           followStatus: "followed",
         });
-        navigate(projectWorkflowRoute(projectId, "/step02"));
       } else {
         setMessage(`${confirmed.message} ${confirmed.recovery}`.trim());
       }
@@ -3089,7 +3603,6 @@ export default function Step01DataAcquisition() {
       if (completed.phase === "current") {
         setConfirmedPartitionPredictorKey(selectedPredictorKey);
         notifyReproducibilityContextConfirmed();
-        navigate(projectWorkflowRoute(projectId, "/step02"));
       }
     } catch (cause) {
       const detail =
@@ -3130,9 +3643,19 @@ export default function Step01DataAcquisition() {
       );
       return;
     }
-    if (!analysisPartitionResetReason.trim()) {
+    const resetReason = analysisPartitionResetReason.trim();
+    if (!resetReason) {
       setAnalysisPartitionResetFeedback(
         "Enter a governed reason for replacing the current partition membership.",
+      );
+      return;
+    }
+    if (
+      analysisPartitionPreview.rationaleRequired &&
+      resetReason.length < MIN_ANALYSIS_PARTITION_RATIONALE_LENGTH
+    ) {
+      setAnalysisPartitionResetFeedback(
+        `Enter at least ${MIN_ANALYSIS_PARTITION_RATIONALE_LENGTH} characters because the proposed split requires a policy rationale.`,
       );
       return;
     }
@@ -3197,9 +3720,21 @@ export default function Step01DataAcquisition() {
         setAnalysisPartitionResetFeedback(latestImpact.message);
         return;
       }
+      const baselinePredictorAuthorizationId =
+        currentDurablePredictorAuthorizationId(baseline);
+      const latestPredictorAuthorizationId =
+        currentDurablePredictorAuthorizationId(latest);
+      const baselineTargetContractId = String(
+        baseline.target_contract_id ?? "",
+      ).trim();
+      const latestTargetContractId = String(
+        latest.target_contract_id ?? "",
+      ).trim();
       if (
         latest.analysis_partition_id !== baseline.analysis_partition_id ||
-        Number(latest.revision) !== Number(baseline.revision)
+        Number(latest.revision) !== Number(baseline.revision) ||
+        latestPredictorAuthorizationId !== baselinePredictorAuthorizationId ||
+        latestTargetContractId !== baselineTargetContractId
       ) {
         setAnalysisPartitionResetImpact(latestImpact);
         setAnalysisPartitionResetHoldoutShare(
@@ -3213,7 +3748,7 @@ export default function Step01DataAcquisition() {
         );
         setAnalysisPartitionResetInvalidationAcknowledged(false);
         setAnalysisPartitionResetFeedback(
-          "The current partition changed while this review was open. ATLAS refreshed the baseline; review the impacts and acknowledge them again.",
+          "The current partition or its durable authority changed while this review was open. ATLAS refreshed the baseline; review the impacts and acknowledge them again.",
         );
         return;
       }
@@ -3227,6 +3762,12 @@ export default function Step01DataAcquisition() {
             ? "none"
             : analysisPartitionResetStratification,
       };
+      if (!latestTargetContractId || !latestPredictorAuthorizationId) {
+        setAnalysisPartitionResetFeedback(
+          "The current durable target and predictor authorization could not be verified. No split revision was created.",
+        );
+        return;
+      }
       setAnalysisPartition((current) => ({
         ...current,
         phase: "confirming",
@@ -3234,7 +3775,10 @@ export default function Step01DataAcquisition() {
         message:
           "Replacing partition membership and invalidating downstream evidence...",
       }));
-      const contract = await persistDataset(canonical);
+      const contract: TargetPersistenceContract = {
+        targetContractId: latestTargetContractId,
+        predictorAuthorizationId: latestPredictorAuthorizationId,
+      };
       const result = await resetAnalysisPartition(
         canonical,
         target,
@@ -3259,7 +3803,12 @@ export default function Step01DataAcquisition() {
       const impacts = result.impacts.length
         ? result.impacts
         : latestImpact.impacts;
-      setConfirmedPartitionPredictorKey(selectedPredictorKey);
+      setConfirmedPartitionPredictorKey(
+        reproducibilityContext?.predictor_authorization
+          ?.predictor_authorization_id === latestPredictorAuthorizationId
+          ? governedPredictorKey
+          : "",
+      );
       notifyReproducibilityContextConfirmed();
       setAnalysisPartitionResetCompleted({
         partitionId: String(replacement.analysis_partition_id),
@@ -3269,7 +3818,7 @@ export default function Step01DataAcquisition() {
       });
       setAnalysisPartitionResetInvalidationAcknowledged(false);
       setAnalysisPartitionResetFeedback(
-        "Split-ratio change confirmed. The replacement partition is current and sealed; every listed downstream artifact remains stale. No navigation or recomputation occurred.",
+        "Split-ratio change confirmed. The replacement partition is current and sealed; every listed downstream artifact remains stale. No predictor checkbox draft was submitted, and no navigation or recomputation occurred.",
       );
       setMessage(result.readiness.message);
       logDecision({
@@ -3779,11 +4328,12 @@ export default function Step01DataAcquisition() {
       )}
       showDeveloperTools={false}
       nextDisabled={!acquisitionStatus.canContinue}
+      onBlockedNextClick={resolveDataAcquisitionBlocker}
       nextDisabledReason={acquisitionStatus.blockingReasons[0] ?? ""}
       nextLabel={acquisitionStatus.continueLabel}
       nextPath="/step02"
       onNext={async () => {
-        await persistDataset();
+        const persisted = await persistDataset();
         const canonical = requireCanonicalDatasetIdentity(
           activeDatasetIdentity,
           "Analysis Partition navigation identity",
@@ -3800,7 +4350,37 @@ export default function Step01DataAcquisition() {
             `${refreshed.message} ${refreshed.recovery}`.trim(),
           );
         }
+        const handoff = await fetchCanonicalDataAcquisitionEdaHandoff({
+          projectId,
+          expectedIdentity: canonical,
+        });
+        const context = handoff.context;
+        const exactTargetMapping =
+          context.target_contract.target === target &&
+          String(context.target_contract.event_value ?? "") ===
+            String(eventValue ?? "") &&
+          String(context.target_contract.non_event_value ?? "") ===
+            String(nonEventValue ?? "");
+        const exactPersistedContracts =
+          context.target_contract.target_contract_id ===
+            persisted.targetContractId &&
+          context.predictor_authorization.predictor_authorization_id ===
+            persisted.predictorAuthorizationId;
+        const exactPartition =
+          context.analysis_partition.analysis_partition_id ===
+            refreshed.partition?.analysis_partition_id &&
+          context.analysis_partition.revision ===
+            refreshed.partition?.revision;
+        if (!exactTargetMapping || !exactPersistedContracts || !exactPartition) {
+          throw new Error(
+            "The final Data Acquisition read-back did not match the exact target, predictor authorization, and Analysis Partition that were just verified.",
+          );
+        }
+        setReproducibilityContext(context);
+        setReproducibilityContextPhase("ready");
+        setReproducibilityContextError("");
         setConfirmedPartitionPredictorKey(selectedPredictorKey);
+        notifyReproducibilityContextConfirmed();
       }}
     >
       <div className="space-y-5">
@@ -4068,12 +4648,21 @@ export default function Step01DataAcquisition() {
           </div>
         </section>
 
+        <BureauMetadataBindingPanel
+          projectId={projectId}
+          datasetIdentity={activeDatasetIdentity}
+          featureNames={headers.filter((header) => header !== target)}
+          sourceLabel={fileName}
+          enabled={!!headers.length && !!registeredRowCount}
+        />
+
         <BureauReviewPanel
           target={target}
           eventValue={eventValue}
           enabled={!!headers.length && !!registeredRowCount}
           datasetIdentity={activeDatasetIdentity}
           onReviewStatus={handleBureauReviewStatus}
+          onReviewResult={handleBureauReviewResult}
         />
 
         {!!headers.length && (
@@ -4123,6 +4712,7 @@ export default function Step01DataAcquisition() {
                 ) : null}
                 <button
                   className="rounded-lg border px-3 py-2 text-sm"
+                  data-testid="predictor-select-all"
                   onClick={() => {
                     const nextKept = Object.fromEntries(predictorVariableSummary.map((row) => [row.column, row.role === "eligible"]));
                     saveKeptSelection(nextKept);
@@ -4139,8 +4729,46 @@ export default function Step01DataAcquisition() {
                 >
                   None
                 </button>
+                <button
+                  type="button"
+                  className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50"
+                  data-testid="update-predictor-authorization"
+                  disabled={
+                    !predictorAuthorizationDraft.canUpdate &&
+                    !predictorAuthorizationDraft.canRetryBaseline &&
+                    !predictorAuthorizationVerificationError
+                  }
+                  onClick={() => {
+                    if (predictorAuthorizationDraft.canRetryBaseline) {
+                      retryPredictorAuthorizationContext();
+                    } else {
+                      void updatePredictorAuthorization();
+                    }
+                  }}
+                >
+                  {predictorAuthorizationActionLabel}
+                </button>
               </div>
             </div>
+            {predictorAuthorizationDraft.dirty ? (
+              <div
+                className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950"
+                data-testid="predictor-authorization-draft-status"
+                role="status"
+              >
+                {predictorAuthorizationDraft.reason}
+              </div>
+            ) : null}
+            {predictorAuthorizationFeedback ? (
+              <div
+                className="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs leading-5 text-blue-950"
+                data-testid="predictor-authorization-feedback"
+                role="status"
+                aria-live="polite"
+              >
+                {predictorAuthorizationFeedback}
+              </div>
+            ) : null}
             <PredictorAuthorizationFunnel
               authorization={governedPredictorAuthorization}
               contextPhase={reproducibilityContextPhase}
@@ -4239,6 +4867,28 @@ export default function Step01DataAcquisition() {
                 Retry profiling
               </button>
             ) : null}
+            {featureProfileError ? (
+              <div
+                className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-950"
+                data-testid="feature-profile-error"
+                role="alert"
+              >
+                <span>
+                  <strong>Variable statistics are unavailable.</strong>{" "}
+                  {featureProfileError}
+                </span>
+                <button
+                  type="button"
+                  className="rounded-lg border border-amber-400 bg-white px-3 py-1.5 font-semibold text-amber-950"
+                  data-testid="feature-profile-retry"
+                  onClick={() =>
+                    setFeatureProfileRetryRevision((revision) => revision + 1)
+                  }
+                >
+                  Retry variable statistics
+                </button>
+              </div>
+            ) : null}
             <div className="mt-4 max-h-[560px] overflow-auto rounded-lg border border-slate-200">
               <table className="min-w-full text-sm">
                 <thead className="sticky top-0 bg-slate-50 text-xs uppercase text-slate-500">
@@ -4247,6 +4897,10 @@ export default function Step01DataAcquisition() {
                     <th className="px-3 py-2 text-left">Column</th>
                     <th className="px-3 py-2 text-left">Role</th>
                     <th className="px-3 py-2 text-left">Type</th>
+                    <th className="px-3 py-2 text-right">Special values</th>
+                    <th className="px-3 py-2 text-right">Special %</th>
+                    <th className="px-3 py-2 text-left">Observed codes</th>
+                    <th className="px-3 py-2 text-left">Special-value review</th>
                     <th className="px-3 py-2 text-right">{targetInfo.kind === "continuous" ? "Corr(Target)" : "IV"}</th>
                     <th className="px-3 py-2 text-left">Signal strength</th>
                     <th className="px-3 py-2 text-left">Calculation status</th>
@@ -4289,6 +4943,29 @@ export default function Step01DataAcquisition() {
                         <td className="px-3 py-2 font-medium">{row.column}</td>
                         <td className="px-3 py-2 text-xs font-semibold text-slate-700">{role}</td>
                         <td className="px-3 py-2">{row.type}</td>
+                        <td className="px-3 py-2 text-right" data-testid="predictor-special-value-count">
+                          {row.specialValueCount.toLocaleString()}
+                        </td>
+                        <td className="px-3 py-2 text-right" data-testid="predictor-special-value-rate">
+                          {formatPercent(row.specialValueRate)}
+                        </td>
+                        <td className="whitespace-nowrap px-3 py-2 text-xs" data-testid="predictor-special-value-codes">
+                          {row.specialValueCodes.length
+                            ? row.specialValueCodes.join(", ")
+                            : "—"}
+                        </td>
+                        <td
+                          className={`whitespace-nowrap px-3 py-2 text-xs font-semibold ${
+                            row.specialValueReviewStatus === "Review required"
+                              ? "text-amber-800"
+                              : row.specialValueReviewStatus === "Confirmed"
+                                ? "text-emerald-700"
+                                : "text-slate-600"
+                          }`}
+                          data-testid="predictor-special-value-review-status"
+                        >
+                          {row.specialValueReviewStatus}
+                        </td>
                         {targetInfo.kind === "continuous" ? (
                           <td className={`px-3 py-2 text-right ${signalStatusClass(row.corr)}`}>{formatNumber(row.corr)}</td>
                         ) : (
@@ -4329,7 +5006,11 @@ export default function Step01DataAcquisition() {
                           {targetInfo.kind === "continuous" ? "Correlation" : IV_STATUS_LABELS[governedIv(row.column).ivStatus]}
                         </td>
                         <td className="px-3 py-2 text-right">{formatPercent(row.missingPct)}</td>
-                        <td className="px-3 py-2 text-right">{row.distinct.toLocaleString()}</td>
+                        <td className="px-3 py-2 text-right">
+                          {typeof row.distinct === "number"
+                            ? row.distinct.toLocaleString()
+                            : "-"}
+                        </td>
                         <td className="px-3 py-2 text-right">{formatNumber(row.mean)}</td>
                         <td className="px-3 py-2 text-right">{formatNumber(row.min)}</td>
                         <td className="px-3 py-2 text-right">{formatNumber(row.max)}</td>
@@ -4392,11 +5073,12 @@ export default function Step01DataAcquisition() {
               activeDatasetIdentity &&
                 target &&
                 String(
-                  analysisPartitionResetImpact.partition
-                    ?.predictor_authorization_id ??
-                    analysisPartition.partition?.predictor_authorization_id ??
+                  analysisPartitionResetImpact.partition?.target_contract_id ??
                     "",
-                ).trim(),
+                ).trim() &&
+                currentDurablePredictorAuthorizationId(
+                  analysisPartitionResetImpact.partition,
+                ),
             )}
             target={target}
             problemType={targetInfo.kind === "continuous" ? "regression" : "classification"}
@@ -4479,6 +5161,24 @@ function AnalysisPartitionResetWorkspace(props: {
   const developmentShare = Number.isFinite(holdoutShare)
     ? 1 - holdoutShare
     : Number.NaN;
+  const currentDevelopmentRows = optionalFiniteNumber(
+    baseline?.development_count ?? baseline?.development_rows,
+  );
+  const currentHoldoutRows = optionalFiniteNumber(
+    baseline?.holdout_count ??
+      baseline?.holdout_rows ??
+      baseline?.sealed_holdout_rows,
+  );
+  const currentEligibleRows =
+    optionalFiniteNumber(baseline?.population_count) ??
+    (currentDevelopmentRows != null && currentHoldoutRows != null
+      ? currentDevelopmentRows + currentHoldoutRows
+      : undefined);
+  const resetReasonLength = props.reason.trim().length;
+  const resetReasonReady =
+    resetReasonLength > 0 &&
+    (!props.preview.rationaleRequired ||
+      resetReasonLength >= MIN_ANALYSIS_PARTITION_RATIONALE_LENGTH);
   const canSubmit =
     props.impact.phase === "ready" &&
     Boolean(baseline) &&
@@ -4486,7 +5186,7 @@ function AnalysisPartitionResetWorkspace(props: {
     props.preview.blockers.length === 0 &&
     Boolean(props.preview.previewFingerprint) &&
     props.canReset &&
-    props.reason.trim().length > 0 &&
+    resetReasonReady &&
     props.invalidationAcknowledged &&
     !props.completed &&
     !busy;
@@ -4511,7 +5211,9 @@ function AnalysisPartitionResetWorkspace(props: {
           <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-amber-100">
             Governed split-ratio change
           </div>
-          <h2 className="mt-1 text-lg font-semibold">Change Split Ratio</h2>
+          <h2 className="mt-1 text-lg font-semibold">
+            Change Split Ratio — Creates New Revision
+          </h2>
           <p className="mt-1 max-w-3xl text-xs leading-5 text-amber-50">
             Review the impact before authorizing a new partition revision. The current partition remains sealed and unchanged until explicit confirmation succeeds.
           </p>
@@ -4575,6 +5277,58 @@ function AnalysisPartitionResetWorkspace(props: {
               Proposed development {Number.isFinite(developmentShare) ? formatPercent(developmentShare) : "Unavailable"}
             </span>
           </div>
+          <div
+            className="mt-4 grid gap-3 lg:grid-cols-[1fr_auto_1fr] lg:items-stretch"
+            data-testid="analysis-partition-reset-comparison"
+            aria-label="Current versus proposed Analysis Partition"
+          >
+            <div className="rounded-lg border border-slate-300 bg-white p-4">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-slate-600">
+                Current governed partition
+              </div>
+              <div className="mt-2 text-base font-semibold text-slate-950">
+                {baseline
+                  ? `${formatPercent(1 - Number(baseline.holdout_share))} development / ${formatPercent(baseline.holdout_share)} final holdout`
+                  : "Current ratio unavailable"}
+              </div>
+              <p className="mt-1 text-xs text-slate-600">
+                Revision {baseline?.revision ?? "Unavailable"} remains current and sealed until confirmation succeeds.
+              </p>
+              <dl
+                className="mt-3 grid gap-2 sm:grid-cols-3"
+                data-testid="analysis-partition-reset-current-counts"
+              >
+                <SummaryDatum
+                  label="Current eligible rows"
+                  value={currentEligibleRows?.toLocaleString() ?? "Unavailable"}
+                />
+                <SummaryDatum
+                  label="Current development rows"
+                  value={currentDevelopmentRows?.toLocaleString() ?? "Unavailable"}
+                />
+                <SummaryDatum
+                  label="Current final holdout rows"
+                  value={currentHoldoutRows?.toLocaleString() ?? "Unavailable"}
+                />
+              </dl>
+            </div>
+            <div className="hidden items-center justify-center text-lg font-bold text-amber-700 lg:flex" aria-hidden="true">
+              →
+            </div>
+            <div className="rounded-lg border-2 border-amber-400 bg-amber-50 p-4">
+              <div className="text-[10px] font-bold uppercase tracking-wide text-amber-800">
+                Proposed new revision
+              </div>
+              <div className="mt-2 text-base font-semibold text-amber-950">
+                {Number.isFinite(developmentShare)
+                  ? `${formatPercent(developmentShare)} development / ${formatPercent(holdoutShare)} final holdout`
+                  : "Select a governed ratio"}
+              </div>
+              <p className="mt-1 text-xs text-amber-900">
+                Creates revision {Number.isFinite(Number(baseline?.revision)) ? Number(baseline?.revision) + 1 : "after current"}; it never edits the existing revision in place.
+              </p>
+            </div>
+          </div>
           <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(260px,1fr)_minmax(0,2fr)]">
             <label className="text-xs font-semibold text-slate-700">
               Development / Final Holdout Split
@@ -4631,10 +5385,20 @@ function AnalysisPartitionResetWorkspace(props: {
             data-testid="analysis-partition-reset-reason"
             className="mt-1 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-normal text-slate-950"
             value={props.reason}
+            minLength={
+              props.preview.rationaleRequired
+                ? MIN_ANALYSIS_PARTITION_RATIONALE_LENGTH
+                : 1
+            }
             disabled={busy || Boolean(props.completed)}
             onChange={(event) => props.onReason(event.target.value)}
             placeholder="Explain why new partition membership is required and why invalidating downstream evidence is justified."
           />
+          <span className="mt-1 block font-normal text-slate-600">
+            {props.preview.rationaleRequired
+              ? `The proposed split requires at least ${MIN_ANALYSIS_PARTITION_RATIONALE_LENGTH} characters under the backend policy.`
+              : "A reset reason is required; this split does not require the additional policy-rationale minimum."}
+          </span>
         </label>
 
         <label className="flex items-start gap-3 rounded-lg border border-red-300 bg-red-50 p-4 text-sm leading-6 text-red-950">
@@ -4703,7 +5467,7 @@ function AnalysisPartitionResetWorkspace(props: {
               onClick={props.onConfirm}
             >
               {props.readiness.phase === "confirming" ? <Loader2 size={16} className="animate-spin" /> : <ShieldCheck size={16} />}
-              Create New Split Revision
+              Create New Analysis Partition Revision
             </button>
           ) : null}
         </div>
@@ -4750,7 +5514,14 @@ function AnalysisPartitionWorkspace(props: {
     props.preview,
     props.problemType,
   );
-  const canCreate = props.canConfirm && !busy && previewEvidenceComplete && !previewBlocked && (!props.preview.rationaleRequired || Boolean(props.rationale.trim()));
+  const canCreate =
+    props.canConfirm &&
+    !busy &&
+    previewEvidenceComplete &&
+    !previewBlocked &&
+    (!props.preview.rationaleRequired ||
+      props.rationale.trim().length >=
+        MIN_ANALYSIS_PARTITION_RATIONALE_LENGTH);
   const createdBy = recordOrEmpty(partition?.created_by);
   const createdByLabel = String(createdBy.display_name ?? createdBy.user_id ?? partition?.created_by ?? partition?.actor_user_id ?? "Unavailable");
   const developmentRows = optionalFiniteNumber(partition?.development_rows ?? partition?.development_count);
@@ -4878,9 +5649,33 @@ function AnalysisPartitionWorkspace(props: {
                   ) : (
                     <span className="rounded-lg border border-slate-300 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-500" aria-disabled="true">Partition evidence unavailable</span>
                   )}
-                  <Link to={`${projectWorkflowRoute(props.projectId, "/step01")}?analysisPartition=reset`} className="atlas-secondary-button text-xs" data-testid="open-analysis-partition-reset">Change Split Ratio</Link>
                 </div>
               </div>
+              {current ? (
+                <div
+                  className="flex flex-col gap-3 rounded-xl border-2 border-indigo-400 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                  data-testid="current-analysis-partition-command-strip"
+                >
+                  <div>
+                    <div className="text-xs font-bold uppercase tracking-wide text-indigo-700">
+                      Current partition command
+                    </div>
+                    <p className="mt-1 text-sm font-semibold text-slate-950">
+                      {splitRatioLabel} · revision {partition?.revision ?? "Unavailable"}
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-slate-600">
+                      Review the current-versus-proposed impact before creating a replacement. The current revision remains unchanged until explicit confirmation.
+                    </p>
+                  </div>
+                  <Link
+                    to={`${projectWorkflowRoute(props.projectId, "/step01")}?analysisPartition=reset`}
+                    className="inline-flex shrink-0 items-center justify-center rounded-lg bg-indigo-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-800"
+                    data-testid="open-analysis-partition-reset"
+                  >
+                    Change Split Ratio — Creates New Revision
+                  </Link>
+                </div>
+              ) : null}
               <dl className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
                 <SummaryDatum label="Partition ID" value={partition?.analysis_partition_id ?? "Unavailable"} mono />
                 <SummaryDatum label="Revision" value={partition?.revision ?? "Unavailable"} />
@@ -4984,7 +5779,10 @@ function AnalysisPartitionWorkspace(props: {
               {props.preview.rationaleRequired ? (
                 <label className="mt-3 block text-xs font-semibold text-indigo-950">
                   Selection rationale required by policy
-                  <textarea className="mt-1 min-h-24 w-full rounded-lg border border-indigo-300 bg-white px-3 py-2 text-sm font-normal text-slate-950" data-testid="analysis-partition-selection-rationale" value={props.rationale} onChange={(event) => props.onRationale(event.target.value)} placeholder="Explain why this ratio is appropriate for the governed modeling objective." />
+                  <textarea className="mt-1 min-h-24 w-full rounded-lg border border-indigo-300 bg-white px-3 py-2 text-sm font-normal text-slate-950" data-testid="analysis-partition-selection-rationale" value={props.rationale} minLength={MIN_ANALYSIS_PARTITION_RATIONALE_LENGTH} onChange={(event) => props.onRationale(event.target.value)} placeholder="Explain why this ratio is appropriate for the governed modeling objective." />
+                  <span className="mt-1 block font-normal text-indigo-800">
+                    Minimum {MIN_ANALYSIS_PARTITION_RATIONALE_LENGTH} characters, matching the backend policy.
+                  </span>
                 </label>
               ) : null}
             </div>
@@ -5466,6 +6264,8 @@ function TargetSetup(props: {
       id="data-acquisition-target-setup"
       className="overflow-hidden rounded-xl border-2 border-blue-500 bg-gradient-to-br from-blue-50 via-white to-cyan-50 shadow-[0_14px_34px_rgba(37,99,235,0.16)]"
       data-testid="data-acquisition-target-setup"
+      role="region"
+      aria-labelledby="data-acquisition-target-heading"
     >
       <div className="flex flex-wrap items-center justify-between gap-3 bg-gradient-to-r from-blue-700 to-cyan-700 px-5 py-3 text-white">
         <div className="flex items-center gap-3">
@@ -5476,10 +6276,12 @@ function TargetSetup(props: {
             <div className="text-[10px] font-bold uppercase tracking-[0.18em] text-blue-100">
               Required modeling decision
             </div>
-            <h2 className="text-base font-semibold">Identify the Target Variable</h2>
+            <h2 id="data-acquisition-target-heading" className="text-base font-semibold">Identify the Target Variable</h2>
           </div>
         </div>
         <span
+          role="status"
+          aria-live="polite"
           className={`rounded-full border px-3 py-1 text-xs font-bold ${
             targetConfirmed
               ? "border-emerald-200 bg-emerald-50 text-emerald-800"
@@ -5495,8 +6297,41 @@ function TargetSetup(props: {
         authoritative target for EDA, predictor exclusion, feature engineering,
         validation, and modeling.
       </p>
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
-        <Select label="Target Column" value={props.target} onChange={props.setTarget} options={props.headers} />
+      <div
+        className="mt-4 rounded-xl border-2 border-blue-600 bg-white p-4 shadow-[0_8px_24px_rgba(37,99,235,0.18)] ring-4 ring-blue-100"
+        data-testid="target-column-priority-control"
+      >
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <label
+            htmlFor="data-acquisition-target-column"
+            className="text-sm font-black uppercase tracking-[0.14em] text-blue-950"
+          >
+            Target Column
+          </label>
+          <span className="rounded-full bg-amber-100 px-2.5 py-1 text-[11px] font-extrabold uppercase tracking-wide text-amber-950">
+            Required
+          </span>
+        </div>
+        <p id="data-acquisition-target-help" className="mt-1 text-xs leading-5 text-slate-600">
+          Choose the outcome to predict. Your loaded dataset stays selected while this draft target contract is reviewed.
+        </p>
+        <select
+          id="data-acquisition-target-column"
+          data-testid="target-column-select"
+          className="mt-3 min-h-12 w-full rounded-xl border-2 border-blue-600 bg-white px-4 py-3 text-base font-bold text-slate-950 shadow-sm outline-none transition focus:border-blue-800 focus:ring-4 focus:ring-blue-200"
+          value={props.target}
+          onChange={(event) => props.setTarget(event.target.value)}
+          required
+          aria-required="true"
+          aria-describedby="data-acquisition-target-help"
+        >
+          <option value="" disabled>Select a target column</option>
+          {props.headers.filter(Boolean).map((header) => (
+            <option key={header} value={header}>{header}</option>
+          ))}
+        </select>
+      </div>
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
         {props.problemType === "classification" ? (
           <>
             <Input label="Event / Positive Value" value={String(props.eventValue ?? "")} onChange={props.setEventValue} />

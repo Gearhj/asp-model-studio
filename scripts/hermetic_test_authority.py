@@ -29,6 +29,13 @@ ISOLATED_MIGRATION_FIXTURES = frozenset(
         "server/persistence/migrations/0028_project_deletion_append_only_cascade.sql",
     }
 )
+NODE_RUNTIME_PACKAGE_FILES: dict[str, tuple[str, ...]] = {
+    # ``typescript.js`` is the self-contained CommonJS compiler API used by
+    # legacy source-contract tests.  Copy only the declared runtime entrypoint
+    # and its package metadata; never alias the repository's node_modules tree.
+    "typescript": ("package.json", "lib/typescript.js"),
+}
+ROOT_PACKAGE_JSON = "package.json"
 
 AUTHORITY_LAYOUT: dict[str, tuple[str, str]] = {
     "persistence_database": ("ATLAS_SQLITE_PATH", "authorities/persistence/atlas_local.db"),
@@ -36,6 +43,18 @@ AUTHORITY_LAYOUT: dict[str, tuple[str, str]] = {
     "security_database": ("ATLAS_SECURITY_DB_PATH", "authorities/security/atlas_security.db"),
     "dataset_library": ("ATLAS_DATASET_LIBRARY_ROOT", "authorities/dataset-library"),
     "dataset_backups": ("ATLAS_DATASET_LIBRARY_BACKUP_ROOT", "authorities/dataset-backups"),
+    "bureau_catalog_registry_root": (
+        "ATLAS_BUREAU_CATALOG_REGISTRY_ROOT",
+        "authorities/bureau-catalog-registry",
+    ),
+    "restricted_metadata_root": (
+        "ATLAS_RESTRICTED_METADATA_ROOT",
+        "authorities/restricted-bureau-metadata",
+    ),
+    "catalog_install_journal_root": (
+        "ATLAS_ISOLATED_CATALOG_INSTALL_JOURNAL_ROOT",
+        "authorities/catalog-install-journal",
+    ),
     "workflow_checkpoint": ("ATLAS_CHECKPOINT_PATH", "authorities/checkpoint/workflow_checkpoint.json"),
     "evidence_root": ("ATLAS_EVIDENCE_ROOT", "authorities/evidence"),
     "feature_manifest_root": ("ATLAS_FEATURE_MANIFEST_ROOT", "authorities/feature-manifests"),
@@ -359,6 +378,7 @@ def _is_mirror_source(
         ".pyi",
         ".sql",
         ".json",
+        ".css",
         ".mjs",
         ".js",
         ".cjs",
@@ -373,10 +393,78 @@ def _exclusive_json(path: Path, payload: object) -> None:
         handle.write("\n")
 
 
+def _validated_root_package_source() -> tuple[Path, str]:
+    """Return the exact repository package metadata and its immutable digest."""
+
+    repository = canonical_path(REPO_ROOT)
+    source = canonical_path(REPO_ROOT / ROOT_PACKAGE_JSON)
+    if source.parent != repository or not source.is_file():
+        raise HermeticAuthorityError("root-package-source")
+    if source.is_symlink() or _is_reparse(source):
+        raise HermeticAuthorityError("root-package-source-linked")
+    try:
+        content = source.read_bytes()
+        metadata = json.loads(content.decode("utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise HermeticAuthorityError("root-package-metadata") from exc
+    if (
+        not isinstance(metadata, dict)
+        or metadata.get("name") != "atlas"
+        or metadata.get("private") is not True
+        or metadata.get("type") != "module"
+        or not isinstance(metadata.get("scripts"), dict)
+    ):
+        raise HermeticAuthorityError("root-package-metadata")
+    return source, hashlib.sha256(content).hexdigest()
+
+
+def copy_root_package_json(child: ChildAuthority) -> dict[str, str]:
+    """Copy root package metadata into a verified, read-only child authority.
+
+    Node source-contract tests intentionally inspect the repository package
+    metadata.  Supplying a physical child-local copy prevents those reads (and
+    Node package-scope discovery) from climbing back to the live repository.
+    """
+
+    validate_child(child)
+    if not child.source_root.is_dir():
+        raise HermeticAuthorityError("missing-source-root")
+    source, source_hash = _validated_root_package_source()
+    source_before = source.stat()
+    target = child.source_root / ROOT_PACKAGE_JSON
+    if target.exists():
+        raise HermeticAuthorityError("root-package-destination-exists")
+    shutil.copy2(source, target)
+    if target.is_symlink() or _is_reparse(target):
+        raise HermeticAuthorityError("root-package-destination-linked")
+    try:
+        if os.path.samefile(source, target):
+            raise HermeticAuthorityError("root-package-source-alias")
+    except OSError as exc:
+        raise HermeticAuthorityError("root-package-copy-verification") from exc
+    try:
+        target.chmod(stat.S_IREAD | stat.S_IRGRP | stat.S_IROTH)
+    except OSError as exc:
+        raise HermeticAuthorityError("root-package-immutability") from exc
+    target_hash = hashlib.sha256(target.read_bytes()).hexdigest()
+    target_mode = stat.S_IMODE(target.stat().st_mode)
+    source_after = source.stat()
+    if (
+        target_hash != source_hash
+        or target_mode & (stat.S_IWUSR | stat.S_IWGRP | stat.S_IWOTH)
+        or source_after.st_size != source_before.st_size
+        or source_after.st_mtime_ns != source_before.st_mtime_ns
+        or hashlib.sha256(source.read_bytes()).hexdigest() != source_hash
+    ):
+        raise HermeticAuthorityError("root-package-copy-verification")
+    return {"path": ROOT_PACKAGE_JSON, "sha256": target_hash}
+
+
 def create_source_mirror(
     child: ChildAuthority,
     *,
     isolated_migrations: Iterable[str] = (),
+    node_runtime_packages: Iterable[str] = (),
 ) -> dict[str, object]:
     """Create a source-only mirror after the authority plan has passed."""
 
@@ -384,10 +472,15 @@ def create_source_mirror(
     requested_migrations = frozenset(str(item) for item in isolated_migrations)
     if not requested_migrations.issubset(ISOLATED_MIGRATION_FIXTURES):
         raise HermeticAuthorityError("unsupported-isolated-migration")
+    requested_node_packages = frozenset(str(item) for item in node_runtime_packages)
+    if not requested_node_packages.issubset(NODE_RUNTIME_PACKAGE_FILES):
+        raise HermeticAuthorityError("unsupported-node-runtime-package")
     child.root.mkdir(parents=True, exist_ok=False)
     child.source_root.mkdir(parents=False, exist_ok=False)
     copied: list[dict[str, str]] = []
-    for top in ("server", "scripts", "tests", "shared"):
+    root_package = copy_root_package_json(child)
+    copied.append(root_package)
+    for top in ("server", "scripts", "tests", "shared", "src"):
         origin = REPO_ROOT / top
         for source in sorted(_walk_files(origin)):
             relative = source.relative_to(REPO_ROOT)
@@ -413,6 +506,7 @@ def create_source_mirror(
         child.source_root / ".tmp",
     ):
         empty.mkdir(parents=True, exist_ok=True)
+    copied.extend(copy_node_runtime_packages(child, requested_node_packages))
     sitecustomize = child.source_root / "sitecustomize.py"
     sitecustomize.write_text(
         "from scripts.hermetic_test_authority import sitecustomize_guard\n"
@@ -427,11 +521,105 @@ def create_source_mirror(
             ISOLATED_MIGRATION_FIXTURES.intersection(requested_migrations)
         ),
         "isolated_migration_fixtures": sorted(requested_migrations),
+        "node_runtime_packages": sorted(requested_node_packages),
+        "node_runtime_is_copied": bool(requested_node_packages),
+        "root_package_json": {
+            **root_package,
+            "child_local": True,
+            "read_only": True,
+        },
         "raw_data_included": False,
         "files": copied,
     }
     _exclusive_json(child.root / "source-manifest.json", manifest)
     return manifest
+
+
+def _node_runtime_source_files(package_name: str) -> tuple[tuple[Path, Path], ...]:
+    relative_files = NODE_RUNTIME_PACKAGE_FILES.get(package_name)
+    if relative_files is None:
+        raise HermeticAuthorityError("unsupported-node-runtime-package")
+    package_root = REPO_ROOT / "node_modules" / package_name
+    if not package_root.is_dir() or package_root.is_symlink() or _is_reparse(package_root):
+        raise HermeticAuthorityError("node-runtime-package-unavailable")
+    resolved_package_root = canonical_path(package_root)
+    expected_modules_root = canonical_path(REPO_ROOT / "node_modules")
+    if resolved_package_root.parent != expected_modules_root:
+        raise HermeticAuthorityError("node-runtime-source-root")
+    sources: list[tuple[Path, Path]] = []
+    for relative_text in relative_files:
+        relative = Path(relative_text)
+        if relative.is_absolute() or _has_traversal(relative):
+            raise HermeticAuthorityError("node-runtime-source-path")
+        source = canonical_path(package_root / relative)
+        if resolved_package_root not in source.parents or not source.is_file():
+            raise HermeticAuthorityError("node-runtime-package-unavailable")
+        sources.append((relative, source))
+    try:
+        metadata = json.loads(sources[0][1].read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        raise HermeticAuthorityError("node-runtime-package-metadata") from exc
+    if not isinstance(metadata, dict):
+        raise HermeticAuthorityError("node-runtime-package-metadata")
+    declared_main = str(metadata.get("main") or "").replace("\\", "/")
+    if declared_main.startswith("./"):
+        declared_main = declared_main[2:]
+    if (
+        metadata.get("name") != package_name
+        or declared_main != "lib/typescript.js"
+    ):
+        raise HermeticAuthorityError("node-runtime-package-metadata")
+    return tuple(sources)
+
+
+def copy_node_runtime_packages(
+    child: ChildAuthority,
+    package_names: Iterable[str],
+) -> list[dict[str, str]]:
+    """Copy approved Node runtime entrypoints into one external child source.
+
+    The destination is a physical child-local copy.  Source and destination
+    hashes are compared immediately, and a same-file alias fails closed.
+    """
+
+    validate_child(child)
+    requested = tuple(sorted(set(str(item) for item in package_names)))
+    unsupported = set(requested).difference(NODE_RUNTIME_PACKAGE_FILES)
+    if unsupported:
+        raise HermeticAuthorityError("unsupported-node-runtime-package")
+    if not requested:
+        return []
+    if not child.source_root.is_dir():
+        raise HermeticAuthorityError("missing-source-root")
+    destination_root = canonical_path(child.source_root / "node_modules")
+    if child.source_root.resolve() not in destination_root.parents:
+        raise HermeticAuthorityError("node-runtime-destination-root")
+    copied: list[dict[str, str]] = []
+    for package_name in requested:
+        for relative, source in _node_runtime_source_files(package_name):
+            target = destination_root / package_name / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            if target.exists():
+                raise HermeticAuthorityError("node-runtime-destination-exists")
+            shutil.copy2(source, target)
+            if target.is_symlink() or _is_reparse(target):
+                raise HermeticAuthorityError("node-runtime-destination-linked")
+            try:
+                if os.path.samefile(source, target):
+                    raise HermeticAuthorityError("node-runtime-source-alias")
+            except OSError as exc:
+                raise HermeticAuthorityError("node-runtime-copy-verification") from exc
+            source_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+            target_hash = hashlib.sha256(target.read_bytes()).hexdigest()
+            if target_hash != source_hash:
+                raise HermeticAuthorityError("node-runtime-copy-verification")
+            copied.append(
+                {
+                    "path": target.relative_to(child.source_root).as_posix(),
+                    "sha256": target_hash,
+                }
+            )
+    return copied
 
 
 def build_child_environment(
@@ -440,6 +628,7 @@ def build_child_environment(
 ) -> dict[str, str]:
     validate_child(child)
     source = dict(inherited or os.environ)
+    _root_package_source, root_package_hash = _validated_root_package_source()
     live_backup_root = Path(source.get("LOCALAPPDATA") or tempfile.gettempdir()) / "ATLAS" / "dataset-library-backups"
     environment = {
         key: value
@@ -457,6 +646,17 @@ def build_child_environment(
             "ATLAS_HERMETIC_MODE": HERMETIC_MODE,
             "ATLAS_HERMETIC_ROOT": str(child.root),
             "ATLAS_HERMETIC_SOURCE_ROOT": str(child.source_root),
+            "ATLAS_HERMETIC_NODE_MODULES_ROOT": str(
+                child.source_root / "node_modules"
+            ),
+            "ATLAS_HERMETIC_NODE_CACHE_ROOT": str(
+                child.root / "authorities" / "node-cache"
+            ),
+            "ATLAS_HERMETIC_PACKAGE_JSON": str(
+                child.source_root / ROOT_PACKAGE_JSON
+            ),
+            "ATLAS_HERMETIC_PACKAGE_JSON_SHA256": root_package_hash,
+            "ATLAS_HERMETIC_NODE_GUARD_PASSED": "0",
             "ATLAS_LIVE_REPOSITORY_ROOT": str(REPO_ROOT),
             "ATLAS_LIVE_DATASET_LIBRARY_BACKUP_ROOT": str(live_backup_root),
             "ATLAS_HERMETIC_GUARD_PASSED": "0",
@@ -471,6 +671,11 @@ def build_child_environment(
                 f"{child.run_id}:{child.suite_name}".encode("utf-8")
             ).hexdigest(),
             "PYTHONPATH": str(child.source_root),
+            # Hermetic children are one-shot processes with immutable source
+            # mirrors.  Persisting bytecode creates thousands of files per
+            # suite without providing a reusable cache and can make late
+            # Windows process startup unbounded as preserved evidence grows.
+            "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONPYCACHEPREFIX": str(child.root / "authorities" / "pycache"),
             "TEMP": str(child.root / "t"),
             "TMP": str(child.root / "t"),
@@ -483,6 +688,7 @@ def build_child_environment(
             "NUMBA_CACHE_DIR": str(child.root / "authorities" / "numba"),
             "JOBLIB_TEMP_FOLDER": str(child.root / "authorities" / "joblib"),
             "PYTEST_DISABLE_PLUGIN_AUTOLOAD": "1",
+            "NODE_COMPILE_CACHE": str(child.root / "authorities" / "node-cache"),
         }
     )
     for name, (variable, _relative) in AUTHORITY_LAYOUT.items():
@@ -520,10 +726,12 @@ def prepare_child(
     child: ChildAuthority,
     *,
     isolated_migrations: Iterable[str] = (),
+    node_runtime_packages: Iterable[str] = (),
 ) -> dict[str, object]:
     source_manifest = create_source_mirror(
         child,
         isolated_migrations=isolated_migrations,
+        node_runtime_packages=node_runtime_packages,
     )
     for name, path in child.authorities.items():
         parent = path.parent if name in FILE_AUTHORITIES else path
@@ -538,6 +746,7 @@ def prepare_child(
         child.root / "authorities" / "matplotlib",
         child.root / "authorities" / "numba",
         child.root / "authorities" / "joblib",
+        child.root / "authorities" / "node-cache",
         child.root / "reports",
     ):
         extra.mkdir(parents=True, exist_ok=True)
@@ -609,6 +818,8 @@ __all__ = [
     "FILE_AUTHORITIES",
     "HERMETIC_MODE",
     "ISOLATED_MIGRATION_FIXTURES",
+    "NODE_RUNTIME_PACKAGE_FILES",
+    "ROOT_PACKAGE_JSON",
     "HermeticAuthorityError",
     "REPO_ROOT",
     "RUN_PREFIX",
@@ -618,6 +829,8 @@ __all__ = [
     "create_child_authority",
     "create_run_authority",
     "create_source_mirror",
+    "copy_root_package_json",
+    "copy_node_runtime_packages",
     "inventory_created_files",
     "overlaps",
     "path_identity",

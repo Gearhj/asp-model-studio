@@ -11,8 +11,12 @@ from unittest.mock import patch
 import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+HERMETIC = os.environ.get("ATLAS_HERMETIC_MODE") == "HERMETIC_REGRESSION"
 CHECKPOINT_PATH = (
-    Path(__file__).resolve().parents[1] / ".tmp"
+    Path(os.environ["ATLAS_CHECKPOINT_PATH"]).resolve()
+    if HERMETIC
+    else Path(__file__).resolve().parents[1]
+    / ".tmp"
     / f"atlas_feature_progression_{uuid.uuid4().hex[:10]}.json"
 )
 CHECKPOINT_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -149,20 +153,34 @@ class FeatureEngineeringProgressionBackendTests(unittest.TestCase):
             side_effect=assert_test_identity,
         )
         self.identity_patch.start()
-        self.manifest_directory = tempfile.TemporaryDirectory(
-            prefix="atlas_feature_progression_manifests_",
-            dir=CHECKPOINT_PATH.parent,
-        )
+        if HERMETIC:
+            # TemporaryDirectory applies an owner-only Windows ACL that can
+            # reject writes from the restricted hermetic child. A unique
+            # directory beneath the launcher-owned authority inherits the
+            # correct ACL and remains available as test evidence.
+            self.manifest_directory = None
+            self.manifest_root = (
+                Path(os.environ["ATLAS_FEATURE_MANIFEST_ROOT"]).resolve()
+                / f"progression-{uuid.uuid4().hex}"
+            )
+            self.manifest_root.mkdir(parents=True, exist_ok=False)
+        else:
+            self.manifest_directory = tempfile.TemporaryDirectory(
+                prefix="atlas_feature_progression_manifests_",
+                dir=CHECKPOINT_PATH.parent,
+            )
+            self.manifest_root = Path(self.manifest_directory.name)
         self.manifest_root_patch = patch.dict(
             os.environ,
-            {"ATLAS_FEATURE_MANIFEST_ROOT": self.manifest_directory.name},
+            {"ATLAS_FEATURE_MANIFEST_ROOT": str(self.manifest_root)},
         )
         self.manifest_root_patch.start()
         bind_checkpoint_path()
 
     def tearDown(self) -> None:
         self.manifest_root_patch.stop()
-        self.manifest_directory.cleanup()
+        if self.manifest_directory is not None:
+            self.manifest_directory.cleanup()
         self.identity_patch.stop()
         DATASTORE.reset_all()
 

@@ -33,6 +33,7 @@ from .workspace_service import (
     eda_workspace_service,
 )
 from .analytical_contract import EDAAnalyticalContractError
+from .bureau_semantic_contract import validate_bureau_semantic_handoff
 from .workspace_types import (
     EDARelationshipSampleRequest,
     EDAVifResolutionDecisionRequest,
@@ -189,7 +190,53 @@ def eda_workspace_section(section: str, request: EDAWorkspaceRequest, user: Dict
     correlation_headers = {"X-Request-Correlation-ID": correlation_id}
     try:
         authorize_modeling_scope(user, request.project_id, "view")
-        result = eda_workspace_service.section(section, request)
+        # Feature Engineering retains its existing selected-features-only VIF
+        # request. It is routed to a separate target-free implementation, not
+        # to the governed EDA Relationships factory. Every request containing
+        # target or canonical Data Acquisition lineage remains strict.
+        predictor_only_shape = (
+            section == "relationships"
+            and request.target is None
+            and request.problem_type is None
+            and request.event_value is None
+            and request.positive_value is None
+            and request.negative_value is None
+            and request.non_event_value is None
+            and request.target_contract_id is None
+            and request.predictor_authorization_id is None
+            and request.analysis_partition_id is None
+            and request.analysis_partition_revision is None
+            and request.special_value_review_id is None
+            and request.special_value_review_revision is None
+            and request.bureau_semantic_annotation_state is None
+            and len(request.selected_features) >= 2
+            and not request.pairwise_features
+            and request.feature is None
+            and request.segment_field is None
+            and request.date_field is None
+        )
+        predictor_only_requested = (
+            request.analysis_mode == "predictor_only_diagnostic"
+            or predictor_only_shape
+        )
+        if predictor_only_requested:
+            if not predictor_only_shape:
+                raise ValueError(
+                    "Predictor-only Relationships accepts only an exact dataset identity and selected predictor fields."
+                )
+            result = eda_workspace_service.predictor_only_relationships(
+                request
+            )
+        else:
+            # Resolve the optional Bureau metadata identity with this exact
+            # authenticated principal before EDA can materialize a development
+            # target or consult an analytical cache.
+            validate_bureau_semantic_handoff(request, user)
+            result = eda_workspace_service.section(
+                section,
+                request,
+                canonical_lineage_required=True,
+            )
         if DEV_LOGGING:
             logger.info(
                 "EDA request received section=%s dataset=%s found=true rows=%s cols=%s target=%s status=200",
@@ -321,29 +368,25 @@ def eda_target_by_predictor(request: TargetByPredictorRequest, user: Dict[str, A
     """On-demand Target-by-Predictor over the governed development population."""
     authorize_modeling_scope(user, request.project_id, "view")
     try:
+        validate_bureau_semantic_handoff(request, user)
         return eda_workspace_service.target_by_predictor(request)
+    except EDAAnalyticalContractError as exc:
+        _raise_analytical_readiness(exc)
     except ValueError as exc:
         detail = str(exc)
-        scope_error = isinstance(exc, EDAAnalyticalContractError)
-        status = 409 if scope_error or "no full backend dataset" in detail.lower() else 400
+        status = 409 if "no full backend dataset" in detail.lower() else 400
         raise HTTPException(
             status_code=status,
             detail={
                 "ok": False,
                 "code": (
-                    getattr(exc, "code", "analysis_partition_stale")
-                    if scope_error
-                    else "backend_dataset_missing"
+                    "backend_dataset_missing"
                     if status == 409
                     else "eda_request_invalid"
                 ),
                 "message": detail,
-                "recovery": (
-                    getattr(exc, "recovery", "Return to Data Acquisition and confirm the Analysis Partition.")
-                    if scope_error
-                    else "Confirm a target and a valid predictor in Data Acquisition."
-                ),
-                "stale_artifacts": getattr(exc, "stale_artifacts", []) if scope_error else [],
+                "recovery": "Confirm a target and a valid predictor in Data Acquisition.",
+                "stale_artifacts": [],
             },
         ) from exc
 
@@ -354,7 +397,10 @@ def eda_vif_simulation(request: EDAVifSimulationRequest, user: Dict[str, Any] = 
 
     authorize_modeling_scope(user, request.project_id, "view")
     try:
+        validate_bureau_semantic_handoff(request, user)
         return eda_workspace_service.vif_simulation(request)
+    except EDAAnalyticalContractError as exc:
+        _raise_analytical_readiness(exc)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
@@ -368,7 +414,10 @@ def eda_vif_resolution_plan(
 
     authorize_modeling_scope(user, request.project_id, "view")
     try:
+        validate_bureau_semantic_handoff(request, user)
         return eda_workspace_service.vif_resolution_plan(request)
+    except EDAAnalyticalContractError as exc:
+        _raise_analytical_readiness(exc)
     except ValueError as exc:
         raise HTTPException(
             status_code=422,
@@ -389,10 +438,13 @@ def eda_vif_resolution_decision(
 
     authorize_modeling_scope(user, request.project_id, "edit")
     try:
+        validate_bureau_semantic_handoff(request, user)
         return eda_workspace_service.vif_resolution_decision(
             request,
             actor_id=str(user.get("userId") or user.get("id") or "ATLAS"),
         )
+    except EDAAnalyticalContractError as exc:
+        _raise_analytical_readiness(exc)
     except ValueError as exc:
         raise HTTPException(
             status_code=422,
@@ -430,7 +482,10 @@ def eda_relationship_sample(
 
     authorize_modeling_scope(user, request.project_id, "view")
     try:
+        validate_bureau_semantic_handoff(request, user)
         return eda_workspace_service.relationship_sample(request)
+    except EDAAnalyticalContractError as exc:
+        _raise_analytical_readiness(exc)
     except RelationshipSampleValidationError as exc:
         raise HTTPException(
             status_code=422,

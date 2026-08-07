@@ -10,12 +10,13 @@ Run:
 
 from __future__ import annotations
 
-import multiprocessing
+import json
+import os
 import sqlite3
-import tempfile
-import time
+import subprocess
+import sys
 import unittest
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing, contextmanager
 from pathlib import Path
 from typing import Iterator
@@ -24,6 +25,7 @@ from unittest.mock import patch
 from server.datasets.dataset_recovery import DatasetRecoveryService
 from server.persistence import db as persistence_db
 from server.persistence.db import Database, PersistenceUnavailableError
+from tests.hermetic_test_roots import temporary_test_root
 
 
 REAL_SCHEMA_PATH = persistence_db.SCHEMA_PATH
@@ -36,41 +38,6 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 """
 
 
-def _spawned_startup_migration_worker(
-    database_path: str,
-    start_gate_path: str,
-) -> tuple[bool, list[str], int, int]:
-    """Run the public persistence-startup entrypoint in a spawned process."""
-
-    import os
-
-    gate = Path(start_gate_path)
-    deadline = time.monotonic() + 30.0
-    while not gate.is_file():
-        if time.monotonic() >= deadline:
-            raise TimeoutError("Concurrent migration start gate was not released.")
-        time.sleep(0.01)
-
-    # Import inside the child so every process owns a fresh module-level
-    # singleton, matching independent application startup processes.
-    from server.persistence import db as spawned_persistence_db
-
-    os.environ["ATLAS_SQLITE_PATH"] = database_path
-    spawned_persistence_db._database = None
-    health = spawned_persistence_db.initialize_persistence()
-    with closing(sqlite3.connect(database_path)) as connection:
-        versions = [
-            row[0]
-            for row in connection.execute(
-                "SELECT version FROM schema_migrations ORDER BY version"
-            ).fetchall()
-        ]
-        total, distinct = connection.execute(
-            "SELECT COUNT(*), COUNT(DISTINCT version) FROM schema_migrations"
-        ).fetchone()
-    return bool(health["ok"]), versions, int(total), int(distinct)
-
-
 class MigrationAtomicityTest(unittest.TestCase):
     @contextmanager
     def synthetic_database(
@@ -79,8 +46,10 @@ class MigrationAtomicityTest(unittest.TestCase):
         *,
         schema: str = BASE_SCHEMA,
     ) -> Iterator[tuple[Database, Path]]:
-        with tempfile.TemporaryDirectory(prefix="atlas-migration-atomicity-") as raw_root:
-            root = Path(raw_root)
+        with temporary_test_root(
+            "atlas-migration-atomicity-",
+            scope="migration-atomicity-fixtures",
+        ) as root:
             schema_path = root / "schema.sql"
             migration_root = root / "migrations"
             database_path = root / "atlas.db"
@@ -292,41 +261,64 @@ class MigrationAtomicityTest(unittest.TestCase):
             self.assertEqual(1, row_count)
 
     def test_spawned_startup_processes_apply_released_migrations_once(self) -> None:
-        with tempfile.TemporaryDirectory(
-            prefix="atlas-migration-concurrent-startup-"
-        ) as raw_root:
-            root = Path(raw_root)
+        with temporary_test_root(
+            "atlas-migration-concurrent-startup-",
+            scope="migration-atomicity-fixtures",
+        ) as root:
             database_path = root / "atlas.db"
             start_gate = root / "start-gate"
             expected_versions = [
                 path.name for path in sorted(REAL_MIGRATIONS_PATH.glob("*.sql"))
             ]
 
-            with ProcessPoolExecutor(
-                max_workers=4,
-                mp_context=multiprocessing.get_context("spawn"),
-            ) as executor:
-                futures = [
-                    executor.submit(
-                        _spawned_startup_migration_worker,
-                        str(database_path),
-                        str(start_gate),
+            worker = Path(__file__).with_name("migration_startup_worker_subprocess.py")
+            processes: list[tuple[subprocess.Popen[bytes], Path, object]] = []
+            try:
+                for index in range(4):
+                    result_path = root / f"worker-{index}.json"
+                    log_handle = (root / f"worker-{index}.log").open("wb")
+                    process = subprocess.Popen(
+                        [
+                            sys.executable,
+                            str(worker),
+                            str(database_path),
+                            str(start_gate),
+                            str(result_path),
+                        ],
+                        cwd=Path(__file__).resolve().parents[1],
+                        env=os.environ.copy(),
+                        stdout=log_handle,
+                        stderr=subprocess.STDOUT,
                     )
-                    for _index in range(4)
-                ]
+                    processes.append((process, result_path, log_handle))
                 start_gate.write_text("start\n", encoding="utf-8")
-                results = [future.result(timeout=120.0) for future in futures]
+                results = []
+                for process, result_path, log_handle in processes:
+                    return_code = process.wait(timeout=120.0)
+                    log_handle.close()
+                    self.assertEqual(0, return_code)
+                    results.append(json.loads(result_path.read_text(encoding="utf-8")))
+            finally:
+                for process, _result_path, log_handle in processes:
+                    if process.poll() is None:
+                        process.kill()
+                        process.wait(timeout=10.0)
+                    if not log_handle.closed:
+                        log_handle.close()
 
-            for ok, versions, total, distinct in results:
-                self.assertTrue(ok)
-                self.assertEqual(expected_versions, versions)
-                self.assertEqual(len(expected_versions), total)
-                self.assertEqual(total, distinct)
+            for result in results:
+                self.assertTrue(result["ok"])
+                self.assertEqual(expected_versions, result["versions"])
+                self.assertEqual(len(expected_versions), result["total"])
+                self.assertEqual(result["total"], result["distinct"])
             self.assertEqual(expected_versions, self.history(database_path))
 
     def test_fresh_install_applies_every_released_migration(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="atlas-migration-fresh-install-") as raw_root:
-            database_path = Path(raw_root) / "atlas.db"
+        with temporary_test_root(
+            "atlas-migration-fresh-install-",
+            scope="migration-atomicity-fixtures",
+        ) as root:
+            database_path = root / "atlas.db"
             database = Database(database_path)
 
             result = database.initialize()
@@ -340,8 +332,11 @@ class MigrationAtomicityTest(unittest.TestCase):
             self.assertIn(("table", "special_value_reviews"), objects)
 
     def test_representative_upgrade_applies_only_pending_migrations(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="atlas-migration-upgrade-") as raw_root:
-            database_path = Path(raw_root) / "atlas.db"
+        with temporary_test_root(
+            "atlas-migration-upgrade-",
+            scope="migration-atomicity-fixtures",
+        ) as root:
+            database_path = root / "atlas.db"
             database = Database(database_path)
             released = sorted(REAL_MIGRATIONS_PATH.glob("*.sql"))
             pre_upgrade = released[:23]
@@ -359,8 +354,10 @@ class MigrationAtomicityTest(unittest.TestCase):
             self.assertIn(("table", "special_value_reviews"), objects)
 
     def test_dataset_recovery_applies_maintenance_files_through_canonical_runner(self) -> None:
-        with tempfile.TemporaryDirectory(prefix="atlas-migration-recovery-path-") as raw_root:
-            root = Path(raw_root)
+        with temporary_test_root(
+            "atlas-migration-recovery-path-",
+            scope="migration-atomicity-fixtures",
+        ) as root:
             database_path = root / "atlas.db"
             database = Database(database_path)
             released = sorted(REAL_MIGRATIONS_PATH.glob("*.sql"))

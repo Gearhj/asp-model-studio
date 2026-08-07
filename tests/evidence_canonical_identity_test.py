@@ -6,19 +6,24 @@ import io
 import os
 import shutil
 import sys
-import tempfile
 import time
 import unittest
 import uuid
 from pathlib import Path
 
+from tests.hermetic_test_roots import make_test_root
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
-TEST_ROOT = REPO_ROOT / ".tmp" / f"evidence_identity_{uuid.uuid4().hex}"
-TEST_ROOT.mkdir(parents=True, exist_ok=False)
-BACKUP_ROOT = Path(
-    tempfile.mkdtemp(prefix=f"atlas_evidence_identity_backups_{uuid.uuid4().hex}_")
+RUN_ID = uuid.uuid4().hex
+TEST_ROOT = make_test_root(
+    f"evidence-identity-{RUN_ID}-",
+    scope="temp",
+)
+BACKUP_ROOT = make_test_root(
+    f"evidence-identity-backups-{RUN_ID}-",
+    scope="temp",
 )
 
 ENVIRONMENT = {

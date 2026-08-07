@@ -228,6 +228,7 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
                 "project_id": PROJECT_ID,
                 "dataset_id": "ds-eda-phase1-synthetic",
                 "dataset_version_id": "eda-phase1-synthetic-v1",
+                "activation_revision": 1,
             },
         )
         self.identity_patch.start()
@@ -377,11 +378,7 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
 
     def test_relationship_sample_is_bounded_deterministic_and_target_safe(self) -> None:
         request = EDARelationshipSampleRequest(
-            project_id=PROJECT_ID,
-            target=TARGET,
-            event_value=1,
-            problem_type="classification",
-            dataset_version="eda-phase1-synthetic-v1",
+            **self.partition_fixture["canonical_request"],
             predictor_manifest_id=DATASTORE.meta[
                 "predictor_authorization_id"
             ],
@@ -394,7 +391,8 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
         first = eda_workspace_service.relationship_sample(request)
         second = eda_workspace_service.relationship_sample(request)
 
-        self.assertEqual(first["scope"], "rendered_sample")
+        self.assertEqual(first["scope"], "development_population")
+        self.assertEqual(first["response_scope"], "rendered_sample")
         self.assertEqual(first["returned_rows"], 100)
         self.assertLessEqual(first["returned_rows"], 5000)
         self.assertTrue(first["sampled"])
@@ -430,10 +428,7 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
 
     def test_relationship_sample_rejects_every_forbidden_role(self) -> None:
         base = {
-            "project_id": PROJECT_ID,
-            "target": TARGET,
-            "event_value": 1,
-            "problem_type": "classification",
+            **self.partition_fixture["canonical_request"],
             "x_feature": "age",
             "y_feature": "balance",
             "z_feature": "balance_shadow",
@@ -486,10 +481,7 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
             with self.assertRaises(HTTPException) as raised:
                 eda_router.eda_relationship_sample(
                     EDARelationshipSampleRequest(
-                        project_id=PROJECT_ID,
-                        target=TARGET,
-                        event_value=1,
-                        problem_type="classification",
+                        **self.partition_fixture["canonical_request"],
                         x_feature=TARGET,
                         y_feature="balance",
                         z_feature="outcome_code",
@@ -566,10 +558,7 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
         before = DATASTORE.get_base_df().copy(deep=True)
         result = eda_workspace_service.vif_simulation(
             EDAVifSimulationRequest(
-                project_id=PROJECT_ID,
-                target=TARGET,
-                event_value=1,
-                problem_type="classification",
+                **self.partition_fixture["canonical_request"],
                 excluded_feature="balance",
             )
         )
@@ -586,10 +575,7 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "not authorized"):
                     eda_workspace_service.vif_simulation(
                         EDAVifSimulationRequest(
-                            project_id=PROJECT_ID,
-                            target=TARGET,
-                            event_value=1,
-                            problem_type="classification",
+                            **self.partition_fixture["canonical_request"],
                             excluded_feature=forbidden,
                         )
                     )
@@ -731,6 +717,24 @@ class EDAPhase1PredictorAuthorizationTests(unittest.TestCase):
                 "predictor_authorization": empty,
                 "predictor_authorization_manifest": empty,
             }
+        )
+        # Changing the durable authorization invalidates both the Analysis
+        # Partition authorization checksum and the dependent special-value
+        # review. Rebuild those prerequisites through the normal governed
+        # fixture path instead of bypassing the new fail-closed lineage gate.
+        self.partition_fixture = self.governed_fixture.install(
+            DATASTORE.current(),
+            dataset_id="ds-eda-phase1-synthetic",
+            dataset_version_id="eda-phase1-synthetic-v1",
+            target=TARGET,
+            authorized_predictors=[],
+            target_sources=TARGET_SOURCES,
+            development_share=0.8,
+            reset_existing=True,
+        )
+        self.assertEqual(
+            self.partition_fixture["authorization"]["predictor_authorization_id"],
+            empty_id,
         )
 
         service = EDAWorkspaceService()

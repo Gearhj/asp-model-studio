@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, Mapping
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from ..analysis_partition.types import AnalysisPartitionError
+from ..analysis_partition.types import (
+    ANALYSIS_PARTITION_DOCUMENTATION_PENDING,
+    ANALYSIS_PARTITION_REQUIRED,
+    AnalysisPartitionError,
+)
+from ..bureau_metadata.crosswalk_router import (
+    resolve_exact_semantic_handoff_for_user,
+)
 from ..core.modeling_scope import authorize_modeling_scope
 from ..core.dataset_store import DATASTORE
 from ..core.json_safety import json_safe
@@ -44,6 +52,98 @@ logger = logging.getLogger("atlas.bureau_detection")
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _trusted_catalog_special_definitions(
+    *,
+    identity: dict[str, Any],
+    user: Dict[str, Any],
+) -> dict[str, dict[float, str]]:
+    """Resolve bounded provider codes only from an exact approved mapping.
+
+    Catalog entitlement, binding, or crosswalk absence is intentionally
+    nonblocking: dataset-observed candidates must still reach Special-Value
+    Review.  Contradictory provider semantics are never substituted from a
+    latest, first, or browser-supplied catalog.
+    """
+
+    try:
+        payload = resolve_exact_semantic_handoff_for_user(
+            project_id=_text(identity.get("project_id")),
+            dataset_id=_text(identity.get("dataset_id")),
+            dataset_version_id=_text(identity.get("dataset_version_id")),
+            user=user,
+        )
+    except HTTPException as exc:
+        if exc.status_code in {403, 404, 409, 503}:
+            return {}
+        raise
+
+    resolved: dict[str, dict[float, str]] = {}
+    for raw_annotation in payload.get("annotations", []):
+        annotation = (
+            raw_annotation if isinstance(raw_annotation, dict) else {}
+        )
+        if annotation.get("provider_authoritative") is not True:
+            continue
+        field = _text(annotation.get("dataset_field"))
+        if not field:
+            continue
+        definitions: dict[float, str] = {}
+        for raw_definition in annotation.get("special_definitions", []):
+            definition = (
+                raw_definition if isinstance(raw_definition, dict) else {}
+            )
+            try:
+                value = float(_text(definition.get("value_code")))
+            except (TypeError, ValueError):
+                continue
+            definitions[value] = (
+                _text(definition.get("meaning"))
+                or "Provider catalog special value"
+            )
+        if definitions:
+            resolved[field] = definitions
+    return resolved
+
+
+def _development_target_checksum(
+    values: Any,
+    *,
+    target: str,
+    event_value: Any,
+    development_partition_id: str,
+) -> str:
+    canonical_values: list[str] = []
+    for raw in values.tolist():
+        item = getattr(raw, "item", None)
+        if callable(item):
+            try:
+                raw = item()
+            except (TypeError, ValueError):
+                pass
+        if raw is None:
+            canonical_values.append("null")
+        elif isinstance(raw, bool):
+            canonical_values.append(f"bool:{str(raw).lower()}")
+        elif isinstance(raw, (int, float)) and not isinstance(raw, bool):
+            canonical_values.append(f"number:{format(float(raw), '.15g')}")
+        else:
+            canonical_values.append(f"text:{str(raw)}")
+    payload = json.dumps(
+        {
+            "target": target,
+            "event_value": json_safe(event_value),
+            "development_partition_id": development_partition_id,
+            "population_count": len(canonical_values),
+            "values": canonical_values,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _error_detail(
@@ -240,6 +340,8 @@ def _target_analysis_context(
     requested_event_value: Any,
     correlation_id: str,
     actor: Any = None,
+    expected_analysis_partition_id: Any = None,
+    expected_analysis_partition_revision: Any = None,
 ) -> dict[str, Any]:
     """Resolve development-only target evidence without touching holdout rows."""
 
@@ -257,6 +359,10 @@ def _target_analysis_context(
             identity,
             requested_target=target,
             requested_event_value=requested_event_value,
+            expected_analysis_partition_id=expected_analysis_partition_id,
+            expected_analysis_partition_revision=(
+                expected_analysis_partition_revision
+            ),
             actor=actor,
         )
     except AnalysisPartitionError as exc:
@@ -269,6 +375,9 @@ def _target_analysis_context(
             correlation_id=correlation_id,
         ) from exc
 
+    development_partition_id = _text(
+        scope.partition.get("development_partition_id")
+    )
     return {
         "authorized_predictors": predictors,
         "target_analysis_features": scope.development_features,
@@ -280,12 +389,101 @@ def _target_analysis_context(
         "analysis_partition_revision": int(
             scope.partition.get("revision") or 0
         ),
-        "development_partition_id": _text(
-            scope.partition.get("development_partition_id")
+        "development_partition_id": development_partition_id,
+        "analysis_partition_assignment_hash": _text(
+            scope.partition.get("assignment_hash")
+        ),
+        "analysis_partition_artifact_hash": _text(
+            scope.partition.get("artifact_hash")
+        ),
+        "development_target_checksum": _development_target_checksum(
+            scope.development_target,
+            target=target,
+            event_value=scope.event_value,
+            development_partition_id=development_partition_id,
         ),
         "governed_event_value": scope.event_value,
         "analysis_metadata": scope.metadata(),
     }
+
+
+def _optional_target_analysis_context(
+    identity: dict[str, Any],
+    authorization: dict[str, Any],
+    *,
+    target: str,
+    requested_event_value: Any,
+    correlation_id: str,
+    actor: Any = None,
+) -> dict[str, Any]:
+    """Return development evidence when eligible, otherwise structural-only.
+
+    Special-value review intentionally precedes Analysis Partition creation in
+    Data Acquisition. Absence of that not-yet-created authority must not form a
+    workflow deadlock. Contradictory or stale authorities continue to fail
+    closed; only a genuinely absent/documentation-pending partition yields an
+    explicitly target-free structural review.
+    """
+
+    try:
+        return _target_analysis_context(
+            identity,
+            authorization,
+            target=target,
+            requested_event_value=requested_event_value,
+            correlation_id=correlation_id,
+            actor=actor,
+        )
+    except HTTPException as exc:
+        detail = exc.detail if isinstance(exc.detail, dict) else {}
+        if _text(detail.get("code")) not in {
+            ANALYSIS_PARTITION_REQUIRED,
+            ANALYSIS_PARTITION_DOCUMENTATION_PENDING,
+        }:
+            raise
+        return {
+            "authorized_predictors": [
+                _text(value)
+                for value in authorization.get("authorized_predictors", [])
+                if _text(value)
+            ],
+            "target_analysis_features": None,
+            "target_analysis_target": None,
+            "target_analysis_scope": "not_available",
+            "analysis_partition_id": None,
+            "analysis_partition_revision": None,
+            "development_partition_id": None,
+            "analysis_partition_assignment_hash": None,
+            "analysis_partition_artifact_hash": None,
+            "development_target_checksum": None,
+            "governed_event_value": None,
+            "analysis_metadata": {
+                "analytical_scope": (
+                    "full_governed_population_predictors_only"
+                ),
+                "structural_scope": (
+                    "full_governed_population_predictors_only"
+                ),
+                "target_analysis_scope": "not_available",
+                "target_evidence_status": "unavailable",
+                "target_evidence_unavailable_reason": _text(
+                    detail.get("code")
+                ),
+                "source_checksum": _text(
+                    identity.get("dataset_content_hash")
+                ),
+                "full_governed_population_rows": int(
+                    identity.get("rows")
+                    or identity.get("row_count")
+                    or 0
+                ),
+                "development_rows": 0,
+                "holdout_excluded": True,
+                "final_holdout_accessed": False,
+                "final_holdout_used_for_selection": False,
+                "raw_dataset_target_fallback_used": False,
+            },
+        }
 
 
 def _sync_special_value_review(
@@ -316,11 +514,60 @@ def _sync_special_value_review(
     return public_review_contract(row)
 
 
+#: Fields the CURRENT public review contract requires. A durable row written
+#: before these existed can never satisfy the browser contract validator, so it
+#: must be reported as superseded rather than served as if it were valid.
+_CURRENT_CONTRACT_REQUIRED_TEXT = (
+    "source_checksum",
+    "structural_scope",
+)
+_CURRENT_CONTRACT_SCOPES = {"development_population", "not_available"}
+
+
+def _superseded_contract_reasons(detection: Mapping[str, Any]) -> list[str]:
+    """Why a persisted detection predates the current contract schema.
+
+    PROVEN DEFECT this guards: the HELOC review persisted at revision 7 carried
+    `target_analysis_scope="development_partition"` plus null `structural_scope`,
+    `source_checksum`, and `full_governed_population_rows`.
+    `_exact_review_row` never inspected those fields,
+    so the row was served as a valid contract; the browser validator then
+    correctly rejected it as an identity mismatch. Neither side offered a
+    recovery path, so the Special Values section stayed blocked permanently with
+    an error that named the wrong cause.
+    """
+
+    reasons: list[str] = []
+    for field in _CURRENT_CONTRACT_REQUIRED_TEXT:
+        if not _text(detection.get(field)):
+            reasons.append(field)
+    if int(detection.get("full_governed_population_rows") or 0) <= 0:
+        reasons.append("full_governed_population_rows")
+    scope = _text(detection.get("target_analysis_scope"))
+    if scope not in _CURRENT_CONTRACT_SCOPES:
+        reasons.append("target_analysis_scope")
+    target_evidence = detection.get("target_evidence")
+    target_evidence = (
+        target_evidence if isinstance(target_evidence, Mapping) else {}
+    )
+    status = _text(
+        target_evidence.get("status")
+        or detection.get("target_evidence_status")
+    )
+    if status and status not in {"available", "unavailable"}:
+        reasons.append("target_evidence_status")
+    return reasons
+
+
 def _exact_review_row(
     *,
     identity: dict[str, Any],
     authorization: dict[str, Any],
+    target: str,
+    actor: Any,
     correlation_id: str,
+    expected_analysis_partition_id: Any = None,
+    expected_analysis_partition_revision: Any = None,
 ) -> dict[str, Any]:
     project_id = _text(identity.get("project_id"))
     dataset_id = _text(identity.get("dataset_id"))
@@ -336,11 +583,152 @@ def _exact_review_row(
             corrective_action="Run the Data Acquisition special-value detection for this exact version.",
             correlation_id=correlation_id,
         )
+    detection = row.get("detection_json")
+    detection = detection if isinstance(detection, dict) else {}
+    superseded = _superseded_contract_reasons(detection)
+    if superseded:
+        raise _governed_error(
+            409,
+            code="special_value_review_stale",
+            message=(
+                "The durable special-value review predates the current review "
+                "contract and cannot be validated."
+            ),
+            corrective_action=(
+                "Re-run Data Acquisition special-value detection for this exact "
+                "Dataset Version to regenerate the review."
+            ),
+            correlation_id=correlation_id,
+            context={
+                "special_value_review": public_review_contract(row),
+                "superseded_contract_fields": superseded,
+            },
+        )
+    target_evidence = detection.get("target_evidence")
+    target_evidence = target_evidence if isinstance(target_evidence, dict) else {}
+    target_evidence_available = bool(target_evidence.get("available")) or (
+        _text(detection.get("target_analysis_scope"))
+        == "development_population"
+    )
+    analysis_context: dict[str, Any] = {}
+    if target_evidence_available:
+        stored_partition_id = _text(detection.get("analysis_partition_id"))
+        stored_partition_revision = int(
+            detection.get("analysis_partition_revision") or 0
+        )
+        if not stored_partition_id or stored_partition_revision <= 0:
+            raise _governed_error(
+                409,
+                code="special_value_review_stale",
+                message=(
+                    "The durable target-informed special-value review has "
+                    "incomplete Analysis Partition lineage."
+                ),
+                corrective_action=(
+                    "Refresh special-value detection for the exact current "
+                    "Analysis Partition."
+                ),
+                correlation_id=correlation_id,
+                context={"special_value_review": public_review_contract(row)},
+            )
+        requested_partition_id = _text(expected_analysis_partition_id)
+        requested_partition_revision = (
+            int(expected_analysis_partition_revision)
+            if expected_analysis_partition_revision is not None
+            else None
+        )
+        if requested_partition_id and (
+            requested_partition_id != stored_partition_id
+            or requested_partition_revision != stored_partition_revision
+        ):
+            raise _governed_error(
+                409,
+                code="special_value_review_stale",
+                message=(
+                    "The requested special-value review is bound to a different "
+                    "Analysis Partition revision."
+                ),
+                corrective_action="Reload Data Acquisition before continuing.",
+                correlation_id=correlation_id,
+                context={"special_value_review": public_review_contract(row)},
+            )
+        try:
+            analysis_context = _target_analysis_context(
+                identity,
+                authorization,
+                target=target,
+                requested_event_value=None,
+                correlation_id=correlation_id,
+                actor=actor,
+                expected_analysis_partition_id=stored_partition_id,
+                expected_analysis_partition_revision=stored_partition_revision,
+            )
+        except HTTPException as exc:
+            detail = exc.detail if isinstance(exc.detail, dict) else {}
+            raise _governed_error(
+                409,
+                code="special_value_review_stale",
+                message=(
+                    "The target-informed special-value review is stale for the "
+                    "current Analysis Partition."
+                ),
+                corrective_action=(
+                    "Refresh special-value detection against the exact current "
+                    "Analysis Partition before saving or confirming."
+                ),
+                correlation_id=correlation_id,
+                context={
+                    "special_value_review": public_review_contract(row),
+                    "upstream_code": _text(detail.get("code")),
+                },
+            ) from exc
+    elif _text(expected_analysis_partition_id):
+        raise _governed_error(
+            409,
+            code="special_value_review_stale",
+            message=(
+                "This structural special-value review has no target-aware "
+                "Analysis Partition evidence."
+            ),
+            corrective_action=(
+                "Refresh detection after the Analysis Partition is available."
+            ),
+            correlation_id=correlation_id,
+            context={"special_value_review": public_review_contract(row)},
+        )
+
+    partition_lineage_matches = (
+        not target_evidence_available
+        or (
+            _text(detection.get("analysis_partition_id"))
+            == _text(analysis_context.get("analysis_partition_id"))
+            and int(detection.get("analysis_partition_revision") or 0)
+            == int(analysis_context.get("analysis_partition_revision") or 0)
+            and _text(detection.get("development_partition_id"))
+            == _text(analysis_context.get("development_partition_id"))
+            and _text(detection.get("analysis_partition_assignment_hash"))
+            == _text(
+                analysis_context.get("analysis_partition_assignment_hash")
+            )
+            and _text(detection.get("analysis_partition_artifact_hash"))
+            == _text(
+                analysis_context.get("analysis_partition_artifact_hash")
+            )
+            and _text(detection.get("development_target_checksum"))
+            == _text(analysis_context.get("development_target_checksum"))
+        )
+    )
+    source_checksum_matches = (
+        _text(detection.get("source_checksum"))
+        == _text(identity.get("dataset_content_hash"))
+    )
     lineage_matches = (
         _text(row.get("predictor_authorization_id"))
         == _text(authorization.get("predictor_authorization_id"))
         and _text(row.get("target_contract_id"))
         == _text(authorization.get("target_contract_id"))
+        and partition_lineage_matches
+        and source_checksum_matches
     )
     revision_matches = int(row.get("activation_revision") or 0) == int(
         identity.get("activation_revision") or 0
@@ -349,8 +737,14 @@ def _exact_review_row(
         raise _governed_error(
             409,
             code="special_value_review_stale",
-            message="The durable special-value review does not match the exact active authority.",
-            corrective_action="Refresh special-value detection for the exact active dataset version.",
+            message=(
+                "The durable special-value review does not match the exact active "
+                "dataset, Analysis Partition, or development-target evidence."
+            ),
+            corrective_action=(
+                "Refresh special-value detection for the exact active dataset "
+                "and current Analysis Partition."
+            ),
             correlation_id=correlation_id,
             context={"special_value_review": public_review_contract(row)},
         )
@@ -372,7 +766,7 @@ def bureau_detection(request: BureauDetectionRequest, user: Dict[str, Any] = Dep
             requested_target=request.target,
             correlation_id=correlation_id,
         )
-        analysis_context = _target_analysis_context(
+        analysis_context = _optional_target_analysis_context(
             identity,
             authorization,
             target=target,
@@ -380,8 +774,23 @@ def bureau_detection(request: BureauDetectionRequest, user: Dict[str, Any] = Dep
             correlation_id=correlation_id,
             actor=user.get("userId"),
         )
-        bound_request = request.model_copy(update={"target": target})
-        result = detect_bureau_data(bound_request, **analysis_context)
+        catalog_special_definitions = _trusted_catalog_special_definitions(
+            identity=identity,
+            user=user,
+        )
+        # Browser-supplied metadata is not an authority.  Normal Data
+        # Acquisition detection uses only exact server-resolved catalog
+        # definitions plus conservative dataset-observed candidates.
+        bound_request = request.model_copy(
+            update={"target": target, "metadata": []}
+        )
+        result = detect_bureau_data(
+            bound_request,
+            trusted_catalog_special_definitions=(
+                catalog_special_definitions
+            ),
+            **analysis_context,
+        )
         result.update(
             {
                 "project_id": _text(identity.get("project_id")),
@@ -456,6 +865,11 @@ def get_special_value_review(
     project_id: str = Query(min_length=1),
     expected_dataset_id: str = Query(min_length=1),
     expected_dataset_version_id: str = Query(min_length=1),
+    expected_analysis_partition_id: str | None = Query(default=None),
+    expected_analysis_partition_revision: int | None = Query(
+        default=None,
+        ge=1,
+    ),
     user: Dict[str, Any] = Depends(require_user),
 ):
     correlation_id = f"special-review-{uuid.uuid4().hex}"
@@ -469,7 +883,17 @@ def get_special_value_review(
         user=user,
         correlation_id=correlation_id,
     )
-    authorization, _target = _exact_predictor_authorization(
+    if bool(_text(expected_analysis_partition_id)) != bool(
+        expected_analysis_partition_revision is not None
+    ):
+        raise _governed_error(
+            422,
+            code="analysis_partition_identity_required",
+            message="Analysis Partition ID and revision must be supplied together.",
+            corrective_action="Reload Data Acquisition before retrieving the review.",
+            correlation_id=correlation_id,
+        )
+    authorization, target = _exact_predictor_authorization(
         identity,
         requested_target=None,
         correlation_id=correlation_id,
@@ -477,7 +901,13 @@ def get_special_value_review(
     row = _exact_review_row(
         identity=identity,
         authorization=authorization,
+        target=target,
+        actor=user.get("userId"),
         correlation_id=correlation_id,
+        expected_analysis_partition_id=expected_analysis_partition_id,
+        expected_analysis_partition_revision=(
+            expected_analysis_partition_revision
+        ),
     )
     return {
         "ok": True,
@@ -502,7 +932,7 @@ def update_special_value_review(
         user=user,
         correlation_id=correlation_id,
     )
-    authorization, _target = _exact_predictor_authorization(
+    authorization, target = _exact_predictor_authorization(
         identity,
         requested_target=None,
         correlation_id=correlation_id,
@@ -510,7 +940,13 @@ def update_special_value_review(
     row = _exact_review_row(
         identity=identity,
         authorization=authorization,
+        target=target,
+        actor=user.get("userId"),
         correlation_id=correlation_id,
+        expected_analysis_partition_id=request.expected_analysis_partition_id,
+        expected_analysis_partition_revision=(
+            request.expected_analysis_partition_revision
+        ),
     )
     if request.detection_fingerprint != _text(row.get("detection_fingerprint")):
         raise _governed_error(

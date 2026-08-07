@@ -56,6 +56,15 @@ def _write_json_exclusive(path: Path, payload: object) -> None:
 def _run_python_test(target: Path) -> int:
     import pytest
 
+    # pytest's default numbered ``pytest-of-<user>`` directory is created with
+    # owner-only permissions.  Under the Windows sandbox the launcher and its
+    # child can carry different restricted-token SIDs even though both belong
+    # to the same interactive user, so that default can deny the child access
+    # to the directory it just created.  A child-owned explicit basetemp keeps
+    # the fixture root inside the hermetic authority while avoiding the
+    # username-derived ACL boundary.
+    hermetic_root = canonical_path(os.environ.get("ATLAS_HERMETIC_ROOT", ""))
+    basetemp = hermetic_root / "authorities" / "pytest-tmp"
     return int(
         pytest.main(
             [
@@ -63,6 +72,8 @@ def _run_python_test(target: Path) -> int:
                 "-p",
                 "no:cacheprovider",
                 "--disable-warnings",
+                "--basetemp",
+                str(basetemp),
                 str(target),
             ]
         )
@@ -84,7 +95,11 @@ def _run_python_probe(target: Path) -> int:
 def _run_node(target: Path, log_path: Path) -> int:
     # Execute the node:test file directly so the hermetic child remains the
     # only Node process; Node's --test coordinator would spawn another worker.
-    command = ["node", str(target)]
+    source_root = canonical_path(os.environ.get("ATLAS_HERMETIC_SOURCE_ROOT", ""))
+    preload = canonical_path(source_root / "scripts" / "hermetic_node_preload.mjs")
+    if not preload.is_file() or source_root not in preload.parents:
+        raise HermeticAuthorityError("node-preload")
+    command = ["node", "--import", preload.as_uri(), str(target)]
     completed = subprocess.run(
         command,
         cwd=target.parents[1],

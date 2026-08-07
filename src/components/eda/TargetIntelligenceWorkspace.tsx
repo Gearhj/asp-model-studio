@@ -67,6 +67,11 @@ import type { ProjectContext } from "../../lib/projectContext";
 import { getCachedUserId } from "../../lib/authSession";
 import { safeArray, safeObject } from "../../lib/workflowSafety";
 import { projectWorkflowRoute } from "../../lib/projectScopedRoutes";
+import {
+  assertExactEdaResponseLineage,
+  buildCanonicalEdaRequestContract,
+  type CanonicalDataAcquisitionEdaHandoff,
+} from "../../lib/dataAcquisitionEdaHandoff";
 
 export type TargetWorkspaceData = Record<string, any>;
 
@@ -94,6 +99,7 @@ export default function TargetIntelligenceWorkspace({
   onTimeField,
   onSegmentField,
   onRunConditional,
+  canonicalHandoff,
 }: {
   data: TargetWorkspaceData;
   projectId: string;
@@ -110,6 +116,7 @@ export default function TargetIntelligenceWorkspace({
   onTimeField: (value: string) => void;
   onSegmentField: (value: string) => void;
   onRunConditional: () => void;
+  canonicalHandoff: CanonicalDataAcquisitionEdaHandoff;
 }) {
   const reducedMotion = prefersReducedMotion();
   const navigate = useNavigate();
@@ -245,6 +252,9 @@ export default function TargetIntelligenceWorkspace({
       eventValue,
       bands: input.bands,
       includeMissing: input.includeMissing,
+      canonicalRequest: buildCanonicalEdaRequestContract(canonicalHandoff),
+      validateResponse: (payload) =>
+        assertExactEdaResponseLineage(canonicalHandoff, payload),
     });
   }
 

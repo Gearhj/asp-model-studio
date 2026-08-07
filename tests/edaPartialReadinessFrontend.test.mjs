@@ -93,7 +93,7 @@ test("an ordinary complete Overview response is not classified as blocked", () =
 });
 
 test("Step 2 admits partial readiness to the blocker shell, not analytical state", () => {
-  const responseStart = step02.indexOf("assertExactDatasetIdentity(");
+  const responseStart = step02.indexOf("assertExactEdaResponseLineage(requestHandoff, payload)");
   const analyticalAdmission = step02.indexOf(
     "writeEdaCodeContextSeed(projectId",
     responseStart,

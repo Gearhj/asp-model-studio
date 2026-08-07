@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class EDADatasetIdentityExpectation(BaseModel):
@@ -18,9 +18,117 @@ class EDADatasetIdentityExpectation(BaseModel):
     # expected_dataset_version_id and is never authoritative.
     dataset_version: Optional[str] = None
 
+    # Canonical Data Acquisition -> EDA handoff.  These fields are optional at
+    # schema-validation time so the service can resolve and report the real
+    # missing durable prerequisite before it reports an incomplete or stale
+    # browser assertion.  Project-scoped HTTP workspace reads require every
+    # applicable field after those durable prerequisites have been resolved.
+    dataset_id: Optional[str] = None
+    dataset_version_id: Optional[str] = None
+    activation_revision: Optional[int] = None
+    target_contract_id: Optional[str] = None
+    positive_value: Optional[Any] = None
+    negative_value: Optional[Any] = None
+    # Compatibility alias used by older Data Acquisition clients.  It is
+    # compare-only and may never replace ``negative_value`` as authority.
+    non_event_value: Optional[Any] = None
+    predictor_authorization_id: Optional[str] = None
+    analysis_partition_id: Optional[str] = None
+    analysis_partition_revision: Optional[int] = None
+    special_value_review_id: Optional[str] = None
+    special_value_review_revision: Optional[int] = None
+
+    # Optional, compare-only Bureau Metadata Catalog handoff.  Data
+    # Acquisition resolves this bounded identity from the exact current
+    # dataset-version binding and crosswalk; the browser can never make a
+    # catalog mapping authoritative by supplying these fields.  Ordinary
+    # datasets may omit the entire contract.  An explicit ``unavailable``
+    # assertion is accepted only after the HTTP boundary verifies that no
+    # exact entitled annotation set exists.
+    bureau_semantic_annotation_state: Optional[
+        Literal["available", "unavailable"]
+    ] = None
+    bureau_semantic_annotation_set_id: Optional[str] = None
+    bureau_semantic_annotation_set_checksum: Optional[str] = None
+    bureau_metadata_schema_checksum: Optional[str] = None
+    bureau_metadata_binding_id: Optional[str] = None
+    bureau_metadata_binding_revision: Optional[int] = None
+    bureau_metadata_binding_revision_checksum: Optional[str] = None
+    bureau_metadata_crosswalk_id: Optional[str] = None
+    bureau_metadata_crosswalk_revision: Optional[int] = None
+    bureau_metadata_crosswalk_revision_checksum: Optional[str] = None
+    bureau_metadata_catalog_version_id: Optional[str] = None
+    bureau_metadata_catalog_checksum: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_bureau_semantic_identity_shape(
+        self,
+    ) -> "EDADatasetIdentityExpectation":
+        identity_fields = (
+            "bureau_semantic_annotation_set_id",
+            "bureau_semantic_annotation_set_checksum",
+            "bureau_metadata_schema_checksum",
+            "bureau_metadata_binding_id",
+            "bureau_metadata_binding_revision",
+            "bureau_metadata_binding_revision_checksum",
+            "bureau_metadata_crosswalk_id",
+            "bureau_metadata_crosswalk_revision",
+            "bureau_metadata_crosswalk_revision_checksum",
+            "bureau_metadata_catalog_version_id",
+            "bureau_metadata_catalog_checksum",
+        )
+        present = [
+            field for field in identity_fields if getattr(self, field) is not None
+        ]
+        if self.bureau_semantic_annotation_state is None:
+            if present:
+                raise ValueError(
+                    "Bureau semantic identity fields require an explicit "
+                    "available state."
+                )
+            return self
+        if self.bureau_semantic_annotation_state == "unavailable":
+            if present:
+                raise ValueError(
+                    "An unavailable Bureau semantic assertion cannot carry "
+                    "annotation, binding, crosswalk, schema, or catalog identity."
+                )
+            return self
+        missing = [
+            field for field in identity_fields if getattr(self, field) is None
+        ]
+        if missing:
+            raise ValueError(
+                "An available Bureau semantic assertion requires the complete "
+                "exact identity: " + ", ".join(missing) + "."
+            )
+        revisions = (
+            self.bureau_metadata_binding_revision,
+            self.bureau_metadata_crosswalk_revision,
+        )
+        if any(
+            isinstance(revision, bool)
+            or not isinstance(revision, int)
+            or revision < 1
+            for revision in revisions
+        ):
+            raise ValueError(
+                "Bureau semantic binding and crosswalk revisions must be "
+                "positive integers."
+            )
+        return self
+
 
 class EDAWorkspaceRequest(EDADatasetIdentityExpectation):
     project_id: str
+    # The public EDA workspace is canonical by default. Feature Engineering's
+    # pre-existing selected-features-only VIF request is recognized only at
+    # the router's exact target-free compatibility boundary; this optional
+    # marker makes that intent explicit for newer clients.
+    analysis_mode: Literal[
+        "canonical_eda",
+        "predictor_only_diagnostic",
+    ] = "canonical_eda"
     target: Optional[str] = None
     event_value: Optional[Any] = None
     problem_type: Optional[str] = None
@@ -37,13 +145,13 @@ class EDAWorkspaceRequest(EDADatasetIdentityExpectation):
 
 
 class TargetByPredictorRequest(EDADatasetIdentityExpectation):
-    """On-demand Target-by-Predictor over the full in-memory backend population.
+    """On-demand Target-by-Predictor over the exact development population.
 
-    Used when the project has no registered Dataset Library version, so the
-    DuckDB-over-artifact path in
-    server/analytics/target_intelligence_service.py has no immutable
-    (dataset, version) to scan. The result shape is identical, and the summary
-    is produced by the same shared function, so the two paths cannot disagree.
+    The inherited identity fields carry the complete canonical Data
+    Acquisition handoff.  They remain optional at schema-validation time so
+    the service can report a more precise missing durable prerequisite before
+    it reports a missing browser assertion, but every HTTP EDA call is validated
+    fail-closed against the full handoff before calculation.
     """
 
     project_id: str
@@ -114,6 +222,9 @@ class EDAVifResolutionDecisionRequest(EDADatasetIdentityExpectation):
     """Record a governed disposition for a generated VIF plan."""
 
     project_id: str
+    target: Optional[str] = None
+    event_value: Optional[Any] = None
+    problem_type: Optional[str] = None
     plan_id: str
     action: Literal[
         "accept_complete",

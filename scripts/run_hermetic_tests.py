@@ -44,6 +44,80 @@ class SuiteSpec:
     isolated_migrations: tuple[str, ...] = ()
 
 
+CHILD_TIMEOUT_SECONDS = 600.0
+
+
+def _stop_owned_process_tree(process: subprocess.Popen[str]) -> None:
+    """Stop only one timed-out hermetic bootstrap and its descendants."""
+
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=30,
+        )
+    else:
+        process.kill()
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=10)
+
+
+def _run_bootstrap(
+    command: list[str],
+    *,
+    cwd: Path,
+    environment: dict[str, str],
+    timeout_seconds: float = CHILD_TIMEOUT_SECONDS,
+) -> tuple[subprocess.CompletedProcess[str], bool]:
+    process = subprocess.Popen(
+        command,
+        cwd=cwd,
+        env=environment,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_seconds)
+        return subprocess.CompletedProcess(command, process.returncode, stdout, stderr), False
+    except subprocess.TimeoutExpired as exc:
+        partial_stdout = exc.stdout or ""
+        partial_stderr = exc.stderr or ""
+        if isinstance(partial_stdout, bytes):
+            partial_stdout = partial_stdout.decode(errors="replace")
+        if isinstance(partial_stderr, bytes):
+            partial_stderr = partial_stderr.decode(errors="replace")
+        _stop_owned_process_tree(process)
+        try:
+            final_stdout, final_stderr = process.communicate(timeout=10)
+        except subprocess.TimeoutExpired:
+            final_stdout, final_stderr = "", ""
+        return subprocess.CompletedProcess(
+            command,
+            124,
+            f"{partial_stdout}{final_stdout or ''}",
+            f"{partial_stderr}{final_stderr or ''}",
+        ), True
+
+
+def _node_runtime_packages_for(spec: SuiteSpec) -> tuple[str, ...]:
+    """Return copied runtime packages required by one isolated suite."""
+
+    normalized_target = Path(spec.target).as_posix().casefold()
+    if spec.kind == "node-test" or normalized_target == (
+        "tests/hermetic_test_harness_test.py"
+    ):
+        return ("typescript",)
+    return ()
+
+
 def _python_executable() -> str:
     candidates = (
         REPO_ROOT / ".venv" / "Scripts" / "python.exe",
@@ -106,7 +180,11 @@ def _exclusive_json(path: Path, payload: object) -> None:
 
 
 def _run_child(spec: SuiteSpec, child: ChildAuthority) -> dict[str, object]:
-    prepare_child(child, isolated_migrations=spec.isolated_migrations)
+    prepare_child(
+        child,
+        isolated_migrations=spec.isolated_migrations,
+        node_runtime_packages=_node_runtime_packages_for(spec),
+    )
     target = child.source_root / spec.target
     if not target.is_file():
         return {
@@ -128,15 +206,10 @@ def _run_child(spec: SuiteSpec, child: ChildAuthority) -> dict[str, object]:
         "--kind",
         spec.kind,
     ]
-    completed = subprocess.run(
+    completed, timed_out = _run_bootstrap(
         command,
         cwd=child.source_root,
-        env=environment,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        check=False,
-        timeout=600,
+        environment=environment,
     )
     reports = child.root / "reports"
     reports.mkdir(parents=True, exist_ok=True)
@@ -147,7 +220,17 @@ def _run_child(spec: SuiteSpec, child: ChildAuthority) -> dict[str, object]:
         completed.stderr or "", encoding="utf-8", newline="\n"
     )
     result_path = reports / "child-result.json"
-    if result_path.is_file():
+    if timed_out:
+        result = {
+            "run_id": child.run_id,
+            "suite_name": spec.name,
+            "exit_code": 124,
+            "test_result": "failed",
+            "failure_category": "timeout",
+            "failure_detail": f"{int(CHILD_TIMEOUT_SECONDS)}-seconds",
+            "pid": None,
+        }
+    elif result_path.is_file():
         result = json.loads(result_path.read_text(encoding="utf-8"))
     else:
         result = {

@@ -2,6 +2,10 @@
   "schemaVersion": 1,
   "behavioral": [
     {
+      "path": "tests/model_documentation_project_context_test.py",
+      "description": "Fail-closed Model Documentation project-context identity, enrichment isolation, and authorization"
+    },
+    {
       "path": "tests/security_containment_test.py",
       "description": "Registration, identity resolution, disclosure, diagnostics, startup configuration, and session containment"
     },
@@ -24,10 +28,6 @@
     {
       "path": "tests/sqlite_persistence_backend_test.py",
       "description": "Persistence behavior plus explicit loopback development identity integration"
-    },
-    {
-      "path": "tests/model_documentation_project_context_test.py",
-      "description": "Fail-closed Model Documentation project-context identity, enrichment isolation, and authorization"
     }
   ],
   "structural": [

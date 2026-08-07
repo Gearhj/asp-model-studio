@@ -18,6 +18,21 @@
       "kind": "node-test"
     },
     {
+      "name": "data-acquisition-predictor-reconciliation",
+      "target": "tests/predictorAuthorizationReconciliation.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "data-acquisition-ux-refinement",
+      "target": "tests/dataAcquisitionUxRefinement.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "analysis-partition-reset-ux",
+      "target": "tests/analysisPartitionResetUxContract.test.mjs",
+      "kind": "node-test"
+    },
+    {
       "name": "storage-isolation-static-guard",
       "target": "tests/test_storage_isolation_guard_test.py",
       "kind": "python-test"

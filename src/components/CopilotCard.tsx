@@ -40,6 +40,7 @@ import {
   useAuthoritativeProjectContext,
   usePredictiveIdentity,
 } from "./PredictiveIdentityProvider";
+import type { DataAcquisitionReproducibilityContext } from "../lib/dataAcquisitionReproducibility";
 
 const OUTLIER_CONFIG_KEY = "modeling-tool-outlier-methods";
 const CHALLENGE_MODE_KEY = "modeling-tool-challenge-mode";
@@ -70,6 +71,8 @@ type CopilotContext = {
   completedSteps: number;
   problemType: "classification" | "regression" | null;
   rowCount: number;
+  datasetId: string | null;
+  datasetVersionId: string | null;
   target: string | null;
   selectedColumnCount: number;
   hasStandardizedVariables: boolean;
@@ -180,9 +183,13 @@ function buildContext(
   completedSteps: number,
   trainingSummary: TrainingSummary | null,
   suppliedProjectContext: ProjectContext,
+  dataAcquisitionContext: DataAcquisitionReproducibilityContext | null,
+  canonicalAuthorityRequired: boolean,
 ): CopilotContext {
   const dataset = loadLocalDataset();
-  const datasetTarget = dataset?.target ?? null;
+  const datasetTarget = canonicalAuthorityRequired
+    ? dataAcquisitionContext?.target_contract?.target ?? null
+    : dataset?.target ?? null;
   const rows = dataset?.rows ?? [];
   const headers = dataset?.headers ?? [];
   const outlierConfig = readOutlierConfig();
@@ -208,7 +215,10 @@ function buildContext(
   // "classification" whenever the browser cache was empty (confirmed defect, Regression
   // Stage B audit).
   const resolvedTask = isOptimization ? null : deriveTaskContext(trainingSummary, dataset);
-  const target = isOptimization ? null : resolvedTask?.target ?? datasetTarget;
+  const target = isOptimization
+    ? null
+    : dataAcquisitionContext?.target_contract?.target ??
+      (canonicalAuthorityRequired ? null : resolvedTask?.target ?? datasetTarget);
 
   return {
     projectId: workflowState.projectId,
@@ -220,9 +230,16 @@ function buildContext(
     mode: loadModelingMode(),
     completedSteps,
     problemType: isOptimization ? null : resolvedTask?.problemType ?? null,
-    rowCount: rows.length,
+    rowCount:
+      dataAcquisitionContext?.identity?.governed_population_rows ?? rows.length,
+    datasetId: dataAcquisitionContext?.identity?.dataset_id ?? null,
+    datasetVersionId:
+      dataAcquisitionContext?.identity?.dataset_version_id ?? null,
     target,
-    selectedColumnCount: dataset?.selected_columns?.length ?? 0,
+    selectedColumnCount:
+      dataAcquisitionContext?.predictor_authorization
+        ?.authorized_predictors.length ??
+      (canonicalAuthorityRequired ? 0 : dataset?.selected_columns?.length ?? 0),
     hasStandardizedVariables: detectStandardizedVariables(rows, headers, target),
     hasPcaLikeNames: detectPcaLikeNames(headers, target),
     amountOutlierFeature: amountFeature ?? null,
@@ -1251,7 +1268,10 @@ export default function CopilotCard() {
   const scopedProjectId = scopedProjectIdForPathname(location.pathname);
   const steps = useWorkflowStore((state) => state.steps);
   const projectId = useWorkflowStore((state) => state.projectId);
-  const { readiness: identityReadiness } = usePredictiveIdentity();
+  const {
+    readiness: identityReadiness,
+    dataAcquisitionContextReadiness,
+  } = usePredictiveIdentity();
   const { readiness: projectReadiness } = useAuthoritativeProjectContext();
   const [trainingSummary, setTrainingSummary] = useState<TrainingSummary | null>(null);
   const [challengeMode, setChallengeMode] = useState(() => localStorage.getItem(CHALLENGE_MODE_KEY) === "true");
@@ -1339,6 +1359,10 @@ export default function CopilotCard() {
     completedSteps + workflowNodeVersion * 0,
     trainingSummary,
     guideProjectContext,
+    dataAcquisitionContextReadiness.projectId === scopedProjectId
+      ? dataAcquisitionContextReadiness.context
+      : null,
+    Boolean(scopedProjectId),
   );
   const challenges = challengeMode ? buildChallengeItems(context) : [];
   const isProjectContextGuide = normalizedPathname === "/step00";
@@ -1470,6 +1494,8 @@ export default function CopilotCard() {
           <MiniContext label="Model ID" value={context.projectContext.modelId || "Required"} />
           <MiniContext label="Project" value={context.projectContext.projectName || "Not defined"} />
           <MiniContext label="Page" value={context.routeLabel} />
+          <MiniContext label="Dataset" value={context.datasetId ?? "Not confirmed"} />
+          <MiniContext label="Dataset version" value={context.datasetVersionId ?? "Not confirmed"} />
           <MiniContext label="Mode" value={context.mode === "advanced" ? "Power User" : "Guided"} />
           <MiniContext label="Task" value={context.route === "/step00" ? context.projectContext.modelTypeSelection : context.problemType ?? context.projectContext.modelType ?? "Unknown"} />
           <MiniContext label="Target" value={context.route === "/step00" ? context.target ?? "Pending Data Acquisition" : context.target ?? "Not selected"} />

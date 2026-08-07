@@ -25,7 +25,11 @@ import {
 } from "../../../state/useEdaVisualSelection";
 import { recordEdaPerformance } from "../../../visual-intelligence/performance";
 import { useReducedMotion } from "../../../visual-intelligence/useReducedMotion";
-import { assertExactDatasetIdentity } from "../../../lib/datasetIdentity";
+import {
+  assertExactEdaResponseLineage,
+  buildCanonicalEdaRequestContract,
+  type CanonicalDataAcquisitionEdaHandoff,
+} from "../../../lib/dataAcquisitionEdaHandoff";
 
 const RelationshipWebGL = lazy(() => import("./RelationshipWebGL"));
 
@@ -68,7 +72,8 @@ export type RelationshipPairMetric = {
 
 export type RelationshipSampleResponse = {
   ok: boolean;
-  scope: "rendered_sample";
+  scope: "development_population";
+  render_scope?: "rendered_sample";
   source_population?: "development_population";
   final_holdout_accessed?: boolean;
   project_id: string;
@@ -128,6 +133,7 @@ type RelationshipExplorerProps = {
   initialPair: EdaPinnedPair | null;
   vifVariable: string | null;
   onClose?: () => void;
+  canonicalHandoff: CanonicalDataAcquisitionEdaHandoff;
 };
 
 const responseCache = new Map<string, Promise<RelationshipSampleResponse>>();
@@ -546,6 +552,7 @@ export default function RelationshipExplorer({
   initialPair,
   vifVariable,
   onClose,
+  canonicalHandoff,
 }: RelationshipExplorerProps) {
   const axes = useEdaVisualSelection((state) => state.relationshipAxes);
   const mode = useEdaVisualSelection((state) => state.relationshipMode);
@@ -592,13 +599,8 @@ export default function RelationshipExplorer({
   const requestSignature = useMemo(() => {
     if (!axes.x || !axes.y || axes.x === axes.y) return "";
     return JSON.stringify({
-      project_id: projectId,
-      expected_dataset_id: datasetId,
-      expected_dataset_version_id: datasetVersionId,
-      target,
-      event_value: eventValue,
+      ...buildCanonicalEdaRequestContract(canonicalHandoff),
       problem_type: problemType,
-      dataset_version: datasetVersionId,
       predictor_manifest_id: predictorManifestId,
       x_feature: axes.x,
       y_feature: axes.y,
@@ -615,6 +617,7 @@ export default function RelationshipExplorer({
     axes.x,
     axes.y,
     axes.z,
+    canonicalHandoff,
     datasetId,
     datasetVersion,
     datasetVersionId,
@@ -669,15 +672,7 @@ export default function RelationshipExplorer({
             )}${rejected ? ` ${rejected}` : ""}`,
           );
         }
-        assertExactDatasetIdentity(
-          {
-            project_id: projectId,
-            dataset_id: datasetId,
-            dataset_version_id: datasetVersionId,
-          },
-          payload,
-          "EDA relationship sample response",
-        );
+        assertExactEdaResponseLineage(canonicalHandoff, payload);
         return payload as RelationshipSampleResponse;
       });
       request.catch(() => responseCache.delete(requestSignature));
@@ -703,7 +698,7 @@ export default function RelationshipExplorer({
     return () => {
       active = false;
     };
-  }, [requestSignature]);
+  }, [canonicalHandoff, requestSignature]);
 
   const activateMode = useCallback(
     (nextMode: EdaRelationshipMode) => {

@@ -1,6 +1,51 @@
 {
   "items": [
     {
+      "evidenceId": "ev-credit-bureau-detection-and-special-value--ac08bb3ac499c4a8",
+      "lineage_contract": "canonical_dataset_version",
+      "project_id": "atlas-mrzpau4t",
+      "dataset_id": "ds_heloc_train_6bdb184b_05905",
+      "dataset_version_id": "v_1785186305905_6bdb184b",
+      "projectId": "atlas-mrzpau4t",
+      "projectName": "HELOC Credit Risk - CLASSIFICATION TEST",
+      "evidenceType": "dataset",
+      "title": "Credit Bureau Detection and Special-Value Review",
+      "summary": "6 bureau variables and 3,364 special-value-bearing rows were reviewed using governed full-population evidence.",
+      "sourcePage": "Data Acquisition",
+      "sourceRoute": "/step01?section=credit-bureau-review",
+      "artifactType": "",
+      "artifactId": "",
+      "datasetIds": [
+        "ds_heloc_train_6bdb184b_05905"
+      ],
+      "modelIds": [],
+      "documentIds": [],
+      "notebookIds": [],
+      "supportsSections": [
+        "Data Sources",
+        "Data Quality",
+        "Feature Engineering"
+      ],
+      "tags": [
+        "predictive_modeling",
+        "bureau_review",
+        "special_values"
+      ],
+      "financialDomain": "",
+      "financialTechnique": "",
+      "regulatoryRelevance": {},
+      "creditRiskContext": {},
+      "status": "ready",
+      "importance": "high",
+      "qualityScore": 86,
+      "createdAt": "2026-07-31T21:47:11.097830+00:00",
+      "capturedAt": "2026-07-31T21:47:11.097830+00:00",
+      "updatedAt": "2026-08-04T21:06:04.711496+00:00",
+      "createdBy": "ATLAS",
+      "workflowStep": "",
+      "sourceRunReference": ""
+    },
+    {
       "evidenceId": "ev-governed-feature-manifest-7a80399a072f0da4",
       "lineage_contract": "canonical_dataset_version",
       "project_id": "atlas-mrzpau4t",
@@ -580,51 +625,6 @@
       "createdAt": "2026-07-31T22:05:06.822964+00:00",
       "capturedAt": "2026-07-31T22:05:06.822964+00:00",
       "updatedAt": "2026-07-31T22:05:06.822964+00:00",
-      "createdBy": "ATLAS",
-      "workflowStep": "",
-      "sourceRunReference": ""
-    },
-    {
-      "evidenceId": "ev-credit-bureau-detection-and-special-value--ac08bb3ac499c4a8",
-      "lineage_contract": "canonical_dataset_version",
-      "project_id": "atlas-mrzpau4t",
-      "dataset_id": "ds_heloc_train_6bdb184b_05905",
-      "dataset_version_id": "v_1785186305905_6bdb184b",
-      "projectId": "atlas-mrzpau4t",
-      "projectName": "Credit Card Transaction Fraud Model - TEST",
-      "evidenceType": "dataset",
-      "title": "Credit Bureau Detection and Special-Value Review",
-      "summary": "3 bureau variables and 3,037 special-value-bearing rows were reviewed using governed full-population evidence.",
-      "sourcePage": "Data Acquisition",
-      "sourceRoute": "/step01?section=credit-bureau-review",
-      "artifactType": "",
-      "artifactId": "",
-      "datasetIds": [
-        "ds_heloc_train_6bdb184b_05905"
-      ],
-      "modelIds": [],
-      "documentIds": [],
-      "notebookIds": [],
-      "supportsSections": [
-        "Data Sources",
-        "Data Quality",
-        "Feature Engineering"
-      ],
-      "tags": [
-        "predictive_modeling",
-        "bureau_review",
-        "special_values"
-      ],
-      "financialDomain": "",
-      "financialTechnique": "",
-      "regulatoryRelevance": {},
-      "creditRiskContext": {},
-      "status": "ready",
-      "importance": "high",
-      "qualityScore": 86,
-      "createdAt": "2026-07-31T21:47:11.097830+00:00",
-      "capturedAt": "2026-07-31T21:47:11.097830+00:00",
-      "updatedAt": "2026-07-31T21:47:11.097830+00:00",
       "createdBy": "ATLAS",
       "workflowStep": "",
       "sourceRunReference": ""

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from typing import Any, Iterable, Mapping
 
 from .bureau_detection_types import SpecialValueVariableDecisionInput
@@ -49,6 +50,10 @@ def _canonical_scalar(value: Any) -> str:
 
 
 def _detection_contract(detection: Mapping[str, Any]) -> dict[str, Any]:
+    target_evidence = detection.get("target_evidence")
+    target_evidence = (
+        target_evidence if isinstance(target_evidence, Mapping) else {}
+    )
     variables: list[dict[str, Any]] = []
     for raw in detection.get("variables", []) or []:
         if not isinstance(raw, Mapping):
@@ -67,6 +72,7 @@ def _detection_contract(detection: Mapping[str, Any]) -> dict[str, Any]:
         variables.append(
             {
                 "variable": _text(raw.get("variable")),
+                "datatype": _text(raw.get("datatype")),
                 "likely_bureau": bool(raw.get("likely_bureau")),
                 "special_value_count": int(raw.get("special_value_count") or 0),
                 "special_values": special_values,
@@ -80,6 +86,45 @@ def _detection_contract(detection: Mapping[str, Any]) -> dict[str, Any]:
             detection.get("predictor_authorization_id")
         ),
         "target_contract_id": _text(detection.get("target_contract_id")),
+        "analysis_partition_id": _text(
+            detection.get("analysis_partition_id")
+        ),
+        "analysis_partition_revision": int(
+            detection.get("analysis_partition_revision") or 0
+        ),
+        "development_partition_id": _text(
+            detection.get("development_partition_id")
+        ),
+        "analysis_partition_assignment_hash": _text(
+            detection.get("analysis_partition_assignment_hash")
+        ),
+        "analysis_partition_artifact_hash": _text(
+            detection.get("analysis_partition_artifact_hash")
+        ),
+        "development_target_checksum": _text(
+            detection.get("development_target_checksum")
+        ),
+        "source_checksum": _text(detection.get("source_checksum")),
+        "structural_scope": _text(detection.get("structural_scope")),
+        "target_analysis_scope": _text(
+            detection.get("target_analysis_scope")
+        ),
+        "target_evidence_available": bool(
+            target_evidence.get("available")
+        ),
+        "target_evidence_status": _text(
+            target_evidence.get("status")
+            or detection.get("target_evidence_status")
+        ),
+        "target_evidence_unavailable_reason": _text(
+            detection.get("target_evidence_unavailable_reason")
+        ),
+        "full_governed_population_rows": int(
+            detection.get("full_governed_population_rows")
+            or detection.get("row_count")
+            or 0
+        ),
+        "development_rows": int(detection.get("development_rows") or 0),
         "target": _text(detection.get("target")),
         "manual_declaration": _text(detection.get("manual_declaration")),
         "detected": bool(detection.get("detected")),
@@ -117,6 +162,117 @@ def detected_variables(detection: Mapping[str, Any]) -> dict[str, set[str]]:
     return output
 
 
+def _detected_variable_rows(
+    detection: Mapping[str, Any],
+) -> dict[str, Mapping[str, Any]]:
+    return {
+        _text(raw.get("variable")): raw
+        for raw in detection.get("variables", []) or []
+        if isinstance(raw, Mapping) and _text(raw.get("variable"))
+    }
+
+
+def _validated_replacement(
+    value: Any,
+    *,
+    variable: str,
+    detected_values: set[str],
+    variable_row: Mapping[str, Any],
+) -> Any:
+    if value is None or isinstance(value, (dict, list, tuple, set)):
+        raise SpecialValueReviewValidationError(
+            "governed_replacement_value_required",
+            f"{variable} requires one valid governed replacement value.",
+            open_items=[variable],
+        )
+    if isinstance(value, str) and not value.strip():
+        raise SpecialValueReviewValidationError(
+            "governed_replacement_value_required",
+            f"{variable} requires one valid governed replacement value.",
+            open_items=[variable],
+        )
+    if isinstance(value, float) and not math.isfinite(value):
+        raise SpecialValueReviewValidationError(
+            "governed_replacement_value_invalid",
+            f"{variable} has a non-finite governed replacement value.",
+            open_items=[variable],
+        )
+
+    datatype = _text(variable_row.get("datatype")).casefold()
+    numeric_datatype = any(
+        token in datatype
+        for token in ("int", "float", "double", "decimal", "number")
+    )
+    native_value = value
+    if numeric_datatype:
+        if isinstance(native_value, bool):
+            native_value = None
+        elif isinstance(native_value, str):
+            try:
+                native_value = float(native_value.strip())
+            except ValueError:
+                native_value = None
+        if not isinstance(native_value, (int, float)) or not math.isfinite(
+            float(native_value)
+        ):
+            raise SpecialValueReviewValidationError(
+                "governed_replacement_value_invalid",
+                f"{variable} requires a finite numeric governed replacement value.",
+                open_items=[variable],
+            )
+        if "int" in datatype:
+            if not float(native_value).is_integer():
+                raise SpecialValueReviewValidationError(
+                    "governed_replacement_value_invalid",
+                    f"{variable} requires an integer governed replacement value.",
+                    open_items=[variable],
+                )
+            native_value = int(native_value)
+    item = getattr(native_value, "item", None)
+    if callable(item):
+        try:
+            native_value = item()
+        except (TypeError, ValueError):
+            pass
+    if _canonical_scalar(native_value) in detected_values:
+        raise SpecialValueReviewValidationError(
+            "governed_replacement_value_invalid",
+            (
+                f"{variable} cannot use another detected special code as its "
+                "governed replacement value."
+            ),
+            open_items=[variable],
+        )
+    return native_value
+
+
+def _normalized_replacement(
+    *,
+    policy: str,
+    supplied: Any,
+    variable: str,
+    detected_values: set[str],
+    variable_row: Mapping[str, Any],
+) -> tuple[bool, Any]:
+    if policy == "documented_domain_mapping":
+        return True, _validated_replacement(
+            supplied,
+            variable=variable,
+            detected_values=detected_values,
+            variable_row=variable_row,
+        )
+    if supplied is not None:
+        raise SpecialValueReviewValidationError(
+            "governed_replacement_value_not_applicable",
+            (
+                f"{variable} supplies a governed replacement value for a "
+                "non-imputation policy."
+            ),
+            open_items=[variable],
+        )
+    return False, None
+
+
 def initial_review_state(detection: Mapping[str, Any]) -> dict[str, Any]:
     count = len(detected_variables(detection))
     return {
@@ -136,6 +292,7 @@ def evaluate_review(
     intent: str,
 ) -> dict[str, Any]:
     detected = detected_variables(detection)
+    variable_rows = _detected_variable_rows(detection)
     normalized: list[dict[str, Any]] = []
     seen_variables: set[str] = set()
     for decision in decisions:
@@ -157,6 +314,13 @@ def evaluate_review(
                 f"{variable} requires a rationale for the selected policy.",
                 open_items=[variable],
             )
+        has_replacement, replacement_value = _normalized_replacement(
+            policy=decision.policy,
+            supplied=decision.replacement_value,
+            variable=variable,
+            detected_values=detected[variable],
+            variable_row=variable_rows.get(variable, {}),
+        )
         seen_values: set[str] = set()
         overrides: list[dict[str, Any]] = []
         for override in decision.overrides:
@@ -178,15 +342,35 @@ def evaluate_review(
                     f"The {variable} value override requires a rationale.",
                     open_items=[variable],
                 )
-            overrides.append(override.model_dump(mode="json"))
-        normalized.append(
-            {
-                "variable": variable,
-                "policy": decision.policy,
-                "rationale": decision.rationale,
-                "overrides": overrides,
-            }
-        )
+            has_override_replacement, override_replacement = (
+                _normalized_replacement(
+                    policy=override.policy,
+                    supplied=override.replacement_value,
+                    variable=variable,
+                    detected_values=detected[variable],
+                    variable_row=variable_rows.get(variable, {}),
+                )
+            )
+            normalized_override = override.model_dump(
+                mode="json",
+                exclude={"replacement_value"},
+            )
+            if has_override_replacement:
+                normalized_override["replacement_value"] = (
+                    override_replacement
+                )
+            overrides.append(normalized_override)
+        normalized_decision = {
+            "variable": variable,
+            "policy": decision.policy,
+            "rationale": decision.rationale,
+            "overrides": overrides,
+        }
+        if has_replacement:
+            normalized_decision["replacement_value"] = (
+                replacement_value
+            )
+        normalized.append(normalized_decision)
 
     detected_count = len(detected)
     reviewed_count = len(seen_variables)
@@ -225,6 +409,13 @@ def public_review_contract(row: Mapping[str, Any]) -> dict[str, Any]:
     detection = row.get("detection_json")
     decisions = row.get("decisions_json")
     detected = detected_variables(detection if isinstance(detection, Mapping) else {})
+    detection_contract = (
+        detection if isinstance(detection, Mapping) else {}
+    )
+    target_evidence = detection_contract.get("target_evidence")
+    target_evidence = (
+        target_evidence if isinstance(target_evidence, Mapping) else {}
+    )
     reviewed = {
         _text(decision.get("variable"))
         for decision in decisions or []
@@ -241,6 +432,53 @@ def public_review_contract(row: Mapping[str, Any]) -> dict[str, Any]:
             row.get("predictor_authorization_id")
         ),
         "target_contract_id": _text(row.get("target_contract_id")),
+        "analysis_partition_id": _text(
+            detection_contract.get("analysis_partition_id")
+        ) or None,
+        "analysis_partition_revision": (
+            int(detection_contract.get("analysis_partition_revision") or 0)
+            or None
+        ),
+        "development_partition_id": _text(
+            detection_contract.get("development_partition_id")
+        ) or None,
+        "analysis_partition_assignment_hash": _text(
+            detection_contract.get("analysis_partition_assignment_hash")
+        ) or None,
+        "analysis_partition_artifact_hash": _text(
+            detection_contract.get("analysis_partition_artifact_hash")
+        ) or None,
+        "development_target_checksum": _text(
+            detection_contract.get("development_target_checksum")
+        ) or None,
+        "source_checksum": _text(
+            detection_contract.get("source_checksum")
+        ) or None,
+        "structural_scope": _text(
+            detection_contract.get("structural_scope")
+        ),
+        "target_analysis_scope": _text(
+            detection_contract.get("target_analysis_scope")
+        ),
+        "target_evidence_available": bool(
+            target_evidence.get("available")
+        ),
+        "target_evidence_status": _text(
+            target_evidence.get("status")
+            or detection_contract.get("target_evidence_status")
+        )
+        or "unavailable",
+        "target_evidence_unavailable_reason": _text(
+            detection_contract.get("target_evidence_unavailable_reason")
+        ),
+        "full_governed_population_rows": int(
+            detection_contract.get("full_governed_population_rows")
+            or detection_contract.get("row_count")
+            or 0
+        ),
+        "development_rows": int(
+            detection_contract.get("development_rows") or 0
+        ),
         "detection_fingerprint": _text(row.get("detection_fingerprint")),
         "status": status,
         "detected_count": int(row.get("detected_count") or 0),

@@ -29,6 +29,7 @@ async function transpile(sourcePath, outputName) {
 await rm(TMP_DIR, { recursive: true, force: true });
 const lib = await transpile("src/lib/targetIntelligence.ts", "targetIntelligence.js");
 const api = await transpile("src/lib/targetIntelligenceApi.ts", "targetIntelligenceApi.js");
+const apiSource = await readFile(new URL("src/lib/targetIntelligenceApi.ts", ROOT), "utf8");
 
 const workspace = await readFile(new URL("src/components/eda/TargetIntelligenceWorkspace.tsx", ROOT), "utf8");
 const targetVisuals = await readFile(new URL("src/components/eda/TargetVisualInsights.tsx", ROOT), "utf8");
@@ -386,7 +387,22 @@ test("27 -- a new predictor selection issues a new query and rejects the stale o
       );
     });
 
-  const base = { projectId: "p", datasetId: "d", versionId: "v", target: "Class", analysisType: "numeric_quantile" };
+  const canonicalRequest = {
+    project_id: "p",
+    dataset_id: "d",
+    dataset_version_id: "v",
+    activation_revision: 1,
+    target_contract_id: "target-1",
+    target: "Class",
+    positive_value: 1,
+    negative_value: 0,
+    predictor_authorization_id: "authorization-1",
+    analysis_partition_id: "partition-1",
+    analysis_partition_revision: 1,
+    special_value_review_id: "review-1",
+    special_value_review_revision: 1,
+  };
+  const base = { projectId: "p", datasetId: "d", versionId: "v", target: "Class", eventValue: 1, analysisType: "numeric_quantile", canonicalRequest, validateResponse: () => undefined };
   const first = api.fetchTargetByPredictor({ ...base, predictor: "V4" });
   const second = api.fetchTargetByPredictor({ ...base, predictor: "Amount" });
   assert.equal(resolvers.length, 2, "Two distinct predictors must issue two distinct queries.");
@@ -400,6 +416,106 @@ test("27 -- a new predictor selection issues a new query and rejects the stale o
   assert.equal((await second).predictor, "Amount");
   assert.ok(predictorPanel.includes("target-by-predictor-table"), "The bounded result table must be rendered.");
   assert.ok(predictorPanel.includes("target-predictor-analytical-summary"), "The analytical summary must be rendered.");
+});
+
+test("27a -- target-by-predictor cache identity includes every governed DA revision", () => {
+  const canonicalRequest = {
+    project_id: "p",
+    dataset_id: "d",
+    dataset_version_id: "v",
+    activation_revision: 1,
+    target_contract_id: "target-1",
+    target: "Class",
+    positive_value: 1,
+    negative_value: 0,
+    predictor_authorization_id: "authorization-1",
+    analysis_partition_id: "partition-1",
+    analysis_partition_revision: 1,
+    special_value_review_id: "review-1",
+    special_value_review_revision: 1,
+  };
+  const request = {
+    projectId: "p",
+    datasetId: "d",
+    versionId: "v",
+    target: "Class",
+    eventValue: 1,
+    predictor: "V4",
+    analysisType: "numeric_quantile",
+    canonicalRequest,
+    validateResponse: () => undefined,
+  };
+  const original = api.buildTargetByPredictorKey(request);
+  const newPartition = api.buildTargetByPredictorKey({
+    ...request,
+    canonicalRequest: { ...canonicalRequest, analysis_partition_revision: 2 },
+  });
+  const newSpecialReview = api.buildTargetByPredictorKey({
+    ...request,
+    canonicalRequest: { ...canonicalRequest, special_value_review_revision: 2 },
+  });
+  assert.notEqual(original, newPartition);
+  assert.notEqual(original, newSpecialReview);
+  assert.match(apiSource, /canonicalLineage: request\.canonicalRequest/);
+  assert.match(workspace, /assertExactEdaResponseLineage\(canonicalHandoff, payload\)/);
+});
+
+test("27aa -- a lineage-rejected response never enters the shared result cache", async () => {
+  api.clearTargetIntelligenceCache();
+  let calls = 0;
+  globalThis.fetch = async (_url, init) => {
+    calls += 1;
+    const body = JSON.parse(init.body);
+    return {
+      ok: true,
+      json: async () => ({
+        ok: true,
+        supported: true,
+        predictor: body.predictor,
+        target: body.target,
+        rows: [],
+      }),
+    };
+  };
+  const canonicalRequest = {
+    project_id: "p",
+    dataset_id: "d",
+    dataset_version_id: "v",
+    activation_revision: 1,
+    target_contract_id: "target-1",
+    target: "Class",
+    positive_value: 1,
+    negative_value: 0,
+    predictor_authorization_id: "authorization-1",
+    analysis_partition_id: "partition-1",
+    analysis_partition_revision: 1,
+    special_value_review_id: "review-1",
+    special_value_review_revision: 1,
+  };
+  const request = {
+    projectId: "p",
+    datasetId: "d",
+    versionId: "v",
+    target: "Class",
+    eventValue: 1,
+    predictor: "V4",
+    analysisType: "numeric_quantile",
+    canonicalRequest,
+  };
+  await assert.rejects(
+    api.fetchTargetByPredictor({
+      ...request,
+      validateResponse: () => {
+        throw new Error("stale partition lineage");
+      },
+    }),
+    /stale partition lineage/,
+  );
+  await api.fetchTargetByPredictor({
+    ...request,
+    validateResponse: () => undefined,
+  });
+  assert.equal(calls, 2, "A response rejected by lineage validation must be fetched again.");
 });
 
 test("27b -- duplicate renders never issue duplicate active requests", async () => {

@@ -190,8 +190,27 @@ test("reset mode remains the only way to replace already sealed membership", () 
   );
   assert.match(
     acquisition,
-    /analysisPartitionResetImpact\.partition\s*\?\.predictor_authorization_id[\s\S]*analysisPartition\.partition\?\.predictor_authorization_id/,
-    "the governed split-change gate must use the backend partition predictor authorization",
+    /currentDurablePredictorAuthorizationId\(\s*analysisPartitionResetImpact\.partition,?\s*\)/,
+    "the governed split-change gate must use only the backend's current durable predictor authorization",
+  );
+  const resetConfirmation = functionBodyContaining(
+    acquisition,
+    "Rechecking the exact split-change impact",
+  );
+  assert.doesNotMatch(
+    resetConfirmation,
+    /persistDataset\(/,
+    "a split change must not persist an unrelated browser predictor-selection draft",
+  );
+  assert.match(
+    resetConfirmation,
+    /latestPredictorAuthorizationId\s*=\s*currentDurablePredictorAuthorizationId\(latest\)/,
+    "reset confirmation must bind the latest exact durable predictor authorization",
+  );
+  assert.doesNotMatch(
+    resetConfirmation,
+    /latest\.predictor_authorization_id\s*\?\?/,
+    "reset confirmation must not fall back to the partition's stale creation authorization",
   );
 });
 

@@ -490,6 +490,54 @@ class GovernedScopeEndpointTests(unittest.TestCase):
         )
         self.assertEqual(partition.status_code, 200, partition.text)
         self.analysis_partition = partition.json()["analysis_partition"]
+        # EDA now requires the exact durable Data Acquisition Special-Value
+        # Review in addition to target authorization and the sealed Analysis
+        # Partition. This clean synthetic frame yields a backend-owned
+        # not-required review; no fixture bypass or fabricated row is used.
+        detection = self.client.post(
+            "/api/data/bureau-detection",
+            json={
+                "project_id": self.project_id,
+                "expected_dataset_id": self.dataset_id,
+                "expected_dataset_version_id": self.version_id,
+                "target": "Class",
+                "event_value": 1,
+                "manual_declaration": "auto",
+            },
+        )
+        self.assertEqual(detection.status_code, 200, detection.text)
+        self.special_value_review = detection.json()["special_value_review"]
+        self.assertFalse(self.special_value_review["blocks_continuation"])
+        self.canonical_eda_lineage = {
+            "project_id": self.project_id,
+            "dataset_id": self.dataset_id,
+            "dataset_version_id": self.version_id,
+            "activation_revision": int(detection.json()["activation_revision"]),
+            "target_contract_id": target_contract["target_contract_id"],
+            "target": "Class",
+            "positive_value": 1,
+            "negative_value": 0,
+            "event_value": 1,
+            "non_event_value": 0,
+            "predictor_authorization_id": target_contract[
+                "predictor_authorization_id"
+            ],
+            "analysis_partition_id": self.analysis_partition[
+                "analysis_partition_id"
+            ],
+            "analysis_partition_revision": int(
+                self.analysis_partition["revision"]
+            ),
+            "special_value_review_id": self.special_value_review[
+                "special_value_review_id"
+            ],
+            "special_value_review_revision": int(
+                self.special_value_review["revision"]
+            ),
+            "expected_dataset_id": self.dataset_id,
+            "expected_dataset_version_id": self.version_id,
+            "dataset_version": self.version_id,
+        }
 
     def _governed_assessment(self):
         return self.client.post("/api/analytics/target-assessment", json={
@@ -518,10 +566,10 @@ class GovernedScopeEndpointTests(unittest.TestCase):
         response = self.client.post("/api/eda/workspace/target", json={
             "project_id": draft_project, "target": "Class", "event_value": 1, "problem_type": "classification",
         })
-        self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(response.status_code, 409, response.text)
         detail = response.json()["detail"]
-        self.assertEqual(detail["code"], "dataset_identity_required")
-        self.assertIn("exact active dataset", detail["message"])
+        self.assertEqual(detail["code"], "dataset_identity_mismatch")
+        self.assertIn("exact active Dataset Library version", detail["message"])
         self.assertTrue(detail["recovery"])
         self.assertTrue(detail["correlation_id"].startswith("eda-"))
 
@@ -532,8 +580,11 @@ class GovernedScopeEndpointTests(unittest.TestCase):
             "project_id": draft_project, "target": "Class", "event_value": 1,
             "predictor": "V4", "analysis_type": "numeric_quantile", "bands": 5,
         })
-        self.assertEqual(response.status_code, 422, response.text)
-        self.assertIn("exact expected dataset_id", response.json()["detail"])
+        self.assertEqual(response.status_code, 409, response.text)
+        self.assertIn(
+            "No exact registered Dataset Library version is active",
+            response.json()["detail"],
+        )
 
     # 5 / 16 / 17 ------------------------------------------------------------
     def test_governed_evidence_save_succeeds_with_immutable_provenance(self):
@@ -783,10 +834,10 @@ class GovernedScopeEndpointTests(unittest.TestCase):
         draft = self.client.post("/api/eda/workspace/target", json={
             "project_id": draft_project, "target": "Class", "event_value": 1, "problem_type": "classification",
         })
-        self.assertEqual(draft.status_code, 422, draft.text)
+        self.assertEqual(draft.status_code, 409, draft.text)
         detail = draft.json()["detail"]
-        self.assertEqual(detail["code"], "dataset_identity_required")
-        self.assertIn("exact active dataset", detail["message"])
+        self.assertEqual(detail["code"], "dataset_identity_mismatch")
+        self.assertIn("exact active Dataset Library version", detail["message"])
         self.assertTrue(detail["recovery"])
         self.assertTrue(detail["correlation_id"].startswith("eda-"))
 
@@ -824,7 +875,7 @@ class GovernedScopeEndpointTests(unittest.TestCase):
         self.assertEqual(governed.status_code, 409, governed.text)
         self.assertEqual(
             governed.json()["detail"]["code"],
-            "eda_analytical_scope_not_current",
+            "analysis_partition_required",
         )
 
         draft_project = _create_project(self.client, "Draft Cache Scope Project")
@@ -833,8 +884,11 @@ class GovernedScopeEndpointTests(unittest.TestCase):
             "project_id": draft_project, "target": "Class", "event_value": 1,
             "predictor": "V4", "analysis_type": "numeric_quantile", "bands": 5,
         })
-        self.assertEqual(draft.status_code, 422, draft.text)
-        self.assertIn("exact expected dataset_id", draft.json()["detail"])
+        self.assertEqual(draft.status_code, 409, draft.text)
+        self.assertIn(
+            "No exact registered Dataset Library version is active",
+            draft.json()["detail"],
+        )
 
     # 18 ---------------------------------------------------------------------
     def test_no_filesystem_path_or_population_rows_reach_the_browser(self):
@@ -842,6 +896,7 @@ class GovernedScopeEndpointTests(unittest.TestCase):
         governed_predictor = self.client.post("/api/analytics/target-by-predictor", json={
             "projectId": self.project_id, "datasetId": self.dataset_id, "versionId": self.version_id,
             "target": "Class", "predictor": "V4", "analysisType": "numeric_quantile", "eventValue": 1,
+            "canonicalLineage": self.canonical_eda_lineage,
         })
         draft_project = _create_project(self.client, "Draft Bounded Response Project")
         _load_workspace(self.client, draft_project, self.frame)
@@ -849,7 +904,7 @@ class GovernedScopeEndpointTests(unittest.TestCase):
             "project_id": draft_project, "target": "Class", "event_value": 1, "problem_type": "classification",
         })
         self.assertEqual(governed_assessment.status_code, 200, governed_assessment.text)
-        self.assertEqual(draft_target.status_code, 422, draft_target.text)
+        self.assertEqual(draft_target.status_code, 409, draft_target.text)
         self.assertEqual(governed_predictor.status_code, 200, governed_predictor.text)
         payloads = [
             governed_assessment.text,
@@ -882,10 +937,10 @@ class GovernedScopeEndpointTests(unittest.TestCase):
         response = self.client.post("/api/eda/workspace/target", json={
             "project_id": regression_project, "target": "y", "problem_type": "regression",
         })
-        self.assertEqual(response.status_code, 422, response.text)
+        self.assertEqual(response.status_code, 409, response.text)
         detail = response.json()["detail"]
-        self.assertEqual(detail["code"], "dataset_identity_required")
-        self.assertIn("exact active dataset", detail["message"])
+        self.assertEqual(detail["code"], "dataset_identity_mismatch")
+        self.assertIn("exact active Dataset Library version", detail["message"])
         self.assertTrue(detail["recovery"])
         self.assertTrue(detail["correlation_id"].startswith("eda-"))
 

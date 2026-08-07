@@ -48,6 +48,11 @@ import {
   getProjectWorkflowStateFromDatabase,
   PersistenceHttpError,
 } from "../lib/serverPersistence";
+import {
+  REPRODUCIBILITY_CONTEXT_CONFIRMED_EVENT,
+  fetchDataAcquisitionReproducibilityContext,
+  type DataAcquisitionReproducibilityContext,
+} from "../lib/dataAcquisitionReproducibility";
 
 const API_BASE =
   (import.meta.env?.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
@@ -55,7 +60,17 @@ const API_BASE =
 
 type PredictiveIdentityContextValue = {
   readiness: PredictiveIdentityReadiness;
+  dataAcquisitionContextReadiness: DataAcquisitionContextReadiness;
   retry: () => void;
+};
+
+export type DataAcquisitionContextReadiness = {
+  status: "idle" | "loading" | "ready" | "error";
+  projectId: string;
+  routeKey?: string;
+  refreshRevision?: number;
+  context: DataAcquisitionReproducibilityContext | null;
+  message: string;
 };
 
 type AuthoritativeProjectContextValue = {
@@ -78,6 +93,12 @@ const IDLE: PredictiveIdentityReadiness = {
 
 const PredictiveIdentityContext = createContext<PredictiveIdentityContextValue>({
   readiness: IDLE,
+  dataAcquisitionContextReadiness: {
+    status: "idle",
+    projectId: "",
+    context: null,
+    message: "Open a project-scoped route to resolve the Data Acquisition contract.",
+  },
   retry: () => undefined,
 });
 
@@ -351,6 +372,13 @@ export function PredictiveIdentityProvider({
   );
   const [revision, setRevision] = useState(0);
   const [readiness, setReadiness] = useState<PredictiveIdentityReadiness>(IDLE);
+  const [dataAcquisitionContextReadiness, setDataAcquisitionContextReadiness] =
+    useState<DataAcquisitionContextReadiness>({
+      status: "idle",
+      projectId: "",
+      context: null,
+      message: "Open a project-scoped route to resolve the Data Acquisition contract.",
+    });
   const [projectReadiness, setProjectReadiness] =
     useState<AuthoritativeProjectContextReadiness>(IDLE_AUTHORITATIVE_PROJECT_CONTEXT);
   const [metadataRefreshStatus, setMetadataRefreshStatus] =
@@ -419,9 +447,14 @@ export function PredictiveIdentityProvider({
 
   useEffect(() => {
     const refresh = () => retry();
+    // A pending Data Acquisition draft is local editing state. Rehydrating the
+    // project here would unmount the page, clear the exact browser dataset, and
+    // replace the user's draft target with the older durable target.
     window.addEventListener("atlas-dataset-identity-updated", refresh);
+    window.addEventListener(REPRODUCIBILITY_CONTEXT_CONFIRMED_EVENT, refresh);
     return () => {
       window.removeEventListener("atlas-dataset-identity-updated", refresh);
+      window.removeEventListener(REPRODUCIBILITY_CONTEXT_CONFIRMED_EVENT, refresh);
     };
   }, [retry]);
 
@@ -432,12 +465,28 @@ export function PredictiveIdentityProvider({
     if (!routeProjectId) {
       setProjectReadiness(IDLE_AUTHORITATIVE_PROJECT_CONTEXT);
       setReadiness(IDLE);
+      setDataAcquisitionContextReadiness({
+        status: "idle",
+        projectId: "",
+        routeKey: "",
+        refreshRevision: revision,
+        context: null,
+        message: "Open a project-scoped route to resolve the Data Acquisition contract.",
+      });
       return () => controller.abort();
     }
 
     const resolving = resolvingAuthoritativeProjectContext(routeProjectId);
     setProjectReadiness(resolving);
     setReadiness(identityReadinessFromProjectContext(resolving));
+    setDataAcquisitionContextReadiness({
+      status: "loading",
+      projectId: routeProjectId,
+      routeKey: location.pathname,
+      refreshRevision: revision,
+      context: null,
+      message: "Resolving the backend-authoritative Data Acquisition contract...",
+    });
 
     void (async () => {
       let projectPayload: Record<string, any>;
@@ -448,6 +497,14 @@ export function PredictiveIdentityProvider({
         const failed = projectFailure(routeProjectId, error, "project");
         setProjectReadiness(failed);
         setReadiness(identityReadinessFromProjectContext(failed));
+        setDataAcquisitionContextReadiness({
+          status: "error",
+          projectId: routeProjectId,
+          routeKey: location.pathname,
+          refreshRevision: revision,
+          context: null,
+          message: failed.message,
+        });
         return;
       }
       if (controller.signal.aborted || generation !== requestGeneration.current) return;
@@ -468,12 +525,28 @@ export function PredictiveIdentityProvider({
         const failed = projectFailure(routeProjectId, workflowResult.error, "workflow");
         setProjectReadiness(failed);
         setReadiness(identityReadinessFromProjectContext(failed));
+        setDataAcquisitionContextReadiness({
+          status: "error",
+          projectId: routeProjectId,
+          routeKey: location.pathname,
+          refreshRevision: revision,
+          context: null,
+          message: failed.message,
+        });
         return;
       }
       if (!identityResult.ok) {
         const failed = projectFailure(routeProjectId, identityResult.error, "identity");
         setProjectReadiness(failed);
         setReadiness(identityReadinessFromProjectContext(failed));
+        setDataAcquisitionContextReadiness({
+          status: "error",
+          projectId: routeProjectId,
+          routeKey: location.pathname,
+          refreshRevision: revision,
+          context: null,
+          message: failed.message,
+        });
         return;
       }
       const workflowState = workflowResult.value;
@@ -504,6 +577,14 @@ export function PredictiveIdentityProvider({
           if (controller.signal.aborted || generation !== requestGeneration.current) return;
           setProjectReadiness(failed);
           setReadiness(identityReadinessFromProjectContext(failed));
+          setDataAcquisitionContextReadiness({
+            status: "error",
+            projectId: routeProjectId,
+            routeKey: location.pathname,
+            refreshRevision: revision,
+            context: null,
+            message: failed.message,
+          });
           return;
         }
         // Revalidate the exact sample scope on every project workflow route
@@ -526,6 +607,61 @@ export function PredictiveIdentityProvider({
             message: "ATLAS could not authorize restoration of the governed dataset sample.",
           });
         }
+      }
+
+      if (next.status === "ready") {
+        try {
+          const context = await fetchDataAcquisitionReproducibilityContext(
+            routeProjectId,
+            controller.signal,
+          );
+          if (controller.signal.aborted || generation !== requestGeneration.current) return;
+          const activeIdentity = next.activeDatasetIdentity;
+          if (
+            context.project_id !== routeProjectId ||
+            (context.identity && activeIdentity && (
+              context.identity.dataset_id !== activeIdentity.dataset_id ||
+              context.identity.dataset_version_id !== activeIdentity.dataset_version_id ||
+              (activeIdentity.activation_revision != null &&
+                context.identity.activation_revision !== activeIdentity.activation_revision)
+            ))
+          ) {
+            throw new Error(
+              "The Data Acquisition contract does not match the exact active project dataset activation.",
+            );
+          }
+          setDataAcquisitionContextReadiness({
+            status: "ready",
+            projectId: routeProjectId,
+            routeKey: location.pathname,
+            refreshRevision: revision,
+            context,
+            message: context.state === "current"
+              ? "The exact Data Acquisition contract is current."
+              : "The backend reported the next required Data Acquisition prerequisite.",
+          });
+        } catch (error) {
+          if (controller.signal.aborted || generation !== requestGeneration.current) return;
+          setDataAcquisitionContextReadiness({
+            status: "error",
+            projectId: routeProjectId,
+            routeKey: location.pathname,
+            refreshRevision: revision,
+            context: null,
+            message: error instanceof Error
+              ? error.message
+              : "ATLAS could not resolve the backend-authoritative Data Acquisition contract.",
+          });
+        }
+      } else {
+        setDataAcquisitionContextReadiness({
+          status: "error",
+          projectId: routeProjectId,
+          routeKey: location.pathname,
+          refreshRevision: revision,
+          context: null,
+          message: next.message,
+        });
       }
 
       if (controller.signal.aborted || generation !== requestGeneration.current) return;
@@ -570,9 +706,39 @@ export function PredictiveIdentityProvider({
           resolvingAuthoritativeProjectContext(routeProjectId),
         )
     : IDLE;
+  const exposedDataAcquisitionContextReadiness = routeProjectId
+    ? dataAcquisitionContextReadiness.projectId === routeProjectId &&
+        dataAcquisitionContextReadiness.routeKey === location.pathname &&
+        dataAcquisitionContextReadiness.refreshRevision === revision
+      ? dataAcquisitionContextReadiness
+      : {
+          status: "loading" as const,
+          projectId: routeProjectId,
+          routeKey: location.pathname,
+          refreshRevision: revision,
+          context: null,
+          message: "Resolving the backend-authoritative Data Acquisition contract...",
+        }
+    : {
+        status: "idle" as const,
+        projectId: "",
+        routeKey: "",
+        refreshRevision: revision,
+        context: null,
+        message: "Open a project-scoped route to resolve the Data Acquisition contract.",
+      };
   const identityValue = useMemo(
-    () => ({ readiness: exposedIdentityReadiness, retry }),
-    [exposedIdentityReadiness, retry],
+    () => ({
+      readiness: exposedIdentityReadiness,
+      dataAcquisitionContextReadiness:
+        exposedDataAcquisitionContextReadiness,
+      retry,
+    }),
+    [
+      exposedDataAcquisitionContextReadiness,
+      exposedIdentityReadiness,
+      retry,
+    ],
   );
   const projectValue = useMemo(
     () => ({

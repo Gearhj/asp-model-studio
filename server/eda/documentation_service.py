@@ -911,6 +911,12 @@ class EDADocumentationService:
                     "authorized_predictors", []
                 ),
                 predictor_manifest_id=manifest_id,
+                expected_analysis_partition_id=contract[
+                    "analysis_partition_id"
+                ],
+                expected_analysis_partition_revision=contract[
+                    "analysis_partition_revision"
+                ],
             )
         )
         duplicate_rows = 0

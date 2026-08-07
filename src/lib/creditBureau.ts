@@ -6,6 +6,24 @@ import { BRAND } from "../config/brand";
 export const BUREAU_TREATMENT_KEY = "modeling-tool-bureau-special-value-treatments";
 export const BUREAU_METADATA_KEY = "modeling-tool-bureau-metadata";
 
+export type BureauMetadataScope = {
+  projectId: string;
+  datasetId: string;
+  datasetVersionId: string;
+};
+
+export function bureauMetadataStorageKey(scope?: BureauMetadataScope) {
+  if (!scope) return BUREAU_METADATA_KEY;
+  return [
+    BUREAU_METADATA_KEY,
+    scope.projectId,
+    scope.datasetId,
+    scope.datasetVersionId,
+  ]
+    .map((value) => encodeURIComponent(value))
+    .join(":");
+}
+
 export type BureauTreatment =
   | "keep_as_is"
   | "convert_to_missing"
@@ -196,13 +214,20 @@ function profileRecommendation(input: {
   return { recommendedTreatment, recommendationReason, warning };
 }
 
-export function loadBureauMetadata() {
-  return readJson<BureauMetadataRow[]>(BUREAU_METADATA_KEY, []);
+export function loadBureauMetadata(scope?: BureauMetadataScope) {
+  return readJson<BureauMetadataRow[]>(bureauMetadataStorageKey(scope), []);
 }
 
-export function saveBureauMetadata(rows: BureauMetadataRow[]) {
-  localStorage.setItem(BUREAU_METADATA_KEY, JSON.stringify(rows));
-  window.dispatchEvent(new CustomEvent("bureau-metadata-updated"));
+export function saveBureauMetadata(
+  rows: BureauMetadataRow[],
+  scope?: BureauMetadataScope,
+) {
+  localStorage.setItem(bureauMetadataStorageKey(scope), JSON.stringify(rows));
+  window.dispatchEvent(
+    new CustomEvent("bureau-metadata-updated", {
+      detail: scope ?? null,
+    }),
+  );
 }
 
 export function loadBureauTreatmentDecisions() {

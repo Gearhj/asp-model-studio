@@ -169,7 +169,13 @@ class SpecialValueContractTests(unittest.TestCase):
                         bureauSource="HELOC data dictionary",
                     ),
                 ],
-            )
+            ),
+            authorized_predictors=[
+                "ExternalRiskEstimate",
+                "MSinceMostRecentDelq",
+                "NumTotalTrades",
+            ],
+            target_analysis_scope="not_available",
         )
 
         self.assertTrue(result["detected"])

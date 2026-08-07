@@ -114,6 +114,34 @@ def _authorization(store: DatasetStore) -> dict:
     }
 
 
+def _canonical_request(store: DatasetStore) -> dict[str, object]:
+    partition = dict(store.meta["analysis_partition"])
+    review = dict(store.meta["special_value_review"])
+    return {
+        "project_id": PROJECT_ID,
+        "dataset_id": DATASET_ID,
+        "dataset_version_id": VERSION_ID,
+        "activation_revision": int(store.meta["activation_revision"]),
+        "expected_dataset_id": DATASET_ID,
+        "expected_dataset_version_id": VERSION_ID,
+        "dataset_version": VERSION_ID,
+        "target_contract_id": str(store.meta["target_contract_id"]),
+        "target": "bad_flag",
+        "positive_value": 1,
+        "negative_value": 0,
+        "event_value": 1,
+        "non_event_value": 0,
+        "problem_type": "classification",
+        "predictor_authorization_id": str(
+            store.meta["predictor_authorization_id"]
+        ),
+        "analysis_partition_id": str(partition["analysis_partition_id"]),
+        "analysis_partition_revision": int(partition["revision"]),
+        "special_value_review_id": str(review["special_value_review_id"]),
+        "special_value_review_revision": int(review["revision"]),
+    }
+
+
 def _contract(store: DatasetStore, source: pd.DataFrame) -> dict:
     return build_governed_eda_contract(
         project_id=PROJECT_ID,
@@ -209,6 +237,7 @@ class GovernedEDAAnalyticalContractTest(unittest.TestCase):
             "project_id": PROJECT_ID,
             "dataset_id": DATASET_ID,
             "dataset_version_id": VERSION_ID,
+            "activation_revision": int(store.meta["activation_revision"]),
         }
         service = EDAWorkspaceService()
         requests = (
@@ -568,6 +597,7 @@ class GovernedEDAAnalyticalContractTest(unittest.TestCase):
             "project_id": PROJECT_ID,
             "dataset_id": DATASET_ID,
             "dataset_version_id": VERSION_ID,
+            "activation_revision": int(store.meta["activation_revision"]),
         }
         service = EDAWorkspaceService()
         request = EDAWorkspaceRequest(
@@ -621,6 +651,7 @@ class GovernedEDAAnalyticalContractTest(unittest.TestCase):
             "project_id": PROJECT_ID,
             "dataset_id": DATASET_ID,
             "dataset_version_id": VERSION_ID,
+            "activation_revision": int(store.meta["activation_revision"]),
         }
         service = EDAWorkspaceService()
         request = EDAWorkspaceRequest(
@@ -663,6 +694,7 @@ class GovernedEDAAnalyticalContractTest(unittest.TestCase):
             "project_id": PROJECT_ID,
             "dataset_id": DATASET_ID,
             "dataset_version_id": VERSION_ID,
+            "activation_revision": int(store.meta["activation_revision"]),
         }
         workspace_request = EDAWorkspaceRequest(
             project_id=PROJECT_ID,
@@ -673,13 +705,7 @@ class GovernedEDAAnalyticalContractTest(unittest.TestCase):
             problem_type="classification",
         )
         sample_request = EDARelationshipSampleRequest(
-            project_id=PROJECT_ID,
-            expected_dataset_id=DATASET_ID,
-            expected_dataset_version_id=VERSION_ID,
-            dataset_version=VERSION_ID,
-            target="bad_flag",
-            event_value=1,
-            problem_type="classification",
+            **_canonical_request(store),
             predictor_manifest_id=store.meta["predictor_authorization_id"],
             x_feature="NumInqLast6M",
             y_feature="NumInqLast6Mexcl7days",
@@ -733,6 +759,7 @@ class GovernedEDAAnalyticalContractTest(unittest.TestCase):
             "project_id": PROJECT_ID,
             "dataset_id": DATASET_ID,
             "dataset_version_id": VERSION_ID,
+            "activation_revision": int(store.meta["activation_revision"]),
         }
         request = EDAWorkspaceRequest(
             project_id=PROJECT_ID,
@@ -821,14 +848,11 @@ class GovernedEDAAnalyticalContractTest(unittest.TestCase):
             "project_id": PROJECT_ID,
             "dataset_id": DATASET_ID,
             "dataset_version_id": VERSION_ID,
+            "activation_revision": int(store.meta["activation_revision"]),
         }
         service = EDAWorkspaceService()
         request = TargetByPredictorRequest(
-            project_id=PROJECT_ID,
-            expected_dataset_id=DATASET_ID,
-            expected_dataset_version_id=VERSION_ID,
-            target="bad_flag",
-            event_value=1,
+            **_canonical_request(store),
             predictor="ExternalRiskEstimate",
             analysis_type="numeric_quantile",
             bands=10,
@@ -855,6 +879,7 @@ class GovernedEDAAnalyticalContractTest(unittest.TestCase):
             "project_id": PROJECT_ID,
             "dataset_id": DATASET_ID,
             "dataset_version_id": VERSION_ID,
+            "activation_revision": int(store.meta["activation_revision"]),
         }
         workspace_request = EDAWorkspaceRequest(
             project_id=PROJECT_ID,
@@ -866,11 +891,7 @@ class GovernedEDAAnalyticalContractTest(unittest.TestCase):
             pairwise_features=["NumInqLast6M", "NumInqLast6Mexcl7days"],
         )
         target_request = TargetByPredictorRequest(
-            project_id=PROJECT_ID,
-            expected_dataset_id=DATASET_ID,
-            expected_dataset_version_id=VERSION_ID,
-            target="bad_flag",
-            event_value=1,
+            **_canonical_request(store),
             predictor="ExternalRiskEstimate",
             analysis_type="numeric_quantile",
             bands=10,
@@ -909,7 +930,7 @@ class GovernedEDAAnalyticalContractTest(unittest.TestCase):
         self.assertEqual(baseline_target["rows"], changed_target["rows"])
         self.assertEqual(baseline_target["sourceRowCount"], DEVELOPMENT_ROWS)
 
-    def test_duplicate_source_labels_cannot_pull_holdout_into_target_source_detection(self) -> None:
+    def test_duplicate_source_labels_cannot_reenable_durable_development_target_source_exclusion(self) -> None:
         source = _source()
         positions = np.arange(len(source))
         development, holdout = train_test_split(
@@ -923,8 +944,11 @@ class GovernedEDAAnalyticalContractTest(unittest.TestCase):
         source.loc[development, "DevelopmentOnlyTargetSource"] = source.loc[
             development, "bad_flag"
         ].to_numpy()
-        # The same value maps to both target classes on holdout, so a leaked
-        # full-population scan would not identify this as deterministic.
+        # The same value maps to both target classes on holdout. Data
+        # Acquisition's development-scoped authorization has already excluded
+        # this source; EDA must consume that exact durable decision and must
+        # neither rescan the full population nor re-enable the browser-selected
+        # field.
         source.loc[holdout, "DevelopmentOnlyTargetSource"] = 0
         source.index = pd.Index(["duplicate-label"] * len(source))
 
@@ -951,14 +975,17 @@ class GovernedEDAAnalyticalContractTest(unittest.TestCase):
             dataset_id=DATASET_ID,
             dataset_version_id=VERSION_ID,
             target="bad_flag",
-            authorized_predictors=predictors,
+            authorized_predictors=PREDICTORS,
+            target_sources=("DevelopmentOnlyTargetSource",),
             development_share=DEVELOPMENT_SHARE,
             random_seed=42,
         )
+        canonical_request = _canonical_request(store)
         identity = {
             "project_id": PROJECT_ID,
             "dataset_id": DATASET_ID,
             "dataset_version_id": VERSION_ID,
+            "activation_revision": canonical_request["activation_revision"],
         }
         with patch(
             "server.core.dataset_store.DatasetStoreProxy.current",
@@ -969,13 +996,7 @@ class GovernedEDAAnalyticalContractTest(unittest.TestCase):
         ):
             _frame_result, _target, _y, _problem, _event, authorization = (
                 EDAWorkspaceService().authorized_dataset(
-                    EDAWorkspaceRequest(
-                        project_id=PROJECT_ID,
-                        expected_dataset_id=DATASET_ID,
-                        expected_dataset_version_id=VERSION_ID,
-                        target="bad_flag",
-                        event_value=1,
-                    )
+                    EDAWorkspaceRequest(**canonical_request)
                 )
             )
 

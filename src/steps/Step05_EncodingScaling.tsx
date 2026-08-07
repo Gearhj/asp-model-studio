@@ -88,6 +88,7 @@ import {
   type PreparationDocumentationState,
 } from "../lib/preparationGovernance";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import BureauSemanticContextPanel from "../components/BureauSemanticContextPanel";
 
 const API_BASE =
   (import.meta.env.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
@@ -1703,6 +1704,14 @@ export default function Step05FeatureEngineering() {
             },
           ]}
         />
+
+        {datasetIdentity ? (
+          <BureauSemanticContextPanel
+            datasetIdentity={datasetIdentity}
+            datasetFields={eligibleOriginals.map((feature) => feature.feature_name)}
+            pageName="Feature Engineering"
+          />
+        ) : null}
 
         {loading ? (
           <div className="atlas-workflow-section flex min-h-52 items-center justify-center">

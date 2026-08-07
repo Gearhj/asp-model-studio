@@ -51,6 +51,7 @@ const ModelDiagnostics = lazy(() => import("../steps/ModelDiagnostics"));
 const ModelDocumentationStudio = lazy(() => import("../steps/ModelDocumentationStudio"));
 const ManagementDashboard = lazy(() => import("../steps/ManagementDashboard"));
 const AdminConsole = lazy(() => import("../steps/AdminConsole"));
+const BureauCatalogAdmin = lazy(() => import("../steps/BureauCatalogAdmin"));
 const SharingCenter = lazy(() => import("../steps/SharingCenter"));
 const NotificationCenter = lazy(() => import("../steps/NotificationCenter"));
 const MonitoringCenter = lazy(() => import("../steps/MonitoringCenter"));
@@ -100,7 +101,7 @@ export default function ModelingApp() {
   const completed = workflowSteps.filter((step) => step.status === "complete").length;
   const progress = Math.round((completed / Math.max(1, workflowSteps.length)) * 100);
   const workflowLabel = workflowId.replace(/-/g, " ").split(" ").map((word) => (word ? word[0].toUpperCase() + word.slice(1) : word)).join(" ");
-  const isFullWidthStudioRoute = ["/sql-data-studio", "/notebook-studio", "/model-evidence-center", "/evidence-graph", "/credit-risk-studio", "/management-dashboard", "/registry", "/validation", "/monitoring", "/admin", "/sharing", "/notifications"].includes(location.pathname)
+  const isFullWidthStudioRoute = ["/sql-data-studio", "/notebook-studio", "/model-evidence-center", "/evidence-graph", "/credit-risk-studio", "/management-dashboard", "/registry", "/validation", "/monitoring", "/admin", "/admin/bureau-catalogs", "/sharing", "/notifications"].includes(location.pathname)
     || location.pathname.startsWith("/registry/")
     || location.pathname.startsWith("/validation/")
     || location.pathname.startsWith("/monitoring/")
@@ -298,6 +299,10 @@ export default function ModelingApp() {
                   <Route path="/project-overview" element={<ProjectOverview />} />
                   <Route path="/management-dashboard" element={<ManagementDashboard />} />
                   <Route path="/admin" element={<AdminConsole />} />
+                  <Route
+                    path="/admin/bureau-catalogs"
+                    element={<CatalogAdministratorRoute user={authUser} />}
+                  />
                   <Route path="/sharing" element={<SharingCenter />} />
                   <Route path="/notifications" element={<NotificationCenter />} />
                   <Route path="/monitoring" element={<MonitoringCenter />} />
@@ -534,6 +539,31 @@ function AuthoritativeProjectGuide({ pathname }: { pathname: string }) {
       </p>
     </section>
   );
+}
+
+function CatalogAdministratorRoute({ user }: { user: AtlasUser }) {
+  if (String(user.role || "").trim().toLowerCase() !== "admin") {
+    return (
+      <section
+        className="atlas-page-shell rounded-2xl border border-red-200 bg-red-50 p-6 text-red-950 shadow-sm"
+        role="alert"
+        data-testid="bureau-catalog-admin-route-denied"
+      >
+        <h1 className="text-xl font-semibold">Administrative access required</h1>
+        <p className="mt-2 max-w-2xl text-sm leading-6">
+          Bureau Catalog Administration is restricted to authenticated platform administrators.
+          No catalog request was made and no project or dataset state changed.
+        </p>
+        <Link
+          to="/dashboard"
+          className="mt-4 inline-flex rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"
+        >
+          Return to dashboard
+        </Link>
+      </section>
+    );
+  }
+  return <BureauCatalogAdmin />;
 }
 
 function LegacyPredictiveRouteRedirect({ targetPath }: { targetPath: string }) {

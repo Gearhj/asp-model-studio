@@ -154,7 +154,9 @@ test("data acquisition uses canonical target setup and shared next navigation", 
   const source = await readFile(new URL("../src/steps/Step01_DataAcquisition.tsx", import.meta.url), "utf8");
   assert.match(source, /Upload File[\s\S]*Existing Dataset[\s\S]*SQL Database[\s\S]*Python Loader[\s\S]*Cloud Storage/);
   assert.match(source, /function TargetSetup/);
-  assert.match(source, /<Select label="Target Column"/);
+  assert.match(source, /data-testid="target-column-priority-control"/);
+  assert.match(source, /data-testid="target-column-select"/);
+  assert.match(source, /<option value="" disabled>Select a target column<\/option>/);
   assert.match(source, /<TargetDistributionPanel/);
   assert.match(
     source,

@@ -1220,6 +1220,8 @@ def resolve_development_partition(
     target: str,
     authorized_predictors: Iterable[str],
     predictor_manifest_id: str,
+    expected_analysis_partition_id: str | None = None,
+    expected_analysis_partition_revision: int | None = None,
 ) -> tuple[pd.DataFrame, pd.Series, dict[str, Any]]:
     """Resolve the durable development membership only.
 
@@ -1265,8 +1267,35 @@ def resolve_development_partition(
             target=target,
             target_contract_id=str(store.meta.get("target_contract_id") or "")
             or None,
+            predictor_authorization_id=str(predictor_manifest_id or "")
+            or None,
             require_documentation_ready=True,
         )
+        expected_partition_id = str(
+            expected_analysis_partition_id or ""
+        ).strip()
+        if (
+            expected_partition_id
+            and str(partition.get("analysis_partition_id") or "").strip()
+            != expected_partition_id
+        ) or (
+            expected_analysis_partition_revision is not None
+            and int(partition.get("revision") or 0)
+            != int(expected_analysis_partition_revision)
+        ):
+            raise EDAAnalyticalContractError(
+                "The current Analysis Partition changed before development materialization.",
+                code="analysis_partition_stale",
+                recovery=(
+                    "Reload Data Acquisition and retry with the current "
+                    "Analysis Partition ID and revision."
+                ),
+                stale_artifacts=[
+                    "target_eda",
+                    "predictor_eda",
+                    "relationship_eda",
+                ],
+            )
         target_authority = resolve_partition_target_authority(
             partition,
             target=target,
@@ -1323,6 +1352,25 @@ def resolve_development_partition(
         "split_id": split_id,
         "analysis_partition_id": split_id,
         "analysis_partition_revision": int(partition.get("revision") or 0),
+        "analysis_partition_status": str(partition.get("status") or ""),
+        "analysis_partition_artifact_hash": str(
+            partition.get("artifact_hash") or ""
+        ),
+        "analysis_partition_assignment_hash": str(
+            partition.get("assignment_hash") or ""
+        ),
+        "partition_predictor_authorization_id": str(
+            partition.get("predictor_authorization_id") or ""
+        ),
+        "current_predictor_authorization_id": str(
+            partition.get("current_predictor_authorization_id")
+            or predictor_manifest_id
+            or ""
+        ),
+        "predictor_authorization_lineage_status": str(
+            partition.get("predictor_authorization_lineage_status")
+            or "current"
+        ),
         "target_contract_id": target_authority["target_contract_id"],
         "target": target_authority["target"],
         "problem_type": target_authority["problem_type"],
@@ -1376,6 +1424,8 @@ def build_governed_eda_contract(
     store: Any,
     created_by: str = "atlas_backend",
     requested_bins: int = DEFAULT_REQUESTED_BINS,
+    expected_analysis_partition_id: str | None = None,
+    expected_analysis_partition_revision: int | None = None,
 ) -> dict[str, Any]:
     """Build one shared analytical artifact for all governed EDA workspaces."""
 
@@ -1390,7 +1440,17 @@ def build_governed_eda_contract(
             code="dataset_identity_unavailable",
             recovery="Return to Data Acquisition and activate the exact registered Dataset Library version.",
         )
-    predictor_manifest_id = str(authorization.get("manifest_version") or "")
+    activation_revision = int(store.meta.get("activation_revision") or 0)
+    predictor_authorization_id = str(
+        authorization.get("predictor_authorization_id")
+        or authorization.get("manifest_version")
+        or ""
+    )
+    predictor_manifest_id = str(
+        authorization.get("manifest_version")
+        or predictor_authorization_id
+        or ""
+    )
     if str(authorization.get("source") or "") != (
         "data_acquisition_predictor_authorization"
     ):
@@ -1410,10 +1470,21 @@ def build_governed_eda_contract(
         target=target,
         authorized_predictors=predictors,
         predictor_manifest_id=predictor_manifest_id,
+        expected_analysis_partition_id=expected_analysis_partition_id,
+        expected_analysis_partition_revision=(
+            expected_analysis_partition_revision
+        ),
     )
     problem_type = str(scope["problem_type"])
     positive_value = _json_scalar(scope.get("positive_value"))
     negative_value = _json_scalar(scope.get("negative_value"))
+    target_contract_id = str(scope.get("target_contract_id") or "")
+    special_value_review_id = str(
+        store.meta.get("special_value_review_id") or ""
+    )
+    special_value_review_revision = int(
+        store.meta.get("special_value_review_revision") or 0
+    )
     if event_value is not None and (
         problem_type != "classification"
         or not _same_target_scalar(event_value, positive_value)
@@ -1447,14 +1518,25 @@ def build_governed_eda_contract(
     governed_lineage_base = {
         "backend_authoritative": True,
         **identity,
+        "activation_revision": activation_revision,
         "target": target,
+        "target_contract_id": target_contract_id,
         "problem_type": problem_type,
         "positive_value": positive_value,
         "negative_value": negative_value,
+        "predictor_authorization_id": predictor_authorization_id,
         "predictor_manifest_id": predictor_manifest_id,
         "split_id": scope["split_id"],
         "analysis_partition_id": scope["analysis_partition_id"],
         "analysis_partition_revision": scope["analysis_partition_revision"],
+        "analysis_partition_artifact_hash": scope[
+            "analysis_partition_artifact_hash"
+        ],
+        "analysis_partition_assignment_hash": scope[
+            "analysis_partition_assignment_hash"
+        ],
+        "special_value_review_id": special_value_review_id,
+        "special_value_review_revision": special_value_review_revision,
         "development_partition_id": scope["analysis_population_id"],
         "sealed_holdout_partition_id": scope["final_holdout_partition_id"],
         "analysis_scope": "development_population",
@@ -1510,14 +1592,25 @@ def build_governed_eda_contract(
     )
     stable = {
         **identity,
+        "activation_revision": activation_revision,
         "target": target,
+        "target_contract_id": target_contract_id,
         "problem_type": problem_type,
         "positive_value": positive_value,
         "negative_value": negative_value,
+        "predictor_authorization_id": predictor_authorization_id,
         "predictor_manifest_id": predictor_manifest_id,
         "split_id": scope["split_id"],
         "analysis_partition_id": scope["analysis_partition_id"],
         "analysis_partition_revision": scope["analysis_partition_revision"],
+        "analysis_partition_artifact_hash": scope[
+            "analysis_partition_artifact_hash"
+        ],
+        "analysis_partition_assignment_hash": scope[
+            "analysis_partition_assignment_hash"
+        ],
+        "special_value_review_id": special_value_review_id,
+        "special_value_review_revision": special_value_review_revision,
         "development_hash": _frame_hash(development, development_target),
         "special_value_policy_id": special_value_policy_id,
         "missing_value_policy": "true_null_and_parse_failure_separate",
@@ -1534,14 +1627,25 @@ def build_governed_eda_contract(
         "artifact_hash": artifact_hash,
         "backend_authoritative": True,
         **identity,
+        "activation_revision": activation_revision,
         "target": target,
+        "target_contract_id": target_contract_id,
         "problem_type": problem_type,
         "positive_value": positive_value,
         "negative_value": negative_value,
+        "predictor_authorization_id": predictor_authorization_id,
         "predictor_manifest_id": predictor_manifest_id,
         "split_id": scope["split_id"],
         "analysis_partition_id": scope["analysis_partition_id"],
         "analysis_partition_revision": scope["analysis_partition_revision"],
+        "analysis_partition_artifact_hash": scope[
+            "analysis_partition_artifact_hash"
+        ],
+        "analysis_partition_assignment_hash": scope[
+            "analysis_partition_assignment_hash"
+        ],
+        "special_value_review_id": special_value_review_id,
+        "special_value_review_revision": special_value_review_revision,
         "development_partition_id": scope["analysis_population_id"],
         "sealed_holdout_partition_id": scope["final_holdout_partition_id"],
         "analysis_scope": "development_population",

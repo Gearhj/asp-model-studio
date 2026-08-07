@@ -42,6 +42,7 @@ import {
   type PreparationDocumentationState,
 } from "../lib/preparationGovernance";
 import { useWorkflowStore } from "../state/useWorkflowStore";
+import BureauSemanticContextPanel from "../components/BureauSemanticContextPanel";
 
 type MissingStrategy =
   | "None"
@@ -1187,6 +1188,14 @@ export default function Step04MissingValues() {
             },
           ]}
         />
+
+        {datasetIdentity ? (
+          <BureauSemanticContextPanel
+            datasetIdentity={datasetIdentity}
+            datasetFields={(summary?.columns ?? []).map((column) => column.name)}
+            pageName="Missing Values"
+          />
+        ) : null}
 
         {loading ? (
           <div className="atlas-workflow-section flex min-h-52 items-center justify-center">

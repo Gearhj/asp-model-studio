@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import re
+import sqlite3
 import time
 from typing import Any, Callable
 
@@ -28,6 +29,7 @@ from ..preprocessing.predictor_authorization import (
     verify_durable_predictor_authorization,
 )
 from ..preprocessing.quality_profile_service import governed_time_field
+from ..preprocessing.special_value_review_service import public_review_contract
 from ..analytics.target_intelligence_service import (
     MAX_TOP_CATEGORIES,
     SMALL_GROUP_MIN_EVENTS,
@@ -88,6 +90,20 @@ MIN_SEPARATION_ROWS = 100
 PERFECT_CORRELATION_THRESHOLD = 0.999
 PREDICTOR_VISUAL_CONTRACT_VERSION = "eda-predictor-visual-v1"
 
+_BUREAU_SEMANTIC_IDENTITY_FIELDS = (
+    "bureau_semantic_annotation_set_id",
+    "bureau_semantic_annotation_set_checksum",
+    "bureau_metadata_schema_checksum",
+    "bureau_metadata_binding_id",
+    "bureau_metadata_binding_revision",
+    "bureau_metadata_binding_revision_checksum",
+    "bureau_metadata_crosswalk_id",
+    "bureau_metadata_crosswalk_revision",
+    "bureau_metadata_crosswalk_revision_checksum",
+    "bureau_metadata_catalog_version_id",
+    "bureau_metadata_catalog_checksum",
+)
+
 
 class RelationshipSampleValidationError(ValueError):
     """Safe, structured rejection for a crafted relationship sample request."""
@@ -124,6 +140,421 @@ def _json_value(value: Any) -> Any:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _lineage_text(value: Any) -> str:
+    return str(value or "").strip()
+
+
+def _same_lineage_scalar(left: Any, right: Any) -> bool:
+    """Compare JSON target labels without promoting a request to authority."""
+
+    normalized_left = _json_value(left)
+    normalized_right = _json_value(right)
+    if normalized_left is None or normalized_right is None:
+        return normalized_left is None and normalized_right is None
+    return str(normalized_left) == str(normalized_right)
+
+
+def _bureau_semantic_request_identity(request: Any) -> dict[str, Any]:
+    """Return only bounded Bureau metadata lineage, never definition rows.
+
+    The HTTP boundary verifies this compare-only request against the exact
+    current, entitled backend annotation set before any EDA service call.  The
+    resulting identity is included in both cache selection and response
+    lineage so a revised binding or crosswalk can never reuse an older EDA
+    response.  Catalog descriptions, special-value definitions, and dataset
+    observations are intentionally absent.
+    """
+
+    state = getattr(request, "bureau_semantic_annotation_state", None)
+    if state is None:
+        return {}
+    identity = {
+        "bureau_semantic_annotation_state": state,
+        **{
+            field: getattr(request, field, None)
+            for field in _BUREAU_SEMANTIC_IDENTITY_FIELDS
+        },
+    }
+    return identity
+
+
+def _bureau_semantic_response_lineage(request_or_contract: Any) -> dict[str, Any]:
+    """Build the bounded no-row Bureau semantic response envelope."""
+
+    if isinstance(request_or_contract, dict):
+        identity = dict(
+            request_or_contract.get("bureau_semantic_identity") or {}
+        )
+    else:
+        identity = _bureau_semantic_request_identity(request_or_contract)
+    if not identity:
+        return {}
+    state = identity.get("bureau_semantic_annotation_state")
+    annotation_set = {
+        "annotation_set_id": identity.get(
+            "bureau_semantic_annotation_set_id"
+        ),
+        "annotation_set_checksum": identity.get(
+            "bureau_semantic_annotation_set_checksum"
+        ),
+        "schema_checksum": identity.get("bureau_metadata_schema_checksum"),
+        "binding_id": identity.get("bureau_metadata_binding_id"),
+        "binding_revision": identity.get(
+            "bureau_metadata_binding_revision"
+        ),
+        "binding_revision_checksum": identity.get(
+            "bureau_metadata_binding_revision_checksum"
+        ),
+        "crosswalk_id": identity.get("bureau_metadata_crosswalk_id"),
+        "crosswalk_revision": identity.get(
+            "bureau_metadata_crosswalk_revision"
+        ),
+        "crosswalk_revision_checksum": identity.get(
+            "bureau_metadata_crosswalk_revision_checksum"
+        ),
+        "catalog_version_id": identity.get(
+            "bureau_metadata_catalog_version_id"
+        ),
+        "catalog_checksum": identity.get("bureau_metadata_catalog_checksum"),
+    }
+    if state != "available":
+        annotation_set = None
+    nested = {
+        "state": state,
+        "authoritative": state == "available",
+        "annotation_set": annotation_set,
+        "annotations_included": False,
+        "provider_catalog_rows_included": False,
+        "unresolved_mappings_authoritative": False,
+        "final_holdout_accessed": False,
+        "dataset_mutated": False,
+        "target_contract_mutated": False,
+        "treatment_mutated": False,
+        "predictor_authorization_mutated": False,
+        "analysis_partition_mutated": False,
+        "feature_manifest_mutated": False,
+    }
+    return {
+        **identity,
+        "bureau_semantic_annotations": nested,
+    }
+
+
+def _resolve_current_special_value_review(
+    *,
+    identity: dict[str, Any],
+    target_contract_id: str,
+    predictor_authorization_id: str,
+) -> dict[str, Any]:
+    """Resolve the one current exact-version Data Acquisition review.
+
+    The repository is queried by the complete active identity.  There is no
+    first/latest/project-only lookup and no browser-state substitute.
+    """
+
+    from ..persistence.service import get_persistence_service
+
+    project_id = _lineage_text(identity.get("project_id"))
+    dataset_id = _lineage_text(identity.get("dataset_id"))
+    dataset_version_id = _lineage_text(identity.get("dataset_version_id"))
+    activation_revision = int(identity.get("activation_revision") or 0)
+    if (
+        not project_id
+        or not dataset_id
+        or not dataset_version_id
+        or activation_revision < 1
+    ):
+        raise EDAAnalyticalContractError(
+            "The durable active Dataset Library identity is incomplete.",
+            code="dataset_identity_unavailable",
+            recovery=(
+                "Return to Data Acquisition and activate the exact registered "
+                "dataset version before opening EDA."
+            ),
+        )
+    try:
+        row = get_persistence_service().special_value_reviews.get_exact(
+            project_id,
+            dataset_id,
+            dataset_version_id,
+        )
+    except (ValueError, RuntimeError, sqlite3.Error) as exc:
+        raise EDAAnalyticalContractError(
+            "The exact Data Acquisition special-value review could not be verified.",
+            code="special_value_review_stale",
+            recovery=(
+                "Return to Data Acquisition and reopen the Special-Value Review "
+                "for this exact dataset version."
+            ),
+            stale_artifacts=["predictor_eda", "relationship_eda"],
+        ) from exc
+    if not isinstance(row, dict):
+        raise EDAAnalyticalContractError(
+            "A durable Special-Value Review is required before EDA.",
+            code="special_value_review_required",
+            recovery=(
+                "Return to Data Acquisition and complete the Special-Value "
+                "Review for this exact dataset version."
+            ),
+            stale_artifacts=["predictor_eda", "relationship_eda"],
+        )
+
+    try:
+        review = public_review_contract(row)
+    except (TypeError, ValueError) as exc:
+        raise EDAAnalyticalContractError(
+            "The durable Special-Value Review failed lineage validation.",
+            code="special_value_review_stale",
+            recovery=(
+                "Return to Data Acquisition and refresh the exact "
+                "Special-Value Review."
+            ),
+            stale_artifacts=["predictor_eda", "relationship_eda"],
+        ) from exc
+    expected_lineage = {
+        "project_id": project_id,
+        "dataset_id": dataset_id,
+        "dataset_version_id": dataset_version_id,
+        "target_contract_id": _lineage_text(target_contract_id),
+        "predictor_authorization_id": _lineage_text(
+            predictor_authorization_id
+        ),
+    }
+    if any(
+        _lineage_text(review.get(field)) != expected
+        for field, expected in expected_lineage.items()
+    ) or int(review.get("activation_revision") or 0) != activation_revision:
+        raise EDAAnalyticalContractError(
+            "The durable Special-Value Review does not match the current Data Acquisition lineage.",
+            code="special_value_review_stale",
+            recovery=(
+                "Return to Data Acquisition and refresh the Special-Value "
+                "Review against the current activation, target contract, and "
+                "predictor authorization."
+            ),
+            stale_artifacts=["predictor_eda", "relationship_eda"],
+        )
+
+    review_id = _lineage_text(review.get("special_value_review_id"))
+    review_revision = int(review.get("revision") or 0)
+    if not review_id or review_revision < 1:
+        raise EDAAnalyticalContractError(
+            "The durable Special-Value Review has incomplete version identity.",
+            code="special_value_review_stale",
+            recovery=(
+                "Return to Data Acquisition and refresh the exact "
+                "Special-Value Review."
+            ),
+            stale_artifacts=["predictor_eda", "relationship_eda"],
+        )
+
+    status = _lineage_text(review.get("status")).casefold()
+    if (
+        status not in {"confirmed", "not_required"}
+        or int(review.get("open_count") or 0) != 0
+        or bool(review.get("blocks_continuation"))
+    ):
+        raise EDAAnalyticalContractError(
+            "The current Data Acquisition Special-Value Review is not complete.",
+            code="special_value_review_required",
+            recovery=(
+                "Return to Data Acquisition and confirm every detected special "
+                "value, or record that no review is required."
+            ),
+            stale_artifacts=["predictor_eda", "relationship_eda"],
+        )
+    return review
+
+
+def _validate_canonical_handoff_request(
+    request: EDAWorkspaceRequest,
+    *,
+    identity: dict[str, Any],
+    target_authority: dict[str, Any],
+    predictor_authorization_id: str,
+    partition: dict[str, Any],
+    special_value_review: dict[str, Any],
+) -> None:
+    """Require and compare the browser's complete canonical handoff.
+
+    This function is intentionally called only after every durable authority
+    above has resolved successfully.  A missing browser assertion therefore
+    cannot mask a genuinely missing Analysis Partition, MDD sidecar, or
+    Special-Value Review.
+    """
+
+    governed_problem = _lineage_text(
+        target_authority.get("problem_type")
+    ).casefold()
+    required_text = {
+        "dataset_id": request.dataset_id,
+        "dataset_version_id": request.dataset_version_id,
+        "target_contract_id": request.target_contract_id,
+        "target": request.target,
+        "predictor_authorization_id": request.predictor_authorization_id,
+        "analysis_partition_id": request.analysis_partition_id,
+        "special_value_review_id": request.special_value_review_id,
+    }
+    missing = [
+        field for field, value in required_text.items() if not _lineage_text(value)
+    ]
+    if request.activation_revision is None:
+        missing.append("activation_revision")
+    if request.analysis_partition_revision is None:
+        missing.append("analysis_partition_revision")
+    if request.special_value_review_revision is None:
+        missing.append("special_value_review_revision")
+    if governed_problem == "classification":
+        if request.positive_value is None:
+            missing.append("positive_value")
+        if request.negative_value is None:
+            missing.append("negative_value")
+    if missing:
+        raise EDAAnalyticalContractError(
+            "EDA requires the complete canonical Data Acquisition lineage: "
+            + ", ".join(sorted(set(missing)))
+            + ".",
+            code="eda_canonical_lineage_required",
+            recovery=(
+                "Reload Data Acquisition and open EDA from its current "
+                "project-scoped continuation action."
+            ),
+        )
+
+    actual_dataset_id = _lineage_text(identity.get("dataset_id"))
+    actual_version_id = _lineage_text(identity.get("dataset_version_id"))
+    dataset_assertions = {
+        "dataset_id": request.dataset_id,
+        "expected_dataset_id": request.expected_dataset_id,
+        "dataset_version_id": request.dataset_version_id,
+        "expected_dataset_version_id": request.expected_dataset_version_id,
+        "dataset_version": request.dataset_version,
+    }
+    mismatched_dataset_fields = [
+        field
+        for field, value in dataset_assertions.items()
+        if _lineage_text(value)
+        and _lineage_text(value)
+        != (
+            actual_dataset_id
+            if field in {"dataset_id", "expected_dataset_id"}
+            else actual_version_id
+        )
+    ]
+    if mismatched_dataset_fields:
+        raise EDAAnalyticalContractError(
+            "The requested Dataset Library identity does not match the exact active version.",
+            code="dataset_identity_mismatch",
+            recovery="Reload Data Acquisition and retry against its active version.",
+        )
+    if int(request.activation_revision or 0) != int(
+        identity.get("activation_revision") or 0
+    ):
+        raise EDAAnalyticalContractError(
+            "The requested activation revision is no longer current.",
+            code="dataset_activation_revision_stale",
+            recovery="Reload Data Acquisition and retry from the current activation.",
+        )
+
+    governed_target_contract_id = _lineage_text(
+        target_authority.get("target_contract_id")
+    )
+    governed_target = _lineage_text(target_authority.get("target"))
+    target_mismatch = (
+        _lineage_text(request.target_contract_id)
+        != governed_target_contract_id
+        or _lineage_text(request.target) != governed_target
+        or (
+            request.problem_type is not None
+            and _lineage_text(request.problem_type).casefold()
+            != governed_problem
+        )
+        or (
+            governed_problem == "classification"
+            and not _same_lineage_scalar(
+                request.positive_value,
+                target_authority.get("positive_value"),
+            )
+        )
+        or (
+            governed_problem == "classification"
+            and not _same_lineage_scalar(
+                request.negative_value,
+                target_authority.get("negative_value"),
+            )
+        )
+        or (
+            request.event_value is not None
+            and not _same_lineage_scalar(
+                request.event_value,
+                target_authority.get("positive_value"),
+            )
+        )
+        or (
+            request.non_event_value is not None
+            and not _same_lineage_scalar(
+                request.non_event_value,
+                target_authority.get("negative_value"),
+            )
+        )
+    )
+    if target_mismatch:
+        raise EDAAnalyticalContractError(
+            "The requested target contract does not match the documented Analysis Partition authority.",
+            code="target_contract_stale",
+            recovery=(
+                "Reload Data Acquisition and retry with its current target "
+                "contract and class mapping."
+            ),
+            stale_artifacts=["target_eda", "predictor_eda", "relationship_eda"],
+        )
+
+    if _lineage_text(request.predictor_authorization_id) != _lineage_text(
+        predictor_authorization_id
+    ):
+        raise EDAAnalyticalContractError(
+            "The requested predictor authorization is no longer current.",
+            code="predictor_authorization_stale",
+            recovery=(
+                "Reload Data Acquisition and retry with the current governed "
+                "predictor authorization."
+            ),
+            stale_artifacts=["predictor_eda", "relationship_eda"],
+        )
+
+    if (
+        _lineage_text(request.analysis_partition_id)
+        != _lineage_text(partition.get("analysis_partition_id"))
+        or int(request.analysis_partition_revision or 0)
+        != int(partition.get("revision") or 0)
+    ):
+        raise EDAAnalyticalContractError(
+            "The requested Analysis Partition ID or revision is no longer current.",
+            code="analysis_partition_stale",
+            recovery=(
+                "Reload Data Acquisition and retry with the current documented "
+                "Analysis Partition."
+            ),
+            stale_artifacts=["target_eda", "predictor_eda", "relationship_eda"],
+        )
+
+    if (
+        _lineage_text(request.special_value_review_id)
+        != _lineage_text(special_value_review.get("special_value_review_id"))
+        or int(request.special_value_review_revision or 0)
+        != int(special_value_review.get("revision") or 0)
+    ):
+        raise EDAAnalyticalContractError(
+            "The requested Special-Value Review ID or revision is no longer current.",
+            code="special_value_review_stale",
+            recovery=(
+                "Reload Data Acquisition and retry with the current confirmed "
+                "Special-Value Review."
+            ),
+            stale_artifacts=["predictor_eda", "relationship_eda"],
+        )
 
 
 def _restore_target_from_exact_predictor_authorization(
@@ -499,27 +930,28 @@ def _predictor_authorization(
     """Return the server-authored *Data Acquisition* authorization for EDA.
 
     EDA precedes final Feature Engineering, so the later modeling feature
-    manifest is deliberately not an input to this contract.  Browser
+    manifest is deliberately not an input to this contract. Browser
     ``selected_features`` may narrow the result, but can never authorize a new
-    predictor.  Any deterministic target-source discovery is performed only on
-    the durable development partition.
+    predictor.
+
+    A current durable Data Acquisition authorization is immutable authority.
+    EDA must not re-run deterministic target-source discovery and then publish
+    a different inventory under the same ``predictor_authorization_id``. Any
+    target-source analysis belongs to the workflow that creates a new durable
+    authorization revision; this reader uses the stored inventory verbatim.
     """
 
-    active_candidates = [str(column) for column in frame.columns if str(column) != target]
-    selected = [column for column in DATASTORE.get_selected_columns() if column in frame.columns and column != target]
-    candidates = selected or active_candidates
-
-    # Runtime/checkpoint metadata is only a hint.  The current exact durable
-    # manifest below is the authority; no browser, checkpoint, first, or latest
-    # fallback may authorize predictors.
-    manifest: dict[str, Any] = (
+    # Runtime/checkpoint metadata is only a hint. The current exact durable
+    # manifest below is the authority; no browser, checkpoint, first, latest,
+    # or schema-derived fallback may authorize predictors.
+    manifest = (
         dict(durable_manifest) if isinstance(durable_manifest, dict) else {}
     )
     durable_manifest_loaded = isinstance(durable_manifest, dict)
     if not durable_manifest_loaded:
         from ..persistence.service import get_persistence_service
 
-        durable_authorization = (
+        durable_record = (
             get_persistence_service()
             .predictor_authorizations.get_current_exact(
                 str(DATASTORE.meta.get("project_id") or ""),
@@ -528,10 +960,19 @@ def _predictor_authorization(
                 str(DATASTORE.meta.get("target_contract_id") or "") or None,
             )
         )
-        durable_manifest = (durable_authorization or {}).get("manifest_json")
-        if isinstance(durable_manifest, dict):
+        try:
+            manifest = verify_durable_predictor_authorization(
+                durable_record,
+                project_id=str(DATASTORE.meta.get("project_id") or ""),
+                dataset_id=str(DATASTORE.meta.get("dataset_id") or ""),
+                dataset_version_id=str(
+                    DATASTORE.meta.get("dataset_version_id") or ""
+                ),
+            )
+        except PredictorAuthorizationIntegrityError:
+            manifest = {}
+        else:
             durable_manifest_loaded = True
-            manifest = durable_manifest
             DATASTORE.meta["predictor_authorization_manifest"] = manifest
             DATASTORE.meta["predictor_authorization"] = manifest
             DATASTORE.meta["predictor_authorization_id"] = manifest.get(
@@ -540,156 +981,128 @@ def _predictor_authorization(
             DATASTORE.meta["target_contract_id"] = manifest.get(
                 "target_contract_id"
             )
-    manifest_authorized = [
-        str(value)
-        for value in manifest.get("authorized_predictors", [])
-        if str(value) in frame.columns and str(value) != target
-    ]
-    # An explicitly empty durable inventory means "no predictors authorized".
-    # It must never be treated like a missing manifest and expanded back to the
-    # active schema. Missing authority remains an unverified structural-only
-    # state; present authority, including an empty list, is exact and binding.
-    if durable_manifest_loaded:
-        candidates = manifest_authorized
 
-    prohibited = {
-        str(value)
-        for value in (
-            (DATASTORE.meta.get("source") or {}).get("prohibitedVariables", [])
-            if isinstance(DATASTORE.meta.get("source"), dict)
-            else []
-        )
-    }
-    role_excluded: dict[str, dict[str, Any]] = {}
-    preliminary: list[str] = []
-    for column in candidates:
-        if _SPLIT_NAME.search(column):
-            role_excluded[column] = {"feature": column, "role": "split_indicator", "reason": "Split or fold metadata"}
-        elif _SYSTEM_NAME.search(column):
-            role_excluded[column] = {"feature": column, "role": "system_metadata", "reason": "System metadata"}
-        elif column in prohibited:
-            role_excluded[column] = {"feature": column, "role": "prohibited", "reason": "Explicitly prohibited variable"}
-        else:
-            preliminary.append(column)
-
-    # Preserve explicit upstream target-source decisions first. Dynamic
-    # deterministic-source detection is itself target-directed, so it may use
-    # only the exact durable development partition. It never scans the full
-    # lineage frame or sealed holdout.
-    target_sources: dict[str, dict[str, Any]] = {}
-    for name in manifest.get("target_source_excluded", []) or []:
-        target_sources[str(name)] = {
-            "field": str(name),
+    if not durable_manifest_loaded:
+        return {
+            "manifest_version": "",
+            "predictor_authorization_id": "",
+            "source": "data_acquisition_selection_unverified",
             "target": target,
-            "relationship": "governed_upstream_target_source",
-            "mapping": [],
+            "authorized_predictors": [],
+            "excluded": [
+                {
+                    "feature": target,
+                    "role": "target",
+                    "reason": "Modeling target",
+                }
+            ],
+            "target_source_fields": [],
+            "target_source_excluded": [],
         }
 
-    scoped_store = DATASTORE.current()
-    development_features = None
-    development_target = None
-    try:
-        from ..analysis_partition.service import analysis_partition_service
+    declared_authorized = [
+        str(value) for value in manifest.get("authorized_predictors", [])
+    ]
+    declared_excluded = {
+        str(name): str(reason or "Not authorized during Data Acquisition")
+        for name, reason in (manifest.get("excluded_predictors") or {}).items()
+    }
+    target_source_names = [
+        str(value) for value in manifest.get("target_source_excluded", [])
+    ]
+    contradictory_inventory = (
+        len(set(declared_authorized)) != len(declared_authorized)
+        or target in declared_authorized
+        or bool(set(declared_authorized) & set(declared_excluded))
+        or bool(set(declared_authorized) & set(target_source_names))
+    )
+    if contradictory_inventory:
+        raise EDAAnalyticalContractError(
+            "The durable predictor authorization contains contradictory predictor roles.",
+            code="predictor_authorization_stale",
+            stale_artifacts=["predictor_eda", "relationship_eda"],
+        )
+    missing_authorized = [
+        feature for feature in declared_authorized if feature not in frame.columns
+    ]
+    if missing_authorized:
+        raise EDAAnalyticalContractError(
+            "The active dataset is missing predictors from the exact durable authorization: "
+            + ", ".join(missing_authorized[:5]),
+            code="predictor_authorization_stale",
+            recovery=(
+                "Return to Data Acquisition and reopen the exact registered "
+                "dataset version before running EDA."
+            ),
+            stale_artifacts=["predictor_eda", "relationship_eda"],
+        )
 
-        partition = analysis_partition_service.current(
-            str(DATASTORE.meta.get("project_id") or ""),
-            str(DATASTORE.meta.get("dataset_id") or ""),
-            str(DATASTORE.meta.get("dataset_version_id") or ""),
-            target=target,
-            require_documentation_ready=True,
-        )
-        development_features, development_target = (
-            analysis_partition_service.materialize_development(
-                scoped_store,
-                partition,
-                authorized_predictors=preliminary,
-            )
-        )
-    except (ImportError, ValueError, RuntimeError):
-        # Partial structural EDA remains available while the partition is
-        # absent. Target-directed areas surface the precise readiness error at
-        # the analytical-contract boundary.
-        development_features = None
-        development_target = None
-    if (
-        isinstance(development_features, pd.DataFrame)
-        and isinstance(development_target, pd.Series)
-        and not development_features.empty
-        and development_features.index.equals(development_target.index)
-    ):
-        # `materialize_development` already selected exact durable row
-        # positions from the raw governed frame. Re-selecting those rows with
-        # `.loc[index_labels]` is unsafe when labels are duplicated: a label
-        # shared by development and holdout can pull the sealed row back into
-        # target-source detection. Keep the positionally materialized frame.
-        detection_frame = development_features.copy().reset_index(drop=True)
-        detection_frame[target] = development_target.to_numpy(copy=True)
-        lineage_candidates = [
-            str(column) for column in detection_frame.columns if str(column) != target
-        ]
-        detected = _detect_frame_target_sources(
-            detection_frame,
-            target,
-            lineage_candidates,
-        )
-        target_sources.update(
+    manifest_target_source_rows = {
+        str(row.get("field")): dict(row)
+        for row in (manifest.get("target_source_fields") or [])
+        if isinstance(row, dict) and str(row.get("field") or "").strip()
+    }
+    target_source_fields = [
+        manifest_target_source_rows.get(
+            name,
             {
-                name: {**payload, "analysis_scope": "development_population"}
-                for name, payload in detected.items()
+                "field": name,
+                "target": target,
+                "relationship": "governed_upstream_target_source",
+                "mapping": [],
+            },
+        )
+        for name in target_source_names
+    ]
+
+    excluded_rows: list[dict[str, Any]] = [
+        {"feature": target, "role": "target", "reason": "Modeling target"}
+    ]
+    for feature, reason in declared_excluded.items():
+        if feature == target or feature in declared_authorized:
+            continue
+        excluded_rows.append(
+            {
+                "feature": feature,
+                "role": (
+                    "target_source"
+                    if feature in target_source_names
+                    else "excluded"
+                ),
+                "reason": str(reason or "Not authorized during Data Acquisition"),
             }
         )
-    authorized = [column for column in preliminary if column not in target_sources]
-
-    manifest_excluded: dict[str, dict[str, Any]] = {}
-    for name, reason in (manifest.get("excluded_predictors") or {}).items():
-        name = str(name)
-        if name == target or name in authorized or name in target_sources:
+    recorded_exclusions = {
+        str(row.get("feature")) for row in excluded_rows if row.get("feature")
+    }
+    for name in target_source_names:
+        if name in recorded_exclusions:
             continue
-        manifest_excluded[name] = {
-            "feature": name,
-            "role": "excluded",
-            "reason": str(reason or "Not authorized during Data Acquisition"),
-        }
-
-    exclusion_rows = [
-        {"feature": target, "role": "target", "reason": "Modeling target"},
-        *[
+        excluded_rows.append(
             {
                 "feature": name,
                 "role": "target_source",
                 "reason": "Deterministic source of modeling target",
             }
-            for name in sorted(target_sources)
-        ],
-        *[role_excluded[name] for name in sorted(role_excluded)],
-        *[manifest_excluded[name] for name in sorted(manifest_excluded)],
-    ]
-    stable = {
-        "target": target,
-        "authorized": authorized,
-        "excluded": exclusion_rows,
-        "upstream": manifest.get("predictor_authorization_id")
-        or manifest.get("manifest_version"),
-        "dataset_id": DATASTORE.meta.get("dataset_id"),
-        "dataset_version_id": DATASTORE.meta.get("dataset_version_id"),
-    }
-    version = str(
+        )
+
+    authorization_id = str(
         manifest.get("predictor_authorization_id")
         or manifest.get("manifest_version")
-        or f"eda-pm-{hashlib.sha256(json.dumps(stable, sort_keys=True, default=str).encode('utf-8')).hexdigest()[:16]}"
+        or ""
     )
     return {
-        "manifest_version": version,
-        "source": (
-            "data_acquisition_predictor_authorization"
-            if durable_manifest_loaded
-            else "data_acquisition_selection_unverified"
-        ),
+        "manifest_version": authorization_id,
+        "predictor_authorization_id": authorization_id,
+        "source": "data_acquisition_predictor_authorization",
         "target": target,
-        "authorized_predictors": authorized,
-        "excluded": exclusion_rows,
-        "target_source_fields": list(target_sources.values()),
-        "target_source_excluded": sorted(target_sources),
+        # Preserve order and membership exactly as stored. Downstream requests
+        # may select a subset but may never add, remove, or reclassify entries
+        # while retaining this authorization ID.
+        "authorized_predictors": declared_authorized,
+        "excluded": excluded_rows,
+        "target_source_fields": target_source_fields,
+        "target_source_excluded": target_source_names,
     }
 
 
@@ -751,20 +1164,254 @@ class EDAWorkspaceService:
         self._contract_cache: OrderedDict[str, dict[str, Any]] = OrderedDict()
         self._max_cache_entries = max_cache_entries
 
-    def _dataset(self, request: EDAWorkspaceRequest) -> tuple[pd.DataFrame, str, pd.Series, str, Any, dict[str, Any]]:
-        # Every EDA calculation is downstream of activation. Resolve the exact
-        # immutable Library version before reading the ambient frame so stale
-        # checkpoints and legacy browser pseudo-versions fail closed.
-        assert_expected_active_identity(
-            request.project_id,
-            expected_dataset_id=getattr(request, "expected_dataset_id", None),
-            expected_dataset_version_id=getattr(
-                request,
-                "expected_dataset_version_id",
-                None,
+    @staticmethod
+    def _canonical_workspace_request(request: Any) -> EDAWorkspaceRequest:
+        """Copy one nested EDA request into the canonical workspace contract.
+
+        Nested analytical routes used to rebuild a reduced request containing
+        only the dataset/version triple.  That made activation, target,
+        predictor-authorization, partition, and special-review revisions
+        invisible to the authoritative validator.  Keep the conversion in one
+        place so every nested calculation is held to the same complete Data
+        Acquisition handoff as the primary EDA workspace.
+        """
+
+        return EDAWorkspaceRequest(
+            project_id=request.project_id,
+            dataset_id=request.dataset_id,
+            dataset_version_id=request.dataset_version_id,
+            activation_revision=request.activation_revision,
+            expected_dataset_id=request.expected_dataset_id,
+            expected_dataset_version_id=request.expected_dataset_version_id,
+            dataset_version=request.dataset_version,
+            target_contract_id=request.target_contract_id,
+            target=getattr(request, "target", None),
+            positive_value=request.positive_value,
+            negative_value=request.negative_value,
+            non_event_value=request.non_event_value,
+            event_value=getattr(request, "event_value", None),
+            problem_type=getattr(request, "problem_type", None),
+            predictor_authorization_id=request.predictor_authorization_id,
+            analysis_partition_id=request.analysis_partition_id,
+            analysis_partition_revision=request.analysis_partition_revision,
+            special_value_review_id=request.special_value_review_id,
+            special_value_review_revision=request.special_value_review_revision,
+            bureau_semantic_annotation_state=(
+                request.bureau_semantic_annotation_state
             ),
-            legacy_dataset_version=getattr(request, "dataset_version", None),
-            require_expected=True,
+            bureau_semantic_annotation_set_id=(
+                request.bureau_semantic_annotation_set_id
+            ),
+            bureau_semantic_annotation_set_checksum=(
+                request.bureau_semantic_annotation_set_checksum
+            ),
+            bureau_metadata_schema_checksum=(
+                request.bureau_metadata_schema_checksum
+            ),
+            bureau_metadata_binding_id=request.bureau_metadata_binding_id,
+            bureau_metadata_binding_revision=(
+                request.bureau_metadata_binding_revision
+            ),
+            bureau_metadata_binding_revision_checksum=(
+                request.bureau_metadata_binding_revision_checksum
+            ),
+            bureau_metadata_crosswalk_id=request.bureau_metadata_crosswalk_id,
+            bureau_metadata_crosswalk_revision=(
+                request.bureau_metadata_crosswalk_revision
+            ),
+            bureau_metadata_crosswalk_revision_checksum=(
+                request.bureau_metadata_crosswalk_revision_checksum
+            ),
+            bureau_metadata_catalog_version_id=(
+                request.bureau_metadata_catalog_version_id
+            ),
+            bureau_metadata_catalog_checksum=(
+                request.bureau_metadata_catalog_checksum
+            ),
+        )
+
+    @staticmethod
+    def _canonical_nested_response_lineage(
+        contract: dict[str, Any],
+        *,
+        analysis_source: str,
+        analysis_scope: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Return the exact lineage envelope required by all nested EDA UIs."""
+
+        decision_scope = dict(analysis_scope or {})
+        decision_scope.update(
+            {
+                "contractVersion": contract["contract_version"],
+                "mode": "governed_version",
+                "label": "Development Population",
+                "projectId": contract["project_id"],
+                "datasetId": contract["dataset_id"],
+                "datasetVersionId": contract["dataset_version_id"],
+                "activationRevision": contract["activation_revision"],
+                "target": contract["target"],
+                "targetContractId": contract["target_contract_id"],
+                "positiveValue": contract["positive_value"],
+                "negativeValue": contract["negative_value"],
+                "predictorAuthorizationId": contract[
+                    "predictor_authorization_id"
+                ],
+                "populationRows": contract["rows_used"],
+                "fullGovernedPopulationRows": contract["population_rows"],
+                "rowsExcluded": contract["rows_excluded"],
+                "exclusionReasons": list(contract["exclusion_reasons"]),
+                "analysisPopulationId": contract["analysis_population_id"],
+                "splitId": contract["split_id"],
+                # Snake-case aliases are retained because older consumers use
+                # these two fields when checking the same exact partition.
+                "partition_id": contract["analysis_partition_id"],
+                "partition_revision": contract["analysis_partition_revision"],
+                "analysisPartitionId": contract["analysis_partition_id"],
+                "analysisPartitionRevision": contract[
+                    "analysis_partition_revision"
+                ],
+                "analysisPartitionArtifactHash": contract[
+                    "analysis_partition_artifact_hash"
+                ],
+                "analysisPartitionAssignmentHash": contract[
+                    "analysis_partition_assignment_hash"
+                ],
+                "specialValueReviewId": contract[
+                    "special_value_review_id"
+                ],
+                "specialValueReviewRevision": contract[
+                    "special_value_review_revision"
+                ],
+                "exact": True,
+                "immutableVersion": True,
+                "analysisSource": analysis_source,
+                "artifactId": contract["artifact_id"],
+                "artifactHash": contract["artifact_hash"],
+                "finalHoldoutAccessed": False,
+                "finalHoldoutUsedForSelection": False,
+            }
+        )
+        semantic_lineage = _bureau_semantic_response_lineage(contract)
+        return {
+            "project_id": contract["project_id"],
+            "dataset_id": contract["dataset_id"],
+            "dataset_version_id": contract["dataset_version_id"],
+            "dataset_version": contract["dataset_version_id"],
+            "activation_revision": contract["activation_revision"],
+            "target": contract["target"],
+            "target_contract_id": contract["target_contract_id"],
+            "problem_type": contract["problem_type"],
+            "positive_value": contract["positive_value"],
+            "negative_value": contract["negative_value"],
+            "event_value": contract["positive_value"],
+            "non_event_value": contract["negative_value"],
+            "predictor_authorization_id": contract[
+                "predictor_authorization_id"
+            ],
+            "analysis_partition_id": contract["analysis_partition_id"],
+            "analysis_partition_revision": contract[
+                "analysis_partition_revision"
+            ],
+            "analysis_partition_artifact_hash": contract[
+                "analysis_partition_artifact_hash"
+            ],
+            "analysis_partition_assignment_hash": contract[
+                "analysis_partition_assignment_hash"
+            ],
+            "special_value_review_id": contract["special_value_review_id"],
+            "special_value_review_revision": contract[
+                "special_value_review_revision"
+            ],
+            "scope": "development_population",
+            "analysis_scope": decision_scope,
+            "final_holdout_accessed": False,
+            "final_holdout_used_for_selection": False,
+            **semantic_lineage,
+        }
+
+    @staticmethod
+    def _require_current_vif_plan_lineage(
+        plan: dict[str, Any],
+        contract: dict[str, Any],
+    ) -> None:
+        """Reject a saved VIF plan that predates or contradicts current lineage."""
+
+        inputs = plan.get("inputs") if isinstance(plan.get("inputs"), dict) else {}
+        governed = {
+            "project_id": contract["project_id"],
+            "dataset_id": contract["dataset_id"],
+            "dataset_version_id": contract["dataset_version_id"],
+            "activation_revision": contract["activation_revision"],
+            "target_contract_id": contract["target_contract_id"],
+            "target": contract["target"],
+            "positive_value": contract["positive_value"],
+            "negative_value": contract["negative_value"],
+            "predictor_authorization_id": contract[
+                "predictor_authorization_id"
+            ],
+            "analysis_partition_id": contract["analysis_partition_id"],
+            "analysis_partition_revision": contract[
+                "analysis_partition_revision"
+            ],
+            "special_value_review_id": contract["special_value_review_id"],
+            "special_value_review_revision": contract[
+                "special_value_review_revision"
+            ],
+        }
+        mismatches: list[str] = []
+        for field, expected in governed.items():
+            actual = inputs.get(field)
+            if actual is None and field in {
+                "project_id",
+                "dataset_id",
+                "dataset_version_id",
+            }:
+                actual = plan.get(field)
+            if actual is None or not _same_lineage_scalar(actual, expected):
+                mismatches.append(field)
+        current_semantic = dict(
+            contract.get("bureau_semantic_identity") or {}
+        )
+        plan_semantic = {}
+        if inputs.get("bureau_semantic_annotation_state") is not None:
+            plan_semantic = {
+                "bureau_semantic_annotation_state": inputs.get(
+                    "bureau_semantic_annotation_state"
+                ),
+                **{
+                    field: inputs.get(field)
+                    for field in _BUREAU_SEMANTIC_IDENTITY_FIELDS
+                },
+            }
+        if plan_semantic != current_semantic:
+            mismatches.append("bureau_semantic_identity")
+        if mismatches:
+            raise EDAAnalyticalContractError(
+                "The saved VIF resolution plan does not match the current "
+                "canonical Data Acquisition lineage: "
+                + ", ".join(mismatches)
+                + ".",
+                code="vif_resolution_plan_stale",
+                recovery=(
+                    "Regenerate the VIF resolution plan from the current "
+                    "project-scoped EDA Relationships workspace."
+                ),
+                stale_artifacts=["relationship_eda", "vif_resolution_plan"],
+            )
+
+    def _dataset(
+        self,
+        request: EDAWorkspaceRequest,
+        *,
+        canonical_lineage_required: bool = False,
+    ) -> tuple[pd.DataFrame, str, pd.Series, str, Any, dict[str, Any]]:
+        # Resolve the durable active identity without consulting browser
+        # assertions first.  Request lineage is deliberately compare-only and
+        # is checked only after all actual Data Acquisition prerequisites have
+        # resolved, so it cannot mask the real blocking authority.
+        active_identity = assert_expected_active_identity(
+            request.project_id,
+            require_expected=False,
         )
         # EDA is an upstream analytical stage.  Reopening it after preparation
         # or Feature Engineering must not silently switch its evidence base to
@@ -788,11 +1435,14 @@ class EDAWorkspaceService:
             _restore_target_from_exact_predictor_authorization(
                 source_frame,
                 project_id=request.project_id,
-                requested_target=request.target,
+                requested_target=None,
             )
         )
-        active = DATASTORE.get_raw_active_df()
-        if active is None or active.empty or target not in active.columns:
+        # The exact durable authorization, not process-local selected-column
+        # metadata, defines the EDA inventory. Start from the registered source
+        # frame and project it only after the manifest has been verified.
+        active = source_frame.copy(deep=True)
+        if active.empty or target not in active.columns:
             raise EDAAnalyticalContractError(
                 "The exact active dataset projection is unavailable for EDA.",
                 code="dataset_artifact_unavailable",
@@ -836,13 +1486,104 @@ class EDAWorkspaceService:
                     scoped_store.meta.get("target_contract_id") or ""
                 )
                 or None,
+                predictor_authorization_id=str(
+                    scoped_store.meta.get("predictor_authorization_id") or ""
+                )
+                or None,
                 require_documentation_ready=True,
             )
             target_authority = resolve_partition_target_authority(
                 partition,
                 target=target,
-                requested_problem_type=request.problem_type,
-                requested_event_value=request.event_value,
+                requested_problem_type=(
+                    None
+                    if canonical_lineage_required
+                    else request.problem_type
+                ),
+                requested_event_value=(
+                    None if canonical_lineage_required else request.event_value
+                ),
+            )
+            # Resolve every durable prerequisite and compare the complete
+            # browser handoff before materializing any target values. This
+            # order ensures an incomplete/stale Special-Value Review or
+            # canonical lineage fails without performing target-aware work.
+            predictor_authorization_id = _lineage_text(
+                durable_manifest.get("predictor_authorization_id")
+                or durable_manifest.get("manifest_version")
+                or scoped_store.meta.get("predictor_authorization_id")
+            )
+            special_value_review = _resolve_current_special_value_review(
+                identity=active_identity,
+                target_contract_id=_lineage_text(
+                    target_authority.get("target_contract_id")
+                ),
+                predictor_authorization_id=predictor_authorization_id,
+            )
+            if canonical_lineage_required:
+                confirmed_identity = assert_expected_active_identity(
+                    request.project_id,
+                    require_expected=False,
+                )
+                stable_identity_fields = (
+                    "project_id",
+                    "dataset_id",
+                    "dataset_version_id",
+                    "activation_revision",
+                )
+                if any(
+                    _lineage_text(confirmed_identity.get(field))
+                    != _lineage_text(active_identity.get(field))
+                    for field in stable_identity_fields
+                ):
+                    raise EDAAnalyticalContractError(
+                        "The active Dataset Library identity changed while EDA prerequisites were being verified.",
+                        code="dataset_activation_revision_stale",
+                        recovery=(
+                            "Reload Data Acquisition and retry from the current "
+                            "activation revision."
+                        ),
+                    )
+                _validate_canonical_handoff_request(
+                    request,
+                    identity=confirmed_identity,
+                    target_authority=target_authority,
+                    predictor_authorization_id=predictor_authorization_id,
+                    partition=partition,
+                    special_value_review=special_value_review,
+                )
+            else:
+                # Transitional non-target callers still compare exact dataset
+                # identity, but they do not gain access to target association.
+                assert_expected_active_identity(
+                    request.project_id,
+                    expected_dataset_id=getattr(
+                        request,
+                        "expected_dataset_id",
+                        None,
+                    ),
+                    expected_dataset_version_id=getattr(
+                        request,
+                        "expected_dataset_version_id",
+                        None,
+                    ),
+                    legacy_dataset_version=getattr(
+                        request,
+                        "dataset_version",
+                        None,
+                    ),
+                    require_expected=False,
+                )
+            scoped_store.meta.update(
+                {
+                    "special_value_review": special_value_review,
+                    "special_value_review_id": special_value_review[
+                        "special_value_review_id"
+                    ],
+                    "special_value_review_revision": int(
+                        special_value_review["revision"]
+                    ),
+                }
             )
             _development_features, development_target = (
                 analysis_partition_service.materialize_development(
@@ -883,6 +1624,25 @@ class EDAWorkspaceService:
                 )
             problem = str(target_authority["problem_type"])
             event = target_authority["positive_value"]
+            if (
+                not canonical_lineage_required
+                and request.target
+                and _lineage_text(request.target) != target
+            ):
+                raise EDAAnalyticalContractError(
+                    "The requested target does not match the exact Data Acquisition target contract.",
+                    code="target_contract_stale",
+                    recovery=(
+                        "Reload Data Acquisition and retry with its governed "
+                        "target for the exact active dataset version."
+                    ),
+                    stale_artifacts=[
+                        "target_eda",
+                        "predictor_eda",
+                        "relationship_eda",
+                    ],
+                )
+
             target_contract = (
                 scoped_store.meta.get("target_contract")
                 if isinstance(scoped_store.meta.get("target_contract"), dict)
@@ -987,33 +1747,17 @@ class EDAWorkspaceService:
         contract: dict[str, Any],
     ) -> str:
         source_frame = DATASTORE.get_base_df()
-        scoped_store = DATASTORE.current()
-        split_record = (
-            scoped_store.meta.get("analysis_partition")
-            if isinstance(scoped_store.meta.get("analysis_partition"), dict)
+        # ``contract`` was built only after resolving the current exact
+        # durable partition. Never allow a process-local metadata snapshot to
+        # select or identify a cached governed result.
+        development_scope = (
+            contract.get("development_scope")
+            if isinstance(contract.get("development_scope"), dict)
             else {}
         )
-        if not split_record:
-            try:
-                from ..analysis_partition.service import analysis_partition_service
-
-                durable_partition = analysis_partition_service.current(
-                    request.project_id,
-                    str(scoped_store.meta.get("dataset_id") or ""),
-                    str(scoped_store.meta.get("dataset_version_id") or ""),
-                    target=target,
-                    target_contract_id=str(
-                        scoped_store.meta.get("target_contract_id") or ""
-                    )
-                    or None,
-                    require_documentation_ready=True,
-                )
-                split_record = analysis_partition_service.publish_safe(
-                    scoped_store, durable_partition
-                )
-            except (ImportError, ValueError, RuntimeError):
-                split_record = {}
-        development_fingerprint = split_record.get("artifact_hash")
+        development_fingerprint = development_scope.get(
+            "analysis_partition_artifact_hash"
+        )
         payload = {
             "section": section,
             "project_id": request.project_id,
@@ -1022,8 +1766,14 @@ class EDAWorkspaceService:
             # authorized workspace from reusing another workspace's response.
             "workspace_instance": id(source_frame) if source_frame is not None else None,
             "data_revision": int(getattr(DATASTORE, "data_revision", 0)),
-            "split_id": split_record.get("analysis_partition_id"),
-            "split_status": split_record.get("status"),
+            "split_id": contract.get("analysis_partition_id"),
+            "split_revision": contract.get("analysis_partition_revision"),
+            "split_status": development_scope.get(
+                "analysis_partition_status"
+            ),
+            "split_assignment_hash": development_scope.get(
+                "analysis_partition_assignment_hash"
+            ),
             "development_fingerprint": development_fingerprint,
             "development_target_fingerprint": (
                 (contract.get("target_artifact") or {}).get("artifact_hash")
@@ -1031,8 +1781,25 @@ class EDAWorkspaceService:
             # Content identity, so a replacement upload with the same shape can
             # never be served the previous dataset's cached section.
             "workspace_fingerprint": fingerprint,
-            "dataset_id": DATASTORE.meta.get("dataset_id"),
-            "dataset_version_id": DATASTORE.meta.get("dataset_version_id"),
+            "dataset_id": contract.get("dataset_id"),
+            "dataset_version_id": contract.get("dataset_version_id"),
+            "activation_revision": contract.get("activation_revision"),
+            "target_contract_id": contract.get("target_contract_id"),
+            "predictor_authorization_id": contract.get(
+                "predictor_authorization_id"
+            ),
+            "analysis_partition_revision": contract.get(
+                "analysis_partition_revision"
+            ),
+            "special_value_review_id": contract.get(
+                "special_value_review_id"
+            ),
+            "special_value_review_revision": contract.get(
+                "special_value_review_revision"
+            ),
+            "bureau_semantic_identity": contract.get(
+                "bureau_semantic_identity"
+            ),
             "shape": list(df.shape),
             "target": target,
             "event_value": contract.get("positive_value"),
@@ -1064,37 +1831,12 @@ class EDAWorkspaceService:
         """Resolve the single development-scoped artifact shared by all tabs."""
 
         scoped_store = DATASTORE.current()
-        split_record = (
-            scoped_store.meta.get("analysis_partition")
-            if isinstance(scoped_store.meta.get("analysis_partition"), dict)
-            else {}
-        )
-        if not split_record:
-            try:
-                from ..analysis_partition.service import analysis_partition_service
-
-                durable_partition = analysis_partition_service.current(
-                    request.project_id,
-                    str(scoped_store.meta.get("dataset_id") or ""),
-                    str(scoped_store.meta.get("dataset_version_id") or ""),
-                    target=target,
-                    target_contract_id=str(
-                        scoped_store.meta.get("target_contract_id") or ""
-                    )
-                    or None,
-                    require_documentation_ready=True,
-                )
-                split_record = analysis_partition_service.publish_safe(
-                    scoped_store, durable_partition
-                )
-            except (ImportError, ValueError, RuntimeError):
-                split_record = {}
         source = (
             scoped_store.meta.get("source")
             if isinstance(scoped_store.meta.get("source"), dict)
             else {}
         )
-        _development, development_target, _development_scope = (
+        _development, development_target, development_scope = (
             resolve_development_partition(
                 store=scoped_store,
                 identity={
@@ -1113,23 +1855,66 @@ class EDAWorkspaceService:
                 predictor_manifest_id=str(
                     authorization.get("manifest_version") or ""
                 ),
+                expected_analysis_partition_id=(
+                    _lineage_text(request.analysis_partition_id) or None
+                ),
+                expected_analysis_partition_revision=(
+                    request.analysis_partition_revision
+                ),
             )
         )
         cache_identity = {
             "project_id": request.project_id,
             "dataset_id": scoped_store.meta.get("dataset_id"),
             "dataset_version_id": scoped_store.meta.get("dataset_version_id"),
+            "activation_revision": scoped_store.meta.get(
+                "activation_revision"
+            ),
             "target": target,
+            "target_contract_id": scoped_store.meta.get(
+                "target_contract_id"
+            ),
             "event": event,
             "predictor_manifest_id": authorization.get("manifest_version"),
-            "split_id": split_record.get("analysis_partition_id"),
-            "split_status": split_record.get("status"),
+            "split_id": development_scope.get("analysis_partition_id"),
+            "split_revision": development_scope.get(
+                "analysis_partition_revision"
+            ),
+            "split_status": development_scope.get(
+                "analysis_partition_status"
+            ),
+            "split_artifact_hash": development_scope.get(
+                "analysis_partition_artifact_hash"
+            ),
+            "split_assignment_hash": development_scope.get(
+                "analysis_partition_assignment_hash"
+            ),
+            "partition_predictor_authorization_id": development_scope.get(
+                "partition_predictor_authorization_id"
+            ),
+            "current_predictor_authorization_id": development_scope.get(
+                "current_predictor_authorization_id"
+            ),
+            # `_dataset` just re-read and validated this exact durable review
+            # before any target materialization. These values are therefore a
+            # verified authority snapshot, not ambient checkpoint fallback.
+            "special_value_review_id": scoped_store.meta.get(
+                "special_value_review_id"
+            ),
+            "special_value_review_revision": scoped_store.meta.get(
+                "special_value_review_revision"
+            ),
             "data_revision": int(getattr(scoped_store, "data_revision", 0)),
-            "development_fingerprint": split_record.get("artifact_hash"),
+            "development_fingerprint": development_scope.get(
+                "analysis_partition_artifact_hash"
+            ),
             "development_target_fingerprint": (
                 self._development_target_fingerprint(development_target)
             ),
             "full_population_fingerprint": self._fingerprint(df, target, source),
+            "bureau_semantic_identity": _bureau_semantic_request_identity(
+                request
+            ),
         }
         cache_key = hashlib.sha256(
             json.dumps(cache_identity, sort_keys=True, default=str).encode("utf-8")
@@ -1146,6 +1931,20 @@ class EDAWorkspaceService:
             authorization=authorization,
             store=scoped_store,
             requested_bins=10,
+            expected_analysis_partition_id=str(
+                development_scope.get("analysis_partition_id") or ""
+            )
+            or None,
+            expected_analysis_partition_revision=int(
+                development_scope.get("analysis_partition_revision") or 0
+            ),
+        )
+        # This bounded identity has already been verified at the authenticated
+        # HTTP boundary.  It does not change the analytical artifact or expose
+        # catalog definitions; it only pins response/cache lineage to the same
+        # exact Data Acquisition metadata revision.
+        contract["bureau_semantic_identity"] = (
+            _bureau_semantic_request_identity(request)
         )
         self._contract_cache[cache_key] = contract
         while len(self._contract_cache) > min(self._max_cache_entries, 12):
@@ -1543,6 +2342,12 @@ class EDAWorkspaceService:
                         target=contract["target"],
                         authorized_predictors=list(predictor_artifacts),
                         predictor_manifest_id=contract["predictor_manifest_id"],
+                        expected_analysis_partition_id=contract[
+                            "analysis_partition_id"
+                        ],
+                        expected_analysis_partition_revision=contract[
+                            "analysis_partition_revision"
+                        ],
                     )
                 )
                 sample = development_features.loc[:, pairwise_features].apply(
@@ -1797,8 +2602,18 @@ class EDAWorkspaceService:
                     }
                 )
 
-    def _cached(self, section: str, request: EDAWorkspaceRequest, factory: Callable[..., dict[str, Any]]) -> dict[str, Any]:
-        df, target, y, problem, event, authorization = self._dataset(request)
+    def _cached(
+        self,
+        section: str,
+        request: EDAWorkspaceRequest,
+        factory: Callable[..., dict[str, Any]],
+        *,
+        canonical_lineage_required: bool = False,
+    ) -> dict[str, Any]:
+        df, target, y, problem, event, authorization = self._dataset(
+            request,
+            canonical_lineage_required=canonical_lineage_required,
+        )
         source = DATASTORE.meta.get("source") if isinstance(DATASTORE.meta.get("source"), dict) else {}
         fingerprint = self._fingerprint(df, target, source)
         # Resolve and validate the exact governed development contract before
@@ -1817,7 +2632,7 @@ class EDAWorkspaceService:
                 authorization=authorization,
             )
         except EDAAnalyticalContractError as exc:
-            if section != "overview":
+            if section != "overview" or canonical_lineage_required:
                 raise
             # Structural Overview remains available while target-directed EDA
             # is fail-closed.  This response deliberately contains no IV, WOE,
@@ -1937,6 +2752,12 @@ class EDAWorkspaceService:
                     "authorized_predictors"
                 ],
                 predictor_manifest_id=contract["predictor_manifest_id"],
+                expected_analysis_partition_id=contract[
+                    "analysis_partition_id"
+                ],
+                expected_analysis_partition_revision=contract[
+                    "analysis_partition_revision"
+                ],
             )
         )
         if section == "overview":
@@ -2002,13 +2823,30 @@ class EDAWorkspaceService:
             "projectId": contract["project_id"],
             "datasetId": contract["dataset_id"],
             "datasetVersionId": contract["dataset_version_id"],
+            "activationRevision": contract["activation_revision"],
             "target": contract["target"],
+            "targetContractId": contract["target_contract_id"],
+            "positiveValue": contract["positive_value"],
+            "negativeValue": contract["negative_value"],
+            "predictorAuthorizationId": contract[
+                "predictor_authorization_id"
+            ],
             "populationRows": contract["rows_used"],
             "fullGovernedPopulationRows": contract["population_rows"],
             "rowsExcluded": contract["rows_excluded"],
             "exclusionReasons": contract["exclusion_reasons"],
             "analysisPopulationId": contract["analysis_population_id"],
             "splitId": contract["split_id"],
+            "analysisPartitionId": contract["analysis_partition_id"],
+            "analysisPartitionRevision": contract[
+                "analysis_partition_revision"
+            ],
+            "specialValueReviewId": contract[
+                "special_value_review_id"
+            ],
+            "specialValueReviewRevision": contract[
+                "special_value_review_revision"
+            ],
             "exact": True,
             "sampled": False,
             "immutableVersion": True,
@@ -2040,6 +2878,23 @@ class EDAWorkspaceService:
             "event_value": _json_value(event),
             "dataset_id": DATASTORE.meta.get("dataset_id"),
             "dataset_version_id": DATASTORE.meta.get("dataset_version_id"),
+            "activation_revision": contract["activation_revision"],
+            "target_contract_id": contract["target_contract_id"],
+            "positive_value": contract["positive_value"],
+            "negative_value": contract["negative_value"],
+            "predictor_authorization_id": contract[
+                "predictor_authorization_id"
+            ],
+            "analysis_partition_id": contract["analysis_partition_id"],
+            "analysis_partition_revision": contract[
+                "analysis_partition_revision"
+            ],
+            "special_value_review_id": contract[
+                "special_value_review_id"
+            ],
+            "special_value_review_revision": contract[
+                "special_value_review_revision"
+            ],
             "dataset_version": str(DATASTORE.meta.get("dataset_version_id") or "unresolved"),
             "generated_at": _now(),
             "duration_ms": int((time.perf_counter() - started) * 1000),
@@ -2053,13 +2908,20 @@ class EDAWorkspaceService:
                 for feature in request.selected_features
                 if feature not in authorization["authorized_predictors"]
             ],
+            **_bureau_semantic_response_lineage(contract),
         })
         self._cache[key] = result
         while len(self._cache) > self._max_cache_entries:
             self._cache.popitem(last=False)
         return result
 
-    def section(self, section: str, request: EDAWorkspaceRequest) -> dict[str, Any]:
+    def section(
+        self,
+        section: str,
+        request: EDAWorkspaceRequest,
+        *,
+        canonical_lineage_required: bool = False,
+    ) -> dict[str, Any]:
         factories: dict[str, Callable[..., dict[str, Any]]] = {
             "overview": self._overview,
             "target": self._target,
@@ -2073,7 +2935,236 @@ class EDAWorkspaceService:
             raise ValueError(f"Unsupported EDA section '{section}'.")
         scoped_store = DATASTORE.current()
         with scoped_store.state_lock:
-            return self._cached(section, request, factories[section])
+            return self._cached(
+                section,
+                request,
+                factories[section],
+                canonical_lineage_required=canonical_lineage_required,
+            )
+
+    def predictor_only_relationships(
+        self,
+        request: EDAWorkspaceRequest,
+    ) -> dict[str, Any]:
+        """Return target-free correlation/VIF for Feature Engineering.
+
+        This compatibility surface is intentionally separate from governed
+        EDA Relationships. It uses exact dataset identity plus the persisted,
+        materialized Feature Manifest, performs only target-independent
+        structural calculations, and never returns target association,
+        target-colored samples, or development/final-holdout membership.
+        """
+
+        identity = assert_expected_active_identity(
+            request.project_id,
+            expected_dataset_id=request.expected_dataset_id
+            or request.dataset_id,
+            expected_dataset_version_id=(
+                request.expected_dataset_version_id
+                or request.dataset_version_id
+            ),
+            legacy_dataset_version=request.dataset_version,
+            require_expected=True,
+        )
+        scoped_store = DATASTORE.current()
+        with scoped_store.state_lock:
+            # Feature Engineering persists its exact project/dataset/version
+            # manifest before enabling VIF. Resolve that target-free authority
+            # directly; do not restore the target, target contract, Analysis
+            # Partition, or Special-Value Review on this compatibility path.
+            from ..features.feature_manifest_store import load_current_manifest
+
+            feature_manifest = load_current_manifest(
+                {
+                    "project_id": identity["project_id"],
+                    "dataset_id": identity["dataset_id"],
+                    "dataset_version_id": identity["dataset_version_id"],
+                }
+            )
+            if not isinstance(feature_manifest, dict):
+                raise EDAAnalyticalContractError(
+                    "The exact persisted Feature Manifest is required for predictor-only diagnostics.",
+                    code="feature_manifest_required",
+                    recovery=(
+                        "Save and materialize the current Feature Engineering "
+                        "plan before running VIF diagnostics."
+                    ),
+                )
+            if str(feature_manifest.get("materialization_status") or "") != (
+                "current"
+            ):
+                raise EDAAnalyticalContractError(
+                    "The persisted Feature Manifest is not currently materialized.",
+                    code="feature_manifest_stale",
+                    recovery=(
+                        "Materialize the current Feature Engineering plan "
+                        "before running VIF diagnostics."
+                    ),
+                )
+            frame = scoped_store.get_base_df()
+            if frame is None or frame.empty:
+                raise EDAAnalyticalContractError(
+                    "The exact active dataset artifact is unavailable for predictor-only diagnostics.",
+                    code="dataset_artifact_unavailable",
+                    recovery=(
+                        "Return to Data Acquisition and reopen the exact "
+                        "registered Dataset Library version."
+                    ),
+                )
+            materialized_manifest_hash = str(
+                feature_manifest.get("materialized_manifest_hash") or ""
+            )
+            manifest_hash = str(
+                feature_manifest.get("manifest_hash")
+                or feature_manifest.get("manifest_version")
+                or ""
+            )
+            if not manifest_hash or materialized_manifest_hash != manifest_hash:
+                raise EDAAnalyticalContractError(
+                    "The persisted Feature Manifest does not match the materialized feature frame.",
+                    code="feature_manifest_stale",
+                    recovery=(
+                        "Materialize the current Feature Engineering plan "
+                        "before running VIF diagnostics."
+                    ),
+                )
+            authorized_order = [
+                str(row.get("feature_name") or "").strip()
+                for row in (feature_manifest.get("features") or [])
+                if isinstance(row, dict)
+                and bool(row.get("selected"))
+                and str(row.get("eligibility_status") or "") == "eligible"
+                and str(row.get("feature_name") or "").strip()
+            ]
+            authorized = set(authorized_order)
+            selected = [
+                str(value).strip()
+                for value in request.selected_features
+                if str(value).strip()
+            ]
+            rejected = [
+                {
+                    "field": feature,
+                    "role": "predictor_only_diagnostic",
+                    "reason": "Not present in the exact durable predictor authorization",
+                }
+                for feature in selected
+                if feature not in authorized or feature not in frame.columns
+            ]
+            if rejected:
+                raise RelationshipSampleValidationError(rejected)
+            candidates = selected or [
+                feature
+                for feature in authorized_order
+                if feature in frame.columns
+            ]
+            numeric_data: dict[str, pd.Series] = {}
+            for feature in candidates:
+                numeric, is_numeric = _numeric_series(frame[feature])
+                if is_numeric and int(numeric.notna().sum()) >= 3:
+                    numeric_data[feature] = numeric.replace(
+                        [np.inf, -np.inf], np.nan
+                    )
+            numeric_df = pd.DataFrame(numeric_data)
+            correlation = (
+                numeric_df.corr()
+                if numeric_df.shape[1] >= 2
+                else pd.DataFrame()
+            )
+            correlation_n_matrix = (
+                [
+                    [
+                        int(
+                            (
+                                numeric_df[left].notna()
+                                & numeric_df[right].notna()
+                            ).sum()
+                        )
+                        for right in correlation.columns
+                    ]
+                    for left in correlation.columns
+                ]
+                if not correlation.empty
+                else []
+            )
+            strong_pairs: list[dict[str, Any]] = []
+            if not correlation.empty:
+                for left_index, left in enumerate(correlation.columns):
+                    for right in correlation.columns[left_index + 1 :]:
+                        value = _finite(correlation.loc[left, right])
+                        if value is not None and abs(value) >= 0.7:
+                            strong_pairs.append(
+                                {
+                                    "feature_a": str(left),
+                                    "feature_b": str(right),
+                                    "correlation": value,
+                                }
+                            )
+                strong_pairs.sort(
+                    key=lambda row: abs(float(row["correlation"])),
+                    reverse=True,
+                )
+            vif_frame, vif_scope = self._prepare_vif_frame(numeric_df)
+            vif_rows = self._vif(vif_frame)
+            for row in vif_rows:
+                feature = str(row["feature"])
+                row["top_relationships"] = sorted(
+                    [
+                        {
+                            "feature": str(partner),
+                            "correlation": _finite(
+                                correlation.loc[feature, partner]
+                            ),
+                        }
+                        for partner in correlation.columns
+                        if partner != feature
+                        and _finite(correlation.loc[feature, partner])
+                        is not None
+                    ],
+                    key=lambda item: abs(
+                        float(item["correlation"] or 0)
+                    ),
+                    reverse=True,
+                )[:5]
+            return {
+                "ok": True,
+                "analysis_mode": "predictor_only_diagnostic",
+                "scope": "full_governed_population_structural_only",
+                "project_id": identity["project_id"],
+                "dataset_id": identity["dataset_id"],
+                "dataset_version_id": identity["dataset_version_id"],
+                "dataset_version": identity["dataset_version_id"],
+                "activation_revision": identity.get(
+                    "activation_revision"
+                ),
+                "feature_manifest_id": manifest_hash,
+                "correlation_columns": [
+                    str(column) for column in correlation.columns
+                ],
+                "correlation_matrix": (
+                    [
+                        [_finite(value) for value in row]
+                        for row in correlation.to_numpy()
+                    ]
+                    if not correlation.empty
+                    else []
+                ),
+                "correlation_n_matrix": correlation_n_matrix,
+                "strong_pairs": strong_pairs[:100],
+                "vif": vif_rows,
+                "vif_scope": {
+                    **vif_scope,
+                    "scope": "full_governed_population_structural_only",
+                    "target_accessed": False,
+                    "final_holdout_accessed": False,
+                },
+                "target_accessed": False,
+                "target_association_exposed": False,
+                "target_association": [],
+                "pairwise_sample": [],
+                "final_holdout_accessed": False,
+                "generated_at": _now(),
+            }
 
     def authorized_dataset(
         self,
@@ -2119,6 +3210,13 @@ class EDAWorkspaceService:
                 ),
             )
         scoped_store = DATASTORE.current()
+        contract = self._governed_contract(
+            request=request,
+            df=_full,
+            target=target,
+            event=event,
+            authorization=authorization,
+        )
         development, development_target, scope = resolve_development_partition(
             store=scoped_store,
             identity={
@@ -2133,6 +3231,12 @@ class EDAWorkspaceService:
             predictor_manifest_id=str(
                 authorization.get("manifest_version") or ""
             ),
+            expected_analysis_partition_id=contract[
+                "analysis_partition_id"
+            ],
+            expected_analysis_partition_revision=contract[
+                "analysis_partition_revision"
+            ],
         )
         result = development.copy(deep=True)
         if include_target:
@@ -2459,14 +3563,11 @@ class EDAWorkspaceService:
         request: TargetByPredictorRequest,
     ) -> dict[str, Any]:
         started = time.perf_counter()
-        base = EDAWorkspaceRequest(
-            project_id=request.project_id, target=request.target,
-            event_value=request.event_value, problem_type=request.problem_type,
-            expected_dataset_id=request.expected_dataset_id,
-            expected_dataset_version_id=request.expected_dataset_version_id,
-            dataset_version=request.dataset_version,
+        base = self._canonical_workspace_request(request)
+        df, target, y, problem, event, _authorization = self._dataset(
+            base,
+            canonical_lineage_required=True,
         )
-        df, target, y, problem, event, _authorization = self._dataset(base)
 
         # Resolve and verify the documented Analysis Partition before any
         # target-directed validation.  Without this ordering a numeric binary
@@ -2507,6 +3608,12 @@ class EDAWorkspaceService:
                 target=target,
                 authorized_predictors=_authorization["authorized_predictors"],
                 predictor_manifest_id=contract["predictor_manifest_id"],
+                expected_analysis_partition_id=contract[
+                    "analysis_partition_id"
+                ],
+                expected_analysis_partition_revision=contract[
+                    "analysis_partition_revision"
+                ],
             )
         )
         frame = pd.DataFrame(
@@ -2720,6 +3827,13 @@ class EDAWorkspaceService:
             "finalHoldoutUsedForSelection": False,
             "cached": False,
             "durationMs": int((time.perf_counter() - started) * 1000),
+            **self._canonical_nested_response_lineage(
+                contract,
+                analysis_source=(
+                    "eda.governed_analytical_contract.target_by_predictor"
+                ),
+                analysis_scope=scope,
+            ),
             **extras,
         }
 
@@ -2735,16 +3849,11 @@ class EDAWorkspaceService:
         request: EDAVifSimulationRequest,
     ) -> dict[str, Any]:
         started = time.perf_counter()
-        base = EDAWorkspaceRequest(
-            project_id=request.project_id,
-            target=request.target,
-            event_value=request.event_value,
-            problem_type=request.problem_type,
-            expected_dataset_id=request.expected_dataset_id,
-            expected_dataset_version_id=request.expected_dataset_version_id,
-            dataset_version=request.dataset_version,
+        base = self._canonical_workspace_request(request)
+        df, target, _y, _problem, event, authorization = self._dataset(
+            base,
+            canonical_lineage_required=True,
         )
-        df, target, _y, _problem, event, authorization = self._dataset(base)
         contract = self._governed_contract(
             request=base,
             df=df,
@@ -2766,6 +3875,12 @@ class EDAWorkspaceService:
             target=target,
             authorized_predictors=authorization["authorized_predictors"],
             predictor_manifest_id=contract["predictor_manifest_id"],
+            expected_analysis_partition_id=contract[
+                "analysis_partition_id"
+            ],
+            expected_analysis_partition_revision=contract[
+                "analysis_partition_revision"
+            ],
         )
         numeric_df = self._governed_ordinary_numeric_frame(
             development,
@@ -2825,6 +3940,10 @@ class EDAWorkspaceService:
             "current_vif_artifact_basis": "governed_development_ordinary_numeric_complete_case",
             "final_holdout_accessed": False,
             "duration_ms": int((time.perf_counter() - started) * 1000),
+            **self._canonical_nested_response_lineage(
+                contract,
+                analysis_source="eda.governed_analytical_contract.vif_simulation",
+            ),
         }
 
     def vif_resolution_plan(
@@ -2843,23 +3962,23 @@ class EDAWorkspaceService:
     ) -> dict[str, Any]:
         started = time.perf_counter()
         scoped_store = DATASTORE.current()
-        base = EDAWorkspaceRequest(
-            project_id=request.project_id,
-            target=request.target,
-            event_value=request.event_value,
-            problem_type=request.problem_type,
-            expected_dataset_id=request.expected_dataset_id,
-            expected_dataset_version_id=request.expected_dataset_version_id,
-            dataset_version=request.dataset_version,
+        base = self._canonical_workspace_request(request)
+        df, target, _y, problem, event, authorization = self._dataset(
+            base,
+            canonical_lineage_required=True,
         )
-        df, target, _y, problem, event, authorization = self._dataset(base)
-        identity = assert_expected_active_identity(
-            request.project_id,
-            expected_dataset_id=request.expected_dataset_id,
-            expected_dataset_version_id=request.expected_dataset_version_id,
-            legacy_dataset_version=request.dataset_version,
-            require_expected=True,
+        contract = self._governed_contract(
+            request=base,
+            df=df,
+            target=target,
+            event=event,
+            authorization=authorization,
         )
+        identity = {
+            "project_id": contract["project_id"],
+            "dataset_id": contract["dataset_id"],
+            "dataset_version_id": contract["dataset_version_id"],
+        }
         authorized = [
             str(feature)
             for feature in authorization.get("authorized_predictors", [])
@@ -2892,6 +4011,12 @@ class EDAWorkspaceService:
             target=target,
             authorized_predictors=authorized,
             predictor_manifest_id=str(authorization.get("manifest_version") or ""),
+            expected_analysis_partition_id=contract[
+                "analysis_partition_id"
+            ],
+            expected_analysis_partition_revision=contract[
+                "analysis_partition_revision"
+            ],
         )
         analysis_df = development.copy(deep=True)
         analysis_df[target] = development_target
@@ -2901,14 +4026,6 @@ class EDAWorkspaceService:
         split_id = resolved_scope["split_id"]
         final_holdout_rows_excluded = int(resolved_scope["rows_excluded"])
         exact_development_partition = True
-
-        contract = self._governed_contract(
-            request=base,
-            df=df,
-            target=target,
-            event=event,
-            authorization=authorization,
-        )
 
         numeric_df = self._governed_ordinary_numeric_frame(
             development,
@@ -3007,6 +4124,11 @@ class EDAWorkspaceService:
             "proposed": analysis["proposed"],
         }
         digest = plan_hash(plan_basis)
+        lineage = self._canonical_nested_response_lineage(
+            contract,
+            analysis_source="eda.governed_analytical_contract.vif_resolution_plan",
+            analysis_scope=analysis["analysis_scope"],
+        )
         record = save_generated_plan(
             {
                 "ok": True,
@@ -3020,6 +4142,7 @@ class EDAWorkspaceService:
                 "predictor_authorization": authorization,
                 "inputs": request.model_dump(mode="json"),
                 **analysis,
+                **lineage,
                 "duration_ms": int((time.perf_counter() - started) * 1000),
             }
         )
@@ -3033,13 +4156,23 @@ class EDAWorkspaceService:
     ) -> dict[str, Any]:
         """Record plan governance without changing data or the feature manifest."""
 
-        identity = assert_expected_active_identity(
-            request.project_id,
-            expected_dataset_id=request.expected_dataset_id,
-            expected_dataset_version_id=request.expected_dataset_version_id,
-            legacy_dataset_version=request.dataset_version,
-            require_expected=True,
+        base = self._canonical_workspace_request(request)
+        df, target, _y, _problem, event, authorization = self._dataset(
+            base,
+            canonical_lineage_required=True,
         )
+        contract = self._governed_contract(
+            request=base,
+            df=df,
+            target=target,
+            event=event,
+            authorization=authorization,
+        )
+        identity = {
+            "project_id": contract["project_id"],
+            "dataset_id": contract["dataset_id"],
+            "dataset_version_id": contract["dataset_version_id"],
+        }
         plan = get_plan(
             request.project_id,
             identity["dataset_id"],
@@ -3048,6 +4181,7 @@ class EDAWorkspaceService:
         )
         if plan is None:
             raise ValueError("The exact VIF resolution plan was not found.")
+        self._require_current_vif_plan_lineage(plan, contract)
         if request.action == "send_to_feature_engineering" and plan.get("status") not in {
             "accepted",
             "partially_accepted",
@@ -3178,6 +4312,10 @@ class EDAWorkspaceService:
             "evidence": evidence,
             "governed_feature_set_changed": False,
             "dataset_mutated": False,
+            **self._canonical_nested_response_lineage(
+                contract,
+                analysis_source="eda.governed_analytical_contract.vif_resolution_decision",
+            ),
         }
 
     def vif_feature_recommendations(
@@ -3237,16 +4375,11 @@ class EDAWorkspaceService:
         request: EDARelationshipSampleRequest,
     ) -> dict[str, Any]:
         started = time.perf_counter()
-        base = EDAWorkspaceRequest(
-            project_id=request.project_id,
-            target=request.target,
-            event_value=request.event_value,
-            problem_type=request.problem_type,
-            expected_dataset_id=request.expected_dataset_id,
-            expected_dataset_version_id=request.expected_dataset_version_id,
-            dataset_version=request.dataset_version,
+        base = self._canonical_workspace_request(request)
+        full_df, target, full_y, problem, event, authorization = self._dataset(
+            base,
+            canonical_lineage_required=True,
         )
-        full_df, target, full_y, problem, event, authorization = self._dataset(base)
         contract = self._governed_contract(
             request=base,
             df=full_df,
@@ -3264,6 +4397,12 @@ class EDAWorkspaceService:
             target=target,
             authorized_predictors=authorization["authorized_predictors"],
             predictor_manifest_id=contract["predictor_manifest_id"],
+            expected_analysis_partition_id=contract[
+                "analysis_partition_id"
+            ],
+            expected_analysis_partition_revision=contract[
+                "analysis_partition_revision"
+            ],
         )
         # All target-colored relationship points and pair metrics are derived
         # from development only. Meaning-bearing special codes are excluded
@@ -3282,20 +4421,28 @@ class EDAWorkspaceService:
                 df.loc[numeric.isin(codes), feature] = np.nan
         df[target] = development_target
         y = development_target
-        dataset_version = str(DATASTORE.meta.get("dataset_version_id") or "unresolved")
+        dataset_version = str(contract["dataset_version_id"])
         manifest_id = str(authorization["manifest_version"])
         if request.dataset_version and str(request.dataset_version) != dataset_version:
-            raise ValueError(
+            raise EDAAnalyticalContractError(
                 "The requested dataset version does not match the active "
-                "server-governed dataset."
+                "server-governed dataset.",
+                code="dataset_identity_mismatch",
+                recovery="Reload Data Acquisition and retry against its active version.",
             )
         if (
             request.predictor_manifest_id
             and str(request.predictor_manifest_id) != manifest_id
         ):
-            raise ValueError(
+            raise EDAAnalyticalContractError(
                 "The requested predictor manifest does not match the active "
-                "server-governed predictor authorization."
+                "server-governed predictor authorization.",
+                code="predictor_authorization_stale",
+                recovery=(
+                    "Reload Data Acquisition and retry with the current governed "
+                    "predictor authorization."
+                ),
+                stale_artifacts=["relationship_eda"],
             )
 
         authorized = set(str(value) for value in authorization["authorized_predictors"])
@@ -3383,9 +4530,35 @@ class EDAWorkspaceService:
             "workspace_instance": id(DATASTORE.get_base_df()),
             "data_revision": int(getattr(DATASTORE, "data_revision", 0)),
             "workspace_fingerprint": fingerprint,
-            "dataset_version": dataset_version,
+            "dataset_id": contract["dataset_id"],
+            "dataset_version_id": contract["dataset_version_id"],
+            "activation_revision": contract["activation_revision"],
+            "target_contract_id": contract["target_contract_id"],
+            "positive_value": contract["positive_value"],
+            "negative_value": contract["negative_value"],
+            "predictor_authorization_id": contract[
+                "predictor_authorization_id"
+            ],
             "manifest_id": manifest_id,
-            "split_id": contract["split_id"],
+            "analysis_partition_id": contract["analysis_partition_id"],
+            "analysis_partition_revision": contract[
+                "analysis_partition_revision"
+            ],
+            "analysis_partition_artifact_hash": contract[
+                "analysis_partition_artifact_hash"
+            ],
+            "analysis_partition_assignment_hash": contract[
+                "analysis_partition_assignment_hash"
+            ],
+            "special_value_review_id": contract[
+                "special_value_review_id"
+            ],
+            "special_value_review_revision": contract[
+                "special_value_review_revision"
+            ],
+            "bureau_semantic_identity": contract.get(
+                "bureau_semantic_identity"
+            ),
             "governed_relationship_artifact_id": contract[
                 "relationship_artifact"
             ]["artifact_id"],
@@ -3593,8 +4766,7 @@ class EDAWorkspaceService:
         }
         result = {
             "ok": True,
-            "scope": "rendered_sample",
-            "analysis_scope": analysis_scope,
+            "response_scope": "rendered_sample",
             "scope_identity": f"governed-eda:{contract['artifact_hash']}",
             "project_id": request.project_id,
             "dataset_id": DATASTORE.meta.get("dataset_id"),
@@ -3637,6 +4809,11 @@ class EDAWorkspaceService:
             "generated_at": _now(),
             "duration_ms": int((time.perf_counter() - started) * 1000),
             "cache_status": "miss",
+            **self._canonical_nested_response_lineage(
+                contract,
+                analysis_source="eda.governed_analytical_contract.relationship_sample",
+                analysis_scope=analysis_scope,
+            ),
         }
         self._cache[cache_key] = result
         while len(self._cache) > self._max_cache_entries:

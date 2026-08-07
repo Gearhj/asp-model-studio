@@ -1034,7 +1034,7 @@ def ensure_sas_config_files() -> None:
             json.dumps(
                 {
                     "cfgname": "winlocal",
-                    "cfgfile": "C:/Users/james/path/to/sascfg_personal.py",
+                    "cfgfile": "path/to/sascfg_personal.py",
                     "executionMode": "saspy_config",
                     "updatedAt": "",
                     "updatedBy": "",

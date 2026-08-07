@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class BureauMetadataInput(BaseModel):
@@ -42,6 +42,7 @@ class SpecialValueOverrideInput(BaseModel):
 
     value: Any
     policy: SpecialValuePolicy
+    replacement_value: Optional[Any] = None
     rationale: str = ""
 
     @field_validator("rationale", mode="before")
@@ -55,6 +56,7 @@ class SpecialValueVariableDecisionInput(BaseModel):
 
     variable: str = Field(min_length=1)
     policy: SpecialValuePolicy
+    replacement_value: Optional[Any] = None
     rationale: str = ""
     overrides: List[SpecialValueOverrideInput] = Field(default_factory=list)
 
@@ -70,6 +72,11 @@ class SpecialValueReviewUpdateRequest(BaseModel):
     project_id: str = Field(min_length=1)
     expected_dataset_id: str = Field(min_length=1)
     expected_dataset_version_id: str = Field(min_length=1)
+    expected_analysis_partition_id: Optional[str] = None
+    expected_analysis_partition_revision: Optional[int] = Field(
+        default=None,
+        ge=1,
+    )
     expected_revision: int = Field(ge=1)
     detection_fingerprint: str = Field(min_length=1)
     intent: Literal["draft", "confirm"] = "draft"
@@ -82,6 +89,7 @@ class SpecialValueReviewUpdateRequest(BaseModel):
         "project_id",
         "expected_dataset_id",
         "expected_dataset_version_id",
+        "expected_analysis_partition_id",
         "detection_fingerprint",
         "reviewer_rationale",
         mode="before",
@@ -89,3 +97,14 @@ class SpecialValueReviewUpdateRequest(BaseModel):
     @classmethod
     def strip_review_text(cls, value: Any) -> str:
         return str(value or "").strip()
+
+    @model_validator(mode="after")
+    def require_complete_partition_expectation(self):
+        has_partition_id = bool(self.expected_analysis_partition_id)
+        has_partition_revision = self.expected_analysis_partition_revision is not None
+        if has_partition_id != has_partition_revision:
+            raise ValueError(
+                "expected_analysis_partition_id and "
+                "expected_analysis_partition_revision must be supplied together"
+            )
+        return self

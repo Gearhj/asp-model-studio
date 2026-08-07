@@ -130,6 +130,7 @@ class VifResolutionPlanTests(unittest.TestCase):
                 "project_id": PROJECT_ID,
                 "dataset_id": DATASET_ID,
                 "dataset_version_id": VERSION_ID,
+                "activation_revision": 1,
             },
         )
         self.identity.start()
@@ -156,13 +157,7 @@ class VifResolutionPlanTests(unittest.TestCase):
 
     def request(self, **overrides):
         values = {
-            "project_id": PROJECT_ID,
-            "expected_dataset_id": DATASET_ID,
-            "expected_dataset_version_id": VERSION_ID,
-            "dataset_version": VERSION_ID,
-            "target": "bad_flag",
-            "event_value": 1,
-            "problem_type": "classification",
+            **self.partition_fixture["canonical_request"],
             "intended_model_family": "linear_scorecard",
             "target_vif_threshold": 10,
             "resolution_objective": "balanced",
@@ -300,13 +295,7 @@ class VifResolutionPlanTests(unittest.TestCase):
         plan = eda_workspace_service.vif_resolution_plan(self.request())
         simulation = eda_workspace_service.vif_simulation(
             EDAVifSimulationRequest(
-                project_id=PROJECT_ID,
-                expected_dataset_id=DATASET_ID,
-                expected_dataset_version_id=VERSION_ID,
-                dataset_version=VERSION_ID,
-                target="bad_flag",
-                event_value=1,
-                problem_type="classification",
+                **self.partition_fixture["canonical_request"],
                 excluded_feature="NumInqLast6M",
             )
         )
@@ -397,10 +386,7 @@ class VifResolutionPlanTests(unittest.TestCase):
         plan = eda_workspace_service.vif_resolution_plan(self.request())
         result = eda_workspace_service.vif_resolution_decision(
             EDAVifResolutionDecisionRequest(
-                project_id=PROJECT_ID,
-                expected_dataset_id=DATASET_ID,
-                expected_dataset_version_id=VERSION_ID,
-                dataset_version=VERSION_ID,
+                **self.partition_fixture["canonical_request"],
                 plan_id=plan["plan_id"],
                 action="accept_complete",
                 rationale="Carry recommendations forward for governed review.",
@@ -434,10 +420,7 @@ class VifResolutionPlanTests(unittest.TestCase):
         selected_cluster = plan["clusters"][0]["cluster_id"]
         accepted = eda_workspace_service.vif_resolution_decision(
             EDAVifResolutionDecisionRequest(
-                project_id=PROJECT_ID,
-                expected_dataset_id=DATASET_ID,
-                expected_dataset_version_id=VERSION_ID,
-                dataset_version=VERSION_ID,
+                **self.partition_fixture["canonical_request"],
                 plan_id=plan["plan_id"],
                 action="accept_selected",
                 selected_cluster_ids=[selected_cluster],
@@ -446,10 +429,7 @@ class VifResolutionPlanTests(unittest.TestCase):
         )
         sent = eda_workspace_service.vif_resolution_decision(
             EDAVifResolutionDecisionRequest(
-                project_id=PROJECT_ID,
-                expected_dataset_id=DATASET_ID,
-                expected_dataset_version_id=VERSION_ID,
-                dataset_version=VERSION_ID,
+                **self.partition_fixture["canonical_request"],
                 plan_id=plan["plan_id"],
                 action="send_to_feature_engineering",
             ),

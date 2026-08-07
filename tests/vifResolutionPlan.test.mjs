@@ -77,6 +77,20 @@ test("frontend calls only recommendation endpoints and enforces non-mutation", (
   assert.match(client, /governed_feature_set_changed !== false/);
   assert.match(client, /dataset_mutated !== false/);
   assert.doesNotMatch(panel, /features\/manifest|materialize|setRaw|setProcessed/);
+  const nestedVif = step.slice(
+    step.indexOf("const simulateVif = useCallback"),
+    step.indexOf("const handleCorrelationVariable = useCallback"),
+  );
+  assert.equal(
+    (nestedVif.match(/assertExactEdaResponseLineage\(props\.canonicalHandoff, payload\)/g) ?? []).length,
+    3,
+    "Simulation, plan generation, and plan disposition must each validate the full DA lineage.",
+  );
+  assert.equal(
+    (nestedVif.match(/\.\.\.props\.canonicalRequest/g) ?? []).length,
+    3,
+    "Every VIF request must send the full canonical request envelope.",
+  );
 });
 
 

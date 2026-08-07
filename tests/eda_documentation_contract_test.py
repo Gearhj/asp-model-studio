@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
 from pydantic import ValidationError
@@ -14,6 +12,7 @@ from server.eda.documentation_service import (
     EDADocumentationValidationError,
 )
 from server.eda.documentation_types import EDADocumentationPayload
+from tests.hermetic_test_roots import temporary_test_root
 
 
 PROJECT_ID = "project-eda-docs"
@@ -135,13 +134,15 @@ def _payload(**updates) -> EDADocumentationPayload:
 
 class EDADocumentationContractTests(unittest.TestCase):
     def setUp(self) -> None:
-        workspace_tmp = Path(__file__).resolve().parents[1] / ".tmp"
-        workspace_tmp.mkdir(parents=True, exist_ok=True)
-        self.tempdir = tempfile.TemporaryDirectory(dir=workspace_tmp)
+        self.tempdir = temporary_test_root(
+            "eda-documentation-",
+            scope="eda-documentation-fixtures",
+        )
+        self.temp_root = self.tempdir.__enter__()
         self.context = _context()
         self.evidence = {"ev-eda-overview": _evidence()}
         self.service = EDADocumentationService(
-            Path(self.tempdir.name),
+            self.temp_root,
             context_provider=lambda _project_id: dict(self.context),
             evidence_provider=lambda evidence_id: self.evidence.get(evidence_id),
         )
@@ -157,7 +158,7 @@ class EDADocumentationContractTests(unittest.TestCase):
 
     def tearDown(self) -> None:
         self.audit_patch.stop()
-        self.tempdir.cleanup()
+        self.tempdir.__exit__(None, None, None)
 
     def test_draft_is_canonical_scoped_and_ready(self) -> None:
         state = self.service.upsert_draft(_payload(), self.user)
@@ -222,7 +223,7 @@ class EDADocumentationContractTests(unittest.TestCase):
                     raised.exception.code,
                     "eda_evidence_context_mismatch",
                 )
-        self.assertFalse(any(Path(self.tempdir.name).glob("*.json")))
+        self.assertFalse(any(self.temp_root.glob("*.json")))
 
     def test_confirmation_rechecks_evidence_identity_after_draft(self) -> None:
         self.service.upsert_draft(_payload(), self.user)
@@ -345,7 +346,7 @@ class EDADocumentationContractTests(unittest.TestCase):
         )
 
         reopened = EDADocumentationService(
-            Path(self.tempdir.name),
+            self.temp_root,
             context_provider=lambda _project_id: dict(self.context),
         ).get_state(PROJECT_ID)
         self.assertEqual(reopened["status"], "stale")
@@ -430,7 +431,7 @@ class EDADocumentationContractTests(unittest.TestCase):
             EDADocumentationPayload.model_validate(value)
 
     def test_active_dataset_is_rejected_before_cross_project_access(self) -> None:
-        service = EDADocumentationService(Path(self.tempdir.name))
+        service = EDADocumentationService(self.temp_root)
         with (
             patch(
                 "server.eda.documentation_service.active_project_id",

@@ -12,7 +12,6 @@ import os
 from pathlib import Path
 import shutil
 import sys
-import tempfile
 import time
 import unittest
 from unittest.mock import patch
@@ -21,11 +20,16 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-TMP_PARENT = ROOT / ".tmp"
+HERMETIC_PARENT = os.getenv("ATLAS_HERMETIC_ROOT")
+TMP_PARENT = (
+    Path(HERMETIC_PARENT).resolve() / "t"
+    if HERMETIC_PARENT
+    else ROOT / ".tmp"
+)
 TMP_PARENT.mkdir(exist_ok=True)
 RUN_ROOT = (
     TMP_PARENT
-    / f"model-documentation-project-context-{uuid.uuid4().hex}"
+    / f"mdc-{uuid.uuid4().hex[:8]}"
 )
 RUN_ROOT.mkdir(parents=True)
 SECURITY_DB = RUN_ROOT / "security.db"
@@ -35,9 +39,8 @@ DATASET_ROOT = RUN_ROOT / "datasets"
 PROJECT_ROOT = RUN_ROOT / "projects"
 ANALYTICS_ROOT = RUN_ROOT / "analytics"
 DOCUMENT_ROOT = RUN_ROOT / "model_documentation"
-BACKUP_ROOT = Path(
-    tempfile.mkdtemp(prefix=f"atlas_model_documentation_backups_{uuid.uuid4().hex}_")
-)
+BACKUP_ROOT = RUN_ROOT / "b"
+BACKUP_ROOT.mkdir(parents=True)
 RUN_ID = uuid.uuid4().hex[:10]
 
 os.environ["ATLAS_SECURITY_ROOT"] = str(SECURITY_DB.parent)

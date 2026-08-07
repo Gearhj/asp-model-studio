@@ -19,6 +19,11 @@
       "name": "validation-segregation-of-duties",
       "target": "tests/validation_segregation_of_duties_test.py",
       "kind": "python-test"
+    },
+    {
+      "name": "data-acquisition-predictor-reconciliation",
+      "target": "tests/predictorAuthorizationReconciliation.test.mjs",
+      "kind": "node-test"
     }
   ]
 }

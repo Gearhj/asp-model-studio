@@ -35,6 +35,9 @@ from .preprocessing.quality_profile_router import router as quality_profile_rout
 from .preprocessing.feature_profile_router import router as feature_profile_router
 from .preprocessing.governed_profile_router import router as governed_profile_router
 from .preprocessing.bureau_detection_router import router as bureau_detection_router
+from .bureau_metadata.catalog_router import router as bureau_catalog_router
+from .bureau_metadata.catalog_binding_router import router as bureau_catalog_binding_router
+from .bureau_metadata.crosswalk_router import router as bureau_crosswalk_router
 from .splitting.split_router import router as split_router
 from .training.trainer_router import router as trainer_router
 from .features.feature_router import router as feature_router
@@ -468,6 +471,9 @@ def create_app() -> FastAPI:
     app.include_router(feature_profile_router, prefix="/api", tags=["Feature Profiling"], dependencies=authenticated)
     app.include_router(governed_profile_router, prefix="/api", tags=["Governed Target Profiling"], dependencies=authenticated)
     app.include_router(bureau_detection_router, prefix="/api", tags=["Bureau Detection"], dependencies=authenticated)
+    app.include_router(bureau_catalog_router, prefix="/api", tags=["Restricted Bureau Catalogs"], dependencies=authenticated)
+    app.include_router(bureau_catalog_binding_router, prefix="/api", tags=["Bureau Metadata Binding"], dependencies=authenticated)
+    app.include_router(bureau_crosswalk_router, prefix="/api", tags=["Bureau Metadata Crosswalk"], dependencies=authenticated)
     app.include_router(split_router, prefix="/api/balancing_split", tags=["Splitting & Balancing"], dependencies=authenticated)
     app.include_router(trainer_router, prefix="/api", tags=["Training"], dependencies=authenticated)
     app.include_router(feature_router, prefix="/api", tags=["Feature Engineering"], dependencies=authenticated)

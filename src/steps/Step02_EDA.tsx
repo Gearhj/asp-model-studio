@@ -29,14 +29,19 @@ import {
 } from "../components/ui/AtlasWorkflow";
 import { createEvidence } from "../lib/evidenceGraph";
 import { logDecision } from "../lib/decisionJournal";
-import { loadLocalDataset } from "../lib/localDataset";
 import {
-  assertExactDatasetIdentity,
   buildCanonicalEvidenceEnvelope,
   canonicalDatasetStorageKey,
-  requireLocalDatasetCanonicalIdentity,
   type CanonicalDatasetIdentity,
 } from "../lib/datasetIdentity";
+import { usePredictiveIdentity } from "../components/PredictiveIdentityProvider";
+import {
+  assertExactEdaResponseLineage,
+  buildCanonicalEdaRequestContract,
+  DataAcquisitionEdaHandoffError,
+  fetchCanonicalDataAcquisitionEdaHandoff,
+  type CanonicalDataAcquisitionEdaHandoff,
+} from "../lib/dataAcquisitionEdaHandoff";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { formatNullableMetric, safeArray, safeObject } from "../lib/workflowSafety";
 import TargetIntelligenceWorkspace from "../components/eda/TargetIntelligenceWorkspace";
@@ -52,6 +57,7 @@ import VifExplorer, {
   type VifSimulationRequest,
   type VifSimulationResult,
 } from "../components/eda/visual/VifExplorer";
+import BureauSemanticContextPanel from "../components/BureauSemanticContextPanel";
 import {
   useEdaVisualSelection,
   type EdaNumericRange,
@@ -202,6 +208,54 @@ const EDA_READINESS_GUIDANCE: Record<
     message: "The sealed row assignment or holdout-isolation checksum could not be verified.",
     recovery: "Stop analysis and ask an administrator to review the governed partition artifact.",
     domain: "analysis_partition",
+  },
+  dataset_identity_required: {
+    title: "Registered dataset activation required",
+    message: "EDA requires one exact active Dataset Library version for this project.",
+    recovery: "Return to Data Acquisition and activate the intended registered dataset version.",
+    domain: "identity",
+  },
+  target_contract_required: {
+    title: "Target contract confirmation required",
+    message: "EDA requires the target, class mapping, and predictor authorization from Data Acquisition.",
+    recovery: "Return to Data Acquisition and confirm the target mapping and eligible predictors.",
+    domain: "authorization",
+  },
+  special_value_review_incomplete: {
+    title: "Special-Value Treatment Review is incomplete",
+    message: "The governed Special-Value Treatment Review must be confirmed before EDA can open.",
+    recovery: "Return to Data Acquisition and resolve the first remaining special-value treatment item.",
+    domain: "authorization",
+  },
+  special_value_review_required: {
+    title: "Special-Value Treatment Review is incomplete",
+    message: "The governed Special-Value Treatment Review must be confirmed before EDA can open.",
+    recovery: "Return to Data Acquisition and resolve the first remaining special-value treatment item.",
+    domain: "authorization",
+  },
+  special_value_review_stale: {
+    title: "Special-Value Treatment Review is stale",
+    message: "The saved special-value decisions no longer match the current Data Acquisition lineage.",
+    recovery: "Return to Data Acquisition and reconfirm the review for the current activation and predictor authorization.",
+    domain: "authorization",
+  },
+  eda_canonical_lineage_required: {
+    title: "Complete Data Acquisition handoff required",
+    message: "EDA requires the exact current dataset, target, predictor authorization, Special-Value Review, and Analysis Partition lineage.",
+    recovery: "Open EDA from the final project-scoped Data Acquisition continuation action.",
+    domain: "identity",
+  },
+  dataset_activation_revision_stale: {
+    title: "Dataset activation changed",
+    message: "A newer activation revision replaced the one carried by this EDA request.",
+    recovery: "Reload the project and retry from the current Data Acquisition contract.",
+    domain: "identity",
+  },
+  data_acquisition_handoff_mismatch: {
+    title: "Data Acquisition handoff is stale",
+    message: "The EDA request no longer matches the exact backend-authoritative Data Acquisition contract.",
+    recovery: "Reload Data Acquisition and verify the current dataset, target, predictor authorization, and Analysis Partition.",
+    domain: "identity",
   },
 };
 
@@ -361,13 +415,13 @@ const documentationImpactByTab: Record<
 
 function readFindings(
   identity: CanonicalDatasetIdentity | null,
+  storageKey = "",
 ): FindingsState {
-  if (!identity) {
+  if (!identity || !storageKey) {
     return { commentary: "", status: "draft", duplicateTreatment: "review" };
   }
   try {
-    const key = canonicalDatasetStorageKey(FINDINGS_KEY_PREFIX, identity);
-    const parsed = JSON.parse(localStorage.getItem(key) || "null");
+    const parsed = JSON.parse(localStorage.getItem(storageKey) || "null");
     if (parsed && typeof parsed.commentary === "string") {
       return {
         ...parsed,
@@ -410,46 +464,69 @@ export default function Step02EDA() {
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
   const getNextStepPath = useWorkflowStore((state) => state.getNextStepPath);
-  // EDA is remounted after Data Acquisition navigation; also re-read whenever
-  // the active project changes so another project's version cannot linger.
-  const confirmedDataset = useMemo(() => loadLocalDataset(), [projectId]);
-  const datasetIdentityResolution = useMemo(() => {
-    try {
-      return {
-        identity: requireLocalDatasetCanonicalIdentity(
-          projectId,
-          confirmedDataset,
-          "EDA dataset identity",
-        ),
-        error: "",
-      };
-    } catch (cause) {
-      return {
-        identity: null,
-        error:
-          cause instanceof Error
-            ? cause.message
-            : "The exact registered Dataset Library version is unavailable.",
-      };
-    }
-  }, [
-    confirmedDataset?.dataset_id,
-    confirmedDataset?.dataset_version_id,
-    confirmedDataset?.dataset_version,
-    confirmedDataset?.dataset_library?.datasetId,
-    confirmedDataset?.dataset_library?.versionId,
-    projectId,
-  ]);
-  const datasetIdentity = datasetIdentityResolution.identity;
+  const {
+    readiness: identityReadiness,
+    dataAcquisitionContextReadiness,
+  } = usePredictiveIdentity();
+  const datasetIdentity =
+    identityReadiness.status === "ready" &&
+    identityReadiness.projectId === projectId
+      ? identityReadiness.identity
+      : null;
+  const datasetIdentityError =
+    identityReadiness.projectId === projectId
+      ? identityReadiness.message
+      : "The exact registered Dataset Library version is still being resolved for this project.";
+  const [canonicalHandoff, setCanonicalHandoff] =
+    useState<CanonicalDataAcquisitionEdaHandoff | null>(null);
+  const [handoffLoading, setHandoffLoading] = useState(true);
+  const [handoffError, setHandoffError] = useState<EDAErrorState | null>(null);
+  const handoffSequence = useRef(0);
+  const currentReproducibilityContext =
+    dataAcquisitionContextReadiness.status === "ready" &&
+    dataAcquisitionContextReadiness.projectId === projectId &&
+    dataAcquisitionContextReadiness.context?.state === "current"
+      ? dataAcquisitionContextReadiness.context
+      : null;
+  const activeCanonicalHandoff =
+    !handoffLoading &&
+    canonicalHandoff &&
+    currentReproducibilityContext &&
+    datasetIdentity &&
+    canonicalHandoff.context.context_id ===
+      currentReproducibilityContext.context_id &&
+    canonicalHandoff.context.target_contract.target_contract_id ===
+      currentReproducibilityContext.target_contract?.target_contract_id &&
+    canonicalHandoff.context.predictor_authorization
+      .predictor_authorization_id ===
+      currentReproducibilityContext.predictor_authorization
+        ?.predictor_authorization_id &&
+    canonicalHandoff.context.analysis_partition.analysis_partition_id ===
+      currentReproducibilityContext.analysis_partition?.analysis_partition_id &&
+    canonicalHandoff.context.analysis_partition.revision ===
+      currentReproducibilityContext.analysis_partition?.revision &&
+    canonicalHandoff.datasetIdentity.project_id === projectId &&
+    canonicalHandoff.datasetIdentity.dataset_id === datasetIdentity.dataset_id &&
+    canonicalHandoff.datasetIdentity.dataset_version_id ===
+      datasetIdentity.dataset_version_id &&
+    canonicalHandoff.datasetIdentity.activation_revision ===
+      datasetIdentity.activation_revision
+      ? canonicalHandoff
+      : null;
+  const activeHandoffKey = activeCanonicalHandoff
+    ? JSON.stringify(buildCanonicalEdaRequestContract(activeCanonicalHandoff))
+    : "";
+  const activeHandoffKeyRef = useRef("");
+  activeHandoffKeyRef.current = activeHandoffKey;
   const findingsStorageKey = useMemo(
     () =>
-      datasetIdentity
-        ? canonicalDatasetStorageKey(
+      datasetIdentity && activeCanonicalHandoff
+        ? `${canonicalDatasetStorageKey(
             FINDINGS_KEY_PREFIX,
             datasetIdentity,
-          )
+          )}:${encodeURIComponent(activeHandoffKey)}`
         : "",
-    [datasetIdentity],
+    [activeCanonicalHandoff, activeHandoffKey, datasetIdentity],
   );
   const edaTabPreferenceKey = useMemo(
     () =>
@@ -479,7 +556,7 @@ export default function Step02EDA() {
   const [pairwiseFeatures, setPairwiseFeatures] = useState<string[]>([]);
   const [histogramBins, setHistogramBins] = useState(20);
   const [findings, setFindings] = useState<FindingsState>(() =>
-    readFindings(datasetIdentity),
+    readFindings(datasetIdentity, findingsStorageKey),
   );
   const [evidenceMessage, setEvidenceMessage] = useState("");
   const [documentationState, setDocumentationState] =
@@ -511,7 +588,107 @@ export default function Step02EDA() {
   const setSelectionScope = useEdaVisualSelection((state) => state.setScope);
   const clearVisualSelection = useEdaVisualSelection((state) => state.clearSelection);
 
-  const overview = sections.overview;
+  useEffect(() => {
+    const sequence = ++handoffSequence.current;
+    const controller = new AbortController();
+    for (const tab of tabs) {
+      requestSequence.current[tab.id] =
+        (requestSequence.current[tab.id] ?? 0) + 1;
+    }
+    setSections({});
+    setCanonicalHandoff(null);
+    setHandoffError(null);
+
+    if (!datasetIdentity) {
+      setHandoffLoading(false);
+      setHandoffError({
+        endpoint: `${API_BASE}/data/reproducibility-context`,
+        code: "dataset_identity_required",
+        domain: "identity",
+        message: datasetIdentityError,
+        recovery:
+          "Return to Data Acquisition and activate the exact registered Dataset Library version.",
+      });
+      return () => controller.abort();
+    }
+    if (
+      dataAcquisitionContextReadiness.status === "idle" ||
+      dataAcquisitionContextReadiness.status === "loading"
+    ) {
+      setHandoffLoading(true);
+      return () => controller.abort();
+    }
+    if (
+      dataAcquisitionContextReadiness.status === "error" ||
+      !dataAcquisitionContextReadiness.context
+    ) {
+      setHandoffLoading(false);
+      setHandoffError({
+        endpoint: `${API_BASE}/data/reproducibility-context`,
+        code: "data_acquisition_handoff_mismatch",
+        domain: "identity",
+        message: dataAcquisitionContextReadiness.message,
+        recovery:
+          "Reload Data Acquisition and verify the exact current governed contract.",
+        retryable: true,
+      });
+      return () => controller.abort();
+    }
+
+    setHandoffLoading(true);
+    void fetchCanonicalDataAcquisitionEdaHandoff({
+      projectId,
+      expectedIdentity: datasetIdentity,
+      context: dataAcquisitionContextReadiness.context,
+      signal: controller.signal,
+    })
+      .then((handoff) => {
+        if (controller.signal.aborted || sequence !== handoffSequence.current) return;
+        setCanonicalHandoff(handoff);
+        setHandoffError(null);
+      })
+      .catch((cause) => {
+        if (controller.signal.aborted || sequence !== handoffSequence.current) return;
+        const handoffCause =
+          cause instanceof DataAcquisitionEdaHandoffError ? cause : null;
+        const guidance = handoffCause
+          ? EDA_READINESS_GUIDANCE[handoffCause.code]
+          : null;
+        setHandoffError({
+          endpoint: `${API_BASE}/data/reproducibility-context`,
+          code: handoffCause?.code ?? "data_acquisition_handoff_mismatch",
+          domain: guidance?.domain ?? "identity",
+          message:
+            handoffCause?.message ??
+            (cause instanceof Error
+              ? cause.message
+              : "ATLAS could not validate the Data Acquisition handoff."),
+          recovery:
+            handoffCause?.recovery ??
+            "Reload Data Acquisition and verify the exact current governed contract.",
+          retryable: true,
+        });
+      })
+      .finally(() => {
+        if (!controller.signal.aborted && sequence === handoffSequence.current) {
+          setHandoffLoading(false);
+        }
+      });
+    return () => controller.abort();
+  }, [
+    dataAcquisitionContextReadiness.context,
+    dataAcquisitionContextReadiness.message,
+    dataAcquisitionContextReadiness.projectId,
+    dataAcquisitionContextReadiness.status,
+    datasetIdentity?.activation_revision,
+    datasetIdentity?.dataset_id,
+    datasetIdentity?.dataset_version_id,
+    datasetIdentity?.project_id,
+    datasetIdentityError,
+    projectId,
+  ]);
+
+  const overview = activeCanonicalHandoff ? sections.overview : undefined;
   const available = overview?.available_fields ?? {};
 
   // Target Intelligence inputs. The predictor list comes from the governed
@@ -534,17 +711,19 @@ export default function Step02EDA() {
     return [...numeric, ...categorical].filter((item) => item.feature !== overview?.target);
   }, [available.numeric, available.categorical, sections.predictors, overview?.target]);
 
+  const canonicalRequestContract = useMemo(
+    () => activeCanonicalHandoff
+      ? buildCanonicalEdaRequestContract(activeCanonicalHandoff)
+      : null,
+    [activeCanonicalHandoff],
+  );
   const requestBody = useMemo(
     () => ({
-      project_id: projectId,
-      expected_dataset_id: datasetIdentity?.dataset_id,
-      expected_dataset_version_id:
-        datasetIdentity?.dataset_version_id,
-      dataset_version: datasetIdentity?.dataset_version_id,
-      target: overview?.target || confirmedDataset?.target || undefined,
-      event_value: overview?.event_value,
+      ...(canonicalRequestContract ?? { project_id: projectId }),
       problem_type: overview?.problem_type,
-      selected_features: confirmedDataset?.selected_columns ?? [],
+      selected_features:
+        activeCanonicalHandoff?.context.predictor_authorization
+          .authorized_predictors ?? [],
       pairwise_features: pairwiseFeatures,
       segment_field: segmentField || undefined,
       date_field: dateField || undefined,
@@ -552,7 +731,7 @@ export default function Step02EDA() {
       predictor_visual_shape_limit: 8,
       rendered_sample_limit: 5000,
     }),
-    [confirmedDataset?.selected_columns, confirmedDataset?.target, datasetIdentity?.dataset_id, datasetIdentity?.dataset_version_id, dateField, histogramBins, overview?.event_value, overview?.problem_type, overview?.target, pairwiseFeatures, projectId, segmentField],
+    [activeCanonicalHandoff, canonicalRequestContract, dateField, histogramBins, overview?.problem_type, pairwiseFeatures, projectId, segmentField],
   );
 
   async function loadSection(
@@ -560,14 +739,18 @@ export default function Step02EDA() {
     force = false,
     overrides: Record<string, unknown> = {},
   ): Promise<WorkspaceResponse | null> {
-    if (!datasetIdentity) {
+    const requestHandoff = activeCanonicalHandoff;
+    if (!requestHandoff) {
       setError({
         endpoint: `${API_BASE}/eda/workspace/${section}`,
-        code: "missing_canonical_identity",
-        domain: "identity",
-        message: datasetIdentityResolution.error,
+        code: handoffError?.code ?? "data_acquisition_handoff_mismatch",
+        domain: handoffError?.domain ?? "identity",
+        message:
+          handoffError?.message ??
+          "ATLAS is still verifying the exact Data Acquisition contract.",
         recovery:
-          "Return to Data Acquisition and activate the exact registered Dataset Library version.",
+          handoffError?.recovery ??
+          "Wait for the backend-authoritative handoff, then retry.",
       });
       return null;
     }
@@ -575,6 +758,9 @@ export default function Step02EDA() {
     const endpoint = `${API_BASE}/eda/workspace/${section}`;
     const sequence = (requestSequence.current[section] ?? 0) + 1;
     requestSequence.current[section] = sequence;
+    const requestHandoffKey = JSON.stringify(
+      buildCanonicalEdaRequestContract(requestHandoff),
+    );
     setLoading(section);
     setError(null);
     const startedAt = typeof performance === "undefined" ? 0 : performance.now();
@@ -583,10 +769,17 @@ export default function Step02EDA() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...requestBody, ...overrides }),
+        body: JSON.stringify({
+          ...requestBody,
+          ...overrides,
+          ...buildCanonicalEdaRequestContract(requestHandoff),
+        }),
       });
       const payload = await response.json().catch(() => null);
-      if (requestSequence.current[section] !== sequence) return null;
+      if (
+        requestSequence.current[section] !== sequence ||
+        activeHandoffKeyRef.current !== requestHandoffKey
+      ) return null;
       if (!response.ok || !payload?.ok) {
         setError(
           normalizeEdaRequestError({
@@ -598,11 +791,7 @@ export default function Step02EDA() {
         );
         return null;
       }
-      assertExactDatasetIdentity(
-        datasetIdentity,
-        payload,
-        `EDA ${section} workspace response`,
-      );
+      assertExactEdaResponseLineage(requestHandoff, payload);
       const blockedReadiness = readBlockedEdaWorkspaceReadiness(payload);
       if (blockedReadiness) {
         const guidance = EDA_READINESS_GUIDANCE[blockedReadiness.code];
@@ -641,10 +830,10 @@ export default function Step02EDA() {
         return null;
       }
       writeEdaCodeContextSeed(projectId, {
-        datasetId: datasetIdentity.dataset_id,
-        datasetVersion: datasetIdentity.dataset_version_id,
+        datasetId: requestHandoff.datasetIdentity.dataset_id,
+        datasetVersion: requestHandoff.datasetIdentity.dataset_version_id,
         datasetName:
-          confirmedDataset?.dataset_library?.datasetName ?? "",
+          requestHandoff.context.identity.dataset_name,
         target: String(payload.target ?? ""),
         predictorManifestId: String(
           payload.predictor_authorization?.manifest_version ?? "",
@@ -668,15 +857,29 @@ export default function Step02EDA() {
       }
       return payload as WorkspaceResponse;
     } catch (cause) {
-      if (requestSequence.current[section] !== sequence) return null;
-      setError({
-        endpoint,
-        code: "eda_backend_unavailable",
-        domain: "transport",
-        message: cause instanceof Error ? cause.message : "ATLAS could not load this EDA section.",
-        recovery: "Confirm the FastAPI backend is running, then retry the exact governed request.",
-        retryable: true,
-      });
+      if (
+        requestSequence.current[section] !== sequence ||
+        activeHandoffKeyRef.current !== requestHandoffKey
+      ) return null;
+      if (cause instanceof DataAcquisitionEdaHandoffError) {
+        setError({
+          endpoint,
+          code: cause.code,
+          domain: EDA_READINESS_GUIDANCE[cause.code]?.domain ?? "identity",
+          message: cause.message,
+          recovery: cause.recovery,
+          retryable: true,
+        });
+      } else {
+        setError({
+          endpoint,
+          code: "eda_backend_unavailable",
+          domain: "transport",
+          message: cause instanceof Error ? cause.message : "ATLAS could not load this EDA section.",
+          recovery: "Confirm the FastAPI backend is running, then retry the exact governed request.",
+          retryable: true,
+        });
+      }
       return null;
     } finally {
       if (requestSequence.current[section] === sequence) setLoading(null);
@@ -728,42 +931,45 @@ export default function Step02EDA() {
   }, []);
 
   useEffect(() => {
-    setFindings(readFindings(datasetIdentity));
+    setFindings(readFindings(datasetIdentity, findingsStorageKey));
     setSections({});
     setDocumentationState(null);
     setDocumentationEvidence([]);
     lastDraftVersion.current = "";
-    if (!datasetIdentity) {
-      setError({
-        endpoint: `${API_BASE}/eda/workspace/overview`,
-        code: "missing_canonical_identity",
-        domain: "identity",
-        message: datasetIdentityResolution.error,
-        recovery:
-          "Return to Data Acquisition and activate the exact registered Dataset Library version.",
-      });
+    if (handoffLoading) return;
+    if (!activeCanonicalHandoff) {
+      setError(
+        handoffError ?? {
+          endpoint: `${API_BASE}/eda/workspace/overview`,
+          code: "data_acquisition_handoff_mismatch",
+          domain: "identity",
+          message: "The backend-authoritative Data Acquisition handoff is unavailable.",
+          recovery: "Return to Data Acquisition and resolve the displayed prerequisite.",
+        },
+      );
       return;
     }
+    setError(null);
     void loadSection("overview", true);
     // Load once from the governed backend. Secondary sections remain lazy.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
-    datasetIdentity?.project_id,
-    datasetIdentity?.dataset_id,
-    datasetIdentity?.dataset_version_id,
+    activeCanonicalHandoff?.context.context_id,
+    activeCanonicalHandoff?.specialValueReview.revision,
+    findingsStorageKey,
+    handoffLoading,
   ]);
 
   useEffect(() => {
-    if (activeTab !== "overview" && datasetIdentity && overview) {
+    if (activeTab !== "overview" && activeCanonicalHandoff && overview) {
       void loadSection(activeTab, true);
     }
     // Configuration-specific refreshes are handled by explicit actions below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     activeTab,
-    datasetIdentity?.project_id,
-    datasetIdentity?.dataset_id,
-    datasetIdentity?.dataset_version_id,
+    activeCanonicalHandoff?.context.context_id,
+    activeCanonicalHandoff?.specialValueReview.revision,
     overview,
   ]);
 
@@ -792,12 +998,10 @@ export default function Step02EDA() {
   }, [activeTab, sections.findings]);
 
   useEffect(() => {
-    if (!datasetIdentity || !overview?.target) return;
-    setSelectionScope(
-      `${datasetIdentity.project_id}:${datasetIdentity.dataset_id}:${datasetIdentity.dataset_version_id}:${overview.target}`,
-    );
+    if (!activeHandoffKey || !overview?.target) return;
+    setSelectionScope(activeHandoffKey);
     setPairwiseFeatures([]);
-  }, [datasetIdentity, overview?.target, setSelectionScope]);
+  }, [activeHandoffKey, overview?.target, setSelectionScope]);
 
   useEffect(() => {
     let cancelled = false;
@@ -805,7 +1009,7 @@ export default function Step02EDA() {
     setDocumentationHydrated(false);
     setDocumentationMessage("");
     if (!datasetIdentity) {
-      setDocumentationMessage(datasetIdentityResolution.error);
+      setDocumentationMessage(datasetIdentityError);
       setDocumentationHydrated(true);
       return () => controller.abort();
     }
@@ -849,8 +1053,9 @@ export default function Step02EDA() {
       controller.abort();
     };
   }, [
+    activeHandoffKey,
     datasetIdentity,
-    datasetIdentityResolution.error,
+    datasetIdentityError,
     overview?.dataset_id,
     overview?.dataset_version_id,
     overview?.target,
@@ -869,7 +1074,9 @@ export default function Step02EDA() {
         datasetIdentity?.dataset_version_id ?? "",
       ).trim();
       const target = String(
-        resolvedOverview?.target ?? confirmedDataset?.target ?? "",
+        resolvedOverview?.target ??
+          activeCanonicalHandoff?.context.target_contract.target ??
+          "",
       ).trim();
       const predictorManifestId = String(
         resolvedOverview?.predictor_authorization?.manifest_version ?? "",
@@ -891,7 +1098,9 @@ export default function Step02EDA() {
         predictorManifestId,
         sections: resolvedSections,
         findings,
-        selectedFeatures: confirmedDataset?.selected_columns ?? [],
+        selectedFeatures:
+          activeCanonicalHandoff?.context.predictor_authorization
+            .authorized_predictors ?? [],
         controls: {
           histogramBins,
           dateField,
@@ -902,8 +1111,7 @@ export default function Step02EDA() {
       });
     },
     [
-      confirmedDataset?.selected_columns,
-      confirmedDataset?.target,
+      activeCanonicalHandoff,
       dateField,
       datasetIdentity,
       documentationEvidence,
@@ -1093,6 +1301,11 @@ export default function Step02EDA() {
       "Validating the governed dataset, target, predictor manifest, findings, and documentation snapshot…",
     );
     try {
+      if (!activeCanonicalHandoff || !activeHandoffKey) {
+        throw new Error(
+          "Confirmation is blocked until ATLAS verifies the exact current Data Acquisition handoff.",
+        );
+      }
       const resolvedSections: Partial<Record<EDATab, WorkspaceResponse>> = {
         ...sections,
       };
@@ -1241,7 +1454,7 @@ export default function Step02EDA() {
     }
   }
 
-  const activeData = sections[activeTab];
+  const activeData = activeCanonicalHandoff ? sections[activeTab] : undefined;
   const generatedParentFindingInventory = useMemo(
     () => generateEdaParentFindings(sections),
     [sections],
@@ -1312,6 +1525,8 @@ export default function Step02EDA() {
           ? "ready"
           : "draft";
   const nextDisabled =
+    !activeCanonicalHandoff ||
+    handoffLoading ||
     !overview ||
     Boolean(loading) ||
     confirmationPending ||
@@ -1327,6 +1542,14 @@ export default function Step02EDA() {
       blockers.push({
         id: "canonical-identity",
         message: "Restore the exact registered dataset identity in Data Acquisition.",
+      });
+    }
+    if (!activeCanonicalHandoff) {
+      blockers.push({
+        id: "canonical-handoff",
+        message: handoffLoading
+          ? "Wait for the exact Data Acquisition handoff to be verified."
+          : "Revalidate the exact Data Acquisition handoff before continuing.",
       });
     }
     if (!overview) {
@@ -1392,10 +1615,12 @@ export default function Step02EDA() {
     return blockers;
   }, [
     activeTab,
+    activeCanonicalHandoff,
     datasetIdentity,
     duplicateDecisionComplete,
     error,
     loading,
+    handoffLoading,
     overallStatusEligible,
     overview,
     reviewerCommentaryComplete,
@@ -1421,7 +1646,7 @@ export default function Step02EDA() {
       predictorAuthorization.target_source_excluded,
   );
   const datasetDisplayName = String(
-    confirmedDataset?.dataset_library?.datasetName ||
+    activeCanonicalHandoff?.context.identity.dataset_name ||
       datasetIdentity?.dataset_id ||
       projectName ||
       "Registered dataset",
@@ -1432,18 +1657,25 @@ export default function Step02EDA() {
       "Version pending",
   );
   const predictorManifestState: "loading" | "verified" | "unverified" =
-    !overview && loading === "overview"
+    !activeCanonicalHandoff || (!overview && loading === "overview")
       ? "loading"
       : overview &&
           Array.isArray(rawAuthorizedPredictors) &&
-          Boolean(String(predictorAuthorization.manifest_version ?? "").trim())
+          String(
+            predictorAuthorization.predictor_authorization_id ??
+              predictorAuthorization.manifest_version ??
+              "",
+          ).trim() ===
+            activeCanonicalHandoff.context.predictor_authorization
+              .predictor_authorization_id
         ? "verified"
         : "unverified";
   const predictorManifestLabel =
     predictorManifestState === "loading"
       ? "Checking manifest..."
       : predictorManifestState === "verified"
-        ? String(predictorAuthorization.manifest_version)
+        ? activeCanonicalHandoff?.context.predictor_authorization
+            .predictor_authorization_id ?? "Not verified"
         : "Manifest not verified";
   const headlinePredictorCount = Number(overview?.headline?.predictors);
   const predictorCount =
@@ -2009,13 +2241,13 @@ export default function Step02EDA() {
               >
               <div
                 className="eda-context-item eda-context-item--dataset"
-                title={`${datasetDisplayName} · ${datasetVersionLabel}`}
+                title={`${datasetDisplayName} · ${datasetIdentity?.dataset_id ?? "Pending"} · ${datasetVersionLabel}`}
               >
                 <Database size={14} aria-hidden="true" />
                 <span>
                   <small>Dataset / version</small>
                   <strong>
-                    {datasetDisplayName} · {datasetVersionLabel}
+                    {datasetIdentity?.dataset_id ?? "Pending"} · {datasetVersionLabel}
                   </strong>
                 </span>
               </div>
@@ -2024,9 +2256,9 @@ export default function Step02EDA() {
                 <span>
                   <small>Target</small>
                   <strong>
-                    {overview?.target ??
-                      confirmedDataset?.target ??
-                      "Pending"}
+                    {activeCanonicalHandoff
+                      ? `${activeCanonicalHandoff.context.target_contract.target} · ${String(activeCanonicalHandoff.context.target_contract.event_value)} / ${String(activeCanonicalHandoff.context.target_contract.non_event_value)}`
+                      : "Pending"}
                   </strong>
                 </span>
               </div>
@@ -2044,6 +2276,17 @@ export default function Step02EDA() {
                     {predictorManifestLabel}
                   </strong>
                   )}
+                </span>
+              </div>
+              <div className="eda-context-item" data-testid="eda-analysis-partition-identity">
+                <ShieldCheck size={14} aria-hidden="true" />
+                <span>
+                  <small>Analysis Partition</small>
+                  <strong>
+                    {activeCanonicalHandoff
+                      ? `${activeCanonicalHandoff.context.analysis_partition.analysis_partition_id} · r${activeCanonicalHandoff.context.analysis_partition.revision}`
+                      : "Pending"}
+                  </strong>
                 </span>
               </div>
               <div
@@ -2125,7 +2368,7 @@ export default function Step02EDA() {
                         <dt>Target</dt>
                         <dd>
                           {overview?.target ??
-                            confirmedDataset?.target ??
+                            activeCanonicalHandoff?.context.target_contract.target ??
                             "Pending"}
                         </dd>
                       </div>
@@ -2308,6 +2551,17 @@ export default function Step02EDA() {
           ) : null}
         </div>
 
+        {datasetIdentity && activeCanonicalHandoff ? (
+          <BureauSemanticContextPanel
+            datasetIdentity={datasetIdentity}
+            datasetFields={
+              activeCanonicalHandoff.context.predictor_authorization
+                .authorized_predictors
+            }
+            pageName="EDA"
+          />
+        ) : null}
+
         <div
           ref={firstAnalyticalContentRef}
           id={`eda-tabpanel-${activeTab}`}
@@ -2330,15 +2584,23 @@ export default function Step02EDA() {
             />
           ) : null}
 
-          {loading === activeTab && !activeData ? <LoadingPanel label={`Running ${tabs.find((tab) => tab.id === activeTab)?.label} analysis`} /> : null}
+          {(handoffLoading || loading === activeTab) && !activeData ? (
+            <LoadingPanel
+              label={
+                handoffLoading
+                  ? "Verifying the exact Data Acquisition contract"
+                  : `Running ${tabs.find((tab) => tab.id === activeTab)?.label} analysis`
+              }
+            />
+          ) : null}
 
           {activeTab === "overview" && overview ? <OverviewPanel data={overview} /> : null}
-          {!loading && !error && !activeData ? (
+          {!handoffLoading && !loading && !error && !activeData ? (
             <AtlasAttentionPanel title="EDA section not loaded" tone="info">
               This section has not returned profile data yet. Use Refresh to retry the governed backend request.
             </AtlasAttentionPanel>
           ) : null}
-          {activeTab === "target" && activeData ? (
+          {activeTab === "target" && activeData && activeCanonicalHandoff ? (
             <TargetIntelligenceWorkspace
               data={activeData}
               projectId={projectId}
@@ -2349,12 +2611,17 @@ export default function Step02EDA() {
                       datasetId: datasetIdentity.dataset_id,
                       versionId: datasetIdentity.dataset_version_id,
                       datasetName:
-                        confirmedDataset?.dataset_library?.datasetName ?? "",
+                        activeCanonicalHandoff?.context.identity.dataset_name ?? "",
                     }
                   : null
               }
-              eventValue={activeData.event_value ?? confirmedDataset?.event_value}
-              nonEventValue={confirmedDataset?.non_event_value}
+              eventValue={
+                activeData.event_value ??
+                activeCanonicalHandoff?.context.target_contract.event_value
+              }
+              nonEventValue={
+                activeCanonicalHandoff?.context.target_contract.non_event_value
+              }
               predictorOptions={predictorOptions}
               timeField={dateField}
               segmentField={segmentField}
@@ -2368,17 +2635,20 @@ export default function Step02EDA() {
                 void refreshActiveSection({ segment_field: value || undefined });
               }}
               onRunConditional={() => void refreshActiveSection()}
+              canonicalHandoff={activeCanonicalHandoff}
             />
           ) : null}
-          {activeTab === "predictors" && activeData ? (
+          {activeTab === "predictors" && activeData && activeCanonicalHandoff ? (
             <PredictorsPanel
               data={activeData}
               histogramBins={histogramBins}
               onHistogramBins={setHistogramBins}
               projectId={projectId}
+              canonicalRequest={canonicalRequestContract ?? {}}
+              canonicalHandoff={activeCanonicalHandoff}
             />
           ) : null}
-          {activeTab === "relationships" && activeData ? (
+          {activeTab === "relationships" && activeData && activeCanonicalHandoff ? (
             <RelationshipsPanel
               data={activeData}
               numericFields={available.numeric ?? []}
@@ -2386,6 +2656,8 @@ export default function Step02EDA() {
               pairwiseFeatures={pairwiseFeatures}
               onPairwiseFeatures={setPairwiseFeatures}
               projectId={projectId}
+              canonicalRequest={canonicalRequestContract ?? {}}
+              canonicalHandoff={activeCanonicalHandoff}
               onRun={(overrides) => void refreshActiveSection(overrides)}
             />
           ) : null}
@@ -3178,11 +3450,15 @@ function PredictorsPanel({
   histogramBins,
   onHistogramBins,
   projectId,
+  canonicalRequest,
+  canonicalHandoff,
 }: {
   data: WorkspaceResponse;
   histogramBins: number;
   onHistogramBins: (value: number) => void;
   projectId: string;
+  canonicalRequest: Record<string, unknown>;
+  canonicalHandoff: CanonicalDataAcquisitionEdaHandoff;
 }) {
   const [search, setSearch] = useState("");
   const [sortMode, setSortMode] = useState("signal");
@@ -3274,6 +3550,8 @@ function PredictorsPanel({
           predictors={allNumeric}
           histogramBins={histogramBins}
           onHistogramBins={onHistogramBins}
+          canonicalRequest={canonicalRequest}
+          canonicalHandoff={canonicalHandoff}
         />
       </div>
 
@@ -3417,6 +3695,8 @@ function RelationshipsPanel(props: {
   pairwiseFeatures: string[];
   onPairwiseFeatures: (values: string[]) => void;
   projectId: string;
+  canonicalRequest: Record<string, unknown>;
+  canonicalHandoff: CanonicalDataAcquisitionEdaHandoff;
   onRun: (overrides?: Record<string, unknown>) => void;
 }) {
   const columns = safeArray<string>(props.data.correlation_columns);
@@ -3457,15 +3737,9 @@ function RelationshipsPanel(props: {
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        project_id: props.projectId,
-        expected_dataset_id: props.data.dataset_id,
-        expected_dataset_version_id:
-          props.data.dataset_version_id,
-        dataset_version: props.data.dataset_version_id,
-        target: props.data.target,
-        event_value: props.data.event_value,
         problem_type: props.data.problem_type,
         excluded_feature: excludedFeature,
+        ...props.canonicalRequest,
       }),
     });
     const payload = await response.json().catch(() => null);
@@ -3481,15 +3755,7 @@ function RelationshipsPanel(props: {
         ),
       );
     }
-    assertExactDatasetIdentity(
-      {
-        project_id: props.projectId,
-        dataset_id: props.data.dataset_id,
-        dataset_version_id: props.data.dataset_version_id,
-      },
-      payload,
-      "EDA VIF simulation response",
-    );
+    assertExactEdaResponseLineage(props.canonicalHandoff, payload);
     const summary = safeObject(payload.summary);
     const beforeRows = safeArray<any>(payload.before);
     const rows = safeArray<any>(payload.after);
@@ -3515,6 +3781,8 @@ function RelationshipsPanel(props: {
     props.data.dataset_version_id,
     props.data.problem_type,
     props.data.target,
+    props.canonicalHandoff,
+    props.canonicalRequest,
     props.projectId,
   ]);
   const generateVifResolutionPlan = useCallback(async (
@@ -3525,12 +3793,6 @@ function RelationshipsPanel(props: {
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        project_id: props.projectId,
-        expected_dataset_id: props.data.dataset_id,
-        expected_dataset_version_id: props.data.dataset_version_id,
-        dataset_version: props.data.dataset_version_id,
-        target: props.data.target,
-        event_value: props.data.event_value,
         problem_type: props.data.problem_type,
         intended_model_family: inputs.intendedModelFamily,
         target_vif_threshold: inputs.targetVifThreshold,
@@ -3540,6 +3802,7 @@ function RelationshipsPanel(props: {
         correlation_threshold: inputs.correlationThreshold,
         preference_weights: inputs.preferenceWeights,
         maximum_removals: inputs.maximumRemovals,
+        ...props.canonicalRequest,
       }),
     });
     const payload = await response.json().catch(() => null);
@@ -3554,15 +3817,7 @@ function RelationshipsPanel(props: {
         ),
       );
     }
-    assertExactDatasetIdentity(
-      {
-        project_id: props.projectId,
-        dataset_id: props.data.dataset_id,
-        dataset_version_id: props.data.dataset_version_id,
-      },
-      payload,
-      "EDA VIF resolution plan response",
-    );
+    assertExactEdaResponseLineage(props.canonicalHandoff, payload);
     return normalizeVifResolutionPlan(payload);
   }, [
     props.data.dataset_id,
@@ -3570,6 +3825,8 @@ function RelationshipsPanel(props: {
     props.data.event_value,
     props.data.problem_type,
     props.data.target,
+    props.canonicalHandoff,
+    props.canonicalRequest,
     props.projectId,
   ]);
   const decideVifResolutionPlan = useCallback(async (
@@ -3580,15 +3837,13 @@ function RelationshipsPanel(props: {
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        project_id: props.projectId,
-        expected_dataset_id: props.data.dataset_id,
-        expected_dataset_version_id: props.data.dataset_version_id,
-        dataset_version: props.data.dataset_version_id,
+        problem_type: props.data.problem_type,
         plan_id: request.planId,
         action: request.action,
         selected_cluster_ids: request.selectedClusterIds ?? [],
         rationale: request.rationale ?? "",
         modifications: request.modifications ?? {},
+        ...props.canonicalRequest,
       }),
     });
     const payload = await response.json().catch(() => null);
@@ -3603,19 +3858,14 @@ function RelationshipsPanel(props: {
         ),
       );
     }
-    assertExactDatasetIdentity(
-      {
-        project_id: props.projectId,
-        dataset_id: props.data.dataset_id,
-        dataset_version_id: props.data.dataset_version_id,
-      },
-      payload,
-      "EDA VIF resolution decision response",
-    );
+    assertExactEdaResponseLineage(props.canonicalHandoff, payload);
     return payload;
   }, [
     props.data.dataset_id,
     props.data.dataset_version_id,
+    props.data.problem_type,
+    props.canonicalHandoff,
+    props.canonicalRequest,
     props.projectId,
   ]);
   const handleCorrelationVariable = useCallback(
@@ -3699,6 +3949,7 @@ function RelationshipsPanel(props: {
         selectedVariable={selectedVariable}
         onSelectVariable={handleVifVariable}
         datasetVersion={props.data.dataset_version}
+        lineageKey={JSON.stringify(props.canonicalRequest)}
         scope={props.data.vif_scope}
         onSimulate={simulateVif}
         onGenerateResolutionPlan={generateVifResolutionPlan}
@@ -3779,6 +4030,7 @@ function RelationshipsPanel(props: {
             selectedRange={selectedRange}
             initialPair={pinnedPair}
             vifVariable={vifVariable}
+            canonicalHandoff={props.canonicalHandoff}
           />
         </React.Suspense>
       </section>

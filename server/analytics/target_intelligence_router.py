@@ -15,10 +15,10 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ..core.modeling_scope import authorize_modeling_scope
 from ..datasets.dataset_identity import (
@@ -191,8 +191,17 @@ def _development_target_by_predictor(
     top_categories: int,
     include_missing: bool,
     expected_scope: Dict[str, Any],
+    canonical_lineage: Dict[str, Any],
 ) -> Dict[str, Any]:
-    """Run the canonical development-only predictor path and bind its scope."""
+    """Run the canonical development-only predictor path and bind its scope.
+
+    ``canonical_lineage`` is the server-authored Target workspace response
+    resolved immediately before this call.  Reusing that complete envelope is
+    required because the nested EDA calculation validates activation, target,
+    predictor authorization, partition, and Special-Value Review revisions;
+    the public evidence request's dataset/version pair must never stand in for
+    those durable authorities.
+    """
 
     from ..eda.analytical_contract import EDAAnalyticalContractError
     from ..eda.workspace_service import eda_workspace_service
@@ -202,10 +211,75 @@ def _development_target_by_predictor(
         result = eda_workspace_service.target_by_predictor(
             EDATargetByPredictorRequest(
                 project_id=project_id,
+                dataset_id=canonical_lineage.get("dataset_id"),
+                dataset_version_id=canonical_lineage.get(
+                    "dataset_version_id"
+                ),
+                activation_revision=canonical_lineage.get(
+                    "activation_revision"
+                ),
                 expected_dataset_id=dataset_id,
                 expected_dataset_version_id=version_id,
                 dataset_version=version_id,
+                target_contract_id=canonical_lineage.get(
+                    "target_contract_id"
+                ),
                 target=target,
+                positive_value=canonical_lineage.get("positive_value"),
+                negative_value=canonical_lineage.get("negative_value"),
+                non_event_value=canonical_lineage.get("negative_value"),
+                problem_type=canonical_lineage.get("problem_type"),
+                predictor_authorization_id=canonical_lineage.get(
+                    "predictor_authorization_id"
+                ),
+                analysis_partition_id=canonical_lineage.get(
+                    "analysis_partition_id"
+                ),
+                analysis_partition_revision=canonical_lineage.get(
+                    "analysis_partition_revision"
+                ),
+                special_value_review_id=canonical_lineage.get(
+                    "special_value_review_id"
+                ),
+                special_value_review_revision=canonical_lineage.get(
+                    "special_value_review_revision"
+                ),
+                bureau_semantic_annotation_state=canonical_lineage.get(
+                    "bureau_semantic_annotation_state"
+                ),
+                bureau_semantic_annotation_set_id=canonical_lineage.get(
+                    "bureau_semantic_annotation_set_id"
+                ),
+                bureau_semantic_annotation_set_checksum=canonical_lineage.get(
+                    "bureau_semantic_annotation_set_checksum"
+                ),
+                bureau_metadata_schema_checksum=canonical_lineage.get(
+                    "bureau_metadata_schema_checksum"
+                ),
+                bureau_metadata_binding_id=canonical_lineage.get(
+                    "bureau_metadata_binding_id"
+                ),
+                bureau_metadata_binding_revision=canonical_lineage.get(
+                    "bureau_metadata_binding_revision"
+                ),
+                bureau_metadata_binding_revision_checksum=canonical_lineage.get(
+                    "bureau_metadata_binding_revision_checksum"
+                ),
+                bureau_metadata_crosswalk_id=canonical_lineage.get(
+                    "bureau_metadata_crosswalk_id"
+                ),
+                bureau_metadata_crosswalk_revision=canonical_lineage.get(
+                    "bureau_metadata_crosswalk_revision"
+                ),
+                bureau_metadata_crosswalk_revision_checksum=canonical_lineage.get(
+                    "bureau_metadata_crosswalk_revision_checksum"
+                ),
+                bureau_metadata_catalog_version_id=canonical_lineage.get(
+                    "bureau_metadata_catalog_version_id"
+                ),
+                bureau_metadata_catalog_checksum=canonical_lineage.get(
+                    "bureau_metadata_catalog_checksum"
+                ),
                 predictor=predictor,
                 analysis_type=analysis_type,
                 event_value=event_value,
@@ -357,7 +431,104 @@ def target_assessment(payload: TargetAssessmentRequest, user: Dict[str, Any] = D
 # ---------------------------------------------------------------------------
 
 
+class CanonicalEdaLineage(BaseModel):
+    """Exact compare-only Data Acquisition handoff for nested EDA analytics."""
+
+    model_config = {"extra": "forbid"}
+
+    project_id: str
+    dataset_id: str
+    dataset_version_id: str
+    activation_revision: int = Field(ge=1)
+    target_contract_id: str
+    target: str
+    positive_value: Any
+    negative_value: Any
+    event_value: Any = None
+    non_event_value: Any = None
+    predictor_authorization_id: str
+    analysis_partition_id: str
+    analysis_partition_revision: int = Field(ge=1)
+    special_value_review_id: str
+    special_value_review_revision: int = Field(ge=1)
+    expected_dataset_id: str | None = None
+    expected_dataset_version_id: str | None = None
+    dataset_version: str | None = None
+
+    # Optional, compare-only Bureau Metadata Catalog identity. Data
+    # Acquisition emits this exact bounded envelope when an entitled mapping
+    # is current. Definition rows and observed values never belong here.
+    bureau_semantic_annotation_state: Literal[
+        "available", "unavailable"
+    ] | None = None
+    bureau_semantic_annotation_set_id: str | None = None
+    bureau_semantic_annotation_set_checksum: str | None = None
+    bureau_metadata_schema_checksum: str | None = None
+    bureau_metadata_binding_id: str | None = None
+    bureau_metadata_binding_revision: int | None = None
+    bureau_metadata_binding_revision_checksum: str | None = None
+    bureau_metadata_crosswalk_id: str | None = None
+    bureau_metadata_crosswalk_revision: int | None = None
+    bureau_metadata_crosswalk_revision_checksum: str | None = None
+    bureau_metadata_catalog_version_id: str | None = None
+    bureau_metadata_catalog_checksum: str | None = None
+
+    @model_validator(mode="after")
+    def validate_bureau_semantic_identity_shape(self):
+        fields = (
+            "bureau_semantic_annotation_set_id",
+            "bureau_semantic_annotation_set_checksum",
+            "bureau_metadata_schema_checksum",
+            "bureau_metadata_binding_id",
+            "bureau_metadata_binding_revision",
+            "bureau_metadata_binding_revision_checksum",
+            "bureau_metadata_crosswalk_id",
+            "bureau_metadata_crosswalk_revision",
+            "bureau_metadata_crosswalk_revision_checksum",
+            "bureau_metadata_catalog_version_id",
+            "bureau_metadata_catalog_checksum",
+        )
+        present = [field for field in fields if getattr(self, field) is not None]
+        state = self.bureau_semantic_annotation_state
+        if state is None:
+            if present:
+                raise ValueError(
+                    "Bureau semantic identity fields require an explicit "
+                    "available state."
+                )
+            return self
+        if state == "unavailable":
+            if present:
+                raise ValueError(
+                    "An unavailable Bureau semantic assertion cannot carry "
+                    "annotation, binding, crosswalk, schema, or catalog identity."
+                )
+            return self
+        missing = [field for field in fields if getattr(self, field) is None]
+        if missing:
+            raise ValueError(
+                "An available Bureau semantic assertion requires the complete "
+                "exact identity: " + ", ".join(missing) + "."
+            )
+        if any(
+            isinstance(revision, bool)
+            or not isinstance(revision, int)
+            or revision < 1
+            for revision in (
+                self.bureau_metadata_binding_revision,
+                self.bureau_metadata_crosswalk_revision,
+            )
+        ):
+            raise ValueError(
+                "Bureau semantic binding and crosswalk revisions must be "
+                "positive integers."
+            )
+        return self
+
+
 class TargetByPredictorRequest(BaseModel):
+    model_config = {"extra": "forbid"}
+
     projectId: str
     datasetId: str
     versionId: str | None = None
@@ -368,6 +539,10 @@ class TargetByPredictorRequest(BaseModel):
     bands: int = DEFAULT_BANDS
     topCategories: int = DEFAULT_TOP_CATEGORIES
     includeMissing: bool = True
+    # Optional at HTTP schema time so the EDA service can report a more precise
+    # missing durable prerequisite first. A calculation cannot succeed without
+    # this complete canonical handoff.
+    canonicalLineage: CanonicalEdaLineage | None = None
 
 
 @router.post("/analytics/target-by-predictor")
@@ -393,13 +568,138 @@ def target_by_predictor(payload: TargetByPredictorRequest, user: Dict[str, Any] 
     from ..eda.workspace_types import TargetByPredictorRequest as EDATargetByPredictorRequest
 
     try:
+        lineage = payload.canonicalLineage
+        if lineage is not None and lineage.project_id != payload.projectId:
+            raise EDAAnalyticalContractError(
+                "The Target-by-Predictor handoff belongs to a different project.",
+                code="eda_project_scope_mismatch",
+                recovery="Reload the current project-scoped EDA route.",
+            )
+        if lineage is not None and lineage.target != payload.target:
+            raise EDAAnalyticalContractError(
+                "The requested target does not match the canonical Data Acquisition handoff.",
+                code="target_contract_stale",
+                recovery=(
+                    "Reload Data Acquisition and retry with its current target "
+                    "contract and class mapping."
+                ),
+                stale_artifacts=["target_eda", "predictor_eda"],
+            )
         return eda_workspace_service.target_by_predictor(
             EDATargetByPredictorRequest(
                 project_id=identity["project_id"],
-                expected_dataset_id=identity["dataset_id"],
-                expected_dataset_version_id=identity["dataset_version_id"],
-                dataset_version=identity["dataset_version_id"],
+                dataset_id=lineage.dataset_id if lineage is not None else None,
+                dataset_version_id=(
+                    lineage.dataset_version_id if lineage is not None else None
+                ),
+                activation_revision=(
+                    lineage.activation_revision if lineage is not None else None
+                ),
+                expected_dataset_id=(
+                    lineage.expected_dataset_id if lineage is not None else None
+                ),
+                expected_dataset_version_id=(
+                    lineage.expected_dataset_version_id
+                    if lineage is not None
+                    else None
+                ),
+                dataset_version=(
+                    lineage.dataset_version if lineage is not None else None
+                ),
+                target_contract_id=(
+                    lineage.target_contract_id if lineage is not None else None
+                ),
                 target=payload.target,
+                positive_value=(
+                    lineage.positive_value if lineage is not None else None
+                ),
+                negative_value=(
+                    lineage.negative_value if lineage is not None else None
+                ),
+                non_event_value=(
+                    lineage.non_event_value if lineage is not None else None
+                ),
+                predictor_authorization_id=(
+                    lineage.predictor_authorization_id
+                    if lineage is not None
+                    else None
+                ),
+                analysis_partition_id=(
+                    lineage.analysis_partition_id if lineage is not None else None
+                ),
+                analysis_partition_revision=(
+                    lineage.analysis_partition_revision
+                    if lineage is not None
+                    else None
+                ),
+                special_value_review_id=(
+                    lineage.special_value_review_id if lineage is not None else None
+                ),
+                special_value_review_revision=(
+                    lineage.special_value_review_revision
+                    if lineage is not None
+                    else None
+                ),
+                bureau_semantic_annotation_state=(
+                    lineage.bureau_semantic_annotation_state
+                    if lineage is not None
+                    else None
+                ),
+                bureau_semantic_annotation_set_id=(
+                    lineage.bureau_semantic_annotation_set_id
+                    if lineage is not None
+                    else None
+                ),
+                bureau_semantic_annotation_set_checksum=(
+                    lineage.bureau_semantic_annotation_set_checksum
+                    if lineage is not None
+                    else None
+                ),
+                bureau_metadata_schema_checksum=(
+                    lineage.bureau_metadata_schema_checksum
+                    if lineage is not None
+                    else None
+                ),
+                bureau_metadata_binding_id=(
+                    lineage.bureau_metadata_binding_id
+                    if lineage is not None
+                    else None
+                ),
+                bureau_metadata_binding_revision=(
+                    lineage.bureau_metadata_binding_revision
+                    if lineage is not None
+                    else None
+                ),
+                bureau_metadata_binding_revision_checksum=(
+                    lineage.bureau_metadata_binding_revision_checksum
+                    if lineage is not None
+                    else None
+                ),
+                bureau_metadata_crosswalk_id=(
+                    lineage.bureau_metadata_crosswalk_id
+                    if lineage is not None
+                    else None
+                ),
+                bureau_metadata_crosswalk_revision=(
+                    lineage.bureau_metadata_crosswalk_revision
+                    if lineage is not None
+                    else None
+                ),
+                bureau_metadata_crosswalk_revision_checksum=(
+                    lineage.bureau_metadata_crosswalk_revision_checksum
+                    if lineage is not None
+                    else None
+                ),
+                bureau_metadata_catalog_version_id=(
+                    lineage.bureau_metadata_catalog_version_id
+                    if lineage is not None
+                    else None
+                ),
+                bureau_metadata_catalog_checksum=(
+                    lineage.bureau_metadata_catalog_checksum
+                    if lineage is not None
+                    else None
+                ),
                 predictor=payload.predictor,
                 analysis_type=payload.analysisType,
                 event_value=payload.eventValue,
@@ -409,13 +709,9 @@ def target_by_predictor(payload: TargetByPredictorRequest, user: Dict[str, Any] 
             )
         )
     except EDAAnalyticalContractError as exc:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "ok": False,
-                "code": "eda_analytical_scope_not_current",
-                "message": str(exc),
-            },
+        raise _eda_authority_unavailable(
+            exc,
+            operation="target_by_predictor",
         ) from exc
 
 
@@ -514,7 +810,7 @@ def save_target_evidence(payload: TargetEvidenceRequest, user: Dict[str, Any] = 
             detail="The requested dataset version could not be resolved exactly; governed evidence was not created.",
         )
 
-    assessment, _target_workspace = _development_target_assessment(
+    assessment, target_workspace = _development_target_assessment(
         project_id=payload.projectId,
         dataset_id=dataset_id,
         version_id=version_id,
@@ -539,6 +835,7 @@ def save_target_evidence(payload: TargetEvidenceRequest, user: Dict[str, Any] = 
             top_categories=payload.predictorTopCategories,
             include_missing=payload.predictorIncludeMissing,
             expected_scope=scope,
+            canonical_lineage=target_workspace,
         )
 
     balance = assessment.get("classBalance") or {}

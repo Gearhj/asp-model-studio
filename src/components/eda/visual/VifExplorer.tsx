@@ -81,6 +81,7 @@ export type VifExplorerProps = {
   selectedVariable?: string | null;
   onSelectVariable: (variable: string | null) => void;
   datasetVersion: string;
+  lineageKey: string;
   scope?: VifScope;
   /**
    * Enables an analytical preview only. The explorer never mutates the
@@ -115,7 +116,7 @@ type CorrelationPartner = {
 };
 
 type DecisionState = {
-  datasetVersion: string;
+  lineageKey: string;
   decisions: Record<string, VifDecision>;
 };
 
@@ -220,8 +221,8 @@ function normalizedName(value: string): string {
   return value.trim().toLocaleLowerCase();
 }
 
-function decisionStorageKey(datasetVersion: string): string {
-  return `${DECISION_STORAGE_PREFIX}:${encodeURIComponent(datasetVersion || "unknown")}`;
+function decisionStorageKey(lineageKey: string): string {
+  return `${DECISION_STORAGE_PREFIX}:${encodeURIComponent(lineageKey || "unavailable")}`;
 }
 
 function validDecision(value: unknown): value is VifDecision {
@@ -237,10 +238,10 @@ function validDecision(value: unknown): value is VifDecision {
   );
 }
 
-function readDecisions(datasetVersion: string): Record<string, VifDecision> {
+function readDecisions(lineageKey: string): Record<string, VifDecision> {
   if (typeof window === "undefined") return {};
   try {
-    const raw = window.localStorage.getItem(decisionStorageKey(datasetVersion));
+    const raw = window.localStorage.getItem(decisionStorageKey(lineageKey));
     if (!raw) return {};
     const parsed = JSON.parse(raw) as unknown;
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
@@ -356,6 +357,7 @@ export default function VifExplorer({
   selectedVariable = null,
   onSelectVariable,
   datasetVersion,
+  lineageKey,
   scope,
   onSimulate,
   onGenerateResolutionPlan,
@@ -368,8 +370,8 @@ export default function VifExplorer({
     reducedMotion ? "settled" : "initial",
   );
   const [decisionState, setDecisionState] = useState<DecisionState>(() => ({
-    datasetVersion,
-    decisions: readDecisions(datasetVersion),
+    lineageKey,
+    decisions: readDecisions(lineageKey),
   }));
   const [storageMessage, setStorageMessage] = useState("");
   const [simulationState, setSimulationState] = useState<SimulationState>({ status: "idle" });
@@ -406,7 +408,7 @@ export default function VifExplorer({
     topPartners.map((partner, index) => [normalizedName(partner.variable), index + 1]),
   );
   const currentDecisions =
-    decisionState.datasetVersion === datasetVersion ? decisionState.decisions : {};
+    decisionState.lineageKey === lineageKey ? decisionState.decisions : {};
   const activeDecision = activeVariable ? currentDecisions[activeVariable] : undefined;
   const acceptableCount = preparedRows.filter((row) => row.zone === "acceptable").length;
   const reviewCount = preparedRows.filter((row) => row.zone === "review").length;
@@ -432,27 +434,27 @@ export default function VifExplorer({
       window.cancelAnimationFrame(frame);
       window.clearTimeout(timer);
     };
-  }, [datasetVersion, motionSignature, reducedMotion]);
+  }, [lineageKey, motionSignature, reducedMotion]);
 
   useEffect(() => {
-    if (decisionState.datasetVersion === datasetVersion) return;
+    if (decisionState.lineageKey === lineageKey) return;
     setDecisionState({
-      datasetVersion,
-      decisions: readDecisions(datasetVersion),
+      lineageKey,
+      decisions: readDecisions(lineageKey),
     });
     setStorageMessage("");
-  }, [datasetVersion, decisionState.datasetVersion]);
+  }, [lineageKey, decisionState.lineageKey]);
 
   useEffect(() => {
     if (
       typeof window === "undefined" ||
-      decisionState.datasetVersion !== datasetVersion
+      decisionState.lineageKey !== lineageKey
     ) {
       return;
     }
     try {
       window.localStorage.setItem(
-        decisionStorageKey(datasetVersion),
+        decisionStorageKey(lineageKey),
         JSON.stringify(decisionState.decisions),
       );
       setStorageMessage("");
@@ -461,7 +463,7 @@ export default function VifExplorer({
         "Decision changes are available for this session, but the browser could not persist them.",
       );
     }
-  }, [datasetVersion, decisionState]);
+  }, [lineageKey, decisionState]);
 
   useEffect(
     () => () => {
@@ -473,7 +475,7 @@ export default function VifExplorer({
   useEffect(() => {
     simulationRevision.current += 1;
     setSimulationState({ status: "idle" });
-  }, [activeVariable, datasetVersion]);
+  }, [activeVariable, lineageKey]);
 
   const updateDecision = (
     variable: string,
@@ -481,9 +483,9 @@ export default function VifExplorer({
   ) => {
     setDecisionState((current) => {
       const decisions =
-        current.datasetVersion === datasetVersion
+        current.lineageKey === lineageKey
           ? current.decisions
-          : readDecisions(datasetVersion);
+          : readDecisions(lineageKey);
       const existing = decisions[variable];
       const strongest = strongestPartners(
         variable,
@@ -500,7 +502,7 @@ export default function VifExplorer({
         updatedAt: new Date().toISOString(),
       };
       return {
-        datasetVersion,
+        lineageKey,
         decisions: { ...decisions, [variable]: next },
       };
     });
@@ -509,12 +511,12 @@ export default function VifExplorer({
   const clearDecision = (variable: string) => {
     setDecisionState((current) => {
       const decisions =
-        current.datasetVersion === datasetVersion
+        current.lineageKey === lineageKey
           ? current.decisions
-          : readDecisions(datasetVersion);
+          : readDecisions(lineageKey);
       const next = { ...decisions };
       delete next[variable];
-      return { datasetVersion, decisions: next };
+      return { lineageKey, decisions: next };
     });
   };
 
@@ -1131,6 +1133,7 @@ export default function VifExplorer({
       {onGenerateResolutionPlan && onResolutionDecision ? (
         <VifResolutionPlanPanel
           predictors={preparedRows.map((row) => row.featureName)}
+          lineageKey={lineageKey}
           onGenerate={onGenerateResolutionPlan}
           onDecision={onResolutionDecision}
         />

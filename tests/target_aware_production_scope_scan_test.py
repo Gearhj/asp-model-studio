@@ -48,9 +48,6 @@ class TargetAwareProductionScopeScanTest(unittest.TestCase):
                 "_event_rate": ("target_analysis_target",),
                 "_event_count": ("target_analysis_target",),
             },
-            "server/eda/workspace_service.py": {
-                "_detect_frame_target_sources": ("detection_frame",),
-            },
         }
         for relative, calls in expectations.items():
             for call_name, required_tokens in calls.items():
@@ -64,6 +61,17 @@ class TargetAwareProductionScopeScanTest(unittest.TestCase):
                         any(token in call for token in required_tokens),
                         f"Target-aware call is not development-bound: {relative}: {call}",
                     )
+
+        # EDA consumes the immutable durable predictor authorization. It must
+        # not recompute deterministic target sources and publish a different
+        # inventory under the same authorization identifier.
+        self.assertEqual(
+            self._calls(
+                "server/eda/workspace_service.py",
+                {"_detect_frame_target_sources"},
+            ),
+            [],
+        )
 
     def test_reachable_preprocessing_paths_have_no_full_target_fallback(self):
         sources = {
@@ -188,7 +196,11 @@ class TargetAwareProductionScopeScanTest(unittest.TestCase):
             notebook,
         )
         self.assertIn(
-            "profile_bureau_special_values(bureau_development_frame, target=TARGET)",
+            "profile_bureau_special_values(bureau_development_frame, target=None)",
+            notebook,
+        )
+        self.assertIn(
+            "target-aware bureau comparison must be returned by the governed backend",
             notebook,
         )
         self.assertNotIn("y.iloc[list(TRAINING_POSITIONS)]", notebook)

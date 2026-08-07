@@ -1,9 +1,7 @@
 import {
   BUREAU_METADATA_KEY,
   BUREAU_TREATMENT_KEY,
-  loadBureauMetadata,
   loadBureauTreatmentDecisions,
-  type BureauMetadataRow,
 } from "./creditBureau";
 import type { CanonicalDatasetIdentity } from "./datasetIdentity";
 
@@ -28,6 +26,7 @@ export type BureauReviewDecision = {
   value: number;
   handling: BureauHandling;
   rationale: string;
+  replacementValue?: string;
   updatedAt: string;
   override: true;
 };
@@ -36,6 +35,7 @@ export type BureauVariableDefault = {
   variable: string;
   handling: BureauHandling;
   rationale: string;
+  replacementValue?: string;
   updatedAt: string;
 };
 
@@ -66,7 +66,10 @@ export type BureauDetectionVariable = {
 export type BureauDetectionResponse = {
   ok: boolean;
   scope: "full_dataset";
+  analysis_scope: "mixed_governed_scopes";
+  structural_scope: "full_governed_population_predictors_only";
   row_count: number;
+  full_governed_population_rows: number;
   target: string | null;
   event_value: unknown;
   detected: boolean;
@@ -86,9 +89,40 @@ export type BureauDetectionResponse = {
   predictor_authorization_id: string;
   target_contract_id: string;
   correlation_id: string;
-  target_analysis_scope: "development_partition" | "full_dataset_pre_partition";
+  target_analysis_scope: "development_population" | "not_available";
   analysis_partition_id: string | null;
+  analysis_partition_revision: number | null;
   development_partition_id: string | null;
+  analysis_partition_assignment_hash: string | null;
+  analysis_partition_artifact_hash: string | null;
+  development_target_checksum: string | null;
+  scope_contract: {
+    structural_evidence: "full_governed_population_predictors_only";
+    target_evidence: "development_population" | "not_available";
+    single_scope_inference_allowed: false;
+  };
+  structural_evidence: {
+    scope: "full_governed_population_predictors_only";
+    population_count: number;
+    target_accessed: false;
+    measures: string[];
+  };
+  target_evidence: {
+    available: boolean;
+    status: "available" | "unavailable";
+    scope: "development_population" | "not_available";
+    population_id: string | null;
+    population_count: number;
+    analysis_partition_id: string | null;
+    analysis_partition_revision: number | null;
+    assignment_hash: string | null;
+    artifact_hash: string | null;
+    source_checksum: string | null;
+    development_target_checksum: string | null;
+    holdout_excluded: true;
+    final_holdout_accessed: false;
+    measures: string[];
+  };
   final_holdout_accessed: false;
   special_value_review: SpecialValueReviewContract;
 };
@@ -104,10 +138,12 @@ export type SpecialValueReviewVariableDecision = {
   variable: string;
   policy: BureauHandling;
   rationale: string;
+  replacement_value?: unknown;
   overrides: Array<{
     value: unknown;
     policy: BureauHandling;
     rationale: string;
+    replacement_value?: unknown;
   }>;
 };
 
@@ -123,6 +159,20 @@ export type SpecialValueReviewContract = {
   activation_revision: number;
   predictor_authorization_id: string;
   target_contract_id: string;
+  analysis_partition_id: string | null;
+  analysis_partition_revision: number | null;
+  development_partition_id: string | null;
+  analysis_partition_assignment_hash: string | null;
+  analysis_partition_artifact_hash: string | null;
+  development_target_checksum: string | null;
+  source_checksum: string | null;
+  structural_scope: "full_governed_population_predictors_only";
+  target_analysis_scope: "development_population" | "not_available";
+  target_evidence_available: boolean;
+  target_evidence_status: "available" | "unavailable";
+  target_evidence_unavailable_reason: string;
+  full_governed_population_rows: number;
+  development_rows: number;
   detection_fingerprint: string;
   status: SpecialValueReviewStatus;
   detected_count: number;
@@ -147,6 +197,8 @@ export type SpecialValueReviewLineage = {
   activationRevision: number;
   predictorAuthorizationId: string;
   targetContractId: string;
+  analysisPartitionId?: string | null;
+  analysisPartitionRevision?: number | null;
 };
 
 export type BureauReviewDraftAuthority = {
@@ -156,7 +208,11 @@ export type BureauReviewDraftAuthority = {
   activation_revision: number;
   predictor_authorization_id: string;
   target_contract_id: string;
+  analysis_partition_id: string | null;
+  analysis_partition_revision: number | null;
   detection_fingerprint: string;
+  special_value_review_id: string;
+  special_value_review_revision: number;
 };
 
 export type BureauReviewState = {
@@ -166,6 +222,8 @@ export type BureauReviewState = {
   variableDefaults: BureauVariableDefault[];
   status: "draft" | "confirmed";
   evidenceStatus: "not_recorded" | "draft" | "ready" | "stale";
+  evidenceId?: string;
+  evidenceReviewRevision?: number;
   confirmedAt?: string;
   savedAt?: string;
   /** Exact scope for this non-authoritative browser draft cache. */
@@ -184,13 +242,55 @@ function requiredText(value: unknown) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+export type SpecialValueReviewContractErrorKind =
+  | "missing"
+  | "identity_mismatch"
+  | "incomplete"
+  | "contradictory";
+
+export class SpecialValueReviewContractError extends Error {
+  readonly kind: SpecialValueReviewContractErrorKind;
+
+  constructor(kind: SpecialValueReviewContractErrorKind, message: string) {
+    super(message);
+    this.name = "SpecialValueReviewContractError";
+    this.kind = kind;
+  }
+}
+
+/**
+ * A same-identity review written before the current durable contract may be
+ * refreshed by running exact automatic detection again. Identity or lineage
+ * contradictions remain fail-closed and are never treated as legacy state.
+ */
+export function isRefreshableLegacySpecialValueReviewError(error: unknown) {
+  if (
+    error instanceof SpecialValueReviewContractError &&
+    error.kind === "incomplete"
+  ) {
+    return true;
+  }
+  // The backend reports a durable review written before the current contract
+  // schema as `special_value_review_stale` with the offending fields named.
+  // Re-running exact detection regenerates it; identity contradictions never
+  // reach here because the backend raises those with a different code.
+  return (
+    error instanceof SpecialValueReviewApiError &&
+    error.code === "special_value_review_stale" &&
+    error.supersededContractFields.length > 0
+  );
+}
+
 export function assertSpecialValueReviewContract(
   value: unknown,
   lineage: SpecialValueReviewLineage,
 ): SpecialValueReviewContract {
   const contract = value as Partial<SpecialValueReviewContract> | null;
   if (!contract || typeof contract !== "object") {
-    throw new Error("The backend did not return a durable special-value review contract.");
+    throw new SpecialValueReviewContractError(
+      "missing",
+      "The backend did not return a durable special-value review contract.",
+    );
   }
   const identity = lineage.datasetIdentity;
   const exactIdentity =
@@ -202,14 +302,25 @@ export function assertSpecialValueReviewContract(
     contract.activation_revision === lineage.activationRevision &&
     contract.predictor_authorization_id === lineage.predictorAuthorizationId &&
     contract.target_contract_id === lineage.targetContractId;
+  const expectedPartitionId = lineage.analysisPartitionId ?? null;
+  const expectedPartitionRevision = lineage.analysisPartitionRevision ?? null;
+  const completePartitionExpectation =
+    Boolean(expectedPartitionId) === (expectedPartitionRevision != null);
+  const exactPartitionLineage =
+    !expectedPartitionId ||
+    (contract.analysis_partition_id === expectedPartitionId &&
+      contract.analysis_partition_revision === expectedPartitionRevision);
   const identityRevision = identity.activation_revision;
   if (
     !exactIdentity ||
     !exactLineage ||
+    !completePartitionExpectation ||
+    !exactPartitionLineage ||
     (identityRevision != null && contract.activation_revision !== identityRevision)
   ) {
-    throw new Error(
-      "The durable special-value review does not match the exact project, dataset version, activation, predictor authorization, and target contract.",
+    throw new SpecialValueReviewContractError(
+      "identity_mismatch",
+      "The durable special-value review does not match the exact project, dataset version, activation, predictor authorization, target contract, and development-partition lineage.",
     );
   }
   if (
@@ -221,6 +332,17 @@ export function assertSpecialValueReviewContract(
     !requiredText(contract.detection_fingerprint) ||
     !requiredText(contract.predictor_authorization_id) ||
     !requiredText(contract.target_contract_id) ||
+    contract.structural_scope !==
+      "full_governed_population_predictors_only" ||
+    !requiredText(contract.source_checksum) ||
+    !positiveInteger(contract.full_governed_population_rows) ||
+    typeof contract.target_evidence_available !== "boolean" ||
+    !["available", "unavailable"].includes(
+      String(contract.target_evidence_status),
+    ) ||
+    !["development_population", "not_available"].includes(
+      String(contract.target_analysis_scope),
+    ) ||
     !Array.isArray(contract.variable_decisions) ||
     !Array.isArray(contract.open_items) ||
     ![
@@ -237,12 +359,36 @@ export function assertSpecialValueReviewContract(
     !nonnegativeInteger(contract.reviewed_count) ||
     !nonnegativeInteger(contract.open_count)
   ) {
-    throw new Error("The backend special-value review authority is incomplete or invalid.");
+    throw new SpecialValueReviewContractError(
+      "incomplete",
+      "The backend special-value review authority is incomplete or invalid.",
+    );
   }
   const detectedCount = contract.detected_count as number;
   const reviewedCount = contract.reviewed_count as number;
   const openCount = contract.open_count as number;
+  const targetEvidenceCoherent = contract.target_evidence_available
+    ? contract.target_evidence_status === "available" &&
+      contract.target_analysis_scope === "development_population" &&
+      requiredText(contract.analysis_partition_id) &&
+      positiveInteger(contract.analysis_partition_revision) &&
+      requiredText(contract.development_partition_id) &&
+      requiredText(contract.analysis_partition_assignment_hash) &&
+      requiredText(contract.analysis_partition_artifact_hash) &&
+      requiredText(contract.development_target_checksum) &&
+      requiredText(contract.source_checksum) &&
+      positiveInteger(contract.development_rows)
+    : contract.target_evidence_status === "unavailable" &&
+      contract.target_analysis_scope === "not_available" &&
+      contract.analysis_partition_id == null &&
+      contract.analysis_partition_revision == null &&
+      contract.development_partition_id == null &&
+      contract.analysis_partition_assignment_hash == null &&
+      contract.analysis_partition_artifact_hash == null &&
+      contract.development_target_checksum == null &&
+      contract.development_rows === 0;
   if (
+    !targetEvidenceCoherent ||
     reviewedCount > detectedCount ||
     openCount !== detectedCount - reviewedCount ||
     contract.open_items.length !== openCount ||
@@ -253,7 +399,10 @@ export function assertSpecialValueReviewContract(
     (contract.status === "not_required" &&
       (detectedCount !== 0 || contract.blocks_continuation))
   ) {
-    throw new Error("The backend special-value review counts and status are contradictory.");
+    throw new SpecialValueReviewContractError(
+      "contradictory",
+      "The backend special-value review counts and status are contradictory.",
+    );
   }
   return contract as SpecialValueReviewContract;
 }
@@ -268,7 +417,11 @@ export function specialValueDraftAuthority(
     activation_revision: contract.activation_revision,
     predictor_authorization_id: contract.predictor_authorization_id,
     target_contract_id: contract.target_contract_id,
+    analysis_partition_id: contract.analysis_partition_id,
+    analysis_partition_revision: contract.analysis_partition_revision,
     detection_fingerprint: contract.detection_fingerprint,
+    special_value_review_id: contract.special_value_review_id,
+    special_value_review_revision: contract.revision,
   };
 }
 
@@ -295,9 +448,31 @@ function mapLegacyHandling(treatment: string): BureauHandling {
   return "preserve_informative";
 }
 
-export function loadBureauReviewState(): BureauReviewState {
+function emptyBureauReviewState(): BureauReviewState {
+  return {
+    declaration: "auto",
+    rationale: "",
+    decisions: [],
+    variableDefaults: [],
+    status: "draft",
+    evidenceStatus: "not_recorded",
+  };
+}
+
+export function bureauReviewDraftKey(projectId: string) {
+  const scope = projectId.trim();
+  if (!scope) {
+    throw new Error("A project_id is required for the special-value draft cache.");
+  }
+  return `${BUREAU_REVIEW_KEY}:${encodeURIComponent(scope)}`;
+}
+
+export function loadBureauReviewState(projectId?: string): BureauReviewState {
+  const storageKey = projectId?.trim()
+    ? bureauReviewDraftKey(projectId)
+    : BUREAU_REVIEW_KEY;
   try {
-    const parsed = JSON.parse(localStorage.getItem(BUREAU_REVIEW_KEY) || "null");
+    const parsed = JSON.parse(localStorage.getItem(storageKey) || "null");
     if (parsed && Array.isArray(parsed.decisions)) {
       return {
         declaration: parsed.declaration ?? "auto",
@@ -312,15 +487,24 @@ export function loadBureauReviewState(): BureauReviewState {
         // A browser record is a convenience draft only. Durable confirmation
         // is loaded from /api/data/special-value-review.
         status: "draft",
+        // A cached "ready" marker is downgraded until the component reads the
+        // exact evidence back from durable storage for the current review.
         evidenceStatus:
-          parsed.evidenceStatus === "draft" ||
           parsed.evidenceStatus === "ready" ||
           parsed.evidenceStatus === "stale"
-            ? parsed.evidenceStatus
-            : "not_recorded",
+            ? "stale"
+            : parsed.evidenceStatus === "draft"
+              ? "draft"
+              : "not_recorded",
         confirmedAt: undefined,
         savedAt:
           typeof parsed.savedAt === "string" ? parsed.savedAt : undefined,
+        evidenceId:
+          typeof parsed.evidenceId === "string" ? parsed.evidenceId : undefined,
+        evidenceReviewRevision:
+          positiveInteger(parsed.evidenceReviewRevision)
+            ? parsed.evidenceReviewRevision
+            : undefined,
         draftAuthority:
           parsed.draftAuthority && typeof parsed.draftAuthority === "object"
             ? parsed.draftAuthority
@@ -330,6 +514,8 @@ export function loadBureauReviewState(): BureauReviewState {
   } catch {
     // Fall through to compatibility migration.
   }
+  // Project-scoped callers must never inherit another project's legacy draft.
+  if (projectId?.trim()) return emptyBureauReviewState();
   const legacy = loadBureauTreatmentDecisions();
   return {
     declaration: "auto",
@@ -348,9 +534,15 @@ export function loadBureauReviewState(): BureauReviewState {
   };
 }
 
-export function saveBureauReviewState(state: BureauReviewState) {
+export function saveBureauReviewState(
+  state: BureauReviewState,
+  projectId?: string,
+) {
+  const storageKey = projectId?.trim()
+    ? bureauReviewDraftKey(projectId)
+    : BUREAU_REVIEW_KEY;
   localStorage.setItem(
-    BUREAU_REVIEW_KEY,
+    storageKey,
     JSON.stringify({
       ...state,
       status: "draft",
@@ -358,11 +550,11 @@ export function saveBureauReviewState(state: BureauReviewState) {
       browserCacheAuthority: false,
     }),
   );
-  window.dispatchEvent(new CustomEvent("bureau-review-updated"));
-}
-
-export function bureauMetadata(): BureauMetadataRow[] {
-  return loadBureauMetadata();
+  window.dispatchEvent(
+    new CustomEvent("bureau-review-updated", {
+      detail: { projectId: projectId?.trim() || null },
+    }),
+  );
 }
 
 export async function fetchBureauDetection(input: {
@@ -371,7 +563,6 @@ export async function fetchBureauDetection(input: {
   target?: string;
   eventValue?: unknown;
   state: BureauReviewState;
-  metadata?: BureauMetadataRow[];
   signal?: AbortSignal;
 }) {
   const response = await fetch(`${API_BASE}/data/bureau-detection`, {
@@ -386,7 +577,6 @@ export async function fetchBureauDetection(input: {
       target: input.target || undefined,
       event_value: input.eventValue,
       manual_declaration: input.state.declaration,
-      metadata: input.metadata ?? bureauMetadata(),
       treatment_selections: input.state.decisions,
       reviewer_rationale: input.state.rationale,
     }),
@@ -420,12 +610,24 @@ export async function fetchBureauDetection(input: {
 export class SpecialValueReviewApiError extends Error {
   readonly status: number;
   readonly currentReview?: unknown;
+  /** Governed error code, e.g. "special_value_review_stale". */
+  readonly code: string;
+  /** Contract fields the persisted review predates, when the server reports them. */
+  readonly supersededContractFields: string[];
 
-  constructor(message: string, status: number, currentReview?: unknown) {
+  constructor(
+    message: string,
+    status: number,
+    currentReview?: unknown,
+    code = "",
+    supersededContractFields: string[] = [],
+  ) {
     super(message);
     this.name = "SpecialValueReviewApiError";
     this.status = status;
     this.currentReview = currentReview;
+    this.code = code;
+    this.supersededContractFields = supersededContractFields;
   }
 }
 
@@ -454,6 +656,12 @@ async function readSpecialValueReviewResponse(response: Response) {
       response.status,
       detail?.special_value_review ??
         detail?.context?.special_value_review,
+      typeof detail?.code === "string" ? detail.code : "",
+      Array.isArray(detail?.superseded_contract_fields)
+        ? (detail.superseded_contract_fields as string[])
+        : Array.isArray(detail?.context?.superseded_contract_fields)
+          ? (detail.context.superseded_contract_fields as string[])
+          : [],
     );
   }
   return payload.special_value_review as unknown;
@@ -469,6 +677,19 @@ export async function fetchSpecialValueReview(input: {
     expected_dataset_version_id:
       input.lineage.datasetIdentity.dataset_version_id,
   });
+  if (
+    input.lineage.analysisPartitionId &&
+    input.lineage.analysisPartitionRevision != null
+  ) {
+    query.set(
+      "expected_analysis_partition_id",
+      input.lineage.analysisPartitionId,
+    );
+    query.set(
+      "expected_analysis_partition_revision",
+      String(input.lineage.analysisPartitionRevision),
+    );
+  }
   const response = await fetch(
     `${API_BASE}/data/special-value-review?${query.toString()}`,
     { credentials: "include", signal: input.signal },
@@ -477,6 +698,39 @@ export async function fetchSpecialValueReview(input: {
     await readSpecialValueReviewResponse(response),
     input.lineage,
   );
+}
+
+/**
+ * Loads the backend's exact active review before detection. The backend derives
+ * predictor and target lineage from the exact project/version; the returned
+ * identifiers are then validated as the authoritative lineage tuple.
+ */
+export async function fetchSpecialValueReviewForIdentity(input: {
+  projectId: string;
+  datasetIdentity: CanonicalDatasetIdentity;
+  signal?: AbortSignal;
+}) {
+  const query = new URLSearchParams({
+    project_id: input.projectId,
+    expected_dataset_id: input.datasetIdentity.dataset_id,
+    expected_dataset_version_id: input.datasetIdentity.dataset_version_id,
+  });
+  const response = await fetch(
+    `${API_BASE}/data/special-value-review?${query.toString()}`,
+    { credentials: "include", signal: input.signal },
+  );
+  const raw = (await readSpecialValueReviewResponse(
+    response,
+  )) as Partial<SpecialValueReviewContract>;
+  return assertSpecialValueReviewContract(raw, {
+    projectId: input.projectId,
+    datasetIdentity: input.datasetIdentity,
+    activationRevision: Number(raw.activation_revision),
+    predictorAuthorizationId: String(raw.predictor_authorization_id ?? ""),
+    targetContractId: String(raw.target_contract_id ?? ""),
+    analysisPartitionId: raw.analysis_partition_id ?? null,
+    analysisPartitionRevision: raw.analysis_partition_revision ?? null,
+  });
 }
 
 export async function updateSpecialValueReview(input: {
@@ -498,6 +752,10 @@ export async function updateSpecialValueReview(input: {
       expected_dataset_id: input.lineage.datasetIdentity.dataset_id,
       expected_dataset_version_id:
         input.lineage.datasetIdentity.dataset_version_id,
+      expected_analysis_partition_id:
+        input.lineage.analysisPartitionId || undefined,
+      expected_analysis_partition_revision:
+        input.lineage.analysisPartitionRevision ?? undefined,
       expected_revision: input.current.revision,
       detection_fingerprint: input.current.detection_fingerprint,
       intent: input.intent,

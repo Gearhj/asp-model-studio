@@ -14,15 +14,29 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
-TEST_ROOT = REPO_ROOT / ".tmp"
-TEST_ROOT.mkdir(exist_ok=True)
 RUN_ID = uuid.uuid4().hex[:10]
-SECURITY_DB = TEST_ROOT / f"feature_api_identity_security_{RUN_ID}.db"
-PERSISTENCE_DB = TEST_ROOT / f"feature_api_identity_persistence_{RUN_ID}.db"
-CHECKPOINT = TEST_ROOT / f"feature_api_identity_checkpoint_{RUN_ID}.json"
-LIBRARY_ROOT = TEST_ROOT / f"feature_api_identity_library_{RUN_ID}"
+HERMETIC = os.environ.get("ATLAS_HERMETIC_MODE") == "HERMETIC_REGRESSION"
+if HERMETIC:
+    # The launcher creates these authorities with an ACL inherited by the
+    # restricted child. tempfile.mkdtemp() uses an owner-only ACL on Windows,
+    # which can deny a later request thread in the same hermetic process.
+    SECURITY_DB = Path(os.environ["ATLAS_SECURITY_DB_PATH"]).resolve()
+    PERSISTENCE_DB = Path(os.environ["ATLAS_SQLITE_PATH"]).resolve()
+    CHECKPOINT = Path(os.environ["ATLAS_CHECKPOINT_PATH"]).resolve()
+    LIBRARY_ROOT = Path(os.environ["ATLAS_DATASET_LIBRARY_ROOT"]).resolve()
+    BACKUP_ROOT = Path(os.environ["ATLAS_DATASET_LIBRARY_BACKUP_ROOT"]).resolve()
+else:
+    TEST_ROOT = REPO_ROOT / ".tmp"
+    TEST_ROOT.mkdir(exist_ok=True)
+    SECURITY_DB = TEST_ROOT / f"feature_api_identity_security_{RUN_ID}.db"
+    PERSISTENCE_DB = TEST_ROOT / f"feature_api_identity_persistence_{RUN_ID}.db"
+    CHECKPOINT = TEST_ROOT / f"feature_api_identity_checkpoint_{RUN_ID}.json"
+    LIBRARY_ROOT = TEST_ROOT / f"feature_api_identity_library_{RUN_ID}"
+    BACKUP_ROOT = Path(
+        tempfile.mkdtemp(prefix=f"feature_api_identity_backups_{RUN_ID}_")
+    )
 LIBRARY_ROOT.mkdir(parents=True, exist_ok=True)
-BACKUP_ROOT = Path(tempfile.mkdtemp(prefix=f"feature_api_identity_backups_{RUN_ID}_"))
+BACKUP_ROOT.mkdir(parents=True, exist_ok=True)
 
 os.environ["ATLAS_SECURITY_DB_PATH"] = str(SECURITY_DB)
 os.environ["ATLAS_SECURITY_ROOT"] = str(SECURITY_DB.parent)
@@ -114,8 +128,11 @@ def cleanup() -> None:
                     if attempt < 19:
                         time.sleep(0.1)
     CHECKPOINT.unlink(missing_ok=True)
-    shutil.rmtree(LIBRARY_ROOT, ignore_errors=True)
-    shutil.rmtree(BACKUP_ROOT, ignore_errors=True)
+    # Hermetic authorities are intentionally preserved as child evidence and
+    # are unique for this suite. Outside the harness retain legacy cleanup.
+    if not HERMETIC:
+        shutil.rmtree(LIBRARY_ROOT, ignore_errors=True)
+        shutil.rmtree(BACKUP_ROOT, ignore_errors=True)
 
 
 class FeatureApiDatasetIdentityTests(unittest.TestCase):

@@ -1072,7 +1072,7 @@ export default function AnalyticsWorkbench() {
                   </label>
                   <label className="grid gap-1 text-xs font-semibold uppercase tracking-wide text-slate-600">
                     SASPy cfgfile path
-                    <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal normal-case text-slate-900" value={sasCfgfile} onChange={(event) => setSasCfgfile(event.target.value)} placeholder="C:/Users/james/path/to/sascfg_personal.py" disabled={sasMode !== "saspy_config"} />
+                    <input className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-normal normal-case text-slate-900" value={sasCfgfile} onChange={(event) => setSasCfgfile(event.target.value)} placeholder="path/to/sascfg_personal.py" disabled={sasMode !== "saspy_config"} />
                     <span className="text-[11px] font-normal normal-case leading-4 text-slate-500">Optional path to a SASPy config file. The file must already exist.</span>
                   </label>
                 </div>

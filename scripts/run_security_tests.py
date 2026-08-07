@@ -31,6 +31,29 @@ CHECKED_IN_MUTABLE_ROOTS = tuple(
         ROOT / "server" / "artifacts" / "scoring_runs",
     )
 )
+SECURITY_ENTRY_TIMEOUT_SECONDS = 180.0
+
+
+def _stop_owned_process_tree(process: subprocess.Popen[str]) -> None:
+    """Stop only the timed-out security-suite process and its descendants."""
+
+    if process.poll() is not None:
+        return
+    if os.name == "nt":
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+            timeout=30,
+        )
+    else:
+        process.kill()
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=10)
 
 
 def isolated_environment(runtime_root: Path) -> dict[str, str]:
@@ -49,6 +72,9 @@ def isolated_environment(runtime_root: Path) -> dict[str, str]:
         "ATLAS_CHECKPOINT_PATH": runtime_root / "checkpoint" / "workflow_checkpoint.json",
         "ATLAS_DATASET_LIBRARY_ROOT": runtime_root / "dataset-library",
         "ATLAS_DATASET_LIBRARY_BACKUP_ROOT": runtime_root / "dataset-backups",
+        "ATLAS_BUREAU_CATALOG_REGISTRY_ROOT": runtime_root / "bureau-catalog-registry",
+        "ATLAS_RESTRICTED_METADATA_ROOT": runtime_root / "restricted-bureau-metadata",
+        "ATLAS_ISOLATED_CATALOG_INSTALL_JOURNAL_ROOT": runtime_root / "catalog-install-journal",
         "ATLAS_EVIDENCE_ROOT": runtime_root / "evidence",
         "ATLAS_FEATURE_MANIFEST_ROOT": runtime_root / "feature-manifests",
         "ATLAS_MODEL_REGISTRY_ARTIFACT_ROOT": runtime_root / "model-registry",
@@ -114,6 +140,7 @@ def isolated_environment(runtime_root: Path) -> dict[str, str]:
             "ATLAS_AUTH_ENABLED": "0",
             "TEMP": str(runtime_root / "process-temp"),
             "TMP": str(runtime_root / "process-temp"),
+            "PYTHONDONTWRITEBYTECODE": "1",
             "PYTHONPYCACHEPREFIX": str(runtime_root / "pycache"),
         }
     )
@@ -163,20 +190,42 @@ def run_entry(kind: str, entry: dict, gate_root: Path) -> None:
     environment = isolated_environment(gate_root / suite_name)
     environment["ATLAS_TEST_NAME"] = suite_name
     print(f"\n[{kind}] {path}: {entry['description']}", flush=True)
-    result = subprocess.run(
-        command,
-        cwd=ROOT,
-        text=True,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-        env=environment,
-    )
-    print(result.stdout, end="")
-    if re.search(r"\bskipped(?:\s*=|\s+\()", result.stdout, flags=re.IGNORECASE):
+    log_path = gate_root / f"{suite_name}.log"
+    timeout_seconds = float(entry.get("timeoutSeconds", SECURITY_ENTRY_TIMEOUT_SECONDS))
+    if timeout_seconds <= 0 or timeout_seconds > SECURITY_ENTRY_TIMEOUT_SECONDS:
+        raise SystemExit(2)
+    timed_out = False
+    return_code = 1
+    with log_path.open("x", encoding="utf-8", newline="\n") as output:
+        # Ensure a timeout always leaves a durable, non-empty diagnostic even
+        # when Windows process startup stalls before the child can emit its
+        # first line. Child output is appended to the same bounded log.
+        output.write(f"ATLAS security entry started: kind={kind}\n")
+        output.flush()
+        process = subprocess.Popen(
+            command,
+            cwd=ROOT,
+            text=True,
+            stdout=output,
+            stderr=subprocess.STDOUT,
+            env=environment,
+        )
+        try:
+            return_code = process.wait(timeout=timeout_seconds)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            _stop_owned_process_tree(process)
+            return_code = 124
+    rendered_output = log_path.read_text(encoding="utf-8")
+    print(rendered_output, end="")
+    if timed_out:
+        print(f"Required security suite timed out safely: {path}", file=sys.stderr)
+        raise SystemExit(124)
+    if re.search(r"\bskipped(?:\s*=|\s+\()", rendered_output, flags=re.IGNORECASE):
         print(f"Required security suite reported skipped tests: {path}", file=sys.stderr)
         raise SystemExit(3)
-    if result.returncode:
-        raise SystemExit(result.returncode)
+    if return_code:
+        raise SystemExit(return_code)
 
 
 def main() -> None:

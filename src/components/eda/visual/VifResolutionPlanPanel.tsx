@@ -9,7 +9,7 @@ import {
   ShieldCheck,
   XCircle,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   DEFAULT_VIF_RESOLUTION_INPUTS,
   vifComparisonChartRows,
@@ -22,6 +22,7 @@ import {
 
 type Props = {
   predictors: string[];
+  lineageKey: string;
   onGenerate: (inputs: VifResolutionInputs) => Promise<VifResolutionPlan>;
   onDecision: (
     request: VifResolutionDecisionRequest,
@@ -95,6 +96,7 @@ function SummaryCard({
 
 export default function VifResolutionPlanPanel({
   predictors,
+  lineageKey,
   onGenerate,
   onDecision,
 }: Props) {
@@ -116,6 +118,15 @@ export default function VifResolutionPlanPanel({
     1,
     ...chartRows.flatMap((row) => [row.current_vif ?? 0, row.proposed_vif ?? 0]),
   );
+
+  useEffect(() => {
+    setInputs(DEFAULT_VIF_RESOLUTION_INPUTS);
+    setPlan(null);
+    setSelectedClusters([]);
+    setRationale("");
+    setStatus("idle");
+    setMessage("");
+  }, [lineageKey]);
 
   function toggleProtected(feature: string) {
     setInputs((current) => ({

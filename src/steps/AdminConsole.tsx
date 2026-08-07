@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { ShieldCheck } from "lucide-react";
+import { Link } from "react-router-dom";
 import {
   addGroupMember,
   approveAccessRequest,
@@ -82,6 +83,12 @@ export default function AdminConsole() {
         <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-sky-200"><ShieldCheck size={16} /> Platform administration</div>
         <h1 className="mt-2 text-2xl font-semibold">ATLAS Admin Console</h1>
         <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-300">Manage users, roles, groups, platform access, and sharing controls for governed analytical work.</p>
+        <Link
+          to="/admin/bureau-catalogs"
+          className="mt-4 inline-flex items-center rounded-lg border border-sky-300/60 bg-sky-400/10 px-3 py-2 text-sm font-semibold text-sky-100 outline-none transition hover:bg-sky-400/20 focus-visible:ring-2 focus-visible:ring-sky-300"
+        >
+          Open restricted bureau catalog administration
+        </Link>
       </section>
 
       {message && <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">{message}</div>}

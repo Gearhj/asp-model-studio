@@ -15,6 +15,11 @@ from server.analysis_partition.types import (
 )
 from server.persistence.db import Database
 from server.persistence.service import PersistenceService
+from server.preprocessing.special_value_review_service import (
+    detection_fingerprint,
+    initial_review_state,
+    public_review_contract,
+)
 
 
 partition_router = importlib.import_module("server.analysis_partition.router")
@@ -25,7 +30,7 @@ class GovernedAnalysisFixture:
 
     Production EDA intentionally has no checkpoint, split, first-version, or
     full-population fallback. Older service tests therefore install the exact
-    two durable pre-EDA contracts explicitly in a temporary SQLite database.
+    durable pre-EDA contracts explicitly in a temporary SQLite database.
     """
 
     def __init__(
@@ -163,17 +168,61 @@ class GovernedAnalysisFixture:
                 default_handler=str,
             ).encode("utf-8")
         ).hexdigest()
+        activation_revision = int(store.meta.get("activation_revision") or 1)
         store.meta.update(
             {
                 "project_id": self.project_id,
                 "dataset_id": dataset_id,
                 "dataset_version_id": dataset_version_id,
+                "activation_revision": activation_revision,
                 "target_contract_id": target_contract_id,
                 "predictor_authorization_id": authorization_id,
                 "predictor_authorization": authorization_payload,
                 "predictor_authorization_manifest": authorization_payload,
                 "selected_columns": predictors,
                 "dataset_content_hash": synthetic_content_hash,
+            }
+        )
+        # HTTP EDA handoff tests need the exact third durable Data Acquisition
+        # prerequisite as well.  This synthetic fixture has no detected
+        # special values, so its authoritative review is ``not_required``;
+        # no decisions or governed production state are fabricated.
+        detection = {
+            "project_id": self.project_id,
+            "dataset_id": dataset_id,
+            "dataset_version_id": dataset_version_id,
+            "predictor_authorization_id": authorization_id,
+            "target_contract_id": target_contract_id,
+            "target": target,
+            "manual_declaration": "",
+            "detected": False,
+            "variables": [],
+        }
+        review_state = initial_review_state(detection)
+        review_row = self.persistence.special_value_reviews.sync_detection(
+            {
+                "project_id": self.project_id,
+                "dataset_id": dataset_id,
+                "dataset_version_id": dataset_version_id,
+                "activation_revision": activation_revision,
+                "predictor_authorization_id": authorization_id,
+                "target_contract_id": target_contract_id,
+                "detection_fingerprint": detection_fingerprint(detection),
+                "detection": detection,
+                "actor_user_id": self.owner,
+                **review_state,
+            }
+        )
+        special_value_review = public_review_contract(review_row)
+        store.meta.update(
+            {
+                "special_value_review": special_value_review,
+                "special_value_review_id": special_value_review[
+                    "special_value_review_id"
+                ],
+                "special_value_review_revision": special_value_review[
+                    "revision"
+                ],
             }
         )
         problem_type = (
@@ -297,10 +346,37 @@ class GovernedAnalysisFixture:
         # Compatibility projection for tests that inspect old split fields.
         # Production EDA never reads these objects.
         store.set_splits(X_dev, X_holdout, y_dev, y_holdout)
+        canonical_request = {
+            "project_id": self.project_id,
+            "dataset_id": dataset_id,
+            "dataset_version_id": dataset_version_id,
+            "activation_revision": activation_revision,
+            "expected_dataset_id": dataset_id,
+            "expected_dataset_version_id": dataset_version_id,
+            "dataset_version": dataset_version_id,
+            "target_contract_id": target_contract_id,
+            "target": target,
+            "positive_value": positive_value,
+            "negative_value": negative_value,
+            "event_value": positive_value,
+            "non_event_value": negative_value,
+            "problem_type": problem_type,
+            "predictor_authorization_id": authorization_id,
+            "analysis_partition_id": record["analysis_partition_id"],
+            "analysis_partition_revision": int(record["revision"]),
+            "special_value_review_id": special_value_review[
+                "special_value_review_id"
+            ],
+            "special_value_review_revision": int(
+                special_value_review["revision"]
+            ),
+        }
         return {
             **response,
             "record": record,
             "authorization": authorization_payload,
+            "special_value_review": special_value_review,
+            "canonical_request": canonical_request,
         }
 
     def close(self) -> None:

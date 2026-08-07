@@ -441,9 +441,7 @@ check("Relationship requests are bounded, identity-keyed, and promise-deduplicat
   assertIncludes(
     requestSignature,
     [
-      "project_id: projectId",
-      "target",
-      "dataset_version: datasetVersion",
+      "...buildCanonicalEdaRequestContract(canonicalHandoff)",
       "predictor_manifest_id: predictorManifestId",
       "x_feature: axes.x",
       "y_feature: axes.y",
@@ -452,6 +450,11 @@ check("Relationship requests are bounded, identity-keyed, and promise-deduplicat
       "sample_limit: Math.min(sampleLimit, sampleCap)",
     ],
     "Relationship request signature",
+  );
+  assert.match(
+    relationship,
+    /assertExactEdaResponseLineage\(canonicalHandoff, payload\)/,
+    "A relationship response must prove the same complete DA lineage before it can be cached or rendered.",
   );
   assertIncludes(
     relationship,

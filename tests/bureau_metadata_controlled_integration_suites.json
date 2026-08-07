@@ -1,0 +1,491 @@
+{
+  "schemaVersion": 1,
+  "mode": "HERMETIC_REGRESSION",
+  "suites": [
+    {
+      "name": "bureau-ingestion",
+      "target": "tests/bureau_metadata_ingestion_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-core",
+      "target": "tests/bureau_metadata_core_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-registry-root",
+      "target": "tests/bureau_metadata_registry_root_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-catalog-router",
+      "target": "tests/bureau_metadata_catalog_router_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-catalog-binding",
+      "target": "tests/bureau_metadata_catalog_binding_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-catalog-binding-router",
+      "target": "tests/bureau_metadata_catalog_binding_router_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-catalog-documentation",
+      "target": "tests/bureau_metadata_catalog_documentation_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-mapped-batch",
+      "target": "tests/bureau_metadata_mapped_batch_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-crosswalk",
+      "target": "tests/bureau_metadata_crosswalk_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-crosswalk-governance",
+      "target": "tests/bureau_metadata_crosswalk_governance_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-crosswalk-sqlite",
+      "target": "tests/bureau_metadata_crosswalk_sqlite_repository_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-crosswalk-router",
+      "target": "tests/bureau_metadata_crosswalk_router_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-crosswalk-cli",
+      "target": "tests/bureau_metadata_crosswalk_cli_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-exact-binding",
+      "target": "tests/bureau_detection_exact_binding_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-acceptance-harness",
+      "target": "tests/bureau_metadata_acceptance_harness_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-source-safety",
+      "target": "tests/bureau_metadata_source_safety_scan_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-schema-crosswalk-diagnostic",
+      "target": "tests/bureau_metadata_schema_crosswalk_diagnostic_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-integrated-closeout",
+      "target": "tests/bureau_metadata_integrated_closeout_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-reverse-isolation-guard",
+      "target": "tests/bureau_metadata_reverse_isolation_guard_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-operational-soak-contract",
+      "target": "tests/bureau_metadata_operational_soak_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-isolated-services-launcher",
+      "target": "tests/bureau_metadata_isolated_services_launcher_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-browser-reload-evidence",
+      "target": "tests/bureau_metadata_browser_reload_evidence_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "isolated-loopback-ports",
+      "target": "tests/isolated_loopback_ports_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "protected-authority-snapshot",
+      "target": "tests/protected_authority_snapshot_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "restricted-source-safety",
+      "target": "tests/restricted_catalog_source_safety_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "bureau-admin-ui",
+      "target": "tests/bureauCatalogAdmin.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "bureau-exact-binding-ui",
+      "target": "tests/bureauDetectionExactBinding.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "bureau-binding-panel-ui",
+      "target": "tests/bureauMetadataBindingPanel.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "bureau-crosswalk-workspace-ui",
+      "target": "tests/bureauMetadataCrosswalkWorkspace.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "bureau-semantic-annotations-ui",
+      "target": "tests/bureauSemanticAnnotationsFrontend.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "bureau-semantic-downstream-presentation-ui",
+      "target": "tests/bureauSemanticDownstreamPresentation.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "bureau-browser-acceptance-contract-ui",
+      "target": "tests/bureauMetadataIntegrationAcceptanceHarness.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "data-acquisition-reproducibility",
+      "target": "tests/data_acquisition_reproducibility_context_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "data-acquisition-validation",
+      "target": "tests/data_acquisition_validation_simplification_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "predictor-authorization",
+      "target": "tests/predictor_authorization_contract_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "special-value-review",
+      "target": "tests/special_value_review_contract_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "data-acquisition-ui",
+      "target": "tests/dataAcquisition.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "data-acquisition-lifecycle-ui",
+      "target": "tests/dataAcquisitionLifecycle.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "data-acquisition-final-acceptance-ui",
+      "target": "tests/dataAcquisitionFinalAcceptanceRepair.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "data-acquisition-reproducibility-ui",
+      "target": "tests/dataAcquisitionReproducibility.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "data-acquisition-status-ui",
+      "target": "tests/dataAcquisitionStatus.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "data-acquisition-ux-refinement-ui",
+      "target": "tests/dataAcquisitionUxRefinement.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "data-acquisition-validation-ui",
+      "target": "tests/dataAcquisitionValidationSimplification.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "data-acquisition-feature-clarity-ui",
+      "target": "tests/acquisitionFeatureUiClarity.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "predictor-authorization-ui",
+      "target": "tests/predictorAuthorizationReconciliation.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "eda-bureau-semantic-handoff",
+      "target": "tests/eda_bureau_semantic_handoff_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "eda-governed-analytical-contract",
+      "target": "tests/eda_governed_analytical_contract_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "eda-http-transport",
+      "target": "tests/eda_http_transport_contract_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "eda-documentation",
+      "target": "tests/eda_documentation_contract_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "eda-findings-documentation",
+      "target": "tests/eda_findings_documentation_contract_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "eda-canonical-identity-ui",
+      "target": "tests/edaCanonicalIdentity.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "eda-development-context-ui",
+      "target": "tests/edaDevelopmentContext.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "eda-analytical-scope-labels-ui",
+      "target": "tests/edaAnalyticalScopeLabels.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "eda-entry-readiness-ui",
+      "target": "tests/edaEntryReadinessContract.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "eda-documentation-mdd-ui",
+      "target": "tests/edaDocumentationMdd.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "preparation-premium-backend",
+      "target": "tests/preparation_premium_backend_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "preparation-table-first-backend",
+      "target": "tests/preparation_table_first_backend_contract_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "missing-table-first-backend",
+      "target": "tests/missing_table_first_backend_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "preparation-premium-ui",
+      "target": "tests/preparationPremiumWorkflow.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "preparation-table-first-ui",
+      "target": "tests/preparationTableFirstContract.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "preparation-workflow-corrections-ui",
+      "target": "tests/preparationWorkflowCorrections.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "feature-engineering-acceptance",
+      "target": "tests/feature_engineering_acceptance_repair_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "feature-api-dataset-identity",
+      "target": "tests/feature_api_dataset_identity_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "feature-engineering-documentation",
+      "target": "tests/feature_engineering_checkpoint_documentation_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "feature-engineering-progression",
+      "target": "tests/feature_engineering_progression_contract_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "feature-builder-validation-ui",
+      "target": "tests/featureBuilderValidation.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "feature-api-canonical-identity-ui",
+      "target": "tests/featureApiCanonicalIdentity.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "feature-engineering-completion-ui",
+      "target": "tests/featureEngineeringCompletionContract.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "feature-engineering-progression-ui",
+      "target": "tests/featureEngineeringProgressionContract.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "analysis-scope",
+      "target": "tests/analysis_scope_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "analysis-partition-documentation",
+      "target": "tests/analysis_partition_documentation_gate_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "analysis-partition-product-completion",
+      "target": "tests/analysis_partition_product_completion_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "analysis-partition-product-matrix",
+      "target": "tests/analysis_partition_product_matrix_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "analysis-partition-validation-reuse",
+      "target": "tests/analysis_partition_validation_reuse_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "split-atomicity",
+      "target": "tests/split_atomicity_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "target-intelligence-partition-evidence",
+      "target": "tests/target_intelligence_partition_evidence_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "analysis-partition-product-completion-ui",
+      "target": "tests/analysisPartitionProductCompletionFrontend.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "analysis-partition-reset-ui",
+      "target": "tests/analysisPartitionResetUxContract.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "analysis-scope-ui",
+      "target": "tests/analysisScope.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "evidence-canonical-identity",
+      "target": "tests/evidence_canonical_identity_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "mdd-framework-ui",
+      "target": "tests/mddFramework.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "evidence-canonical-identity-ui",
+      "target": "tests/evidenceCanonicalIdentity.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "evidence-graph-ui",
+      "target": "tests/evidenceGraph.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "project-context-hydration",
+      "target": "tests/project_context_hydration_authority_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "open-project-route-ui",
+      "target": "tests/openProjectRoute.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "project-scoped-routes-ui",
+      "target": "tests/projectScopedRoutes.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "project-scoped-navigation-ui",
+      "target": "tests/projectScopedPredictiveNavigation.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "authoritative-project-context-ui",
+      "target": "tests/authoritativeProjectContext.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "canonical-dataset-identity",
+      "target": "tests/canonical_dataset_identity_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "dataset-identity-checkpoint-clear",
+      "target": "tests/dataset_identity_checkpoint_clear_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "activation-runtime-revision-consistency",
+      "target": "tests/activation_runtime_revision_consistency_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "project-dataset-activation-persistence",
+      "target": "tests/project_dataset_activation_persistence_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "canonical-dataset-identity-ui",
+      "target": "tests/canonicalDatasetIdentity.test.mjs",
+      "kind": "node-test"
+    },
+    {
+      "name": "security-release-gate",
+      "target": "scripts/run_security_tests.py",
+      "kind": "python-probe"
+    },
+    {
+      "name": "storage-isolation-scanner",
+      "target": "scripts/check_test_storage_isolation.py",
+      "kind": "python-probe"
+    },
+    {
+      "name": "storage-isolation-guard",
+      "target": "tests/test_storage_isolation_guard_test.py",
+      "kind": "python-test"
+    },
+    {
+      "name": "migration-atomicity",
+      "target": "tests/persistence_migration_atomicity_test.py",
+      "kind": "python-test"
+    }
+  ]
+}

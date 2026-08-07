@@ -26,18 +26,22 @@ test("relationship and secondary EDA responses carry and verify canonical identi
   const distribution = read(
     "src/components/eda/visual/PredictorDistributionExplorer.tsx",
   );
-  for (const source of [step, relationship, distribution]) {
-    assert.match(source, /expected_dataset_id/);
-    assert.match(source, /expected_dataset_version_id/);
-    assert.match(source, /assertExactDatasetIdentity\(/);
-  }
+  assert.match(step, /buildCanonicalEdaRequestContract\(/);
+  assert.match(step, /assertExactEdaResponseLineage\(/);
+  assert.match(relationship, /buildCanonicalEdaRequestContract\(canonicalHandoff\)/);
+  assert.match(relationship, /assertExactEdaResponseLineage\(canonicalHandoff, payload\)/);
+  assert.match(distribution, /expected_dataset_id/);
+  assert.match(distribution, /expected_dataset_version_id/);
+  assert.match(distribution, /assertExactEdaResponseLineage\(canonicalHandoff, payload\)/);
+  assert.match(distribution, /canonicalHandoff: CanonicalDataAcquisitionEdaHandoff/);
   assert.match(relationship, /dataset_version_id:\s*string/);
   assert.match(distribution, /dataset_version_id:\s*string/);
 });
 
-test("EDA findings persistence is scoped to the canonical triple without global migration", () => {
+test("EDA findings persistence is scoped to the complete canonical handoff without global migration", () => {
   const step = read("src/steps/Step02_EDA.tsx");
   assert.match(step, /canonicalDatasetStorageKey\(/);
+  assert.match(step, /encodeURIComponent\(activeHandoffKey\)/);
   assert.match(step, /FINDINGS_KEY_PREFIX/);
   assert.doesNotMatch(step, /localStorage\.getItem\(FINDINGS_KEY_PREFIX\)/);
   assert.doesNotMatch(step, /localStorage\.setItem\(FINDINGS_KEY_PREFIX/);

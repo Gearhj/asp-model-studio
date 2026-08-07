@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import math
 import sqlite3
 import uuid
 from typing import Any, Dict, Mapping
@@ -26,6 +27,125 @@ def _review_id(project_id: str, dataset_id: str, dataset_version_id: str) -> str
         f"{project_id}\x1f{dataset_id}\x1f{dataset_version_id}".encode("utf-8")
     ).hexdigest()
     return f"special-review-{digest[:24]}"
+
+
+def _canonical_scalar(value: Any) -> str:
+    if isinstance(value, bool):
+        return f"bool:{str(value).lower()}"
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return f"number:{format(float(value), '.15g')}"
+    return "text:" + str(value)
+
+
+def _valid_persisted_replacement(
+    value: Any,
+    *,
+    variable_row: Mapping[str, Any] | None = None,
+) -> bool:
+    if value is None or isinstance(value, (dict, list, tuple, set)):
+        return False
+    if isinstance(value, bool):
+        return False
+    if isinstance(value, str) and not value.strip():
+        return False
+    row = variable_row if isinstance(variable_row, Mapping) else {}
+    datatype = str(row.get("datatype") or "").strip().casefold()
+    numeric_datatype = any(
+        token in datatype
+        for token in ("int", "float", "double", "decimal", "number")
+    )
+    native_value = value
+    if numeric_datatype:
+        if isinstance(native_value, str):
+            try:
+                native_value = float(native_value.strip())
+            except ValueError:
+                return False
+        if not isinstance(native_value, (int, float)) or not math.isfinite(
+            float(native_value)
+        ):
+            return False
+        if "int" in datatype and not float(native_value).is_integer():
+            return False
+    elif isinstance(native_value, float) and not math.isfinite(native_value):
+        return False
+    detected_values = {
+        _canonical_scalar(item.get("value"))
+        for item in row.get("special_values", []) or []
+        if isinstance(item, Mapping) and item.get("value") is not None
+    }
+    return _canonical_scalar(native_value) not in detected_values
+
+
+def _assert_confirmed_replacements(
+    decisions: Any,
+    detection: Mapping[str, Any] | None = None,
+) -> None:
+    variable_rows = {
+        str(row.get("variable") or "").strip(): row
+        for row in (detection or {}).get("variables", []) or []
+        if isinstance(row, Mapping)
+    }
+    for decision in decisions or []:
+        if not isinstance(decision, Mapping):
+            raise SpecialValueReviewStateError(
+                "Confirmed special-value decisions must be structured records."
+            )
+        variable = str(decision.get("variable") or "").strip() or "The variable"
+        variable_row = variable_rows.get(variable)
+        if (
+            str(decision.get("policy") or "")
+            == "documented_domain_mapping"
+            and not _valid_persisted_replacement(
+                decision.get("replacement_value"),
+                variable_row=variable_row,
+            )
+        ):
+            raise SpecialValueReviewStateError(
+                f"{variable} requires a valid governed replacement value before confirmation."
+            )
+        for override in decision.get("overrides") or []:
+            if not isinstance(override, Mapping):
+                raise SpecialValueReviewStateError(
+                    f"{variable} contains an invalid special-value override."
+                )
+            if (
+                str(override.get("policy") or "")
+                == "documented_domain_mapping"
+                and not _valid_persisted_replacement(
+                    override.get("replacement_value"),
+                    variable_row=variable_row,
+                )
+            ):
+                raise SpecialValueReviewStateError(
+                    f"{variable} contains an imputation override without a valid governed replacement value."
+                )
+
+
+def _detection_lineage_payload(record: Mapping[str, Any]) -> dict[str, Any]:
+    detection = record.get("detection")
+    detection = detection if isinstance(detection, Mapping) else {}
+    return {
+        "analysis_partition_id": detection.get("analysis_partition_id"),
+        "analysis_partition_revision": detection.get(
+            "analysis_partition_revision"
+        ),
+        "development_partition_id": detection.get(
+            "development_partition_id"
+        ),
+        "analysis_partition_assignment_hash": detection.get(
+            "analysis_partition_assignment_hash"
+        ),
+        "analysis_partition_artifact_hash": detection.get(
+            "analysis_partition_artifact_hash"
+        ),
+        "development_target_checksum": detection.get(
+            "development_target_checksum"
+        ),
+        "source_checksum": detection.get("source_checksum"),
+        "structural_scope": detection.get("structural_scope"),
+        "target_analysis_scope": detection.get("target_analysis_scope"),
+    }
 
 
 def _event(
@@ -154,6 +274,7 @@ class SpecialValueReviewRepository(BaseRepository):
                         "target_contract_id": str(
                             record.get("target_contract_id") or ""
                         ),
+                        **_detection_lineage_payload(record),
                     },
                 )
                 connection.commit()
@@ -266,6 +387,7 @@ class SpecialValueReviewRepository(BaseRepository):
                     "target_contract_id": str(
                         record.get("target_contract_id") or ""
                     ),
+                    **_detection_lineage_payload(record),
                 },
             )
             connection.commit()
@@ -315,6 +437,14 @@ class SpecialValueReviewRepository(BaseRepository):
             timestamp = now_iso()
             status = str(record.get("status") or "in_review")
             confirmed = status == "confirmed"
+            decisions = list(record.get("decisions") or [])
+            if confirmed:
+                current_record = decode_row(current) or {}
+                detection = current_record.get("detection_json")
+                _assert_confirmed_replacements(
+                    decisions,
+                    detection if isinstance(detection, Mapping) else {},
+                )
             cursor = connection.execute(
                 """
                 UPDATE special_value_reviews
@@ -326,7 +456,7 @@ class SpecialValueReviewRepository(BaseRepository):
                 WHERE special_value_review_id = ? AND revision = ?
                 """,
                 (
-                    json_dumps(record.get("decisions"), []),
+                    json_dumps(decisions, []),
                     str(record.get("reviewer_rationale") or ""),
                     status,
                     int(record.get("detected_count") or 0),

@@ -101,9 +101,9 @@ test.describe("Data Acquisition: UI-driven Dataset Version load", () => {
     await expect(body).toContainText("29");
 
     // ---------- 10-12. One lifecycle story, no contradiction -------------
-    // Confirming the target restarts governed profiling, so the checkpoint
-    // unmounts and remounts. Wait for profiling to settle before reading the
-    // lifecycle labels -- no sleep, just the real completion signal.
+    // Confirming the target restarts governed profiling in place. Data
+    // Acquisition must remain mounted with the exact loaded dataset while the
+    // analytical results settle -- no sleep, just the real completion signal.
     await expect(page.getByTestId("predictor-evaluation-summary")).toBeVisible({ timeout: 10 * 60_000 });
     const summaryStatus = page.getByTestId("readiness-summary-status");
     await expect(summaryStatus).toBeVisible({ timeout: 120_000 });

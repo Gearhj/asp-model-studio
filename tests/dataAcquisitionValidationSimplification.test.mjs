@@ -13,7 +13,6 @@ const [
   splitRouter,
   trainingUi,
   modelDocument,
-  inventory,
 ] = await Promise.all([
   read("src/components/BureauReviewPanel.tsx"),
   read("src/lib/bureauDetection.ts"),
@@ -22,7 +21,6 @@ const [
   read("server/splitting/split_router.py"),
   read("src/steps/Step06_Train.tsx"),
   read("src/lib/modelDevelopmentDocument.ts"),
-  read("docs/architecture/PREDICTIVE_WORKFLOW_CONFIRMATION_INVENTORY.md"),
 ]);
 
 const activeValidationUi = validationUi.split(
@@ -35,14 +33,14 @@ test("special-value review renders a governed, readable twelve-column table", ()
     "Definition",
     "Count",
     "Population share",
-    "Event count",
-    "Event rate",
-    "Regular-value event rate",
-    "Event-rate difference",
+    "Development event count",
+    "Development event rate",
+    "Development regular-value event rate",
+    "Development event-rate difference",
     "Default action",
     "Override action",
     "Rationale",
-    "Review state",
+    "Review status",
   ]) {
     assert.ok(bureauUi.includes(heading), `missing special-value column: ${heading}`);
   }
@@ -53,12 +51,12 @@ test("special-value review renders a governed, readable twelve-column table", ()
   assert.doesNotMatch(bureauUi, /font-mono tabular-nums/);
 });
 
-test("variable navigation, defaults, overrides, and scoped rationale are explicit", () => {
+test("feature-level table, defaults, overrides, and scoped rationale are explicit", () => {
   for (const contract of [
-    "Variable navigator",
-    "Search bureau variables",
-    "Default action for special values",
-    "Use variable default",
+    "Feature-level Special-Value Treatment Table",
+    "Search features",
+    "Selected treatment",
+    "Recommended treatment",
     "Override",
     "Required because this value overrides the variable default.",
     "Rationale required",
@@ -174,6 +172,4 @@ test("one action creates the governed contract, evidence, MDD handoff, and train
   assert.match(activeValidationUi, /title:\s*"Created Validation Design"/);
   assert.match(trainingUi, /Validation Design|validation design/i);
   assert.match(trainingUi, /cv_design|fold_architecture/);
-  assert.match(inventory, /Create Validation Design & Continue/);
-  assert.match(inventory, /Removed redundant confirmations/);
 });

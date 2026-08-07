@@ -58,6 +58,8 @@ type Props = {
   onNext?: () => void | boolean | Promise<void | boolean>;
   /** Optional direct click handler for workflows that need to own the visible button behavior. */
   onNextClick?: React.MouseEventHandler<HTMLButtonElement>;
+  /** Optional review action when a blocked step can guide the user to its required control. */
+  onBlockedNextClick?: React.MouseEventHandler<HTMLButtonElement>;
   nextButtonTestId?: string;
   nextFooterTestId?: string;
   nextStatusTestId?: string;
@@ -93,6 +95,7 @@ export default function StepShell({
   nextLabel = "Mark Complete & Next Step",
   onNext,
   onNextClick,
+  onBlockedNextClick,
   nextButtonTestId,
   nextFooterTestId,
   nextStatusTestId,
@@ -320,9 +323,9 @@ export default function StepShell({
               type="button"
               data-testid={nextButtonTestId}
               data-step-next-button="true"
-              className={nextDisabled ? "atlas-primary-button w-full min-w-0 cursor-not-allowed opacity-60 sm:w-auto sm:min-w-64" : "atlas-primary-button w-full min-w-0 sm:w-auto sm:min-w-64"}
-              disabled={!!nextDisabled}
-              onClick={onNextClick ?? handleNext}
+              className={nextDisabled && !onBlockedNextClick ? "atlas-primary-button w-full min-w-0 cursor-not-allowed opacity-60 sm:w-auto sm:min-w-64" : "atlas-primary-button w-full min-w-0 sm:w-auto sm:min-w-64"}
+              disabled={Boolean(nextDisabled && !onBlockedNextClick)}
+              onClick={nextDisabled ? onBlockedNextClick : onNextClick ?? handleNext}
               title={nextDisabled ? nextDisabledReason || "Complete required actions first" : nextLabel}
             >
               {nextLabel}
