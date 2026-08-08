@@ -169,6 +169,16 @@ test("model toggles, suites, and clear remain in-page and preserve view controls
   assert.match(trainingPage, /"\/model\/train\/selection"/);
 });
 
+test("hyperparameter controls expose separate stable accessible names", () => {
+  assert.match(trainingPage, /data-testid="hyperparameter-search-control"/);
+  assert.match(trainingPage, /htmlFor="hyperparameter-search-enabled"/);
+  assert.match(trainingPage, /id="hyperparameter-search-enabled"/);
+  assert.match(trainingPage, /<span id="hyperparameter-search-title">Hyperparameter search<\/span>/);
+  assert.match(trainingPage, /htmlFor="hyperparameter-search-depth"/);
+  assert.match(trainingPage, /id="hyperparameter-search-depth"/);
+  assert.match(trainingPage, /<span className="atlas-label">Hyperparameter search depth<\/span>/);
+});
+
 test("governed execution is idempotent, holdout-safe, and activates Live Training", () => {
   const start = block(/async function startTraining\(/, /\n\s*async function retryFailedModels/);
   assert.match(start, /trainingSubmissionLocked\.current/);

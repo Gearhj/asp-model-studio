@@ -719,7 +719,9 @@ test("Credit Risk Studio Phase 15O keeps Data Acquisition ordered and non-duplic
   assert.ok(dataAcquisition.indexOf("<TargetSetup") < dataAcquisition.indexOf("<DataPreview"));
   const sourceCommand = dataAcquisition.slice(dataAcquisition.indexOf('data-testid="source-command-section"'), dataAcquisition.indexOf("<DataPreview"));
   assert.doesNotMatch(sourceCommand, /HELOC Risk Model TEST|HELOC_TRAIN|HELOC_TEST|HELOC_OOT|RiskPerformance|bad_flag|atlas_split/);
-  ["Target Column", "Event / Positive Value", "Non-event / Negative Value"].forEach((label) => {
+  assert.equal(countOccurrences(dataAcquisition, 'htmlFor="data-acquisition-target-column"'), 1, "Target Column should have one canonical accessible label.");
+  assert.equal(countOccurrences(dataAcquisition, 'data-testid="target-column-select"'), 1, "Target Column should have one canonical control.");
+  ["Event / Positive Value", "Non-event / Negative Value"].forEach((label) => {
     assert.equal(countOccurrences(dataAcquisition, `label="${label}"`), 1, `${label} should appear as one canonical control.`);
   });
 

@@ -15,9 +15,57 @@ import {
   type CanonicalDatasetIdentity,
 } from "./datasetIdentity";
 import {
+  BureauSemanticAnnotationError,
   fetchBureauSemanticAnnotations,
   type BureauSemanticAnnotationContract,
 } from "./bureauSemanticAnnotations";
+
+const OPTIONAL_BUREAU_SEMANTIC_TIMEOUT_MS = 3_000;
+
+function unavailableBureauSemanticAnnotations(): BureauSemanticAnnotationContract {
+  return {
+    state: "unavailable",
+    authoritative: false,
+    reason: "service_unavailable",
+    annotations: [],
+  };
+}
+
+async function fetchOptionalBureauSemanticAnnotations(input: {
+  projectId: string;
+  datasetIdentity: CanonicalDatasetIdentity;
+  signal?: AbortSignal;
+}): Promise<BureauSemanticAnnotationContract> {
+  const controller = new AbortController();
+  let timedOut = false;
+  const abortFromCaller = () => controller.abort();
+  if (input.signal?.aborted) abortFromCaller();
+  else input.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  const timeout = globalThis.setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, OPTIONAL_BUREAU_SEMANTIC_TIMEOUT_MS);
+  try {
+    return await fetchBureauSemanticAnnotations({
+      projectId: input.projectId,
+      datasetIdentity: input.datasetIdentity,
+      signal: controller.signal,
+    });
+  } catch (cause) {
+    if (input.signal?.aborted) throw cause;
+    if (
+      timedOut ||
+      (cause instanceof BureauSemanticAnnotationError &&
+        (cause.status === 0 || cause.status >= 500))
+    ) {
+      return unavailableBureauSemanticAnnotations();
+    }
+    throw cause;
+  } finally {
+    globalThis.clearTimeout(timeout);
+    input.signal?.removeEventListener("abort", abortFromCaller);
+  }
+}
 
 export type DataAcquisitionEdaPrerequisiteCode =
   | "dataset_identity_required"
@@ -187,7 +235,7 @@ export async function fetchCanonicalDataAcquisitionEdaHandoff(input: {
       lineage: specialValueReviewLineageFromContext(current),
       signal: input.signal,
       }),
-      fetchBureauSemanticAnnotations({
+      fetchOptionalBureauSemanticAnnotations({
         projectId: input.projectId,
         datasetIdentity,
         signal: input.signal,

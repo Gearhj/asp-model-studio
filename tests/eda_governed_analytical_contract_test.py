@@ -645,6 +645,53 @@ class GovernedEDAAnalyticalContractTest(unittest.TestCase):
             predictors["governed_relationship_artifact"]["vif"],
         )
 
+    def test_distribution_names_histogram_and_iv_bin_counts_separately(
+        self,
+    ) -> None:
+        store, _source_frame = _store()
+        identity = {
+            "project_id": PROJECT_ID,
+            "dataset_id": DATASET_ID,
+            "dataset_version_id": VERSION_ID,
+            "activation_revision": int(store.meta["activation_revision"]),
+        }
+        histogram_bins = 17
+        request = EDAWorkspaceRequest(
+            **_canonical_request(store),
+            feature="ExternalRiskEstimate",
+            histogram_bins=histogram_bins,
+        )
+
+        with patch(
+            "server.core.dataset_store.DatasetStoreProxy.current",
+            return_value=store,
+        ), patch(
+            "server.eda.workspace_service.assert_expected_active_identity",
+            return_value=identity,
+        ):
+            payload = EDAWorkspaceService().section("distribution", request)
+
+        self.assertEqual(payload["requested_bins"], histogram_bins)
+        self.assertEqual(
+            payload["requested_histogram_bins"],
+            histogram_bins,
+        )
+        self.assertEqual(payload["returned_bins"], len(payload["histogram"]))
+
+        iv_specification = payload["binning_specification"]
+        self.assertEqual(
+            payload["requested_iv_bins"],
+            iv_specification["requested_bins"],
+        )
+        self.assertEqual(
+            payload["effective_iv_bins"],
+            iv_specification["effective_nonempty_bins"],
+        )
+        self.assertNotEqual(
+            payload["requested_bins"],
+            payload["requested_iv_bins"],
+        )
+
     def test_target_directed_section_factory_receives_development_rows_only(self) -> None:
         store, _source_frame = _store()
         identity = {

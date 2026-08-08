@@ -7,11 +7,13 @@ store, documentation index, checkpoint, or atlas_local.db.
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import json
 import os
 from pathlib import Path
 import shutil
 import sys
+import threading
 import time
 import unittest
 from unittest.mock import patch
@@ -552,6 +554,188 @@ class ModelDocumentationProjectContextTest(unittest.TestCase):
             PROJECT_A,
         )
         self.assertNotIn(B_SENTINEL, own.text)
+
+    def test_ensure_working_draft_is_concurrent_idempotent_and_exact(self) -> None:
+        project_id = f"synthetic-ensure-concurrent-{uuid.uuid4().hex[:10]}"
+        create_project(
+            self.owner_a,
+            project_id,
+            "Synthetic Concurrent Documentation Project",
+        )
+        second_client = TestClient(app)
+        second_client.cookies.update(dict(self.owner_a.cookies))
+        barrier = threading.Barrier(2)
+        actual_ensure = documentation_store.ensure_working_draft
+
+        def synchronized_ensure(*args, **kwargs):
+            barrier.wait(timeout=10)
+            return actual_ensure(*args, **kwargs)
+
+        payload = {
+            "projectId": project_id,
+            "templateType": "model_development_document",
+        }
+        try:
+            with patch.object(
+                documentation_router,
+                "ensure_working_draft",
+                side_effect=synchronized_ensure,
+            ):
+                with ThreadPoolExecutor(max_workers=2) as executor:
+                    futures = [
+                        executor.submit(client.post, "/api/model-documentation/ensure-working-draft", json=payload)
+                        for client in (self.owner_a, second_client)
+                    ]
+                    responses = [future.result(timeout=30) for future in futures]
+        finally:
+            second_client.close()
+
+        for response in responses:
+            self.assertEqual(response.status_code, 200, response.text)
+            document = response.json()["document"]
+            self.assertEqual(document["projectId"], project_id)
+            self.assertEqual(document["templateType"], "model_development_document")
+            self.assertEqual(document["documentStatus"], "working_draft")
+        self.assertEqual(
+            {response.json()["document"]["documentId"] for response in responses},
+            {responses[0].json()["document"]["documentId"]},
+        )
+        self.assertEqual(
+            sorted(response.json()["created"] for response in responses),
+            [False, True],
+        )
+
+        document_id = responses[0].json()["document"]["documentId"]
+        durable = self.owner_a.get(f"/api/model-documentation/{document_id}")
+        self.assertEqual(durable.status_code, 200, durable.text)
+        self.assertEqual(durable.json()["document"]["documentId"], document_id)
+        context = self.owner_a.get(
+            f"/api/model-documentation/project-context/{project_id}"
+        )
+        self.assertEqual(context.status_code, 200, context.text)
+        active = [
+            item
+            for item in context.json()["documents"]
+            if item.get("templateType") == "model_development_document"
+            and item.get("documentStatus") == "working_draft"
+        ]
+        self.assertEqual([item["documentId"] for item in active], [document_id])
+
+    def test_ensure_working_draft_preserves_terminal_document(self) -> None:
+        project_id = f"synthetic-ensure-terminal-{uuid.uuid4().hex[:10]}"
+        create_project(
+            self.owner_a,
+            project_id,
+            "Synthetic Terminal Documentation Project",
+        )
+        payload = {
+            "projectId": project_id,
+            "templateType": "model_development_document",
+        }
+        first = self.owner_a.post(
+            "/api/model-documentation/ensure-working-draft",
+            json=payload,
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        terminal_id = first.json()["document"]["documentId"]
+        terminal = documentation_store.load_document(terminal_id)
+        terminal["documentStatus"] = "validated_current"
+        documentation_store.save_document(terminal)
+        terminal_before = documentation_store.load_document(terminal_id)
+
+        replacement = self.owner_a.post(
+            "/api/model-documentation/ensure-working-draft",
+            json=payload,
+        )
+        self.assertEqual(replacement.status_code, 200, replacement.text)
+        self.assertTrue(replacement.json()["created"])
+        self.assertNotEqual(
+            replacement.json()["document"]["documentId"],
+            terminal_id,
+        )
+        self.assertEqual(
+            documentation_store.load_document(terminal_id),
+            terminal_before,
+        )
+
+    def test_ensure_working_draft_fails_closed_for_multiple_active_drafts(self) -> None:
+        project_id = f"synthetic-ensure-conflict-{uuid.uuid4().hex[:10]}"
+        create_project(
+            self.owner_a,
+            project_id,
+            "Synthetic Conflicting Documentation Project",
+        )
+        payload = {
+            "projectId": project_id,
+            "templateType": "model_development_document",
+        }
+        first = self.owner_a.post(
+            "/api/model-documentation/ensure-working-draft",
+            json=payload,
+        )
+        second = self.owner_a.post(
+            "/api/model-documentation/create",
+            json=payload,
+        )
+        self.assertEqual(first.status_code, 200, first.text)
+        self.assertEqual(second.status_code, 200, second.text)
+        before_ids = {
+            first.json()["document"]["documentId"],
+            second.json()["document"]["documentId"],
+        }
+        self.assertEqual(len(before_ids), 2)
+
+        conflict = self.owner_a.post(
+            "/api/model-documentation/ensure-working-draft",
+            json=payload,
+        )
+        self.assertEqual(conflict.status_code, 409, conflict.text)
+        self.assertIn("Multiple active", conflict.json()["detail"])
+        after_ids = {
+            document["documentId"]
+            for document in documentation_store._project_template_documents(
+                project_id,
+                "model_development_document",
+            )
+            if document.get("documentStatus") == "working_draft"
+        }
+        self.assertEqual(after_ids, before_ids)
+
+    def test_project_viewer_cannot_ensure_or_create_working_draft(self) -> None:
+        project_id = f"synthetic-ensure-viewer-{uuid.uuid4().hex[:10]}"
+        create_project(
+            self.owner_a,
+            project_id,
+            "Synthetic View-Only Documentation Project",
+        )
+        grant = self.owner_a.post(
+            f"/api/projects/{project_id}/access/grant",
+            json={
+                "userId": self.user_b["userId"],
+                "permission": "viewer",
+            },
+        )
+        self.assertEqual(grant.status_code, 200, grant.text)
+        context = self.owner_b.get(
+            f"/api/model-documentation/project-context/{project_id}"
+        )
+        self.assertEqual(context.status_code, 200, context.text)
+
+        denied = self.owner_b.post(
+            "/api/model-documentation/ensure-working-draft",
+            json={
+                "projectId": project_id,
+                "templateType": "model_development_document",
+            },
+        )
+        self.assertEqual(denied.status_code, 403, denied.text)
+        self.assertEqual(
+            documentation_store._project_template_documents(
+                project_id,
+                "model_development_document",
+            ),
+            [],
+        )
 
     def test_route_rejects_and_audits_mismatched_context(self) -> None:
         mismatched = {

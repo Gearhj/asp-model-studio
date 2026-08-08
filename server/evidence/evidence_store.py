@@ -128,6 +128,11 @@ def compact_item(item: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def normalize_item(payload: Dict[str, Any], existing: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    explicit_status = (
+        payload.get("status")
+        if payload.get("status") in EVIDENCE_STATUSES
+        else None
+    )
     item = {**(existing or {}), **payload}
     item["evidenceType"] = item.get("evidenceType") if item.get("evidenceType") in EVIDENCE_TYPES else "documentation"
     item["status"] = item.get("status") if item.get("status") in EVIDENCE_STATUSES else "draft"
@@ -152,7 +157,15 @@ def normalize_item(payload: Dict[str, Any], existing: Dict[str, Any] | None = No
     item["updatedAt"] = now_iso()
     item["createdBy"] = item.get("createdBy") or "ATLAS"
     item["qualityScore"] = quality_score(item)
-    if item["qualityScore"] >= 85 and item["status"] == "draft":
+    # Quality can recommend a status for records that did not declare one, but
+    # it must never overrule an explicit workflow-governance state.  In
+    # particular, a high-quality draft is still unconfirmed evidence until the
+    # owning workflow explicitly promotes it.
+    if (
+        explicit_status is None
+        and item["qualityScore"] >= 85
+        and item["status"] == "draft"
+    ):
         item["status"] = "ready"
     elif item["qualityScore"] < 55 and item["status"] == "ready":
         item["status"] = "needs_review"

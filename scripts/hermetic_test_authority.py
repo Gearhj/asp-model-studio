@@ -374,6 +374,8 @@ def _is_mirror_source(
     }:
         return False
     return relative.suffix.casefold() in {
+        ".md",
+        ".txt",
         ".py",
         ".pyi",
         ".sql",
@@ -480,6 +482,15 @@ def create_source_mirror(
     copied: list[dict[str, str]] = []
     root_package = copy_root_package_json(child)
     copied.append(root_package)
+    root_requirements = REPO_ROOT / "requirements.txt"
+    requirements_target = child.source_root / "requirements.txt"
+    shutil.copy2(root_requirements, requirements_target)
+    copied.append(
+        {
+            "path": "requirements.txt",
+            "sha256": hashlib.sha256(requirements_target.read_bytes()).hexdigest(),
+        }
+    )
     for top in ("server", "scripts", "tests", "shared", "src"):
         origin = REPO_ROOT / top
         for source in sorted(_walk_files(origin)):

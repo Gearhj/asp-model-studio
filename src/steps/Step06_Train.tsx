@@ -1835,7 +1835,10 @@ export default function Step07ModelTraining() {
             return candidate ? [candidate.key] : [];
           }),
           challenger_candidate_ids: resolvedChallengerIds,
-          status: "locked",
+          // This request proposes the exact candidate to the governed backend.
+          // Only the backend may validate the complete non-holdout lineage and
+          // return the durable `locked` decision consumed by Evaluation.
+          status: "proposed",
           primary_metric: primaryMetric,
           rationale: resolvedRationale,
           metric_justification: metricJustification.trim(),
@@ -2193,7 +2196,53 @@ export default function Step07ModelTraining() {
               <p className="mt-1 text-xs leading-5 text-slate-600">Choose the metric and hyperparameter depth that will rank candidate models. Evaluation and governance still approve the champion downstream.</p>
               <div className="mt-4 grid gap-3 lg:grid-cols-3">
                 <label><span className="atlas-label">Primary selection metric</span><select className="atlas-input" value={primaryMetric} onChange={(event) => setPrimaryMetric(event.target.value)}>{problemType === "classification" ? <><option value="pr_auc">PR-AUC</option><option value="auc">ROC-AUC</option><option value="ks">KS</option><option value="f1">F1</option><option value="recall">Recall</option></> : <><option value="rmse">RMSE</option><option value="mae">MAE</option><option value="r2">R-squared</option></>}</select><span className="mt-1 block text-xs text-slate-500">Only verified cross-validation, out-of-fold, or governed validation-partition evidence may rank candidates.</span></label>
-                <label className="rounded-xl border border-blue-200 bg-blue-50 p-3"><span className="flex items-center gap-2 text-sm font-semibold text-slate-900"><input type="checkbox" checked={gridSearch} disabled={jobActive || !cvConfigured} onChange={(event) => { setGridSearch(event.target.checked); setExecutionState("idle"); trainingIdempotencyKey.current = ""; }} /> Hyperparameter search</span><p className="mt-1 text-xs text-blue-900">{cvConfigured ? "Tuning is constrained to the approved training-population folds." : "Unavailable because Validation Design contains no approved CV architecture."}</p><select className="atlas-input mt-3" disabled={!gridSearch || jobActive || !cvConfigured} value={gridSearchLevel} onChange={(event) => { setGridSearchLevel(event.target.value as typeof gridSearchLevel); setExecutionState("idle"); trainingIdempotencyKey.current = ""; }}><option value="quick">Quick</option><option value="balanced">Balanced</option><option value="thorough">Thorough</option></select></label>
+                <div
+                  className="rounded-xl border border-blue-200 bg-blue-50 p-3"
+                  data-testid="hyperparameter-search-control"
+                  role="group"
+                  aria-labelledby="hyperparameter-search-title"
+                >
+                  <label
+                    className="flex items-center gap-2 text-sm font-semibold text-slate-900"
+                    htmlFor="hyperparameter-search-enabled"
+                  >
+                    <input
+                      id="hyperparameter-search-enabled"
+                      type="checkbox"
+                      checked={gridSearch}
+                      disabled={jobActive || !cvConfigured}
+                      onChange={(event) => {
+                        setGridSearch(event.target.checked);
+                        setExecutionState("idle");
+                        trainingIdempotencyKey.current = "";
+                      }}
+                    />
+                    <span id="hyperparameter-search-title">Hyperparameter search</span>
+                  </label>
+                  <p className="mt-1 text-xs text-blue-900">
+                    {cvConfigured
+                      ? "Tuning is constrained to the approved training-population folds."
+                      : "Unavailable because Validation Design contains no approved CV architecture."}
+                  </p>
+                  <label className="mt-3 block" htmlFor="hyperparameter-search-depth">
+                    <span className="atlas-label">Hyperparameter search depth</span>
+                    <select
+                      id="hyperparameter-search-depth"
+                      className="atlas-input mt-1"
+                      disabled={!gridSearch || jobActive || !cvConfigured}
+                      value={gridSearchLevel}
+                      onChange={(event) => {
+                        setGridSearchLevel(event.target.value as typeof gridSearchLevel);
+                        setExecutionState("idle");
+                        trainingIdempotencyKey.current = "";
+                      }}
+                    >
+                      <option value="quick">Quick</option>
+                      <option value="balanced">Balanced</option>
+                      <option value="thorough">Thorough</option>
+                    </select>
+                  </label>
+                </div>
                 <label className="rounded-xl border border-emerald-200 bg-emerald-50 p-3"><span className="flex items-center gap-2 text-sm font-semibold text-slate-900"><input type="checkbox" checked={calibrate} disabled={problemType === "regression" || jobActive} onChange={(event) => { setCalibrate(event.target.checked); setExecutionState("idle"); trainingIdempotencyKey.current = ""; }} /> Probability calibration</span><p className="mt-1 text-xs leading-5 text-emerald-900">Applied only to compatible supervised classifiers with event-count-safe folds.</p></label>
               </div>
             </div>

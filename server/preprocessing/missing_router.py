@@ -170,6 +170,34 @@ def _record_matches_scope(
     )
 
 
+def _full_dataset_application_metadata(
+    scope: DevelopmentAnalysisScope,
+) -> Dict[str, Any]:
+    """Describe full-population materialization and development-only evidence."""
+
+    return {
+        **scope.metadata(),
+        "scope": "full_dataset",
+        "application_scope": "full_dataset",
+        "materialization_scope": "full_dataset",
+        "application_source_population": "full_governed_population",
+    }
+
+
+def _public_application(record: Any) -> Any:
+    """Normalize an older stored application at the response boundary."""
+
+    if not isinstance(record, dict):
+        return record
+    return {
+        **record,
+        "scope": "full_dataset",
+        "application_scope": "full_dataset",
+        "materialization_scope": "full_dataset",
+        "application_source_population": "full_governed_population",
+    }
+
+
 def _source_stage(identity: Dict[str, Any]) -> str:
     return (
         "outlier_treated"
@@ -587,7 +615,7 @@ def missing_summary(
         "rare_event": bool(event_rate is not None and event_rate < 0.05),
         "source_stage": _source_stage(identity),
         "application": (
-            application
+            _public_application(application)
             if _record_matches_scope(application, identity, scope)
             else None
         ),
@@ -772,8 +800,8 @@ def apply_missing_values(request: MissingApplyRequest, user: Dict[str, Any] = De
         return json_safe({
             "ok": True,
             **_identity_fields(identity),
-            **scope.metadata(),
-            "application": prior_application,
+            **_full_dataset_application_metadata(scope),
+            "application": _public_application(prior_application),
             "idempotent": True,
         })
     dropped_rows = 0
@@ -832,7 +860,7 @@ def apply_missing_values(request: MissingApplyRequest, user: Dict[str, Any] = De
     application = {
         "applied_at": datetime.now(timezone.utc).isoformat(),
         **_identity_fields(identity),
-        **scope.metadata(),
+        **_full_dataset_application_metadata(scope),
         "config": payload,
         "config_signature": config_signature,
         "source_stage": source_stage,
@@ -875,6 +903,6 @@ def apply_missing_values(request: MissingApplyRequest, user: Dict[str, Any] = De
     return json_safe({
         "ok": True,
         **_identity_fields(identity),
-        **scope.metadata(),
+        **_full_dataset_application_metadata(scope),
         "application": application,
     })

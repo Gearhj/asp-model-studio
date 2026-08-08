@@ -221,7 +221,7 @@ async function startStaticServer() {
   return { server, origin: `http://127.0.0.1:${address.port}` };
 }
 
-test("BureauReviewPanel automatically detects HELOC negative codes and hands them to predictor review", async (t) => {
+test("HELOC special values load, detect, select, save, confirm, and release project-scoped EDA continuation", async (t) => {
   const { server, origin } = await startStaticServer();
   let browser;
   t.after(async () => {
@@ -240,7 +240,12 @@ test("BureauReviewPanel automatically detects HELOC negative codes and hands the
   });
   const detectionRequests = [];
   const bureauApiRequestOrder = [];
+  const auditDecisionRequests = [];
+  const reviewUpdateRequests = [];
   const unexpectedApiRequests = [];
+  const persistedEvidence = new Map();
+  let currentReview = specialValueReview();
+  let evidenceSequence = 0;
   let detectionPosted = false;
 
   await page.route("**/api/**", async (route) => {
@@ -258,13 +263,94 @@ test("BureauReviewPanel automatically detects HELOC negative codes and hands the
       await jsonResponse(route, 200, {
         ok: true,
         special_value_review: detectionPosted
-          ? specialValueReview()
+          ? currentReview
           : specialValueReview({ activationRevision: 1 }),
       });
       return;
     }
+    if (url.pathname === "/api/data/special-value-review" && request.method() === "PUT") {
+      const body = request.postDataJSON();
+      reviewUpdateRequests.push(body);
+      const reviewedVariables = new Set(
+        body.variable_decisions.map((decision) => decision.variable),
+      );
+      const openItems = specialValueReview().open_items.filter(
+        (variable) => !reviewedVariables.has(variable),
+      );
+      const complete = openItems.length === 0;
+      const status =
+        body.intent === "confirm"
+          ? "confirmed"
+          : complete
+            ? "ready_for_confirmation"
+            : reviewedVariables.size
+              ? "in_review"
+              : "not_started";
+      currentReview = {
+        ...specialValueReview(),
+        status,
+        reviewed_count: reviewedVariables.size,
+        open_count: openItems.length,
+        open_items: openItems,
+        blocks_confirmation: !complete,
+        blocks_continuation: status !== "confirmed",
+        confirmation_allowed: complete,
+        revision: currentReview.revision + 1,
+        variable_decisions: body.variable_decisions,
+        reviewer_rationale: body.reviewer_rationale,
+        confirmed_at:
+          status === "confirmed" ? "2026-08-07T12:00:00Z" : null,
+        updated_at: "2026-08-07T12:00:00Z",
+      };
+      await jsonResponse(route, 200, {
+        ok: true,
+        special_value_review: currentReview,
+      });
+      return;
+    }
+    if (url.pathname === "/api/evidence" && request.method() === "POST") {
+      const body = request.postDataJSON();
+      evidenceSequence += 1;
+      const evidenceId = `evidence-isolated-special-value-${evidenceSequence}`;
+      const evidence = {
+        ...body,
+        evidenceId,
+        projectId,
+        datasetIds: [datasetId],
+        qualityScore: 100,
+      };
+      persistedEvidence.set(evidenceId, evidence);
+      await jsonResponse(route, 200, { ok: true, evidence });
+      return;
+    }
+    if (
+      url.pathname.startsWith("/api/evidence/evidence-isolated-special-value-") &&
+      request.method() === "GET"
+    ) {
+      const evidenceId = url.pathname.split("/").at(-1);
+      await jsonResponse(route, 200, {
+        ok: true,
+        evidence: persistedEvidence.get(evidenceId),
+      });
+      return;
+    }
+    if (
+      url.pathname === `/api/projects/${projectId}/evidence` &&
+      request.method() === "POST"
+    ) {
+      await jsonResponse(route, 200, { ok: true });
+      return;
+    }
     if (url.pathname.endsWith("/bureau-metadata/annotations")) {
       await jsonResponse(route, 404, { detail: "No exact catalog binding." });
+      return;
+    }
+    if (
+      url.pathname === `/api/projects/${projectId}/decisions` &&
+      request.method() === "POST"
+    ) {
+      auditDecisionRequests.push(request.postDataJSON());
+      await jsonResponse(route, 200, { ok: true });
       return;
     }
     unexpectedApiRequests.push(`${request.method()} ${url.pathname}`);
@@ -336,4 +422,141 @@ test("BureauReviewPanel automatically detects HELOC negative codes and hands the
     { variable: "NetFractionInstallBurden", values: [-8, -9], count: 2 },
     { variable: "PercentTradesNeverDelq", values: [-9], count: 1 },
   ]);
+
+  const confirmTreatment = page.getByRole("button", {
+    name: "Confirm Special-Value Treatment",
+    exact: true,
+  });
+  assert.equal(
+    await confirmTreatment.isDisabled(),
+    true,
+    "confirmation must remain disabled before a treatment is selected",
+  );
+  await page
+    .getByTestId("special-value-bulk-treatment")
+    .selectOption("convert_to_category");
+  await page.getByText("All policies reviewable", { exact: true }).waitFor();
+  assert.equal(
+    await confirmTreatment.isDisabled(),
+    false,
+    "selecting a non-imputation bulk treatment must immediately prepare every eligible row and enable confirmation",
+  );
+  const pageLevelCompletion = page.getByTestId(
+    "complete-special-value-review",
+  );
+  assert.equal(
+    await callback.getAttribute("data-ready-to-confirm"),
+    "true",
+    "the parent gate must know that all browser-draft decisions are ready for explicit confirmation",
+  );
+  assert.equal(
+    await pageLevelCompletion.isDisabled(),
+    false,
+    "the page-level completion action must become actionable once every treatment is resolved",
+  );
+  assert.deepEqual(
+    await page
+      .locator(
+        '[data-testid="special-value-feature-row"] select[data-testid^="special-value-treatment-"]',
+      )
+      .evaluateAll((controls) => controls.map((control) => control.value)),
+    ["convert_to_category", "convert_to_category"],
+  );
+  assert.deepEqual(
+    unexpectedApiRequests,
+    [],
+    "preparing the browser draft must not persist or confirm it automatically",
+  );
+  assert.equal(
+    auditDecisionRequests.length,
+    1,
+    "preparing the browser draft must retain its non-governing audit trail",
+  );
+
+  await page.getByRole("button", { name: "Save Draft Review" }).click();
+  await page
+    .getByText(
+      "Draft review saved durably at revision 2. Evidence remains draft until confirmation.",
+      { exact: true },
+    )
+    .waitFor();
+  assert.equal(reviewUpdateRequests.length, 1);
+  assert.equal(reviewUpdateRequests[0].intent, "draft");
+  assert.equal(reviewUpdateRequests[0].expected_revision, 1);
+  assert.deepEqual(
+    reviewUpdateRequests[0].variable_decisions.map((decision) => ({
+      variable: decision.variable,
+      policy: decision.policy,
+    })),
+    [
+      {
+        variable: "NetFractionInstallBurden",
+        policy: "convert_to_category",
+      },
+      {
+        variable: "PercentTradesNeverDelq",
+        policy: "convert_to_category",
+      },
+    ],
+    "saving the selected bulk policy must never create another zero-decision durable revision",
+  );
+  assert.equal(
+    await confirmTreatment.isDisabled(),
+    false,
+    "the ready-for-confirmation durable draft must keep confirmation available",
+  );
+  assert.equal(
+    await callback.getAttribute("data-blocking"),
+    "true",
+    "saving a complete draft must not release continuation before explicit confirmation",
+  );
+  assert.equal(await page.getByTestId("continue-to-eda").isDisabled(), true);
+
+  await pageLevelCompletion.click();
+  await page.getByText("Confirmed revision 3", { exact: true }).waitFor();
+  await page.waitForFunction(() => {
+    const status = document.querySelector(
+      '[data-testid="automatic-special-value-callback"]',
+    );
+    return status?.getAttribute("data-blocking") === "false";
+  });
+  assert.equal(reviewUpdateRequests.length, 2);
+  assert.equal(reviewUpdateRequests[1].intent, "confirm");
+  assert.equal(reviewUpdateRequests[1].expected_revision, 2);
+  assert.deepEqual(
+    reviewUpdateRequests[1].variable_decisions.map((decision) => ({
+      variable: decision.variable,
+      policy: decision.policy,
+    })),
+    [
+      {
+        variable: "NetFractionInstallBurden",
+        policy: "convert_to_category",
+      },
+      {
+        variable: "PercentTradesNeverDelq",
+        policy: "convert_to_category",
+      },
+    ],
+  );
+  assert.equal(
+    await callback.getAttribute("data-blocking"),
+    "false",
+    "a confirmed exact-version review must release the parent Data Acquisition continuation gate",
+  );
+  const evidenceRows = [...persistedEvidence.values()];
+  assert.equal(evidenceRows.length, 2);
+  assert.equal(evidenceRows[0].status, "draft");
+  assert.equal(evidenceRows[0].payload.durableRevision, 2);
+  assert.equal(evidenceRows[1].status, "ready");
+  assert.equal(evidenceRows[1].payload.durableRevision, 3);
+  const continueToEda = page.getByTestId("continue-to-eda");
+  assert.equal(await continueToEda.isDisabled(), false);
+  await continueToEda.click();
+  assert.equal(
+    await page.getByTestId("project-scoped-navigation-path").textContent(),
+    `/projects/${projectId}/step02`,
+    "released Data Acquisition continuation must remain bound to the current project",
+  );
+  assert.deepEqual(unexpectedApiRequests, []);
 });

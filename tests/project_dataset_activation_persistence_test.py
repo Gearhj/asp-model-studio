@@ -471,6 +471,7 @@ class ProjectDatasetActivationPersistenceTest(unittest.TestCase):
                 "project_id": "project-no-workflow",
                 "dataset_id": "dataset-1",
                 "dataset_version_id": "dataset-version-1",
+                "activation_revision": 1,
             },
         )
         self.assertEqual(status["identityValidity"]["activationRevision"], 1)
@@ -515,6 +516,107 @@ class ProjectDatasetActivationPersistenceTest(unittest.TestCase):
             self.assertEqual(status[key], protected_before[key])
         self.assertEqual(len(saved["completed_steps_json"]), 14)
         self.assertEqual(len(status["historicalCompletedSteps"]), 14)
+
+    def test_workflow_put_reconciles_new_exact_evidence_and_advances_resume(self) -> None:
+        """A post-activation completion must not leave effective progress stale."""
+
+        from server.persistence import persistence_router
+
+        self._activate()
+        before = self.service.projects.get_workflow_state("project-activation") or {}
+        self.assertEqual(
+            before["workflow_status_json"]["effectiveCompletedSteps"],
+            ["step00", "step01"],
+        )
+        self.assertEqual(
+            before["workflow_status_json"]["effectiveCurrentStepId"],
+            "step02",
+        )
+        self._insert_canonical_evidence(
+            evidence_id="evidence-eda-after-activation",
+            step_id="step02",
+            artifact_type="eda",
+        )
+
+        with (
+            self._identity_environment(),
+            patch.object(
+                persistence_router,
+                "get_persistence_service",
+                return_value=self.service,
+            ),
+            patch.object(persistence_router, "audit_event"),
+        ):
+            response = persistence_router.save_workflow_state(
+                "project-activation",
+                {
+                    "currentStepId": "step03",
+                    "historicalCompletedSteps": ["step00", "step01", "step02"],
+                    "workflowStatus": {"workflowId": "predictive-modeling"},
+                },
+                user=self.user,
+            )
+
+        status = response["workflowState"]["workflowStatus"]
+        self.assertEqual(
+            status["effectiveCompletedSteps"],
+            ["step00", "step01", "step02"],
+        )
+        self.assertEqual(status["effectiveCurrentStepId"], "step03")
+        self.assertEqual(
+            status["effectiveSteps"]["step02"]["artifactIds"],
+            ["evidence-eda-after-activation"],
+        )
+
+    def test_workflow_reconciliation_without_active_identity_fails_closed(self) -> None:
+        project_id = "project-history-without-activation"
+        self.service.projects.upsert(
+            {
+                "project_id": project_id,
+                "project_name": "History Without Activation",
+                "project_type": "predictive-modeling",
+                "workflow_type": "predictive-modeling",
+                "owner_user_id": self.user["userId"],
+                "metadata_json": {},
+            }
+        )
+        self.service.projects.upsert_workflow_history(
+            project_id,
+            {
+                "current_step_id": "step08",
+                "completed_steps_json": [
+                    f"step{index:02d}" for index in range(8)
+                ],
+                "workflow_status_json": {},
+                "completed_by": self.user["userId"],
+            },
+        )
+
+        workflow = self.repository.reconcile_workflow_after_history_update(
+            project_id=project_id,
+        )
+        status = workflow["workflow_status_json"]
+        self.assertEqual(status["effectiveCompletedSteps"], ["step00"])
+        self.assertEqual(status["effectiveCurrentStepId"], "step01")
+        self.assertEqual(status["identityValidity"]["status"], "missing")
+        self.assertEqual(len(workflow["completed_steps_json"]), 8)
+
+    def test_workflow_reconciliation_rejects_cross_version_evidence(self) -> None:
+        self._activate()
+        self._insert_canonical_evidence(
+            evidence_id="evidence-eda-wrong-version",
+            step_id="step02",
+            artifact_type="eda",
+            version_id="dataset-version-2",
+        )
+
+        workflow = self.repository.reconcile_workflow_after_history_update(
+            project_id="project-activation",
+        )
+        status = workflow["workflow_status_json"]
+        self.assertEqual(status["effectiveCompletedSteps"], ["step00", "step01"])
+        self.assertEqual(status["effectiveCurrentStepId"], "step02")
+        self.assertEqual(status["effectiveSteps"]["step02"]["artifactIds"], [])
 
     def test_browser_workflow_save_cannot_claim_or_audit_project_completion(self) -> None:
         from server.persistence import persistence_router

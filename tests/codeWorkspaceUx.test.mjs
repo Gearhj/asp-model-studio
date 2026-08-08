@@ -16,7 +16,7 @@ assert.doesNotMatch(panel, /supportBadge: "Executable"/, "Python must not be har
 assert.match(panel, /: pythonBadge,/, "Non-Data-Acquisition Python capability must still come from the backend.");
 assert.match(panel, /fetchPythonCapability\(\)/, "Capability must be fetched from the backend.");
 assert.match(codeExecution, /\/python\/capability/, "A dedicated capability endpoint must be called.");
-assert.match(panel, /workflowRoute !== "\/step01" && pythonRunnable && Boolean\(pythonDraft\.trim\(\)\)/, "Data Acquisition metadata code must not execute, and other pages must still require runtime availability.");
+assert.match(panel, /workflowRoute !== "\/step01" && exactDataAcquisitionContextReady && pythonRunnable && Boolean\(pythonDraft\.trim\(\)\) && pythonContextEvaluation\.canUseAsCurrent/, "Data Acquisition metadata code must not execute, and other pages must require exact context, runtime availability, and a current draft.");
 assert.match(panel, /const pythonRunnable = pythonCapability\?\.available === true/, "Runnability must require explicit backend availability.");
 // Every state the brief requires must be representable.
 for (const state of ["Runtime not configured", "Runtime misconfigured", "Runtime disabled", "Checking runtime"]) {

@@ -194,6 +194,10 @@ test("Validation Design fails closed on exact partition identity and does not re
   assert.doesNotMatch(balancing, /config\.test_size|config\.random_seed/);
   assert.doesNotMatch(balancing, /distributions\?\.full_dataset/);
   assert.match(balancing, /distributions\?\.train_before_balancing/);
+  assert.match(
+    balancing,
+    /distributions\?\.train_before_balancing\s*\?\?\s*[\s\S]{0,80}distributions\?\.development_population/,
+  );
 
   const decisionStart = balancing.indexOf('subject: status.validation_design_id');
   const decisionEnd = balancing.indexOf("systemRecommendation", decisionStart);

@@ -177,6 +177,52 @@ test("hydration rejects a project response from a different route scope", async 
   }
 });
 
+test("implementation and monitoring plans rehydrate from ATLAS with an empty browser cache", async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.localStorage._data.clear();
+  const durableContext = lib.migrateStoredContext({
+    ...fullContext(),
+    implementationOwner: "Model operations",
+    implementationTargetDate: "2026-09-15",
+    implementationEnvironment: "real-time API",
+    implementationNotes: "Backend-authoritative handoff plan.",
+    promotedModelId: "model-a",
+    promotedModelVersionId: "model-version-a",
+    promotedCandidateId: "candidate-a",
+    promotedTrainingRunId: "training-run-a",
+    promotedDatasetId: "dataset-a",
+    promotedDatasetVersionId: "version-a",
+    promotedTarget: "bad_flag",
+    monitoringCadence: "weekly",
+    monitoringMetrics: ["ROC-AUC", "PSI"],
+    monitoringNotes: "Escalate PSI above the governed threshold.",
+  });
+  globalThis.fetch = async () => jsonResponse({
+    ok: true,
+    project: {
+      projectId: "project-a",
+      metadata: {
+        projectContextRevision: "1785186305905-durable-plan",
+        projectContextSavedAt: "2026-08-08T04:00:00.000Z",
+        projectContext: durableContext,
+      },
+    },
+  });
+  try {
+    const restored = await lib.hydrateProjectContext("project-a");
+    assert.equal(restored.revision, "1785186305905-durable-plan");
+    assert.equal(restored.context.implementationOwner, "Model operations");
+    assert.equal(restored.context.implementationEnvironment, "real-time API");
+    assert.equal(restored.context.promotedModelVersionId, "model-version-a");
+    assert.equal(restored.context.monitoringCadence, "weekly");
+    assert.deepEqual(restored.context.monitoringMetrics, ["ROC-AUC", "PSI"]);
+    assert.equal(restored.context.monitoringNotes, "Escalate PSI above the governed threshold.");
+    assert.equal(globalThis.localStorage._data.size, 0, "backend hydration must not require a browser-storage fallback");
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
 test("a concurrent first revision conflicts even when this tab expected no revision", async () => {
   const previousFetch = globalThis.fetch;
   let requests = 0;

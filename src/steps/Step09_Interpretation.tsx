@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import StepShell from "../components/StepShell";
 import { AtlasAttentionPanel, type AtlasWorkflowMetric } from "../components/ui/AtlasWorkflow";
 import { logDecision } from "../lib/decisionJournal";
@@ -16,6 +17,7 @@ import {
   parseLockedSelectionDecision,
   resolvePromotionReadiness,
   selectionMetricLabel,
+  verifiedSelectionMetric,
   type GovernedEvaluationPackage,
   type LockedSelectionDecision,
   type SelectionMetricEvidence,
@@ -328,7 +330,29 @@ function exactCandidateRows(rows: RankedRow[], identity: CanonicalDatasetIdentit
   });
 }
 
+function requestedComparisonCandidateIds(search: string): string[] {
+  const raw = new URLSearchParams(search).get("compare") ?? "";
+  return [...new Set(raw.split(",").map((value) => value.trim()).filter(Boolean))].slice(0, 4);
+}
+
+function exactComparisonRows(
+  rows: RankedRow[],
+  requestedIds: string[],
+  identity: CanonicalDatasetIdentity,
+): RankedRow[] {
+  const exactRows = new Map(
+    exactCandidateRows(rows, identity)
+      .filter((row) => Boolean(row.candidate_id && verifiedSelectionMetric(row)))
+      .map((row) => [row.candidate_id as string, row]),
+  );
+  return requestedIds.flatMap((candidateId) => {
+    const candidate = exactRows.get(candidateId);
+    return candidate ? [candidate] : [];
+  });
+}
+
 export default function Step09_Interpretation() {
+  const location = useLocation();
   const projectId = useWorkflowStore((state) => state.projectId);
   const projectName = useWorkflowStore((state) => state.projectName);
   const getNextStepPath = useWorkflowStore((state) => state.getNextStepPath);
@@ -344,6 +368,8 @@ export default function Step09_Interpretation() {
     ? `${activeIdentity.project_id}:${activeIdentity.dataset_id}:${activeIdentity.dataset_version_id}`
     : "";
   const [models, setModels] = useState<RankedRow[]>([]);
+  const [comparisonModels, setComparisonModels] = useState<RankedRow[]>([]);
+  const [comparisonHandoffMessage, setComparisonHandoffMessage] = useState("");
   const [modelsLoading, setModelsLoading] = useState(true);
   const [selectedModel, setSelectedModel] = useState("");
   const [selectedFeature, setSelectedFeature] = useState("");
@@ -388,24 +414,21 @@ export default function Step09_Interpretation() {
   const [finalPromotion, setFinalPromotion] = useState<DurablePromotion | null>(null);
   const [selectionDecision, setSelectionDecision] = useState<LockedSelectionDecision | null>(null);
   const [governedEvaluationPackage, setGovernedEvaluationPackage] = useState<GovernedEvaluationPackage | null>(null);
-  const requestedCandidateId = useMemo(
-    () => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("candidate_id") ?? "" : ""),
-    []
+  const requestedQuery = useMemo(
+    () => new URLSearchParams(location.search),
+    [location.search]
   );
-  const requestedTrainingRunId = useMemo(
-    () => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("training_run_id") ?? "" : ""),
-    []
-  );
-  const requestedEvaluationPackageId = useMemo(
-    () => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("evaluation_package_id") ?? "" : ""),
-    []
-  );
-  const requestedCandidateDecisionId = useMemo(
-    () => (typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("candidate_decision_id") ?? "" : ""),
-    []
+  const requestedCandidateId = requestedQuery.get("candidate_id") ?? "";
+  const requestedTrainingRunId = requestedQuery.get("training_run_id") ?? "";
+  const requestedEvaluationPackageId = requestedQuery.get("evaluation_package_id") ?? "";
+  const requestedCandidateDecisionId = requestedQuery.get("candidate_decision_id") ?? "";
+  const requestedComparisonIds = useMemo(
+    () => requestedComparisonCandidateIds(location.search),
+    [location.search]
   );
   const explanationSequence = useRef(0);
   const effectSequence = useRef(0);
+  const boundarySequence = useRef(0);
   const selectedModelRow = models.find((model) => model.candidate_id === selectedModel);
   const selectedCandidate = selectedModelRow ? candidateFromRow(selectedModelRow) : null;
   const promotionReadiness = resolvePromotionReadiness(
@@ -438,12 +461,11 @@ export default function Step09_Interpretation() {
   );
   const interpretationContextQuery = selectedCandidate && requestedContextMatches
     ? (() => {
-        const params = candidateRequestParams(selectedCandidate);
-        params.set("evaluation_package_id", requestedEvaluationPackageId);
-        params.set("candidate_decision_id", requestedCandidateDecisionId);
-        if (finalPromotion?.modelVersionId) params.set("model_version_id", finalPromotion.modelVersionId);
-        return params.toString();
-      })()
+      const params = candidateRequestParams(selectedCandidate);
+      params.set("evaluation_package_id", requestedEvaluationPackageId);
+      params.set("candidate_decision_id", requestedCandidateDecisionId);
+      return params.toString();
+    })()
     : "";
   const rfeCacheScope = useMemo(
     () => `${identityScope}:${interpretationContextQuery}`,
@@ -465,6 +487,8 @@ export default function Step09_Interpretation() {
   useEffect(() => {
     if (!activeIdentity) {
       setModels([]);
+      setComparisonModels([]);
+      setComparisonHandoffMessage("");
       setSelectedModel("");
       setSelectionDecision(null);
       setGovernedEvaluationPackage(null);
@@ -484,6 +508,18 @@ export default function Step09_Interpretation() {
       .then(async (data) => {
         if (data.context_error) setMessage(data.context_error);
         const ranked = exactCandidateRows(data.summary?.ranked ?? [], activeIdentity);
+        const resolvedComparison = exactComparisonRows(
+          data.summary?.ranked ?? [],
+          requestedComparisonIds,
+          activeIdentity,
+        );
+        setComparisonModels(resolvedComparison);
+        const unresolvedComparisonCount = requestedComparisonIds.length - resolvedComparison.length;
+        setComparisonHandoffMessage(
+          unresolvedComparisonCount > 0
+            ? `${unresolvedComparisonCount} explicitly requested comparison candidate(s) were omitted because current exact lineage and verified non-holdout selection evidence could not be confirmed.`
+            : "",
+        );
         const requestedSelection = ranked.find((row) => {
           if (row.candidate_id !== requestedCandidateId) return false;
           try {
@@ -542,6 +578,8 @@ export default function Step09_Interpretation() {
       })
       .catch((err) => {
         setModels([]);
+        setComparisonModels([]);
+        setComparisonHandoffMessage("");
         setSelectedModel("");
         setSelectionDecision(null);
         setGovernedEvaluationPackage(null);
@@ -550,7 +588,12 @@ export default function Step09_Interpretation() {
       .finally(() => setModelsLoading(false));
     const target = String(localDataset?.target ?? "").trim();
     if (target) {
-      restoreExactFinalModel(API_BASE, activeIdentity, target)
+      restoreExactFinalModel(API_BASE, activeIdentity, target, {
+        candidateId: requestedCandidateId,
+        trainingRunId: requestedTrainingRunId,
+        candidateDecisionId: requestedCandidateDecisionId,
+        evaluationPackageId: requestedEvaluationPackageId,
+      })
         .then((restored) => {
           if (!restored) return;
           setFinalPromotion(restored.promotion);
@@ -575,7 +618,14 @@ export default function Step09_Interpretation() {
     }
   // The exact canonical dataset scope controls both candidate selection and durable recovery.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [identityScope, requestedCandidateId, requestedTrainingRunId, requestedEvaluationPackageId, requestedCandidateDecisionId]);
+  }, [
+    identityScope,
+    requestedCandidateId,
+    requestedTrainingRunId,
+    requestedEvaluationPackageId,
+    requestedCandidateDecisionId,
+    requestedComparisonIds,
+  ]);
 
   useEffect(() => {
     if (!selectedCandidate) {
@@ -760,6 +810,8 @@ export default function Step09_Interpretation() {
   }, [selectedModel, selectedFeature, interpretationContextQuery, evaluationPackageId, artifactContextError]);
 
   useEffect(() => {
+    const sequence = boundarySequence.current + 1;
+    boundarySequence.current = sequence;
     if (!selectedCandidate || !evaluationPackageId || !interpretationContextQuery || artifactContextError) {
       setBoundary(null);
       return;
@@ -769,6 +821,7 @@ export default function Step09_Interpretation() {
     if (boundaryY) params.set("y_feature", boundaryY);
     getJson<BoundaryResponse>(`${API_BASE}/interpretation/decision_boundary?${params.toString()}`)
       .then((data) => {
+        if (boundarySequence.current !== sequence) return;
         if (!data.ok) {
           setBoundary(data);
           return;
@@ -777,7 +830,9 @@ export default function Step09_Interpretation() {
         setBoundaryX(data.x_feature ?? "");
         setBoundaryY(data.y_feature ?? "");
       })
-      .catch((err) => setMessage(String(err?.message ?? err)));
+      .catch((err) => {
+        if (boundarySequence.current === sequence) setMessage(String(err?.message ?? err));
+      });
   }, [selectedModel, boundaryX, boundaryY, interpretationContextQuery, evaluationPackageId, artifactContextError]);
 
   const featureOptions = useMemo(
@@ -845,6 +900,28 @@ export default function Step09_Interpretation() {
     setFinalDiagnosticsReady(true);
   };
 
+  const updateBoundaryFeature = (axis: "x" | "y", value: string) => {
+    const numericFeatures = (boundary?.numeric_features ?? []).filter(
+      (feature) => !feature.startsWith("PCA"),
+    );
+    if (value.startsWith("PCA")) {
+      setBoundaryX("PCA 1");
+      setBoundaryY("PCA 2");
+      return;
+    }
+    if (axis === "x") {
+      setBoundaryX(value);
+      if (!boundaryY || boundaryY.startsWith("PCA") || boundaryY === value) {
+        setBoundaryY(numericFeatures.find((feature) => feature !== value) ?? "");
+      }
+      return;
+    }
+    setBoundaryY(value);
+    if (!boundaryX || boundaryX.startsWith("PCA") || boundaryX === value) {
+      setBoundaryX(numericFeatures.find((feature) => feature !== value) ?? "");
+    }
+  };
+
   const saveExactCandidateAsFinal = async () => {
     setFinalModelMessage("");
     setFinalModelStatus("");
@@ -903,7 +980,8 @@ export default function Step09_Interpretation() {
 
   const heroMetrics: AtlasWorkflowMetric[] = [
     { label: "Project", value: projectName },
-    { label: "Candidate Models", value: models.length.toLocaleString(), tone: models.length ? "info" : "warning" },
+    { label: "Exact Model Under Review", value: models.length.toLocaleString(), tone: models.length ? "info" : "warning" },
+    { label: "Comparison Context", value: comparisonModels.length.toLocaleString(), tone: comparisonModels.length ? "info" : "warning" },
     { label: "Selected Model", value: displayModelName(selectedModelRow, selectedModel) || "Not selected" },
     { label: "Problem Type", value: selectedModelIsRegression ? "Regression" : "Classification" },
     { label: "Importance Drivers", value: importance.length.toLocaleString(), tone: importance.length ? "success" : "warning" },
@@ -1010,6 +1088,48 @@ export default function Step09_Interpretation() {
         </section>
       ) : null}
 
+      {requestedComparisonIds.length > 0 ? (
+        <section className="rounded-2xl border border-violet-200 bg-violet-50 p-4" data-testid="interpretation-candidate-comparison">
+          <div className="text-xs font-semibold uppercase tracking-wide text-violet-700">Evaluation comparison handoff</div>
+          <h2 className="mt-1 text-sm font-semibold text-violet-950">Explicit candidate comparison context</h2>
+          <p className="mt-1 text-xs leading-5 text-violet-900">
+            These candidates were explicitly selected in Evaluation and were resolved again from the exact backend training result. The cards contain verified development-selection evidence only. Challenger cards cannot open the final holdout, replace the locked candidate, drive Interpretation analyses, or be promoted from this page.
+          </p>
+          {comparisonHandoffMessage ? (
+            <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+              {comparisonHandoffMessage}
+            </div>
+          ) : null}
+          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {comparisonModels.map((model) => {
+              const metric = verifiedSelectionMetric(model);
+              if (!metric || !model.candidate_id) return null;
+              const locked = model.candidate_id === selectionDecision?.selected_candidate_id;
+              return (
+                <article
+                  key={model.candidate_id}
+                  data-candidate-id={model.candidate_id}
+                  className="rounded-xl border border-violet-200 bg-white p-3 text-xs text-slate-700"
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <h3 className="font-semibold text-slate-950">{displayModelName(model, model.key)}</h3>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${locked ? "bg-blue-100 text-blue-800" : "bg-slate-100 text-slate-700"}`}>
+                      {locked ? "Locked candidate" : "Selection-evidence challenger"}
+                    </span>
+                  </div>
+                  <div className="mt-2 break-all font-mono text-[10px] text-slate-500">{model.candidate_id}</div>
+                  <dl className="mt-3 grid gap-2 sm:grid-cols-2">
+                    <div><dt className="font-semibold text-slate-500">{selectionMetricLabel(metric)}</dt><dd className="mt-0.5 font-mono text-slate-950">{metric.value.toFixed(4)}</dd></div>
+                    <div><dt className="font-semibold text-slate-500">Evidence</dt><dd className="mt-0.5">{metric.source.replaceAll("_", " ")} · {metric.fold_count} folds</dd></div>
+                    <div className="sm:col-span-2"><dt className="font-semibold text-slate-500">Development partition</dt><dd className="mt-0.5 break-all font-mono text-[10px]">{metric.partition_id}</dd></div>
+                  </dl>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      ) : null}
+
       {SHOW_LINEAR_REGRESSION_DEBUG && selectedModelIsLinearRegression && (
         <LinearRegressionDebugPanel details={details} />
       )}
@@ -1044,7 +1164,7 @@ export default function Step09_Interpretation() {
         </section>
       )}
 
-      {!selectedModelIsRegression && <section className="rounded-2xl border border-gray-200 bg-white p-4">
+      {!selectedModelIsRegression && <section data-testid="decision-boundary-section" className="rounded-2xl border border-gray-200 bg-white p-4">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h2 className="text-sm font-semibold">{selectedModelIsRegression ? "Prediction Response Surface" : "Decision Boundary"}</h2>
@@ -1055,10 +1175,10 @@ export default function Step09_Interpretation() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <select className="rounded-md border px-3 py-2 text-sm" value={boundaryX} onChange={(e) => setBoundaryX(e.target.value)}>
+            <select aria-label="Decision boundary X feature" className="rounded-md border px-3 py-2 text-sm" value={boundaryX} onChange={(e) => updateBoundaryFeature("x", e.target.value)}>
               {(boundary?.numeric_features ?? []).map((feature) => <option key={feature} value={feature}>{feature}</option>)}
             </select>
-            <select className="rounded-md border px-3 py-2 text-sm" value={boundaryY} onChange={(e) => setBoundaryY(e.target.value)}>
+            <select aria-label="Decision boundary Y feature" className="rounded-md border px-3 py-2 text-sm" value={boundaryY} onChange={(e) => updateBoundaryFeature("y", e.target.value)}>
               {(boundary?.numeric_features ?? []).filter((feature) => feature !== boundaryX).map((feature) => <option key={feature} value={feature}>{feature}</option>)}
             </select>
           </div>
@@ -1126,10 +1246,10 @@ export default function Step09_Interpretation() {
             Regression response surfaces can be useful for directional inspection, but they reduce the model to two features and should not be treated as the primary interpretation artifact. Use feature importance, SHAP-style summaries, PDP, sensitivity, and RFE first.
           </p>
           <div className="mt-4 flex flex-wrap gap-2">
-            <select className="rounded-md border px-3 py-2 text-sm" value={boundaryX} onChange={(e) => setBoundaryX(e.target.value)}>
+            <select aria-label="Projected surface X feature" className="rounded-md border px-3 py-2 text-sm" value={boundaryX} onChange={(e) => updateBoundaryFeature("x", e.target.value)}>
               {(boundary?.numeric_features ?? []).map((feature) => <option key={feature} value={feature}>{feature}</option>)}
             </select>
-            <select className="rounded-md border px-3 py-2 text-sm" value={boundaryY} onChange={(e) => setBoundaryY(e.target.value)}>
+            <select aria-label="Projected surface Y feature" className="rounded-md border px-3 py-2 text-sm" value={boundaryY} onChange={(e) => updateBoundaryFeature("y", e.target.value)}>
               {(boundary?.numeric_features ?? []).filter((feature) => feature !== boundaryX).map((feature) => <option key={feature} value={feature}>{feature}</option>)}
             </select>
           </div>
@@ -1973,7 +2093,12 @@ function DecisionBoundaryChart({ boundary }: { boundary: BoundaryResponse | null
           <span className="inline-flex items-center gap-1"><span className="h-2.5 w-2.5 rounded-full bg-[#facc15] ring-1 ring-slate-800" />Class 1</span>
         </div>
       </div>
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-[430px] w-full rounded-xl bg-white">
+      <svg
+        viewBox={`0 0 ${width} ${height}`}
+        className="h-[430px] w-full rounded-xl bg-white"
+        data-x-feature={boundary.x_feature ?? ""}
+        data-y-feature={boundary.y_feature ?? ""}
+      >
         {grid.map((cell, index) => (
           <rect
             key={index}

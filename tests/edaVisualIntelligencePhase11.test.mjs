@@ -719,7 +719,9 @@ check("Backend relationship sample authorizes every field and keys the bounded c
   assertIncludes(
     relationshipService,
     [
-      "self._dataset(base)",
+      "self._dataset(",
+      "canonical_lineage_required=True",
+      "resolve_development_partition(",
       'authorization["authorized_predictors"]',
       "field not in authorized or field not in df.columns",
       "RelationshipSampleValidationError(rejected)",
@@ -731,7 +733,7 @@ check("Backend relationship sample authorizes every field and keys the bounded c
       "sample_limit = min(int(request.sample_limit), eligible_rows)",
       "deterministic_proportional_stratified",
       '"maximum_rows": 5000',
-      '"scope": "rendered_sample"',
+      '"response_scope": "rendered_sample"',
       '"population_rows"',
       '"eligible_rows"',
       '"returned_rows"',

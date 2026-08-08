@@ -80,6 +80,7 @@ def create_scoring_run(
         scoring_run_id = new_scoring_run_id()
         artifact = write_scoring_run_parquet(scoring_run_id, frame)
 
+        context = dataset_context or {}
         model_meta = score_result.get("model") or {}
         model_id = str(model_meta.get("model_key") or model_meta.get("name") or "final")
         model_version = str(RESULTS.training_timestamp or "unversioned")
@@ -93,6 +94,26 @@ def create_scoring_run(
         # artifact that was never saved through the registry) -- never invents one.
         registry_model_id = model_meta.get("modelId")
         registry_model_version_id = model_meta.get("modelVersionId")
+        training_dataset_id = (
+            context.get("datasetId")
+            or model_meta.get("training_dataset_id")
+            or model_meta.get("trainingDatasetId")
+            or model_meta.get("dataset_id")
+            or model_meta.get("datasetId")
+        )
+        training_dataset_version_id = (
+            context.get("datasetVersionId")
+            or model_meta.get("training_dataset_version_id")
+            or model_meta.get("trainingDatasetVersionId")
+            or model_meta.get("dataset_version_id")
+            or model_meta.get("datasetVersionId")
+        )
+        scoring_target = (
+            score_result.get("target_column")
+            or model_meta.get("target_name")
+            or model_meta.get("targetName")
+            or model_meta.get("target")
+        )
 
         task = score_result.get("task")
         problem_type = "regression" if task == "regression" else ("classification" if task else None)
@@ -101,13 +122,12 @@ def create_scoring_run(
         residual_column = "atlas_residual" if task == "regression" else None
 
         timestamp = now_iso()
-        context = dataset_context or {}
         record = {
             "scoring_run_id": scoring_run_id,
             "project_id": project_id,
             "user_id": str(user.get("userId") or ""),
-            "dataset_id": context.get("datasetId"),
-            "dataset_version_id": context.get("datasetVersionId"),
+            "dataset_id": training_dataset_id,
+            "dataset_version_id": training_dataset_version_id,
             "dataset_identity": score_result.get("dataset_identity") or context.get("datasetIdentity"),
             "partition": str(partition or "test").lower(),
             # model_id keeps its existing display-friendly-algorithm-key semantics
@@ -120,7 +140,7 @@ def create_scoring_run(
             "model_version_id": registry_model_version_id,
             "feature_manifest_version": context.get("featureManifestVersion") or model_meta.get("feature_manifest_version"),
             "problem_type": problem_type,
-            "target": score_result.get("target_column"),
+            "target": scoring_target,
             "status": "completed",
             "created_at": timestamp,
             "completed_at": timestamp,

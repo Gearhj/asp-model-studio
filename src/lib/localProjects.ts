@@ -669,9 +669,13 @@ export function upsertProjectFromState(state: CurrentWorkflowState) {
   return upsertProjectSnapshot(createSnapshotFromState(state), "browser");
 }
 
-export function saveActiveProjectBeforeNavigation(state: CurrentWorkflowState) {
+export function saveActiveProjectBeforeNavigation(
+  state: CurrentWorkflowState,
+  snapshotOverride?: WorkflowProjectSnapshot,
+) {
+  const snapshot = snapshotOverride ?? createSnapshotFromState(state);
   try {
-    upsertProjectFromState(state);
+    upsertProjectSnapshot(snapshot, "browser");
     return {
       ok: true,
       message: lastRegistryWriteError || "Project saved before navigation.",
@@ -679,20 +683,20 @@ export function saveActiveProjectBeforeNavigation(state: CurrentWorkflowState) {
     };
   } catch (error) {
     try {
-      const snapshot = minimalSnapshot(createSnapshotFromState(state));
+      const fallbackSnapshot = minimalSnapshot(snapshot);
       const existing = loadLocalProjects();
-      const current = existing.find((project) => project.projectId === snapshot.projectId);
+      const current = existing.find((project) => project.projectId === fallbackSnapshot.projectId);
       const record: LocalProjectRecord = {
-        projectId: snapshot.projectId,
-        modelId: snapshot.modelId,
-        projectName: snapshot.projectName,
-        projectType: snapshot.projectType,
-        workflowId: snapshot.workflowId,
+        projectId: fallbackSnapshot.projectId,
+        modelId: fallbackSnapshot.modelId,
+        projectName: fallbackSnapshot.projectName,
+        projectType: fallbackSnapshot.projectType,
+        workflowId: fallbackSnapshot.workflowId,
         createdAt: current?.createdAt ?? nowIso(),
         lastModified: nowIso(),
         source: current?.source ?? "browser",
-        snapshot,
-        snapshotStorageKey: projectSnapshotKey(snapshot.projectId),
+        snapshot: fallbackSnapshot,
+        snapshotStorageKey: projectSnapshotKey(fallbackSnapshot.projectId),
         restoreStatus: "thin_snapshot_available",
       };
       saveLocalProjects([record, ...existing.filter((project) => project.projectId !== record.projectId)]);
@@ -701,7 +705,7 @@ export function saveActiveProjectBeforeNavigation(state: CurrentWorkflowState) {
         status: registryWarning ? "registry_warning" : "local_only",
         projectId: record.projectId,
         savedAt: record.lastModified,
-        snapshotBytes: estimateBytes(snapshot),
+        snapshotBytes: estimateBytes(fallbackSnapshot),
         message: registryWarning
           ? `Thin project snapshot preserved for this session, but the Recent Projects index could not be written: ${registryWarning}`
           : "ATLAS saved a thin project snapshot before navigation.",

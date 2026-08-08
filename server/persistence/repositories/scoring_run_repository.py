@@ -9,7 +9,8 @@ from .base_repository import BaseRepository
 # arbitrary client-supplied column names (mirrors the identifier-safety
 # discipline in server/analytics/engines/duckdb_engine.py).
 _FILTERABLE_COLUMNS = {
-    "project_id", "dataset_id", "model_id", "partition", "status", "problem_type",
+    "project_id", "dataset_id", "dataset_version_id", "model_id", "model_version_id",
+    "target", "partition", "status", "problem_type",
 }
 
 
@@ -19,7 +20,10 @@ class ScoringRunRepository(BaseRepository):
         *,
         project_id: Optional[str] = None,
         dataset_id: Optional[str] = None,
+        dataset_version_id: Optional[str] = None,
         model_id: Optional[str] = None,
+        model_version_id: Optional[str] = None,
+        target: Optional[str] = None,
         partition: Optional[str] = None,
         status: Optional[str] = None,
         problem_type: Optional[str] = None,
@@ -29,7 +33,9 @@ class ScoringRunRepository(BaseRepository):
         limit: int = 200,
     ) -> List[Dict[str, Any]]:
         filters = {
-            "project_id": project_id, "dataset_id": dataset_id, "model_id": model_id,
+            "project_id": project_id, "dataset_id": dataset_id,
+            "dataset_version_id": dataset_version_id, "model_id": model_id,
+            "model_version_id": model_version_id, "target": target,
             "partition": partition, "status": status, "problem_type": problem_type,
         }
         clauses: List[str] = []

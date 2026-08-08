@@ -1,5 +1,8 @@
 import { expect, test } from "@playwright/test";
-import { promoteExactCandidate } from "../../src/model-registry/finalModelPromotionClient";
+import {
+  promoteExactCandidate,
+  restoreExactFinalModel,
+} from "../../src/model-registry/finalModelPromotionClient";
 
 const selectionMetric = {
   name: "pr_auc",
@@ -157,6 +160,167 @@ test("promotion does not issue a request for contaminated or incomplete evidence
         evaluationPackage,
       },
     )).rejects.toThrow(/verified non-holdout selection evidence/i);
+    expect(called).toBe(false);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+const canonicalIdentity = {
+  project_id: candidate.project_id,
+  dataset_id: candidate.dataset_id,
+  dataset_version_id: candidate.dataset_version_id,
+};
+
+const exactHandoff = {
+  candidateId: candidate.candidate_id,
+  trainingRunId: candidate.training_run_id,
+  candidateDecisionId: decision.decision_id,
+  evaluationPackageId: evaluationPackage.evaluation_package_id,
+};
+
+function exactFinalStatus(overrides: Record<string, unknown> = {}) {
+  const modelVersion = {
+    modelId: "model-1",
+    modelVersionId: "model-version-1",
+    projectId: candidate.project_id,
+    datasetId: candidate.dataset_id,
+    datasetVersionId: candidate.dataset_version_id,
+    candidateId: candidate.candidate_id,
+    trainingRunId: candidate.training_run_id,
+    candidateDecisionId: decision.decision_id,
+    evaluationPackageId: evaluationPackage.evaluation_package_id,
+    selectionIntegrityStatus: "verified",
+    holdoutIsolationStatus: "verified",
+    evaluationPackageIntegrityStatus: "verified",
+    promotionReadinessStatus: "verified",
+    finalHoldoutStatus: "evaluated",
+    holdoutExposureId: "exposure-1",
+    ...overrides,
+  };
+  return {
+    ok: true,
+    ready: true,
+    metadata: {
+      ...modelVersion,
+      project_id: candidate.project_id,
+      training_dataset_id: candidate.dataset_id,
+      training_dataset_version_id: candidate.dataset_version_id,
+      target_name: candidate.target,
+      model_version_id: "model-version-1",
+      designation: "champion",
+    },
+    modelVersion,
+  };
+}
+
+function exactRecovery() {
+  return {
+    ok: true,
+    recovery: {
+      status: "ready",
+      projectId: candidate.project_id,
+      modelId: "model-1",
+      modelVersionId: "model-version-1",
+      publicationStatus: "finalized",
+      lineageStatus: "verified",
+      artifactVerified: true,
+      checksum: "sha256:abc",
+      artifactFormat: "joblib",
+    },
+  };
+}
+
+test("exact final-model recovery verifies the Evaluation handoff before enabling recovery", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests: string[] = [];
+  globalThis.fetch = (async (input) => {
+    const url = String(input);
+    requests.push(url);
+    if (url.includes("/recovery-status")) {
+      return new Response(JSON.stringify(exactRecovery()), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify(exactFinalStatus()), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+  try {
+    const restored = await restoreExactFinalModel(
+      "http://127.0.0.1:8001/api",
+      canonicalIdentity,
+      candidate.target,
+      exactHandoff,
+    );
+    expect(restored?.promotion.modelVersionId).toBe("model-version-1");
+    expect(requests).toHaveLength(2);
+    const statusUrl = new URL(requests[0]);
+    expect(statusUrl.searchParams.get("candidate_id")).toBe(candidate.candidate_id);
+    expect(statusUrl.searchParams.get("training_run_id")).toBe(candidate.training_run_id);
+    expect(statusUrl.searchParams.get("candidate_decision_id")).toBe(decision.decision_id);
+    expect(statusUrl.searchParams.get("evaluation_package_id")).toBe(evaluationPackage.evaluation_package_id);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("an older champion cannot satisfy a changed exact Evaluation handoff", async () => {
+  const originalFetch = globalThis.fetch;
+  const mismatches: Array<[string, Record<string, unknown>]> = [
+    ["candidate", { candidateId: "older-candidate" }],
+    ["training run", { trainingRunId: "older-run" }],
+    ["candidate decision", { candidateDecisionId: "older-decision" }],
+    ["evaluation package", { evaluationPackageId: "older-package" }],
+  ];
+  let recoveryRequests = 0;
+  let statusOverride: Record<string, unknown> = {};
+  globalThis.fetch = (async (input) => {
+    const url = String(input);
+    if (url.includes("/recovery-status")) {
+      recoveryRequests += 1;
+      return new Response(JSON.stringify(exactRecovery()), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+    return new Response(JSON.stringify(exactFinalStatus(statusOverride)), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  }) as typeof fetch;
+  try {
+    for (const [label, override] of mismatches) {
+      statusOverride = override;
+      await expect(restoreExactFinalModel(
+        "http://127.0.0.1:8001/api",
+        canonicalIdentity,
+        candidate.target,
+        exactHandoff,
+      ), label).rejects.toThrow(/does not match the exact Evaluation handoff/i);
+    }
+    expect(recoveryRequests).toBe(0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("a partial explicit handoff fails closed without contacting current-model status", async () => {
+  const originalFetch = globalThis.fetch;
+  let called = false;
+  globalThis.fetch = (async () => {
+    called = true;
+    throw new Error("must not be called");
+  }) as typeof fetch;
+  try {
+    await expect(restoreExactFinalModel(
+      "http://127.0.0.1:8001/api",
+      canonicalIdentity,
+      candidate.target,
+      { candidateId: candidate.candidate_id },
+    )).rejects.toThrow(/requires candidate_id, training_run_id, candidate_decision_id, and evaluation_package_id/i);
     expect(called).toBe(false);
   } finally {
     globalThis.fetch = originalFetch;

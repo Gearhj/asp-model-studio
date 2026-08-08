@@ -313,6 +313,12 @@ export function resolveParentFindingDecision(
   parent: EdaParentFinding,
   state: EdaFindingsReviewState,
 ): EdaFindingDecision {
+  // Informational findings are system-owned evidence records. A stale browser
+  // draft must never be able to replace the canonical disposition that the
+  // backend validates during completion.
+  if (parent.requirement === "informational" && parent.systemDisposition) {
+    return defaultParentFindingDecision(parent);
+  }
   const explicit = state.parentDecisions?.[parent.parentId];
   if (explicit) return explicit;
   const legacy = parent.childIds
@@ -347,7 +353,11 @@ export function isEligibleParentDisposition(
   decision: EdaFindingDecision,
 ) {
   if (!parent.allowedDispositions.includes(decision.disposition)) return false;
-  if (parent.requirement === "informational") return true;
+  if (parent.requirement === "informational") {
+    return parent.systemDisposition
+      ? decision.disposition === parent.systemDisposition
+      : true;
+  }
   if (decision.disposition === "unresolved") return false;
   if (decision.disposition === "not_applicable") return false;
   if (
@@ -387,7 +397,9 @@ export function documentedParentFindingRows(
         decision.disposition,
       ),
       decision_origin: state.parentDecisions?.[parent.parentId]
-        ? "reviewer"
+        ? parent.requirement === "informational" && parent.systemDisposition
+          ? "system_informational_default"
+          : "reviewer"
         : parent.systemDisposition
           ? "system_informational_default"
           : "unresolved",
@@ -507,6 +519,11 @@ export function applyBulkParentDisposition(input: {
     (parent) => parent.family === input.family,
   );
   if (!selected.length) throw new Error("No parent findings match this family.");
+  if (selected.some((parent) => parent.requirement === "informational")) {
+    throw new Error(
+      "Informational parent findings retain their canonical system disposition and cannot receive a bulk reviewer disposition.",
+    );
+  }
   if (!input.rationale.trim()) {
     throw new Error("Bulk disposition requires a reviewer rationale.");
   }

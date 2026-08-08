@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import uuid
 from datetime import datetime, timezone
 from io import BytesIO
 from pathlib import Path
@@ -9,6 +10,7 @@ from typing import Any, Dict, List
 
 from ..analytics.analytics_store import list_insights as list_analytics_insights
 from ..datasets.dataset_registry import load_registry, project_dataset_links, write_json
+from ..datasets.dataset_storage import library_write_lock
 from ..persistence import get_persistence_service
 from ..projects.project_registry import list_backend_projects
 from .mdd_framework import DOCUMENT_STATUSES, family_for_project, template_sections
@@ -16,6 +18,14 @@ from .mdd_framework import DOCUMENT_STATUSES, family_for_project, template_secti
 
 DOCUMENTATION_ROOT = Path(__file__).resolve().parents[1] / "artifacts" / "model_documentation"
 DOCUMENT_INDEX_PATH = DOCUMENTATION_ROOT / "document_index.json"
+
+
+class DocumentationWorkingDraftConflictError(RuntimeError):
+    """More than one mutable draft exists for one project/template scope."""
+
+
+class DocumentationWorkingDraftIntegrityError(RuntimeError):
+    """A durable draft failed exact project/template/status read-back."""
 
 TEMPLATE_TYPES = [
     {"templateType": "validator_aligned_mdd", "label": "Validator-Aligned Model Development Document", "status": "available", "description": "Evidence-linked common MDD backbone with method-specific validator requirements and governed document lifecycle."},
@@ -141,25 +151,35 @@ def load_document(document_id: str) -> Dict[str, Any]:
     return document
 
 
+def _document_index_record(document: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "documentId": document.get("documentId"),
+        "projectId": document.get("projectId"),
+        "projectName": document.get("projectName"),
+        "templateType": document.get("templateType"),
+        "documentStatus": document.get("documentStatus"),
+        "createdAt": document.get("createdAt"),
+        "updatedAt": document.get("updatedAt"),
+        "quality": document.get("quality", {}),
+    }
+
+
+def _upsert_document_index(document: Dict[str, Any]) -> None:
+    index = read_json(DOCUMENT_INDEX_PATH, {"documents": []})
+    records = [
+        item
+        for item in index.get("documents", [])
+        if item.get("documentId") != document.get("documentId")
+    ]
+    records.insert(0, _document_index_record(document))
+    write_json(DOCUMENT_INDEX_PATH, {"documents": records[:250]})
+
+
 def save_document(document: Dict[str, Any]) -> Dict[str, Any]:
     ensure_store()
     document["updatedAt"] = now_iso()
     write_json(document_path(str(document["documentId"])), document)
-    index = read_json(DOCUMENT_INDEX_PATH, {"documents": []})
-    records = [item for item in index.get("documents", []) if item.get("documentId") != document.get("documentId")]
-    records.insert(
-        0,
-        {
-            "documentId": document.get("documentId"),
-            "projectId": document.get("projectId"),
-            "projectName": document.get("projectName"),
-            "templateType": document.get("templateType"),
-            "createdAt": document.get("createdAt"),
-            "updatedAt": document.get("updatedAt"),
-            "quality": document.get("quality", {}),
-        },
-    )
-    write_json(DOCUMENT_INDEX_PATH, {"documents": records[:250]})
+    _upsert_document_index(document)
     return document
 
 
@@ -173,6 +193,109 @@ def list_documents(project_id: str | None = None) -> List[Dict[str, Any]]:
     if project_id:
         documents = [item for item in documents if item.get("projectId") == project_id]
     return documents
+
+
+def _project_template_documents(
+    project_id: str,
+    template_type: str,
+) -> List[Dict[str, Any]]:
+    """Read exact documents rather than trusting index-only project metadata."""
+
+    documents: List[Dict[str, Any]] = []
+    if not DOCUMENTATION_ROOT.exists():
+        return documents
+    index_path = DOCUMENT_INDEX_PATH.resolve()
+    for path in sorted(DOCUMENTATION_ROOT.glob("*.json")):
+        if path.resolve() == index_path:
+            continue
+        document = read_json(path, {})
+        if not isinstance(document, dict):
+            continue
+        if (
+            str(document.get("projectId") or "") == project_id
+            and str(document.get("templateType") or "") == template_type
+        ):
+            documents.append(document)
+    return documents
+
+
+def _verify_working_draft_readback(
+    document_id: str,
+    project_id: str,
+    template_type: str,
+) -> Dict[str, Any]:
+    document = load_document(document_id)
+    if (
+        str(document.get("documentId") or "") != document_id
+        or str(document.get("projectId") or "") != project_id
+        or str(document.get("templateType") or "") != template_type
+        or str(document.get("documentStatus") or "") != "working_draft"
+    ):
+        raise DocumentationWorkingDraftIntegrityError(
+            "The Model Development Document working draft failed exact durable read-back."
+        )
+    return document
+
+
+def ensure_working_draft(
+    project_id: str,
+    template_type: str = "model_development_document",
+    created_by: str = "ATLAS local user",
+) -> tuple[Dict[str, Any], bool]:
+    """Idempotently resolve one mutable draft for a project/template scope.
+
+    Terminal documents remain historical records.  The cross-process store lock
+    covers discovery, optional creation, index repair, and exact disk read-back,
+    so two browser tabs cannot create competing active drafts.
+    """
+
+    cleaned_project_id = str(project_id or "").strip()
+    cleaned_template_type = str(template_type or "").strip()
+    if not cleaned_project_id or not cleaned_template_type:
+        raise DocumentationWorkingDraftIntegrityError(
+            "A project and documentation template are required to resolve a working draft."
+        )
+
+    with library_write_lock(DOCUMENTATION_ROOT):
+        ensure_store()
+        candidates = _project_template_documents(
+            cleaned_project_id,
+            cleaned_template_type,
+        )
+        working_drafts = [
+            document
+            for document in candidates
+            if str(document.get("documentStatus") or "") == "working_draft"
+        ]
+        if len(working_drafts) > 1:
+            raise DocumentationWorkingDraftConflictError(
+                "Multiple active Model Development Document working drafts exist for this project and template."
+            )
+
+        created = not working_drafts
+        if created:
+            document = create_document(
+                cleaned_project_id,
+                cleaned_template_type,
+                created_by,
+            )
+        else:
+            document = working_drafts[0]
+            # Repair a missing legacy index entry without modifying the document
+            # or any terminal document in the same project.
+            _upsert_document_index(document)
+
+        document_id = str(document.get("documentId") or "").strip()
+        if not document_id:
+            raise DocumentationWorkingDraftIntegrityError(
+                "The Model Development Document working draft has no durable identifier."
+            )
+        readback = _verify_working_draft_readback(
+            document_id,
+            cleaned_project_id,
+            cleaned_template_type,
+        )
+        return readback, created
 
 
 def _mapping(value: Any) -> Dict[str, Any]:
@@ -429,7 +552,7 @@ def infer_champion_from_text(project: Dict[str, Any]) -> str:
 def create_document(project_id: str, template_type: str = "model_development_document", created_by: str = "ATLAS local user") -> Dict[str, Any]:
     context = build_project_context(project_id)
     project = context["project"]
-    document_id = f"doc-{project_id}-{int(datetime.now(timezone.utc).timestamp())}"
+    document_id = f"doc-{uuid.uuid4().hex}"
     family = family_for_project(str(project.get("projectType") or ""), str(project.get("taskType") or ""))
     outline = OPTIMIZATION_DECISION_OUTLINE if template_type == "optimization_decision_report" else MODEL_DEVELOPMENT_OUTLINE
     if template_type == "validator_aligned_mdd":

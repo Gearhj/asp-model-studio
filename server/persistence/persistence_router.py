@@ -483,7 +483,7 @@ def save_workflow_state(project_id: str, payload: Dict[str, Any], user: Dict[str
         service.ensure_project(project_id, user)
         previous = service.projects.get_workflow_state(project_id) or {}
         previous_completed.update(previous.get("completed_steps_json") or [])
-        return service.projects.upsert_workflow_history(
+        service.projects.upsert_workflow_history(
             project_id,
             {
                 "current_step_id": _pick(payload, "currentStepId", "current_step_id"),
@@ -500,6 +500,13 @@ def save_workflow_state(project_id: str, payload: Dict[str, Any], user: Dict[str
                 "updated_at": _pick(payload, "updatedAt", "updated_at", default=now_iso()),
                 "completed_by": user.get("userId"),
             },
+        )
+        # Historical completion is append-only, but the effective resume point
+        # must be recalculated after every save from the exact durable active
+        # dataset identity and current canonical evidence.  This never trusts
+        # browser status fields or selects a first/latest dataset version.
+        return service.project_dataset_activations.reconcile_workflow_after_history_update(
+            project_id=project_id,
         )
 
     record = _execute(operation)

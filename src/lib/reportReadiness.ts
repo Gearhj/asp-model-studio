@@ -17,6 +17,10 @@ export function buildReportReadiness(input: {
   problemType?: string | null;
   experiments: ExperimentRecord[];
   champion: ExperimentRecord | null;
+  promotedChampion?: {
+    modelName: string;
+    modelVersionId: string;
+  } | null;
   decisions: DecisionJournalEntry[];
   dataset?: { target?: string | null; selected_columns?: string[]; rows?: unknown[] } | null;
   context?: { businessObjective?: string; targetDefinition?: string; intendedModelUse?: string; primarySuccessMetric?: unknown };
@@ -39,18 +43,28 @@ export function buildReportReadiness(input: {
     },
     {
       item: "Candidate experiments",
-      status: input.experiments.length ? "ready" : "missing",
-      evidence: `${input.experiments.length} experiment record(s) are available.`,
+      status: input.experiments.length || input.promotedChampion ? "ready" : "missing",
+      evidence: input.experiments.length
+        ? `${input.experiments.length} project-scoped browser diagnostic record(s) are available.`
+        : input.promotedChampion
+          ? "The exact durable champion is available; no matching browser diagnostic was required as authority."
+          : "No candidate evidence is available.",
     },
     {
       item: "Champion model",
-      status: input.champion ? "ready" : "missing",
-      evidence: input.champion ? `${input.champion.modelType} is marked as champion.` : "No champion model has been promoted.",
+      status: input.promotedChampion ? "ready" : "missing",
+      evidence: input.promotedChampion
+        ? `${input.promotedChampion.modelName} (${input.promotedChampion.modelVersionId}) is the exact backend-verified durable champion.`
+        : "No exact durable champion model has been promoted.",
     },
     {
       item: "Performance evidence",
-      status: input.champion?.metrics && Object.keys(input.champion.metrics).length ? "ready" : "missing",
-      evidence: input.champion?.metrics && Object.keys(input.champion.metrics).length ? "Champion performance metrics are present." : "Champion metrics are missing.",
+      status: input.promotedChampion || (input.champion?.metrics && Object.keys(input.champion.metrics).length) ? "ready" : "missing",
+      evidence: input.champion?.metrics && Object.keys(input.champion.metrics).length
+        ? "Supplementary champion performance metrics are present for the exact promoted training run."
+        : input.promotedChampion
+          ? "The exact promoted model carries a verified durable evaluation package; open that evidence package for authoritative metrics."
+          : "Champion metrics are missing.",
     },
     {
       item: "Decision rationale",

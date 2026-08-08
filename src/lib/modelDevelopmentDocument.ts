@@ -2,7 +2,7 @@ import { loadDecisionJournal, type DecisionJournalEntry } from "./decisionJourna
 import { loadExperiments, type ExperimentMetricSet, type ExperimentRecord } from "./experimentTracking";
 import { buildGovernanceReport } from "./governanceReport";
 import { sanitizeReportHtml } from "./htmlSanitizer";
-import { loadLocalDataset } from "./localDataset";
+import type { LocalDataset } from "./localDataset";
 import { getNotebookSections } from "./notebookExport";
 import { loadProjectContext, summarizeRegulatoryContext } from "./projectContext";
 import { getProblemType, type AtlasProblemType } from "./problemType";
@@ -10,11 +10,13 @@ import { summarizeBureauHandling, treatmentLabels } from "./creditBureau";
 import { loadBureauReviewState } from "./bureauDetection";
 import { buildReportReadiness } from "./reportReadiness";
 import { BRAND } from "../config/brand";
-import { useWorkflowStore } from "../state/useWorkflowStore";
-import { getCachedUserId } from "./authSession";
 import {
+  assertExactDatasetIdentity,
   requireLocalDatasetCanonicalIdentity,
+  type CanonicalDatasetIdentity,
 } from "./datasetIdentity";
+import type { ExactPromotedModelIdentity } from "./implementationMonitoringIdentity";
+import { resolveModelDocumentationChampion } from "./modelDocumentationChampion";
 import {
   loadCanonicalPreparationBrowserState,
   type CanonicalPreparationBrowserState,
@@ -48,6 +50,12 @@ export type ModelDevelopmentDocumentMode = "executive" | "governance" | "technic
 
 export type ModelDevelopmentDocumentOptions = {
   includeFullDecisionJournalAppendix?: boolean;
+  projectId?: string;
+  authenticatedUserId?: string;
+  dataset?: LocalDataset | null;
+  datasetIdentity?: CanonicalDatasetIdentity | null;
+  target?: string;
+  promotedModelIdentity?: ExactPromotedModelIdentity | null;
 };
 
 function safe(value: unknown, fallback = "Not documented") {
@@ -82,14 +90,6 @@ function compactFileName(value: string) {
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
   return compact || "model-development-document";
-}
-
-function currentProjectId() {
-  try {
-    return useWorkflowStore.getState().projectId;
-  } catch {
-    return "";
-  }
 }
 
 function recordValue(value: unknown): Record<string, unknown> | null {
@@ -186,17 +186,13 @@ function filterExperimentsForProblem(experiments: ExperimentRecord[], problemTyp
 
 function resolveDocumentDatasetIdentity(
   projectId: string,
-  dataset: ReturnType<typeof loadLocalDataset>,
+  dataset: LocalDataset | null,
 ) {
   return requireLocalDatasetCanonicalIdentity(
     projectId,
     dataset,
     "Model Development Document dataset identity",
   );
-}
-
-function selectChampion(experiments: ExperimentRecord[]) {
-  return experiments.find((experiment) => experiment.champion) ?? null;
 }
 
 function metricLines(metrics: ExperimentMetricSet | undefined, problemType: AtlasProblemType | string = "unknown") {
@@ -226,46 +222,59 @@ function metricLines(metrics: ExperimentMetricSet | undefined, problemType: Atla
   return available.length ? available.join("\n") : "No model performance metrics captured.";
 }
 
-function formatCandidateModels(experiments: ExperimentRecord[], problemType: AtlasProblemType | string) {
-  if (!experiments.length) return "No experiment records have been captured.";
+function formatCandidateModels(
+  experiments: ExperimentRecord[],
+  problemType: AtlasProblemType | string,
+  promotedModel: ExactPromotedModelIdentity,
+  supplementaryChampion: ExperimentRecord | null,
+) {
   const isRegression = String(problemType).toLowerCase() === "regression";
+  const candidateRows: Array<{ experiment: ExperimentRecord | null; champion: boolean }> = experiments.slice(0, 30).map((experiment) => ({
+    experiment,
+    champion: experiment === supplementaryChampion,
+  }));
+  if (!supplementaryChampion) {
+    candidateRows.unshift({ experiment: null, champion: true });
+  }
   if (isRegression) {
     return professionalTableHtml(
-      ["Model", "Champion", "RMSE", "MAE", "MSE", "R-squared", "Adjusted R-squared", "Runtime"],
-      experiments.slice(0, 30).map((experiment) => [
-        experiment.modelType,
-        experiment.champion ? "Yes" : "No",
-        formatNumber(experiment.metrics.rmse),
-        formatNumber(experiment.metrics.mae),
-        formatNumber(experiment.metrics.mse),
-        formatNumber(experiment.metrics.r2),
-        formatNumber(experiment.metrics.adjusted_r2),
-        `${Math.round((experiment.runtimeMs ?? 0) / 1000)}s`,
+      ["Model", "Durable champion", "Model version", "RMSE", "MAE", "MSE", "R-squared", "Adjusted R-squared", "Runtime"],
+      candidateRows.map(({ experiment, champion }) => [
+        champion ? promotedModel.modelName : experiment?.modelType ?? "Unknown candidate",
+        champion ? "Yes" : "No",
+        champion ? promotedModel.modelVersionId : "-",
+        formatNumber(experiment?.metrics.rmse),
+        formatNumber(experiment?.metrics.mae),
+        formatNumber(experiment?.metrics.mse),
+        formatNumber(experiment?.metrics.r2),
+        formatNumber(experiment?.metrics.adjusted_r2),
+        experiment ? `${Math.round((experiment.runtimeMs ?? 0) / 1000)}s` : "-",
       ]),
-      { wide: true, badgeColumns: ["Champion"] }
+      { wide: true, badgeColumns: ["Durable champion"] }
     );
   }
   return professionalTableHtml(
-    ["Model", "Champion", "AUC", "PR-AUC", "Precision", "Recall", "F1", "KS", "Lift", "Runtime"],
-    experiments.slice(0, 30).map((experiment) => [
-      experiment.modelType,
-      experiment.champion ? "Yes" : "No",
-      formatNumber(experiment.metrics.auc),
-      formatNumber(experiment.metrics.pr_auc),
-      formatNumber(experiment.metrics.precision),
-      formatNumber(experiment.metrics.recall),
-      formatNumber(experiment.metrics.f1),
-      formatNumber(experiment.metrics.ks),
-      formatNumber(experiment.metrics.lift, 2),
-      `${Math.round((experiment.runtimeMs ?? 0) / 1000)}s`,
+    ["Model", "Durable champion", "Model version", "AUC", "PR-AUC", "Precision", "Recall", "F1", "KS", "Lift", "Runtime"],
+    candidateRows.map(({ experiment, champion }) => [
+      champion ? promotedModel.modelName : experiment?.modelType ?? "Unknown candidate",
+      champion ? "Yes" : "No",
+      champion ? promotedModel.modelVersionId : "-",
+      formatNumber(experiment?.metrics.auc),
+      formatNumber(experiment?.metrics.pr_auc),
+      formatNumber(experiment?.metrics.precision),
+      formatNumber(experiment?.metrics.recall),
+      formatNumber(experiment?.metrics.f1),
+      formatNumber(experiment?.metrics.ks),
+      formatNumber(experiment?.metrics.lift, 2),
+      experiment ? `${Math.round((experiment.runtimeMs ?? 0) / 1000)}s` : "-",
     ]),
-    { wide: true, badgeColumns: ["Champion"] }
+    { wide: true, badgeColumns: ["Durable champion"] }
   );
 }
 
 function formatFeatureImportance(champion: ExperimentRecord | null) {
   const rows = champion?.featureImportance?.slice(0, 20) ?? [];
-  if (!rows.length) return "No feature importance artifact has been captured for the champion experiment.";
+  if (!rows.length) return "No project-scoped browser diagnostic matches the exact promoted model; use the durable evaluation and interpretation evidence package.";
   return professionalTableHtml(
     ["Feature", "Importance", "Direction", "Source"],
     rows.map((row) => [row.feature, formatNumber(row.importance), formatNumber(row.direction), row.source ?? "-"]),
@@ -471,7 +480,7 @@ function formatPythonAppendix() {
 }
 
 function formatConfusionOrResidual(champion: ExperimentRecord | null) {
-  if (!champion) return "No champion experiment selected.";
+  if (!champion) return "No project-scoped browser diagnostic matches the exact promoted model; use its durable evaluation package for performance evidence.";
   if (champion.confusionMatrix?.length) {
     const matrix = champion.confusionMatrix;
     const tn = matrix[0]?.[0] ?? 0;
@@ -492,21 +501,51 @@ function buildSections(
   mode: ModelDevelopmentDocumentMode,
   options: ModelDevelopmentDocumentOptions = {}
 ): ModelDevelopmentDocumentSection[] {
-  const projectId = currentProjectId();
-  const context = loadProjectContext(projectId, getCachedUserId() || "");
-  const dataset = loadLocalDataset();
+  const projectId = String(options.projectId ?? "").trim();
+  const authenticatedUserId = String(options.authenticatedUserId ?? "").trim();
+  const dataset = options.dataset ?? null;
+  if (!projectId || !authenticatedUserId || !dataset || !options.datasetIdentity) {
+    throw new Error(
+      "Model Development Documentation requires an authenticated project-scoped dataset context.",
+    );
+  }
+  const context = loadProjectContext(projectId, authenticatedUserId);
   const datasetIdentity = resolveDocumentDatasetIdentity(projectId, dataset);
+  assertExactDatasetIdentity(
+    options.datasetIdentity,
+    datasetIdentity,
+    "Model Development Document project-scoped dataset identity",
+  );
   const problemType = getProblemType(context, dataset);
   const experiments = filterExperimentsForProblem(
     loadExperiments(datasetIdentity),
     String(problemType),
   );
+  const championResolution = resolveModelDocumentationChampion({
+    projectId,
+    datasetIdentity,
+    target: options.target ?? dataset.target ?? "",
+    promotedModelIdentity: options.promotedModelIdentity ?? null,
+    experiments,
+  });
+  if (!championResolution.ready || !championResolution.identity) {
+    throw new Error(championResolution.error || "The exact promoted champion is unavailable.");
+  }
+  const promotedChampion = championResolution.identity;
+  const champion = championResolution.supplementaryExperiment;
   const preparation =
     loadCanonicalPreparationBrowserState(datasetIdentity);
   const decisions = loadDecisionJournal();
-  const champion = selectChampion(experiments);
   const materialDecisions = summarizeMaterialReportDecisions(decisions);
-  const readiness = buildReportReadiness({ problemType: String(problemType), experiments, champion, decisions, dataset, context });
+  const readiness = buildReportReadiness({
+    problemType: String(problemType),
+    experiments,
+    champion,
+    promotedChampion,
+    decisions,
+    dataset,
+    context,
+  });
   const governance = buildGovernanceReport();
   const missingStrategies = summarizeMissingTreatment(
     preparation.missingPolicy,
@@ -525,7 +564,7 @@ function buildSections(
       content: [
         `Model ID #: ${safe(context.modelId, "Required but not documented")}`,
         `Project: ${safe(context.projectName, "Untitled model development project")}`,
-        `Model name: ${safe(champion?.modelType, "Not selected")}`,
+        `Model name: ${promotedChampion.modelName}`,
         `Model owner: ${safe(context.implementationOwner)}`,
         `Generated: ${new Date().toISOString()}`,
         "Version: Draft 1.0",
@@ -535,10 +574,12 @@ function buildSections(
         `Project ID: ${safe(projectId)}`,
         `Dataset ID: ${safe(datasetIdentity?.dataset_id)}`,
         `Dataset version: ${safe(datasetIdentity?.dataset_version_id)}`,
-        `Final model ID: ${safe(champion?.modelKey)}`,
-        `Final training run ID: ${safe(champion?.experimentId)}`,
+        `Final model ID: ${promotedChampion.modelId}`,
+        `Final model version ID: ${promotedChampion.modelVersionId}`,
+        `Final candidate ID: ${promotedChampion.candidateId}`,
+        `Final training run ID: ${promotedChampion.trainingRunId}`,
         `Problem type: ${safe(problemType)}`,
-        `Champion model: ${safe(champion?.modelType, "No champion selected")}`,
+        `Champion model: ${promotedChampion.modelName}`,
       ].join("\n"),
     },
     {
@@ -548,8 +589,10 @@ function buildSections(
         `Target: ${safe(dataset?.target)}`,
         `Rows in browser sample: ${dataset?.rows.length ?? 0}`,
         `Selected features: ${selectedFeatures.length}`,
-        `Champion model: ${safe(champion?.modelType, "No champion selected")}`,
-        `Final training run ID: ${safe(champion?.experimentId)}`,
+        `Champion model: ${promotedChampion.modelName}`,
+        `Final model version ID: ${promotedChampion.modelVersionId}`,
+        `Final candidate ID: ${promotedChampion.candidateId}`,
+        `Final training run ID: ${promotedChampion.trainingRunId}`,
         `Dataset ID: ${safe(datasetIdentity?.dataset_id)}`,
         `Dataset version: ${safe(datasetIdentity?.dataset_version_id)}`,
         `Primary success metric: ${safe(context.primarySuccessMetric)}`,
@@ -663,16 +706,24 @@ function buildSections(
         problemType === "regression" ? "Balance ratio: Not applicable for continuous-target regression." : `Balance ratio: ${safe(balanceRatio, "Not documented or not applicable")}`,
       ].join("\n"),
     },
-    { title: "Candidate Models", content: formatCandidateModels(experiments, problemType) },
+    {
+      title: "Candidate Models",
+      content: formatCandidateModels(
+        experiments,
+        problemType,
+        promotedChampion,
+        champion,
+      ),
+    },
     { title: "Model Performance", content: metricLines(champion?.metrics, problemType) },
     {
       title: "Model Interpretation",
       content: [
         "Feature importance and SHAP-style summaries are appropriate for both classification and regression when interpreted as model behavior evidence, not causal proof.",
-        champion?.modelType && /linear regression/i.test(champion.modelType)
+        /linear regression/i.test(promotedChampion.modelName)
           ? "Linear Regression champion: include the coefficient table, coefficient-weight chart, intercept, and any preprocessing assumptions in the validation package. ATLAS does not report p-values unless a statistical inference estimator provides them."
           : "",
-        champion?.modelType && /decision tree regressor/i.test(champion.modelType)
+        /decision tree regressor/i.test(promotedChampion.modelName)
           ? "Decision Tree Regressor champion: include the rule table, root split, terminal leaves, tree depth, and most important decision paths in the validation package."
           : "",
         "",
@@ -682,10 +733,11 @@ function buildSections(
     {
       title: "Model Selection Rationale",
       content: [
-        `Champion model: ${safe(champion?.modelType, "No champion selected")}`,
-        champion
-          ? "Document the reason this champion is preferred, including performance, interpretability, operational constraints, policy needs, and validation readiness."
-          : "Promote an experiment to champion before finalizing this section.",
+        `Champion model: ${promotedChampion.modelName}`,
+        `Durable model version: ${promotedChampion.modelVersionId}`,
+        `Exact candidate: ${promotedChampion.candidateId}`,
+        `Exact training run: ${promotedChampion.trainingRunId}`,
+        "Document the reason this champion is preferred, including performance, interpretability, operational constraints, policy needs, and validation readiness.",
         "",
         formatConfusionOrResidual(champion),
       ].join("\n"),
@@ -799,8 +851,8 @@ export function buildModelDevelopmentDocument(
   options: ModelDevelopmentDocumentOptions = {}
 ): ModelDevelopmentDocument {
   const context = loadProjectContext(
-    currentProjectId(),
-    getCachedUserId() || "",
+    String(options.projectId ?? "").trim(),
+    String(options.authenticatedUserId ?? "").trim(),
   );
   const generatedAt = new Date().toISOString();
   const title = `${safe(context.projectName, "Model")} Model Development Document`;

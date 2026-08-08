@@ -10,6 +10,7 @@ import pandas as pd
 
 from ..core.dataset_store import DATASTORE
 from ..core.result_store import RESULTS
+from ..features.feature_service import materialize_external_scoring_frame
 from ..governance.selection_integrity import (
     SelectionIntegrityError,
     assert_evaluation_package_integrity,
@@ -2063,10 +2064,85 @@ class EvaluationService:
         bound_exposure_package_id = _lineage_value(
             exposure.get("evaluation_package_id")
         )
+        requested_evaluation_package_id = _lineage_value(
+            (context or {}).get("evaluation_package_id")
+        )
+        if (
+            bound_exposure_package_id
+            and requested_evaluation_package_id
+            and requested_evaluation_package_id
+            != bound_exposure_package_id
+        ):
+            return self._lineage_error(
+                "The requested evaluation_package_id does not match the exact "
+                "package bound to this final-holdout exposure.",
+                model_name,
+            )
         if (
             bound_exposure_package_id
             and bound_exposure_package_id != package_id
         ):
+            # Completing the command center atomically binds the one governed
+            # final-holdout exposure to its immutable Evaluation package.  The
+            # remaining Evaluation endpoints are read-only reporting views of
+            # those same persisted predictions; reopening the page must bind
+            # them to that exact completed package instead of attempting to
+            # claim a second package identity for the same exposure.
+            #
+            # Command-center requests remain content-addressed and therefore
+            # continue to fail closed when their locked reporting
+            # configuration changes after completion.
+            if normalized_analysis_type in {
+                "curves",
+                "deciles",
+                "decision_tree",
+                "knn_clusters",
+            }:
+                completed_package, completed_error = (
+                    self._completed_evaluation_package(
+                        lineage,
+                        bound_exposure_package_id,
+                        candidate_contract=resolved["candidate_contract"],
+                    )
+                )
+                if completed_error or not completed_package:
+                    return self._lineage_error(
+                        completed_error
+                        or (
+                            "The exact completed Evaluation package could not "
+                            "be recovered for this read-only analysis."
+                        ),
+                        model_name,
+                    )
+                completed_digest = _lineage_value(
+                    completed_package.get("holdout_prediction_digest")
+                )
+                requested_digest = _lineage_value(
+                    immutable_payload.get("holdout_prediction_digest")
+                    or (
+                        immutable_payload.get("final_holdout_evidence") or {}
+                    ).get("holdout_prediction_digest")
+                )
+                if not requested_digest or requested_digest != completed_digest:
+                    return self._lineage_error(
+                        "The read-only Evaluation analysis does not match the "
+                        "exact completed holdout predictions.",
+                        model_name,
+                    )
+                return {
+                    **immutable_payload,
+                    **lineage,
+                    "evaluation_package_id": bound_exposure_package_id,
+                    "lineage": lineage,
+                    "evaluation_package": completed_package,
+                    "analysis_binding": "exact_completed_package",
+                }
+            if normalized_analysis_type != "command_center":
+                return self._lineage_error(
+                    "The requested Evaluation analysis type is not an approved "
+                    "read-only view of the completed package.",
+                    model_name,
+                )
             return self._lineage_error(
                 "The final holdout is already bound to another Evaluation package; its locked reporting configuration is immutable.",
                 model_name,
@@ -3943,10 +4019,51 @@ class EvaluationService:
         y_test: np.ndarray,
         features: List[str],
     ) -> float:
-        estimator = LogisticRegression(max_iter=3000, n_jobs=1, class_weight="balanced")
+        auc, _ = self._score_and_rank_feature_subset(
+            train,
+            test,
+            y_train,
+            y_test,
+            features,
+        )
+        return auc
+
+    def _score_and_rank_feature_subset(
+        self,
+        train: pd.DataFrame,
+        test: pd.DataFrame,
+        y_train: np.ndarray,
+        y_test: np.ndarray,
+        features: List[str],
+    ) -> Tuple[float, Dict[str, float]]:
+        """Score one RFE subset and return deterministic elimination weights.
+
+        The classification workspace is intentionally limited to a small encoded
+        feature set, so ``liblinear`` is a better fit than repeatedly invoking the
+        general-purpose default solver.  More importantly, the fitted standardized
+        coefficients let the backward-elimination path remove one weakest feature
+        per fit.  That preserves a complete, validation-scored path while avoiding
+        the quadratic leave-one-out refits that previously exceeded the browser's
+        30-second timeout.
+        """
+        estimator = LogisticRegression(
+            max_iter=1000,
+            n_jobs=1,
+            class_weight="balanced",
+            solver="liblinear",
+            random_state=42,
+        )
         estimator.fit(train[features], y_train)
         scores = estimator.predict_proba(test[features])[:, 1]
-        return float(roc_auc_score(y_test, scores))
+        coefficients = np.asarray(estimator.coef_, dtype=float)
+        if coefficients.ndim == 1:
+            coefficients = coefficients.reshape(1, -1)
+        absolute_coefficients = np.max(np.abs(coefficients), axis=0)
+        importance = {
+            feature: float(absolute_coefficients[index])
+            for index, feature in enumerate(features)
+        }
+        return float(roc_auc_score(y_test, scores)), importance
 
     def _score_regression_feature_subset(
         self,
@@ -4126,17 +4243,29 @@ class EvaluationService:
         if LogisticRegression is None or LabelEncoder is None or roc_auc_score is None:
             return {"ok": False, "error": "scikit-learn logistic regression metrics are unavailable."}
 
+        try:
+            y_train_arr, y_test_arr = self._encode_binary_target(y_train, y_test)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
         numeric_cols = list(feature_cols)
         screened_feature_count = len(numeric_cols)
+        screening_fit_count = 0
         if len(numeric_cols) > 14:
             single_feature_scores: List[Dict[str, Any]] = []
             for feature in numeric_cols:
+                screening_fit_count += 1
                 try:
-                    y_train_tmp, y_test_tmp = self._encode_binary_target(y_train, y_test)
                     single_feature_scores.append(
                         {
                             "feature": feature,
-                            "auc": self._score_feature_subset(prepared_train_all, prepared_test_all, y_train_tmp, y_test_tmp, [feature]),
+                            "auc": self._score_feature_subset(
+                                prepared_train_all,
+                                prepared_test_all,
+                                y_train_arr,
+                                y_test_arr,
+                                [feature],
+                            ),
                         }
                     )
                 except Exception:
@@ -4153,16 +4282,19 @@ class EvaluationService:
         prepared_train = (prepared_train - means) / stds
         prepared_test = (prepared_test - means) / stds
 
-        try:
-            y_train_arr, y_test_arr = self._encode_binary_target(y_train, y_test)
-        except ValueError as exc:
-            return {"ok": False, "error": str(exc)}
-
         remaining = list(numeric_cols)
+        current_auc, current_importance = self._score_and_rank_feature_subset(
+            prepared_train,
+            prepared_test,
+            y_train_arr,
+            y_test_arr,
+            remaining,
+        )
+        path_fit_count = 1
         elimination_path: List[Dict[str, Any]] = [
             {
                 "feature_count": len(remaining),
-                "auc": self._score_feature_subset(prepared_train, prepared_test, y_train_arr, y_test_arr, remaining),
+                "auc": current_auc,
                 "removed_feature": None,
                 "features": list(remaining),
             }
@@ -4170,19 +4302,27 @@ class EvaluationService:
         removal_auc: Dict[str, float] = {}
 
         while len(remaining) > 1:
-            candidates: List[Dict[str, Any]] = []
-            for feature in remaining:
-                subset = [col for col in remaining if col != feature]
-                auc = self._score_feature_subset(prepared_train, prepared_test, y_train_arr, y_test_arr, subset)
-                candidates.append({"feature": feature, "auc": auc, "subset": subset})
-            best = max(candidates, key=lambda item: item["auc"])
-            removed = str(best["feature"])
-            removal_auc[removed] = float(best["auc"])
-            remaining = list(best["subset"])
+            removed = min(
+                remaining,
+                key=lambda feature: (current_importance.get(feature, 0.0), str(feature)),
+            )
+            next_remaining = [feature for feature in remaining if feature != removed]
+            next_auc, next_importance = self._score_and_rank_feature_subset(
+                prepared_train,
+                prepared_test,
+                y_train_arr,
+                y_test_arr,
+                next_remaining,
+            )
+            path_fit_count += 1
+            removal_auc[removed] = float(next_auc)
+            remaining = next_remaining
+            current_auc = next_auc
+            current_importance = next_importance
             elimination_path.append(
                 {
                     "feature_count": len(remaining),
-                    "auc": float(best["auc"]),
+                    "auc": float(current_auc),
                     "removed_feature": removed,
                     "features": list(remaining),
                 }
@@ -4266,6 +4406,14 @@ class EvaluationService:
             "selected_count": requested_keep,
             "screened_feature_count": screened_feature_count,
             "rfe_candidate_limit": 14,
+            "rfe_search_strategy": "coefficient_guided_backward_elimination",
+            "rfe_screening_fit_count": screening_fit_count,
+            "rfe_path_fit_count": path_fit_count,
+            "rfe_fit_count": screening_fit_count + path_fit_count,
+            "rfe_fit_count_bound": (
+                (screened_feature_count if screened_feature_count > 14 else 0)
+                + min(screened_feature_count, 14)
+            ),
             "full_train_rows": full_train_rows,
             "analysis_train_rows": int(len(X_train)),
             "analysis_validation_rows": int(len(X_test)),
@@ -4816,6 +4964,54 @@ class EvaluationService:
 
         task = "regression" if self._is_regression_problem() else "classification"
         model_features = [str(feature) for feature in (metadata.get("features") or [])]
+        feature_materialization = {
+            "feature_manifest_hash": None,
+            "applied_engineered_features": [],
+            "holdout_accessed": False,
+            "state_mutated": False,
+        }
+        candidate_contract = (
+            metadata.get("candidate_contract")
+            if isinstance(metadata.get("candidate_contract"), dict)
+            else {}
+        )
+        expected_manifest_hash = str(
+            metadata.get("feature_manifest_version")
+            or metadata.get("feature_manifest_hash")
+            or candidate_contract.get("feature_manifest_hash")
+            or candidate_contract.get("feature_manifest_version")
+            or ""
+        ).strip()
+        datastore_meta = getattr(DATASTORE, "meta", {})
+        active_manifest = (
+            datastore_meta.get("feature_manifest")
+            if isinstance(datastore_meta, dict)
+            else None
+        )
+        if expected_manifest_hash:
+            try:
+                feature_materialization = materialize_external_scoring_frame(
+                    X,
+                    active_manifest,
+                    model_features=model_features,
+                    expected_project_id=str(metadata.get("project_id") or ""),
+                    expected_dataset_id=str(metadata.get("dataset_id") or ""),
+                    expected_dataset_version_id=str(
+                        metadata.get("dataset_version_id") or ""
+                    ),
+                    expected_manifest_hash=expected_manifest_hash,
+                )
+                X = feature_materialization["frame"]
+            except ValueError as exc:
+                return {
+                    "ok": False,
+                    "error": str(exc),
+                    "feature_manifest_status": "blocked",
+                    "feature_manifest_version": expected_manifest_hash or None,
+                    "feature_manifest_replay_scope": "engineered_features_only",
+                    "upstream_treatment_replay_status": "not_verified_by_this_boundary",
+                    "holdout_accessed": False,
+                }
         matched_features: List[str] = []
         missing_features: List[str] = []
         if isinstance(model, dict) and model.get("kind") in ("rfe_logistic", "rfe_regression", "rfe_classifier", "rfe_regressor"):
@@ -4867,6 +5063,14 @@ class EvaluationService:
                 "missing_features": missing_features,
                 "prediction_std": float(np.std(scores)) if len(scores) else None,
                 "constant_prediction": bool(len(scores) > 1 and float(np.std(scores)) < 1e-10),
+                "feature_manifest_status": (
+                    "reapplied" if feature_materialization["applied_engineered_features"] else "not_required"
+                ),
+                "feature_manifest_version": feature_materialization["feature_manifest_hash"],
+                "applied_engineered_features": feature_materialization["applied_engineered_features"],
+                "holdout_accessed_for_feature_materialization": False,
+                "feature_manifest_replay_scope": "engineered_features_only",
+                "upstream_treatment_replay_status": "not_verified_by_this_boundary",
             },
             "adjusted_score_summary": {
                 "min": float(np.min(adjusted_scores)) if len(adjusted_scores) else None,
@@ -4942,8 +5146,10 @@ class EvaluationService:
                 response["metrics_error"] = str(exc)
 
         if dataset_type.lower() in {"test", "oot"}:
-            X_train, X_test, _, _ = DATASTORE.get_splits()
-            reference = X_train if X_train is not None else X_test
+            # External stability is always anchored to development TRAIN.
+            # Never fall back to the sealed final holdout merely because a
+            # development reference is unavailable.
+            reference = DATASTORE.current().X_train
             if reference is not None:
                 ref_scores = self._prior_correct_scores(
                     self._predict_score(model, reference),

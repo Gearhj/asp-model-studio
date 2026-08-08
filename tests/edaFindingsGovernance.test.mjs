@@ -140,6 +140,55 @@ test("eligible governed dispositions replace universal acceptance", () => {
   assert.equal(result.stability_not_applicable, true);
 });
 
+test("informational parents retain their canonical system disposition", () => {
+  const parents = governance.generateEdaParentFindings(fixture);
+  const informational = parents.find(
+    (parent) =>
+      parent.requirement === "informational" && parent.systemDisposition,
+  );
+  assert.ok(informational);
+  const tamperedState = {
+    commentary: "Reviewed.",
+    overallConclusion: "Suitable for governed carry-forward.",
+    status: "accepted",
+    parentDecisions: {
+      [informational.parentId]: {
+        disposition: "accepted",
+        rationale: "A stale browser draft attempted to change system evidence.",
+        destination: "Feature Engineering",
+        transformation: "No transformation",
+      },
+    },
+  };
+  const decision = governance.resolveParentFindingDecision(
+    informational,
+    tamperedState,
+  );
+  assert.equal(decision.disposition, informational.systemDisposition);
+  assert.equal(
+    governance.isEligibleParentDisposition(informational, decision),
+    true,
+  );
+  const row = governance
+    .documentedParentFindingRows(parents, tamperedState)
+    .find((item) => item.parent_id === informational.parentId);
+  assert.equal(row.reviewer_disposition, informational.systemDisposition);
+  assert.equal(row.decision_origin, "system_informational_default");
+  assert.throws(
+    () =>
+      governance.applyBulkParentDisposition({
+        parents,
+        state: tamperedState,
+        family: informational.family,
+        disposition: "accepted",
+        rationale: "Attempted bulk mutation.",
+        destination: "Feature Engineering",
+        actor: "Reviewer",
+      }),
+    /canonical system disposition/i,
+  );
+});
+
 test("overall acceptance never implicitly accepts child evidence", () => {
   const rows = findingHelper.documentedFindingRows(fixture, {
     commentary: "Reviewed.",

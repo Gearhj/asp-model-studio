@@ -10,7 +10,7 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from pandas.api.types import is_datetime64_any_dtype, is_numeric_dtype
+from pandas.api.types import is_numeric_dtype
 
 from ..core.dataset_store import DATASTORE
 from ..core.modeling_scope import active_project_id
@@ -24,6 +24,7 @@ from ..preprocessing.predictor_authorization import (
     bureau_special_mask,
     governed_predictor_authorization,
 )
+from ..preprocessing.quality_profile_service import governed_time_field
 from .feature_types import FeatureDefinitionInput, FeatureManifestUpdateRequest
 from .feature_manifest_store import load_current_manifest, persist_manifest_version
 
@@ -185,6 +186,25 @@ def _ordinary_numeric(frame: pd.DataFrame, name: str) -> pd.Series:
     return values.mask(bureau_special_mask(values))
 
 
+def _is_governed_date_source(frame: pd.DataFrame, name: str) -> bool:
+    """Use the shared ATLAS date contract for source fields.
+
+    CSV readers retain calendar text as ``object``.  Requiring a pandas
+    datetime dtype here made the Date Derived builder unavailable even when
+    Data Quality and EDA had already verified the same ISO date field.  The
+    shared rule remains conservative: numeric durations never qualify, and
+    text requires a date-like name plus a high supported-format parse rate.
+    """
+
+    return bool(name in frame.columns and governed_time_field(name, frame[name]))
+
+
+def _governed_source_datatype(frame: pd.DataFrame, name: str) -> str:
+    if _is_governed_date_source(frame, name):
+        return "datetime64[ns]"
+    return str(frame[name].dtype)
+
+
 def _validate_engineered_definition(
     item: FeatureDefinitionInput,
     frame: pd.DataFrame,
@@ -326,7 +346,7 @@ def _validate_engineered_definition(
                 )
     elif origin == "date-derived":
         require_sources(1, "date-derived")
-        if sources[0] not in frame.columns or not is_datetime64_any_dtype(frame[sources[0]]):
+        if not _is_governed_date_source(frame, sources[0]):
             raise ValueError(
                 "Date Derived requires a governed date or timestamp predictor; numeric duration fields are not dates."
             )
@@ -563,7 +583,7 @@ def _original_feature_rows(identity: dict[str, Any]) -> list[dict[str, Any]]:
             "source_features": [name],
             "transformation_type": "source_column",
             "formula_or_rule": name,
-            "output_datatype": str(df[column].dtype),
+            "output_datatype": _governed_source_datatype(df, name),
             "creation_status": "available",
             "materialization_status": "source",
             "pipeline_status": "not_applicable",
@@ -1012,18 +1032,23 @@ def _apply_feature(frame: pd.DataFrame, feature: dict[str, Any]) -> pd.Series:
         numeric_source = pd.to_numeric(frame[sources[0]], errors="coerce")
         ordinary_source = numeric_source.mask(bureau_special_mask(numeric_source))
         if str(config.get("binning_mode") or "custom") == "quantile":
-            quantiles = [
-                float(value)
-                for value in config.get("quantiles", [0.2, 0.4, 0.6, 0.8])
-                if 0 < float(value) < 1
-            ]
-            cut_points = sorted(
-                {
-                    float(ordinary_source.quantile(value))
-                    for value in quantiles
-                    if pd.notna(ordinary_source.quantile(value))
-                }
-            )
+            fitted = feature.get("materialization_parameters") or {}
+            fitted_cut_points = fitted.get("fitted_cut_points")
+            if isinstance(fitted_cut_points, list) and fitted_cut_points:
+                cut_points = sorted({float(value) for value in fitted_cut_points})
+            else:
+                quantiles = [
+                    float(value)
+                    for value in config.get("quantiles", [0.2, 0.4, 0.6, 0.8])
+                    if 0 < float(value) < 1
+                ]
+                cut_points = sorted(
+                    {
+                        float(ordinary_source.quantile(value))
+                        for value in quantiles
+                        if pd.notna(ordinary_source.quantile(value))
+                    }
+                )
         else:
             cut_points = sorted(float(value) for value in config.get("cut_points", []))
         if not cut_points:
@@ -1122,6 +1147,221 @@ def _apply_feature(frame: pd.DataFrame, feature: dict[str, Any]) -> pd.Series:
             return parsed.dt.quarter
         raise ValueError(f"Unsupported date component '{component}'.")
     raise ValueError(f"Feature origin '{origin}' is not a deterministic materialization type.")
+
+
+def materialize_external_scoring_frame(
+    frame: pd.DataFrame,
+    manifest: dict[str, Any],
+    *,
+    model_features: list[str],
+    expected_project_id: str,
+    expected_dataset_id: str,
+    expected_dataset_version_id: str,
+    expected_manifest_hash: str,
+) -> dict[str, Any]:
+    """Reapply one exact governed feature contract to an external raw frame.
+
+    This is deliberately a pure scoring-boundary operation: it copies the
+    caller's frame, reads no DatasetStore state, writes no manifest/runtime
+    state, and never accepts a target or partition.  Uploaded engineered
+    columns are overwritten from their governed definitions so callers cannot
+    substitute unverified derived values for the transformations used during
+    training.
+    """
+
+    if frame is None or frame.empty:
+        raise ValueError("External scoring requires a non-empty raw feature frame.")
+    if not isinstance(manifest, dict):
+        raise ValueError(
+            "The exact training Feature Manifest is unavailable; external scoring is blocked."
+        )
+
+    expected_identity = {
+        "project_id": str(expected_project_id or "").strip(),
+        "dataset_id": str(expected_dataset_id or "").strip(),
+        "dataset_version_id": str(expected_dataset_version_id or "").strip(),
+    }
+    missing_identity = [key for key, value in expected_identity.items() if not value]
+    if missing_identity:
+        raise ValueError(
+            "The final model is missing exact training identity required for external scoring: "
+            + ", ".join(missing_identity)
+            + "."
+        )
+    for key, expected in expected_identity.items():
+        actual = str(
+            manifest.get(key)
+            or (manifest.get("dataset_version") if key == "dataset_version_id" else "")
+            or ""
+        ).strip()
+        if actual != expected:
+            raise ValueError(
+                f"The external scoring Feature Manifest does not match the final model {key}."
+            )
+
+    manifest_hash = str(
+        manifest.get("manifest_hash") or manifest.get("manifest_version") or ""
+    ).strip()
+    expected_hash = str(expected_manifest_hash or "").strip()
+    if not expected_hash or manifest_hash != expected_hash:
+        raise ValueError(
+            "The external scoring Feature Manifest does not match the exact training manifest."
+        )
+    if str(manifest.get("confirmation_status") or "").casefold() != "confirmed":
+        raise ValueError(
+            "The exact training Feature Manifest is not confirmed; external scoring is blocked."
+        )
+    if str(manifest.get("confirmed_manifest_hash") or "") != manifest_hash:
+        raise ValueError(
+            "The confirmed Feature Manifest hash does not match the exact training manifest."
+        )
+    if str(manifest.get("materialization_status") or "").casefold() != "current":
+        raise ValueError(
+            "The exact training Feature Manifest is not currently materialized."
+        )
+    if str(manifest.get("materialized_manifest_hash") or "") != manifest_hash:
+        raise ValueError(
+            "The materialized Feature Manifest hash does not match the exact training manifest."
+        )
+
+    governed_rows = [
+        deepcopy(row)
+        for row in (manifest.get("features") or [])
+        if isinstance(row, dict)
+        and row.get("selected") is True
+        and str(row.get("eligibility_status") or "").casefold() == "eligible"
+    ]
+    engineered = {
+        str(row.get("feature_name") or ""): row
+        for row in governed_rows
+        if str(row.get("origin") or "") != "original"
+        and str(row.get("feature_name") or "")
+    }
+
+    required = {str(value) for value in model_features if str(value)}
+    governed_names = {
+        str(row.get("feature_name") or "") for row in governed_rows
+    }
+    undefined_model_features = sorted(required - governed_names)
+    if undefined_model_features:
+        raise ValueError(
+            "The exact training Feature Manifest does not define final-model features: "
+            + ", ".join(undefined_model_features)
+            + "."
+        )
+    required_engineered = {name for name in required if name in engineered}
+    changed = True
+    while changed:
+        changed = False
+        for name in tuple(required_engineered):
+            for source in engineered[name].get("source_features") or []:
+                source_name = str(source)
+                if source_name in engineered and source_name not in required_engineered:
+                    required_engineered.add(source_name)
+                    changed = True
+
+    work = frame.copy(deep=True)
+    # Canonicalize only unambiguous case-only raw-schema differences.  Two
+    # colliding uploaded names fail closed instead of choosing one silently.
+    casefolded: dict[str, list[Any]] = {}
+    for column in work.columns:
+        casefolded.setdefault(str(column).strip().casefold(), []).append(column)
+
+    def require_source(source_name: str, output_name: str) -> None:
+        if source_name in work.columns:
+            return
+        matches = casefolded.get(source_name.strip().casefold(), [])
+        if len(matches) == 1:
+            work[source_name] = work[matches[0]].copy()
+            return
+        if len(matches) > 1:
+            raise ValueError(
+                f"External scoring cannot resolve duplicate case-insensitive source columns for '{source_name}'."
+            )
+        raise ValueError(
+            f"External scoring cannot materialize '{output_name}' because required raw source '{source_name}' is missing."
+        )
+
+    applied: list[str] = []
+    pending = [
+        row
+        for row in governed_rows
+        if str(row.get("feature_name") or "") in required_engineered
+    ]
+    while pending:
+        pending_names = {str(row.get("feature_name") or "") for row in pending}
+        progress = False
+        for row in list(pending):
+            name = str(row.get("feature_name") or "")
+            sources = [str(source) for source in row.get("source_features") or []]
+            if any(source in pending_names for source in sources):
+                continue
+            for source in sources:
+                require_source(source, name)
+            if (
+                str(row.get("origin") or "") == "numeric_bin"
+                and str((row.get("config") or {}).get("binning_mode") or "custom")
+                == "quantile"
+            ):
+                parameters = row.get("materialization_parameters") or {}
+                if not isinstance(parameters.get("fitted_cut_points"), list) or not parameters.get(
+                    "fitted_cut_points"
+                ):
+                    raise ValueError(
+                        f"External scoring cannot materialize quantile bin '{name}' because its frozen training cut points are unavailable."
+                    )
+            try:
+                work[name] = _apply_feature(work, row)
+            except Exception as exc:
+                raise ValueError(
+                    f"External scoring could not deterministically materialize '{name}': {exc}"
+                ) from exc
+            applied.append(name)
+            pending.remove(row)
+            progress = True
+        if not progress:
+            break
+
+    if pending:
+        raise ValueError(
+            "The exact training Feature Manifest cannot resolve required engineered features: "
+            + ", ".join(
+                sorted(str(row.get("feature_name") or "") for row in pending)
+            )
+            + "."
+        )
+
+    missing_model_features: list[str] = []
+    for feature in model_features:
+        feature_name = str(feature)
+        if feature_name in work.columns:
+            continue
+        matches = casefolded.get(feature_name.strip().casefold(), [])
+        if len(matches) > 1:
+            raise ValueError(
+                f"External scoring cannot resolve duplicate case-insensitive model columns for '{feature_name}'."
+            )
+        if not matches:
+            missing_model_features.append(feature_name)
+        else:
+            work[feature_name] = work[matches[0]].copy()
+    if missing_model_features:
+        raise ValueError(
+            "External scoring is missing final-model features after exact manifest materialization: "
+            + ", ".join(missing_model_features)
+            + "."
+        )
+
+    return {
+        # Prediction receives exactly the frozen feature list in its recorded
+        # order. Unknown upload columns and the target never reach the model.
+        "frame": work.loc[:, [str(feature) for feature in model_features]].copy(),
+        "feature_manifest_hash": manifest_hash,
+        "applied_engineered_features": applied,
+        "model_feature_count": len(model_features),
+        "holdout_accessed": False,
+        "state_mutated": False,
+    }
 
 
 def preview_features(
@@ -1359,6 +1599,48 @@ def materialize_manifest(
                 created_names,
                 identity,
             )
+            if (
+                str(feature.get("origin") or "") == "numeric_bin"
+                and str((feature.get("config") or {}).get("binning_mode") or "custom")
+                == "quantile"
+            ):
+                source_names = [
+                    str(value) for value in feature.get("source_features") or []
+                ]
+                if len(source_names) != 1 or source_names[0] not in frame.columns:
+                    raise ValueError(
+                        "Quantile-bin materialization requires one available source variable."
+                    )
+                numeric_source = pd.to_numeric(
+                    frame[source_names[0]], errors="coerce"
+                )
+                ordinary_source = numeric_source.mask(
+                    bureau_special_mask(numeric_source)
+                )
+                quantiles = [
+                    float(value)
+                    for value in (feature.get("config") or {}).get(
+                        "quantiles", [0.2, 0.4, 0.6, 0.8]
+                    )
+                    if 0 < float(value) < 1
+                ]
+                fitted_cut_points = sorted(
+                    {
+                        float(ordinary_source.quantile(value))
+                        for value in quantiles
+                        if pd.notna(ordinary_source.quantile(value))
+                    }
+                )
+                if not fitted_cut_points:
+                    raise ValueError(
+                        "Quantile-bin materialization produced no stable training cut points."
+                    )
+                feature["materialization_parameters"] = {
+                    "fitted_cut_points": fitted_cut_points,
+                    "fit_scope": "full_governed_population_target_independent",
+                    "fit_row_count": int(len(frame)),
+                    "source_feature": source_names[0],
+                }
             frame[feature["feature_name"]] = _apply_feature(frame, feature)
             created_names.add(feature["feature_name"])
             feature["creation_status"] = "created"

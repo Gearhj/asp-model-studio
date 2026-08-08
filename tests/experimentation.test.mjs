@@ -71,6 +71,7 @@ async function transpileSource(sourcePath, outputPath) {
 
 await rm(TMP_DIR, { recursive: true, force: true });
 await transpileSource("src/config/workflows.ts", path.join(TMP_DIR, "src/config/workflows.js"));
+await transpileSource("src/lib/datasetIdentity.ts", path.join(TMP_DIR, "src/lib/datasetIdentity"));
 await transpileSource("src/lib/datasetLibrary.ts", path.join(TMP_DIR, "src/lib/datasetLibrary"));
 await transpileSource("src/lib/abTestingWorkflowPersistence.ts", path.join(TMP_DIR, "src/lib/abTestingWorkflowPersistence.js"));
 await transpileSource("src/lib/abTestingWorkflow.ts", path.join(TMP_DIR, "src/lib/abTestingWorkflow.js"));
@@ -675,12 +676,13 @@ for (const expected of [
 
 for (const expected of [
   "onNextClick?: React.MouseEventHandler<HTMLButtonElement>",
+  "onBlockedNextClick?: React.MouseEventHandler<HTMLButtonElement>",
   "nextButtonTestId?: string",
   "nextStatusLine?: React.ReactNode",
   "nextDebugPanel?: React.ReactNode",
   'type="button"',
   "data-testid={nextButtonTestId}",
-  "onClick={onNextClick ?? handleNext}",
+  "onClick={nextDisabled ? onBlockedNextClick : onNextClick ?? handleNext}",
 ]) {
   assert.match(stepShell, new RegExp(expected.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")), `Missing visible StepShell button artifact: ${expected}`);
 }

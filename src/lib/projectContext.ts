@@ -187,6 +187,13 @@ export type ProjectContext = {
   implementationTargetDate: string;
   implementationEnvironment: string;
   implementationNotes: string;
+  promotedModelId: string;
+  promotedModelVersionId: string;
+  promotedCandidateId: string;
+  promotedTrainingRunId: string;
+  promotedDatasetId: string;
+  promotedDatasetVersionId: string;
+  promotedTarget: string;
   monitoringCadence: MonitoringCadence;
   monitoringCadenceCustom: string;
   monitoringMetrics: string[];
@@ -345,6 +352,13 @@ export const defaultProjectContext: ProjectContext = {
   implementationTargetDate: "",
   implementationEnvironment: "",
   implementationNotes: "",
+  promotedModelId: "",
+  promotedModelVersionId: "",
+  promotedCandidateId: "",
+  promotedTrainingRunId: "",
+  promotedDatasetId: "",
+  promotedDatasetVersionId: "",
+  promotedTarget: "",
   monitoringCadence: "monthly",
   monitoringCadenceCustom: "",
   monitoringMetrics: defaultMonitoringMetricsForModelType("generic classification"),

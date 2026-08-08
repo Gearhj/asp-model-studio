@@ -17,7 +17,9 @@ test("Data Acquisition elevates the authoritative target decision", () => {
   assert.match(acquisition, /Required modeling decision/);
   assert.match(acquisition, /Identify the Target Variable/);
   assert.match(acquisition, /border-2 border-blue-500/);
-  assert.match(acquisition, /Target confirmed: \$\{props\.target\}/);
+  assert.match(acquisition, /Target contract confirmed: \$\{props\.target\}/);
+  assert.match(acquisition, /data-testid="confirm-initial-target-contract"/);
+  assert.match(acquisition, /Confirm Target &amp; Predictor Contract/);
 });
 
 test("EDA names the Data Acquisition target and event in source exclusion", () => {
@@ -51,6 +53,12 @@ test("Missing Values exposes live count, rate, and imputed value", () => {
   assert.match(missing, /data-testid=\{`missing-imputed-value-\$\{column\.name\}`\}/);
   assert.match(missing, /Missingness and Imputation Map/);
   assert.match(missing, /data-testid=\{`missing-impact-value-\$\{column\.name\}`\}/);
+  assert.match(missing, /data-testid="missing-distribution-gallery"/);
+  assert.match(missing, /<MissingDistributionHistogram/);
+  assert.match(
+    missing,
+    /selected\.strategy === "Constant"[\s\S]{0,220}\? \{[\s\S]{0,160}constantValue: String\(selected\.constantValue \?\? ""\)[\s\S]{0,120}: \{ strategy: selected\.strategy \}/,
+  );
   assert.match(missingBackend, /"mode": mode_value/);
 });
 

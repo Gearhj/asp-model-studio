@@ -27,8 +27,6 @@ const sasCompatible = read("server/code_execution/sas_compatible.py");
 const datasetDetail = read("src/steps/DatasetDetail.tsx");
 const projectOverview = read("src/steps/ProjectOverview.tsx");
 const datasetRegistry = read("server/datasets/dataset_registry.py");
-const sasRuntimeConfig = read("server/artifacts/config/sas_runtime.json");
-const sasRuntimeExample = read("server/artifacts/config/sas_runtime.example.json");
 const rootRequirements = read("requirements.txt");
 const serverRequirements = read("server/requirements.txt");
 
@@ -95,8 +93,12 @@ assert(pythonExecution.includes("SASsession") && pythonExecution.includes("df2sd
 assert(pythonExecution.includes("ATLAS_SAS_CFGNAME") && pythonExecution.includes("ATLAS_SAS_CFGFILE") && pythonExecution.includes("ATLAS_SAS_EXECUTION_MODE"), "SAS diagnostics must check ATLAS SAS environment variables.");
 assert(pythonExecution.includes("sascfg_personal.py") && pythonExecution.includes("sascfg.py") && pythonExecution.includes("server/artifacts/config"), "SAS diagnostics must detect common and project SASPy config locations.");
 assert(pythonExecution.includes("SAS template validated") && codeExecutionResult.includes("Template validation guidance"), "SAS template validation must be neutral guidance, not a red execution failure.");
-assert(sasRuntimeConfig.includes('"executionMode": "template_only"') && sasRuntimeConfig.includes('"lastConnectionOk": false'), "Default SAS runtime config must start in template-only mode.");
-assert(sasRuntimeExample.includes('"cfgname": "winlocal"') && sasRuntimeExample.includes('"executionMode": "saspy_config"'), "SAS runtime example config is missing practical SASPy guidance.");
+const sasConfigDefaults = pythonExecution.slice(
+  pythonExecution.indexOf("def ensure_sas_config_files"),
+  pythonExecution.indexOf("def load_sas_runtime_settings"),
+);
+assert(sasConfigDefaults.includes('"executionMode": "template_only"') && sasConfigDefaults.includes('"lastConnectionOk": False'), "Fresh SAS runtime settings must start in template-only mode.");
+assert(sasConfigDefaults.includes('"cfgname": "winlocal"') && sasConfigDefaults.includes('"executionMode": "saspy_config"'), "Generated SAS runtime example settings are missing practical SASPy guidance.");
 assert(workbench.includes("cleanPythonStderr") && codeExecutionResult.includes("Execution completed with warnings"), "Workbench must suppress non-fatal Python bootstrap stderr and label real warnings clearly.");
 assert(workbench.includes("Generated SQL") || codeWorkspacePanel.includes("Generated"), "SQL workspace is missing.");
 assert(workbench.includes("Logical ATLAS reference:") && workbench.includes("FROM REG_TRAIN") || workbench.includes("executableTableName"), "Generated SQL must use executable preview table names and keep logical references in comments.");
@@ -125,7 +127,7 @@ assert(workbench.includes("Pivot Table Builder") && workbench.includes("buildPiv
 assert(workbench.includes("Auto-bin numeric row fields into quantiles") && workbench.includes("Auto-bin numeric column fields into quantiles") && workbench.includes("autoBinColumns") && workbench.includes("pd.qcut") && workbench.includes("Save Pivot as Insight"), "Pivot row/column binning, generated Python, or save action is missing.");
 assert(workbench.includes("pivot_table") && workbench.includes("pivotConfig") && workbench.includes("pivotPreview"), "Saved pivot insight payload is incomplete.");
 assert(workbench.includes("-- Pivot Table Builder template") && workbench.includes("GROUP BY") && workbench.includes("COUNT(*) AS n") && workbench.includes("aggregation.replace"), "Generated SQL must include executable pivot template guidance.");
-assert(codeWorkspacePanel.includes("Save {current.label} as Insight") && workbench.includes('saveCodeInsight("python"') && workbench.includes('saveCodeInsight("sas"'), "Language-specific code snippet save actions are missing.");
+assert(codeWorkspacePanel.includes('current.saveLabel ?? `Save ${current.label} as Insight`') && workbench.includes('saveCodeInsight("python"') && workbench.includes('saveCodeInsight("sas"'), "Language-specific code snippet save actions are missing.");
 assert(workbench.includes("workTable") && workbench.includes("Table available as:"), "Generated SAS must include WORK preview table guidance.");
 assert(workbench.includes("Use Generated Code") && workbench.includes('(["python", "sql", "r", "sas"] as CodeLanguage[])') && workbench.includes("useGeneratedCode(language)"), "Insight Assistant must expose compact Python/SQL/R/SAS generated-code actions.");
 assert(workbench.includes("setActiveCodeLanguage(language)") && workbench.includes("setUser(config.generated)"), "Generated-code actions must switch tabs and load generated code.");

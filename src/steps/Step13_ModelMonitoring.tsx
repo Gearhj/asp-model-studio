@@ -1,18 +1,28 @@
 import { useMemo, useState } from "react";
 import type React from "react";
 import LLMWritingAssist from "../components/LLMWritingAssist";
+import {
+  useAuthoritativeProjectContext,
+  usePredictiveIdentity,
+} from "../components/PredictiveIdentityProvider";
 import StepShell from "../components/StepShell";
 import { logDecision } from "../lib/decisionJournal";
+import {
+  bindPromotedModelIdentity,
+  projectContextMatchesPromotedModel,
+} from "../lib/implementationMonitoringIdentity";
 import { buildEscalationQueue, loadProductionModels, type ProductionModelStatus } from "../lib/modelMonitoring";
 import {
   defaultMonitoringMetricsForModelType,
-  loadProjectContext,
   monitoringCadenceOptions,
   monitoringMetricOptionsForModelType,
-  saveProjectContext,
+  defaultProjectContext,
   type MonitoringCadence,
   type ProjectContext,
 } from "../lib/projectContext";
+import { migrateStoredContext } from "../lib/projectContextPersistence";
+import { useProjectContextAutosave } from "../lib/useProjectContextAutosave";
+import { useExactPromotedModelIdentity } from "../lib/useExactPromotedModelIdentity";
 
 const inputClass =
   "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm outline-none focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100";
@@ -20,8 +30,92 @@ const inputClass =
 const labelClass = "text-xs font-semibold uppercase tracking-wide text-slate-500";
 
 export default function Step13ModelMonitoring() {
-  const [context, setContext] = useState<ProjectContext>(() => loadProjectContext());
-  const models = useMemo(() => loadProductionModels(), [context]);
+  const {
+    readiness: projectReadiness,
+    publishSavedProjectMetadata,
+    setMetadataRefreshStatus,
+    authenticatedUserId,
+  } = useAuthoritativeProjectContext();
+  const {
+    readiness: identityReadiness,
+    dataAcquisitionContextReadiness,
+  } = usePredictiveIdentity();
+  const projectId = projectReadiness.status === "ready"
+    ? projectReadiness.project.projectId
+    : "";
+  const datasetIdentity = identityReadiness.status === "ready"
+    && identityReadiness.projectId === projectId
+      ? identityReadiness.identity
+      : null;
+  const target = dataAcquisitionContextReadiness.status === "ready"
+    && dataAcquisitionContextReadiness.projectId === projectId
+      ? String(dataAcquisitionContextReadiness.context?.target_contract?.target ?? "").trim()
+      : "";
+  const promotedModel = useExactPromotedModelIdentity({
+    projectId,
+    userId: authenticatedUserId,
+    datasetIdentity,
+    target,
+  });
+  const [context, setContext] = useState<ProjectContext>(() => {
+    const authoritative = projectReadiness.status === "ready"
+      ? migrateStoredContext(projectReadiness.project.projectContext)
+      : null;
+    return authoritative
+      ? {
+          ...authoritative,
+          projectName: projectReadiness.status === "ready"
+            ? projectReadiness.project.projectName
+            : authoritative.projectName,
+          modelId: projectReadiness.status === "ready"
+            ? projectReadiness.project.modelId
+            : authoritative.modelId,
+        }
+      : {
+          ...defaultProjectContext,
+          fraudDetails: { ...defaultProjectContext.fraudDetails },
+        };
+  });
+  const autosave = useProjectContextAutosave({
+    projectId,
+    authenticatedUserId,
+    context,
+    validationStatus: context.completionStatus === "complete" ? "complete" : "ready",
+    enabled: Boolean(projectId && authenticatedUserId),
+    onHydrated: (hydrated) => setContext({
+      ...hydrated,
+      projectName: projectReadiness.status === "ready"
+        ? projectReadiness.project.projectName
+        : hydrated.projectName,
+      modelId: projectReadiness.status === "ready"
+        ? projectReadiness.project.modelId
+        : hydrated.modelId,
+    }),
+    onSaved: (notification) => {
+      const disposition = publishSavedProjectMetadata({
+        ...notification,
+        actorUserId: authenticatedUserId,
+      });
+      setMetadataRefreshStatus(
+        disposition === "applied" || disposition === "duplicate"
+          ? "saved"
+          : "error",
+      );
+    },
+  });
+  const durableContextReady = autosave.hydrated && !autosave.hydrating;
+
+  const exactIdentityCarriedForward = Boolean(
+    promotedModel.identity
+    && projectContextMatchesPromotedModel(context, promotedModel.identity),
+  );
+  const models = useMemo(
+    () => loadProductionModels(
+      context,
+      exactIdentityCarriedForward ? promotedModel.identity : null,
+    ),
+    [context, exactIdentityCarriedForward, promotedModel.identity],
+  );
   const escalations = useMemo(() => buildEscalationQueue(models), [models]);
 
   const update = <K extends keyof ProjectContext>(key: K, value: ProjectContext[K]) => {
@@ -43,9 +137,26 @@ export default function Step13ModelMonitoring() {
       subtitle="Set monitoring cadence and review production models, drift trends, compliance issues, and escalation items."
       nextPath="/dashboard"
       nextLabel="Mark Complete & Return to Atlas Home"
-      onNext={() => {
-        const previous = loadProjectContext();
-        saveProjectContext(context);
+      nextDisabled={!durableContextReady || promotedModel.status !== "ready" || !exactIdentityCarriedForward}
+      nextDisabledReason={!durableContextReady
+        ? "Loading the exact project-scoped monitoring plan from ATLAS."
+        : promotedModel.status === "loading"
+          ? "Verifying the exact promoted model and durable model version."
+          : promotedModel.status !== "ready"
+            ? promotedModel.error || "A verified promoted model is required before monitoring can be completed."
+            : "Return to Model Implementation and save the handoff for this exact promoted model version."}
+      onNext={async () => {
+        if (!promotedModel.identity || !exactIdentityCarriedForward || !projectId || !authenticatedUserId) return false;
+        const previous = context;
+        const next = bindPromotedModelIdentity(context, promotedModel.identity);
+        setContext(next);
+        const persisted = await autosave.saveNow(next);
+        if (!persisted) {
+          throw new Error(
+            autosave.message
+              || "ATLAS could not durably save the monitoring plan. The page remains open so the plan can be retried.",
+          );
+        }
         logDecision({
           workflowStep: "Model Monitoring",
           actionType: "workflow_setting_changed",
@@ -56,6 +167,8 @@ export default function Step13ModelMonitoring() {
             customCadence: context.monitoringCadenceCustom,
             metrics: context.monitoringMetrics,
             notes: context.monitoringNotes,
+            model_id: promotedModel.identity.modelId,
+            model_version_id: promotedModel.identity.modelVersionId,
           },
           systemRecommendation: "Monitoring should be configured after model development and implementation planning, using metrics aligned to model type and production risk.",
           followStatus: "not_applicable",
@@ -63,6 +176,35 @@ export default function Step13ModelMonitoring() {
       }}
     >
       <div className="space-y-5">
+        <section
+          data-testid="monitoring-promoted-model-identity"
+          className={`rounded-lg border p-4 text-sm shadow-sm ${
+            promotedModel.status === "ready" && exactIdentityCarriedForward
+              ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+              : "border-amber-200 bg-amber-50 text-amber-950"
+          }`}
+        >
+          <h2 className="font-semibold">Exact promoted model under monitoring</h2>
+          {promotedModel.status === "ready" && promotedModel.identity ? (
+            exactIdentityCarriedForward ? (
+              <div className="mt-2 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-4">
+                <div><span className="font-semibold">Model ID</span><div className="mt-1 break-all font-mono">{promotedModel.identity.modelId}</div></div>
+                <div><span className="font-semibold">Model version ID</span><div className="mt-1 break-all font-mono">{promotedModel.identity.modelVersionId}</div></div>
+                <div><span className="font-semibold">Dataset version</span><div className="mt-1 break-all font-mono">{promotedModel.identity.datasetVersionId}</div></div>
+                <div><span className="font-semibold">Artifact</span><div className="mt-1 capitalize">{promotedModel.identity.artifactVerificationStatus}</div></div>
+              </div>
+            ) : (
+              <p className="mt-2 text-xs">
+                The Model Registry returned <span className="font-mono">{promotedModel.identity.modelVersionId}</span>, but Model Implementation has not carried that exact identity into this project-scoped handoff. Return to Model Implementation to save it.
+              </p>
+            )
+          ) : promotedModel.status === "loading" ? (
+            <p className="mt-2 text-xs">Verifying the exact promoted model with the Model Registry...</p>
+          ) : (
+            <p className="mt-2 text-xs">{promotedModel.error || "The exact promoted model is unavailable."}</p>
+          )}
+        </section>
+
         <section className="rounded-lg border border-slate-200/80 bg-white/90 p-5 shadow-sm">
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
@@ -73,14 +215,18 @@ export default function Step13ModelMonitoring() {
             </div>
             <button
               type="button"
-              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50"
+              disabled={!durableContextReady}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
               onClick={() => update("monitoringMetrics", defaultMonitoringMetricsForModelType(context.modelType))}
             >
               Use Recommended Metrics
             </button>
           </div>
 
-          <div className="mt-5 grid gap-4 lg:grid-cols-2">
+          <fieldset
+            className="mt-5 grid gap-4 disabled:cursor-wait disabled:opacity-70 lg:grid-cols-2"
+            disabled={!durableContextReady}
+          >
             <Field label="Monitoring cadence">
               <select
                 className={inputClass}
@@ -105,9 +251,9 @@ export default function Step13ModelMonitoring() {
                 />
               </Field>
             )}
-          </div>
+          </fieldset>
 
-          <div className="mt-4">
+          <fieldset className="mt-4 disabled:cursor-wait disabled:opacity-70" disabled={!durableContextReady}>
             <div className={labelClass}>Performance and stability metrics</div>
             <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
               {monitoringMetricOptionsForModelType(context.modelType).map((metric) => {
@@ -130,9 +276,9 @@ export default function Step13ModelMonitoring() {
                 );
               })}
             </div>
-          </div>
+          </fieldset>
 
-          <div className="mt-4">
+          <fieldset className="mt-4 disabled:cursor-wait disabled:opacity-70" disabled={!durableContextReady}>
             <LLMWritingAssist
               label="Monitoring notes"
               value={context.monitoringNotes}
@@ -141,6 +287,27 @@ export default function Step13ModelMonitoring() {
               context={context}
               minHeightClass="min-h-[92px]"
             />
+          </fieldset>
+          <div
+            data-testid="monitoring-plan-save-status"
+            data-save-status={autosave.status}
+            className={`mt-4 rounded-lg border px-3 py-2 text-xs ${
+              ["failed", "offline", "conflict"].includes(autosave.status)
+                ? "border-red-200 bg-red-50 text-red-900"
+                : autosave.status === "saving" || autosave.status === "unsaved" || autosave.hydrating
+                  ? "border-amber-200 bg-amber-50 text-amber-900"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-900"
+            }`}
+          >
+            {autosave.hydrating
+              ? "Loading the exact project-scoped plan from ATLAS..."
+              : autosave.status === "saving"
+                ? "Saving the monitoring plan to ATLAS..."
+                : autosave.status === "unsaved"
+                  ? "Monitoring-plan changes are waiting for durable save."
+                  : ["failed", "offline", "conflict"].includes(autosave.status)
+                    ? autosave.message || "The monitoring plan has not been saved."
+                    : "Monitoring-plan changes are saved to the ATLAS project record."}
           </div>
         </section>
 
@@ -186,6 +353,11 @@ export default function Step13ModelMonitoring() {
                     <p className="mt-1 text-xs text-slate-500">
                       Owner: {model.owner} · Deployed: {model.deployedAt || "Not implemented"} · Cadence: {model.monitoringCadence}
                     </p>
+                    {model.modelVersionId ? (
+                      <p className="mt-1 break-all text-xs font-medium text-slate-600">
+                        Model version: <span className="font-mono">{model.modelVersionId}</span>
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex flex-wrap gap-2">
                     {model.metrics.map((metric) => (

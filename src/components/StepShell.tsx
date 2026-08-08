@@ -2,7 +2,11 @@ import React, { useLayoutEffect, useRef, useState, type CSSProperties } from "re
 import { useLocation, useNavigate } from "react-router-dom";
 import { AlertTriangle } from "lucide-react";
 import { createSnapshotFromState, saveActiveProjectBeforeNavigation } from "../lib/localProjects";
-import { saveWorkflowStateToDatabase } from "../lib/serverPersistence";
+import {
+  DURABLE_WORKFLOW_COMPLETION_ERROR,
+  saveWorkflowStateToDatabase,
+  workflowCompletionSnapshot,
+} from "../lib/serverPersistence";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import {
   resolveWorkflowActionBarBounds,
@@ -200,32 +204,34 @@ export default function StepShell({
         ?? workflowStepIdFromPathname(location.pathname)
         ?? location.pathname.replace(/^\/+/, "");
       let targetPath = nextPath;
+      let completedSnapshot: ReturnType<typeof createSnapshotFromState> | undefined;
       if (/^step(?:0[0-9]|1[0-3])$/.test(currentStep) || currentStep === "step01b" || currentStep === "dashboard") {
         targetPath = targetPath ?? getNextStepPath(currentStep as Parameters<typeof markComplete>[0]);
-        if (nextRequireDurableWorkflowSave) {
-          const snapshot = createSnapshotFromState(useWorkflowStore.getState());
+        const snapshot = createSnapshotFromState(useWorkflowStore.getState());
+        const durableCompletionRequired =
+          nextRequireDurableWorkflowSave || snapshot.projectType === "predictive-modeling";
+        if (durableCompletionRequired) {
           const normalizedTargetPath = targetPath ? normalizeWorkflowRoute(targetPath) : "";
           const targetStep = snapshot.workflowSteps.find(
             (step) => step.route === normalizedTargetPath || step.id === normalizedTargetPath.replace(/^\//, ""),
           );
-          const completedSnapshot = {
-            ...snapshot,
-            currentStepId: targetStep?.id ?? snapshot.currentStepId,
-            workflowSteps: snapshot.workflowSteps.map((step) =>
-              step.id === currentStep ? { ...step, status: "complete" as const } : step,
-            ),
-          };
+          completedSnapshot = workflowCompletionSnapshot(
+            snapshot,
+            currentStep,
+            targetStep?.id,
+          );
           const persisted = await saveWorkflowStateToDatabase(completedSnapshot);
           if (!persisted) {
-            throw new Error(
-              "ATLAS confirmed the feature contract, but could not durably record Feature Engineering completion. Retry to continue; no duplicate materialization will be created.",
-            );
+            throw new Error(DURABLE_WORKFLOW_COMPLETION_ERROR);
           }
         }
         markComplete(currentStep as Parameters<typeof markComplete>[0]);
       }
 
-      const saveResult = saveActiveProjectBeforeNavigation(useWorkflowStore.getState());
+      const saveResult = saveActiveProjectBeforeNavigation(
+        useWorkflowStore.getState(),
+        completedSnapshot,
+      );
       if (!saveResult.ok) {
         setNavigationError(`${saveResult.message} Navigation will continue, but reopen may restore only workflow progress.`);
       }

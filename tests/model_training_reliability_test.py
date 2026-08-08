@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pandas as pd
 from fastapi import HTTPException
+from pydantic import ValidationError
 from sklearn.base import is_classifier, is_regressor
 from sklearn.datasets import make_classification
 from sklearn.model_selection import StratifiedKFold
@@ -647,6 +648,8 @@ class ModelTrainingReliabilityTests(unittest.TestCase):
             )
 
         decision = response["decision"]
+        self.assertEqual(request.status, "proposed")
+        self.assertEqual(decision["status"], "locked")
         self.assertEqual(
             {
                 key: decision[key]
@@ -664,6 +667,58 @@ class ModelTrainingReliabilityTests(unittest.TestCase):
             ],
             self.IDENTITY["dataset_version_id"],
         )
+
+    def test_model_selection_decision_request_rejects_client_claimed_lock(self):
+        with self.assertRaises(ValidationError):
+            self.decision_request(status="locked")
+
+    def test_model_selection_decision_cannot_approve_in_model_training(self):
+        request = self.decision_request(status="approved")
+        with (
+            patch.object(
+                trainer_router,
+                "authorize_modeling_scope",
+                return_value=None,
+            ),
+            patch.object(
+                trainer_router,
+                "assert_expected_active_identity",
+                side_effect=self.assert_exact_identity,
+            ),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                trainer_router.save_model_selection_decision(
+                    request,
+                    user={"userId": "user-1"},
+                )
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertIn("cannot approve", str(raised.exception.detail))
+        self.assertEqual(self.persistence.holdout_governance.records, {})
+
+    def test_model_selection_decision_cannot_reject_in_model_training(self):
+        request = self.decision_request(status="rejected")
+        with (
+            patch.object(
+                trainer_router,
+                "authorize_modeling_scope",
+                return_value=None,
+            ),
+            patch.object(
+                trainer_router,
+                "assert_expected_active_identity",
+                side_effect=self.assert_exact_identity,
+            ),
+        ):
+            with self.assertRaises(HTTPException) as raised:
+                trainer_router.save_model_selection_decision(
+                    request,
+                    user={"userId": "user-1"},
+                )
+
+        self.assertEqual(raised.exception.status_code, 409)
+        self.assertIn("cannot reject", str(raised.exception.detail))
+        self.assertEqual(self.persistence.holdout_governance.records, {})
 
     def test_model_selection_decision_rejects_partial_leaderboard(self):
         request = self.decision_request(training_job_id="train-job-live")

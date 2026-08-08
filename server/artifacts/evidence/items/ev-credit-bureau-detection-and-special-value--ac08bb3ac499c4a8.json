@@ -10,7 +10,7 @@
     "scope": "full_dataset",
     "rowCount": 6275,
     "target": "bad_flag",
-    "metadataSource": "none",
+    "metadataSource": "dataset_observed",
     "project_id": "atlas-mrzpau4t",
     "dataset_id": "ds_heloc_train_6bdb184b_05905",
     "dataset_version_id": "v_1785186305905_6bdb184b",
@@ -26,9 +26,9 @@
   "projectName": "HELOC Credit Risk - CLASSIFICATION TEST",
   "evidenceType": "dataset",
   "title": "Credit Bureau Detection and Special-Value Review",
-  "summary": "6 bureau variables and 3,364 special-value-bearing rows were reviewed using governed full-population evidence.",
+  "summary": "22 bureau variables and 4,765 special-value-bearing rows were reviewed using governed full-population evidence.",
   "sourcePage": "Data Acquisition",
-  "sourceRoute": "/step01?section=credit-bureau-review",
+  "sourceRoute": "/projects/atlas-mrzpau4t/step01?section=credit-bureau-review",
   "modelIds": [],
   "documentIds": [],
   "notebookIds": [],
@@ -46,137 +46,350 @@
   "importance": "high",
   "payload": {
     "detected": true,
-    "confidence": 0.7761354581673308,
+    "confidence": 0.65,
     "reasons": [
+      "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+      "352 rows contain variable-specific or dataset-observed special-value candidates.",
+      "3,262 rows contain variable-specific or dataset-observed special-value candidates.",
+      "1,754 rows contain variable-specific or dataset-observed special-value candidates.",
       "The variable name contains bureau or credit-attribute terminology.",
-      "539 rows contain configured bureau special values.",
-      "2,641 rows contain configured bureau special values.",
-      "534 rows contain configured bureau special values.",
-      "684 rows contain configured bureau special values.",
-      "893 rows contain configured bureau special values.",
-      "917 rows contain configured bureau special values."
+      "486 rows contain variable-specific or dataset-observed special-value candidates.",
+      "2,411 rows contain variable-specific or dataset-observed special-value candidates.",
+      "458 rows contain variable-specific or dataset-observed special-value candidates.",
+      "684 rows contain variable-specific or dataset-observed special-value candidates.",
+      "893 rows contain variable-specific or dataset-observed special-value candidates.",
+      "438 rows contain variable-specific or dataset-observed special-value candidates.",
+      "362 rows contain variable-specific or dataset-observed special-value candidates."
     ],
     "variables": [
       {
-        "variable": "MSinceMostRecentTradeOpen",
-        "confidence": 0.5364143426294821,
+        "variable": "AverageMInFile",
+        "confidence": 0.13609561752988047,
         "reasons": [
-          "The variable name contains bureau or credit-attribute terminology.",
-          "354 rows contain configured bureau special values."
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "352 rows contain variable-specific or dataset-observed special-value candidates."
         ],
         "datatype": "int64",
-        "special_value_count": 354,
-        "special_value_frequency": 0.05641434262948207,
-        "ordinary_value_count": 5921,
+        "special_value_count": 352,
+        "special_value_frequency": 0.05609561752988048,
+        "ordinary_value_count": 5923,
         "null_count": 0,
         "parse_failure_count": 0,
+        "structural_special_value_count": 352,
+        "structural_special_value_frequency": 0.05609561752988048,
+        "structural_ordinary_value_count": 5923,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
         "special_values": [
           {
             "value": -9,
-            "definition": "Unknown or unscorable response",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 352,
             "frequency": 0.05609561752988048,
             "event_count": 157,
             "event_rate": 0.5607142857142857,
-            "regular_event_rate": 0.5194174757281553,
-            "event_rate_delta": 0.04129680998613039,
-            "recommended_handling": "Preserve as informative special value"
-          },
-          {
-            "value": 97,
-            "definition": "Suppressed value",
-            "count": 2,
-            "frequency": 0.00031872509960159364,
-            "event_count": 2,
-            "event_rate": 1,
-            "regular_event_rate": 0.5194174757281553,
-            "event_rate_delta": 0.48058252427184467,
+            "regular_event_rate": 0.519620253164557,
+            "event_rate_delta": 0.041094032549728765,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.519620253164557,
+            "development_event_rate_delta": 0.041094032549728765,
             "recommended_handling": "Preserve as informative special value"
           }
         ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
+        ],
         "metadata": null,
-        "likely_bureau": false
+        "likely_bureau": true
       },
       {
-        "variable": "MSinceOldestTradeOpen",
-        "confidence": 0.7658964143426297,
+        "variable": "MSinceMostRecentDelq",
+        "confidence": 0.35,
         "reasons": [
-          "The variable name contains bureau or credit-attribute terminology.",
-          "539 rows contain configured bureau special values."
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "3,262 rows contain variable-specific or dataset-observed special-value candidates."
         ],
         "datatype": "int64",
-        "special_value_count": 539,
-        "special_value_frequency": 0.08589641434262948,
-        "ordinary_value_count": 5736,
+        "special_value_count": 3262,
+        "special_value_frequency": 0.5198406374501992,
+        "ordinary_value_count": 3013,
         "null_count": 0,
         "parse_failure_count": 0,
+        "structural_special_value_count": 3262,
+        "structural_special_value_frequency": 0.5198406374501992,
+        "structural_ordinary_value_count": 3013,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
         "special_values": [
           {
             "value": -9,
-            "definition": "Unknown or unscorable response",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 352,
             "frequency": 0.05609561752988048,
             "event_count": 157,
             "event_rate": 0.5607142857142857,
-            "regular_event_rate": 0.5167829119442022,
-            "event_rate_delta": 0.04393137377008349,
+            "regular_event_rate": 0.6281678437889489,
+            "event_rate_delta": -0.06745355807466313,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.6281678437889489,
+            "development_event_rate_delta": -0.06745355807466313,
             "recommended_handling": "Preserve as informative special value"
           },
           {
             "value": -8,
-            "definition": "Frozen, blocked, or unavailable",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
+            "count": 103,
+            "frequency": 0.016414342629482073,
+            "event_count": 48,
+            "event_rate": 0.5925925925925926,
+            "regular_event_rate": 0.6281678437889489,
+            "event_rate_delta": -0.035575251196356295,
+            "structural_count": 103,
+            "structural_frequency": 0.016414342629482073,
+            "development_value_count": 81,
+            "development_event_count": 48,
+            "development_event_rate": 0.5925925925925926,
+            "development_regular_event_rate": 0.6281678437889489,
+            "development_event_rate_delta": -0.035575251196356295,
+            "recommended_handling": "Preserve as informative special value"
+          },
+          {
+            "value": -7,
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
+            "count": 2807,
+            "frequency": 0.44733067729083664,
+            "event_count": 903,
+            "event_rate": 0.40097690941385433,
+            "regular_event_rate": 0.6281678437889489,
+            "event_rate_delta": -0.22719093437509452,
+            "structural_count": 2807,
+            "structural_frequency": 0.44733067729083664,
+            "development_value_count": 2252,
+            "development_event_count": 903,
+            "development_event_rate": 0.40097690941385433,
+            "development_regular_event_rate": 0.6281678437889489,
+            "development_event_rate_delta": -0.22719093437509452,
+            "recommended_handling": "Preserve as informative special value"
+          }
+        ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
+        ],
+        "metadata": null,
+        "likely_bureau": true
+      },
+      {
+        "variable": "MSinceMostRecentInqexcl7days",
+        "confidence": 0.35,
+        "reasons": [
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "1,754 rows contain variable-specific or dataset-observed special-value candidates."
+        ],
+        "datatype": "int64",
+        "special_value_count": 1754,
+        "special_value_frequency": 0.2795219123505976,
+        "ordinary_value_count": 4521,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "structural_special_value_count": 1754,
+        "structural_special_value_frequency": 0.2795219123505976,
+        "structural_ordinary_value_count": 4521,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": 157,
+            "event_rate": 0.5607142857142857,
+            "regular_event_rate": 0.5199778024417314,
+            "event_rate_delta": 0.0407364832725543,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.5199778024417314,
+            "development_event_rate_delta": 0.0407364832725543,
+            "recommended_handling": "Preserve as informative special value"
+          },
+          {
+            "value": -8,
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
+            "count": 305,
+            "frequency": 0.04860557768924303,
+            "event_count": 37,
+            "event_rate": 0.15040650406504066,
+            "regular_event_rate": 0.5199778024417314,
+            "event_rate_delta": -0.3695712983766908,
+            "structural_count": 305,
+            "structural_frequency": 0.04860557768924303,
+            "development_value_count": 246,
+            "development_event_count": 37,
+            "development_event_rate": 0.15040650406504066,
+            "development_regular_event_rate": 0.5199778024417314,
+            "development_event_rate_delta": -0.3695712983766908,
+            "recommended_handling": "Preserve as informative special value"
+          },
+          {
+            "value": -7,
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
+            "count": 1097,
+            "frequency": 0.1748207171314741,
+            "event_count": 552,
+            "event_rate": 0.6202247191011236,
+            "regular_event_rate": 0.5199778024417314,
+            "event_rate_delta": 0.10024691665939223,
+            "structural_count": 1097,
+            "structural_frequency": 0.1748207171314741,
+            "development_value_count": 890,
+            "development_event_count": 552,
+            "development_event_rate": 0.6202247191011236,
+            "development_regular_event_rate": 0.5199778024417314,
+            "development_event_rate_delta": 0.10024691665939223,
+            "recommended_handling": "Preserve as informative special value"
+          }
+        ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
+        ],
+        "metadata": null,
+        "likely_bureau": true
+      },
+      {
+        "variable": "MSinceMostRecentTradeOpen",
+        "confidence": 0.48609561752988045,
+        "reasons": [
+          "The variable name contains bureau or credit-attribute terminology.",
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "352 rows contain variable-specific or dataset-observed special-value candidates."
+        ],
+        "datatype": "int64",
+        "special_value_count": 352,
+        "special_value_frequency": 0.05609561752988048,
+        "ordinary_value_count": 5923,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "structural_special_value_count": 352,
+        "structural_special_value_frequency": 0.05609561752988048,
+        "structural_ordinary_value_count": 5923,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": 157,
+            "event_rate": 0.5607142857142857,
+            "regular_event_rate": 0.519620253164557,
+            "event_rate_delta": 0.041094032549728765,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.519620253164557,
+            "development_event_rate_delta": 0.041094032549728765,
+            "recommended_handling": "Preserve as informative special value"
+          }
+        ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
+        ],
+        "metadata": null,
+        "likely_bureau": true
+      },
+      {
+        "variable": "MSinceOldestTradeOpen",
+        "confidence": 0.5574501992031873,
+        "reasons": [
+          "The variable name contains bureau or credit-attribute terminology.",
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "486 rows contain variable-specific or dataset-observed special-value candidates."
+        ],
+        "datatype": "int64",
+        "special_value_count": 486,
+        "special_value_frequency": 0.07745019920318726,
+        "ordinary_value_count": 5789,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "structural_special_value_count": 486,
+        "structural_special_value_frequency": 0.07745019920318726,
+        "structural_ordinary_value_count": 5789,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": 157,
+            "event_rate": 0.5607142857142857,
+            "regular_event_rate": 0.5180384532296393,
+            "event_rate_delta": 0.04267583248464646,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.5180384532296393,
+            "development_event_rate_delta": 0.04267583248464646,
+            "recommended_handling": "Preserve as informative special value"
+          },
+          {
+            "value": -8,
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 134,
             "frequency": 0.021354581673306772,
             "event_count": 65,
             "event_rate": 0.5855855855855856,
-            "regular_event_rate": 0.5167829119442022,
-            "event_rate_delta": 0.06880267364138337,
-            "recommended_handling": "Preserve as informative special value"
-          },
-          {
-            "value": 96,
-            "definition": "Bureau exception",
-            "count": 9,
-            "frequency": 0.0014342629482071714,
-            "event_count": 6,
-            "event_rate": 0.8571428571428571,
-            "regular_event_rate": 0.5167829119442022,
-            "event_rate_delta": 0.34035994519865487,
-            "recommended_handling": "Preserve as informative special value"
-          },
-          {
-            "value": 97,
-            "definition": "Suppressed value",
-            "count": 19,
-            "frequency": 0.0030278884462151393,
-            "event_count": 12,
-            "event_rate": 0.75,
-            "regular_event_rate": 0.5167829119442022,
-            "event_rate_delta": 0.23321708805579777,
-            "recommended_handling": "Preserve as informative special value"
-          },
-          {
-            "value": 98,
-            "definition": "Unavailable value",
-            "count": 12,
-            "frequency": 0.0019123505976095618,
-            "event_count": 3,
-            "event_rate": 0.3333333333333333,
-            "regular_event_rate": 0.5167829119442022,
-            "event_rate_delta": -0.1834495786108689,
-            "recommended_handling": "Preserve as informative special value"
-          },
-          {
-            "value": 99,
-            "definition": "Unknown value",
-            "count": 13,
-            "frequency": 0.0020717131474103584,
-            "event_count": 6,
-            "event_rate": 0.6666666666666666,
-            "regular_event_rate": 0.5167829119442022,
-            "event_rate_delta": 0.1498837547224644,
+            "regular_event_rate": 0.5180384532296393,
+            "event_rate_delta": 0.06754713235594634,
+            "structural_count": 134,
+            "structural_frequency": 0.021354581673306772,
+            "development_value_count": 111,
+            "development_event_count": 65,
+            "development_event_rate": 0.5855855855855856,
+            "development_regular_event_rate": 0.5180384532296393,
+            "development_event_rate_delta": 0.06754713235594634,
             "recommended_handling": "Preserve as informative special value"
           }
+        ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
         ],
         "metadata": null,
         "likely_bureau": true
@@ -186,7 +399,8 @@
         "confidence": 0.48609561752988045,
         "reasons": [
           "The variable name contains bureau or credit-attribute terminology.",
-          "352 rows contain configured bureau special values."
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "352 rows contain variable-specific or dataset-observed special-value candidates."
         ],
         "datatype": "int64",
         "special_value_count": 352,
@@ -194,186 +408,215 @@
         "ordinary_value_count": 5923,
         "null_count": 0,
         "parse_failure_count": 0,
+        "structural_special_value_count": 352,
+        "structural_special_value_frequency": 0.05609561752988048,
+        "structural_ordinary_value_count": 5923,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
         "special_values": [
           {
             "value": -9,
-            "definition": "Unknown or unscorable response",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 352,
             "frequency": 0.05609561752988048,
             "event_count": 157,
             "event_rate": 0.5607142857142857,
             "regular_event_rate": 0.519620253164557,
             "event_rate_delta": 0.041094032549728765,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.519620253164557,
+            "development_event_rate_delta": 0.041094032549728765,
             "recommended_handling": "Preserve as informative special value"
           }
         ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
+        ],
         "metadata": null,
-        "likely_bureau": false
+        "likely_bureau": true
       },
       {
-        "variable": "NetFractionInstallBurden",
-        "confidence": 0.7000000000000001,
+        "variable": "MaxDelqEver",
+        "confidence": 0.13609561752988047,
         "reasons": [
-          "The variable name contains bureau or credit-attribute terminology.",
-          "2,641 rows contain configured bureau special values."
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "352 rows contain variable-specific or dataset-observed special-value candidates."
         ],
         "datatype": "int64",
-        "special_value_count": 2641,
-        "special_value_frequency": 0.42087649402390437,
-        "ordinary_value_count": 3634,
+        "special_value_count": 352,
+        "special_value_frequency": 0.05609561752988048,
+        "ordinary_value_count": 5923,
         "null_count": 0,
         "parse_failure_count": 0,
+        "structural_special_value_count": 352,
+        "structural_special_value_frequency": 0.05609561752988048,
+        "structural_ordinary_value_count": 5923,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
         "special_values": [
           {
             "value": -9,
-            "definition": "Unknown or unscorable response",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 352,
             "frequency": 0.05609561752988048,
             "event_count": 157,
             "event_rate": 0.5607142857142857,
-            "regular_event_rate": 0.5474006116207951,
-            "event_rate_delta": 0.013313674093490602,
+            "regular_event_rate": 0.519620253164557,
+            "event_rate_delta": 0.041094032549728765,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.519620253164557,
+            "development_event_rate_delta": 0.041094032549728765,
+            "recommended_handling": "Preserve as informative special value"
+          }
+        ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
+        ],
+        "metadata": null,
+        "likely_bureau": true
+      },
+      {
+        "variable": "NetFractionInstallBurden",
+        "confidence": 0.65,
+        "reasons": [
+          "The variable name contains bureau or credit-attribute terminology.",
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "2,411 rows contain variable-specific or dataset-observed special-value candidates."
+        ],
+        "datatype": "int64",
+        "special_value_count": 2411,
+        "special_value_frequency": 0.3842231075697211,
+        "ordinary_value_count": 3864,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "structural_special_value_count": 2411,
+        "structural_special_value_frequency": 0.3842231075697211,
+        "structural_ordinary_value_count": 3864,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": 157,
+            "event_rate": 0.5607142857142857,
+            "regular_event_rate": 0.5463320463320464,
+            "event_rate_delta": 0.01438223938223937,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.5463320463320464,
+            "development_event_rate_delta": 0.01438223938223937,
             "recommended_handling": "Review domain mapping before treatment"
           },
           {
             "value": -8,
-            "definition": "Frozen, blocked, or unavailable",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 2059,
             "frequency": 0.32812749003984065,
             "event_count": 765,
             "event_rate": 0.46875,
-            "regular_event_rate": 0.5474006116207951,
-            "event_rate_delta": -0.07865061162079512,
-            "recommended_handling": "Preserve as informative special value"
-          },
-          {
-            "value": 96,
-            "definition": "Bureau exception",
-            "count": 61,
-            "frequency": 0.009721115537848605,
-            "event_count": 22,
-            "event_rate": 0.5365853658536586,
-            "regular_event_rate": 0.5474006116207951,
-            "event_rate_delta": -0.01081524576713655,
-            "recommended_handling": "Review domain mapping before treatment"
-          },
-          {
-            "value": 97,
-            "definition": "Suppressed value",
-            "count": 58,
-            "frequency": 0.009243027888446215,
-            "event_count": 23,
-            "event_rate": 0.5348837209302325,
-            "regular_event_rate": 0.5474006116207951,
-            "event_rate_delta": -0.01251689069056261,
-            "recommended_handling": "Review domain mapping before treatment"
-          },
-          {
-            "value": 98,
-            "definition": "Unavailable value",
-            "count": 58,
-            "frequency": 0.009243027888446215,
-            "event_count": 19,
-            "event_rate": 0.4634146341463415,
-            "regular_event_rate": 0.5474006116207951,
-            "event_rate_delta": -0.08398597747445363,
-            "recommended_handling": "Preserve as informative special value"
-          },
-          {
-            "value": 99,
-            "definition": "Unknown value",
-            "count": 53,
-            "frequency": 0.00844621513944223,
-            "event_count": 23,
-            "event_rate": 0.575,
-            "regular_event_rate": 0.5474006116207951,
-            "event_rate_delta": 0.027599388379204837,
+            "regular_event_rate": 0.5463320463320464,
+            "event_rate_delta": -0.07758204633204635,
+            "structural_count": 2059,
+            "structural_frequency": 0.32812749003984065,
+            "development_value_count": 1632,
+            "development_event_count": 765,
+            "development_event_rate": 0.46875,
+            "development_regular_event_rate": 0.5463320463320464,
+            "development_event_rate_delta": -0.07758204633204635,
             "recommended_handling": "Preserve as informative special value"
           }
+        ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
         ],
         "metadata": null,
         "likely_bureau": true
       },
       {
         "variable": "NetFractionRevolvingBurden",
-        "confidence": 0.7650996015936257,
+        "confidence": 0.552988047808765,
         "reasons": [
           "The variable name contains bureau or credit-attribute terminology.",
-          "534 rows contain configured bureau special values."
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "458 rows contain variable-specific or dataset-observed special-value candidates."
         ],
         "datatype": "int64",
-        "special_value_count": 534,
-        "special_value_frequency": 0.08509960159362549,
-        "ordinary_value_count": 5741,
+        "special_value_count": 458,
+        "special_value_frequency": 0.07298804780876494,
+        "ordinary_value_count": 5817,
         "null_count": 0,
         "parse_failure_count": 0,
+        "structural_special_value_count": 458,
+        "structural_special_value_frequency": 0.07298804780876494,
+        "structural_ordinary_value_count": 5817,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
         "special_values": [
           {
             "value": -9,
-            "definition": "Unknown or unscorable response",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 352,
             "frequency": 0.05609561752988048,
             "event_count": 157,
             "event_rate": 0.5607142857142857,
-            "regular_event_rate": 0.5113092648977816,
-            "event_rate_delta": 0.04940502081650411,
+            "regular_event_rate": 0.515900300816502,
+            "event_rate_delta": 0.044813984897783765,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.515900300816502,
+            "development_event_rate_delta": 0.044813984897783765,
             "recommended_handling": "Preserve as informative special value"
           },
           {
             "value": -8,
-            "definition": "Frozen, blocked, or unavailable",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 106,
             "frequency": 0.01689243027888446,
             "event_count": 62,
             "event_rate": 0.7209302325581395,
-            "regular_event_rate": 0.5113092648977816,
-            "event_rate_delta": 0.20962096766035787,
-            "recommended_handling": "Preserve as informative special value"
-          },
-          {
-            "value": 96,
-            "definition": "Bureau exception",
-            "count": 13,
-            "frequency": 0.0020717131474103584,
-            "event_count": 10,
-            "event_rate": 1,
-            "regular_event_rate": 0.5113092648977816,
-            "event_rate_delta": 0.4886907351022184,
-            "recommended_handling": "Preserve as informative special value"
-          },
-          {
-            "value": 97,
-            "definition": "Suppressed value",
-            "count": 25,
-            "frequency": 0.00398406374501992,
-            "event_count": 13,
-            "event_rate": 0.8666666666666667,
-            "regular_event_rate": 0.5113092648977816,
-            "event_rate_delta": 0.3553574017688851,
-            "recommended_handling": "Preserve as informative special value"
-          },
-          {
-            "value": 98,
-            "definition": "Unavailable value",
-            "count": 22,
-            "frequency": 0.00350597609561753,
-            "event_count": 16,
-            "event_rate": 0.8421052631578947,
-            "regular_event_rate": 0.5113092648977816,
-            "event_rate_delta": 0.3307959982601131,
-            "recommended_handling": "Preserve as informative special value"
-          },
-          {
-            "value": 99,
-            "definition": "Unknown value",
-            "count": 16,
-            "frequency": 0.002549800796812749,
-            "event_count": 11,
-            "event_rate": 0.9166666666666666,
-            "regular_event_rate": 0.5113092648977816,
-            "event_rate_delta": 0.405357401768885,
+            "regular_event_rate": 0.515900300816502,
+            "event_rate_delta": 0.20502993174163753,
+            "structural_count": 106,
+            "structural_frequency": 0.01689243027888446,
+            "development_value_count": 86,
+            "development_event_count": 62,
+            "development_event_rate": 0.7209302325581395,
+            "development_regular_event_rate": 0.515900300816502,
+            "development_event_rate_delta": 0.20502993174163753,
             "recommended_handling": "Preserve as informative special value"
           }
+        ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
         ],
         "metadata": null,
         "likely_bureau": true
@@ -383,7 +626,8 @@
         "confidence": 0.6390039840637451,
         "reasons": [
           "The variable name contains bureau or credit-attribute terminology.",
-          "684 rows contain configured bureau special values."
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "684 rows contain variable-specific or dataset-observed special-value candidates."
         ],
         "datatype": "int64",
         "special_value_count": 684,
@@ -391,29 +635,147 @@
         "ordinary_value_count": 5591,
         "null_count": 0,
         "parse_failure_count": 0,
+        "structural_special_value_count": 684,
+        "structural_special_value_frequency": 0.10900398406374502,
+        "structural_ordinary_value_count": 5591,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
         "special_values": [
           {
             "value": -9,
-            "definition": "Unknown or unscorable response",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 352,
             "frequency": 0.05609561752988048,
             "event_count": 157,
             "event_rate": 0.5607142857142857,
             "regular_event_rate": 0.5071460473425636,
             "event_rate_delta": 0.05356823837172209,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.5071460473425636,
+            "development_event_rate_delta": 0.05356823837172209,
             "recommended_handling": "Preserve as informative special value"
           },
           {
             "value": -8,
-            "definition": "Frozen, blocked, or unavailable",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 332,
             "frequency": 0.05290836653386454,
             "event_count": 192,
             "event_rate": 0.732824427480916,
             "regular_event_rate": 0.5071460473425636,
             "event_rate_delta": 0.2256783801383524,
+            "structural_count": 332,
+            "structural_frequency": 0.05290836653386454,
+            "development_value_count": 262,
+            "development_event_count": 192,
+            "development_event_rate": 0.732824427480916,
+            "development_regular_event_rate": 0.5071460473425636,
+            "development_event_rate_delta": 0.2256783801383524,
             "recommended_handling": "Preserve as informative special value"
           }
+        ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
+        ],
+        "metadata": null,
+        "likely_bureau": true
+      },
+      {
+        "variable": "NumInqLast6M",
+        "confidence": 0.13609561752988047,
+        "reasons": [
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "352 rows contain variable-specific or dataset-observed special-value candidates."
+        ],
+        "datatype": "int64",
+        "special_value_count": 352,
+        "special_value_frequency": 0.05609561752988048,
+        "ordinary_value_count": 5923,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "structural_special_value_count": 352,
+        "structural_special_value_frequency": 0.05609561752988048,
+        "structural_ordinary_value_count": 5923,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": 157,
+            "event_rate": 0.5607142857142857,
+            "regular_event_rate": 0.519620253164557,
+            "event_rate_delta": 0.041094032549728765,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.519620253164557,
+            "development_event_rate_delta": 0.041094032549728765,
+            "recommended_handling": "Preserve as informative special value"
+          }
+        ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
+        ],
+        "metadata": null,
+        "likely_bureau": true
+      },
+      {
+        "variable": "NumInqLast6Mexcl7days",
+        "confidence": 0.13609561752988047,
+        "reasons": [
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "352 rows contain variable-specific or dataset-observed special-value candidates."
+        ],
+        "datatype": "int64",
+        "special_value_count": 352,
+        "special_value_frequency": 0.05609561752988048,
+        "ordinary_value_count": 5923,
+        "null_count": 0,
+        "parse_failure_count": 0,
+        "structural_special_value_count": 352,
+        "structural_special_value_frequency": 0.05609561752988048,
+        "structural_ordinary_value_count": 5923,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
+        "special_values": [
+          {
+            "value": -9,
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
+            "count": 352,
+            "frequency": 0.05609561752988048,
+            "event_count": 157,
+            "event_rate": 0.5607142857142857,
+            "regular_event_rate": 0.519620253164557,
+            "event_rate_delta": 0.041094032549728765,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.519620253164557,
+            "development_event_rate_delta": 0.041094032549728765,
+            "recommended_handling": "Preserve as informative special value"
+          }
+        ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
         ],
         "metadata": null,
         "likely_bureau": true
@@ -423,7 +785,8 @@
         "confidence": 0.6223107569721116,
         "reasons": [
           "The variable name contains bureau or credit-attribute terminology.",
-          "893 rows contain configured bureau special values."
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "893 rows contain variable-specific or dataset-observed special-value candidates."
         ],
         "datatype": "int64",
         "special_value_count": 893,
@@ -431,29 +794,55 @@
         "ordinary_value_count": 5382,
         "null_count": 0,
         "parse_failure_count": 0,
+        "structural_special_value_count": 893,
+        "structural_special_value_frequency": 0.14231075697211154,
+        "structural_ordinary_value_count": 5382,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
         "special_values": [
           {
             "value": -9,
-            "definition": "Unknown or unscorable response",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 352,
             "frequency": 0.05609561752988048,
             "event_count": 157,
             "event_rate": 0.5607142857142857,
             "regular_event_rate": 0.5247042449547669,
             "event_rate_delta": 0.03601004075951886,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.5247042449547669,
+            "development_event_rate_delta": 0.03601004075951886,
             "recommended_handling": "Preserve as informative special value"
           },
           {
             "value": -8,
-            "definition": "Frozen, blocked, or unavailable",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 541,
             "frequency": 0.08621513944223108,
             "event_count": 201,
             "event_rate": 0.46853146853146854,
             "regular_event_rate": 0.5247042449547669,
             "event_rate_delta": -0.05617277642329832,
+            "structural_count": 541,
+            "structural_frequency": 0.08621513944223108,
+            "development_value_count": 429,
+            "development_event_count": 201,
+            "development_event_rate": 0.46853146853146854,
+            "development_regular_event_rate": 0.5247042449547669,
+            "development_event_rate_delta": -0.05617277642329832,
             "recommended_handling": "Preserve as informative special value"
           }
+        ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
         ],
         "metadata": null,
         "likely_bureau": true
@@ -463,7 +852,8 @@
         "confidence": 0.549800796812749,
         "reasons": [
           "The variable name contains bureau or credit-attribute terminology.",
-          "438 rows contain configured bureau special values."
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "438 rows contain variable-specific or dataset-observed special-value candidates."
         ],
         "datatype": "int64",
         "special_value_count": 438,
@@ -471,39 +861,66 @@
         "ordinary_value_count": 5837,
         "null_count": 0,
         "parse_failure_count": 0,
+        "structural_special_value_count": 438,
+        "structural_special_value_frequency": 0.069800796812749,
+        "structural_ordinary_value_count": 5837,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
         "special_values": [
           {
             "value": -9,
-            "definition": "Unknown or unscorable response",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 352,
             "frequency": 0.05609561752988048,
             "event_count": 157,
             "event_rate": 0.5607142857142857,
             "regular_event_rate": 0.516584635138027,
             "event_rate_delta": 0.04412965057625873,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.516584635138027,
+            "development_event_rate_delta": 0.04412965057625873,
             "recommended_handling": "Preserve as informative special value"
           },
           {
             "value": -8,
-            "definition": "Frozen, blocked, or unavailable",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 86,
             "frequency": 0.013705179282868525,
             "event_count": 49,
             "event_rate": 0.7313432835820896,
             "regular_event_rate": 0.516584635138027,
             "event_rate_delta": 0.21475864844406256,
+            "structural_count": 86,
+            "structural_frequency": 0.013705179282868525,
+            "development_value_count": 67,
+            "development_event_count": 49,
+            "development_event_rate": 0.7313432835820896,
+            "development_regular_event_rate": 0.516584635138027,
+            "development_event_rate_delta": 0.21475864844406256,
             "recommended_handling": "Preserve as informative special value"
           }
         ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
+        ],
         "metadata": null,
-        "likely_bureau": false
+        "likely_bureau": true
       },
       {
         "variable": "NumSatisfactoryTrades",
         "confidence": 0.48609561752988045,
         "reasons": [
           "The variable name contains bureau or credit-attribute terminology.",
-          "352 rows contain configured bureau special values."
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "352 rows contain variable-specific or dataset-observed special-value candidates."
         ],
         "datatype": "int64",
         "special_value_count": 352,
@@ -511,28 +928,46 @@
         "ordinary_value_count": 5923,
         "null_count": 0,
         "parse_failure_count": 0,
+        "structural_special_value_count": 352,
+        "structural_special_value_frequency": 0.05609561752988048,
+        "structural_ordinary_value_count": 5923,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
         "special_values": [
           {
             "value": -9,
-            "definition": "Unknown or unscorable response",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 352,
             "frequency": 0.05609561752988048,
             "event_count": 157,
             "event_rate": 0.5607142857142857,
             "regular_event_rate": 0.519620253164557,
             "event_rate_delta": 0.041094032549728765,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.519620253164557,
+            "development_event_rate_delta": 0.041094032549728765,
             "recommended_handling": "Preserve as informative special value"
           }
         ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
+        ],
         "metadata": null,
-        "likely_bureau": false
+        "likely_bureau": true
       },
       {
         "variable": "NumTotalTrades",
         "confidence": 0.48609561752988045,
         "reasons": [
           "The variable name contains bureau or credit-attribute terminology.",
-          "352 rows contain configured bureau special values."
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "352 rows contain variable-specific or dataset-observed special-value candidates."
         ],
         "datatype": "int64",
         "special_value_count": 352,
@@ -540,28 +975,46 @@
         "ordinary_value_count": 5923,
         "null_count": 0,
         "parse_failure_count": 0,
+        "structural_special_value_count": 352,
+        "structural_special_value_frequency": 0.05609561752988048,
+        "structural_ordinary_value_count": 5923,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
         "special_values": [
           {
             "value": -9,
-            "definition": "Unknown or unscorable response",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 352,
             "frequency": 0.05609561752988048,
             "event_count": 157,
             "event_rate": 0.5607142857142857,
             "regular_event_rate": 0.519620253164557,
             "event_rate_delta": 0.041094032549728765,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.519620253164557,
+            "development_event_rate_delta": 0.041094032549728765,
             "recommended_handling": "Preserve as informative special value"
           }
         ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
+        ],
         "metadata": null,
-        "likely_bureau": false
+        "likely_bureau": true
       },
       {
         "variable": "NumTrades60Ever2DerogPubRec",
         "confidence": 0.48609561752988045,
         "reasons": [
           "The variable name contains bureau or credit-attribute terminology.",
-          "352 rows contain configured bureau special values."
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "352 rows contain variable-specific or dataset-observed special-value candidates."
         ],
         "datatype": "int64",
         "special_value_count": 352,
@@ -569,28 +1022,46 @@
         "ordinary_value_count": 5923,
         "null_count": 0,
         "parse_failure_count": 0,
+        "structural_special_value_count": 352,
+        "structural_special_value_frequency": 0.05609561752988048,
+        "structural_ordinary_value_count": 5923,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
         "special_values": [
           {
             "value": -9,
-            "definition": "Unknown or unscorable response",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 352,
             "frequency": 0.05609561752988048,
             "event_count": 157,
             "event_rate": 0.5607142857142857,
             "regular_event_rate": 0.519620253164557,
             "event_rate_delta": 0.041094032549728765,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.519620253164557,
+            "development_event_rate_delta": 0.041094032549728765,
             "recommended_handling": "Preserve as informative special value"
           }
         ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
+        ],
         "metadata": null,
-        "likely_bureau": false
+        "likely_bureau": true
       },
       {
         "variable": "NumTrades90Ever2DerogPubRec",
         "confidence": 0.48609561752988045,
         "reasons": [
           "The variable name contains bureau or credit-attribute terminology.",
-          "352 rows contain configured bureau special values."
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "352 rows contain variable-specific or dataset-observed special-value candidates."
         ],
         "datatype": "int64",
         "special_value_count": 352,
@@ -598,28 +1069,46 @@
         "ordinary_value_count": 5923,
         "null_count": 0,
         "parse_failure_count": 0,
+        "structural_special_value_count": 352,
+        "structural_special_value_frequency": 0.05609561752988048,
+        "structural_ordinary_value_count": 5923,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
         "special_values": [
           {
             "value": -9,
-            "definition": "Unknown or unscorable response",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 352,
             "frequency": 0.05609561752988048,
             "event_count": 157,
             "event_rate": 0.5607142857142857,
             "regular_event_rate": 0.519620253164557,
             "event_rate_delta": 0.041094032549728765,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.519620253164557,
+            "development_event_rate_delta": 0.041094032549728765,
             "recommended_handling": "Preserve as informative special value"
           }
         ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
+        ],
         "metadata": null,
-        "likely_bureau": false
+        "likely_bureau": true
       },
       {
         "variable": "NumTradesOpeninLast12M",
         "confidence": 0.48609561752988045,
         "reasons": [
           "The variable name contains bureau or credit-attribute terminology.",
-          "352 rows contain configured bureau special values."
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "352 rows contain variable-specific or dataset-observed special-value candidates."
         ],
         "datatype": "int64",
         "special_value_count": 352,
@@ -627,28 +1116,46 @@
         "ordinary_value_count": 5923,
         "null_count": 0,
         "parse_failure_count": 0,
+        "structural_special_value_count": 352,
+        "structural_special_value_frequency": 0.05609561752988048,
+        "structural_ordinary_value_count": 5923,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
         "special_values": [
           {
             "value": -9,
-            "definition": "Unknown or unscorable response",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 352,
             "frequency": 0.05609561752988048,
             "event_count": 157,
             "event_rate": 0.5607142857142857,
             "regular_event_rate": 0.519620253164557,
             "event_rate_delta": 0.041094032549728765,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.519620253164557,
+            "development_event_rate_delta": 0.041094032549728765,
             "recommended_handling": "Preserve as informative special value"
           }
         ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
+        ],
         "metadata": null,
-        "likely_bureau": false
+        "likely_bureau": true
       },
       {
         "variable": "PercentInstallTrades",
         "confidence": 0.48609561752988045,
         "reasons": [
           "The variable name contains bureau or credit-attribute terminology.",
-          "352 rows contain configured bureau special values."
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "352 rows contain variable-specific or dataset-observed special-value candidates."
         ],
         "datatype": "int64",
         "special_value_count": 352,
@@ -656,199 +1163,304 @@
         "ordinary_value_count": 5923,
         "null_count": 0,
         "parse_failure_count": 0,
+        "structural_special_value_count": 352,
+        "structural_special_value_frequency": 0.05609561752988048,
+        "structural_ordinary_value_count": 5923,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
         "special_values": [
           {
             "value": -9,
-            "definition": "Unknown or unscorable response",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 352,
             "frequency": 0.05609561752988048,
             "event_count": 157,
             "event_rate": 0.5607142857142857,
             "regular_event_rate": 0.519620253164557,
             "event_rate_delta": 0.041094032549728765,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.519620253164557,
+            "development_event_rate_delta": 0.041094032549728765,
             "recommended_handling": "Preserve as informative special value"
           }
         ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
+        ],
         "metadata": null,
-        "likely_bureau": false
+        "likely_bureau": true
       },
       {
         "variable": "PercentTradesNeverDelq",
-        "confidence": 0.7761354581673308,
+        "confidence": 0.48609561752988045,
         "reasons": [
           "The variable name contains bureau or credit-attribute terminology.",
-          "917 rows contain configured bureau special values."
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "352 rows contain variable-specific or dataset-observed special-value candidates."
         ],
         "datatype": "int64",
-        "special_value_count": 917,
-        "special_value_frequency": 0.14613545816733067,
-        "ordinary_value_count": 5358,
+        "special_value_count": 352,
+        "special_value_frequency": 0.05609561752988048,
+        "ordinary_value_count": 5923,
         "null_count": 0,
         "parse_failure_count": 0,
+        "structural_special_value_count": 352,
+        "structural_special_value_frequency": 0.05609561752988048,
+        "structural_ordinary_value_count": 5923,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
         "special_values": [
           {
             "value": -9,
-            "definition": "Unknown or unscorable response",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 352,
             "frequency": 0.05609561752988048,
             "event_count": 157,
             "event_rate": 0.5607142857142857,
-            "regular_event_rate": 0.5313446749009555,
-            "event_rate_delta": 0.029369610813330227,
-            "recommended_handling": "Preserve as informative special value"
-          },
-          {
-            "value": 96,
-            "definition": "Bureau exception",
-            "count": 247,
-            "frequency": 0.039362549800796814,
-            "event_count": 87,
-            "event_rate": 0.45549738219895286,
-            "regular_event_rate": 0.5313446749009555,
-            "event_rate_delta": -0.07584729270200263,
-            "recommended_handling": "Preserve as informative special value"
-          },
-          {
-            "value": 97,
-            "definition": "Suppressed value",
-            "count": 221,
-            "frequency": 0.03521912350597609,
-            "event_count": 68,
-            "event_rate": 0.3756906077348066,
-            "regular_event_rate": 0.5313446749009555,
-            "event_rate_delta": -0.15565406716614888,
-            "recommended_handling": "Preserve as informative special value"
-          },
-          {
-            "value": 98,
-            "definition": "Unavailable value",
-            "count": 93,
-            "frequency": 0.014820717131474103,
-            "event_count": 27,
-            "event_rate": 0.36486486486486486,
-            "regular_event_rate": 0.5313446749009555,
-            "event_rate_delta": -0.16647981003609064,
-            "recommended_handling": "Preserve as informative special value"
-          },
-          {
-            "value": 99,
-            "definition": "Unknown value",
-            "count": 4,
-            "frequency": 0.0006374501992031873,
-            "event_count": 1,
-            "event_rate": 0.3333333333333333,
-            "regular_event_rate": 0.5313446749009555,
-            "event_rate_delta": -0.19801134156762218,
+            "regular_event_rate": 0.519620253164557,
+            "event_rate_delta": 0.041094032549728765,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.519620253164557,
+            "development_event_rate_delta": 0.041094032549728765,
             "recommended_handling": "Preserve as informative special value"
           }
+        ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
         ],
         "metadata": null,
         "likely_bureau": true
       },
       {
         "variable": "PercentTradesWBalance",
-        "confidence": 0.5380079681274901,
+        "confidence": 0.5376892430278885,
         "reasons": [
           "The variable name contains bureau or credit-attribute terminology.",
-          "364 rows contain configured bureau special values."
+          "The exact dataset contains bounded negative candidate codes; provider meaning was not inferred.",
+          "362 rows contain variable-specific or dataset-observed special-value candidates."
         ],
         "datatype": "int64",
-        "special_value_count": 364,
-        "special_value_frequency": 0.05800796812749004,
-        "ordinary_value_count": 5911,
+        "special_value_count": 362,
+        "special_value_frequency": 0.05768924302788845,
+        "ordinary_value_count": 5913,
         "null_count": 0,
         "parse_failure_count": 0,
+        "structural_special_value_count": 362,
+        "structural_special_value_frequency": 0.05768924302788845,
+        "structural_ordinary_value_count": 5913,
+        "structural_null_count": 0,
+        "structural_parse_failure_count": 0,
         "special_values": [
           {
             "value": -9,
-            "definition": "Unknown or unscorable response",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 352,
             "frequency": 0.05609561752988048,
             "event_count": 157,
             "event_rate": 0.5607142857142857,
-            "regular_event_rate": 0.5194503171247358,
-            "event_rate_delta": 0.04126396858954995,
+            "regular_event_rate": 0.5194420963651732,
+            "event_rate_delta": 0.041272189349112476,
+            "structural_count": 352,
+            "structural_frequency": 0.05609561752988048,
+            "development_value_count": 280,
+            "development_event_count": 157,
+            "development_event_rate": 0.5607142857142857,
+            "development_regular_event_rate": 0.5194420963651732,
+            "development_event_rate_delta": 0.041272189349112476,
             "recommended_handling": "Preserve as informative special value"
           },
           {
             "value": -8,
-            "definition": "Frozen, blocked, or unavailable",
+            "definition": "Observed bounded negative code; provider meaning has not been assigned.",
+            "definition_source": "dataset_observed_negative_candidate",
+            "provider_meaning_assigned": false,
             "count": 10,
             "frequency": 0.0015936254980079682,
             "event_count": 5,
             "event_rate": 0.625,
-            "regular_event_rate": 0.5194503171247358,
-            "event_rate_delta": 0.10554968287526423,
+            "regular_event_rate": 0.5194420963651732,
+            "event_rate_delta": 0.10555790363482676,
+            "structural_count": 10,
+            "structural_frequency": 0.0015936254980079682,
+            "development_value_count": 8,
+            "development_event_count": 5,
+            "development_event_rate": 0.625,
+            "development_regular_event_rate": 0.5194420963651732,
+            "development_event_rate_delta": 0.10555790363482676,
             "recommended_handling": "Preserve as informative special value"
-          },
-          {
-            "value": 96,
-            "definition": "Bureau exception",
-            "count": 2,
-            "frequency": 0.00031872509960159364,
-            "event_count": 1,
-            "event_rate": 0.5,
-            "regular_event_rate": 0.5194503171247358,
-            "event_rate_delta": -0.019450317124735772,
-            "recommended_handling": "Review domain mapping before treatment"
           }
         ],
+        "special_value_definition_sources": [
+          "dataset_observed_negative_candidate"
+        ],
         "metadata": null,
-        "likely_bureau": false
+        "likely_bureau": true
       }
     ],
-    "rowsWithSpecialValues": 3364,
+    "rowsWithSpecialValues": 4765,
     "declaration": "auto",
     "variableDefaults": [
+      {
+        "variable": "AverageMInFile",
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
+      },
+      {
+        "variable": "MSinceMostRecentDelq",
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
+      },
+      {
+        "variable": "MSinceMostRecentInqexcl7days",
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
+      },
+      {
+        "variable": "MSinceMostRecentTradeOpen",
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
+      },
       {
         "variable": "MSinceOldestTradeOpen",
         "handling": "convert_to_category",
         "rationale": "",
-        "updatedAt": "2026-08-04T21:06:04.422332+00:00"
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
+      },
+      {
+        "variable": "MaxDelq2PublicRecLast12M",
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
+      },
+      {
+        "variable": "MaxDelqEver",
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
       },
       {
         "variable": "NetFractionInstallBurden",
-        "handling": "preserve_informative",
+        "handling": "convert_to_category",
         "rationale": "",
-        "updatedAt": "2026-08-04T21:06:04.422332+00:00"
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
       },
       {
         "variable": "NetFractionRevolvingBurden",
-        "handling": "preserve_informative",
+        "handling": "convert_to_category",
         "rationale": "",
-        "updatedAt": "2026-08-04T21:06:04.422332+00:00"
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
       },
       {
         "variable": "NumBank2NatlTradesWHighUtilization",
-        "handling": "preserve_informative",
+        "handling": "convert_to_category",
         "rationale": "",
-        "updatedAt": "2026-08-04T21:06:04.422332+00:00"
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
+      },
+      {
+        "variable": "NumInqLast6M",
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
+      },
+      {
+        "variable": "NumInqLast6Mexcl7days",
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
       },
       {
         "variable": "NumInstallTradesWBalance",
-        "handling": "preserve_informative",
+        "handling": "convert_to_category",
         "rationale": "",
-        "updatedAt": "2026-08-04T21:06:04.422332+00:00"
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
+      },
+      {
+        "variable": "NumRevolvingTradesWBalance",
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
+      },
+      {
+        "variable": "NumSatisfactoryTrades",
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
+      },
+      {
+        "variable": "NumTotalTrades",
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
+      },
+      {
+        "variable": "NumTrades60Ever2DerogPubRec",
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
+      },
+      {
+        "variable": "NumTrades90Ever2DerogPubRec",
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
+      },
+      {
+        "variable": "NumTradesOpeninLast12M",
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
+      },
+      {
+        "variable": "PercentInstallTrades",
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
       },
       {
         "variable": "PercentTradesNeverDelq",
-        "handling": "preserve_informative",
+        "handling": "convert_to_category",
         "rationale": "",
-        "updatedAt": "2026-08-04T21:06:04.422332+00:00"
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
+      },
+      {
+        "variable": "PercentTradesWBalance",
+        "handling": "convert_to_category",
+        "rationale": "",
+        "updatedAt": "2026-08-08T00:33:18.499608+00:00"
       }
     ],
     "valueOverrides": [],
     "reviewerRationale": "",
     "reviewStatus": "confirmed",
     "durableReviewId": "special-review-bd50b6490d96802cc9ab5812",
-    "durableRevision": 7,
-    "detectionFingerprint": "da4e58736cbf1bbbec801aef1c766145a060401dd13ca127a6b74cd0da1ffc17",
+    "durableRevision": 14,
+    "detectionFingerprint": "2f93065cc6a28c5c65a88faa509cfdd56965165cb55ec08ba49532ee92480776",
     "activationRevision": 1,
     "predictorAuthorizationId": "predictor-auth-aa9c00237dbb604b9b4c",
     "targetContractId": "target-contract-9a0bbd69645b7e5e0b4c",
+    "analysisPartitionId": "analysis-partition-688c2184b4e9b8181946-r1",
+    "analysisPartitionRevision": 1,
     "reviewer": "Current ATLAS user",
-    "reviewedAt": "2026-08-04T21:04:40.932082+00:00",
-    "confirmedAt": "2026-08-04T21:06:04.422332+00:00",
+    "reviewedAt": "2026-08-08T00:33:04.025329+00:00",
+    "confirmedAt": "2026-08-08T00:33:18.499608+00:00",
     "semanticSeparation": {
       "nullMissingValues": "separate",
       "parseFailures": "separate",
@@ -865,7 +1477,7 @@
   "creditRiskContext": {},
   "createdAt": "2026-07-31T21:47:11.097830+00:00",
   "capturedAt": "2026-07-31T21:47:11.097830+00:00",
-  "updatedAt": "2026-08-04T21:06:04.711496+00:00",
+  "updatedAt": "2026-08-08T00:33:19.158554+00:00",
   "createdBy": "ATLAS",
   "qualityScore": 86,
   "activation_revision": 1

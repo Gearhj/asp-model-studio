@@ -111,10 +111,17 @@ function validCanonicalContract(
 ) {
   if (!contract) return false;
   const buckets = new Set(contract.non_overlapping_quality_buckets ?? []);
+  const scopeIsValid =
+    contract.scope === "full_dataset_aggregates" ||
+    (contract.scope === "governed_mixed_scope" &&
+      contract.descriptive_scope === "full_governed_population" &&
+      contract.target_directed_scope === "development_population" &&
+      Number(contract.target_directed_rows ?? 0) > 0 &&
+      contract.final_holdout_accessed === false);
   return (
     contract.version === "eda-predictor-visual-v1" &&
     contract.request_mode === "single_batched_workspace_request" &&
-    contract.scope === "full_dataset_aggregates" &&
+    scopeIsValid &&
     contract.raw_observations_included === false &&
     contract.server_authorized_predictors_only === true &&
     contract.target_excluded === true &&
@@ -128,7 +135,9 @@ function validCanonicalContract(
 
 function canonicalEventBins(profile: PredictorVisualProfile) {
   if (
-    profile.event_rate_shape?.scope !== "full_dataset_aggregates" ||
+    !["full_dataset_aggregates", "development_population"].includes(
+      profile.event_rate_shape?.scope
+    ) ||
     profile.event_rate_shape?.raw_observations_included !== false
   ) {
     return [];
@@ -193,6 +202,8 @@ function buildCanonicalRows(
   authorized: Set<string>
 ) {
   if (!validCanonicalContract(input.predictorVisualContract)) return [];
+  const governedMixedScope =
+    input.predictorVisualContract?.scope === "governed_mixed_scope";
   const vifByFeature = new Map(
     (input.vif ?? []).map((row) => [
       normalizedName(row.feature),
@@ -209,7 +220,15 @@ function buildCanonicalRows(
       seen.has(normalizedFeature) ||
       !authorized.has(normalizedFeature) ||
       excluded.has(normalizedFeature) ||
-      profile.scope !== "full_dataset_aggregates" ||
+      (governedMixedScope
+        ? profile.scope !== "governed_mixed_scope" ||
+          profile.descriptive_scope !== "full_governed_population" ||
+          profile.target_directed_scope !== "development_population" ||
+          Number(profile.target_directed_rows ?? 0) <= 0 ||
+          profile.event_rate_shape?.scope !== "development_population" ||
+          profile.event_rate_shape?.final_holdout_accessed !== false
+        : profile.scope !== "full_dataset_aggregates" ||
+          profile.event_rate_shape?.scope !== "full_dataset_aggregates") ||
       profile.missing?.semantics !== "null_only" ||
       profile.bureau_special?.missing_values_included !== false
     ) {

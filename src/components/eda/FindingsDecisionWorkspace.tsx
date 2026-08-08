@@ -493,6 +493,8 @@ function ParentFindingDetail({
     parent,
     decision.disposition,
   );
+  const systemOwned =
+    parent.requirement === "informational" && Boolean(parent.systemDisposition);
   return (
     <article
       className="rounded-xl border border-slate-200 bg-white shadow-sm"
@@ -567,6 +569,7 @@ function ParentFindingDetail({
               <select
                 className="atlas-input mt-1"
                 value={decision.disposition}
+                disabled={systemOwned}
                 onChange={(event) =>
                   onDecision({
                     ...decision,
@@ -597,6 +600,7 @@ function ParentFindingDetail({
               <select
                 className="atlas-input mt-1"
                 value={decision.destination}
+                disabled={systemOwned}
                 onChange={(event) =>
                   onDecision({
                     ...decision,
@@ -621,6 +625,7 @@ function ParentFindingDetail({
               <textarea
                 className="atlas-input mt-1 min-h-24"
                 value={decision.rationale}
+                disabled={systemOwned}
                 onChange={(event) =>
                   onDecision({ ...decision, rationale: event.target.value })
                 }
@@ -629,6 +634,17 @@ function ParentFindingDetail({
               />
             </label>
           </div>
+          {systemOwned ? (
+            <div
+              className="mt-3 rounded-md border border-blue-200 bg-blue-50 p-2 text-xs leading-5 text-blue-900"
+              role="status"
+              data-testid="eda-parent-system-disposition"
+            >
+              Informational evidence is already documented by ATLAS. Its
+              canonical system disposition is read-only and requires no reviewer
+              action.
+            </div>
+          ) : null}
           {needsRationale && !decision.rationale.trim() ? (
             <div
               className="mt-2 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900"
@@ -752,6 +768,9 @@ export default function FindingsDecisionWorkspace({
     parent: EdaParentFinding,
     decision: EdaFindingDecision,
   ) {
+    if (parent.requirement === "informational" && parent.systemDisposition) {
+      return;
+    }
     onChange({
       ...state,
       parentDecisions: {
@@ -993,11 +1012,13 @@ export default function FindingsDecisionWorkspace({
               onChange={(event) => setBulkFamily(event.target.value)}
             >
               <option value="">Select family</option>
-              {governance.finding_groups.map((group) => (
+              {governance.finding_groups
+                .filter((group) => group.requirement !== "informational")
+                .map((group) => (
                 <option key={group.family} value={group.family}>
                   {group.title} ({group.child_count})
                 </option>
-              ))}
+                ))}
             </select>
           </label>
           <label>

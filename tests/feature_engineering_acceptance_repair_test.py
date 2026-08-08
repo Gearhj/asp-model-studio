@@ -105,6 +105,10 @@ def governed_frame() -> pd.DataFrame:
     revolving_burden[5] = -9.0
     total_trades = [float(12 + ((index // 2) % 20)) for index in range(row_count)]
     satisfactory_trades = [value - float((index // 4) % 4) for index, value in enumerate(total_trades)]
+    application_dates = [
+        (pd.Timestamp("2023-01-01") + pd.Timedelta(days=index)).date().isoformat()
+        for index in range(row_count)
+    ]
     return pd.DataFrame(
         {
             TARGET_SOURCE: ["Bad" if value else "Good" for value in target],
@@ -118,6 +122,8 @@ def governed_frame() -> pd.DataFrame:
             ],
             "NumTotalTrades": total_trades,
             "NumSatisfactoryTrades": satisfactory_trades,
+            "application_date": application_dates,
+            "account_date_note": ["not-a-date" for _ in range(row_count)],
             TARGET: target,
         }
     )
@@ -266,6 +272,20 @@ def arithmetic_definition(*, selected: bool = True) -> FeatureDefinitionInput:
     )
 
 
+def date_derived_definition(*, selected: bool = True) -> FeatureDefinitionInput:
+    return FeatureDefinitionInput(
+        feature_name="Acceptance_Application_Month",
+        display_name="Application month",
+        origin="date-derived",
+        source_features=["application_date"],
+        transformation_type="date-derived",
+        formula_or_rule="month(application_date)",
+        output_datatype="numeric",
+        selected=selected,
+        config={"component": "month"},
+    )
+
+
 def all_builder_definitions() -> list[FeatureDefinitionInput]:
     return [
         interaction_definition(),
@@ -273,6 +293,7 @@ def all_builder_definitions() -> list[FeatureDefinitionInput]:
         rule_definition(),
         polynomial_definition(),
         arithmetic_definition(),
+        date_derived_definition(),
     ]
 
 
@@ -343,14 +364,14 @@ class FeatureEngineeringAcceptanceRepairTests(unittest.TestCase):
         )
         self.assertEqual(confirmed["persistence_status"], "persisted")
 
-    def test_all_five_builders_materialize_deterministically_with_bureau_values(self) -> None:
+    def test_all_six_builders_materialize_deterministically_with_bureau_values(self) -> None:
         definitions = all_builder_definitions()
         manifest, preview, materialized = self._save_preview_materialize(definitions)
         expected_names = [definition.feature_name for definition in definitions]
 
         self.assertEqual(preview["created_features"], expected_names)
         self.assertEqual(materialized["materialized_features"], expected_names)
-        self.assertEqual(materialized["engineered_feature_count"], 5)
+        self.assertEqual(materialized["engineered_feature_count"], 6)
         self.assertEqual(materialized["manifest_hash"], manifest["manifest_hash"])
         frame = DATASTORE.processed_df
         self.assertIsNotNone(frame)
@@ -367,6 +388,14 @@ class FeatureEngineeringAcceptanceRepairTests(unittest.TestCase):
         self.assertGreaterEqual(
             float(frame["Acceptance_Unsatisfactory_Trades"].min()), 0.0
         )
+        self.assertEqual(frame.loc[0, "Acceptance_Application_Month"], 1)
+        self.assertEqual(frame.loc[31, "Acceptance_Application_Month"], 2)
+        original_date = next(
+            row
+            for row in manifest["features"]
+            if row["feature_name"] == "application_date"
+        )
+        self.assertRegex(str(original_date["output_datatype"]), r"date|time")
         refreshed = get_manifest(**identity_kwargs())
         engineered = {
             row["feature_name"]: row
@@ -432,6 +461,17 @@ class FeatureEngineeringAcceptanceRepairTests(unittest.TestCase):
                     source_features=["AverageMInFile"],
                     transformation_type="date-derived",
                     formula_or_rule="year(AverageMInFile)",
+                    config={"component": "year"},
+                ),
+                "requires a governed date or timestamp predictor",
+            ),
+            (
+                FeatureDefinitionInput(
+                    feature_name="Acceptance_Arbitrary_Text_Year",
+                    origin="date-derived",
+                    source_features=["account_date_note"],
+                    transformation_type="date-derived",
+                    formula_or_rule="year(account_date_note)",
                     config={"component": "year"},
                 ),
                 "requires a governed date or timestamp predictor",

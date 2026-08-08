@@ -42,7 +42,8 @@ assert.doesNotMatch(step, /<VisualAnalysisPanel/);
 assert.doesNotMatch(step, /eda\/histogram\/\$\{/);
 assert.match(step, /data-testid="eda-predictor-authorization"/);
 assert.match(step, /data-testid="eda-linked-selection-summary"/);
-assert.match(step, /setSelectionScope\([\s\S]*\$\{datasetIdentity\.project_id\}:\$\{datasetIdentity\.dataset_id\}:\$\{datasetIdentity\.dataset_version_id\}:\$\{overview\.target\}`/);
+assert.match(step, /const activeHandoffKey = activeCanonicalHandoff[\s\S]{0,160}JSON\.stringify\(buildCanonicalEdaRequestContract\(activeCanonicalHandoff\)\)/);
+assert.match(step, /if \(!activeHandoffKey \|\| !overview\?\.target\) return;[\s\S]{0,100}setSelectionScope\(activeHandoffKey\)/);
 assert.match(step, /props\.onRun\(\{ pairwise_features: nextPairwise \}\)/);
 assert.match(step, /data-testid="pairwise-linked-range"/);
 assert.match(step, /selectedRange=\{selectedRange\}/);
@@ -100,11 +101,11 @@ assert.match(correlation, /Accessible data table/);
 assert.match(correlation, /Use Tab to focus visible cells and Enter to pin/);
 assert.match(correlation, /prefers-reduced-motion: reduce/);
 
-// VIF Explorer: review-only thresholds, version-scoped decisions, strongest
+// VIF Explorer: review-only thresholds, exact-lineage-scoped decisions, strongest
 // relationship linkage, and a non-mutating server-side what-if contract.
 assert.match(vif, /VIF 5–&lt;10 and VIF ≥10 are review thresholds, not automatic removal/);
 assert.match(vif, /const DECISION_STORAGE_PREFIX = "atlas\.eda\.vif-decisions"/);
-assert.match(vif, /decisionStorageKey\(datasetVersion\)/);
+assert.match(vif, /decisionStorageKey\(lineageKey\)/);
 assert.match(vif, /window\.localStorage\.setItem/);
 assert.match(vif, /"retain" \| "drop" \| "combine"/);
 assert.match(vif, /function strongestPartners/);
@@ -169,7 +170,8 @@ assert.match(service, /record_target = str\(record\.get\("target_column"\) or ""
 assert.match(service, /The requested target does not match the exact Data Acquisition target contract/);
 assert.match(service, /authorization\["authorized_predictors"\]/);
 assert.match(service, /df = active\.loc\[:, \[\*keep, target\]\]\.copy\(\)/);
-assert.match(service, /"target_source_excluded": sorted\(target_sources\)/);
+assert.match(service, /target_source_names = \[[\s\S]{0,140}manifest\.get\("target_source_excluded", \[\]\)/);
+assert.match(service, /"target_source_excluded": target_source_names/);
 assert.match(service, /"rejected_requested_features": \[/);
 assert.match(service, /"distribution": self\._distribution/);
 assert.match(service, /feature == target or feature not in df\.columns/);

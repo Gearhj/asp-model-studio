@@ -82,6 +82,9 @@ async function compileTestModules() {
   // own two tiny ambient-cache deps must be transpiled alongside it.
   await transpileSource("src/lib/activeProjectContext.ts", path.join(TMP_DIR, "src/lib/activeProjectContext.js"));
   await transpileSource("src/lib/authSession.ts", path.join(TMP_DIR, "src/lib/authSession.js"));
+  await transpileSource("src/lib/datasetIdentity.ts", path.join(TMP_DIR, "src/lib/datasetIdentity.js"));
+  await transpileSource("src/lib/authoritativeProjectContext.ts", path.join(TMP_DIR, "src/lib/authoritativeProjectContext.js"));
+  await transpileSource("src/lib/projectScopedRoutes.ts", path.join(TMP_DIR, "src/lib/projectScopedRoutes.js"));
   await transpileSource("src/lib/localDataset.ts", path.join(TMP_DIR, "src/lib/localDataset.js"));
   await transpileSource("src/lib/localProjects.ts", path.join(TMP_DIR, "src/lib/localProjects.js"));
   return {

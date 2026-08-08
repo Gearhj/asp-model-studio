@@ -60,6 +60,18 @@ function contract(profileCount) {
   };
 }
 
+function governedMixedContract(profileCount) {
+  return {
+    ...contract(profileCount),
+    scope: "governed_mixed_scope",
+    descriptive_scope: "full_governed_population",
+    target_directed_scope: "development_population",
+    target_directed_rows: 80,
+    analysis_population_id: "development-test-partition",
+    final_holdout_accessed: false,
+  };
+}
+
 function numericProfile(feature) {
   return {
     feature,
@@ -169,6 +181,42 @@ function categoricalProfile(feature) {
   };
 }
 
+function governedMixedScopeProfile(feature) {
+  const profile = numericProfile(feature);
+  return {
+    ...profile,
+    scope: "governed_mixed_scope",
+    descriptive_scope: "full_governed_population",
+    target_directed_scope: "development_population",
+    target_directed_rows: 80,
+    missing: {
+      ...profile.missing,
+      structural_scope: "full_governed_population",
+      event_rate_scope: "development_population",
+    },
+    bureau_special: {
+      ...profile.bureau_special,
+      structural_scope: "full_governed_population",
+      event_rate_scope: "development_population",
+    },
+    ordinary_outlier: {
+      ...profile.ordinary_outlier,
+      structural_scope: "full_governed_population",
+    },
+    event_rate_shape: {
+      ...profile.event_rate_shape,
+      scope: "development_population",
+      analysis_population_id: "development-test-partition",
+      population_rows: 80,
+      final_holdout_accessed: false,
+      groups: [
+        { label: "Q1", count: 32, event_rate: 0.1 },
+        { label: "Q2", count: 32, event_rate: 0.3 },
+      ],
+    },
+  };
+}
+
 test("canonical adapter fails closed and excludes target-lineage fields", () => {
   const profiles = [
     numericProfile("utilization"),
@@ -215,6 +263,61 @@ test("canonical adapter fails closed and excludes target-lineage fields", () => 
       predictorVisualContract: invalidContract,
       authorizedPredictors: ["utilization", "region"],
       target: "outcome",
+      rowCount: 100,
+    }),
+    []
+  );
+});
+
+test("governed mixed-scope profiles render development-only target shapes", () => {
+  const mixedScope = governedMixedScopeProfile("ExternalRiskEstimate");
+  const rows = dataModule.buildAuthorizedPredictorVisualData({
+    predictorVisualProfiles: [mixedScope],
+    predictorVisualContract: governedMixedContract(1),
+    authorizedPredictors: ["ExternalRiskEstimate"],
+    target: "bad_flag",
+    rowCount: 100,
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].feature, "ExternalRiskEstimate");
+  assert.deepEqual(
+    rows[0].eventRateBins.map((row) => [row.label, row.count, row.eventRate]),
+    [
+      ["Q1", 32, 0.1],
+      ["Q2", 32, 0.3],
+    ]
+  );
+  assert.ok(Math.abs(rows[0].eventRateSpread - 0.2) < 1e-12);
+
+  // Preserve compatibility with the legacy, internally consistent all-full-
+  // aggregate shape while current governed workspaces migrate to mixed scope.
+  assert.equal(
+    dataModule.buildAuthorizedPredictorVisualData({
+      predictorVisualProfiles: [numericProfile("legacy_feature")],
+      predictorVisualContract: contract(1),
+      authorizedPredictors: ["legacy_feature"],
+      target: "bad_flag",
+      rowCount: 100,
+    }).length,
+    1
+  );
+
+  // Mixed-scope target evidence is admissible only when its development
+  // population and sealed-holdout non-access are explicit.
+  const unsafeHoldoutProfile = {
+    ...mixedScope,
+    event_rate_shape: {
+      ...mixedScope.event_rate_shape,
+      final_holdout_accessed: true,
+    },
+  };
+  assert.deepEqual(
+    dataModule.buildAuthorizedPredictorVisualData({
+      predictorVisualProfiles: [unsafeHoldoutProfile],
+      predictorVisualContract: governedMixedContract(1),
+      authorizedPredictors: ["ExternalRiskEstimate"],
+      target: "bad_flag",
       rowCount: 100,
     }),
     []

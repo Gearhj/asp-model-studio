@@ -46,6 +46,13 @@ export type ExactRecovery = {
   artifactFormat: string;
 };
 
+export type ExactFinalModelHandoff = {
+  candidateId?: string;
+  trainingRunId?: string;
+  candidateDecisionId?: string;
+  evaluationPackageId?: string;
+};
+
 type PromotionResponse = {
   ok?: boolean;
   error?: string;
@@ -74,6 +81,53 @@ function assertEqual(actual: unknown, expected: string, label: string) {
 
 function lineageValue(lineage: Record<string, unknown>, camel: string, snake: string) {
   return lineage[camel] ?? lineage[snake];
+}
+
+function normalizedExactHandoff(handoff: ExactFinalModelHandoff | undefined) {
+  const normalized = {
+    candidateId: text(handoff?.candidateId),
+    trainingRunId: text(handoff?.trainingRunId),
+    candidateDecisionId: text(handoff?.candidateDecisionId),
+    evaluationPackageId: text(handoff?.evaluationPackageId),
+  };
+  const hasExplicitHandoff = Object.values(normalized).some(Boolean);
+  if (hasExplicitHandoff && Object.values(normalized).some((value) => !value)) {
+    throw new Error(
+      "Exact final-model recovery requires candidate_id, training_run_id, candidate_decision_id, and evaluation_package_id from the same Evaluation handoff. No current-model fallback was used.",
+    );
+  }
+  return hasExplicitHandoff ? normalized : null;
+}
+
+function exactVersionIdentity(
+  version: Record<string, unknown>,
+  metadata: Record<string, unknown>,
+) {
+  const lineage = (
+    version.lineage && typeof version.lineage === "object"
+      ? version.lineage
+      : metadata.lineage && typeof metadata.lineage === "object"
+        ? metadata.lineage
+        : {}
+  ) as Record<string, unknown>;
+  return {
+    candidateId: text(
+      version.candidateId ?? version.candidate_id ?? metadata.candidate_id ??
+      metadata.candidateId ?? lineageValue(lineage, "candidateId", "candidate_id"),
+    ),
+    trainingRunId: text(
+      version.trainingRunId ?? version.training_run_id ?? metadata.training_run_id ??
+      metadata.trainingRunId ?? lineageValue(lineage, "trainingRunId", "training_run_id"),
+    ),
+    candidateDecisionId: text(
+      version.candidateDecisionId ?? version.candidate_decision_id ?? metadata.candidate_decision_id ??
+      metadata.candidateDecisionId ?? lineageValue(lineage, "candidateDecisionId", "candidate_decision_id"),
+    ),
+    evaluationPackageId: text(
+      version.evaluationPackageId ?? version.evaluation_package_id ?? metadata.evaluation_package_id ??
+      metadata.evaluationPackageId ?? lineageValue(lineage, "evaluationPackageId", "evaluation_package_id"),
+    ),
+  };
 }
 
 function validatePromotion(
@@ -241,13 +295,21 @@ export async function restoreExactFinalModel(
   apiBase: string,
   identity: CanonicalDatasetIdentity,
   target: string,
+  expectedHandoff?: ExactFinalModelHandoff,
 ): Promise<{ promotion: DurablePromotion; recovery: ExactRecovery; metadata: Record<string, unknown> } | null> {
+  const exactHandoff = normalizedExactHandoff(expectedHandoff);
   const params = new URLSearchParams({
     project_id: identity.project_id,
     dataset_id: identity.dataset_id,
     dataset_version_id: identity.dataset_version_id,
     target,
   });
+  if (exactHandoff) {
+    params.set("candidate_id", exactHandoff.candidateId);
+    params.set("training_run_id", exactHandoff.trainingRunId);
+    params.set("candidate_decision_id", exactHandoff.candidateDecisionId);
+    params.set("evaluation_package_id", exactHandoff.evaluationPackageId);
+  }
   const statusResponse = await fetch(`${apiBase}/model/final/status?${params.toString()}`, { credentials: "include" });
   const status = await responseJson(statusResponse);
   if (!status?.ready) return null;
@@ -261,7 +323,6 @@ export async function restoreExactFinalModel(
   ) as Record<string, unknown>;
   const modelVersionId = text(metadata.model_version_id) || text(metadata.modelVersionId);
   if (!modelVersionId) throw new Error("Final-model status did not identify an exact registered model version.");
-  const recovery = await verifyExactModelRecovery(apiBase, modelVersionId, identity.project_id);
   assertEqual(metadata.project_id ?? metadata.projectId, identity.project_id, "project_id");
   assertEqual(metadata.training_dataset_id ?? metadata.dataset_id ?? metadata.datasetId, identity.dataset_id, "training_dataset_id");
   assertEqual(
@@ -270,6 +331,20 @@ export async function restoreExactFinalModel(
     "training_dataset_version_id",
   );
   assertEqual(metadata.target_name ?? metadata.target, target, "target");
+  const restoredIdentity = exactVersionIdentity(version, metadata);
+  if (exactHandoff) {
+    try {
+      assertEqual(restoredIdentity.candidateId, exactHandoff.candidateId, "candidate_id");
+      assertEqual(restoredIdentity.trainingRunId, exactHandoff.trainingRunId, "training_run_id");
+      assertEqual(restoredIdentity.candidateDecisionId, exactHandoff.candidateDecisionId, "candidate_decision_id");
+      assertEqual(restoredIdentity.evaluationPackageId, exactHandoff.evaluationPackageId, "evaluation_package_id");
+    } catch {
+      throw new Error(
+        "The registered final model does not match the exact Evaluation handoff. Promote this candidate explicitly before continuing; no current-model fallback was used.",
+      );
+    }
+  }
+  const recovery = await verifyExactModelRecovery(apiBase, modelVersionId, identity.project_id);
   const designation = text(metadata.designation ?? metadata.champion_status);
   if (designation !== "champion" && designation !== "challenger") {
     throw new Error("Final-model status is missing its champion or challenger designation.");

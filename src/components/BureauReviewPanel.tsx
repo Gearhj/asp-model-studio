@@ -332,6 +332,8 @@ function emptyBrowserReviewDraft(): BureauReviewState {
 
 export const FOCUS_FIRST_SPECIAL_VALUE_REVIEW_EVENT =
   "atlas-special-value-review:focus-first-unresolved";
+export const CONFIRM_SPECIAL_VALUE_REVIEW_EVENT =
+  "atlas-special-value-review:confirm-ready-draft";
 
 type SpecialValueVariableSort =
   | "unresolved_first"
@@ -351,6 +353,8 @@ export type BureauReviewPanelStatus = {
   totalVariables: number;
   reviewedVariables: number;
   unresolvedRequirements: number;
+  draftUnresolvedRequirements: number;
+  readyToConfirm: boolean;
   confirmed: boolean;
   blocking: boolean;
   durableStatus?: SpecialValueReviewContract["status"];
@@ -520,6 +524,7 @@ export default function BureauReviewPanel({
   eventValue,
   enabled,
   datasetIdentity,
+  refreshRevision = 0,
   onReviewStatus,
   onReviewResult,
 }: {
@@ -527,6 +532,7 @@ export default function BureauReviewPanel({
   eventValue: unknown;
   enabled: boolean;
   datasetIdentity: CanonicalDatasetIdentity | null;
+  refreshRevision?: number;
   onReviewStatus?: (status: BureauReviewPanelStatus) => void;
   onReviewResult?: (result: BureauReviewPanelResult | null) => void;
 }) {
@@ -689,6 +695,7 @@ export default function BureauReviewPanel({
     datasetIdentity?.dataset_id,
     datasetIdentity?.dataset_version_id,
     datasetIdentity?.activation_revision,
+    refreshRevision,
   ]);
 
   useEffect(() => {
@@ -973,15 +980,33 @@ export default function BureauReviewPanel({
 
   useEffect(() => {
     const handleFocusRequest = () => revealFirstUnresolved();
+    const handleConfirmRequest = () => {
+      if (draftUnresolvedCount > 0) {
+        revealFirstUnresolved();
+        return;
+      }
+      if (!loading && !error && result && durableReview && !saving) {
+        void persistReview("confirmed");
+      }
+    };
     window.addEventListener(
       FOCUS_FIRST_SPECIAL_VALUE_REVIEW_EVENT,
       handleFocusRequest,
     );
-    return () =>
+    window.addEventListener(
+      CONFIRM_SPECIAL_VALUE_REVIEW_EVENT,
+      handleConfirmRequest,
+    );
+    return () => {
       window.removeEventListener(
         FOCUS_FIRST_SPECIAL_VALUE_REVIEW_EVENT,
         handleFocusRequest,
       );
+      window.removeEventListener(
+        CONFIRM_SPECIAL_VALUE_REVIEW_EVENT,
+        handleConfirmRequest,
+      );
+    };
   });
   const treatmentCounts = useMemo(() => {
     const counts = new Map<BureauHandling, number>();
@@ -1022,12 +1047,28 @@ export default function BureauReviewPanel({
   );
 
   useEffect(() => {
+    const effectiveUnresolvedCount = draftDirty
+      ? draftUnresolvedCount
+      : unresolvedCount;
+    const readyToConfirm = Boolean(
+      !loading &&
+        !error &&
+        !saving &&
+        result &&
+        durableReview &&
+        effectiveUnresolvedCount === 0 &&
+        !confirmedAndClean,
+    );
     onReviewStatus?.({
       loading,
       detected: Boolean(durableReview && durableReview.detected_count > 0),
       totalVariables: durableReview?.detected_count ?? likelyVariables.length,
-      reviewedVariables: reviewedCount,
-      unresolvedRequirements: unresolvedCount,
+      reviewedVariables: draftDirty
+        ? Math.max(0, likelyVariables.length - draftUnresolvedCount)
+        : reviewedCount,
+      unresolvedRequirements: effectiveUnresolvedCount,
+      draftUnresolvedRequirements: draftUnresolvedCount,
+      readyToConfirm,
       confirmed: Boolean(
         durableReview?.status === "confirmed" &&
           durableReview.open_count === 0 &&
@@ -1035,6 +1076,7 @@ export default function BureauReviewPanel({
       ),
       blocking: Boolean(
         loading ||
+          saving ||
           error ||
           !durableReview ||
           draftDirty ||
@@ -1048,12 +1090,15 @@ export default function BureauReviewPanel({
   }, [
     draftDirty,
     durableReview,
+    draftUnresolvedCount,
     error,
     firstUnresolvedVariable,
     likelyVariables.length,
     loading,
     onReviewStatus,
     reviewedCount,
+    result,
+    saving,
     unresolvedCount,
   ]);
 
@@ -1114,11 +1159,13 @@ export default function BureauReviewPanel({
     });
   }
 
-  function applyBulkTreatment() {
+  function applyBulkTreatment(
+    selectedHandling: "" | BureauHandling = bulkHandling,
+  ) {
     const unresolvedVariables = bulkEligibleVariables;
-    if (!bulkHandling || !unresolvedVariables.length) return;
+    if (!selectedHandling || !unresolvedVariables.length) return;
     if (
-      treatmentRequiresReplacement(bulkHandling) &&
+      treatmentRequiresReplacement(selectedHandling) &&
       !bulkReplacementValue.trim()
     ) {
       setMessage(
@@ -1134,12 +1181,12 @@ export default function BureauReviewPanel({
       const existing = defaultDecision(state, variable.variable);
       return {
         ...existing,
-        handling: bulkHandling,
-        replacementValue: treatmentRequiresReplacement(bulkHandling)
+        handling: selectedHandling,
+        replacementValue: treatmentRequiresReplacement(selectedHandling)
           ? bulkReplacementValue.trim()
           : undefined,
         rationale:
-          existing.handling === bulkHandling ? existing.rationale : "",
+          existing.handling === selectedHandling ? existing.rationale : "",
         updatedAt: now,
       } satisfies BureauVariableDefault;
     });
@@ -1152,18 +1199,18 @@ export default function BureauReviewPanel({
         ),
       ],
     });
-    if (treatmentRequiresRationale(bulkHandling, false)) {
+    if (treatmentRequiresRationale(selectedHandling, false)) {
       setSelectedVariable(unresolvedVariables[0]?.variable ?? "");
     }
     setMessage(
-      `${handlingLabels[bulkHandling]} applied to ${unresolvedVariables.length.toLocaleString()} unresolved filtered attribute${unresolvedVariables.length === 1 ? "" : "s"} in this browser draft. Save Draft Review or confirm explicitly to make it durable.`,
+      `${handlingLabels[selectedHandling]} applied to ${unresolvedVariables.length.toLocaleString()} unresolved filtered attribute${unresolvedVariables.length === 1 ? "" : "s"} in this browser draft. Save Draft Review or confirm explicitly to make it durable.`,
     );
     logDecision({
       workflowStep: "Data Acquisition",
       actionType: "workflow_setting_changed",
       subject: `${unresolvedVariables.length} unresolved special-value feature treatments`,
       previousValue: "Mixed feature-level policies",
-      newValue: bulkHandling,
+      newValue: selectedHandling,
       systemRecommendation:
         "Bulk changes remain a browser draft until the reviewer explicitly saves or confirms the complete governed treatment contract.",
       userReason: state.rationale,
@@ -2049,9 +2096,18 @@ export default function BureauReviewPanel({
                             className="atlas-input mt-1"
                             value={bulkHandling}
                             data-testid="special-value-bulk-treatment"
-                            onChange={(event) =>
-                              setBulkHandling(event.target.value as "" | BureauHandling)
-                            }
+                            onChange={(event) => {
+                              const selectedHandling = event.target.value as
+                                | ""
+                                | BureauHandling;
+                              setBulkHandling(selectedHandling);
+                              if (
+                                selectedHandling &&
+                                !treatmentRequiresReplacement(selectedHandling)
+                              ) {
+                                applyBulkTreatment(selectedHandling);
+                              }
+                            }}
                           >
                             <option value="">Select a treatment</option>
                             {selectableHandlingEntries().map((option) => (
@@ -2077,24 +2133,23 @@ export default function BureauReviewPanel({
                             />
                           </label>
                         ) : null}
-                        <button
-                          type="button"
-                          className="atlas-secondary-button"
-                          data-testid="apply-bulk-special-value-treatment"
-                          disabled={
-                            !bulkHandling ||
-                            !unresolvedFilteredCount ||
-                            (bulkHandling === "documented_domain_mapping" &&
-                              !bulkReplacementValue.trim())
-                          }
-                          onClick={applyBulkTreatment}
-                        >
-                          Apply selected default to unresolved attributes
-                        </button>
+                        {bulkHandling && unresolvedFilteredCount > 0 ? (
+                          <button
+                            type="button"
+                            className="atlas-primary-button"
+                            data-testid="apply-special-value-bulk-treatment"
+                            disabled={
+                              treatmentRequiresReplacement(bulkHandling) &&
+                              !bulkReplacementValue.trim()
+                            }
+                            onClick={() => applyBulkTreatment(bulkHandling)}
+                          >
+                            Apply selected treatment to {unresolvedFilteredCount.toLocaleString()} unresolved feature{unresolvedFilteredCount === 1 ? "" : "s"}
+                          </button>
+                        ) : null}
                       </div>
                       <p className="mt-2 text-xs leading-5 text-slate-600">
-                        {unresolvedFilteredCount.toLocaleString()} durably open filtered attribute{unresolvedFilteredCount === 1 ? "" : "s"} have no explicit unsaved edit and are eligible. Selecting a bulk treatment changes nothing until you
-                        press Apply. Rows with an explicit browser edit are never overwritten. Applied changes remain a browser draft; they are neither saved nor confirmed automatically.
+                        {unresolvedFilteredCount.toLocaleString()} durably open filtered attribute{unresolvedFilteredCount === 1 ? "" : "s"} have no explicit unsaved edit and are eligible. Selecting an indicator, exclusion, or unchanged-value policy applies it immediately to those attributes as a browser draft. Imputation requires a governed replacement value before it is applied. Rows with an explicit browser edit are never overwritten. Applied changes are neither saved nor confirmed automatically.
                       </p>
                     </div>
 

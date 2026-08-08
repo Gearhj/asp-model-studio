@@ -355,7 +355,9 @@ test("special-value review is visually prominent, discoverable, and blocking whe
   assert.match(specialValues, /data-testid="special-value-feature-table"/);
   assert.match(specialValues, /data-testid="special-value-feature-row"/);
   assert.match(specialValues, /aria-label=\{`Selected treatment for \$\{variable\.variable\}`\}/);
-  assert.match(specialValues, /Apply selected default to unresolved attributes/);
+  assert.match(specialValues, /applyBulkTreatment\(selectedHandling\)/);
+  assert.match(specialValues, /data-testid="apply-special-value-bulk-treatment"/);
+  assert.match(specialValues, /Apply selected treatment to/);
   assert.match(specialValues, /data-testid="confirmed-special-value-summary"/);
   assert.match(specialValues, /Confirm Special-Value Treatment/);
   assert.match(
@@ -367,6 +369,10 @@ test("special-value review is visually prominent, discoverable, and blocking whe
   assert.match(specialValues, /browser draft has unsaved changes and is not authoritative/);
   assert.match(specialValues, /durableReview\.blocks_continuation/);
   assert.match(specialValues, /onReviewStatus\?\.\(\{[\s\S]*unresolvedRequirements:[\s\S]*blocking:/);
+  assert.match(specialValues, /draftUnresolvedRequirements: draftUnresolvedCount/);
+  assert.match(specialValues, /readyToConfirm/);
+  assert.match(specialValues, /CONFIRM_SPECIAL_VALUE_REVIEW_EVENT/);
+  assert.match(specialValues, /persistReview\("confirmed"\)/);
 
   const callout = sourceBetween(
     acquisition,
@@ -391,5 +397,11 @@ test("special-value review is visually prominent, discoverable, and blocking whe
   assert.match(continuationGate, /canContinue: false/);
   assert.match(continuationGate, /Special-value review required/);
   assert.match(continuationGate, /Complete Special-Value Review to Continue/);
+  assert.match(continuationGate, /Confirm Special-Value Treatment to Continue/);
+  assert.match(continuationGate, /bureauReviewStatus\?\.readyToConfirm/);
   assert.match(continuationGate, /Confirm the governed Special-Value Treatment Review before continuing/);
+  assert.match(
+    acquisition,
+    /bureauReviewStatus\?\.readyToConfirm[\s\S]*CONFIRM_SPECIAL_VALUE_REVIEW_EVENT[\s\S]*FOCUS_FIRST_SPECIAL_VALUE_REVIEW_EVENT/,
+  );
 });

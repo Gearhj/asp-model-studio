@@ -2,7 +2,20 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from types import SimpleNamespace
+import uuid
+
+from tests.hermetic_test_roots import make_test_root
+
+
+_TEST_RUN_ID = uuid.uuid4().hex
+_TEST_ROOT = make_test_root(
+    f"special-value-legacy-refresh-{_TEST_RUN_ID}-",
+    scope="temp",
+)
+_CHECKPOINT_PATH = _TEST_ROOT / "checkpoint" / f"workflow-{uuid.uuid4().hex}.json"
+os.environ["ATLAS_CHECKPOINT_PATH"] = str(_CHECKPOINT_PATH)
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
@@ -12,11 +25,15 @@ from server.analysis_partition.types import (
     ANALYSIS_PARTITION_REQUIRED,
     AnalysisPartitionError,
 )
+import server.core.session_checkpoint as checkpoint_module
 from server.core.dataset_store import DatasetStore
 from server.persistence.db import Database
 from server.persistence.service import PersistenceService
 from server.preprocessing import bureau_detection_router as router_module
 from server.preprocessing import bureau_detection_service as service_module
+
+
+checkpoint_module.CHECKPOINT_PATH = _CHECKPOINT_PATH
 
 
 PROJECT_ID = "project-special-value-legacy-refresh"
@@ -94,11 +111,14 @@ def _client() -> TestClient:
 
 def test_automatic_detection_supersedes_legacy_review_contract(
     monkeypatch,
-    tmp_path,
 ) -> None:
     """An exact legacy row self-heals through the panel's POST-then-GET order."""
 
-    database = Database(tmp_path / "atlas-isolated.db")
+    database_path = (
+        _TEST_ROOT / "database" / f"atlas-isolated-{uuid.uuid4().hex}.db"
+    )
+    database_path.parent.mkdir(parents=True, exist_ok=True)
+    database = Database(database_path)
     assert database.initialize()["ok"] is True
     persistence = PersistenceService(database)
     persistence.projects.ensure(

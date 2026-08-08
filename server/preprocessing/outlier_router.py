@@ -157,6 +157,40 @@ def _record_matches_scope(
     )
 
 
+def _full_dataset_application_metadata(
+    scope: DevelopmentAnalysisScope,
+) -> Dict[str, Any]:
+    """Describe a full-population transform without widening analysis scope.
+
+    Outlier cutoffs and every target-directed comparison are resolved from the
+    sealed development population, but the accepted treatment is materialized
+    over the exact full governed dataset.  Keep both facts explicit so callers
+    cannot mistake the analysis population for the application population.
+    """
+
+    return {
+        **scope.metadata(),
+        "scope": "full_dataset",
+        "application_scope": "full_dataset",
+        "materialization_scope": "full_dataset",
+        "application_source_population": "full_governed_population",
+    }
+
+
+def _public_application(record: Any) -> Any:
+    """Normalize an older stored application at the response boundary."""
+
+    if not isinstance(record, dict):
+        return record
+    return {
+        **record,
+        "scope": "full_dataset",
+        "application_scope": "full_dataset",
+        "materialization_scope": "full_dataset",
+        "application_source_population": "full_governed_population",
+    }
+
+
 @router.post("/summary")
 def outliers_summary(request: OutlierSummaryRequest, user: Dict[str, Any] = Depends(require_user)):
     authorize_modeling_scope(user, request.project_id, "view")
@@ -189,7 +223,7 @@ def outliers_summary(request: OutlierSummaryRequest, user: Dict[str, Any] = Depe
         result.update(scope.metadata())
         prior = scoped_store.meta.get("outlier_application")
         result["application"] = (
-            deepcopy(prior)
+            _public_application(deepcopy(prior))
             if _record_matches_scope(prior, identity, scope)
             else None
         )
@@ -240,8 +274,8 @@ def apply_outlier_treatments(request: OutlierApplyRequest, user: Dict[str, Any] 
         return json_safe({
             "ok": True,
             **_identity_fields(identity),
-            **scope.metadata(),
-            "application": prior,
+            **_full_dataset_application_metadata(scope),
+            "application": _public_application(prior),
             "idempotent": True,
         })
     try:
@@ -284,7 +318,7 @@ def apply_outlier_treatments(request: OutlierApplyRequest, user: Dict[str, Any] 
     application = {
         "applied_at": applied_at,
         **_identity_fields(identity),
-        **scope.metadata(),
+        **_full_dataset_application_metadata(scope),
         "row_count": int(len(work)),
         "global_method": request.global_method,
         "config": normalized_config,
@@ -333,6 +367,6 @@ def apply_outlier_treatments(request: OutlierApplyRequest, user: Dict[str, Any] 
     return json_safe({
         "ok": True,
         **_identity_fields(identity),
-        **scope.metadata(),
+        **_full_dataset_application_metadata(scope),
         "application": application,
     })

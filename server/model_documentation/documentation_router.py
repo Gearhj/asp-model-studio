@@ -10,9 +10,12 @@ from pydantic import BaseModel, Field
 from ..core.modeling_scope import authorize_modeling_scope
 from ..security.security_store import audit_event, require_user
 from .documentation_store import (
+    DocumentationWorkingDraftConflictError,
+    DocumentationWorkingDraftIntegrityError,
     attach_evidence,
     build_project_context,
     create_document,
+    ensure_working_draft,
     evidence_library,
     export_evidence_excel,
     export_powerpoint,
@@ -147,6 +150,53 @@ def post_create_document(
         metadata={"documentId": document.get("documentId"), "templateType": payload.templateType},
     )
     return {"ok": True, "document": document}
+
+
+@router.post("/model-documentation/ensure-working-draft")
+def post_ensure_working_draft(
+    payload: CreateDocumentationRequest,
+    user: Dict[str, Any] = Depends(require_user),
+) -> Dict[str, Any]:
+    project_id = authorize_modeling_scope(user, payload.projectId, "edit")
+    try:
+        document, created = ensure_working_draft(
+            project_id,
+            payload.templateType,
+            _actor_label(user),
+        )
+    except DocumentationWorkingDraftConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except DocumentationWorkingDraftIntegrityError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    # The store already reloads the exact durable record while holding its
+    # cross-process lock.  Reassert the route's authorized scope before
+    # returning that read-back to the caller.
+    if (
+        str(document.get("projectId") or "") != project_id
+        or str(document.get("templateType") or "") != payload.templateType
+        or str(document.get("documentStatus") or "") != "working_draft"
+    ):
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "The Model Development Document working draft did not match "
+                "the authorized project and template."
+            ),
+        )
+    audit_event(
+        "model_documentation.working_draft.ensured",
+        "project",
+        project_id,
+        "success",
+        user_id=user.get("userId"),
+        metadata={
+            "documentId": document.get("documentId"),
+            "templateType": payload.templateType,
+            "created": created,
+        },
+    )
+    return {"ok": True, "document": document, "created": created}
 
 
 @router.get("/model-documentation/{document_id}")

@@ -1,0 +1,116 @@
+{
+  "created_at": "2026-08-08T00:35:37.815775+00:00",
+  "created_by": "user_d8bbe3ff73a84fb5",
+  "dataset_id": "ds_heloc_train_6bdb184b_05905",
+  "dataset_mutated": false,
+  "dataset_version_id": "v_1785186305905_6bdb184b",
+  "governed_feature_set_changed": false,
+  "ok": true,
+  "project_id": "atlas-mrzpau4t",
+  "recommendation_contract": "draft_feature_engineering_recommendations",
+  "recommendations": [
+    {
+      "action": "defer",
+      "cluster_id": "vif-cluster-7f3a6da7a9",
+      "dataset_mutated": false,
+      "features": [
+        "NumInqLast6M",
+        "NumInqLast6Mexcl7days"
+      ],
+      "governed_feature_set_changed": false,
+      "proposed_exclusions": [
+        "NumInqLast6Mexcl7days"
+      ],
+      "protected_features": [],
+      "rationale": "VIF alone cannot distinguish the preferred inquiry variable.",
+      "recommendation_id": "vif-plan-849470e760854fa8:vif-cluster-7f3a6da7a9",
+      "source_plan_id": "vif-plan-849470e760854fa8",
+      "status": "draft_recommendation",
+      "tie_case": {
+        "cluster_id": "vif-cluster-7f3a6da7a9",
+        "equivalent_maximum_vif": 5.627713422141138,
+        "features": [
+          "NumInqLast6M",
+          "NumInqLast6Mexcl7days"
+        ],
+        "message": "VIF alone cannot distinguish the preferred inquiry variable.",
+        "required_tie_breakers": [
+          "development-population signal",
+          "business interpretability",
+          "data quality and missingness",
+          "bureau special-value burden",
+          "production availability and definition stability",
+          "intended model-family behavior"
+        ]
+      }
+    },
+    {
+      "action": "defer",
+      "cluster_id": "vif-cluster-85f3edd74d",
+      "dataset_mutated": false,
+      "features": [
+        "NumTrades60Ever2DerogPubRec",
+        "NumTrades90Ever2DerogPubRec"
+      ],
+      "governed_feature_set_changed": false,
+      "proposed_exclusions": [],
+      "protected_features": [],
+      "rationale": "VIF alone cannot distinguish the preferred variable in this cluster.",
+      "recommendation_id": "vif-plan-849470e760854fa8:vif-cluster-85f3edd74d",
+      "source_plan_id": "vif-plan-849470e760854fa8",
+      "status": "draft_recommendation",
+      "tie_case": {
+        "cluster_id": "vif-cluster-85f3edd74d",
+        "equivalent_maximum_vif": 68.99006220691028,
+        "features": [
+          "NumTrades60Ever2DerogPubRec",
+          "NumTrades90Ever2DerogPubRec"
+        ],
+        "message": "VIF alone cannot distinguish the preferred variable in this cluster.",
+        "required_tie_breakers": [
+          "development-population signal",
+          "business interpretability",
+          "data quality and missingness",
+          "bureau special-value burden",
+          "production availability and definition stability",
+          "intended model-family behavior"
+        ]
+      }
+    },
+    {
+      "action": "defer",
+      "cluster_id": "vif-cluster-d43c57dd29",
+      "dataset_mutated": false,
+      "features": [
+        "NumSatisfactoryTrades",
+        "NumTotalTrades"
+      ],
+      "governed_feature_set_changed": false,
+      "proposed_exclusions": [],
+      "protected_features": [],
+      "rationale": "VIF alone cannot distinguish the preferred variable in this cluster.",
+      "recommendation_id": "vif-plan-849470e760854fa8:vif-cluster-d43c57dd29",
+      "source_plan_id": "vif-plan-849470e760854fa8",
+      "status": "draft_recommendation",
+      "tie_case": {
+        "cluster_id": "vif-cluster-d43c57dd29",
+        "equivalent_maximum_vif": 68.97433268684375,
+        "features": [
+          "NumSatisfactoryTrades",
+          "NumTotalTrades"
+        ],
+        "message": "VIF alone cannot distinguish the preferred variable in this cluster.",
+        "required_tie_breakers": [
+          "development-population signal",
+          "business interpretability",
+          "data quality and missingness",
+          "bureau special-value burden",
+          "production availability and definition stability",
+          "intended model-family behavior"
+        ]
+      }
+    }
+  ],
+  "source_plan_id": "vif-plan-849470e760854fa8",
+  "status": "draft"
+}

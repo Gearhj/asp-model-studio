@@ -222,10 +222,21 @@ function isNumeric(column: ColumnInfo) {
 
 function normalizeConfig(columns: ColumnInfo[], config: MissingConfig) {
   return Object.fromEntries(
-    columns.map((column) => [
-      column.name,
-      config[column.name] ?? { strategy: "None" },
-    ]),
+    columns.map((column) => {
+      const selected = config[column.name] ?? { strategy: "None" as const };
+      // The backend serializes an unused constantValue as null while browser
+      // selections omit it.  Compare and persist the governed decision, not a
+      // transport-only representation difference.
+      return [
+        column.name,
+        selected.strategy === "Constant"
+          ? {
+              strategy: selected.strategy,
+              constantValue: String(selected.constantValue ?? ""),
+            }
+          : { strategy: selected.strategy },
+      ];
+    }),
   ) as MissingConfig;
 }
 
@@ -1706,6 +1717,26 @@ export default function Step04MissingValues() {
                   </span>
                 ) : null}
               </div>
+              <div className="mb-4 grid gap-4 xl:grid-cols-2">
+                <div>
+                  <h4 className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-600">
+                    True-null rate profile
+                  </h4>
+                  <MissingnessProfile
+                    columns={impactColumns}
+                    stats={summary.stats}
+                  />
+                </div>
+                <div>
+                  <h4 className="mb-2 text-xs font-bold uppercase tracking-[0.12em] text-slate-600">
+                    Missing and governed-special composition
+                  </h4>
+                  <MissingSpecialStack
+                    columns={impactColumns}
+                    stats={summary.stats}
+                  />
+                </div>
+              </div>
               <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
                 <div className="hidden grid-cols-[minmax(220px,1.2fr)_150px_36px_minmax(230px,1fr)_170px] gap-3 border-b border-slate-200 bg-slate-50 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.12em] text-slate-500 lg:grid">
                   <span>Predictor</span>
@@ -1727,6 +1758,33 @@ export default function Step04MissingValues() {
                     rowCount={summary.rows}
                   />
                 ))}
+              </div>
+              <div className="mt-5">
+                <div className="mb-3">
+                  <h4 className="text-xs font-bold uppercase tracking-[0.12em] text-slate-700">
+                    Feature distributions and planned imputation
+                  </h4>
+                  <p className="mt-1 text-xs leading-5 text-slate-600">
+                    Ordinary observed values are shown separately from true nulls and governed special values. Reference cutoffs come from the upstream ordinary-value distribution and are not missing-value treatments.
+                  </p>
+                </div>
+                <div
+                  className="grid gap-4 xl:grid-cols-2"
+                  data-testid="missing-distribution-gallery"
+                >
+                  {impactColumns.map((column, index) => (
+                    <MissingDistributionHistogram
+                      key={column.name}
+                      rank={index + 1}
+                      column={column}
+                      stats={summary.stats[column.name]}
+                      strategy={
+                        config[column.name]?.strategy ?? ("None" as const)
+                      }
+                      rowCount={summary.rows}
+                    />
+                  ))}
+                </div>
               </div>
             </AtlasWorkflowSection>
 

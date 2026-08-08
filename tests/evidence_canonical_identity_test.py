@@ -299,6 +299,25 @@ class EvidenceCanonicalIdentityTests(unittest.TestCase):
         self.assertEqual(evidence["datasetIds"], [self.dataset_id])
         self.assertEqual(evidence["lineage"]["datasetVersion"], self.version_id)
 
+    def test_explicit_high_quality_draft_remains_draft_after_readback(self) -> None:
+        evidence_id = f"evidence-explicit-draft-{uuid.uuid4().hex}"
+        response = self.owner.post(
+            "/api/evidence",
+            json=self.canonical_payload(
+                evidence_id,
+                status="draft",
+                governance={"review_state": "awaiting_explicit_confirmation"},
+            ),
+        )
+        self.assertEqual(response.status_code, 200, response.text)
+        evidence = response.json()["evidence"]
+        self.assertGreaterEqual(evidence["qualityScore"], 85)
+        self.assertEqual(evidence["status"], "draft")
+
+        readback = self.owner.get(f"/api/evidence/{evidence_id}")
+        self.assertEqual(readback.status_code, 200, readback.text)
+        self.assertEqual(readback.json()["evidence"]["status"], "draft")
+
     def test_preparation_evidence_cannot_use_legacy_only_lineage(self) -> None:
         evidence_id = f"evidence-legacy-{uuid.uuid4().hex}"
         response = self.owner.post(

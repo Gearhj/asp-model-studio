@@ -167,14 +167,21 @@ class EDABureauSemanticHandoffTest(unittest.TestCase):
             )
         self.assertIn("unresolved", str(raised.exception).casefold())
 
-    def test_optional_unavailable_is_nonblocking_only_for_403_or_404(self) -> None:
+    def test_optional_unavailable_is_nonblocking_for_absent_unentitled_or_unavailable_service(
+        self,
+    ) -> None:
         request = EDAWorkspaceRequest(
             project_id=PROJECT_ID,
             dataset_id=DATASET_ID,
             dataset_version_id=VERSION_ID,
             bureau_semantic_annotation_state="unavailable",
         )
-        for status, expected in ((403, "not_entitled"), (404, "not_bound")):
+        for status, expected in (
+            (403, "not_entitled"),
+            (404, "not_bound"),
+            (500, "service_unavailable"),
+            (503, "service_unavailable"),
+        ):
             with self.subTest(status=status), patch(
                 "server.eda.bureau_semantic_contract._resolve_exact",
                 side_effect=HTTPException(status_code=status),

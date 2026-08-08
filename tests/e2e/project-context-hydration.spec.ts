@@ -16,6 +16,10 @@ type ProjectFixture = {
   target?: string | null;
   projectStatus?: number;
   waitForProject?: Promise<void>;
+  waitForProjectGet?: (input: {
+    getNumber: number;
+    projectId: string;
+  }) => Promise<void>;
   waitForProjectPut?: (input: {
     putNumber: number;
     projectId: string;
@@ -482,6 +486,10 @@ async function installProjectAuthorityMocks(
         return;
       }
       if (fixture.waitForProject) await fixture.waitForProject;
+      await fixture.waitForProjectGet?.({
+        getNumber: stats.projectGets[projectId],
+        projectId,
+      });
       const status = fixture.projectStatus ?? 200;
       await fulfillJson(
         route,
@@ -1374,6 +1382,49 @@ test.describe("Project-scoped authoritative frontend hydration", () => {
     expect(stats.workflowGets["project-a"]).toBeGreaterThan(workflowGetsBeforeReload);
     expect(activationMutations(stats)).toEqual([]);
     expect(partitionMutations(stats)).toEqual([]);
+  });
+
+  test("same-project navigation gates the stale route tree until Data Acquisition revalidation is current", async ({ page }) => {
+    const projectId = "project-same-route-revalidation";
+    const projectName = "Same Project Route Revalidation Fixture";
+    const delayedRevalidation = deferredAcknowledgement();
+    let delayNextProjectRead = false;
+    let delayedProjectReadObserved = false;
+    let markSecondProjectRead = () => undefined;
+    const secondProjectRead = new Promise<void>((resolve) => {
+      markSecondProjectRead = resolve;
+    });
+    await installProjectAuthorityMocks(page, [{
+      projectId,
+      projectName,
+      waitForProjectGet: async () => {
+        if (!delayNextProjectRead || delayedProjectReadObserved) return;
+        delayedProjectReadObserved = true;
+        markSecondProjectRead();
+        await delayedRevalidation.wait;
+      },
+    }]);
+
+    await page.goto(`/projects/${projectId}/step00`);
+    await expect(page.getByTestId("project-context-gate")).toHaveCount(0);
+    await expect(page.locator('input[type="file"]')).toHaveCount(0);
+
+    delayNextProjectRead = true;
+    await page.getByRole("link", { name: "Data Acquisition", exact: true }).click();
+    await secondProjectRead;
+    await expect(page).toHaveURL(new RegExp(`/projects/${projectId}/step01`));
+    const gate = page.getByTestId("project-context-gate");
+    await expect(gate).toHaveAttribute("data-project-context-status", "resolving");
+    await expect(gate).toContainText("Loading project context...");
+    await expect(page.locator('input[type="file"]')).toHaveCount(0);
+    await expect(page.getByTestId("data-acquisition-target-setup")).toHaveCount(0);
+
+    delayedRevalidation.release();
+    await expectReadyProject(page, projectId, projectName);
+    const uploadInput = page.locator('input[type="file"]');
+    await expect(uploadInput).toHaveCount(1);
+    await expect(uploadInput).toBeEnabled();
+    await expect(page.getByText("Choose File", { exact: true })).toBeVisible();
   });
 
   test("choosing a draft target preserves the exact loaded dataset and mounted page", async ({ page }) => {

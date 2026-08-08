@@ -11,7 +11,9 @@ const provenance = read("src/lib/selectionProvenance.ts");
 
 assert.match(training, /rankVerifiedSelectionCandidates/);
 assert.match(training, /verifiedSelectionMetric/);
-assert.match(training, /status:\s*"locked"/);
+assert.match(training, /status:\s*"proposed"/);
+assert.match(training, /parseLockedSelectionDecision\(response\.decision\)/);
+assert.doesNotMatch(training, /body:\s*JSON\.stringify\(\{[\s\S]*?status:\s*"locked"/);
 assert.match(training, /selected_candidate_id:/);
 assert.match(training, /selection_ranking_snapshot:/);
 assert.match(training, /Final holdout remains sealed until Evaluation/);

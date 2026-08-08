@@ -84,8 +84,12 @@ export type PredictorSpecialValueAggregate = {
 export type PredictorVisualProfile = {
   feature: string;
   kind: "numeric" | "categorical";
-  scope: "full_dataset_aggregates";
+  scope: "full_dataset_aggregates" | "governed_mixed_scope";
   population_rows: number;
+  descriptive_scope?: "full_governed_population";
+  target_directed_scope?: "development_population";
+  target_directed_rows?: number;
+  artifact_id?: string;
   metrics: {
     iv?: number | null;
     missing_rate?: number | null;
@@ -130,7 +134,9 @@ export type PredictorVisualProfile = {
   };
   event_rate_shape: {
     kind: "quantile" | "top_levels";
-    scope: "full_dataset_aggregates";
+    scope: "full_dataset_aggregates" | "development_population";
+    analysis_population_id?: string;
+    population_rows?: number;
     limit: number;
     groups: Array<{
       label: string;
@@ -144,13 +150,19 @@ export type PredictorVisualProfile = {
     returned_groups: number;
     truncated: boolean;
     raw_observations_included: false;
+    final_holdout_accessed?: false;
   };
 };
 
 export type PredictorVisualContract = {
   version: string;
   request_mode: "single_batched_workspace_request";
-  scope: "full_dataset_aggregates";
+  scope: "full_dataset_aggregates" | "governed_mixed_scope";
+  descriptive_scope?: "full_governed_population";
+  target_directed_scope?: "development_population";
+  target_directed_rows?: number;
+  analysis_population_id?: string;
+  final_holdout_accessed?: false;
   profile_count: number;
   event_rate_shape_limit: number;
   raw_observations_included: false;

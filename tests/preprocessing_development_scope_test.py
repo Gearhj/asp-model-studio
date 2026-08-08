@@ -18,7 +18,7 @@ from server.analysis_partition.types import (
 )
 from server.core.dataset_store import DATASTORE, DatasetStore
 from server.core.modeling_scope import set_active_project_id
-from server.preprocessing import missing_router
+from server.preprocessing import missing_router, outlier_router
 from server.preprocessing.development_scope import (
     resolve_development_analysis_scope,
 )
@@ -164,6 +164,129 @@ class DevelopmentOnlyPreprocessingContractTest(unittest.TestCase):
             "development_population",
         )
         self.assertFalse(missing_payload["final_holdout_accessed"])
+
+    def test_full_dataset_application_scope_preserves_development_analysis_lineage(self):
+        user = {"userId": "governed-analysis-test"}
+        expected_scope = {
+            "scope": "full_dataset",
+            "application_scope": "full_dataset",
+            "materialization_scope": "full_dataset",
+            "application_source_population": "full_governed_population",
+            "analysis_scope": "development_population",
+            "analytical_scope": "development_population",
+            "target_directed_scope": "development_population",
+            "structural_scope": "full_governed_population_predictors_only",
+            "holdout_excluded": True,
+            "final_holdout_accessed": False,
+            "final_holdout_used_for_selection": False,
+        }
+
+        def assert_application_contract(payload: dict) -> None:
+            for key, expected in expected_scope.items():
+                self.assertEqual(payload[key], expected, key)
+                self.assertEqual(payload["application"][key], expected, key)
+            self.assertEqual(payload["full_governed_population_rows"], len(self.frame))
+            self.assertEqual(
+                payload["application"]["full_governed_population_rows"],
+                len(self.frame),
+            )
+            self.assertEqual(
+                payload["development_rows"],
+                self.installation["record"]["development_count"],
+            )
+
+        with (
+            patch.object(
+                outlier_router,
+                "authorize_modeling_scope",
+                return_value=PROJECT_ID,
+            ),
+            patch.object(
+                outlier_router,
+                "assert_expected_active_identity",
+                return_value=dict(IDENTITY),
+            ),
+            patch.object(outlier_router, "save_checkpoint", return_value=True),
+            patch.object(
+                missing_router,
+                "authorize_modeling_scope",
+                return_value=PROJECT_ID,
+            ),
+            patch.object(
+                missing_router,
+                "assert_expected_active_identity",
+                return_value=dict(IDENTITY),
+            ),
+            patch.object(missing_router, "save_checkpoint", return_value=True),
+        ):
+            outlier_request = outlier_router.OutlierApplyRequest(
+                project_id=PROJECT_ID,
+                expected_dataset_id=DATASET_ID,
+                expected_dataset_version_id=VERSION_ID,
+                global_method="NONE",
+                config={feature: "USE_GLOBAL" for feature in PREDICTORS},
+            )
+            first_outlier = outlier_router.apply_outlier_treatments(
+                outlier_request,
+                user=user,
+            )
+            assert_application_contract(first_outlier)
+            self.assertNotIn("idempotent", first_outlier)
+
+            # A pre-repair durable record used the analytical population as
+            # its generic scope. Idempotent replay must not leak that stale
+            # label back through either response layer.
+            self.store.meta["outlier_application"]["scope"] = (
+                "development_population"
+            )
+            self.store.meta["outlier_application"].pop(
+                "application_scope", None
+            )
+            self.store.meta["outlier_application"].pop(
+                "materialization_scope", None
+            )
+
+            second_outlier = outlier_router.apply_outlier_treatments(
+                outlier_request,
+                user=user,
+            )
+            assert_application_contract(second_outlier)
+            self.assertTrue(second_outlier["idempotent"])
+
+            missing_request = missing_router.MissingApplyRequest(
+                project_id=PROJECT_ID,
+                expected_dataset_id=DATASET_ID,
+                expected_dataset_version_id=VERSION_ID,
+                config={
+                    "missing_signal": missing_router.MissingRule(
+                        strategy="Median"
+                    )
+                },
+            )
+            first_missing = missing_router.apply_missing_values(
+                missing_request,
+                user=user,
+            )
+            assert_application_contract(first_missing)
+            self.assertNotIn("idempotent", first_missing)
+            self.assertEqual(first_missing["application"]["missing_after"], 0)
+
+            self.store.meta["missing_application"]["scope"] = (
+                "development_population"
+            )
+            self.store.meta["missing_application"].pop(
+                "application_scope", None
+            )
+            self.store.meta["missing_application"].pop(
+                "materialization_scope", None
+            )
+
+            second_missing = missing_router.apply_missing_values(
+                missing_request,
+                user=user,
+            )
+            assert_application_contract(second_missing)
+            self.assertTrue(second_missing["idempotent"])
 
     def test_holdout_target_changes_cannot_change_preprocessing_evidence(self):
         scope = self._scope()

@@ -2104,6 +2104,20 @@ class EDAWorkspaceService:
 
         if section == "predictors":
             vif_by_feature = relationship.get("vif_by_feature") or {}
+            visual_contract = result.get("predictor_visual_contract")
+            if isinstance(visual_contract, dict):
+                visual_contract.update(
+                    {
+                        "scope": "governed_mixed_scope",
+                        "descriptive_scope": "full_governed_population",
+                        "target_directed_scope": "development_population",
+                        "target_directed_rows": contract["rows_used"],
+                        "analysis_population_id": contract[
+                            "analysis_population_id"
+                        ],
+                        "final_holdout_accessed": False,
+                    }
+                )
             for collection in [
                 *(result.get("numeric") or []),
                 *(result.get("categorical") or []),
@@ -2458,30 +2472,92 @@ class EDAWorkspaceService:
             feature = str(result.get("feature") or request.feature or "")
             artifact = predictor_artifacts.get(feature)
             if artifact:
-                ordinary_distribution = artifact.get("ordinary_distribution") or {}
-                ordinary_histogram = [
-                    {
-                        **row,
-                        "key": f"ordinary:{row.get('bin')}:{row.get('lower')}:{row.get('upper')}",
-                        "valid_share": row.get("share"),
-                        "event_count": None,
-                        "non_event_count": None,
-                        "event_rate": None,
+                display_requested_bins = min(
+                    60, max(5, int(request.histogram_bins))
+                )
+                full_frame = DATASTORE.get_active_df()
+                ordinary_values = pd.Series(dtype=float)
+                if (
+                    isinstance(full_frame, pd.DataFrame)
+                    and feature in full_frame.columns
+                ):
+                    full_numeric = pd.to_numeric(
+                        full_frame[feature], errors="coerce"
+                    ).replace([np.inf, -np.inf], np.nan)
+                    full_codes = {
+                        float(group["code"])
+                        for group in (
+                            artifact.get("special_values") or {}
+                        ).get("full_population_groups")
+                        or []
                     }
-                    for row in ordinary_distribution.get("histogram") or []
-                ]
+                    ordinary_mask = full_numeric.notna() & ~full_numeric.isin(
+                        full_codes
+                    )
+                    ordinary_values = full_numeric[ordinary_mask]
+
+                ordinary_histogram: list[dict[str, Any]] = []
+                if len(ordinary_values):
+                    counts, edges = np.histogram(
+                        ordinary_values.to_numpy(dtype=float),
+                        bins=display_requested_bins,
+                    )
+                    for index, count in enumerate(counts):
+                        lower = float(edges[index])
+                        upper = float(edges[index + 1])
+                        width = max(upper - lower, 1e-12)
+                        ordinary_histogram.append(
+                            {
+                                "key": (
+                                    f"ordinary:{index}:{lower:.12g}:"
+                                    f"{upper:.12g}"
+                                ),
+                                "bin": index + 1,
+                                "lower": _finite(lower),
+                                "upper": _finite(upper),
+                                "count": int(count),
+                                "share": float(
+                                    count / max(contract["population_rows"], 1)
+                                ),
+                                "valid_share": float(
+                                    count / max(len(ordinary_values), 1)
+                                ),
+                                "density": float(
+                                    count
+                                    / max(len(ordinary_values) * width, 1e-12)
+                                ),
+                                "event_count": None,
+                                "non_event_count": None,
+                                "event_rate": None,
+                            }
+                        )
+                ordinary_distribution = {
+                    **(artifact.get("ordinary_distribution") or {}),
+                    "analysis_scope": "full_governed_population",
+                    "histogram": ordinary_histogram,
+                    "requested_bins": display_requested_bins,
+                    "returned_bins": len(ordinary_histogram),
+                    "rows_used": int(len(ordinary_values)),
+                }
+                effective_display_bins = sum(
+                    1 for row in ordinary_histogram if int(row["count"]) > 0
+                )
+                requested_iv_bins = int(
+                    artifact["iv_woe"]["requested_bins"]
+                )
+                effective_iv_bins = int(
+                    artifact["iv_woe"]["effective_nonempty_bins"]
+                )
                 result.update(
                     {
                         "engine": "governed_eda_analytical_contract",
                         "iv": artifact["iv"],
                         "iv_by_bin": artifact["iv_woe"]["bins"],
-                        "requested_bins": artifact["iv_woe"]["requested_bins"],
-                        "returned_bins": artifact["iv_woe"][
-                            "effective_nonempty_bins"
-                        ],
-                        "effective_bins": artifact["iv_woe"][
-                            "effective_nonempty_bins"
-                        ],
+                        "requested_bins": display_requested_bins,
+                        "returned_bins": len(ordinary_histogram),
+                        "effective_bins": effective_display_bins,
+                        "requested_iv_bins": requested_iv_bins,
+                        "effective_iv_bins": effective_iv_bins,
                         "binning_specification": artifact["iv_woe"],
                         "special_value_groups": artifact["special_values"][
                             "groups"
@@ -2495,20 +2571,7 @@ class EDAWorkspaceService:
                     }
                 )
                 selected_subset = result.get("selected_subset") or {}
-                full_frame = DATASTORE.get_active_df()
                 if isinstance(full_frame, pd.DataFrame) and feature in full_frame.columns:
-                    full_numeric = pd.to_numeric(
-                        full_frame[feature], errors="coerce"
-                    ).replace([np.inf, -np.inf], np.nan)
-                    full_codes = {
-                        float(group["code"])
-                        for group in (
-                            artifact.get("special_values") or {}
-                        ).get("full_population_groups")
-                        or []
-                    }
-                    ordinary_mask = full_numeric.notna() & ~full_numeric.isin(full_codes)
-                    ordinary_values = full_numeric[ordinary_mask]
                     lower = selected_subset.get("minimum")
                     upper = selected_subset.get("maximum")
                     selection_mask = ordinary_mask

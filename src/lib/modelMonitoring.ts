@@ -1,9 +1,11 @@
 import { loadProjectContext, type ProjectContext } from "./projectContext";
+import type { ExactPromotedModelIdentity } from "./implementationMonitoringIdentity";
 
 export type ProductionModelStatus = "green" | "yellow" | "red";
 
 export type ProductionModel = {
   modelId: string;
+  modelVersionId?: string;
   modelName: string;
   owner: string;
   modelType: string;
@@ -41,14 +43,16 @@ function statusRank(status: ProductionModelStatus) {
   return 1;
 }
 
-export function loadProductionModels(): ProductionModel[] {
-  const context = loadProjectContext();
-  const currentProjectModel =
-    context.modelId || context.projectName
+export function loadProductionModels(
+  context: ProjectContext = loadProjectContext(),
+  promotedIdentity?: ExactPromotedModelIdentity | null,
+): ProductionModel[] {
+  const currentProjectModel = promotedIdentity
       ? [
           {
-            modelId: context.modelId || "Current",
-            modelName: context.projectName || "Current ATLAS Project",
+            modelId: promotedIdentity.modelId,
+            modelVersionId: promotedIdentity.modelVersionId,
+            modelName: promotedIdentity.modelName,
             owner: context.implementationOwner || "Not assigned",
             modelType: context.modelType,
             deployedAt: context.implementationTargetDate || "",
@@ -63,7 +67,26 @@ export function loadProductionModels(): ProductionModel[] {
             lastReviewedAt: "",
           },
         ]
-      : [];
+      : promotedIdentity === undefined && (context.modelId || context.projectName)
+        ? [
+            {
+              modelId: context.modelId || "Current",
+              modelName: context.projectName || "Current ATLAS Project",
+              owner: context.implementationOwner || "Not assigned",
+              modelType: context.modelType,
+              deployedAt: context.implementationTargetDate || "",
+              monitoringCadence: cadenceLabel(context),
+              metrics: (context.monitoringMetrics.length ? context.monitoringMetrics : ["AUC", "KS", "PSI", "VSI"]).map((metric) => ({
+                name: metric,
+                value: "Pending",
+                status: "yellow" as const,
+                trend: "stable" as const,
+              })),
+              complianceIssues: context.implementationEnvironment ? [] : ["Implementation environment not documented"],
+              lastReviewedAt: "",
+            },
+          ]
+        : [];
 
   return [
     ...currentProjectModel,

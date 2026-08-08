@@ -108,12 +108,20 @@ def validate_bureau_semantic_handoff(
     try:
         envelope = _resolve_exact(request, user)
     except HTTPException as exc:
-        if state == "unavailable" and int(exc.status_code) in {403, 404}:
+        status_code = int(exc.status_code)
+        optional_unavailable = state == "unavailable" and (
+            status_code in {403, 404} or status_code >= 500
+        )
+        if optional_unavailable:
             return {
                 "state": "unavailable",
                 "authoritative": False,
                 "server_resolution": (
-                    "not_entitled" if int(exc.status_code) == 403 else "not_bound"
+                    "not_entitled"
+                    if status_code == 403
+                    else "not_bound"
+                    if status_code == 404
+                    else "service_unavailable"
                 ),
                 "annotations_included": False,
                 "provider_catalog_rows_included": False,
@@ -124,7 +132,7 @@ def validate_bureau_semantic_handoff(
             "The asserted Bureau semantic metadata is unavailable or no longer current.",
             code=(
                 "bureau_semantic_annotation_access_unavailable"
-                if int(exc.status_code) == 403
+                if status_code == 403
                 else "bureau_semantic_annotation_stale"
             ),
         ) from exc

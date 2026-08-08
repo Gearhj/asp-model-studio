@@ -65,7 +65,10 @@ async function postJson<T>(path: string): Promise<T> {
 
 export type ListScoringRunsFilters = {
   datasetId?: string;
+  datasetVersionId?: string;
   modelId?: string;
+  modelVersionId?: string;
+  target?: string;
   partition?: ScoringPartition;
   status?: ScoringRunStatus;
   problemType?: "classification" | "regression";
@@ -78,7 +81,10 @@ export type ListScoringRunsFilters = {
 export async function listScoringRuns(projectId: string, filters: ListScoringRunsFilters = {}): Promise<ScoringRunSummary[]> {
   const params = new URLSearchParams({ projectId });
   if (filters.datasetId) params.set("datasetId", filters.datasetId);
+  if (filters.datasetVersionId) params.set("datasetVersionId", filters.datasetVersionId);
   if (filters.modelId) params.set("modelId", filters.modelId);
+  if (filters.modelVersionId) params.set("modelVersionId", filters.modelVersionId);
+  if (filters.target) params.set("target", filters.target);
   if (filters.partition) params.set("partition", filters.partition);
   if (filters.status) params.set("status", filters.status);
   if (filters.problemType) params.set("problemType", filters.problemType);

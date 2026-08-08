@@ -286,6 +286,119 @@ class ProjectDatasetActivationRepository(BaseRepository):
         finally:
             connection.close()
 
+    def reconcile_workflow_after_history_update(
+        self,
+        *,
+        project_id: str,
+    ) -> Dict[str, Any]:
+        """Recompute effective progress after append-only workflow history changes.
+
+        A browser workflow save records only historical observations.  Effective
+        completion must be recalculated from the exact durable active selection
+        and current canonical evidence; otherwise a project activated before a
+        later step was completed remains permanently pinned to the older
+        effective resume point.  This method deliberately has no browser,
+        first-version, or latest-version fallback.
+        """
+
+        project_key = _text(project_id)
+        if not project_key:
+            raise ProjectDatasetActivationStateError(
+                "A project_id is required for workflow reconciliation."
+            )
+
+        project_lock = project_dataset_activation_lock(project_key)
+        project_lock.acquire()
+        connection = None
+        try:
+            connection = self.database.connect()
+            self._begin_immediate(connection)
+            active = self._row(
+                connection,
+                "SELECT * FROM active_modeling_dataset_versions WHERE project_id = ?",
+                (project_key,),
+            )
+            dataset_id = _text((active or {}).get("dataset_id"))
+            dataset_version_id = _text(
+                (active or {}).get("dataset_version_id")
+            )
+            activation_revision = int(
+                (active or {}).get("activation_revision") or 0
+            )
+            activated_at = _text((active or {}).get("activated_at"))
+            activation_status = _text(
+                (active or {}).get("activation_status")
+            ).casefold()
+
+            link = None
+            if dataset_id:
+                link = self._row(
+                    connection,
+                    """
+                    SELECT * FROM project_dataset_links
+                    WHERE project_id = ? AND dataset_id = ?
+                    """,
+                    (project_key, dataset_id),
+                )
+
+            exact_active_identity = bool(
+                active
+                and activation_status == "active"
+                and dataset_id
+                and dataset_version_id
+                and activation_revision >= 1
+                and activated_at
+                and link
+                and _text(link.get("link_status")).casefold() == "active"
+            )
+            if exact_active_identity:
+                self._reconcile_workflow_identity(
+                    connection,
+                    project_id=project_key,
+                    dataset_id=dataset_id,
+                    dataset_version_id=dataset_version_id,
+                    activation_revision=activation_revision,
+                    activated_at=activated_at,
+                    preserve_effective=True,
+                )
+            else:
+                contradictory = bool(
+                    active
+                    and (
+                        activation_status == "contradictory"
+                        or (
+                            activation_status == "active"
+                            and not exact_active_identity
+                        )
+                    )
+                )
+                self._reconcile_workflow_unavailable(
+                    connection,
+                    project_id=project_key,
+                    reason=(
+                        "The durable active dataset selection is contradictory or its exact project link is unavailable."
+                        if contradictory
+                        else "No exact durable active Dataset Library version is available for this project."
+                    ),
+                    validity_status=("contradictory" if contradictory else "missing"),
+                )
+
+            workflow = self._row(
+                connection,
+                "SELECT * FROM workflow_state WHERE project_id = ?",
+                (project_key,),
+            ) or {}
+            connection.commit()
+            return workflow
+        except Exception:
+            if connection is not None:
+                connection.rollback()
+            raise
+        finally:
+            if connection is not None:
+                connection.close()
+            project_lock.release()
+
     @staticmethod
     def _begin_immediate(connection: sqlite3.Connection) -> None:
         connection.execute("BEGIN IMMEDIATE")
@@ -677,6 +790,12 @@ class ProjectDatasetActivationRepository(BaseRepository):
             "project_id": project_id,
             "dataset_id": dataset_id,
             "dataset_version_id": dataset_version_id,
+            # The activation revision is part of the authoritative modeling
+            # identity.  Open Project must be able to compare the exact
+            # backend-reconciled revision with ``identityValidity`` after a
+            # fresh browser session; omitting it makes otherwise-current
+            # projects fail closed to Data Acquisition.
+            "activation_revision": activation_revision,
         }
         workflow_status.update(
             {

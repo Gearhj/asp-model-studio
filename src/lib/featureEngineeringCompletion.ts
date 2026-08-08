@@ -16,7 +16,13 @@ type DocumentationRecord = {
   documentId?: string;
   projectId?: string;
   templateType?: string;
+  documentStatus?: string;
   sections?: DocumentationSection[];
+};
+
+type DocumentationProjectContext = {
+  ok: boolean;
+  documents: DocumentationRecord[];
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -46,29 +52,59 @@ function evidenceIdentifier(item: Record<string, unknown>) {
   ).trim();
 }
 
+function matchingFeatureEngineeringMdds(
+  projectId: string,
+  documents: DocumentationRecord[],
+) {
+  return documents.filter(
+    (document) =>
+      document.projectId === projectId &&
+      document.templateType === "model_development_document" &&
+      document.documentStatus === "working_draft",
+  );
+}
+
+async function loadFeatureEngineeringMdds(projectId: string) {
+  const context = await request<DocumentationProjectContext>(
+    `/model-documentation/project-context/${encodeURIComponent(projectId)}`,
+  );
+  return matchingFeatureEngineeringMdds(projectId, context.documents ?? []);
+}
+
+async function resolveFeatureEngineeringMdd(projectId: string) {
+  // The backend serializes this operation across tabs and processes, reuses
+  // one mutable draft, and never selects a terminal documentation record.
+  await request<{
+    ok: boolean;
+    document: DocumentationRecord;
+    created: boolean;
+  }>("/model-documentation/ensure-working-draft", {
+    method: "POST",
+    body: JSON.stringify({
+      projectId,
+      templateType: "model_development_document",
+    }),
+  });
+  // Do not trust the mutation response as project-selection authority. Re-read
+  // the authorized project context and require one exact active draft.
+  const matching = await loadFeatureEngineeringMdds(projectId);
+  if (matching.length !== 1 || !matching[0].documentId) {
+    throw new Error(
+      matching.length
+        ? "ATLAS found multiple Model Development Documents for this project. Select an exact document before continuing."
+        : "ATLAS could not ensure and verify the project's Model Development Document working draft.",
+    );
+  }
+  return matching[0];
+}
+
 export async function syncFeatureEngineeringMdd(
   identity: CanonicalDatasetIdentity,
   evidence: EvidenceItem,
   manifest: FeatureManifest,
 ) {
-  const context = await request<{
-    ok: boolean;
-    documents: DocumentationRecord[];
-  }>(`/model-documentation/project-context/${encodeURIComponent(identity.project_id)}`);
-  const matching = (context.documents ?? []).filter(
-    (document) =>
-      document.projectId === identity.project_id &&
-      document.templateType === "model_development_document",
-  );
-  if (matching.length !== 1 || !matching[0].documentId) {
-    throw new Error(
-      matching.length
-        ? "ATLAS found multiple Model Development Documents for this project. Select an exact document before continuing."
-        : "ATLAS could not find the project's Model Development Document draft.",
-    );
-  }
-
-  const documentId = matching[0].documentId;
+  const document = await resolveFeatureEngineeringMdd(identity.project_id);
+  const documentId = document.documentId!;
   const attachment = {
     evidenceId: evidence.evidenceId,
     type: "feature_engineering",

@@ -89,14 +89,24 @@ test("9-13 prerequisite-first entry, verified continuation, deep links, and proj
     "      }}\n    >",
     "final Data Acquisition action",
   );
-  const persist = finalAction.indexOf("await persistDataset()");
   const partitionReadback = finalAction.indexOf("await readAnalysisPartitionReadiness(");
   const exactHandoff = finalAction.indexOf("await fetchCanonicalDataAcquisitionEdaHandoff(");
-  const publish = finalAction.indexOf("notifyReproducibilityContextConfirmed()");
-  assert.ok(persist >= 0 && partitionReadback > persist && exactHandoff > partitionReadback && publish > exactHandoff);
+  const acknowledge = finalAction.indexOf("setDataAcquisitionReviewed(true)");
+  assert.ok(partitionReadback >= 0 && exactHandoff > partitionReadback && acknowledge > exactHandoff);
+  assert.doesNotMatch(finalAction, /persistDataset\(|\/data\/set_target|notifyReproducibilityContextConfirmed\(\)/);
+  assert.match(finalAction, /expectedTargetContractId[\s\S]*durablePredictorAuthorizationId/);
   assert.match(finalAction, /exactTargetMapping[\s\S]*exactPersistedContracts[\s\S]*exactPartition/);
+  assert.match(handoff, /OPTIONAL_BUREAU_SEMANTIC_TIMEOUT_MS\s*=\s*3_000/);
+  assert.match(handoff, /fetchOptionalBureauSemanticAnnotations\(\{/);
+  assert.match(handoff, /cause\.status === 0 \|\| cause\.status >= 500/);
+  assert.match(handoff, /reason: "service_unavailable"/);
   assert.match(identityProvider, /routeKey: location\.pathname/);
   assert.match(identityProvider, /dataAcquisitionContextReadiness\.routeKey === location\.pathname/);
+  assert.match(identityProvider, /const dataAcquisitionRouteCycleIsCurrent = Boolean\(/);
+  assert.match(
+    identityProvider,
+    /projectReadiness\.routeProjectId === routeProjectId[\s\S]{0,120}dataAcquisitionRouteCycleIsCurrent[\s\S]{0,120}resolvingAuthoritativeProjectContext\(routeProjectId\)/,
+  );
 });
 
 test("14-15 target-directed EDA materializes development only and proves holdout non-access", () => {
@@ -234,6 +244,8 @@ test("32-34 completion, first-blocker navigation, and confirmed summary are exac
   assert.match(specialValues, /firstUnresolvedVariable/);
   assert.match(acquisition, /FOCUS_FIRST_SPECIAL_VALUE_REVIEW_EVENT/);
   assert.match(acquisition, /window\.dispatchEvent\([\s\S]*FOCUS_FIRST_SPECIAL_VALUE_REVIEW_EVENT/);
+  assert.match(acquisition, /CONFIRM_SPECIAL_VALUE_REVIEW_EVENT/);
+  assert.match(acquisition, /bureauReviewStatus\?\.readyToConfirm/);
   assert.match(specialValues, /setVariableSearch\(""\)/);
   assert.match(specialValues, /setReviewFilter\("all"\)/);
   assert.match(specialValues, /setTreatmentFilter\("all"\)/);
@@ -246,18 +258,19 @@ test("32-34 completion, first-blocker navigation, and confirmed summary are exac
   assert.match(specialValues, /Retry Evidence/);
 });
 
-test("35 bulk and row-level treatments remain explicit unsaved drafts until save or confirmation", () => {
+test("35 bulk selection immediately prepares an explicit unsaved draft without durable confirmation", () => {
   assert.match(specialValues, /function explicitVariableDefault\(/);
   assert.match(specialValues, /<option value="" disabled>Select treatment<\/option>/);
   assert.match(specialValues, /if \(!policy\) \{[\s\S]*unresolved: 1/);
   assert.doesNotMatch(specialValues, /missingDefaults\.map\([\s\S]*handling: "preserve_informative"/);
-  assert.match(specialValues, /Apply selected default to unresolved attributes/);
-  assert.match(specialValues, /Selecting a bulk treatment changes nothing until you[\s\S]*press Apply/);
-  assert.match(specialValues, /they are neither saved nor confirmed automatically/);
+  assert.match(specialValues, /applyBulkTreatment\(selectedHandling\)/);
+  assert.match(specialValues, /Selecting an indicator, exclusion, or unchanged-value policy applies it immediately/);
+  assert.match(specialValues, /Imputation requires a governed replacement value before it is applied/);
+  assert.match(specialValues, /Applied changes are neither saved nor confirmed automatically/);
   assert.match(specialValues, /browser draft[\s\S]*Save Draft Review or confirm explicitly to make it durable/);
   const bulk = between(
     specialValues,
-    "function applyBulkTreatment()",
+    "function applyBulkTreatment(",
     "function updateOverride(",
     "bulk treatment handler",
   );

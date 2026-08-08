@@ -1,0 +1,1291 @@
+{
+  "activation_revision": 1,
+  "alternatives": [
+    {
+      "count_above_10": 0,
+      "count_above_5": 2,
+      "maximum_vif": 5.627713422141138,
+      "path": [
+        "NumInqLast6M"
+      ],
+      "predictor_count": 21,
+      "score": 115.1773433017026
+    },
+    {
+      "count_above_10": 0,
+      "count_above_5": 2,
+      "maximum_vif": 5.627737336556457,
+      "path": [
+        "NumInqLast6Mexcl7days"
+      ],
+      "predictor_count": 21,
+      "score": 115.18013702613105
+    },
+    {
+      "count_above_10": 2,
+      "count_above_5": 3,
+      "maximum_vif": 68.97433268684375,
+      "path": [
+        "NumSatisfactoryTrades"
+      ],
+      "predictor_count": 21,
+      "score": 2.3445669799147186
+    },
+    {
+      "count_above_10": 2,
+      "count_above_5": 3,
+      "maximum_vif": 68.98776237521948,
+      "path": [
+        "NumTotalTrades"
+      ],
+      "predictor_count": 21,
+      "score": 2.3501811722661117
+    },
+    {
+      "count_above_10": 2,
+      "count_above_5": 3,
+      "maximum_vif": 68.99006220691028,
+      "path": [
+        "NumTrades90Ever2DerogPubRec"
+      ],
+      "predictor_count": 21,
+      "score": 2.318498616473436
+    },
+    {
+      "count_above_10": 2,
+      "count_above_5": 3,
+      "maximum_vif": 69.00484575403041,
+      "path": [
+        "NumTrades60Ever2DerogPubRec"
+      ],
+      "predictor_count": 21,
+      "score": 2.286809321678303
+    }
+  ],
+  "analysis_partition_artifact_hash": "688c2184b4e9b8181946766e2577c1f1a53f9c88de2adf81a1d3affbc8dcd5fa",
+  "analysis_partition_assignment_hash": "ed04b51eef3ebfccc846ff742203978ae0463ee871807c6045595b68106bb6c5",
+  "analysis_partition_id": "analysis-partition-688c2184b4e9b8181946-r1",
+  "analysis_partition_revision": 1,
+  "analysis_scope": {
+    "activationRevision": 1,
+    "analysisPartitionArtifactHash": "688c2184b4e9b8181946766e2577c1f1a53f9c88de2adf81a1d3affbc8dcd5fa",
+    "analysisPartitionAssignmentHash": "ed04b51eef3ebfccc846ff742203978ae0463ee871807c6045595b68106bb6c5",
+    "analysisPartitionId": "analysis-partition-688c2184b4e9b8181946-r1",
+    "analysisPartitionRevision": 1,
+    "analysisPopulationId": "development-688c2184b4e9b8181946-r1",
+    "analysisSource": "eda.governed_analytical_contract.vif_resolution_plan",
+    "artifactHash": "830ff00d2a57c7e9b03a75e3580edb66e1562029c25fe9b53404ad2f1c44189d",
+    "artifactId": "eda-contract-830ff00d2a57c7e9b03a",
+    "contractVersion": "governed-eda-analytical-contract/1",
+    "current_vif_artifact_basis": "governed_development_ordinary_numeric_complete_case",
+    "datasetId": "ds_heloc_train_6bdb184b_05905",
+    "datasetVersionId": "v_1785186305905_6bdb184b",
+    "development_population": "exact_materialized_development_partition_only",
+    "development_rows": 5020,
+    "exact": true,
+    "exact_development_partition_resolved": true,
+    "exclusionReasons": [
+      "sealed_final_holdout_excluded"
+    ],
+    "finalHoldoutAccessed": false,
+    "finalHoldoutUsedForSelection": false,
+    "final_holdout_accessed": false,
+    "final_holdout_used_for_selection": false,
+    "fullGovernedPopulationRows": 6275,
+    "governed_relationship_artifact_id": "eda-relationships-4a6096fd458cb625eac9",
+    "immutableVersion": true,
+    "label": "Development Population",
+    "mode": "governed_version",
+    "negativeValue": 0,
+    "partition_id": "analysis-partition-688c2184b4e9b8181946-r1",
+    "partition_revision": 1,
+    "populationRows": 5020,
+    "positiveValue": 1,
+    "predictorAuthorizationId": "predictor-auth-aa9c00237dbb604b9b4c",
+    "projectId": "atlas-mrzpau4t",
+    "rowsExcluded": 1255,
+    "sealed_final_holdout_rows_excluded": 1255,
+    "specialValueReviewId": "special-review-bd50b6490d96802cc9ab5812",
+    "specialValueReviewRevision": 14,
+    "splitId": "analysis-partition-688c2184b4e9b8181946-r1",
+    "split_field_used": "governed_split_record",
+    "split_id": "analysis-partition-688c2184b4e9b8181946-r1",
+    "target": "bad_flag",
+    "targetContractId": "target-contract-9a0bbd69645b7e5e0b4c",
+    "target_informed_evidence": "exact_development_partition_only",
+    "vif_scope": {
+      "complete_case_rows": 1214,
+      "maximum_rows": 20000,
+      "population_rows": 5020,
+      "predictor_cap": 22,
+      "predictors_used": [
+        "MSinceOldestTradeOpen",
+        "AverageMInFile",
+        "NetFractionRevolvingBurden",
+        "NetFractionInstallBurden",
+        "PercentTradesWBalance",
+        "MSinceMostRecentDelq",
+        "PercentInstallTrades",
+        "NumTotalTrades",
+        "MSinceMostRecentTradeOpen",
+        "PercentTradesNeverDelq",
+        "NumSatisfactoryTrades",
+        "MSinceMostRecentInqexcl7days",
+        "NumRevolvingTradesWBalance",
+        "NumInqLast6M",
+        "NumInqLast6Mexcl7days",
+        "NumTradesOpeninLast12M",
+        "MaxDelqEver",
+        "NumInstallTradesWBalance",
+        "MaxDelq2PublicRecLast12M",
+        "NumBank2NatlTradesWHighUtilization",
+        "NumTrades60Ever2DerogPubRec",
+        "NumTrades90Ever2DerogPubRec"
+      ],
+      "required_feature": null,
+      "rows_used": 1214,
+      "sampled": false,
+      "scope": "governed_exact_development_complete_case",
+      "source_predictors": 22
+    }
+  },
+  "bureau_metadata_binding_id": null,
+  "bureau_metadata_binding_revision": null,
+  "bureau_metadata_binding_revision_checksum": null,
+  "bureau_metadata_catalog_checksum": null,
+  "bureau_metadata_catalog_version_id": null,
+  "bureau_metadata_crosswalk_id": null,
+  "bureau_metadata_crosswalk_revision": null,
+  "bureau_metadata_crosswalk_revision_checksum": null,
+  "bureau_metadata_schema_checksum": null,
+  "bureau_semantic_annotation_set_checksum": null,
+  "bureau_semantic_annotation_set_id": null,
+  "bureau_semantic_annotation_state": "unavailable",
+  "bureau_semantic_annotations": {
+    "analysis_partition_mutated": false,
+    "annotation_set": null,
+    "annotations_included": false,
+    "authoritative": false,
+    "dataset_mutated": false,
+    "feature_manifest_mutated": false,
+    "final_holdout_accessed": false,
+    "predictor_authorization_mutated": false,
+    "provider_catalog_rows_included": false,
+    "state": "unavailable",
+    "target_contract_mutated": false,
+    "treatment_mutated": false,
+    "unresolved_mappings_authoritative": false
+  },
+  "calculation_count": {
+    "governed_feature_set_calculations": 1,
+    "governed_predictor_count": 22,
+    "simulated_complete_vif_recalculations": 6,
+    "simulated_proposed_predictor_count": 21,
+    "total_complete_vif_calculations": 7
+  },
+  "clusters": [
+    {
+      "cluster_id": "vif-cluster-7f3a6da7a9",
+      "edges": [
+        {
+          "correlation": 0.9926063451099201,
+          "left": "NumInqLast6M",
+          "right": "NumInqLast6Mexcl7days"
+        }
+      ],
+      "features": [
+        "NumInqLast6M",
+        "NumInqLast6Mexcl7days"
+      ],
+      "maximum_correlation": 0.9926063451099201,
+      "proposed_exclusions": [
+        "NumInqLast6Mexcl7days"
+      ],
+      "protected_features": [],
+      "rationale": "VIF alone cannot distinguish the preferred inquiry variable.",
+      "recommended_action": "defer",
+      "tie_case": {
+        "cluster_id": "vif-cluster-7f3a6da7a9",
+        "equivalent_maximum_vif": 5.627713422141138,
+        "features": [
+          "NumInqLast6M",
+          "NumInqLast6Mexcl7days"
+        ],
+        "message": "VIF alone cannot distinguish the preferred inquiry variable.",
+        "required_tie_breakers": [
+          "development-population signal",
+          "business interpretability",
+          "data quality and missingness",
+          "bureau special-value burden",
+          "production availability and definition stability",
+          "intended model-family behavior"
+        ]
+      }
+    },
+    {
+      "cluster_id": "vif-cluster-85f3edd74d",
+      "edges": [
+        {
+          "correlation": 0.868890370257403,
+          "left": "NumTrades60Ever2DerogPubRec",
+          "right": "NumTrades90Ever2DerogPubRec"
+        }
+      ],
+      "features": [
+        "NumTrades60Ever2DerogPubRec",
+        "NumTrades90Ever2DerogPubRec"
+      ],
+      "maximum_correlation": 0.868890370257403,
+      "proposed_exclusions": [],
+      "protected_features": [],
+      "rationale": "VIF alone cannot distinguish the preferred variable in this cluster.",
+      "recommended_action": "defer",
+      "tie_case": {
+        "cluster_id": "vif-cluster-85f3edd74d",
+        "equivalent_maximum_vif": 68.99006220691028,
+        "features": [
+          "NumTrades60Ever2DerogPubRec",
+          "NumTrades90Ever2DerogPubRec"
+        ],
+        "message": "VIF alone cannot distinguish the preferred variable in this cluster.",
+        "required_tie_breakers": [
+          "development-population signal",
+          "business interpretability",
+          "data quality and missingness",
+          "bureau special-value burden",
+          "production availability and definition stability",
+          "intended model-family behavior"
+        ]
+      }
+    },
+    {
+      "cluster_id": "vif-cluster-d43c57dd29",
+      "edges": [
+        {
+          "correlation": 0.8553209468838328,
+          "left": "NumTotalTrades",
+          "right": "NumSatisfactoryTrades"
+        }
+      ],
+      "features": [
+        "NumSatisfactoryTrades",
+        "NumTotalTrades"
+      ],
+      "maximum_correlation": 0.8553209468838328,
+      "proposed_exclusions": [],
+      "protected_features": [],
+      "rationale": "VIF alone cannot distinguish the preferred variable in this cluster.",
+      "recommended_action": "defer",
+      "tie_case": {
+        "cluster_id": "vif-cluster-d43c57dd29",
+        "equivalent_maximum_vif": 68.97433268684375,
+        "features": [
+          "NumSatisfactoryTrades",
+          "NumTotalTrades"
+        ],
+        "message": "VIF alone cannot distinguish the preferred variable in this cluster.",
+        "required_tie_breakers": [
+          "development-population signal",
+          "business interpretability",
+          "data quality and missingness",
+          "bureau special-value burden",
+          "production availability and definition stability",
+          "intended model-family behavior"
+        ]
+      }
+    }
+  ],
+  "created_at": "2026-08-08T00:35:20.109115+00:00",
+  "current": {
+    "count_above_10": 2,
+    "count_above_5": 4,
+    "maximum_vif": 69.00712406465419,
+    "predictor_count": 22,
+    "vif": [
+      {
+        "feature": "NumInqLast6Mexcl7days",
+        "is_infinite": false,
+        "status": "high",
+        "vif": 69.00712406465419
+      },
+      {
+        "feature": "NumInqLast6M",
+        "is_infinite": false,
+        "status": "high",
+        "vif": 68.95657634516195
+      },
+      {
+        "feature": "NumSatisfactoryTrades",
+        "is_infinite": false,
+        "status": "review",
+        "vif": 5.630412842850344
+      },
+      {
+        "feature": "NumTrades60Ever2DerogPubRec",
+        "is_infinite": false,
+        "status": "review",
+        "vif": 5.500245136355094
+      },
+      {
+        "feature": "NumTrades90Ever2DerogPubRec",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 4.668390552211957
+      },
+      {
+        "feature": "NumTotalTrades",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 4.150471432566944
+      },
+      {
+        "feature": "NumRevolvingTradesWBalance",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 2.580381965097933
+      },
+      {
+        "feature": "PercentTradesWBalance",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 2.555084844148022
+      },
+      {
+        "feature": "AverageMInFile",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 2.4943545864123036
+      },
+      {
+        "feature": "NetFractionRevolvingBurden",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 2.36391580270161
+      },
+      {
+        "feature": "MSinceOldestTradeOpen",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 2.217557629885272
+      },
+      {
+        "feature": "NumBank2NatlTradesWHighUtilization",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 2.1623488097821166
+      },
+      {
+        "feature": "PercentTradesNeverDelq",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.9335510514894831
+      },
+      {
+        "feature": "NumTradesOpeninLast12M",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.8159285373756189
+      },
+      {
+        "feature": "PercentInstallTrades",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.8089511452255087
+      },
+      {
+        "feature": "MSinceMostRecentDelq",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.7023648233841622
+      },
+      {
+        "feature": "MaxDelq2PublicRecLast12M",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.6945541307834768
+      },
+      {
+        "feature": "MSinceMostRecentTradeOpen",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.5621901761212853
+      },
+      {
+        "feature": "NumInstallTradesWBalance",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.479015512564882
+      },
+      {
+        "feature": "MaxDelqEver",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.450307049765257
+      },
+      {
+        "feature": "NetFractionInstallBurden",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.1233223991203878
+      },
+      {
+        "feature": "MSinceMostRecentInqexcl7days",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.112554206517026
+      }
+    ]
+  },
+  "dataset_id": "ds_heloc_train_6bdb184b_05905",
+  "dataset_mutated": false,
+  "dataset_version": "v_1785186305905_6bdb184b",
+  "dataset_version_id": "v_1785186305905_6bdb184b",
+  "decision_history": [
+    {
+      "action": "accept_complete",
+      "disposition_id": "vif-plan-849470e760854fa8:accept_complete:",
+      "modifications": {},
+      "rationale": "",
+      "recommendation_count": 3,
+      "recorded_at": "2026-08-08T00:35:37.815775+00:00",
+      "recorded_by": "user_d8bbe3ff73a84fb5",
+      "selected_cluster_ids": []
+    }
+  ],
+  "duration_ms": 751,
+  "event_value": 1,
+  "explicit_statement": "The governed feature set has not changed. This plan contains recommendations only.",
+  "feature_profiles": {
+    "AverageMInFile": {
+      "data_quality": 0.9442231075697212,
+      "development_signal": 0.251840495972031,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-7206257b569b678caf89",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.055776892430278883,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    },
+    "MSinceMostRecentDelq": {
+      "data_quality": 0.4794820717131474,
+      "development_signal": 0.20128503450554946,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-139578a4692cd9eabe2b",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.5205179282868526,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    },
+    "MSinceMostRecentInqexcl7days": {
+      "data_quality": 0.7179282868525896,
+      "development_signal": 0.21173173908905632,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-c15f0270df212602fc6f",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.28207171314741036,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    },
+    "MSinceMostRecentTradeOpen": {
+      "data_quality": 0.9442231075697212,
+      "development_signal": 0.054797107050978594,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-2aa7f11eb9e47f83543f",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.055776892430278883,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    },
+    "MSinceOldestTradeOpen": {
+      "data_quality": 0.9221115537848605,
+      "development_signal": 0.22640068175281003,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-6ed097a7bd9d5467d32d",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.07788844621513945,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    },
+    "MaxDelq2PublicRecLast12M": {
+      "data_quality": 0.9442231075697212,
+      "development_signal": 0.24280249779516008,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-e47537d08b125eb03118",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.055776892430278883,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    },
+    "MaxDelqEver": {
+      "data_quality": 0.9442231075697212,
+      "development_signal": 0.22326417011219357,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-d81b7c0b28dff0c9097a",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.055776892430278883,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    },
+    "NetFractionInstallBurden": {
+      "data_quality": 0.6191235059760956,
+      "development_signal": 0.08152038783000125,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-fcca722b3412df76095c",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.3808764940239044,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    },
+    "NetFractionRevolvingBurden": {
+      "data_quality": 0.9270916334661354,
+      "development_signal": 0.3587340245751326,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-80765cd5bfaf6ce37932",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.07290836653386454,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    },
+    "NumBank2NatlTradesWHighUtilization": {
+      "data_quality": 0.8920318725099602,
+      "development_signal": 0.2357440998360726,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-da0ceebc795283f292e8",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.10796812749003984,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    },
+    "NumInqLast6M": {
+      "data_quality": 0.9442231075697212,
+      "development_signal": 0.1630113236800917,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-63b63644534a5739569e",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.055776892430278883,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    },
+    "NumInqLast6Mexcl7days": {
+      "data_quality": 0.9442231075697212,
+      "development_signal": 0.1578818218508891,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-a82997b5d8bd9ff7c738",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.055776892430278883,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    },
+    "NumInstallTradesWBalance": {
+      "data_quality": 0.8587649402390438,
+      "development_signal": 0.04208626530601716,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-df8eb7d6c163b621fc9e",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.14123505976095618,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    },
+    "NumRevolvingTradesWBalance": {
+      "data_quality": 0.9308764940239044,
+      "development_signal": 0.11530317225784814,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-197451054a29cb1173e4",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.06912350597609562,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    },
+    "NumSatisfactoryTrades": {
+      "data_quality": 0.9442231075697212,
+      "development_signal": 0.13421890073443726,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-19b87b47d0b8810ed9f6",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.055776892430278883,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    },
+    "NumTotalTrades": {
+      "data_quality": 0.9442231075697212,
+      "development_signal": 0.09593102076448505,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-6d0984d3f347c2343916",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.055776892430278883,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    },
+    "NumTrades60Ever2DerogPubRec": {
+      "data_quality": 0.9442231075697212,
+      "development_signal": 0.17543277522854,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-4552f1b49f162720593a",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.055776892430278883,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    },
+    "NumTrades90Ever2DerogPubRec": {
+      "data_quality": 0.9442231075697212,
+      "development_signal": 0.14872692867039203,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-cc252ddfc193e50609a4",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.055776892430278883,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    },
+    "NumTradesOpeninLast12M": {
+      "data_quality": 0.9442231075697212,
+      "development_signal": 0.09419476832896977,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-babf18b5f8b4db95ce6b",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.055776892430278883,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    },
+    "PercentInstallTrades": {
+      "data_quality": 0.9442231075697212,
+      "development_signal": 0.13922818467705092,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-818d3b1b59b45e197491",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.055776892430278883,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    },
+    "PercentTradesNeverDelq": {
+      "data_quality": 0.9442231075697212,
+      "development_signal": 0.2539727323985875,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-7b692040a6431487cfe2",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.055776892430278883,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    },
+    "PercentTradesWBalance": {
+      "data_quality": 0.9426294820717132,
+      "development_signal": 0.2796336894747952,
+      "interpretability": 1.0,
+      "missingness": 0.0,
+      "parse_failure_burden": 0.0,
+      "predictor_artifact_id": "eda-predictor-29de12a6bfbe59ed5a54",
+      "production_availability": 1.0,
+      "signal_metric": "absolute_point_biserial_correlation",
+      "signal_scope": "exact_materialized_development_partition_only",
+      "special_value_burden": 0.05737051792828685,
+      "special_value_policy_id": "eda-special-policy-bef5009074069c81b7d0"
+    }
+  },
+  "feature_recommendation_reference": "atlas-mrzpau4t\\ds_heloc_train_6bdb184b_05905\\v_1785186305905_6bdb184b\\feature_recommendations\\vif-plan-849470e760854fa8.json",
+  "final_holdout_accessed": false,
+  "final_holdout_used_for_selection": false,
+  "governed_feature_set_changed": false,
+  "input_frame_unchanged": true,
+  "inputs": {
+    "activation_revision": 1,
+    "allowed_actions": [
+      "retain",
+      "exclude",
+      "combine",
+      "defer"
+    ],
+    "analysis_partition_id": "analysis-partition-688c2184b4e9b8181946-r1",
+    "analysis_partition_revision": 1,
+    "bureau_metadata_binding_id": null,
+    "bureau_metadata_binding_revision": null,
+    "bureau_metadata_binding_revision_checksum": null,
+    "bureau_metadata_catalog_checksum": null,
+    "bureau_metadata_catalog_version_id": null,
+    "bureau_metadata_crosswalk_id": null,
+    "bureau_metadata_crosswalk_revision": null,
+    "bureau_metadata_crosswalk_revision_checksum": null,
+    "bureau_metadata_schema_checksum": null,
+    "bureau_semantic_annotation_set_checksum": null,
+    "bureau_semantic_annotation_set_id": null,
+    "bureau_semantic_annotation_state": "unavailable",
+    "correlation_threshold": 0.85,
+    "dataset_id": "ds_heloc_train_6bdb184b_05905",
+    "dataset_version": "v_1785186305905_6bdb184b",
+    "dataset_version_id": "v_1785186305905_6bdb184b",
+    "event_value": 1,
+    "expected_dataset_id": "ds_heloc_train_6bdb184b_05905",
+    "expected_dataset_version_id": "v_1785186305905_6bdb184b",
+    "intended_model_family": "linear_scorecard",
+    "maximum_removals": 2,
+    "negative_value": 0,
+    "non_event_value": 0,
+    "positive_value": 1,
+    "predictor_authorization_id": "predictor-auth-aa9c00237dbb604b9b4c",
+    "preference_weights": {
+      "data_quality": 1.0,
+      "interpretability": 1.0,
+      "production_availability": 1.0,
+      "signal": 1.0,
+      "special_value_burden": 1.0
+    },
+    "problem_type": "classification",
+    "project_id": "atlas-mrzpau4t",
+    "protected_predictors": [],
+    "resolution_objective": "balanced",
+    "special_value_review_id": "special-review-bd50b6490d96802cc9ab5812",
+    "special_value_review_revision": 14,
+    "target": "bad_flag",
+    "target_contract_id": "target-contract-9a0bbd69645b7e5e0b4c",
+    "target_vif_threshold": 10.0
+  },
+  "model_family": {
+    "id": "linear_scorecard",
+    "implication": "Resolve material multicollinearity before fitting; transparent exclusion or an interpretable combination is preferred.",
+    "label": "Linear / scorecard",
+    "recommended_posture": "resolve_before_fit"
+  },
+  "negative_value": 0,
+  "non_event_value": 0,
+  "ok": true,
+  "per_feature_vif_deltas": [
+    {
+      "current_vif": 69.00712406465419,
+      "delta": null,
+      "feature": "NumInqLast6Mexcl7days",
+      "proposed_action": "exclude",
+      "proposed_vif": null
+    },
+    {
+      "current_vif": 68.95657634516195,
+      "delta": -67.78536823379001,
+      "feature": "NumInqLast6M",
+      "proposed_action": "retain",
+      "proposed_vif": 1.1712081113719366
+    },
+    {
+      "current_vif": 5.630412842850344,
+      "delta": -0.002675506293886798,
+      "feature": "NumSatisfactoryTrades",
+      "proposed_action": "retain",
+      "proposed_vif": 5.627737336556457
+    },
+    {
+      "current_vif": 5.500245136355094,
+      "delta": -0.00018159381511217987,
+      "feature": "NumTrades60Ever2DerogPubRec",
+      "proposed_action": "retain",
+      "proposed_vif": 5.500063542539982
+    },
+    {
+      "current_vif": 4.668390552211957,
+      "delta": -0.0011542491673859345,
+      "feature": "NumTrades90Ever2DerogPubRec",
+      "proposed_action": "retain",
+      "proposed_vif": 4.667236303044571
+    },
+    {
+      "current_vif": 4.150471432566944,
+      "delta": -0.0011645194604712472,
+      "feature": "NumTotalTrades",
+      "proposed_action": "retain",
+      "proposed_vif": 4.149306913106472
+    },
+    {
+      "current_vif": 2.580381965097933,
+      "delta": -0.008485236362800741,
+      "feature": "NumRevolvingTradesWBalance",
+      "proposed_action": "retain",
+      "proposed_vif": 2.5718967287351324
+    },
+    {
+      "current_vif": 2.555084844148022,
+      "delta": -0.0004527412686909926,
+      "feature": "PercentTradesWBalance",
+      "proposed_action": "retain",
+      "proposed_vif": 2.554632102879331
+    },
+    {
+      "current_vif": 2.4943545864123036,
+      "delta": -0.0035054021620601894,
+      "feature": "AverageMInFile",
+      "proposed_action": "retain",
+      "proposed_vif": 2.4908491842502434
+    },
+    {
+      "current_vif": 2.36391580270161,
+      "delta": -0.0007524149924305057,
+      "feature": "NetFractionRevolvingBurden",
+      "proposed_action": "retain",
+      "proposed_vif": 2.3631633877091796
+    },
+    {
+      "current_vif": 2.217557629885272,
+      "delta": -3.2344677679319034e-05,
+      "feature": "MSinceOldestTradeOpen",
+      "proposed_action": "retain",
+      "proposed_vif": 2.217525285207593
+    },
+    {
+      "current_vif": 2.1623488097821166,
+      "delta": -0.0024187528181349727,
+      "feature": "NumBank2NatlTradesWHighUtilization",
+      "proposed_action": "retain",
+      "proposed_vif": 2.1599300569639817
+    },
+    {
+      "current_vif": 1.9335510514894831,
+      "delta": -0.002203794159921779,
+      "feature": "PercentTradesNeverDelq",
+      "proposed_action": "retain",
+      "proposed_vif": 1.9313472573295614
+    },
+    {
+      "current_vif": 1.8159285373756189,
+      "delta": -0.003430274997734184,
+      "feature": "NumTradesOpeninLast12M",
+      "proposed_action": "retain",
+      "proposed_vif": 1.8124982623778847
+    },
+    {
+      "current_vif": 1.8089511452255087,
+      "delta": -0.00033602620067019195,
+      "feature": "PercentInstallTrades",
+      "proposed_action": "retain",
+      "proposed_vif": 1.8086151190248385
+    },
+    {
+      "current_vif": 1.7023648233841622,
+      "delta": -0.0007762974759306651,
+      "feature": "MSinceMostRecentDelq",
+      "proposed_action": "retain",
+      "proposed_vif": 1.7015885259082315
+    },
+    {
+      "current_vif": 1.6945541307834768,
+      "delta": -0.0007436796292701331,
+      "feature": "MaxDelq2PublicRecLast12M",
+      "proposed_action": "retain",
+      "proposed_vif": 1.6938104511542067
+    },
+    {
+      "current_vif": 1.5621901761212853,
+      "delta": -0.0001146824895299492,
+      "feature": "MSinceMostRecentTradeOpen",
+      "proposed_action": "retain",
+      "proposed_vif": 1.5620754936317554
+    },
+    {
+      "current_vif": 1.479015512564882,
+      "delta": -0.0024585566972457062,
+      "feature": "NumInstallTradesWBalance",
+      "proposed_action": "retain",
+      "proposed_vif": 1.4765569558676364
+    },
+    {
+      "current_vif": 1.450307049765257,
+      "delta": -6.381256204779362e-06,
+      "feature": "MaxDelqEver",
+      "proposed_action": "retain",
+      "proposed_vif": 1.4503006685090523
+    },
+    {
+      "current_vif": 1.1233223991203878,
+      "delta": -0.003721049592998904,
+      "feature": "NetFractionInstallBurden",
+      "proposed_action": "retain",
+      "proposed_vif": 1.1196013495273889
+    },
+    {
+      "current_vif": 1.112554206517026,
+      "delta": -0.0003926673458305441,
+      "feature": "MSinceMostRecentInqexcl7days",
+      "proposed_action": "retain",
+      "proposed_vif": 1.1121615391711954
+    }
+  ],
+  "plan_hash": "849470e760854fa83d2cb03f9c21315373e849e9af8633a4dfaef457b6ff00c5",
+  "plan_id": "vif-plan-849470e760854fa8",
+  "policy": {
+    "allowed_actions": [
+      "retain",
+      "exclude",
+      "combine",
+      "defer"
+    ],
+    "correlation_threshold": 0.85,
+    "maximum_removals": 2,
+    "preference_weights": {
+      "data_quality": 1.0,
+      "interpretability": 1.0,
+      "production_availability": 1.0,
+      "signal": 1.0,
+      "special_value_burden": 1.0
+    },
+    "resolution_objective": "balanced"
+  },
+  "positive_value": 1,
+  "predictor_authorization": {
+    "authorized_predictors": [
+      "AverageMInFile",
+      "MSinceMostRecentDelq",
+      "MSinceMostRecentInqexcl7days",
+      "MSinceMostRecentTradeOpen",
+      "MSinceOldestTradeOpen",
+      "MaxDelq2PublicRecLast12M",
+      "MaxDelqEver",
+      "NetFractionInstallBurden",
+      "NetFractionRevolvingBurden",
+      "NumBank2NatlTradesWHighUtilization",
+      "NumInqLast6M",
+      "NumInqLast6Mexcl7days",
+      "NumInstallTradesWBalance",
+      "NumRevolvingTradesWBalance",
+      "NumSatisfactoryTrades",
+      "NumTotalTrades",
+      "NumTrades60Ever2DerogPubRec",
+      "NumTrades90Ever2DerogPubRec",
+      "NumTradesOpeninLast12M",
+      "PercentInstallTrades",
+      "PercentTradesNeverDelq",
+      "PercentTradesWBalance"
+    ],
+    "excluded": [
+      {
+        "feature": "bad_flag",
+        "reason": "Modeling target",
+        "role": "target"
+      },
+      {
+        "feature": "ExternalRiskEstimate",
+        "reason": "Not selected in the governed predictor manifest",
+        "role": "excluded"
+      },
+      {
+        "feature": "RiskPerformance",
+        "reason": "Not selected in the governed predictor manifest",
+        "role": "excluded"
+      },
+      {
+        "feature": "atlas_split",
+        "reason": "Split or fold metadata cannot be used as a predictor",
+        "role": "excluded"
+      }
+    ],
+    "manifest_version": "predictor-auth-aa9c00237dbb604b9b4c",
+    "predictor_authorization_id": "predictor-auth-aa9c00237dbb604b9b4c",
+    "source": "data_acquisition_predictor_authorization",
+    "target": "bad_flag",
+    "target_source_excluded": [],
+    "target_source_fields": []
+  },
+  "predictor_authorization_id": "predictor-auth-aa9c00237dbb604b9b4c",
+  "problem_type": "classification",
+  "project_id": "atlas-mrzpau4t",
+  "proposed": {
+    "count_above_10": 0,
+    "count_above_5": 2,
+    "illustrative_path": [
+      "NumInqLast6Mexcl7days"
+    ],
+    "maximum_vif": 5.627737336556457,
+    "predictor_count": 21,
+    "target_vif_threshold": 10.0,
+    "threshold_met": true,
+    "vif": [
+      {
+        "feature": "NumSatisfactoryTrades",
+        "is_infinite": false,
+        "status": "review",
+        "vif": 5.627737336556457
+      },
+      {
+        "feature": "NumTrades60Ever2DerogPubRec",
+        "is_infinite": false,
+        "status": "review",
+        "vif": 5.500063542539982
+      },
+      {
+        "feature": "NumTrades90Ever2DerogPubRec",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 4.667236303044571
+      },
+      {
+        "feature": "NumTotalTrades",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 4.149306913106472
+      },
+      {
+        "feature": "NumRevolvingTradesWBalance",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 2.5718967287351324
+      },
+      {
+        "feature": "PercentTradesWBalance",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 2.554632102879331
+      },
+      {
+        "feature": "AverageMInFile",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 2.4908491842502434
+      },
+      {
+        "feature": "NetFractionRevolvingBurden",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 2.3631633877091796
+      },
+      {
+        "feature": "MSinceOldestTradeOpen",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 2.217525285207593
+      },
+      {
+        "feature": "NumBank2NatlTradesWHighUtilization",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 2.1599300569639817
+      },
+      {
+        "feature": "PercentTradesNeverDelq",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.9313472573295614
+      },
+      {
+        "feature": "NumTradesOpeninLast12M",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.8124982623778847
+      },
+      {
+        "feature": "PercentInstallTrades",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.8086151190248385
+      },
+      {
+        "feature": "MSinceMostRecentDelq",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.7015885259082315
+      },
+      {
+        "feature": "MaxDelq2PublicRecLast12M",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.6938104511542067
+      },
+      {
+        "feature": "MSinceMostRecentTradeOpen",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.5620754936317554
+      },
+      {
+        "feature": "NumInstallTradesWBalance",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.4765569558676364
+      },
+      {
+        "feature": "MaxDelqEver",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.4503006685090523
+      },
+      {
+        "feature": "NumInqLast6M",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.1712081113719366
+      },
+      {
+        "feature": "NetFractionInstallBurden",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.1196013495273889
+      },
+      {
+        "feature": "MSinceMostRecentInqexcl7days",
+        "is_infinite": false,
+        "status": "acceptable",
+        "vif": 1.1121615391711954
+      }
+    ]
+  },
+  "proposed_combinations": [
+    {
+      "cluster_id": "vif-cluster-7f3a6da7a9",
+      "rationale": "Combine only if business meaning and development-population validation support a transparent derived feature.",
+      "source_features": [
+        "NumInqLast6M",
+        "NumInqLast6Mexcl7days"
+      ],
+      "status": "draft_recommendation"
+    },
+    {
+      "cluster_id": "vif-cluster-85f3edd74d",
+      "rationale": "Combine only if business meaning and development-population validation support a transparent derived feature.",
+      "source_features": [
+        "NumTrades60Ever2DerogPubRec",
+        "NumTrades90Ever2DerogPubRec"
+      ],
+      "status": "draft_recommendation"
+    },
+    {
+      "cluster_id": "vif-cluster-d43c57dd29",
+      "rationale": "Combine only if business meaning and development-population validation support a transparent derived feature.",
+      "source_features": [
+        "NumSatisfactoryTrades",
+        "NumTotalTrades"
+      ],
+      "status": "draft_recommendation"
+    }
+  ],
+  "proposed_exclusions": [
+    {
+      "cluster_id": "vif-cluster-7f3a6da7a9",
+      "feature": "NumInqLast6Mexcl7days",
+      "status": "requires_tie_breaker"
+    }
+  ],
+  "protected_predictors": [],
+  "remaining_unresolved_clusters": [],
+  "retained_profile": {
+    "average_interpretability": 1.0,
+    "average_missingness": 0.0,
+    "average_production_availability": 1.0,
+    "average_special_value_burden": 0.11329918421551888,
+    "development_signal_retained": 3.7298600000402002,
+    "development_signal_retained_ratio": 0.9593898388617556
+  },
+  "scope": "development_population",
+  "special_value_review_id": "special-review-bd50b6490d96802cc9ab5812",
+  "special_value_review_revision": 14,
+  "status": "accepted",
+  "target": "bad_flag",
+  "target_contract_id": "target-contract-9a0bbd69645b7e5e0b4c",
+  "ties": [
+    {
+      "cluster_id": "vif-cluster-7f3a6da7a9",
+      "equivalent_maximum_vif": 5.627713422141138,
+      "features": [
+        "NumInqLast6M",
+        "NumInqLast6Mexcl7days"
+      ],
+      "message": "VIF alone cannot distinguish the preferred inquiry variable.",
+      "required_tie_breakers": [
+        "development-population signal",
+        "business interpretability",
+        "data quality and missingness",
+        "bureau special-value burden",
+        "production availability and definition stability",
+        "intended model-family behavior"
+      ]
+    },
+    {
+      "cluster_id": "vif-cluster-85f3edd74d",
+      "equivalent_maximum_vif": 68.99006220691028,
+      "features": [
+        "NumTrades60Ever2DerogPubRec",
+        "NumTrades90Ever2DerogPubRec"
+      ],
+      "message": "VIF alone cannot distinguish the preferred variable in this cluster.",
+      "required_tie_breakers": [
+        "development-population signal",
+        "business interpretability",
+        "data quality and missingness",
+        "bureau special-value burden",
+        "production availability and definition stability",
+        "intended model-family behavior"
+      ]
+    },
+    {
+      "cluster_id": "vif-cluster-d43c57dd29",
+      "equivalent_maximum_vif": 68.97433268684375,
+      "features": [
+        "NumSatisfactoryTrades",
+        "NumTotalTrades"
+      ],
+      "message": "VIF alone cannot distinguish the preferred variable in this cluster.",
+      "required_tie_breakers": [
+        "development-population signal",
+        "business interpretability",
+        "data quality and missingness",
+        "bureau special-value burden",
+        "production availability and definition stability",
+        "intended model-family behavior"
+      ]
+    }
+  ],
+  "updated_at": "2026-08-08T00:35:37.815775+00:00"
+}

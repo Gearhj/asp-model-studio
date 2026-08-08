@@ -145,8 +145,14 @@ test("completion attaches and verifies one exact Feature Engineering MDD record"
   );
   assert.match(
     mddCompletion,
-    /project-context\/\$\{encodeURIComponent\(identity\.project_id\)\}/,
+    /project-context\/\$\{encodeURIComponent\(projectId\)\}/,
   );
+  assert.match(
+    mddCompletion,
+    /\/model-documentation\/ensure-working-draft[\s\S]*templateType: "model_development_document"[\s\S]*const matching = await loadFeatureEngineeringMdds\(projectId\)/,
+    "a fresh project must idempotently ensure one draft MDD and then re-read exact project scope",
+  );
+  assert.match(mddCompletion, /document\.documentStatus === "working_draft"/);
   assert.match(mddCompletion, /matching\.length !== 1/);
   assert.match(mddCompletion, /sectionId: "feature_engineering"/);
   for (const field of [
@@ -167,7 +173,10 @@ test("completion attaches and verifies one exact Feature Engineering MDD record"
 
 test("durable workflow completion is accepted before local completion and navigation", () => {
   assert.match(featurePage, /\bnextRequireDurableWorkflowSave\b/);
-  assert.match(stepShell, /if \(nextRequireDurableWorkflowSave\)/);
+  assert.match(
+    stepShell,
+    /nextRequireDurableWorkflowSave \|\| snapshot\.projectType === "predictive-modeling"/,
+  );
   assert.match(
     serverPersistence,
     /export async function saveWorkflowStateToDatabase\([\s\S]*method: "PUT"/,

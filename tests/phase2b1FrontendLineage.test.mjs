@@ -61,7 +61,15 @@ assert.match(interpretation, /evaluationPackage: governedEvaluationPackage/);
 assert.match(interpretation, /resolvePromotionReadiness/);
 assert.match(interpretation, /data-testid="interpretation-selection-holdout-provenance"/);
 assert.match(interpretation, /data-testid="exact-candidate-promotion"/);
-assert.match(interpretation, /restoreExactFinalModel\(API_BASE, activeIdentity, target\)/);
+assert.match(interpretation, /restoreExactFinalModel\(API_BASE, activeIdentity, target, \{/);
+for (const exactHandoffField of [
+  "candidateId: requestedCandidateId",
+  "trainingRunId: requestedTrainingRunId",
+  "candidateDecisionId: requestedCandidateDecisionId",
+  "evaluationPackageId: requestedEvaluationPackageId",
+]) {
+  assert.match(interpretation, new RegExp(exactHandoffField));
+}
 assert.match(interpretation, /data-testid="durable-final-model-contract"/);
 assert.match(interpretation, /!models\.length && finalModelReady && finalPromotion/);
 assert.match(interpretation, /Registered final model recovered/);
@@ -87,6 +95,12 @@ assert.doesNotMatch(promotion, /\/interpretation\/rfe\/save_final|\bkeep\b/);
 assert.match(promotion, /recovery-status\?projectId=/);
 assert.match(promotion, /recovery\.publicationStatus !== "finalized"/);
 assert.match(promotion, /recovery\.artifactVerified !== true/);
+assert.match(promotion, /normalizedExactHandoff/);
+assert.match(promotion, /assertEqual\(restoredIdentity\.candidateId, exactHandoff\.candidateId, "candidate_id"\)/);
+assert.match(promotion, /assertEqual\(restoredIdentity\.trainingRunId, exactHandoff\.trainingRunId, "training_run_id"\)/);
+assert.match(promotion, /assertEqual\(restoredIdentity\.candidateDecisionId, exactHandoff\.candidateDecisionId, "candidate_decision_id"\)/);
+assert.match(promotion, /assertEqual\(restoredIdentity\.evaluationPackageId, exactHandoff\.evaluationPackageId, "evaluation_package_id"\)/);
+assert.match(promotion, /Promote this candidate explicitly before continuing; no current-model fallback was used/);
 assert.doesNotMatch(promotion, /listModels|listVersions|\[0\]|latest/i);
 
 assert.match(readiness, /FINAL_MODEL_DURABILITY_MESSAGE/);
@@ -95,4 +109,4 @@ assert.match(readiness, /checksum &&/);
 assert.match(readiness, /lineageComplete/);
 assert.doesNotMatch(readiness, /if \(!expected \|\| !actual\) return true/);
 
-console.log("Phase 2B1 frontend exact-candidate and durable-promotion contract checks passed (62 assertions).");
+console.log("Phase 2B1 frontend exact-candidate and durable-promotion contract checks passed (72 assertions).");

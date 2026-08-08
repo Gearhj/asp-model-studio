@@ -49,7 +49,10 @@ export function attachDiagnostics(page: Page, testInfo: TestInfo): { log: Diagno
   });
 
   const dump = async () => {
-    const dir = path.resolve(__dirname, "../../../test-results/e2e/logs");
+    const configuredRoot = process.env.ATLAS_PLAYWRIGHT_OUTPUT_ROOT?.trim();
+    const dir = configuredRoot
+      ? path.resolve(configuredRoot, "diagnostics")
+      : path.resolve(__dirname, "../../../test-results/e2e/logs");
     fs.mkdirSync(dir, { recursive: true });
     const safeName = testInfo.title.replace(/[^a-z0-9-_]+/gi, "_").slice(0, 120);
     const file = path.join(dir, `${safeName}.json`);

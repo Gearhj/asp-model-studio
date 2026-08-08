@@ -53,6 +53,7 @@ import {
   fetchDataAcquisitionReproducibilityContext,
   type DataAcquisitionReproducibilityContext,
 } from "../lib/dataAcquisitionReproducibility";
+import { settlePredictiveIdentityRequest } from "../lib/predictiveIdentityRequest";
 
 const API_BASE =
   (import.meta.env?.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
@@ -488,7 +489,7 @@ export function PredictiveIdentityProvider({
       message: "Resolving the backend-authoritative Data Acquisition contract...",
     });
 
-    void (async () => {
+    void settlePredictiveIdentityRequest(async () => {
       let projectPayload: Record<string, any>;
       try {
         projectPayload = await getProjectFromDatabase(routeProjectId, controller.signal);
@@ -594,17 +595,18 @@ export function PredictiveIdentityProvider({
           identity,
           userId,
           controller.signal,
-        ).catch((error) => {
-          if (controller.signal.aborted) throw error;
-          return null;
-        });
+        );
         if (controller.signal.aborted || generation !== requestGeneration.current) return;
-        if (!restored?.ok && (restored?.status === 401 || restored?.status === 403)) {
+        if (!restored.ok) {
           next = failedAuthoritativeProjectContext({
-            status: "unauthorized",
+            status: restored.status === 401 || restored.status === 403
+              ? "unauthorized"
+              : "error",
             routeProjectId,
             httpStatus: restored.status,
-            message: "ATLAS could not authorize restoration of the governed dataset sample.",
+            message: restored.status === 401 || restored.status === 403
+              ? "ATLAS could not authorize restoration of the governed dataset sample."
+              : restored.detail,
           });
         }
       }
@@ -680,7 +682,26 @@ export function PredictiveIdentityProvider({
       }
       setProjectReadiness(next);
       setReadiness(identityReadinessFromProjectContext(next));
-    })();
+    }, {
+      signal: controller.signal,
+      generation,
+      currentGeneration: () => requestGeneration.current,
+    }, (error) => {
+      // The request helper suppresses only cleanup cancellation and stale
+      // generations. A genuine error from the active hydration cycle remains
+      // fail-closed and visible instead of becoming an unhandled rejection.
+      const failed = projectFailure(routeProjectId, error, "identity");
+      setProjectReadiness(failed);
+      setReadiness(identityReadinessFromProjectContext(failed));
+      setDataAcquisitionContextReadiness({
+        status: "error",
+        projectId: routeProjectId,
+        routeKey: location.pathname,
+        refreshRevision: revision,
+        context: null,
+        message: failed.message,
+      });
+    });
 
     return () => controller.abort();
   }, [
@@ -692,10 +713,18 @@ export function PredictiveIdentityProvider({
   ]);
 
   // Effects run after render. Derive a synchronous route-keyed resolving view
-  // so a navigation from Project A to Project B can never expose Project A's
-  // prior ready context for even one render while the new request starts.
+  // so neither a project switch nor a same-project workflow transition can
+  // expose the prior route tree while its new Data Acquisition contract cycle
+  // has not started yet.
+  const dataAcquisitionRouteCycleIsCurrent = Boolean(
+    routeProjectId
+      && dataAcquisitionContextReadiness.projectId === routeProjectId
+      && dataAcquisitionContextReadiness.routeKey === location.pathname
+      && dataAcquisitionContextReadiness.refreshRevision === revision,
+  );
   const exposedProjectReadiness = routeProjectId
     ? projectReadiness.routeProjectId === routeProjectId
+        && dataAcquisitionRouteCycleIsCurrent
       ? projectReadiness
       : resolvingAuthoritativeProjectContext(routeProjectId)
     : IDLE_AUTHORITATIVE_PROJECT_CONTEXT;
@@ -707,9 +736,7 @@ export function PredictiveIdentityProvider({
         )
     : IDLE;
   const exposedDataAcquisitionContextReadiness = routeProjectId
-    ? dataAcquisitionContextReadiness.projectId === routeProjectId &&
-        dataAcquisitionContextReadiness.routeKey === location.pathname &&
-        dataAcquisitionContextReadiness.refreshRevision === revision
+    ? dataAcquisitionRouteCycleIsCurrent
       ? dataAcquisitionContextReadiness
       : {
           status: "loading" as const,

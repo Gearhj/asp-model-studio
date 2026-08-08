@@ -17,6 +17,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const BASE = "http://127.0.0.1:8001/api";
 const PYTHON = path.join(__dirname, "..", ".venv", "Scripts", "python.exe");
 const SEED_SCRIPT = path.join(__dirname, "e2e", "helpers", "seedTrainedRegressionProject.py");
+const HERMETIC = process.env.ATLAS_HERMETIC_MODE === "HERMETIC_REGRESSION";
 
 function recomputeRegressionMetrics(yTrue, yPred) {
   const n = yTrue.length;
@@ -32,16 +33,45 @@ function recomputeRegressionMetrics(yTrue, yPred) {
 }
 
 test("independently recomputed MAE/MSE/RMSE/R2 match backend-reported regression metrics", { timeout: 240_000 }, async () => {
-  const stdout = execFileSync(PYTHON, [SEED_SCRIPT, "E2E Metric Validator Regression"], { encoding: "utf-8" });
-  const seed = JSON.parse(stdout.trim().split("\n").pop());
-  assert.equal(seed.training_status, "complete");
-
-  const sessionCookie = seed.cookies.atlas_session;
-  const response = await fetch(`${BASE}/train/last?project_id=${seed.project_id}`, {
-    headers: { Cookie: `atlas_session=${sessionCookie}` },
-  });
-  const payload = await response.json();
-  const summary = payload.summary;
+  let summary;
+  let cleanup = async () => {};
+  if (HERMETIC) {
+    // Recorded backend-shaped payload for the pure independent validator. The
+    // live acceptance path below still seeds and reads /train/last.
+    summary = {
+      problem_type: "regression",
+      raw: {
+        linreg: {
+          y_true: [-2, 0, 2, 4],
+          y_score: [-1, 0.5, 2.5, 5],
+          metrics: {
+            mae: 0.75,
+            mse: 0.625,
+            rmse: 0.7905694150420949,
+            r2: 0.875,
+            accuracy: null,
+            precision: null,
+            recall: null,
+            f1: null,
+            confusion_matrix: null,
+          },
+        },
+      },
+    };
+  } else {
+    const stdout = execFileSync(PYTHON, [SEED_SCRIPT, "E2E Metric Validator Regression"], { encoding: "utf-8" });
+    const seed = JSON.parse(stdout.trim().split("\n").pop());
+    assert.equal(seed.training_status, "complete");
+    const sessionCookie = seed.cookies.atlas_session;
+    const response = await fetch(`${BASE}/train/last?project_id=${seed.project_id}`, {
+      headers: { Cookie: `atlas_session=${sessionCookie}` },
+    });
+    const payload = await response.json();
+    summary = payload.summary;
+    cleanup = async () => {
+      await fetch(`${BASE}/projects/${seed.project_id}`, { method: "DELETE", headers: { Cookie: `atlas_session=${sessionCookie}` } });
+    };
+  }
 
   try {
     assert.equal(summary.problem_type, "regression");
@@ -67,6 +97,6 @@ test("independently recomputed MAE/MSE/RMSE/R2 match backend-reported regression
     assert.equal(backend.f1, null);
     assert.equal(backend.confusion_matrix, null);
   } finally {
-    await fetch(`${BASE}/projects/${seed.project_id}`, { method: "DELETE", headers: { Cookie: `atlas_session=${sessionCookie}` } });
+    await cleanup();
   }
 });

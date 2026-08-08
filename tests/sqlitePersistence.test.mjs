@@ -109,6 +109,76 @@ test("project mirror writes project before workflow state and reports database s
   assert.equal(events.at(-1).detail.status, "database_saved");
 });
 
+test("workflow completion snapshot advances a copied snapshot without mutating browser state", () => {
+  const original = {
+    projectId: "completion-project",
+    modelId: "00003",
+    projectName: "Completion Project",
+    projectType: "predictive-modeling",
+    workflowId: "predictive-modeling",
+    workflowSteps: [
+      { id: "step10", route: "/step10", status: "in_progress" },
+      { id: "step11", route: "/step11", status: "pending" },
+    ],
+    currentStepId: "step10",
+    hasDataset: true,
+  };
+  const completed = persistence.workflowCompletionSnapshot(original, "step10", "step11");
+
+  assert.notEqual(completed, original);
+  assert.equal(completed.currentStepId, "step11");
+  assert.equal(completed.workflowSteps[0].status, "complete");
+  assert.equal(completed.workflowSteps[1].status, "pending");
+  assert.equal(original.currentStepId, "step10");
+  assert.equal(original.workflowSteps[0].status, "in_progress");
+});
+
+test("durable workflow completion does not resolve before the authoritative PUT", async () => {
+  const calls = [];
+  let releaseResponse;
+  let requestStarted;
+  const started = new Promise((resolve) => {
+    requestStarted = resolve;
+  });
+  globalThis.fetch = (url, init) => {
+    calls.push({ url, method: init.method, body: JSON.parse(init.body) });
+    requestStarted();
+    return new Promise((resolve) => {
+      releaseResponse = () => resolve({ ok: true, json: async () => ({ ok: true }) });
+    });
+  };
+  const snapshot = persistence.workflowCompletionSnapshot({
+    projectId: "durable-completion-project",
+    modelId: "00004",
+    projectName: "Durable Completion Project",
+    projectType: "predictive-modeling",
+    workflowId: "predictive-modeling",
+    workflowSteps: [
+      { id: "step12", route: "/step12", status: "in_progress" },
+      { id: "step13", route: "/step13", status: "pending" },
+    ],
+    currentStepId: "step12",
+    hasDataset: true,
+  }, "step12", "step13");
+  let settled = false;
+  const pending = persistence.saveWorkflowStateToDatabase(snapshot).then((result) => {
+    settled = true;
+    return result;
+  });
+
+  await started;
+  assert.equal(settled, false);
+  assert.equal(calls.length, 1);
+  assert.match(calls[0].url, /\/api\/projects\/durable-completion-project\/workflow-state$/);
+  assert.equal(calls[0].method, "PUT");
+  assert.equal(calls[0].body.currentStepId, "step13");
+  assert.deepEqual(calls[0].body.completedSteps, ["step12"]);
+
+  releaseResponse();
+  assert.equal(await pending, true);
+  assert.equal(settled, true);
+});
+
 test("template changes and client-only exports persist explicit backend contracts", async () => {
   const calls = [];
   globalThis.fetch = async (url, init) => {

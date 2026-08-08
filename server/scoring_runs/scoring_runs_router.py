@@ -20,7 +20,10 @@ router = APIRouter(dependencies=[Depends(require_user)])
 def list_scoring_runs(
     project_id: str = Query(..., alias="projectId"),
     dataset_id: Optional[str] = Query(None, alias="datasetId"),
+    dataset_version_id: Optional[str] = Query(None, alias="datasetVersionId"),
     model_id: Optional[str] = Query(None, alias="modelId"),
+    model_version_id: Optional[str] = Query(None, alias="modelVersionId"),
+    target: Optional[str] = Query(None),
     partition: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     problem_type: Optional[str] = Query(None, alias="problemType"),
@@ -32,7 +35,9 @@ def list_scoring_runs(
 ) -> Dict[str, Any]:
     runs = SCORING_RUNS.list_scoring_runs(
         user, project_id,
-        dataset_id=dataset_id, model_id=model_id, partition=partition, status=status,
+        dataset_id=dataset_id, dataset_version_id=dataset_version_id,
+        model_id=model_id, model_version_id=model_version_id, target=target,
+        partition=partition, status=status,
         problem_type=problem_type, created_after=created_after, created_before=created_before,
         include_archived=include_archived, limit=limit,
     )

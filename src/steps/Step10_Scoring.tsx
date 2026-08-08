@@ -7,8 +7,17 @@ import { AtlasAttentionPanel, type AtlasWorkflowMetric } from "../components/ui/
 import { createEvidence } from "../lib/evidenceGraph";
 import { useWorkflowStore } from "../state/useWorkflowStore";
 import { registerScoredDataset } from "../lib/modelDiagnostics";
-import { inferLocalProblemType, loadLocalDataset, localDatasetVersion } from "../lib/localDataset";
+import { inferLocalProblemType, loadLocalDataset } from "../lib/localDataset";
+import { requireLocalDatasetCanonicalIdentity } from "../lib/datasetIdentity";
 import { resolveFinalModelReadiness } from "../lib/finalModelReadiness";
+import {
+  buildExactScoringHistoryFilters,
+  buildFinalModelStatusQuery,
+  eligibleDurableScoringPartitions,
+  resolveCanonicalScoringDatasetVersion,
+  resolveFinalModelVersionDisplay,
+  type ExactScoringContinuationContext,
+} from "../lib/scoringContinuation";
 import { archiveScoringRun, listScoringRuns, type ScoringRunSummary } from "../scoring-runs/scoringRunClient";
 import { getCachedUserId } from "../lib/authSession";
 import RunComparePanel from "../visual-intelligence/production/RunComparePanel";
@@ -34,8 +43,13 @@ type FinalModelMetadata = {
   features?: string[];
   problem_type?: "classification" | "regression";
   project_id?: string;
+  dataset_id?: string;
+  training_dataset_id?: string;
+  dataset_version_id?: string;
+  training_dataset_version_id?: string;
   dataset_version?: string;
   target?: string;
+  target_name?: string;
   holdout_auc?: number | null;
   holdout_rmse?: number | null;
   final_model_version?: string;
@@ -44,6 +58,10 @@ type FinalModelMetadata = {
   modeled_event_rate?: number | null;
   natural_event_rate?: number | null;
   artifact_hash?: string;
+  model_id?: string;
+  modelId?: string;
+  model_version_id?: string;
+  modelVersionId?: string;
 };
 type ScoreResult = {
   ok: boolean;
@@ -118,19 +136,45 @@ function format(value: unknown) {
  *  fresh from the durable backend on every mount, so it is refresh-proof by
  *  construction. Each row links into the Visual Intelligence Lab pinned to that
  *  run (Phase G integration). */
-function ScoringHistoryPanel({ projectId }: { projectId: string }) {
+function ScoringHistoryPanel({
+  exactContext,
+  onArchive,
+}: {
+  exactContext: ExactScoringContinuationContext | null;
+  onArchive?: () => void;
+}) {
   const [runs, setRuns] = useState<ScoringRunSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [showCompare, setShowCompare] = useState(false);
   const [busyRunId, setBusyRunId] = useState<string | null>(null);
+  const [scopeError, setScopeError] = useState("");
   const userId = getCachedUserId() ?? "anonymous";
+  const projectId = exactContext?.projectId ?? "";
 
   function refresh() {
-    if (!projectId) return;
+    if (!exactContext) {
+      setRuns([]);
+      setLoading(false);
+      setScopeError("Exact scoring-history identity is unavailable. Project-wide history was not loaded.");
+      return;
+    }
+    let filters;
+    try {
+      filters = buildExactScoringHistoryFilters(exactContext, {
+        limit: 20,
+        includeArchived: showArchived,
+      });
+    } catch (error) {
+      setRuns([]);
+      setLoading(false);
+      setScopeError(error instanceof Error ? error.message : "Exact scoring-history identity is unavailable.");
+      return;
+    }
+    setScopeError("");
     setLoading(true);
-    listScoringRuns(projectId, { limit: 20, includeArchived: showArchived })
+    listScoringRuns(exactContext.projectId, filters)
       .then((result) => setRuns(result))
       .catch(() => setRuns([]))
       .finally(() => setLoading(false));
@@ -139,16 +183,30 @@ function ScoringHistoryPanel({ projectId }: { projectId: string }) {
   useEffect(() => {
     refresh();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, showArchived]);
+  }, [exactContext, showArchived]);
 
   async function handleArchive(scoringRunId: string) {
     setBusyRunId(scoringRunId);
     try {
       await archiveScoringRun(scoringRunId);
+      onArchive?.();
       refresh();
     } finally {
       setBusyRunId(null);
     }
+  }
+
+  if (scopeError) {
+    return (
+      <section
+        className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950"
+        data-testid="scoring-history-scope-unavailable"
+        role="alert"
+      >
+        <h3 className="font-semibold">Scoring History unavailable</h3>
+        <p className="mt-1 text-xs">{scopeError}</p>
+      </section>
+    );
   }
 
   if (!loading && runs.length === 0 && !showArchived) return null;
@@ -306,6 +364,8 @@ export default function Step10Scoring() {
   const [finalModelReady, setFinalModelReady] = useState<boolean | null>(null);
   const [finalModelMetadata, setFinalModelMetadata] = useState<FinalModelMetadata>({});
   const [finalModelError, setFinalModelError] = useState("");
+  const [durableScoredPartitions, setDurableScoredPartitions] = useState<ScoredSplit[]>([]);
+  const [scoringHistoryRevision, setScoringHistoryRevision] = useState(0);
   const [registeredScoredDataset, setRegisteredScoredDataset] = useState<{ datasetId: string; versionId?: string; split: ScoredSplit } | null>(null);
 
   useEffect(() => {
@@ -313,15 +373,53 @@ export default function Step10Scoring() {
     // out-of-order response for a previous project can never overwrite the current view.
     let stale = false;
     const dataset = loadLocalDataset();
-    const expectedDatasetVersion = dataset?.dataset_version || localDatasetVersion(dataset);
+    let expectedIdentity;
+    try {
+      expectedIdentity = requireLocalDatasetCanonicalIdentity(
+        projectId,
+        dataset,
+        "Final-model scoring dataset identity",
+      );
+    } catch (error) {
+      setFinalModelReady(false);
+      setFinalModelMetadata({});
+      setFinalModelError(
+        error instanceof Error
+          ? error.message
+          : "The exact registered dataset identity is unavailable.",
+      );
+      return () => {
+        stale = true;
+      };
+    }
+    const expectedTarget = dataset?.target?.trim() ?? "";
+    let finalModelStatusQuery;
+    try {
+      finalModelStatusQuery = buildFinalModelStatusQuery({
+        projectId,
+        datasetId: expectedIdentity.dataset_id,
+        datasetVersionId: expectedIdentity.dataset_version_id,
+        target: expectedTarget,
+      });
+    } catch (error) {
+      setFinalModelReady(false);
+      setFinalModelMetadata({});
+      setFinalModelError(
+        error instanceof Error ? error.message : "The exact final-model identity is unavailable.",
+      );
+      return () => {
+        stale = true;
+      };
+    }
     const expectedProblemType = inferLocalProblemType(dataset);
     const trainingContext = new URLSearchParams({
       project_id: projectId,
-      dataset_version: expectedDatasetVersion,
-      target: dataset?.target ?? "",
+      dataset_id: expectedIdentity.dataset_id,
+      dataset_version_id: expectedIdentity.dataset_version_id,
+      target: expectedTarget,
       problem_type: expectedProblemType ?? "",
     });
-    fetch(`${API_BASE}/model/final/status?project_id=${encodeURIComponent(projectId)}`, { credentials: "include" })
+    fetch(`${API_BASE}/model/final/status?${finalModelStatusQuery.toString()}`, { credentials: "include" })
       .then(async (res) => {
         if (!res.ok) throw new Error(`Final-model status failed (${res.status}).`);
         return res.json();
@@ -330,8 +428,9 @@ export default function Step10Scoring() {
         if (stale) return;
         const view = resolveFinalModelReadiness<FinalModelMetadata>(data, {
           projectId,
-          datasetVersion: expectedDatasetVersion,
-          target: dataset?.target ?? "",
+          datasetId: expectedIdentity.dataset_id,
+          datasetVersion: expectedIdentity.dataset_version_id,
+          target: expectedTarget,
         });
         setFinalModelReady(view.ready);
         setFinalModelMetadata(view.metadata);
@@ -361,6 +460,64 @@ export default function Step10Scoring() {
       stale = true;
     };
   }, [projectId]);
+
+  const exactScoringContext = useMemo<ExactScoringContinuationContext | null>(() => {
+    const datasetId = finalModelMetadata.training_dataset_id ?? finalModelMetadata.dataset_id ?? "";
+    const datasetVersionId = resolveCanonicalScoringDatasetVersion(finalModelMetadata);
+    const target = finalModelMetadata.target_name ?? finalModelMetadata.target ?? "";
+    const modelVersionId = finalModelMetadata.model_version_id ?? finalModelMetadata.modelVersionId ?? "";
+    if (!projectId || !datasetId || !datasetVersionId || !target || !modelVersionId) return null;
+    return { projectId, datasetId, datasetVersionId, target, modelVersionId };
+  }, [
+    finalModelMetadata.dataset_id,
+    finalModelMetadata.dataset_version_id,
+    finalModelMetadata.modelVersionId,
+    finalModelMetadata.model_version_id,
+    finalModelMetadata.target,
+    finalModelMetadata.target_name,
+    finalModelMetadata.training_dataset_id,
+    finalModelMetadata.training_dataset_version_id,
+    projectId,
+  ]);
+
+  useEffect(() => {
+    let stale = false;
+    if (!finalModelReady || !exactScoringContext) {
+      setDurableScoredPartitions([]);
+      return () => {
+        stale = true;
+      };
+    }
+    listScoringRuns(projectId, {
+      datasetId: exactScoringContext.datasetId,
+      datasetVersionId: exactScoringContext.datasetVersionId,
+      modelVersionId: exactScoringContext.modelVersionId,
+      target: exactScoringContext.target,
+      status: "completed",
+      limit: 200,
+    })
+      .then((runs) => {
+        if (!stale) {
+          setDurableScoredPartitions(
+            eligibleDurableScoringPartitions(runs, exactScoringContext),
+          );
+        }
+      })
+      .catch(() => {
+        if (!stale) setDurableScoredPartitions([]);
+      });
+    return () => {
+      stale = true;
+    };
+  }, [
+    exactScoringContext,
+    finalModelReady,
+    projectId,
+    scoringHistoryRevision,
+    trainResult?.scoringRunId,
+    testResult?.scoringRunId,
+    ootResult?.scoringRunId,
+  ]);
 
   async function handleFile(file: File | undefined, datasetType: "test" | "oot") {
     if (!file) return;
@@ -457,6 +614,15 @@ export default function Step10Scoring() {
       setMessage("Score TEST or OOT before saving stability evidence.");
       return;
     }
+    const canonicalDatasetVersion = resolveCanonicalScoringDatasetVersion(finalModelMetadata);
+    if (
+      !exactScoringContext ||
+      !canonicalDatasetVersion ||
+      canonicalDatasetVersion !== exactScoringContext.datasetVersionId
+    ) {
+      setMessage("The exact promoted training dataset version is unavailable or contradictory. No scoring evidence was created.");
+      return;
+    }
     const failed = available.some(({ result }) => result.psi?.status === "fail" || result.vsi?.some((row) => row.status === "fail"));
     try {
       await createEvidence({
@@ -467,7 +633,7 @@ export default function Step10Scoring() {
         summary: `${available.map(({ split }) => split).join(" and ")} stability diagnostics for ${finalModelMetadata.name ?? "the governed final model"}.`,
         sourcePage: "Final Model Scoring",
         sourceRoute: "/step10",
-        datasetIds: finalModelMetadata.dataset_version ? [finalModelMetadata.dataset_version] : [],
+        datasetIds: [canonicalDatasetVersion],
         modelIds: [finalModelMetadata.source_model ?? finalModelMetadata.name ?? "final_model"],
         documentIds: [],
         notebookIds: [],
@@ -478,7 +644,7 @@ export default function Step10Scoring() {
         lineage: {
           finalModelVersion: finalModelMetadata.final_model_version,
           artifactHash: finalModelMetadata.artifact_hash,
-          datasetVersion: finalModelMetadata.dataset_version,
+          datasetVersion: canonicalDatasetVersion,
           reference: "development_train",
         },
         payload: {
@@ -500,7 +666,9 @@ export default function Step10Scoring() {
     }
   }
 
-  const scoredOutputCount = [trainResult, testResult, ootResult].filter(Boolean).length;
+  // A rendered response is not durable proof.  Continue only after the new
+  // scoring run can be read back through the exact-identity history query.
+  const scoredOutputCount = durableScoredPartitions.length;
   const proposedPolicy = readProposedOperatingPolicy(projectId);
   const estimatorClass = finalModelMetadata.source_estimator_class ?? finalModelMetadata.final_estimator_class;
   const estimatorLabel = estimatorClass === "Pipeline" && finalModelMetadata.name
@@ -559,7 +727,7 @@ export default function Step10Scoring() {
             </div>
           </div>
           <div className="grid gap-px bg-slate-700 sm:grid-cols-2 xl:grid-cols-4">
-            <ContractMetric label="Model version" value={finalModelMetadata.final_model_version ?? finalModelMetadata.dataset_version ?? "Version unavailable"} />
+            <ContractMetric label="Model version" value={resolveFinalModelVersionDisplay(finalModelMetadata)} />
             <ContractMetric label="Model family" value={modelFamilyLabel} />
             <ContractMetric label="Retained features" value={String(finalModelMetadata.feature_count ?? finalModelMetadata.features?.length ?? "-")} />
             <ContractMetric label="Selection method" value={finalModelMetadata.feature_selection_method ?? "Saved in Interpretation"} />
@@ -572,7 +740,7 @@ export default function Step10Scoring() {
             <summary className="cursor-pointer font-semibold text-slate-200">Feature manifest, hashes, and lineage</summary>
             <div className="mt-3 grid gap-3 text-xs text-slate-300 lg:grid-cols-3">
               <div><span className="font-semibold text-slate-100">Artifact hash:</span> {finalModelMetadata.artifact_hash ?? "Not recorded"}</div>
-              <div><span className="font-semibold text-slate-100">Dataset version:</span> {finalModelMetadata.dataset_version ?? "Not recorded"}</div>
+              <div><span className="font-semibold text-slate-100">Training dataset version:</span> {resolveCanonicalScoringDatasetVersion(finalModelMetadata) || "Not recorded"}</div>
               <div><span className="font-semibold text-slate-100">Source candidate:</span> {finalModelMetadata.source_model ?? "Not recorded"}</div>
               <div className="lg:col-span-3"><span className="font-semibold text-slate-100">Features:</span> {finalModelMetadata.features?.length ? finalModelMetadata.features.join(", ") : "No retained-feature manifest was returned."}</div>
             </div>
@@ -581,7 +749,15 @@ export default function Step10Scoring() {
 
         {message && <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">{message}</div>}
 
-        <ScoringHistoryPanel key={scoredOutputCount} projectId={projectId} />
+        <ScoringHistoryPanel
+          key={[
+            trainResult?.scoringRunId ?? "",
+            testResult?.scoringRunId ?? "",
+            ootResult?.scoringRunId ?? "",
+          ].join("|")}
+          exactContext={exactScoringContext}
+          onArchive={() => setScoringHistoryRevision((revision) => revision + 1)}
+        />
 
         {problemType === "classification" ? (
           <section className="border-l-4 border-indigo-500 bg-indigo-50/60 px-5 py-4">

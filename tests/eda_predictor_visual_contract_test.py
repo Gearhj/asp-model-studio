@@ -129,6 +129,9 @@ class EDAPredictorVisualContractTests(unittest.TestCase):
                 "project_id": PROJECT_ID,
                 "dataset_id": "dataset-heloc-predictor",
                 "dataset_version_id": "heloc-predictor-v1",
+                "activation_revision": int(
+                    DATASTORE.meta["activation_revision"]
+                ),
             },
         )
         self.identity_patch.start()
@@ -143,11 +146,11 @@ class EDAPredictorVisualContractTests(unittest.TestCase):
         self.governed_fixture.close()
 
     def _request(self, shape_limit: int = 8) -> EDAWorkspaceRequest:
+        canonical_request = dict(
+            self.partition_fixture["canonical_request"]
+        )
         return EDAWorkspaceRequest(
-            project_id=PROJECT_ID,
-            target=TARGET,
-            event_value=1,
-            problem_type="classification",
+            **canonical_request,
             selected_features=[
                 TARGET,
                 "RiskPerformance",

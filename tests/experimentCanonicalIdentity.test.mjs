@@ -478,10 +478,15 @@ test("documentation sources select and render only canonical experiment identity
     /datasetVersion:\s*`\$\{dataset\.target[\s\S]*dataset\.rows\.length/,
   );
   assert.match(training, /datasetIdentity,\s*\n\s*trainingJobId:\s*current\.job_id/);
-  for (const source of [document, governance, notebook, documentPage]) {
+  for (const source of [document, governance, notebook]) {
     assert.match(source, /requireLocalDatasetCanonicalIdentity/);
     assert.match(source, /loadExperiments\(datasetIdentity|loadExperiments\(identity/);
   }
+  assert.match(documentPage, /useExactPromotedModelIdentity/);
+  assert.match(documentPage, /loadProjectDataset\(authenticatedUserId, projectId\)/);
+  assert.match(documentPage, /data-testid="mdd-promoted-model-identity"/);
+  assert.match(documentPage, /disabled=\{!canContinue\}/);
+  assert.doesNotMatch(documentPage, /\.find\(\(experiment\) => experiment\.champion\)/);
   for (const source of [tracking, document, governance, notebook]) {
     assert.match(source, /loadCanonicalPreparationBrowserState/);
   }

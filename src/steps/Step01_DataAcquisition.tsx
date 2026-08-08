@@ -4,6 +4,7 @@ import { Check, Loader2, ShieldCheck } from "lucide-react";
 import StepShell from "../components/StepShell";
 import StepPythonPanel from "../components/StepPythonPanel";
 import BureauReviewPanel, {
+  CONFIRM_SPECIAL_VALUE_REVIEW_EVENT,
   FOCUS_FIRST_SPECIAL_VALUE_REVIEW_EVENT,
   type BureauReviewPanelStatus,
   type BureauReviewPanelResult,
@@ -118,6 +119,12 @@ import {
   predictorAuthorizationLineageMatches,
   shouldHydratePredictorSelectionFromGovernedBaseline,
 } from "../lib/predictorAuthorizationReconciliation";
+import {
+  claimInitialContractBootstrapAttempt,
+  decideInitialContractBootstrap,
+  initialContractBootstrapKey,
+  releaseInitialContractBootstrapAttempt,
+} from "../lib/dataAcquisitionInitialContractBootstrap";
 
 const BASE =
   (import.meta.env?.VITE_API_BASE as string | undefined)?.replace(/\/$/, "") ||
@@ -1545,6 +1552,18 @@ export default function Step01DataAcquisition() {
     useState("");
   const predictorAuthorizationOperationRevision = useRef(0);
   const predictorSelectionTouched = useRef(false);
+  const initialContractBootstrapAttempts = useRef(new Set<string>());
+  const [targetSelectionRevision, setTargetSelectionRevision] = useState(0);
+  const [bureauDetectionRefreshRevision, setBureauDetectionRefreshRevision] =
+    useState(0);
+  const [initialContractBootstrapRetryRevision, setInitialContractBootstrapRetryRevision] =
+    useState(0);
+  const [initialContractBootstrapState, setInitialContractBootstrapState] =
+    useState<{
+      key: string;
+      phase: "idle" | "checking" | "saving" | "ready" | "error";
+      message: string;
+    }>({ key: "", phase: "idle", message: "" });
 
   useEffect(() => {
     let active = true;
@@ -1959,7 +1978,7 @@ export default function Step01DataAcquisition() {
   const selected = selectable.filter((header) => kept[header]);
   const selectedPredictorKey = canonicalPredictorSelectionKey(selected);
   const governedPredictorKey = canonicalPredictorSelectionKey(
-    reproducibilityContext?.predictor_authorization?.selected_predictors ?? [],
+    reproducibilityContext?.predictor_authorization?.authorized_predictors ?? [],
   );
   const reproducibilityBaselineExact = reproducibilityBaselineMatchesPartition(
     reproducibilityContext,
@@ -1969,6 +1988,228 @@ export default function Step01DataAcquisition() {
     eventValue,
     nonEventValue,
   );
+  const pendingInitialAuthorityExact = Boolean(
+    reproducibilityContext?.state === "partition_pending" &&
+      reproducibilityContext.identity?.project_id ===
+        activeDatasetIdentity?.project_id &&
+      reproducibilityContext.identity?.dataset_id ===
+        activeDatasetIdentity?.dataset_id &&
+      reproducibilityContext.identity?.dataset_version_id ===
+        activeDatasetIdentity?.dataset_version_id &&
+      reproducibilityContext.target_contract?.target === target &&
+      String(reproducibilityContext.target_contract?.event_value ?? "") ===
+        String(eventValue ?? "") &&
+      String(reproducibilityContext.target_contract?.non_event_value ?? "") ===
+        String(nonEventValue ?? "") &&
+      governedPredictorKey === selectedPredictorKey,
+  );
+  const pendingInitialTargetContractId = pendingInitialAuthorityExact
+    ? String(
+        reproducibilityContext?.target_contract?.target_contract_id ?? "",
+      ).trim()
+    : "";
+  const pendingInitialPredictorAuthorizationId = pendingInitialAuthorityExact
+    ? String(
+        reproducibilityContext?.predictor_authorization
+          ?.predictor_authorization_id ?? "",
+      ).trim()
+    : "";
+
+  const initialTargetContractBootstrapKey = initialContractBootstrapKey({
+    identity: activeDatasetIdentity,
+    target,
+    eventValue,
+    nonEventValue,
+    selectedPredictors: selected,
+  });
+
+  useEffect(() => {
+    if (
+      !initialTargetContractBootstrapKey ||
+      !backendImportSynced ||
+      !activeDatasetIdentity ||
+      !target ||
+      targetSelectionRevision <= 0 ||
+      !selected.length
+    ) {
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    let attemptClaimed = false;
+    let persistenceStarted = false;
+    const timer = window.setTimeout(() => {
+      attemptClaimed = claimInitialContractBootstrapAttempt(
+        initialContractBootstrapAttempts.current,
+        initialTargetContractBootstrapKey,
+      );
+      if (!attemptClaimed) return;
+      void (async () => {
+        setInitialContractBootstrapState({
+          key: initialTargetContractBootstrapKey,
+          phase: "checking",
+          message:
+            "Checking the exact registered identity before confirming the initial target and predictor contract...",
+        });
+        try {
+          const preflight = await fetchDataAcquisitionReproducibilityContext(
+            projectId,
+            controller.signal,
+          );
+          if (controller.signal.aborted) return;
+          const decision = decideInitialContractBootstrap({
+            context: preflight,
+            identity: activeDatasetIdentity,
+            target,
+            selectedPredictors: selected,
+            backendSynced: backendImportSynced,
+            targetSelectionConfirmed: targetSelectionRevision > 0,
+            allowAuthorityReplacement: targetSelectionRevision > 0,
+            localPartitionPresent: Boolean(analysisPartition.partition),
+          });
+          if (!decision.shouldBootstrap) {
+            if (
+              decision.reason === "authority_already_exists" ||
+              decision.reason === "partition_already_exists"
+            ) {
+              setInitialContractBootstrapState({
+                key: initialTargetContractBootstrapKey,
+                phase: "idle",
+                message: "",
+              });
+              return;
+            }
+            throw new Error(
+              decision.reason === "identity_mismatch"
+                ? "The target contract was not saved because the backend returned a different project or dataset version."
+                : "The exact registered dataset identity is not yet ready for initial target confirmation.",
+            );
+          }
+
+          setInitialContractBootstrapState({
+            key: initialTargetContractBootstrapKey,
+            phase: "saving",
+            message:
+              "Confirming the initial target mapping and predictor authorization...",
+          });
+          persistenceStarted = true;
+          const contract = await persistDataset(
+            activeDatasetIdentity,
+            controller.signal,
+          );
+          if (controller.signal.aborted) return;
+          const verified = await fetchDataAcquisitionReproducibilityContext(
+            projectId,
+            controller.signal,
+          );
+          const verifiedExact =
+            verified.state === "partition_pending" &&
+            verified.identity?.project_id === activeDatasetIdentity.project_id &&
+            verified.identity?.dataset_id === activeDatasetIdentity.dataset_id &&
+            verified.identity?.dataset_version_id ===
+              activeDatasetIdentity.dataset_version_id &&
+            verified.target_contract?.target_contract_id ===
+              contract.targetContractId &&
+            verified.target_contract?.target === target &&
+            String(verified.target_contract?.event_value ?? "") ===
+              String(eventValue ?? "") &&
+            String(verified.target_contract?.non_event_value ?? "") ===
+              String(nonEventValue ?? "") &&
+            verified.predictor_authorization?.predictor_authorization_id ===
+              contract.predictorAuthorizationId &&
+            canonicalPredictorSelectionKey(
+              verified.predictor_authorization?.selected_predictors ?? [],
+            ) === selectedPredictorKey;
+          if (!verifiedExact) {
+            throw new Error(
+              "The backend did not read back the exact initial target and predictor-authorization contracts.",
+            );
+          }
+          const authorizedPredictors =
+            verified.predictor_authorization?.authorized_predictors ?? [];
+          if (!authorizedPredictors.length) {
+            throw new Error(
+              "The backend confirmed the target but did not authorize an effective predictor set.",
+            );
+          }
+          // The durable manifest preserves the submitted predictor list for
+          // auditability, including any system field that the backend rejects.
+          // The browser's effective selection must align to the separately
+          // returned authorized set so a legitimate exclusion cannot leave the
+          // page falsely reporting that target confirmation is still required.
+          const authorizedSet = new Set(authorizedPredictors);
+          setKept(
+            Object.fromEntries(
+              headers.map((header) => [header, authorizedSet.has(header)]),
+            ),
+          );
+          setTargetSelectionRevision(0);
+          setReproducibilityContext(verified);
+          setReproducibilityContextPhase("pending");
+          setReproducibilityContextError("");
+          const readiness = await readAnalysisPartitionReadiness(
+            activeDatasetIdentity,
+            target,
+            eventValue,
+            nonEventValue,
+            controller.signal,
+          );
+          if (controller.signal.aborted) return;
+          setAnalysisPartition(readiness);
+          setInitialContractBootstrapState({
+            key: initialTargetContractBootstrapKey,
+            phase: "ready",
+            message:
+              "Initial target mapping and predictor authorization confirmed for this exact registered dataset version.",
+          });
+        } catch (cause) {
+          if (controller.signal.aborted) return;
+          const detail =
+            cause instanceof Error
+              ? cause.message
+              : "ATLAS could not confirm the initial target and predictor contract.";
+          setInitialContractBootstrapState({
+            key: initialTargetContractBootstrapKey,
+            phase: "error",
+            message: detail,
+          });
+          setMessage(detail);
+        }
+      })();
+    }, 100);
+
+    return () => {
+      window.clearTimeout(timer);
+      // Once the user-confirmed persistence call has started, a benign React
+      // rerender (for example, an identity/profile refresh) must not abort the
+      // governed write halfway through.  The operation is already bound to the
+      // captured exact identity and predictor key, and its read-back validation
+      // remains authoritative.  Before persistence starts, cancellation and
+      // claim release are both safe and allow the surviving effect to retry.
+      if (!persistenceStarted) {
+        controller.abort();
+        if (attemptClaimed) {
+          releaseInitialContractBootstrapAttempt(
+            initialContractBootstrapAttempts.current,
+            initialTargetContractBootstrapKey,
+          );
+        }
+      }
+    };
+  }, [
+    initialTargetContractBootstrapKey,
+    initialContractBootstrapRetryRevision,
+    targetSelectionRevision,
+    backendImportSynced,
+    activeDatasetIdentity?.project_id,
+    activeDatasetIdentity?.dataset_id,
+    activeDatasetIdentity?.dataset_version_id,
+    target,
+    selectedPredictorKey,
+    projectId,
+    eventValue,
+    nonEventValue,
+  ]);
 
   useEffect(() => {
     setAnalysisPartitionHoldoutShare(PARTITION_DEFAULTS.holdoutShare);
@@ -2089,10 +2330,14 @@ export default function Step01DataAcquisition() {
       targetInfo.kind === "continuous" ? "regression" : "classification",
       policy,
       {
-        targetContractId: String(contractPartition?.target_contract_id ?? ""),
+        targetContractId: contractPartition
+          ? String(contractPartition.target_contract_id ?? "")
+          : pendingInitialTargetContractId,
         predictorAuthorizationId: analysisPartitionResetMode
           ? currentDurablePredictorAuthorizationId(contractPartition)
-          : String(contractPartition?.predictor_authorization_id ?? ""),
+          : contractPartition
+            ? String(contractPartition.predictor_authorization_id ?? "")
+            : pendingInitialPredictorAuthorizationId,
       },
       controller.signal,
       analysisPartitionResetMode && contractPartition
@@ -2135,6 +2380,8 @@ export default function Step01DataAcquisition() {
     nonEventValue,
     target,
     targetInfo.kind,
+    pendingInitialTargetContractId,
+    pendingInitialPredictorAuthorizationId,
   ]);
 
   useEffect(() => {
@@ -2287,6 +2534,34 @@ export default function Step01DataAcquisition() {
       : predictorAuthorizationDraft.actionLabel;
 
   const analysisPartitionIsCurrent = analysisPartition.phase === "current";
+  const currentSpecialValueReview = bureauReviewResult?.review ?? null;
+  const specialValueReviewMatchesCurrentPartition = Boolean(
+    analysisPartitionIsCurrent &&
+      analysisPartition.partition &&
+      currentSpecialValueReview &&
+      activeDatasetIdentity &&
+      currentSpecialValueReview.project_id === activeDatasetIdentity.project_id &&
+      currentSpecialValueReview.dataset_id === activeDatasetIdentity.dataset_id &&
+      currentSpecialValueReview.dataset_version_id ===
+        activeDatasetIdentity.dataset_version_id &&
+      currentSpecialValueReview.target_contract_id ===
+        String(analysisPartition.partition.target_contract_id ?? "") &&
+      currentSpecialValueReview.predictor_authorization_id ===
+        currentDurablePredictorAuthorizationId(analysisPartition.partition) &&
+      currentSpecialValueReview.analysis_partition_id ===
+        String(analysisPartition.partition.analysis_partition_id ?? "") &&
+      Number(currentSpecialValueReview.analysis_partition_revision) ===
+        Number(analysisPartition.partition.revision) &&
+      currentSpecialValueReview.development_partition_id ===
+        String(analysisPartition.partition.development_partition_id ?? "") &&
+      currentSpecialValueReview.analysis_partition_assignment_hash ===
+        String(analysisPartition.partition.assignment_hash ?? "") &&
+      currentSpecialValueReview.analysis_partition_artifact_hash ===
+        String(analysisPartition.partition.artifact_hash ?? "") &&
+      (currentSpecialValueReview.status === "confirmed" ||
+        currentSpecialValueReview.status === "not_required") &&
+      currentSpecialValueReview.blocks_continuation === false,
+  );
   const analysisPartitionBlockingReason = analysisPartitionIsCurrent
     ? ""
     : analysisPartition.phase === "checking" || analysisPartition.phase === "confirming"
@@ -2412,6 +2687,7 @@ export default function Step01DataAcquisition() {
     ) {
       const unresolved = bureauReviewStatus?.unresolvedRequirements ?? 0;
       const loadingReview = !bureauReviewStatus || bureauReviewStatus.loading;
+      const readyToConfirm = Boolean(bureauReviewStatus?.readyToConfirm);
       return {
         ...baseAcquisitionStatus,
         readiness: "blocked",
@@ -2429,9 +2705,32 @@ export default function Step01DataAcquisition() {
         ],
         recommendedAction: loadingReview
           ? "Wait for the exact dataset-version review status."
-          : "Open Special-Value Treatment Review, resolve every required rationale, and confirm the governed treatment contract.",
+          : readyToConfirm
+            ? "Confirm the complete special-value treatment draft against the exact governed dataset version."
+            : "Open Special-Value Treatment Review, resolve every required rationale, and confirm the governed treatment contract.",
         currentActiveMilestone: "Special-Value Treatment Review",
-        continueLabel: "Complete Special-Value Review to Continue",
+        continueLabel: readyToConfirm
+          ? "Confirm Special-Value Treatment to Continue"
+          : "Complete Special-Value Review to Continue",
+      };
+    }
+    if (
+      analysisPartitionIsCurrent &&
+      !specialValueReviewMatchesCurrentPartition
+    ) {
+      return {
+        ...baseAcquisitionStatus,
+        readiness: "blocked",
+        readinessLabel: "Refreshing partition-bound special-value review",
+        readinessTone: "info",
+        canContinue: false,
+        blockingReasons: [
+          "The confirmed Special-Value Treatment Review has not been read back against the exact current Analysis Partition revision.",
+        ],
+        recommendedAction:
+          "Wait for automatic exact-lineage detection, then confirm the refreshed review if ATLAS reports a new governed revision.",
+        currentActiveMilestone: "Special-Value Treatment Review",
+        continueLabel: "Verify Partition-Bound Special-Value Review",
       };
     }
     if (analysisPartitionIsCurrent) return baseAcquisitionStatus;
@@ -2484,6 +2783,7 @@ export default function Step01DataAcquisition() {
     predictorAuthorizationVerificationError,
     registeredRowCount,
     selected.length,
+    specialValueReviewMatchesCurrentPartition,
     target,
   ]);
 
@@ -2790,6 +3090,9 @@ export default function Step01DataAcquisition() {
 
   function saveKeptSelection(nextKept: Record<string, boolean>) {
     predictorSelectionTouched.current = true;
+    if (!analysisPartition.partition) {
+      setTargetSelectionRevision(0);
+    }
     if (predictorAuthorizationSaving) {
       predictorAuthorizationOperationRevision.current += 1;
       setPredictorAuthorizationSaving(false);
@@ -2927,6 +3230,7 @@ export default function Step01DataAcquisition() {
     setHeaders(normalized.headers);
     setRows(normalized.previewRows);
     setKept(keep);
+    setTargetSelectionRevision(0);
     setTarget(guessedTarget);
     setImportError(null);
     setBackendImportSynced(options.backendSynced);
@@ -3129,7 +3433,9 @@ export default function Step01DataAcquisition() {
 
   async function persistDataset(
     identityOverride?: CanonicalDatasetIdentity,
+    signal?: AbortSignal,
   ): Promise<TargetPersistenceContract> {
+    signal?.throwIfAborted();
     if (!headers.length) throw new Error("No dataset or query metadata is available.");
     const canonical = requireCanonicalDatasetIdentity(
       identityOverride ?? activeDatasetIdentity,
@@ -3223,10 +3529,12 @@ export default function Step01DataAcquisition() {
         event_value: eventValue,
         non_event_value: nonEventValue,
       });
+      signal?.throwIfAborted();
       const backendRes = await fetch(`${BASE}/data/set_target`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
+        signal,
         body: JSON.stringify({
           ...targetPayload,
           access_metadata_id: meta?.accessMetadataId,
@@ -3250,6 +3558,7 @@ export default function Step01DataAcquisition() {
       }
       backendSynced = true;
       notifyReproducibilityContextConfirmed();
+      setBureauDetectionRefreshRevision((revision) => revision + 1);
     } catch (err: any) {
       const detail = err?.message ?? "Unable to send target configuration to the backend.";
       setMessage(`Dataset preview is saved locally. Backend sync did not complete: ${detail}`);
@@ -3388,7 +3697,11 @@ export default function Step01DataAcquisition() {
     );
     if (specialValueBlocker) {
       window.dispatchEvent(
-        new Event(FOCUS_FIRST_SPECIAL_VALUE_REVIEW_EVENT),
+        new Event(
+          bureauReviewStatus?.readyToConfirm
+            ? CONFIRM_SPECIAL_VALUE_REVIEW_EVENT
+            : FOCUS_FIRST_SPECIAL_VALUE_REVIEW_EVENT,
+        ),
       );
       return;
     }
@@ -3539,6 +3852,7 @@ export default function Step01DataAcquisition() {
       setAnalysisPartition(confirmed);
       if (confirmed.phase === "current") {
         setConfirmedPartitionPredictorKey(selectedPredictorKey);
+        setBureauDetectionRefreshRevision((revision) => revision + 1);
         notifyReproducibilityContextConfirmed();
         setMessage(confirmed.message);
         logDecision({
@@ -3602,6 +3916,7 @@ export default function Step01DataAcquisition() {
       setMessage(`${completed.message} ${completed.recovery}`.trim());
       if (completed.phase === "current") {
         setConfirmedPartitionPredictorKey(selectedPredictorKey);
+        setBureauDetectionRefreshRevision((revision) => revision + 1);
         notifyReproducibilityContextConfirmed();
       }
     } catch (cause) {
@@ -3810,6 +4125,7 @@ export default function Step01DataAcquisition() {
           : "",
       );
       notifyReproducibilityContextConfirmed();
+      setBureauDetectionRefreshRevision((revision) => revision + 1);
       setAnalysisPartitionResetCompleted({
         partitionId: String(replacement.analysis_partition_id),
         previousRevision: Number(latest.revision),
@@ -3865,6 +4181,7 @@ export default function Step01DataAcquisition() {
           : "border-amber-200 bg-amber-50 text-amber-900";
   const updateTarget = (next: string) => {
     markReproducibilityContextPending();
+    setTargetSelectionRevision((revision) => revision + 1);
     logDecision({
       workflowStep: "Data Acquisition",
       actionType: "target_variable_selected",
@@ -4333,11 +4650,25 @@ export default function Step01DataAcquisition() {
       nextLabel={acquisitionStatus.continueLabel}
       nextPath="/step02"
       onNext={async () => {
-        const persisted = await persistDataset();
         const canonical = requireCanonicalDatasetIdentity(
           activeDatasetIdentity,
           "Analysis Partition navigation identity",
         );
+        if (!specialValueReviewMatchesCurrentPartition) {
+          throw new Error(
+            "The final Data Acquisition handoff requires a confirmed Special-Value Treatment Review bound to the exact current Analysis Partition revision.",
+          );
+        }
+        const expectedTargetContractId = String(
+          governedTargetContract?.target_contract_id ?? "",
+        ).trim();
+        const expectedPredictorAuthorizationId =
+          durablePredictorAuthorizationId;
+        if (!expectedTargetContractId || !expectedPredictorAuthorizationId) {
+          throw new Error(
+            "The final Data Acquisition handoff is missing its current target or predictor-authorization contract.",
+          );
+        }
         const refreshed = await readAnalysisPartitionReadiness(
           canonical,
           target,
@@ -4363,9 +4694,9 @@ export default function Step01DataAcquisition() {
             String(nonEventValue ?? "");
         const exactPersistedContracts =
           context.target_contract.target_contract_id ===
-            persisted.targetContractId &&
+            expectedTargetContractId &&
           context.predictor_authorization.predictor_authorization_id ===
-            persisted.predictorAuthorizationId;
+            expectedPredictorAuthorizationId;
         const exactPartition =
           context.analysis_partition.analysis_partition_id ===
             refreshed.partition?.analysis_partition_id &&
@@ -4380,7 +4711,7 @@ export default function Step01DataAcquisition() {
         setReproducibilityContextPhase("ready");
         setReproducibilityContextError("");
         setConfirmedPartitionPredictorKey(selectedPredictorKey);
-        notifyReproducibilityContextConfirmed();
+        setDataAcquisitionReviewed(true);
       }}
     >
       <div className="space-y-5">
@@ -4504,20 +4835,92 @@ export default function Step01DataAcquisition() {
               <TargetSetup
                 headers={headers}
                 target={target}
+                contractConfirmed={
+                  pendingInitialAuthorityExact || reproducibilityBaselineExact
+                }
                 setTarget={updateTarget}
                 eventValue={eventValue}
                 setEventValue={(value) => {
                   markReproducibilityContextPending();
+                  if (!analysisPartition.partition) {
+                    setTargetSelectionRevision(0);
+                  }
                   setEventValue(value);
                 }}
                 nonEventValue={nonEventValue}
                 setNonEventValue={(value) => {
                   markReproducibilityContextPending();
+                  if (!analysisPartition.partition) {
+                    setTargetSelectionRevision(0);
+                  }
                   setNonEventValue(value);
                 }}
                 problemType={targetInfo.kind === "continuous" ? "regression" : "classification"}
               />
             </div>
+            {target &&
+            targetSelectionRevision === 0 &&
+            !analysisPartition.partition &&
+            !pendingInitialAuthorityExact &&
+            !reproducibilityBaselineExact ? (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border-2 border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                <span>
+                  Review the selected target and event mapping, then confirm the
+                  initial governed contract.
+                </span>
+                <button
+                  type="button"
+                  className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-800"
+                  data-testid="confirm-initial-target-contract"
+                  onClick={() => {
+                    markReproducibilityContextPending();
+                    setTargetSelectionRevision((revision) => revision + 1);
+                  }}
+                >
+                  Confirm Target &amp; Predictor Contract
+                </button>
+              </div>
+            ) : null}
+            {initialContractBootstrapState.key ===
+              initialTargetContractBootstrapKey &&
+            initialContractBootstrapState.phase !== "idle" ? (
+              <div
+                className={`mt-3 flex flex-wrap items-center justify-between gap-3 rounded-xl border px-4 py-3 text-sm ${
+                  initialContractBootstrapState.phase === "error"
+                    ? "border-rose-300 bg-rose-50 text-rose-950"
+                    : initialContractBootstrapState.phase === "ready"
+                      ? "border-emerald-300 bg-emerald-50 text-emerald-950"
+                      : "border-blue-300 bg-blue-50 text-blue-950"
+                }`}
+                data-testid="initial-target-contract-bootstrap-status"
+                role={
+                  initialContractBootstrapState.phase === "error"
+                    ? "alert"
+                    : "status"
+                }
+                aria-live="polite"
+              >
+                <span>{initialContractBootstrapState.message}</span>
+                {initialContractBootstrapState.phase === "error" ? (
+                  <button
+                    type="button"
+                    className="rounded-lg border border-rose-400 bg-white px-3 py-2 text-xs font-semibold text-rose-900"
+                    data-testid="retry-initial-target-contract-bootstrap"
+                    onClick={() => {
+                      releaseInitialContractBootstrapAttempt(
+                        initialContractBootstrapAttempts.current,
+                        initialTargetContractBootstrapKey,
+                      );
+                      setInitialContractBootstrapRetryRevision(
+                        (revision) => revision + 1,
+                      );
+                    }}
+                  >
+                    Retry target confirmation
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
             {/* Part H3: appears once a classification target is confirmed. */}
             {!!target && targetInfo.kind !== "continuous" && (
               <div className="mt-5">
@@ -4661,6 +5064,7 @@ export default function Step01DataAcquisition() {
           eventValue={eventValue}
           enabled={!!headers.length && !!registeredRowCount}
           datasetIdentity={activeDatasetIdentity}
+          refreshRevision={bureauDetectionRefreshRevision}
           onReviewStatus={handleBureauReviewStatus}
           onReviewResult={handleBureauReviewResult}
         />
@@ -6251,6 +6655,7 @@ function DatasetPersistenceCard(props: {
 function TargetSetup(props: {
   headers: string[];
   target: string;
+  contractConfirmed: boolean;
   setTarget: (value: string) => void;
   eventValue: unknown;
   setEventValue: (value: unknown) => void;
@@ -6258,7 +6663,8 @@ function TargetSetup(props: {
   setNonEventValue: (value: unknown) => void;
   problemType: "classification" | "regression";
 }) {
-  const targetConfirmed = Boolean(props.target);
+  const targetSelected = Boolean(props.target);
+  const targetConfirmed = targetSelected && props.contractConfirmed;
   return (
     <section
       id="data-acquisition-target-setup"
@@ -6288,7 +6694,11 @@ function TargetSetup(props: {
               : "border-amber-200 bg-amber-50 text-amber-900"
           }`}
         >
-          {targetConfirmed ? `Target confirmed: ${props.target}` : "Target required"}
+          {targetConfirmed
+            ? `Target contract confirmed: ${props.target}`
+            : targetSelected
+              ? `Target selected: ${props.target} · confirmation required`
+              : "Target required"}
         </span>
       </div>
       <div className="p-5">

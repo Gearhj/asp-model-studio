@@ -506,6 +506,7 @@ class RestartSoak:
             "project_id": project_id,
             "dataset_id": dataset_id,
             "dataset_version_id": version_id,
+            "activation_revision": 1,
         }
         assert int(
             workflow_status["identityValidity"]["activationRevision"]

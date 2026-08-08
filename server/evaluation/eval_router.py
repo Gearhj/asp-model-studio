@@ -67,6 +67,7 @@ def _lineage_context(
     target: str = Query(...),
     problem_type: str = Query(...),
     candidate_decision_id: str = Query(...),
+    evaluation_package_id: str = Query(""),
     user: Dict[str, Any] = Depends(require_user),
 ) -> dict:
     return {
@@ -85,6 +86,7 @@ def _lineage_context(
         problem_type=problem_type,
         candidate_decision_id=candidate_decision_id,
         ),
+        "evaluation_package_id": str(evaluation_package_id).strip(),
         "_actor_user_id": str(user.get("userId") or ""),
     }
 

@@ -128,6 +128,7 @@ type Distribution = {
 
 type DistributionCollection = {
   full_dataset?: Distribution;
+  development_population?: Distribution;
   train_before_balancing?: Distribution;
   train_after_balancing?: Distribution;
   holdout_untouched?: Distribution;
@@ -1167,7 +1168,8 @@ export default function Step06BalancingSplit() {
     0.0001,
   );
   const developmentTargetDistribution =
-    splitStatus?.distributions?.train_before_balancing;
+    splitStatus?.distributions?.train_before_balancing ??
+    splitStatus?.distributions?.development_population;
   const targetStats = resolveEventStats(developmentTargetDistribution);
   const eventSeverity = eventCountSeverity(targetStats?.events);
   const balanceProjectionShares = [0.2, 0.3, 0.4, 0.5];

@@ -565,6 +565,135 @@ def test_completed_evaluation_package_recovers_from_exact_durable_payload() -> N
     assert RESULTS.get_evaluation_package(package_id) == recovered
 
 
+def test_read_only_evaluation_views_reuse_exact_completed_package() -> None:
+    context = seed_exact_candidate()
+    completed = complete_evaluation_package(context)
+    package_id = completed["evaluation_package_id"]
+    completed_snapshot = copy.deepcopy(completed["evaluation_package"])
+
+    curves = EVAL.get_curves(context["candidate_id"], context)
+    rebound = EVAL.bind_evaluation_package(
+        context["candidate_id"],
+        context,
+        curves,
+        "curves",
+        actor_user_id="evaluation-test",
+    )
+
+    assert rebound["ok"] is True
+    assert rebound["evaluation_package_id"] == package_id
+    assert rebound["analysis_binding"] == "exact_completed_package"
+    assert rebound["evaluation_package"] == completed_snapshot
+    assert RESULTS.get_evaluation_package(package_id) == completed_snapshot
+    repository = EVAL._governance_repository()
+    with repository.database.connection() as connection:
+        durable_ids = [
+            row["evaluation_package_id"]
+            for row in connection.execute(
+                "SELECT evaluation_package_id FROM evaluation_packages"
+            ).fetchall()
+        ]
+    assert durable_ids == [package_id]
+    exposure = repository.get_holdout_exposure(
+        completed_snapshot["holdout_exposure_id"]
+    )
+    assert exposure is not None
+    assert exposure["final_holdout_status"] == "evaluated"
+    assert exposure["evaluation_package_id"] == package_id
+
+
+def test_read_only_evaluation_view_recovers_completed_package_after_cache_clear() -> None:
+    context = seed_exact_candidate()
+    completed = complete_evaluation_package(context)
+    package_id = completed["evaluation_package_id"]
+    completed_snapshot = copy.deepcopy(completed["evaluation_package"])
+    RESULTS.evaluation_packages.clear()
+
+    deciles = EVAL.get_deciles(context["candidate_id"], context)
+    rebound = EVAL.bind_evaluation_package(
+        context["candidate_id"],
+        context,
+        deciles,
+        "deciles",
+        actor_user_id="evaluation-test",
+    )
+
+    assert rebound["ok"] is True
+    assert rebound["evaluation_package_id"] == package_id
+    assert rebound["analysis_binding"] == "exact_completed_package"
+    assert rebound["evaluation_package"] == completed_snapshot
+    assert RESULTS.get_evaluation_package(package_id) == completed_snapshot
+
+
+def test_read_only_evaluation_view_rejects_wrong_explicit_package_id() -> None:
+    context = seed_exact_candidate()
+    completed = complete_evaluation_package(context)
+    package_id = completed["evaluation_package_id"]
+    completed_snapshot = copy.deepcopy(completed["evaluation_package"])
+    curves = EVAL.get_curves(context["candidate_id"], context)
+
+    rebound = EVAL.bind_evaluation_package(
+        context["candidate_id"],
+        {**context, "evaluation_package_id": "evalpkg-wrong-explicit-id"},
+        curves,
+        "curves",
+        actor_user_id="evaluation-test",
+    )
+
+    assert rebound["ok"] is False
+    assert rebound["lineage_error"] is True
+    assert "requested evaluation_package_id" in rebound["error"]
+    assert RESULTS.get_evaluation_package(package_id) == completed_snapshot
+
+
+def test_read_only_evaluation_view_rejects_mismatched_holdout_digest() -> None:
+    context = seed_exact_candidate()
+    completed = complete_evaluation_package(context)
+    package_id = completed["evaluation_package_id"]
+    completed_snapshot = copy.deepcopy(completed["evaluation_package"])
+    exposure = RESULTS.get_holdout_evaluation(context["candidate_id"])
+    assert exposure is not None
+    with RESULTS.current().state_lock:
+        RESULTS.current().holdout_evaluations[context["candidate_id"]][
+            "holdout_prediction_digest"
+        ] = "tampered-holdout-digest"
+
+    curves = EVAL.get_curves(context["candidate_id"], context)
+    rebound = EVAL.bind_evaluation_package(
+        context["candidate_id"],
+        {**context, "evaluation_package_id": package_id},
+        curves,
+        "curves",
+        actor_user_id="evaluation-test",
+    )
+
+    assert rebound["ok"] is False
+    assert rebound["lineage_error"] is True
+    assert "exact completed holdout predictions" in rebound["error"]
+    assert RESULTS.get_evaluation_package(package_id) == completed_snapshot
+
+
+def test_unknown_analysis_type_cannot_reuse_completed_package() -> None:
+    context = seed_exact_candidate()
+    completed = complete_evaluation_package(context)
+    package_id = completed["evaluation_package_id"]
+    completed_snapshot = copy.deepcopy(completed["evaluation_package"])
+    curves = EVAL.get_curves(context["candidate_id"], context)
+
+    rebound = EVAL.bind_evaluation_package(
+        context["candidate_id"],
+        {**context, "evaluation_package_id": package_id},
+        curves,
+        "unrecognized_analysis",
+        actor_user_id="evaluation-test",
+    )
+
+    assert rebound["ok"] is False
+    assert rebound["lineage_error"] is True
+    assert "not an approved read-only view" in rebound["error"]
+    assert RESULTS.get_evaluation_package(package_id) == completed_snapshot
+
+
 def seed_exact_regression_candidate() -> dict[str, str]:
     return seed_exact_candidate(problem_type="regression")
 

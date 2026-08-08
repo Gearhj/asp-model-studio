@@ -4,11 +4,9 @@
       "C:\\Program Files\\nodejs\\node.exe",
       "C:\\Users\\james\\ds-workflow-starter\\node_modules\\@playwright\\test\\cli.js",
       "test",
+      "tests/e2e/scoring-continuation.unit.spec.ts",
       "--config",
-      "tests/e2e/playwright.config.ts",
-      "tests/e2e/project-context-hydration.spec.ts",
-      "--grep",
-      "choosing a draft target preserves"
+      "tests/e2e/playwright.config.ts"
     ],
     "configFile": "C:\\Users\\james\\ds-workflow-starter\\tests\\e2e\\playwright.config.ts",
     "rootDir": "C:/Users/james/ds-workflow-starter/tests/e2e",
@@ -77,21 +75,21 @@
   },
   "suites": [
     {
-      "title": "project-context-hydration.spec.ts",
-      "file": "project-context-hydration.spec.ts",
+      "title": "scoring-continuation.unit.spec.ts",
+      "file": "scoring-continuation.unit.spec.ts",
       "column": 0,
       "line": 0,
       "specs": [],
       "suites": [
         {
-          "title": "Project-scoped authoritative frontend hydration",
-          "file": "project-context-hydration.spec.ts",
-          "line": 612,
+          "title": "Step 10 exact final-model status and durable continuation",
+          "file": "scoring-continuation.unit.spec.ts",
+          "line": 47,
           "column": 6,
           "specs": [
             {
-              "title": "choosing a draft target preserves the exact loaded dataset and mounted page",
-              "ok": false,
+              "title": "shows the durable registry model version instead of dataset lineage",
+              "ok": true,
               "tags": [],
               "tests": [
                 {
@@ -104,68 +102,295 @@
                     {
                       "workerIndex": 0,
                       "parallelIndex": 0,
-                      "status": "failed",
-                      "duration": 25547,
-                      "error": {
-                        "message": "TimeoutError: locator.selectOption: Timeout 20000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('target-column-select')\u001b[22m\n\u001b[2m    - locator resolved to <select required=\"\" aria-required=\"true\" data-testid=\"target-column-select\" id=\"data-acquisition-target-column\" aria-describedby=\"data-acquisition-target-help\" class=\"mt-3 min-h-12 w-full rounded-xl border-2 border-blue-600 bg-white px-4 py-3 text-base font-bold text-slate-950 shadow-sm outline-none transition focus:border-blue-800 focus:ring-4 focus:ring-blue-200\">…</select>\u001b[22m\n\u001b[2m  - attempting select option action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible and enabled\u001b[22m\n\u001b[2m      - did not find some options\u001b[22m\n\u001b[2m    - retrying select option action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible and enabled\u001b[22m\n\u001b[2m      - did not find some options\u001b[22m\n\u001b[2m    - retrying select option action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    38 × waiting for element to be visible and enabled\u001b[22m\n\u001b[2m       - did not find some options\u001b[22m\n\u001b[2m     - retrying select option action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n",
-                        "stack": "TimeoutError: locator.selectOption: Timeout 20000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('target-column-select')\u001b[22m\n\u001b[2m    - locator resolved to <select required=\"\" aria-required=\"true\" data-testid=\"target-column-select\" id=\"data-acquisition-target-column\" aria-describedby=\"data-acquisition-target-help\" class=\"mt-3 min-h-12 w-full rounded-xl border-2 border-blue-600 bg-white px-4 py-3 text-base font-bold text-slate-950 shadow-sm outline-none transition focus:border-blue-800 focus:ring-4 focus:ring-blue-200\">…</select>\u001b[22m\n\u001b[2m  - attempting select option action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible and enabled\u001b[22m\n\u001b[2m      - did not find some options\u001b[22m\n\u001b[2m    - retrying select option action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible and enabled\u001b[22m\n\u001b[2m      - did not find some options\u001b[22m\n\u001b[2m    - retrying select option action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    38 × waiting for element to be visible and enabled\u001b[22m\n\u001b[2m       - did not find some options\u001b[22m\n\u001b[2m     - retrying select option action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n\n    at C:\\Users\\james\\ds-workflow-starter\\tests\\e2e\\project-context-hydration.spec.ts:1405:24",
-                        "location": {
-                          "file": "C:\\Users\\james\\ds-workflow-starter\\tests\\e2e\\project-context-hydration.spec.ts",
-                          "column": 24,
-                          "line": 1405
-                        },
-                        "snippet": "\u001b[0m \u001b[90m 1403 |\u001b[39m     }\u001b[33m;\u001b[39m\n \u001b[90m 1404 |\u001b[39m\n\u001b[31m\u001b[1m>\u001b[22m\u001b[39m\u001b[90m 1405 |\u001b[39m     \u001b[36mawait\u001b[39m targetSelect\u001b[33m.\u001b[39mselectOption(\u001b[32m\"bad_flag\"\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m      |\u001b[39m                        \u001b[31m\u001b[1m^\u001b[22m\u001b[39m\n \u001b[90m 1406 |\u001b[39m     \u001b[36mawait\u001b[39m expect(targetSelect)\u001b[33m.\u001b[39mtoHaveValue(\u001b[32m\"bad_flag\"\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 1407 |\u001b[39m     \u001b[36mawait\u001b[39m expect(targetRegion)\u001b[33m.\u001b[39mtoHaveAttribute(\u001b[32m\"data-stability-sentinel\"\u001b[39m\u001b[33m,\u001b[39m \u001b[32m\"preserved\"\u001b[39m)\u001b[33m;\u001b[39m\n \u001b[90m 1408 |\u001b[39m     \u001b[36mawait\u001b[39m expect(page\u001b[33m.\u001b[39mgetByTestId(\u001b[32m\"project-context-gate\"\u001b[39m))\u001b[33m.\u001b[39mtoHaveCount(\u001b[35m0\u001b[39m)\u001b[33m;\u001b[39m\u001b[0m"
-                      },
-                      "errors": [
-                        {
-                          "location": {
-                            "file": "C:\\Users\\james\\ds-workflow-starter\\tests\\e2e\\project-context-hydration.spec.ts",
-                            "column": 24,
-                            "line": 1405
-                          },
-                          "message": "TimeoutError: locator.selectOption: Timeout 20000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByTestId('target-column-select')\u001b[22m\n\u001b[2m    - locator resolved to <select required=\"\" aria-required=\"true\" data-testid=\"target-column-select\" id=\"data-acquisition-target-column\" aria-describedby=\"data-acquisition-target-help\" class=\"mt-3 min-h-12 w-full rounded-xl border-2 border-blue-600 bg-white px-4 py-3 text-base font-bold text-slate-950 shadow-sm outline-none transition focus:border-blue-800 focus:ring-4 focus:ring-blue-200\">…</select>\u001b[22m\n\u001b[2m  - attempting select option action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible and enabled\u001b[22m\n\u001b[2m      - did not find some options\u001b[22m\n\u001b[2m    - retrying select option action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible and enabled\u001b[22m\n\u001b[2m      - did not find some options\u001b[22m\n\u001b[2m    - retrying select option action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    38 × waiting for element to be visible and enabled\u001b[22m\n\u001b[2m       - did not find some options\u001b[22m\n\u001b[2m     - retrying select option action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n\n\n  1403 |     };\n  1404 |\n> 1405 |     await targetSelect.selectOption(\"bad_flag\");\n       |                        ^\n  1406 |     await expect(targetSelect).toHaveValue(\"bad_flag\");\n  1407 |     await expect(targetRegion).toHaveAttribute(\"data-stability-sentinel\", \"preserved\");\n  1408 |     await expect(page.getByTestId(\"project-context-gate\")).toHaveCount(0);\n    at C:\\Users\\james\\ds-workflow-starter\\tests\\e2e\\project-context-hydration.spec.ts:1405:24"
-                        }
-                      ],
+                      "status": "passed",
+                      "duration": 11,
+                      "errors": [],
                       "stdout": [],
                       "stderr": [],
                       "retry": 0,
-                      "startTime": "2026-08-06T20:21:38.429Z",
+                      "startTime": "2026-08-08T14:35:34.558Z",
                       "annotations": [],
-                      "attachments": [
-                        {
-                          "name": "screenshot",
-                          "contentType": "image/png",
-                          "path": "C:\\Users\\james\\ds-workflow-starter\\test-results\\e2e\\artifacts\\project-context-hydration--7f501-ed-dataset-and-mounted-page-chromium\\test-failed-1.png"
-                        },
-                        {
-                          "name": "video",
-                          "contentType": "video/webm",
-                          "path": "C:\\Users\\james\\ds-workflow-starter\\test-results\\e2e\\artifacts\\project-context-hydration--7f501-ed-dataset-and-mounted-page-chromium\\video.webm"
-                        },
-                        {
-                          "name": "error-context",
-                          "contentType": "text/markdown",
-                          "path": "C:\\Users\\james\\ds-workflow-starter\\test-results\\e2e\\artifacts\\project-context-hydration--7f501-ed-dataset-and-mounted-page-chromium\\error-context.md"
-                        },
-                        {
-                          "name": "trace",
-                          "contentType": "application/zip",
-                          "path": "C:\\Users\\james\\ds-workflow-starter\\test-results\\e2e\\artifacts\\project-context-hydration--7f501-ed-dataset-and-mounted-page-chromium\\trace.zip"
-                        }
-                      ],
-                      "errorLocation": {
-                        "file": "C:\\Users\\james\\ds-workflow-starter\\tests\\e2e\\project-context-hydration.spec.ts",
-                        "column": 24,
-                        "line": 1405
-                      }
+                      "attachments": []
                     }
                   ],
-                  "status": "unexpected"
+                  "status": "expected"
                 }
               ],
-              "id": "0ff42841f621166c4d97-caaa87817ba0fb6b9b2b",
-              "file": "project-context-hydration.spec.ts",
-              "line": 1377,
+              "id": "568f4fcd519321946ed5-1e9cc35f78a12d1f0aa2",
+              "file": "scoring-continuation.unit.spec.ts",
+              "line": 48,
+              "column": 3
+            },
+            {
+              "title": "never substitutes a dataset version for a missing model version",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 3,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-08T14:35:34.626Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "568f4fcd519321946ed5-858f77732a1ad62bca0a",
+              "file": "scoring-continuation.unit.spec.ts",
+              "line": 66,
+              "column": 3
+            },
+            {
+              "title": "builds the backend-required exact final-model status query",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 10,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-08T14:35:34.657Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "568f4fcd519321946ed5-10b8714c0a33d5158f36",
+              "file": "scoring-continuation.unit.spec.ts",
+              "line": 79,
+              "column": 3
+            },
+            {
+              "title": "fails closed instead of issuing a partial final-model status request",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 17,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-08T14:35:34.695Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "568f4fcd519321946ed5-4e6efa727863c5f7661b",
+              "file": "scoring-continuation.unit.spec.ts",
+              "line": 95,
+              "column": 3
+            },
+            {
+              "title": "builds visible scoring history filters for the exact promoted identity",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 4,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-08T14:35:34.742Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "568f4fcd519321946ed5-96cd5d8fd523724343a3",
+              "file": "scoring-continuation.unit.spec.ts",
+              "line": 103,
+              "column": 3
+            },
+            {
+              "title": "fails closed instead of loading project-wide scoring history",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 17,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-08T14:35:34.782Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "568f4fcd519321946ed5-573bb3ba79f899d55c0d",
+              "file": "scoring-continuation.unit.spec.ts",
+              "line": 114,
+              "column": 3
+            },
+            {
+              "title": "uses promoted training dataset-version lineage and never the legacy display field",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 6,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-08T14:35:34.825Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "568f4fcd519321946ed5-41bbd564538f9b6c455e",
+              "file": "scoring-continuation.unit.spec.ts",
+              "line": 122,
+              "column": 3
+            },
+            {
+              "title": "accepts only completed, non-archived durable runs for the exact identity",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 4,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-08T14:35:34.854Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "568f4fcd519321946ed5-3cf4fd6745fb33d2a5f3",
+              "file": "scoring-continuation.unit.spec.ts",
+              "line": 139,
+              "column": 3
+            },
+            {
+              "title": "deduplicates exact completed runs by scored population",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 180000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "passed",
+                      "duration": 6,
+                      "errors": [],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2026-08-08T14:35:34.894Z",
+                      "annotations": [],
+                      "attachments": []
+                    }
+                  ],
+                  "status": "expected"
+                }
+              ],
+              "id": "568f4fcd519321946ed5-77b4e1bd7aa1bd55f444",
+              "file": "scoring-continuation.unit.spec.ts",
+              "line": 156,
               "column": 3
             }
           ]
@@ -175,11 +400,11 @@
   ],
   "errors": [],
   "stats": {
-    "startTime": "2026-08-06T20:21:36.487Z",
-    "duration": 28210.506,
-    "expected": 0,
+    "startTime": "2026-08-08T14:35:33.428Z",
+    "duration": 1562.3690000000001,
+    "expected": 9,
     "skipped": 0,
-    "unexpected": 1,
+    "unexpected": 0,
     "flaky": 0
   }
 }

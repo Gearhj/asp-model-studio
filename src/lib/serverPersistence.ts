@@ -9,6 +9,9 @@ const devUserId = rawEnv.DEV ? String(rawEnv.VITE_ATLAS_DEV_USER_ID || "local-de
 
 export type PersistedRecord = Record<string, any>;
 
+export const DURABLE_WORKFLOW_COMPLETION_ERROR =
+  "ATLAS could not durably record this workflow step's completion. Retry to continue; this page remains open.";
+
 export type ProjectPersistenceBundle = {
   project: PersistedRecord | null;
   workflowState: PersistedRecord | null;
@@ -111,6 +114,24 @@ function workflowStatePayload(snapshot: WorkflowProjectSnapshot) {
     },
     stepEvidenceStatus: {},
     updatedAt: new Date().toISOString(),
+  };
+}
+
+/** Build the exact historical-completion snapshot that must be accepted by
+ * the backend before a predictive workflow route is allowed to advance. */
+export function workflowCompletionSnapshot(
+  snapshot: WorkflowProjectSnapshot,
+  completedStepId: string,
+  nextStepId?: string,
+): WorkflowProjectSnapshot {
+  return {
+    ...snapshot,
+    currentStepId: nextStepId || snapshot.currentStepId,
+    workflowSteps: snapshot.workflowSteps.map((step) =>
+      step.id === completedStepId
+        ? { ...step, status: "complete" as const }
+        : step,
+    ),
   };
 }
 

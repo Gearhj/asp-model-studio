@@ -695,13 +695,16 @@ def save_model_selection_decision(
             if isinstance(scoped_store.meta.get("validation_design"), dict)
             else {}
         )
-    if request.status == "approved":
+    if request.status != "proposed":
+        requested_action = (
+            "approve" if request.status == "approved" else "reject"
+        )
         raise HTTPException(
             status_code=409,
             detail=(
-                "Model Training may propose candidates but cannot approve a "
-                "champion. Final approval remains in downstream Evaluation / "
-                "Validation."
+                "Model Training may propose candidates but cannot "
+                f"{requested_action} a champion. Approval or rejection remains "
+                "in downstream Evaluation / Validation."
             ),
         )
     job = TRAINING_JOBS.get(

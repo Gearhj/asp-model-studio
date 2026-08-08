@@ -152,7 +152,7 @@ test("documentation and secondary analytical requests wait for a complete Overvi
   );
   assert.match(
     step02,
-    /activeTab !== "overview" && datasetIdentity && overview/,
+    /activeTab !== "overview" && activeCanonicalHandoff && overview/,
     "secondary analytical sections must not start before Overview readiness is current",
   );
 });
